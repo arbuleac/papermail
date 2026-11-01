@@ -7,6 +7,9 @@ public protocol MailClient: AnyObject {
     func accounts() throws -> [Account]
     /// Runs the OAuth flow in the system browser, creates the account, and starts its first sync.
     func addAccount(kind: ProviderKind) async throws -> Account
+    /// Signs `account` in again (it is in `needsReauth`), steering the browser to its mailbox. Throws
+    /// `AuthError.wrongAccount` when the user signs in to another mailbox; nothing is added then.
+    func reconnect(_ account: Account) async throws -> Account
     func removeAccount(_ id: AccountID) async throws
 
     /// Trigger a change poll now (all accounts when nil). Returns immediately.

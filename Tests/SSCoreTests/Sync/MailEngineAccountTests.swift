@@ -100,6 +100,32 @@ final class MailEngineAccountTests: XCTestCase {
         await harness.shutdown()
     }
 
+    /// Reconnecting asks for the account's own mailbox, and a sign-in to another one is refused rather
+    /// than silently added as a new account while the original stays signed out.
+    func testReconnectSignsInWithHintAndRefusesAnotherMailbox() async throws {
+        let provider = ScriptedProvider(accountID: Fixtures.accountID)
+        provider.bootstrapRuns = [["": .success(Fixtures.page(1...1, next: nil, cursor: "c0"))]]
+        let harness = try EngineHarness(provider: provider)
+        let original = try XCTUnwrap(try harness.store.accounts().first)
+
+        let reconnected = try await harness.engine.reconnect(original)
+        XCTAssertEqual(reconnected.id, original.id)
+        XCTAssertEqual(harness.authenticator.loginHints, [original.email])
+
+        var stranger = original
+        stranger.email = "someone-else@example.com"
+        do {
+            _ = try await harness.engine.reconnect(stranger)
+            XCTFail("expected the mismatch to be refused")
+        } catch AuthError.wrongAccount(let expected, let actual) {
+            XCTAssertEqual(expected, "someone-else@example.com")
+            XCTAssertEqual(actual, original.email)
+        }
+        XCTAssertEqual(try harness.store.accounts().count, 1)
+        XCTAssertEqual(harness.tokenStore.count, 1, "the provisional tokens are dropped")
+        await harness.shutdown()
+    }
+
     func testFailedSignInLeavesNothingBehind() async throws {
         let harness = try EngineHarness(seedAccount: false)
         harness.authenticator.result = .failure(AuthError.userCancelled)

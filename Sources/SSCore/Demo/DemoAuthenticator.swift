@@ -5,7 +5,7 @@ import Foundation
 public struct DemoAuthenticator: AccountAuthenticator {
     public init() {}
 
-    public func signIn(kind: ProviderKind) async throws -> OAuthTokens {
+    public func signIn(kind: ProviderKind, loginHint: String?) async throws -> OAuthTokens {
         let profile = DemoProfile.profile(for: kind)
         return OAuthTokens(
             accessToken: "demo-access-\(kind.rawValue)",

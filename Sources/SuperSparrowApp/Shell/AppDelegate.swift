@@ -161,11 +161,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let generation = signInGeneration
         let message = environment.isDemo ? "Adding demo account…" : "Finish signing in in your browser…"
         setSignInBusy(message)
+        let knownIDs = Set(((try? environment.engine.accounts()) ?? []).map(\.id))
         signInTask = Task { [weak self] in
             do {
-                let account = try await environment.engine.addAccount(kind: kind)
+                let account: Account
+                if let reconnecting {
+                    account = try await environment.engine.reconnect(reconnecting)
+                } else {
+                    account = try await environment.engine.addAccount(kind: kind)
+                }
                 guard let self else { return }
                 Self.log.info("account ready: \(account.id.rawValue, privacy: .public)")
+                if reconnecting == nil, knownIDs.contains(account.id) {
+                    // The browser signed in to a mailbox that is already here (often its own session):
+                    // say so, or the add looks like it did nothing.
+                    self.showNotice(
+                        "\(account.email) is already in SuperSparrow",
+                        detail: "Its sign-in was renewed. To add another account, pick it in the browser's account chooser, or sign out of \(account.email) there first."
+                    )
+                }
                 if self.signInGeneration == generation { self.setSignInBusy(nil) }
                 self.mainWindow?.notifier.requestAuthorizationIfNeeded()
                 self.mainWindow?.refreshAccounts()
@@ -249,6 +263,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return "Your sign-in expired and couldn't be renewed. \(detail)"
         case AuthError.keychain(let status):
             return "The Keychain refused to store the sign-in (status \(status))."
+        case AuthError.wrongAccount(let expected, let actual):
+            return "You signed in as \(actual), but this account is \(expected). Nothing was changed; reconnect again and choose \(expected)."
         case ProviderError.unauthorized:
             return "The account refused access. Make sure you granted mail permissions when signing in."
         case ProviderError.network(let detail):
@@ -261,6 +277,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return "Couldn't reach the server: \(urlError.localizedDescription)"
         default:
             return error.localizedDescription
+        }
+    }
+
+    private func showNotice(_ message: String, detail: String) {
+        let alert = NSAlert()
+        alert.messageText = message
+        alert.informativeText = detail
+        alert.addButton(withTitle: "OK")
+        if let window = mainWindow?.window, window.isVisible {
+            alert.beginSheetModal(for: window)
+        } else {
+            alert.runModal()
         }
     }
 

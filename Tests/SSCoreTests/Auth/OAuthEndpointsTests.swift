@@ -27,7 +27,8 @@ final class OAuthEndpointsTests: XCTestCase {
         XCTAssertEqual(query["code_challenge"], "challenge-1")
         XCTAssertEqual(query["code_challenge_method"], "S256")
         XCTAssertEqual(query["access_type"], "offline")
-        XCTAssertEqual(query["prompt"], "consent")
+        XCTAssertEqual(query["prompt"], "consent select_account", "the account chooser lets a second Google account be added")
+        XCTAssertNil(query["login_hint"])
         XCTAssertNil(query["client_secret"], "the secret must never appear in the browser URL")
         XCTAssertNil(query["response_mode"])
     }
@@ -44,7 +45,8 @@ final class OAuthEndpointsTests: XCTestCase {
         XCTAssertEqual(url.path, "/contoso.onmicrosoft.com/oauth2/v2.0/authorize")
         let query = queryItems(of: url)
         XCTAssertEqual(query["client_id"], "00000000-0000-0000-0000-000000000000")
-        XCTAssertEqual(query["redirect_uri"], "http://localhost:54321/callback")
+        // Entra ignores a loopback URI's port but compares its path: the docs register plain http://localhost.
+        XCTAssertEqual(query["redirect_uri"], "http://localhost:54321")
         XCTAssertEqual(query["response_type"], "code")
         XCTAssertEqual(query["scope"], "https://graph.microsoft.com/Mail.ReadWrite https://graph.microsoft.com/Mail.Send https://graph.microsoft.com/User.Read offline_access")
         XCTAssertEqual(query["state"], "state-2")
@@ -52,7 +54,19 @@ final class OAuthEndpointsTests: XCTestCase {
         XCTAssertEqual(query["code_challenge_method"], "S256")
         XCTAssertEqual(query["response_mode"], "query")
         XCTAssertNil(query["access_type"])
-        XCTAssertNil(query["prompt"])
+        // Without it Entra silently reuses the browser's session, and adding a second account returns the first.
+        XCTAssertEqual(query["prompt"], "select_account")
+    }
+
+    func testLoginHintSteersAReconnect() {
+        for kind in [ProviderKind.gmail, .microsoft] {
+            let configuration = OAuthClientConfiguration(kind: kind, clientID: "id")
+            let url = OAuthEndpoints.authorizationRequestURL(
+                configuration: configuration, redirectURI: OAuthEndpoints.redirectURI(for: kind, port: 1),
+                state: "s", codeChallenge: "c", loginHint: "a@example.com"
+            )
+            XCTAssertEqual(queryItems(of: url)["login_hint"], "a@example.com", "\(kind)")
+        }
     }
 
     func testMicrosoftTenantDefaultsToCommon() {

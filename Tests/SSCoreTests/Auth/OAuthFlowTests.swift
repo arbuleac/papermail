@@ -133,6 +133,7 @@ final class OAuthFlowTests: XCTestCase {
         let authorization = Self.queryItems(of: authorizationURL)
         XCTAssertEqual(authorizationURL.host, "login.microsoftonline.com")
         XCTAssertTrue(authorization["redirect_uri"]!.hasPrefix("http://localhost:"))
+        XCTAssertFalse(authorization["redirect_uri"]!.contains("/callback"), "the registered http://localhost has no path, and Entra matches it")
 
         let exchange = try XCTUnwrap(StubURLProtocol.requests.first)
         XCTAssertEqual(exchange.form["client_id"], "ms-client")

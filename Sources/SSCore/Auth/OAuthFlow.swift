@@ -40,11 +40,11 @@ public final class OAuthFlow: AccountAuthenticator, Sendable {
         self.now = now
     }
 
-    public func signIn(kind: ProviderKind) async throws -> OAuthTokens {
+    public func signIn(kind: ProviderKind, loginHint: String?) async throws -> OAuthTokens {
         let configuration = try configurations.configuration(for: kind)
         let pkce = PKCE()
         let state = Data.secureRandom(count: 16).base64URLEncodedString()
-        let listener = LoopbackRedirectListener(expectedState: state)
+        let listener = LoopbackRedirectListener(expectedState: state, callbackPath: OAuthEndpoints.redirectPath(for: kind))
         defer { listener.stop() }
 
         let port = try await listener.start()
@@ -54,7 +54,8 @@ public final class OAuthFlow: AccountAuthenticator, Sendable {
             configuration: configuration,
             redirectURI: redirectURI,
             state: state,
-            codeChallenge: pkce.challenge
+            codeChallenge: pkce.challenge,
+            loginHint: loginHint
         )
         Self.logger.debug("Starting \(kind.rawValue, privacy: .public) sign-in on loopback port \(port, privacy: .public)")
         opener(authorizationURL)

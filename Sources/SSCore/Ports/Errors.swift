@@ -29,4 +29,6 @@ public enum AuthError: Error, Sendable {
     case tokenExchangeFailed(String)
     case refreshFailed(String)
     case keychain(status: Int32)
+    /// A reconnect signed in to a different mailbox than the account being reconnected.
+    case wrongAccount(expected: String, actual: String)
 }

@@ -23,7 +23,7 @@ The tab writes `~/Library/Application Support/SuperSparrow/oauth-clients.json` (
 ## Microsoft (Microsoft 365 and Outlook.com)
 
 1. Microsoft Entra admin center → App registrations → New registration. Supported account types: "Accounts in any organizational directory and personal Microsoft accounts".
-2. Authentication → Add a platform → **Mobile and desktop applications** → add `http://localhost` as a redirect URI. Enable "Allow public client flows".
+2. Authentication → Add a platform → **Mobile and desktop applications** → add `http://localhost` as a redirect URI, exactly that, with no port and no path (SuperSparrow redirects to `http://localhost:<random port>`, and Entra ignores the port of a loopback URI but compares the path). Enable "Allow public client flows".
 3. API permissions → Microsoft Graph → Delegated: `Mail.ReadWrite`, `Mail.Send`, `User.Read`, `offline_access`.
 4. Copy the Application (client) ID. No secret is needed.
 5. Work or school tenants may require admin consent before you can sign in.

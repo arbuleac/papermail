@@ -23,6 +23,8 @@ final class LoopbackRedirectListener: @unchecked Sendable {
     private static let lineTerminator = Data("\r\n".utf8)
 
     private let expectedState: String
+    /// The path the redirect URI names; every other path is a stray request (favicon, probes).
+    private let callbackPath: String
     private let maximumRequestBytes: Int
     private let queue = DispatchQueue(label: "io.supersparrow.mac.oauth-loopback")
     private let lock = NSLock()
@@ -32,8 +34,9 @@ final class LoopbackRedirectListener: @unchecked Sendable {
     private var waiter: CheckedContinuation<LoopbackCallback, Error>?
     private var stopped = false
 
-    init(expectedState: String, maximumRequestBytes: Int = LoopbackRedirectListener.defaultMaximumRequestBytes) {
+    init(expectedState: String, callbackPath: String = "/callback", maximumRequestBytes: Int = LoopbackRedirectListener.defaultMaximumRequestBytes) {
         self.expectedState = expectedState
+        self.callbackPath = callbackPath
         self.maximumRequestBytes = maximumRequestBytes
     }
 
@@ -230,9 +233,15 @@ final class LoopbackRedirectListener: @unchecked Sendable {
     /// best effort because the unread remainder may reset the connection before the browser renders it.
     private func rejectOversized(requestHead: Data, on connection: NWConnection) {
         let reason = "The browser's request was too large to read. Clear this browser's cookies for localhost and 127.0.0.1, then try again."
-        let isCallback = Self.requestLine(of: requestHead).flatMap { URLComponents(string: String($0.target)) }?.path == "/callback"
+        let isCallback = Self.requestLine(of: requestHead).flatMap { URLComponents(string: String($0.target)) }.map(isCallback) ?? false
         respond(on: connection, status: 431, reason: "Request Header Fields Too Large", html: Self.failurePage(reason),
                 then: isCallback ? .failure(AuthError.invalidResponse(reason)) : nil)
+    }
+
+    /// A redirect URI without a path makes the browser ask for "/".
+    private func isCallback(_ target: URLComponents) -> Bool {
+        let path = target.path.isEmpty ? "/" : target.path
+        return path == callbackPath
     }
 
     private func handle(requestHead: Data, on connection: NWConnection) {
@@ -240,7 +249,7 @@ final class LoopbackRedirectListener: @unchecked Sendable {
             respond(on: connection, status: 400, reason: "Bad Request", html: Self.failurePage("The request was not understood."), then: nil)
             return
         }
-        guard let target = URLComponents(string: String(rawTarget)), target.path == "/callback" else {
+        guard let target = URLComponents(string: String(rawTarget)), isCallback(target) else {
             // Browsers also ask for /favicon.ico; answering keeps them from retrying while we wait.
             respond(on: connection, status: 404, reason: "Not Found", html: Self.failurePage("Nothing to see here."), then: nil)
             return

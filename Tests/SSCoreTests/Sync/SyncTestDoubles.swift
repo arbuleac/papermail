@@ -61,18 +61,26 @@ final class StubAuthenticator: AccountAuthenticator, @unchecked Sendable {
         OAuthTokens(accessToken: "access", refreshToken: "refresh", expiresAt: Date().addingTimeInterval(3600), scope: nil)
     )
 
+    private var hints: [String?] = []
+
     var signIns: [ProviderKind] {
         lock.lock(); defer { lock.unlock() }
         return kinds
     }
 
-    func signIn(kind: ProviderKind) async throws -> OAuthTokens {
-        try recordSignIn(kind).get()
+    var loginHints: [String?] {
+        lock.lock(); defer { lock.unlock() }
+        return hints
     }
 
-    private func recordSignIn(_ kind: ProviderKind) -> Result<OAuthTokens, Error> {
+    func signIn(kind: ProviderKind, loginHint: String?) async throws -> OAuthTokens {
+        try recordSignIn(kind, loginHint: loginHint).get()
+    }
+
+    private func recordSignIn(_ kind: ProviderKind, loginHint: String?) -> Result<OAuthTokens, Error> {
         lock.lock(); defer { lock.unlock() }
         kinds.append(kind)
+        hints.append(loginHint)
         return result
     }
 }

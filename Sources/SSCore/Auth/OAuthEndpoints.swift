@@ -41,12 +41,22 @@ public enum OAuthEndpoints {
         }
     }
 
-    /// Google documents the loopback redirect as `http://127.0.0.1:{port}`; Entra only accepts the literal
-    /// `http://localhost` form for public clients, and the registered URI is compared without the port.
+    /// Google documents the loopback redirect as `http://127.0.0.1:{port}`. Entra only accepts the literal
+    /// `http://localhost` form for public clients and compares the registered URI without the port but with
+    /// the path, so the redirect carries no path to match the plain `http://localhost` docs/OAUTH-SETUP.md
+    /// tells users to register (MSAL's loopback clients do the same).
     public static func redirectURI(for kind: ProviderKind, port: UInt16) -> String {
         switch kind {
         case .gmail: return "http://127.0.0.1:\(port)/callback"
-        case .microsoft: return "http://localhost:\(port)/callback"
+        case .microsoft: return "http://localhost:\(port)"
+        }
+    }
+
+    /// The request path the browser uses for `redirectURI(for:port:)`.
+    public static func redirectPath(for kind: ProviderKind) -> String {
+        switch kind {
+        case .gmail: return "/callback"
+        case .microsoft: return "/"
         }
     }
 
@@ -55,7 +65,8 @@ public enum OAuthEndpoints {
         configuration: OAuthClientConfiguration,
         redirectURI: String,
         state: String,
-        codeChallenge: String
+        codeChallenge: String,
+        loginHint: String? = nil
     ) -> URL {
         let base = authorizationURL(for: configuration.kind, tenant: configuration.tenant)
         var items = [
@@ -71,10 +82,17 @@ public enum OAuthEndpoints {
         case .gmail:
             // Google only issues a refresh token for offline access, and only on the first consent unless
             // prompt=consent forces it; without both, re-adding an account would yield no refresh token.
+            // select_account shows the chooser even with one signed-in session, so a second account can be added.
             items.append(URLQueryItem(name: "access_type", value: "offline"))
-            items.append(URLQueryItem(name: "prompt", value: "consent"))
+            items.append(URLQueryItem(name: "prompt", value: "consent select_account"))
         case .microsoft:
             items.append(URLQueryItem(name: "response_mode", value: "query"))
+            // Without a prompt Entra completes the request from the browser's single session, and adding a
+            // second account silently signs in to the first one again.
+            items.append(URLQueryItem(name: "prompt", value: "select_account"))
+        }
+        if let loginHint, !loginHint.isEmpty {
+            items.append(URLQueryItem(name: "login_hint", value: loginHint))
         }
         guard var components = URLComponents(url: base, resolvingAgainstBaseURL: false) else {
             preconditionFailure("Authorization endpoint is not a valid URL: \(base)")

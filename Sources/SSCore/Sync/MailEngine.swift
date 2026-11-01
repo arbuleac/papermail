@@ -126,20 +126,7 @@ public final class MailEngine: MailClient, @unchecked Sendable {
     }
 
     public func addAccount(kind: ProviderKind) async throws -> Account {
-        let tokens = try await authenticator.signIn(kind: kind)
-        let id = AccountID(UUID().uuidString)
-        try tokenStore.save(tokens, for: id)
-        let provisional = Account(
-            id: id, kind: kind, email: "", displayName: "",
-            colorHex: AccountColorPalette.color(at: 0), addedAt: Date()
-        )
-        let profile: AccountProfile
-        do {
-            profile = try await providerFactory(provisional).profile()
-        } catch {
-            try? tokenStore.delete(for: id)
-            throw error
-        }
+        let (tokens, id, profile) = try await signIn(kind: kind, loginHint: nil)
         let existing = try store.accounts()
         if let known = existing.first(where: {
             $0.kind == kind && $0.email.caseInsensitiveCompare(profile.email) == .orderedSame
@@ -165,6 +152,35 @@ public final class MailEngine: MailClient, @unchecked Sendable {
         if isRunning { context.syncer.start() }
         SyncLog.logger.info("engine: added account \(id.rawValue, privacy: .public) (\(kind.rawValue, privacy: .public))")
         return account
+    }
+
+    public func reconnect(_ account: Account) async throws -> Account {
+        let (tokens, id, profile) = try await signIn(kind: account.kind, loginHint: account.email)
+        defer { try? tokenStore.delete(for: id) }
+        guard profile.email.caseInsensitiveCompare(account.email) == .orderedSame else {
+            throw AuthError.wrongAccount(expected: account.email, actual: profile.email)
+        }
+        try tokenStore.save(tokens, for: account.id)
+        registry.context(for: account.id)?.syncer.wake(.poll)
+        SyncLog.logger.info("engine: reconnected account \(account.id.rawValue, privacy: .public)")
+        return account
+    }
+
+    /// Browser sign-in plus a profile read under a provisional id, whose tokens the caller keeps or drops.
+    private func signIn(kind: ProviderKind, loginHint: String?) async throws -> (OAuthTokens, AccountID, AccountProfile) {
+        let tokens = try await authenticator.signIn(kind: kind, loginHint: loginHint)
+        let id = AccountID(UUID().uuidString)
+        try tokenStore.save(tokens, for: id)
+        let provisional = Account(
+            id: id, kind: kind, email: "", displayName: "",
+            colorHex: AccountColorPalette.color(at: 0), addedAt: Date()
+        )
+        do {
+            return (tokens, id, try await providerFactory(provisional).profile())
+        } catch {
+            try? tokenStore.delete(for: id)
+            throw error
+        }
     }
 
     public func removeAccount(_ id: AccountID) async throws {

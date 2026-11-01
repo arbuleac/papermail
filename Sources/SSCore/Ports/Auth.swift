@@ -46,5 +46,12 @@ public protocol AccessTokenProvider: Sendable {
 
 /// Runs an interactive sign-in and returns tokens. Implemented by `OAuthFlow`; the engine never sees the browser.
 public protocol AccountAuthenticator: Sendable {
-    func signIn(kind: ProviderKind) async throws -> OAuthTokens
+    /// `loginHint` names the mailbox a reconnect expects, so the provider preselects it.
+    func signIn(kind: ProviderKind, loginHint: String?) async throws -> OAuthTokens
+}
+
+extension AccountAuthenticator {
+    public func signIn(kind: ProviderKind) async throws -> OAuthTokens {
+        try await signIn(kind: kind, loginHint: nil)
+    }
 }
