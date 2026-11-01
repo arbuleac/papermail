@@ -11,7 +11,7 @@ public enum PlainTextRenderer {
             .split(separator: "\n", omittingEmptySubsequences: false)
             .map(String.init)
         var hasQuote = false
-        let html = renderBlock(lines[...], topLevel: true, hasQuote: &hasQuote)
+        let html = renderBlock(lines[...], depth: 0, hasQuote: &hasQuote)
         return (html, hasQuote)
     }
 
@@ -46,7 +46,13 @@ public enum PlainTextRenderer {
 
     // MARK: Blocks
 
-    private static func renderBlock(_ lines: ArraySlice<String>, topLevel: Bool, hasQuote: inout Bool) -> String {
+    /// Quote levels nest by recursion; past this the remaining ">" markers are shown as text. A line of
+    /// 20,000 ">" would otherwise overflow the 512 KB stack of the concurrency pool thread sanitizing it.
+    static let maxQuoteDepth = 32
+
+    private static func renderBlock(_ lines: ArraySlice<String>, depth: Int, hasQuote: inout Bool) -> String {
+        guard depth < maxQuoteDepth else { return renderLines(Array(lines)) }
+        let topLevel = depth == 0
         var html = ""
         var normal: [String] = []
         var index = lines.startIndex
@@ -78,7 +84,7 @@ public enum PlainTextRenderer {
             normal.removeAll()
             hasQuote = true
             var block = attribution.map { renderLine($0) + "<br>" } ?? ""
-            block += "<blockquote>" + renderBlock(quoted[...], topLevel: false, hasQuote: &hasQuote) + "</blockquote>"
+            block += "<blockquote>" + renderBlock(quoted[...], depth: depth + 1, hasQuote: &hasQuote) + "</blockquote>"
             html += topLevel ? "<div class=\"ss-quote\" data-ss-collapsed=\"true\">" + block + "</div>" : block
             index = cursor
         }
@@ -136,14 +142,19 @@ public enum PlainTextRenderer {
         if index > 0, isAlphanumeric(scalars[index - 1]) { return nil }
         guard let schemeEnd = schemeEnd(in: scalars, at: index) else { return nil }
         var end = schemeEnd
-        while end < scalars.count, !isURLTerminator(scalars[end]) { end += 1 }
+        var opens = 0
+        var closes = 0
+        while end < scalars.count, !isURLTerminator(scalars[end]) {
+            if scalars[end] == "(" { opens += 1 } else if scalars[end] == ")" { closes += 1 }
+            end += 1
+        }
+        // Counted once and kept up to date while trimming: recounting per trimmed ")" was quadratic.
         while end > schemeEnd {
             let last = scalars[end - 1]
             if last == ")" {
                 // "(see https://en.wikipedia.org/wiki/Foo_(bar))": a balanced parenthesis belongs to the URL.
-                let opens = scalars[index..<end].filter { $0 == "(" }.count
-                let closes = scalars[index..<end].filter { $0 == ")" }.count
                 if closes <= opens { break }
+                closes -= 1
                 end -= 1
                 continue
             }

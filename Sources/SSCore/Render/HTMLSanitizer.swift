@@ -160,7 +160,7 @@ private struct Pass {
     private(set) var quoteCandidates = QuoteCandidates()
     /// Elements whose id or name gets the `ss-` prefix, collected here so no second traversal is needed.
     private var identified: [Element] = []
-    private var namedAnchors: [Element] = []
+    private var named: [Element] = []
 
     /// Nesting beyond this is never a legitimate message and would only serve to exhaust the stack.
     private static let maxDepth = 400
@@ -178,7 +178,7 @@ private struct Pass {
     }
 
     mutating func scrubContents(of body: Element) throws {
-        try scrubChildren(of: body, depth: 0)
+        try scrubChildren(of: body, depth: 0, inForeign: false)
     }
 
     /// Ids get a prefix so message markup can never address elements of the shell document; fragment links
@@ -188,16 +188,21 @@ private struct Pass {
             let id = element.id()
             if id.isEmpty { try element.removeAttr("id") } else { try element.attr("id", "ss-" + id) }
         }
-        for anchor in namedAnchors {
-            let name = try anchor.attr("name")
-            if !name.isEmpty { try anchor.attr("name", "ss-" + name) }
+        // A named <img> becomes a property of the frame's document, where it would shadow the expandos the
+        // shell keeps there (`doc.ssLinksHooked`); the prefix keeps message names out of that namespace too.
+        for element in named {
+            let name = try element.attr("name")
+            if !name.isEmpty { try element.attr("name", "ss-" + name) }
         }
     }
 
-    private mutating func scrub(_ element: Element, depth: Int) throws {
+    /// `inForeign` is true below an `<svg>`. SwiftSoup parses SVG content with HTML rules, WebKit does not:
+    /// there a `<style>` holds markup rather than raw text, so an `<img onerror>` inside it that SwiftSoup saw
+    /// as CSS would come back to life in the frame.
+    private mutating func scrub(_ element: Element, depth: Int, inForeign: Bool) throws {
         let tag = element.tagNameNormalUTF8()
         let role = Pass.tagRoles[tag]
-        if depth > Pass.maxDepth || role == .removed {
+        if depth > Pass.maxDepth || role == .removed || (role == .style && inForeign) {
             try element.remove()
             return
         }
@@ -208,21 +213,35 @@ private struct Pass {
         }
         if role == .unwrapped {
             // The container adds nothing once its fetching children are gone, but the fallback <img> inside is content.
-            try scrubChildren(of: element, depth: depth)
+            try scrubChildren(of: element, depth: depth, inForeign: inForeign)
             if element.parent() != nil { try element.unwrap() }
             return
         }
+        if role == .rawText {
+            // SwiftSoup writes xmp and plaintext contents back unescaped; inside SVG WebKit would parse them as
+            // markup. As a <pre> the same text is escaped on output and still reads the way it was meant.
+            try convertToPreformatted(element)
+        }
         let facts = try scrubAttributes(of: element, role: role)
         quoteCandidates.consider(element, tag: tag, facts: facts)
-        try scrubChildren(of: element, depth: depth)
+        try scrubChildren(of: element, depth: depth, inForeign: inForeign || role == .svg)
     }
 
-    private mutating func scrubChildren(of element: Element, depth: Int) throws {
+    private mutating func scrubChildren(of element: Element, depth: Int, inForeign: Bool) throws {
         for node in element.getChildNodes() {
             if let child = node as? Element {
-                try scrub(child, depth: depth + 1)
+                try scrub(child, depth: depth + 1, inForeign: inForeign)
             } else if node is Comment || node is XmlDeclaration || node is DocumentType {
                 try node.remove()
+            }
+        }
+    }
+
+    private func convertToPreformatted(_ element: Element) throws {
+        try element.tagName(Pass.preTag)
+        for node in element.getChildNodes() {
+            if let data = node as? DataNode {
+                try data.replaceWith(TextNode(data.getWholeData(), nil))
             }
         }
     }
@@ -232,7 +251,7 @@ private struct Pass {
         guard let attributes = element.getAttributes(), attributes.size() > 0 else { return facts }
         let isImage = role == .img
         let isSVGImage = role == .svgImage
-        let isAnchor = role == .anchor
+        let isLink = role == .anchor
         let isDiv = role == .div
         // Set when a remote image source was blocked; added after the pass because the pass can only keep,
         // drop or rewrite what is already there (and an incoming data-ss-src is dropped by it first).
@@ -266,8 +285,18 @@ private struct Pass {
                 identified.append(element)
                 return Pass.keep
             case .name:
-                if isAnchor { namedAnchors.append(element) }
+                named.append(element)
                 return Pass.keep
+            case .usemap:
+                let value = attribute.getValue()
+                guard value.hasPrefix("#"), value.count > 1 else { return Pass.drop }
+                return Pass.replacing("#ss-" + value.dropFirst())
+            case .paint:
+                let result = css.filter(presentationValue: attribute.getValueUTF8())
+                blockedRemoteImages += result.blockedRemoteImages
+                if result.drop { return Pass.drop }
+                guard let rewritten = result.css else { return Pass.keep }
+                return AttributeMutation(keep: true, newValue: rewritten)
             case .type:
                 facts.type = attribute.getValueUTF8()
                 return Pass.keep
@@ -279,7 +308,10 @@ private struct Pass {
                 return imagePolicy(attribute.getValue(), isImageSource: false, blockedSource: &blockedSource)
             case .href:
                 if isSVGImage { return imagePolicy(attribute.getValue(), isImageSource: false, blockedSource: &blockedSource) }
-                return linkPolicy(attribute.getValue())
+                if isLink { return linkPolicy(attribute.getValue()) }
+                // Anywhere else (SVG pattern, textPath, mpath, cursor...) an href is a resource reference that
+                // may fetch; only same-document fragments are worth keeping.
+                return fragmentPolicy(attribute.getValue())
             case .link:
                 return linkPolicy(attribute.getValue())
             }
@@ -321,6 +353,12 @@ private struct Pass {
         case .inlineData, .rejected:
             return Pass.drop
         }
+    }
+
+    private func fragmentPolicy(_ value: String) -> AttributeMutation {
+        guard case .fragment(let fragment) = URLPolicy.classify(value) else { return Pass.drop }
+        let name = fragment.dropFirst()
+        return name.isEmpty ? Pass.drop : Pass.replacing("#ss-" + name)
     }
 
     private mutating func filterStyleElement(_ element: Element) throws {
@@ -385,17 +423,21 @@ private struct Pass {
         AttributeMutation(keep: true, newValue: Array(value.utf8))
     }
 
+    private static let preTag = "pre"
     private static let placeholderBytes = Array(HTMLSanitizer.placeholderImage.utf8)
 
     private enum AttributeRole {
-        case removed, style, `class`, id, name, type, src, background, href, link
+        case removed, style, `class`, id, name, type, src, background, href, link, usemap, paint
     }
 
     /// One lookup per attribute decides everything about it.
     private static let attributeRoles: [[UInt8]: AttributeRole] = {
         var map: [[UInt8]: AttributeRole] = [:]
+        // Resource attributes of elements that are removed anyway (poster, data, action...) go too, so they
+        // never depend on the tag list being complete; srcdoc likewise in case an iframe ever got through.
         for key in ["srcset", "imagesrcset", "ping", "download", "accesskey", "autofocus", "contenteditable", "is",
-                    "nonce", "http-equiv", "manifest"] {
+                    "nonce", "http-equiv", "manifest", "srcdoc", "action", "formaction", "poster", "data", "dynsrc",
+                    "lowsrc", "codebase", "classid", "archive"] {
             map[Array(key.utf8)] = .removed
         }
         map[Array("style".utf8)] = .style
@@ -407,9 +449,13 @@ private struct Pass {
         map[Array("background".utf8)] = .background
         map[Array("href".utf8)] = .href
         map[Array("xlink:href".utf8)] = .href
-        for key in ["action", "formaction", "poster", "data", "cite", "longdesc", "dynsrc", "lowsrc", "codebase",
-                    "classid", "archive", "profile", "itemtype"] {
+        for key in ["cite", "longdesc", "profile", "itemtype"] {
             map[Array(key.utf8)] = .link
+        }
+        map[Array("usemap".utf8)] = .usemap
+        for key in ["fill", "stroke", "filter", "mask", "clip-path", "marker", "marker-start", "marker-mid",
+                    "marker-end", "cursor"] {
+            map[Array(key.utf8)] = .paint
         }
         return map
     }()
@@ -421,7 +467,7 @@ private struct Pass {
     private static let reservedAttributePrefix = Array("data-ss-".utf8)
 
     private enum TagRole {
-        case removed, unwrapped, style, img, svgImage, anchor, div
+        case removed, unwrapped, rawText, style, img, svgImage, anchor, div, svg
     }
 
     /// One lookup per element decides everything about it.
@@ -431,10 +477,14 @@ private struct Pass {
                     "select", "textarea", "option", "optgroup", "datalist", "keygen", "meta", "link", "base", "basefont",
                     "title", "noscript", "template", "slot", "math", "video", "audio", "source", "track", "portal",
                     "param", "foreignobject", "set", "animate", "animatemotion", "animatetransform", "menuitem", "use",
-                    "feimage"] {
+                    "feimage", "noembed", "noframes"] {
             map[Array(tag.utf8)] = .removed
         }
         map[Array("picture".utf8)] = .unwrapped
+        map[Array("xmp".utf8)] = .rawText
+        map[Array("plaintext".utf8)] = .rawText
+        map[Array("svg".utf8)] = .svg
+        map[Array("area".utf8)] = .anchor
         map[Array("style".utf8)] = .style
         map[Array("img".utf8)] = .img
         map[Array("image".utf8)] = .svgImage
