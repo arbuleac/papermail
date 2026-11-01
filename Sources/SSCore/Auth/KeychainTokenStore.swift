@@ -1,34 +1,43 @@
 import Foundation
 import Security
+import os
 
 /// Stores each account's tokens as one generic-password item in the login Keychain
 /// (service "SuperSparrow", account = the account id), encoded as JSON.
 public final class KeychainTokenStore: TokenStore, Sendable {
     public static let defaultService = "SuperSparrow"
 
-    private let service: String
+    private static let logger = Logger(subsystem: "io.supersparrow.mac", category: "auth")
 
-    public init(service: String = KeychainTokenStore.defaultService) {
+    private let service: String
+    private let access: KeychainAccess
+
+    public convenience init(service: String = KeychainTokenStore.defaultService) {
+        self.init(service: service, access: .system)
+    }
+
+    init(service: String, access: KeychainAccess) {
         self.service = service
+        self.access = access
     }
 
     public func tokens(for accountID: AccountID) throws -> OAuthTokens? {
         var query = baseQuery(for: accountID)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
-        var item: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        let (status, item) = access.copyMatching(query)
         switch status {
         case errSecSuccess:
-            guard let data = item as? Data else {
-                throw AuthError.keychain(status: errSecDecode)
+            guard let data = item as? Data, let tokens = try? JSONDecoder().decode(OAuthTokens.self, from: data) else {
+                // An item this build cannot read has to look like "signed out": the engine only knows
+                // `ProviderError.unauthorized` as the cue to ask for a new sign-in, and a thrown `AuthError`
+                // would wedge the account until someone deletes the item by hand. Dropping it here does that
+                // for them and keeps the error from logging on every poll.
+                Self.logger.error("Stored tokens for account \(accountID.rawValue, privacy: .public) could not be decoded; treating the account as signed out")
+                _ = access.delete(baseQuery(for: accountID))
+                return nil
             }
-            do {
-                return try JSONDecoder().decode(OAuthTokens.self, from: data)
-            } catch {
-                // A corrupt item should read as "signed out" rather than wedge the account forever.
-                throw AuthError.keychain(status: errSecDecode)
-            }
+            return tokens
         case errSecItemNotFound:
             return nil
         default:
@@ -47,7 +56,7 @@ public final class KeychainTokenStore: TokenStore, Sendable {
         attributes[kSecValueData as String] = data
         attributes[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
         attributes[kSecAttrLabel as String] = "SuperSparrow account tokens"
-        let status = SecItemAdd(attributes as CFDictionary, nil)
+        let status = access.add(attributes)
         switch status {
         case errSecSuccess:
             return
@@ -56,7 +65,7 @@ public final class KeychainTokenStore: TokenStore, Sendable {
                 kSecValueData as String: data,
                 kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
             ]
-            let updateStatus = SecItemUpdate(baseQuery(for: accountID) as CFDictionary, update as CFDictionary)
+            let updateStatus = access.update(baseQuery(for: accountID), update)
             guard updateStatus == errSecSuccess else {
                 throw AuthError.keychain(status: updateStatus)
             }
@@ -66,7 +75,7 @@ public final class KeychainTokenStore: TokenStore, Sendable {
     }
 
     public func delete(for accountID: AccountID) throws {
-        let status = SecItemDelete(baseQuery(for: accountID) as CFDictionary)
+        let status = access.delete(baseQuery(for: accountID))
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw AuthError.keychain(status: status)
         }

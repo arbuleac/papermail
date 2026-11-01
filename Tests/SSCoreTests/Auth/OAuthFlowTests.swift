@@ -35,25 +35,30 @@ final class OAuthFlowTests: XCTestCase {
         return Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).map { ($0.name, $0.value ?? "") })
     }
 
-    /// Plays the browser: hits the loopback redirect the authorization URL names, with the given query.
-    private static func visitCallback(from authorizationURL: URL, query: [String: String]) async throws -> CallbackResult {
+    /// Plays the browser: hits the loopback redirect the authorization URL names, with the given query and headers.
+    private static func visitCallback(from authorizationURL: URL, query: [String: String], headers: [String: String] = [:]) async throws -> CallbackResult {
         let redirectURI = queryItems(of: authorizationURL)["redirect_uri"]!
         var target = URLComponents(string: redirectURI)!
         target.queryItems = query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
+        var request = URLRequest(url: target.url!)
+        for (name, value) in headers {
+            request.setValue(value, forHTTPHeaderField: name)
+        }
         let session = URLSession(configuration: .ephemeral)
-        let (data, response) = try await session.data(from: target.url!)
+        let (data, response) = try await session.data(for: request)
         return CallbackResult(status: (response as! HTTPURLResponse).statusCode, body: String(decoding: data, as: UTF8.self))
     }
 
     /// An opener that performs the loopback GET itself. The stream hands the test the authorization URL and the
     /// browser task so it can assert on both after `signIn` returns.
     private static func makeOpener(
+        headers: [String: String] = [:],
         query: @escaping @Sendable (_ state: String) -> [String: String] = { ["code": "test-code", "state": $0] }
     ) -> (opener: @Sendable (URL) -> Void, opened: AsyncStream<(URL, Task<CallbackResult, Error>)>) {
         let (stream, continuation) = AsyncStream<(URL, Task<CallbackResult, Error>)>.makeStream()
         let opener: @Sendable (URL) -> Void = { url in
             let state = queryItems(of: url)["state"] ?? ""
-            let browser = Task { try await visitCallback(from: url, query: query(state)) }
+            let browser = Task { try await visitCallback(from: url, query: query(state), headers: headers) }
             continuation.yield((url, browser))
         }
         return (opener, stream)
@@ -192,6 +197,25 @@ final class OAuthFlowTests: XCTestCase {
         } catch {
             XCTFail("unexpected \(error)")
         }
+    }
+
+    /// Browsers attach every cookie set for localhost or 127.0.0.1 to the redirect, whatever the port, so a
+    /// developer's cookie jar can push the request head far past the 8-16 KiB most servers accept.
+    func testCallbackWithOversizedHeadersStillCompletesSignIn() async throws {
+        installTokenReply(expectedURL: OAuthEndpoints.googleTokenURL)
+        let cookies = (0 ..< 12).map { "session\($0)=\(String(repeating: "x", count: 2000))" }.joined(separator: "; ")
+        XCTAssertGreaterThan(cookies.utf8.count, 16 * 1024)
+        let (opener, opened) = Self.makeOpener(headers: ["Cookie": cookies])
+        let flow = makeFlow(opener: opener, timeout: 2)
+
+        let tokens = try await flow.signIn(kind: .gmail)
+        XCTAssertEqual(tokens.accessToken, "at")
+        var iterator = opened.makeAsyncIterator()
+        let nextOpened = await iterator.next()
+        let (_, browser) = try XCTUnwrap(nextOpened)
+        let browserResult = try await browser.value
+        XCTAssertEqual(browserResult.status, 200)
+        XCTAssertTrue(browserResult.body.contains("You can return to SuperSparrow"))
     }
 
     func testTimesOutWhenTheBrowserNeverComesBack() async throws {

@@ -80,7 +80,8 @@ public actor TokenManager: AccessTokenProvider {
         invalidated.remove(accountID)
     }
 
-    /// Deletes the account's tokens everywhere. An in-flight refresh finishes but its result is dropped.
+    /// Deletes the account's tokens everywhere. An in-flight refresh finishes but its result is dropped, even
+    /// when the token endpoint has already answered.
     public func removeTokens(for accountID: AccountID) throws {
         refreshes[accountID]?.task.cancel()
         refreshes[accountID] = nil
@@ -110,6 +111,12 @@ public actor TokenManager: AccessTokenProvider {
         let task = Task { [self] in
             defer { finishRefresh(for: accountID, generation: generation) }
             let tokens = try await performRefresh(for: accountID)
+            // The reply can land after `removeTokens` ran while the actor was busy elsewhere: the slot is then
+            // gone (or a newer refresh owns it) and saving would put the deleted credentials back in the Keychain.
+            guard !Task.isCancelled, refreshes[accountID]?.generation == generation else {
+                throw ProviderError.cancelled
+            }
+            try tokenStore.save(tokens, for: accountID)
             cache[accountID] = tokens
             invalidated.remove(accountID)
             return tokens
@@ -155,10 +162,8 @@ public actor TokenManager: AccessTokenProvider {
         let url = OAuthEndpoints.tokenURL(for: kind, tenant: configuration.tenant)
         do {
             let response = try await TokenEndpoint.post(form: form, to: url, session: session)
-            let tokens = response.tokens(issuedAt: now(), previous: stored)
-            try tokenStore.save(tokens, for: accountID)
             Self.logger.debug("Refreshed access token for account \(accountID.rawValue, privacy: .public)")
-            return tokens
+            return response.tokens(issuedAt: now(), previous: stored)
         } catch is CancellationError {
             throw ProviderError.cancelled
         } catch let error as TokenEndpointError {

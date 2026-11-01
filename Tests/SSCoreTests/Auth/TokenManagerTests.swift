@@ -232,6 +232,60 @@ final class TokenManagerTests: XCTestCase {
         } catch ProviderError.unauthorized {} catch { XCTFail("unexpected \(error)") }
     }
 
+    /// `removeTokens` racing a refresh whose reply has already arrived: the reply must be dropped, not persisted.
+    func testRemoveTokensWhileARefreshReplyIsPendingDropsTheReply() async throws {
+        let other = AccountID("acct-2")
+        let endpointReached = expectation(description: "token endpoint reached")
+        let replyGate = DispatchSemaphore(value: 0)
+        StubURLProtocol.install { _ in
+            endpointReached.fulfill()
+            replyGate.wait()
+            return StubURLProtocol.Reply(json: #"{"access_token":"at-2","refresh_token":"rt-2","expires_in":3600}"#)
+        }
+        let readEntered = expectation(description: "gated read entered")
+        readEntered.assertForOverFulfill = false
+        let store = GatedTokenStore(
+            InMemoryTokenStore([accountID: tokens(expiringIn: 5), other: tokens(expiringIn: 3600)]),
+            gating: other,
+            readEntered: readEntered
+        )
+        // Open both gates on every exit so a failed assertion cannot leave the actor's thread parked.
+        defer {
+            replyGate.signal()
+            store.readGate.signal()
+        }
+        let now = issuedAt
+        let manager = TokenManager(tokenStore: store, configurations: configurations, kinds: { _ in .gmail }, session: StubURLProtocol.makeSession(), now: { now })
+
+        // The refresh for acct-1 is parked at the token endpoint and the actor is idle.
+        let refresh = Task { try await manager.accessToken(for: self.accountID) }
+        await fulfillment(of: [endpointReached], timeout: 5)
+        // Hold the actor inside an unrelated read so the removal queues up behind it, and only then let the
+        // reply through: its continuation lands in the queue after the removal. That is the order a Keychain
+        // read on the actor produces when the user removes an account mid-refresh.
+        let unrelated = Task { try await manager.accessToken(for: other) }
+        await fulfillment(of: [readEntered], timeout: 5)
+        let removal = Task { try await manager.removeTokens(for: self.accountID) }
+        try await Task.sleep(for: .milliseconds(100))
+        replyGate.signal()
+        try await Task.sleep(for: .milliseconds(100))
+        store.readGate.signal()
+
+        _ = try await unrelated.value
+        try await removal.value
+        let outcome = await refresh.result
+        XCTAssertEqual(store.writes, ["delete \(accountID)"], "the stale reply must not be written back")
+        XCTAssertNil(try store.tokens(for: accountID))
+        if case .success(let token) = outcome {
+            XCTFail("refresh for a removed account returned \(token)")
+        }
+        do {
+            _ = try await manager.accessToken(for: accountID)
+            XCTFail("expected unauthorized")
+        } catch ProviderError.unauthorized {} catch { XCTFail("unexpected \(error)") }
+        XCTAssertEqual(StubURLProtocol.requestCount, 1)
+    }
+
     func testUnknownAccountKindIsNotFound() async {
         installRefreshReply()
         let store = InMemoryTokenStore()
@@ -242,5 +296,50 @@ final class TokenManagerTests: XCTestCase {
             _ = try await manager.accessToken(for: accountID)
             XCTFail("expected notFound")
         } catch ProviderError.notFound {} catch { XCTFail("unexpected \(error)") }
+    }
+}
+
+/// Wraps a store so one account's reads park the calling thread until the test releases them, which holds the
+/// `TokenManager` actor busy at a chosen moment. Writes are recorded in order.
+private final class GatedTokenStore: TokenStore, @unchecked Sendable {
+    private let inner: InMemoryTokenStore
+    private let gatedAccount: AccountID
+    private let readEntered: XCTestExpectation
+    private let lock = NSLock()
+    private var recordedWrites: [String] = []
+    let readGate = DispatchSemaphore(value: 0)
+
+    init(_ inner: InMemoryTokenStore, gating gatedAccount: AccountID, readEntered: XCTestExpectation) {
+        self.inner = inner
+        self.gatedAccount = gatedAccount
+        self.readEntered = readEntered
+    }
+
+    var writes: [String] {
+        lock.lock(); defer { lock.unlock() }
+        return recordedWrites
+    }
+
+    func tokens(for accountID: AccountID) throws -> OAuthTokens? {
+        if accountID == gatedAccount {
+            readEntered.fulfill()
+            readGate.wait()
+        }
+        return try inner.tokens(for: accountID)
+    }
+
+    func save(_ tokens: OAuthTokens, for accountID: AccountID) throws {
+        record("save \(accountID)")
+        try inner.save(tokens, for: accountID)
+    }
+
+    func delete(for accountID: AccountID) throws {
+        record("delete \(accountID)")
+        try inner.delete(for: accountID)
+    }
+
+    private func record(_ entry: String) {
+        lock.lock(); defer { lock.unlock() }
+        recordedWrites.append(entry)
     }
 }

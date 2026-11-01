@@ -15,10 +15,15 @@ struct LoopbackCallback: Sendable, Hashable {
 /// Only the first `/callback` request settles the result; everything else gets a short page and is dropped.
 final class LoopbackRedirectListener: @unchecked Sendable {
     private static let logger = Logger(subsystem: "io.supersparrow.mac", category: "auth")
-    private static let maximumRequestBytes = 16 * 1024
+    /// Browsers attach every cookie set for localhost or 127.0.0.1 to the redirect, whatever the port, so a
+    /// developer's jar for other local servers rides along. Chrome allows about 720 KiB per host; this stays
+    /// clear of that where the 8-16 KiB most servers accept would turn a valid redirect into a 400.
+    static let defaultMaximumRequestBytes = 1024 * 1024
     private static let headerTerminator = Data("\r\n\r\n".utf8)
+    private static let lineTerminator = Data("\r\n".utf8)
 
     private let expectedState: String
+    private let maximumRequestBytes: Int
     private let queue = DispatchQueue(label: "io.supersparrow.mac.oauth-loopback")
     private let lock = NSLock()
     private var listeners: [NWListener] = []
@@ -27,8 +32,9 @@ final class LoopbackRedirectListener: @unchecked Sendable {
     private var waiter: CheckedContinuation<LoopbackCallback, Error>?
     private var stopped = false
 
-    init(expectedState: String) {
+    init(expectedState: String, maximumRequestBytes: Int = LoopbackRedirectListener.defaultMaximumRequestBytes) {
         self.expectedState = expectedState
+        self.maximumRequestBytes = maximumRequestBytes
     }
 
     deinit {
@@ -188,7 +194,7 @@ final class LoopbackRedirectListener: @unchecked Sendable {
     }
 
     private func receive(on connection: NWConnection, buffered: Data) {
-        connection.receive(minimumIncompleteLength: 1, maximumLength: Self.maximumRequestBytes) { [weak self] content, _, isComplete, error in
+        connection.receive(minimumIncompleteLength: 1, maximumLength: maximumRequestBytes) { [weak self] content, _, isComplete, error in
             guard let self else {
                 connection.cancel()
                 return
@@ -201,7 +207,9 @@ final class LoopbackRedirectListener: @unchecked Sendable {
             }
             if let terminator = buffer.range(of: Self.headerTerminator) {
                 self.handle(requestHead: buffer[..<terminator.lowerBound], on: connection)
-            } else if isComplete || buffer.count >= Self.maximumRequestBytes {
+            } else if buffer.count >= self.maximumRequestBytes {
+                self.rejectOversized(requestHead: buffer, on: connection)
+            } else if isComplete {
                 self.respond(on: connection, status: 400, reason: "Bad Request", html: Self.failurePage("The request was not understood."), then: nil)
             } else {
                 self.receive(on: connection, buffered: buffer)
@@ -209,16 +217,30 @@ final class LoopbackRedirectListener: @unchecked Sendable {
         }
     }
 
+    /// Method and target from the first line of `head`, which may be a complete head or the start of one.
+    private static func requestLine(of head: Data) -> (method: Substring, target: Substring)? {
+        let lineEnd = head.range(of: lineTerminator)?.lowerBound ?? head.endIndex
+        let parts = String(decoding: head[..<lineEnd], as: UTF8.self).split(separator: " ")
+        guard parts.count >= 2 else { return nil }
+        return (parts[0], parts[1])
+    }
+
+    /// A head past the cap is almost certainly the redirect buried under a cookie jar, which no retry will fix.
+    /// When it is the callback, settling with the reason spares the user the full timeout; the page itself is
+    /// best effort because the unread remainder may reset the connection before the browser renders it.
+    private func rejectOversized(requestHead: Data, on connection: NWConnection) {
+        let reason = "The browser's request was too large to read. Clear this browser's cookies for localhost and 127.0.0.1, then try again."
+        let isCallback = Self.requestLine(of: requestHead).flatMap { URLComponents(string: String($0.target)) }?.path == "/callback"
+        respond(on: connection, status: 431, reason: "Request Header Fields Too Large", html: Self.failurePage(reason),
+                then: isCallback ? .failure(AuthError.invalidResponse(reason)) : nil)
+    }
+
     private func handle(requestHead: Data, on connection: NWConnection) {
-        let head = String(decoding: requestHead, as: UTF8.self)
-        let requestLine = head.split(separator: "\r\n", maxSplits: 1, omittingEmptySubsequences: false).first ?? ""
-        let parts = requestLine.split(separator: " ")
-        guard parts.count >= 2 else {
+        guard let (method, rawTarget) = Self.requestLine(of: requestHead) else {
             respond(on: connection, status: 400, reason: "Bad Request", html: Self.failurePage("The request was not understood."), then: nil)
             return
         }
-        let method = parts[0]
-        guard let target = URLComponents(string: String(parts[1])), target.path == "/callback" else {
+        guard let target = URLComponents(string: String(rawTarget)), target.path == "/callback" else {
             // Browsers also ask for /favicon.ico; answering keeps them from retrying while we wait.
             respond(on: connection, status: 404, reason: "Not Found", html: Self.failurePage("Nothing to see here."), then: nil)
             return
