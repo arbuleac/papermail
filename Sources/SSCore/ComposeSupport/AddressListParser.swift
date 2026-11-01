@@ -9,9 +9,47 @@ import Foundation
 /// Parsing never drops an entry: an unparseable piece comes back with the raw text as its `address` so the
 /// composer can show it and refuse to send. Use `isValid(_:)` or `invalidEntries(in:)` to tell them apart.
 public enum AddressListParser {
+    /// The characters that end an entry when they sit outside quotes and angle brackets.
+    public static let separators = CharacterSet(charactersIn: ",;\n\r")
+
+    /// An entry of a list together with the pieces a splitter that ignores quoting (`NSTokenField`'s) cuts
+    /// it into; more than one piece means such a splitter breaks the entry.
+    public struct Entry: Hashable, Sendable {
+        /// The entry as written, trimmed.
+        public var text: String
+        /// Trimmed, never empty.
+        public var pieces: [String]
+        public init(text: String, pieces: [String]) {
+            self.text = text
+            self.pieces = pieces
+        }
+    }
+
     /// Every entry in `input`, in order, including ones that fail validation.
     public static func parse(_ input: String) -> [EmailAddress] {
         split(input).compactMap(parseEntry)
+    }
+
+    /// The entries of `input` with the pieces a quote-blind splitter makes of each, so a caller handed such
+    /// pieces one at a time can tell which belong together.
+    public static func entries(in input: String) -> [Entry] {
+        split(input).map { entry in
+            let pieces = entry.components(separatedBy: separators)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            return Entry(text: entry, pieces: pieces)
+        }
+    }
+
+    /// The inverse of `parseEntry`: `name <address>`, with the name quoted whenever it holds anything a
+    /// parser could take for structure (a comma, a dot, brackets, quotes…), so the result survives `split`
+    /// and parses back to the same value. A missing name, or one that only repeats the address, gives the
+    /// bare address.
+    public static func format(_ address: EmailAddress) -> String {
+        guard let name = address.name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty, name != address.address else {
+            return address.address
+        }
+        return (needsQuoting(name) ? quoted(name) : name) + " <" + address.address + ">"
     }
 
     /// Only the entries whose address passes `isValid(_:)`.
@@ -73,7 +111,8 @@ public enum AddressListParser {
             case ">" where !inQuotes:
                 inAngle = false
                 current.append(character)
-            case ",", ";", "\n", "\r":
+            // A CRLF pair is one Character, so the separators are matched scalar by scalar.
+            case _ where character.unicodeScalars.allSatisfy(separators.contains):
                 if inQuotes || inAngle {
                     current.append(character)
                 } else {
@@ -163,9 +202,31 @@ public enum AddressListParser {
         return trimmed
     }
 
+    /// RFC 5322 lets a display name go unquoted only when it is made of atoms (letters, digits, a few
+    /// specials) and spaces. Anything else needs quoting, as does a name an apostrophe begins or ends,
+    /// which `parseEntry` would otherwise strip as a quote.
+    private static func needsQuoting(_ name: String) -> Bool {
+        if name.hasPrefix("'") || name.hasSuffix("'") { return true }
+        return !name.unicodeScalars.allSatisfy { $0 == " " || isAtext($0) }
+    }
+
+    private static func quoted(_ name: String) -> String {
+        var result = "\""
+        for character in name {
+            if character == "\\" || character == "\"" { result.append("\\") }
+            result.append(character)
+        }
+        return result + "\""
+    }
+
     private static func isAllowedLocalScalar(_ scalar: Unicode.Scalar) -> Bool {
+        isAtext(scalar) || scalar == "."
+    }
+
+    /// RFC 5322 `atext`, with Unicode letters and digits allowed (EAI).
+    private static func isAtext(_ scalar: Unicode.Scalar) -> Bool {
         if scalar.properties.isAlphabetic || scalar.properties.numericType != nil { return true }
-        return "!#$%&'*+/=?^_`{|}~.-".unicodeScalars.contains(scalar)
+        return "!#$%&'*+/=?^_`{|}~-".unicodeScalars.contains(scalar)
     }
 
     private static func isAllowedDomainScalar(_ scalar: Unicode.Scalar) -> Bool {

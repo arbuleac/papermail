@@ -123,6 +123,9 @@ final class ComposeTextView: NSTextView {
     // MARK: Key equivalents
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // The window offers the event to every view in turn, so without this the shortcuts would act on
+        // the body while the user is typing in To, Cc, Bcc or Subject.
+        guard window?.firstResponder === self else { return super.performKeyEquivalent(with: event) }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if flags == [.command], let key = event.charactersIgnoringModifiers?.lowercased() {
             switch key {

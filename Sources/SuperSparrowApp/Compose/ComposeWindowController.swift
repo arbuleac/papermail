@@ -44,7 +44,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     private var quoted: QuotedReply.Rendering? {
         didSet { quoteView.rendering = quoted }
     }
-    private var threading: ComposeDraft.Threading?
+    private var threading: ReplyThreading?
     /// Full-width constraints for the header rows. The stack detaches hidden rows, which drops these, so
     /// they are re-activated when Cc/Bcc come back.
     private var rowEdgeConstraints: [NSLayoutConstraint] = []
@@ -348,10 +348,14 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
             fromPopup.addItem(withTitle: Self.senderTitle(for: candidate))
             fromPopup.lastItem?.representedObject = candidate.id.rawValue
         }
+        selectAccountInFromPopup()
+        fromPopup.isEnabled = accounts.count > 1
+    }
+
+    private func selectAccountInFromPopup() {
         if let index = accounts.firstIndex(where: { $0.id == account.id }) {
             fromPopup.selectItem(at: index)
         }
-        fromPopup.isEnabled = accounts.count > 1
     }
 
     private static func senderTitle(for account: Account) -> String {
@@ -437,18 +441,23 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         }
         guard !Task.isCancelled else { return }
 
-        let rendering = mode.isForward
-            ? QuotedReply.forward(original: original, body: body)
-            : QuotedReply.reply(original: original, body: body)
+        // Built off the main actor: the quote re-serializes the whole stored body with SwiftSoup, which on
+        // a long thread takes long enough to drop keystrokes in the editor that is already on screen.
+        let isForward = mode.isForward
+        let rendering = await Task.detached(priority: .userInitiated) {
+            isForward
+                ? QuotedReply.forward(original: original, body: body)
+                : QuotedReply.reply(original: original, body: body)
+        }.value
+        guard !Task.isCancelled else { return }
         quoted = rendering
 
         var failures = 0
-        for part in partsToReattach(from: body.body.attachments, html: rendering.html) {
+        for part in QuotedReply.partsToCarry(from: body.body.attachments, quotedHTML: rendering.html, isForward: isForward) {
             do {
                 let data = try await client.attachmentData(for: originalID, attachmentID: part.info.id)
                 guard !Task.isCancelled else { return }
-                var attachment = ComposeAttachment(info: part.info, data: data)
-                if !part.isReferencedInline { attachment.contentID = nil }
+                let attachment = ComposeAttachment(info: part.info, data: data, contentID: part.contentID)
                 attachments.append(attachment)
                 baseline.attachmentIDs.insert(attachment.id)
             } catch {
@@ -468,27 +477,17 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
             ccField.addresses = recipients.cc
             if !recipients.cc.isEmpty { showCcBccRows() }
             subjectField.stringValue = SubjectPrefixer.reply(original.subject)
-            threading = ComposeDraft.Threading(original: original, isReply: true)
+            threading = ReplyThreading(original: original, isReply: true)
             baseline.to = recipients.to.map(\.address)
             baseline.cc = recipients.cc.map(\.address)
         case .forward:
             subjectField.stringValue = SubjectPrefixer.forward(original.subject)
-            threading = ComposeDraft.Threading(original: original, isReply: false)
+            threading = ReplyThreading(original: original, isReply: false)
         case .new:
             break
         }
         baseline.subject = subjectField.stringValue
         updateTitle()
-    }
-
-    /// Inline images the quote references come along in both replies and forwards so they still render;
-    /// a forward also carries every regular attachment, including "inline" parts nothing refers to.
-    private func partsToReattach(from parts: [AttachmentInfo], html: String) -> [(info: AttachmentInfo, isReferencedInline: Bool)] {
-        parts.compactMap { part in
-            let referenced = part.contentID.map { html.contains("cid:" + $0) } ?? false
-            if referenced { return (part, true) }
-            return mode.isForward ? (part, false) : nil
-        }
     }
 
     private func finishPrefill(status: String) {
@@ -500,10 +499,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     // MARK: Draft state
 
     private func currentDraft() -> ComposeDraft {
-        // Threading headers name a message of one account; sending from another would hand the provider
-        // an id it cannot resolve, so the message starts a fresh thread there.
-        let threading = threading.flatMap { $0.inReplyTo.accountID == account.id ? $0 : nil }
-        return ComposeDraft(
+        ComposeDraft(
             mode: mode,
             account: account,
             to: toField.addresses,
@@ -518,6 +514,9 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     }
 
     private func restore(_ draft: ComposeDraft) {
+        // The draft remembers the From the user chose, which `init` replaced with the original's owner.
+        account = draft.account
+        selectAccountInFromPopup()
         toField.addresses = draft.to
         ccField.addresses = draft.cc
         bccField.addresses = draft.bcc

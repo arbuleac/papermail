@@ -5,9 +5,10 @@ import SwiftSoup
 /// render-ready HTML, in both HTML and plain-text forms.
 ///
 /// The stored HTML was prepared for the conversation view (remote images parked in `data-ss-src`,
-/// inline images pointed at `ss-cid://`). Recipients cannot resolve either, so the quote restores
-/// `src` for remote images and turns inline references back into `cid:` URLs; the composer re-attaches
-/// the matching inline parts so those references resolve again.
+/// inline images pointed at `ss-cid://`, `<style>` blocks kept for a sandboxed iframe). Recipients cannot
+/// resolve the first two and nothing fences the third, so the quote restores `src` for remote images,
+/// turns inline references back into `cid:` URLs and drops the style blocks; the composer re-attaches the
+/// parts the `cid:` references name (see `partsToCarry`) so they resolve again.
 public enum QuotedReply {
     public struct Rendering: Hashable, Sendable {
         public var html: String
@@ -25,6 +26,18 @@ public enum QuotedReply {
         }
     }
 
+    /// A part of the original that travels with the quote.
+    public struct CarriedPart: Hashable, Sendable {
+        public var info: AttachmentInfo
+        /// Set when the quote references the part as `cid:`; such a part goes out inline, whatever its
+        /// original disposition, so the reference resolves again. Without it the part is a plain attachment.
+        public var contentID: String?
+        public init(info: AttachmentInfo, contentID: String? = nil) {
+            self.info = info
+            self.contentID = contentID
+        }
+    }
+
     public static let quoteClass = "ss-reply-quote"
     public static let headerClass = "ss-reply-header"
     public static let forwardHeaderClass = "ss-forward-header"
@@ -35,7 +48,7 @@ public enum QuotedReply {
         let author = displayString(original.from)
         let headerText = "On \(date), \(author) wrote:"
         let html = "<div class=\"\(headerClass)\">" + ComposerHTMLExporter.escape(headerText) + "</div>"
-            + "<blockquote class=\"\(quoteClass)\">" + sendableHTML(body.renderedHTML) + "</blockquote>"
+            + "<blockquote class=\"\(quoteClass)\">" + sendableHTML(body.renderedHTML, of: original.id) + "</blockquote>"
         let text = headerText + "\n" + quotePlainText(body.plainText)
         return Rendering(html: html, text: text, header: headerText, originalText: body.plainText)
     }
@@ -53,7 +66,7 @@ public enum QuotedReply {
         let rule = "---------- Forwarded message ----------"
         var html = "<div class=\"\(forwardHeaderClass)\">" + rule + "<br>"
         html += fields.map { "<b>\($0.label):</b> " + ComposerHTMLExporter.escape($0.value) }.joined(separator: "<br>")
-        html += "</div><br><div class=\"\(forwardBodyClass)\">" + sendableHTML(body.renderedHTML) + "</div>"
+        html += "</div><br><div class=\"\(forwardBodyClass)\">" + sendableHTML(body.renderedHTML, of: original.id) + "</div>"
 
         let headerText = rule + "\n" + fields.map { "\($0.label): \($0.value)" }.joined(separator: "\n")
         let text = headerText + "\n\n" + body.plainText
@@ -87,12 +100,21 @@ public enum QuotedReply {
         }.joined(separator: "\n")
     }
 
-    /// Undoes the view-time image rewrites so the quote survives the trip to a recipient.
-    public static func sendableHTML(_ renderedHTML: String) -> String {
-        guard renderedHTML.contains("data-ss-src") || renderedHTML.contains("ss-cid://") else { return renderedHTML }
+    /// Undoes the view-time image rewrites so the quote survives the trip to a recipient, and removes the
+    /// `<style>` blocks the sanitizer keeps for the viewer: there a sandboxed iframe confines them, but in
+    /// the outgoing message they would restyle, or hide, what the user typed above the quote, and could
+    /// hide the attribution so the quoted words read as the replier's own. Inline styles stay; they only
+    /// reach the elements that carry them.
+    ///
+    /// `message` is the quoted message; with it known, an inline reference is resolved by stripping the
+    /// exact `ss-cid://` prefix, which keeps Content-IDs that contain a slash intact.
+    public static func sendableHTML(_ renderedHTML: String, of message: MessageID? = nil) -> String {
+        guard renderedHTML.contains("data-ss-src") || renderedHTML.contains("ss-cid://")
+            || renderedHTML.range(of: "<style", options: .caseInsensitive) != nil else { return renderedHTML }
         do {
             let document = try SwiftSoup.parseBodyFragment(renderedHTML)
             document.outputSettings().prettyPrint(pretty: false)
+            try document.select("style").remove()
             for image in try document.select("img[data-ss-src]") {
                 let remote = try image.attr("data-ss-src")
                 try image.attr("src", remote)
@@ -100,7 +122,7 @@ public enum QuotedReply {
             }
             for image in try document.select("img[src^=ss-cid://]") {
                 let source = try image.attr("src")
-                if let contentID = source.split(separator: "/").last.map(String.init), !contentID.isEmpty {
+                if let contentID = inlineContentID(from: source, of: message) {
                     try image.attr("src", "cid:" + contentID)
                 }
             }
@@ -108,5 +130,54 @@ public enum QuotedReply {
         } catch {
             return renderedHTML
         }
+    }
+
+    /// The Content-ID an `ss-cid://` URL carries. `RenderURLScheme.inlineImageURL` percent-encodes it (a
+    /// space, `%`, `#`, `?` or braces are legal in a msg-id but not in a URL path), so it is decoded again.
+    static func inlineContentID(from source: String, of message: MessageID?) -> String? {
+        let prefix = message.map { RenderURLScheme.inlineImageURL(for: $0, contentID: "").absoluteString }
+        let encoded: Substring
+        if let prefix, source.hasPrefix(prefix) {
+            encoded = source.dropFirst(prefix.count)
+        } else {
+            encoded = source.split(separator: "/").last ?? ""
+        }
+        guard !encoded.isEmpty, let decoded = String(encoded).removingPercentEncoding, !decoded.isEmpty else { return nil }
+        return decoded
+    }
+
+    // MARK: Parts of the original
+
+    /// Which of the original's parts travel with the quote. Every part `quotedHTML` references as `cid:`
+    /// goes along inline, whatever disposition the sender gave it (Outlook marks referenced images as
+    /// attachments), so the reference resolves again; a forward also carries every other part as a regular
+    /// attachment, "inline" ones nothing refers to included, while a reply carries nothing else.
+    public static func partsToCarry(from parts: [AttachmentInfo], quotedHTML: String, isForward: Bool) -> [CarriedPart] {
+        parts.compactMap { part in
+            if let contentID = part.contentID, references(contentID: contentID, in: quotedHTML) {
+                return CarriedPart(info: part, contentID: contentID)
+            }
+            return isForward ? CarriedPart(info: part) : nil
+        }
+    }
+
+    /// True when `html` holds a `cid:` reference to exactly this id, not merely to one it is a prefix of.
+    static func references(contentID: String, in html: String) -> Bool {
+        // Attribute values come back from the serializer entity-escaped, so an id holding `&` or `"` is
+        // looked for in that form too.
+        let ids = Set([contentID, ComposerHTMLExporter.escape(contentID)])
+        for id in ids {
+            let needle = "cid:" + id
+            var searchRange = html.startIndex..<html.endIndex
+            while let found = html.range(of: needle, range: searchRange) {
+                if found.upperBound == html.endIndex || endsReference(html[found.upperBound]) { return true }
+                searchRange = found.upperBound..<html.endIndex
+            }
+        }
+        return false
+    }
+
+    private static func endsReference(_ character: Character) -> Bool {
+        character == "\"" || character == "'" || character == ")" || character.isWhitespace
     }
 }

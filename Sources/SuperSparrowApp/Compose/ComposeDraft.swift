@@ -5,22 +5,6 @@ import SSCore
 /// and so the close prompt can tell prefilled content from what the user actually changed.
 @MainActor
 struct ComposeDraft {
-    /// Threading headers taken from the original message when replying or forwarding.
-    struct Threading: Hashable, Sendable {
-        var inReplyTo: MessageID
-        var inReplyToInternetMessageID: String?
-        var references: [String]
-
-        init(original: MessageMetadata, isReply: Bool) {
-            inReplyTo = original.id
-            // Forwards start a new conversation for the recipient; only a reply claims to answer the original.
-            inReplyToInternetMessageID = isReply ? original.internetMessageID : nil
-            var references = original.references
-            if let id = original.internetMessageID, !references.contains(id) { references.append(id) }
-            self.references = references
-        }
-    }
-
     /// The parts the user can edit, reduced to something comparable. Prefill writes into the baseline
     /// as it lands, so only what the user typed or attached counts as unsaved.
     struct Fingerprint: Hashable {
@@ -44,7 +28,9 @@ struct ComposeDraft {
     /// resolve again, but never shown as chips.
     var attachments: [ComposeAttachment]
     var quoted: QuotedReply.Rendering?
-    var threading: Threading?
+    /// Taken from the original when replying or forwarding and kept whatever From is chosen, so an undone
+    /// send reopens with them; `outgoingMessage` applies them only when the account can use them.
+    var threading: ReplyThreading?
 
     var fingerprint: Fingerprint {
         Fingerprint(
@@ -61,6 +47,9 @@ struct ComposeDraft {
     /// (reading file-backed attachments belongs off the main thread, so the caller does it first).
     func outgoingMessage(normalizedBody: NSAttributedString, loadedAttachments: [OutgoingAttachment]) -> OutgoingMessage {
         let export = ComposerHTMLExporter().export(normalizedBody, appending: quoted)
+        // Threading headers name a message of one account; sending from another would hand the provider
+        // an id it cannot resolve, so the message starts a fresh thread there.
+        let threading = threading?.applicable(to: account.id)
         return OutgoingMessage(
             accountID: account.id,
             to: to,

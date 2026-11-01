@@ -31,6 +31,11 @@ final class AddressTokenField: NSTokenField, NSTokenFieldDelegate, NSViewToolTip
     private var completionCache: CompletionCache?
     private var requestedPrefix = ""
     private var lookupTask: Task<Void, Never>?
+    /// The field editor's text the last tokenization was resolved against, and the pieces of the entry
+    /// being resolved that are still to come; see `representedObjectForEditing`.
+    private var tokenizedText = ""
+    private var tokenizedEntries: [AddressListParser.Entry] = []
+    private var piecesPending: [String] = []
     private var toolTipTag: NSView.ToolTipTag?
     private var lastLayoutWidth: CGFloat = 0
 
@@ -41,7 +46,7 @@ final class AddressTokenField: NSTokenField, NSTokenFieldDelegate, NSViewToolTip
         super.init(frame: frameRect)
         delegate = self
         tokenStyle = .rounded
-        tokenizingCharacterSet = CharacterSet(charactersIn: ",;\n")
+        tokenizingCharacterSet = AddressListParser.separators
         isBezeled = false
         drawsBackground = false
         focusRingType = .none
@@ -69,6 +74,7 @@ final class AddressTokenField: NSTokenField, NSTokenFieldDelegate, NSViewToolTip
     @discardableResult
     func validateForSend(requireRecipient: Bool = false) -> Bool {
         validateEditing()
+        dropSplitRemainders()
         let current = addresses
         let invalid = AddressListParser.invalidEntries(in: current)
         let valid = invalid.isEmpty && (!requireRecipient || !current.isEmpty)
@@ -134,7 +140,7 @@ final class AddressTokenField: NSTokenField, NSTokenFieldDelegate, NSViewToolTip
         let taken = Set(addresses.map { $0.address.lowercased() })
         let strings = results
             .filter { !taken.contains($0.address.lowercased()) }
-            .map(QuotedReply.displayString)
+            .map(AddressListParser.format)
         return strings.isEmpty ? nil : strings
     }
 
@@ -159,11 +165,36 @@ final class AddressTokenField: NSTokenField, NSTokenFieldDelegate, NSViewToolTip
 
     // MARK: Tokens
 
+    /// Stands in for the later pieces of an entry the field cut inside quotes. Never meant to survive:
+    /// `shouldAdd` drops it, and the paths that bypass `shouldAdd` purge it with `dropSplitRemainders`.
+    private final class SplitRemainder: NSObject {}
+
+    /// The field cuts the editing string at every tokenizing character, quotes or not, so a completion or
+    /// an edited token named "Doe, John" arrives here as `"Doe` and then `John" <john@example.com>`. The
+    /// field editor still holds the whole text at this point, so the first piece of such an entry resolves
+    /// to the entry parsed properly and the pieces after it to placeholders that are dropped again.
     func tokenField(_ tokenField: NSTokenField, representedObjectForEditing editingString: String) -> Any? {
-        AddressListParser.parseEntry(editingString) ?? editingString
+        let piece = editingString.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Existing tokens sit in the text as attachment characters; they end an entry like a line break.
+        let text = (currentEditor()?.string ?? "").replacingOccurrences(of: "\u{FFFC}", with: "\n")
+        if text != tokenizedText {
+            tokenizedText = text
+            tokenizedEntries = AddressListParser.entries(in: text)
+            piecesPending = []
+        }
+        if let next = piecesPending.first, next == piece {
+            piecesPending.removeFirst()
+            return SplitRemainder()
+        }
+        if let entry = tokenizedEntries.first(where: { $0.pieces.count > 1 && $0.pieces.first == piece }) {
+            piecesPending = Array(entry.pieces.dropFirst())
+            return AddressListParser.parseEntry(entry.text) ?? editingString
+        }
+        return AddressListParser.parseEntry(editingString) ?? editingString
     }
 
     func tokenField(_ tokenField: NSTokenField, displayStringForRepresentedObject representedObject: Any) -> String? {
+        if representedObject is SplitRemainder { return "" }
         guard let address = representedObject as? EmailAddress else { return representedObject as? String }
         if let name = address.name, !name.isEmpty { return name }
         return address.address
@@ -171,10 +202,11 @@ final class AddressTokenField: NSTokenField, NSTokenFieldDelegate, NSViewToolTip
 
     func tokenField(_ tokenField: NSTokenField, editingStringForRepresentedObject representedObject: Any) -> String? {
         guard let address = representedObject as? EmailAddress else { return representedObject as? String }
-        return QuotedReply.displayString(address)
+        return AddressListParser.format(address)
     }
 
     func tokenField(_ tokenField: NSTokenField, shouldAdd tokens: [Any], at index: Int) -> [Any] {
+        // Anything else, a `SplitRemainder` included, is dropped.
         let added = tokens.compactMap { token -> EmailAddress? in
             if let address = token as? EmailAddress { return address.address.isEmpty ? nil : address }
             if let string = token as? String { return AddressListParser.parseEntry(string) }
@@ -235,7 +267,7 @@ final class AddressTokenField: NSTokenField, NSTokenFieldDelegate, NSViewToolTip
     }
 
     func tokenField(_ tokenField: NSTokenField, writeRepresentedObjects objects: [Any], to pboard: NSPasteboard) -> Bool {
-        let text = objects.compactMap { ($0 as? EmailAddress).map(QuotedReply.displayString) }.joined(separator: ", ")
+        let text = objects.compactMap { ($0 as? EmailAddress).map(AddressListParser.format) }.joined(separator: ", ")
         pboard.clearContents()
         pboard.setString(text, forType: .string)
         return true
@@ -251,8 +283,17 @@ final class AddressTokenField: NSTokenField, NSTokenFieldDelegate, NSViewToolTip
 
     func controlTextDidEndEditing(_ obj: Notification) {
         lookupTask?.cancel()
+        dropSplitRemainders()
         invalidateIntrinsicContentSize()
         onChange?()
+    }
+
+    /// Removes the placeholders `representedObjectForEditing` hands out. Ending editing by Return goes
+    /// through `shouldAdd`, which never adds them; losing focus and `validateEditing()` do not, so the
+    /// field adds them itself and they are taken out again here.
+    private func dropSplitRemainders() {
+        guard let items = objectValue as? [Any], items.contains(where: { $0 is SplitRemainder }) else { return }
+        objectValue = items.filter { !($0 is SplitRemainder) }
     }
 
     // MARK: Tooltips

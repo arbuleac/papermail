@@ -44,13 +44,16 @@ struct ComposeAttachment: Identifiable, Hashable, Sendable {
         )
     }
 
-    init(info: AttachmentInfo, data: Data) {
+    /// A part of a quoted original. `contentID` is the caller's decision (`QuotedReply.partsToCarry`): what
+    /// matters is whether the quote references the part, not the disposition its sender gave it, since
+    /// Outlook marks referenced images as attachments and a forward carries unreferenced inline parts as files.
+    init(info: AttachmentInfo, data: Data, contentID: String?) {
         self.init(
             filename: info.filename.isEmpty ? "attachment" : info.filename,
             mimeType: info.mimeType.isEmpty ? "application/octet-stream" : info.mimeType,
             sizeBytes: data.count,
             source: .data(data),
-            contentID: info.isInline ? info.contentID : nil
+            contentID: contentID
         )
     }
 

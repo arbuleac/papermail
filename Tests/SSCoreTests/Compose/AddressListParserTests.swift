@@ -43,6 +43,44 @@ final class AddressListParserTests: XCTestCase {
         XCTAssertEqual(AddressListParser.validAddresses(in: "bob, ok@example.com").map(\.address), ["ok@example.com"])
     }
 
+    func testWindowsLineBreaksSeparateEntries() {
+        XCTAssertEqual(AddressListParser.parse("a@example.com\r\nb@example.com").map(\.address), ["a@example.com", "b@example.com"])
+    }
+
+    // MARK: Formatting
+
+    func testFormatRoundTripsThroughParse() {
+        let names = ["Doe, John", "A; B", "Say \"hi\"", "Back\\slash", "O'Brien", "'Quoted'", "(Parens)", "John Q. Public", "Jürgen Müller", "Line\nbreak"]
+        for name in names {
+            let address = EmailAddress(name: name, address: "person@example.com")
+            let formatted = AddressListParser.format(address)
+            XCTAssertEqual(AddressListParser.parse(formatted), [address], "\(name) -> \(formatted)")
+            // Formatted entries survive being listed together, which is what the pasteboard carries.
+            XCTAssertEqual(AddressListParser.parse([formatted, "other@example.com"].joined(separator: ", ")), [address, EmailAddress(address: "other@example.com")], formatted)
+        }
+    }
+
+    func testFormatQuotesOnlyWhenNeeded() {
+        XCTAssertEqual(AddressListParser.format(EmailAddress(name: "Doe, John", address: "john@example.com")), "\"Doe, John\" <john@example.com>")
+        XCTAssertEqual(AddressListParser.format(EmailAddress(name: "John Doe", address: "john@example.com")), "John Doe <john@example.com>")
+        XCTAssertEqual(AddressListParser.format(EmailAddress(name: "Say \"hi\"", address: "q@example.com")), "\"Say \\\"hi\\\"\" <q@example.com>")
+        XCTAssertEqual(AddressListParser.format(EmailAddress(address: "john@example.com")), "john@example.com")
+        XCTAssertEqual(AddressListParser.format(EmailAddress(name: "", address: "john@example.com")), "john@example.com")
+        XCTAssertEqual(AddressListParser.format(EmailAddress(name: "john@example.com", address: "john@example.com")), "john@example.com")
+    }
+
+    // MARK: Entries for a quote-blind splitter
+
+    func testEntriesReportThePiecesAQuoteBlindSplitterMakes() {
+        let entries = AddressListParser.entries(in: "a@x.com; \"Last, First\" <lf@x.com>,\n\"A; B\" <ab@x.com>")
+        XCTAssertEqual(entries, [
+            AddressListParser.Entry(text: "a@x.com", pieces: ["a@x.com"]),
+            AddressListParser.Entry(text: "\"Last, First\" <lf@x.com>", pieces: ["\"Last", "First\" <lf@x.com>"]),
+            AddressListParser.Entry(text: "\"A; B\" <ab@x.com>", pieces: ["\"A", "B\" <ab@x.com>"]),
+        ])
+        XCTAssertEqual(AddressListParser.entries(in: " , ;\n"), [])
+    }
+
     func testBlankInputYieldsNothing() {
         XCTAssertEqual(AddressListParser.parse(""), [])
         XCTAssertEqual(AddressListParser.parse(" ,, ;\n"), [])

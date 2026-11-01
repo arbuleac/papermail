@@ -55,4 +55,91 @@ final class QuotedReplyTests: XCTestCase {
         let clean = "<p>nothing to do</p>"
         XCTAssertEqual(QuotedReply.sendableHTML(clean), clean)
     }
+
+    // MARK: Style blocks
+
+    func testStyleBlocksAreDroppedFromTheQuote() {
+        // The viewer fences these in a sandboxed iframe; the outgoing message has no such fence, so they
+        // would paint the user's own paragraphs white and hide the attribution.
+        let hostile = StoredBody(
+            body: MessageBody(html: nil, text: nil),
+            renderedHTML: "<style>p{color:#fff} .ss-reply-header{display:none}</style><p>Buy</p><div><STYLE type=\"text/css\">b{display:none}</STYLE><b>now</b></div>",
+            plainText: "Buy now"
+        )
+        let reply = QuotedReply.reply(original: original, body: hostile)
+        XCTAssertFalse(reply.html.localizedCaseInsensitiveContains("<style"))
+        XCTAssertTrue(reply.html.hasSuffix("<blockquote class=\"ss-reply-quote\"><p>Buy</p><div><b>now</b></div></blockquote>"))
+
+        let forward = QuotedReply.forward(original: original, body: hostile)
+        XCTAssertFalse(forward.html.localizedCaseInsensitiveContains("<style"))
+        XCTAssertTrue(forward.html.hasSuffix("<div class=\"ss-forward-body\"><p>Buy</p><div><b>now</b></div></div>"))
+
+        let typed = NSAttributedString(string: "Thanks")
+        let export = ComposerHTMLExporter().export(typed, appending: reply)
+        XCTAssertFalse(export.html.localizedCaseInsensitiveContains("<style"))
+        XCTAssertTrue(export.html.hasPrefix("<div><p>Thanks</p></div>\n<div class=\"ss-reply-header\">"))
+    }
+
+    func testInlineStylesStay() {
+        let styled = "<p style=\"color:red\">Hi</p><style>p{}</style>"
+        XCTAssertEqual(QuotedReply.sendableHTML(styled), "<p style=\"color:red\">Hi</p>")
+    }
+
+    // MARK: Content-IDs
+
+    func testPercentEncodedContentIDsAreDecoded() {
+        let id = MessageID(accountID: account, providerID: "m1")
+        let spaced = RenderURLScheme.inlineImageURL(for: id, contentID: "image 001@x").absoluteString
+        XCTAssertTrue(spaced.contains("%20"), "the scheme encodes the id, which is what the quote must undo")
+        XCTAssertTrue(QuotedReply.sendableHTML("<img src=\"\(spaced)\">", of: id).contains("src=\"cid:image 001@x\""))
+        XCTAssertTrue(QuotedReply.sendableHTML("<img src=\"\(spaced)\">").contains("src=\"cid:image 001@x\""))
+
+        let braced = RenderURLScheme.inlineImageURL(for: id, contentID: "{5%}#?|@x").absoluteString
+        XCTAssertTrue(QuotedReply.sendableHTML("<img src=\"\(braced)\">", of: id).contains("src=\"cid:{5%}#?|@x\""))
+
+        // A slash is legal in a msg-id and the scheme leaves it alone; only the message's prefix tells
+        // where the id starts.
+        let slashed = RenderURLScheme.inlineImageURL(for: id, contentID: "part/1@x").absoluteString
+        XCTAssertTrue(QuotedReply.sendableHTML("<img src=\"\(slashed)\">", of: id).contains("src=\"cid:part/1@x\""))
+    }
+
+    func testDecodedReferencesMatchTheirParts() {
+        let id = MessageID(accountID: account, providerID: "m1")
+        let part = AttachmentInfo(id: "a1", filename: "image 001.png", mimeType: "image/png", sizeBytes: 1, contentID: "image 001@x", isInline: true)
+        let url = RenderURLScheme.inlineImageURL(for: id, contentID: part.contentID!).absoluteString
+        let quoted = QuotedReply.sendableHTML("<img src=\"\(url)\">", of: id)
+        XCTAssertEqual(QuotedReply.partsToCarry(from: [part], quotedHTML: quoted, isForward: false), [QuotedReply.CarriedPart(info: part, contentID: "image 001@x")])
+    }
+
+    // MARK: Parts to carry
+
+    func testReferencedPartsTravelInlineWhateverTheirDisposition() {
+        // Outlook marks images it references from the body as attachments; the reference decides.
+        let referenced = AttachmentInfo(id: "a1", filename: "img1.png", mimeType: "image/png", sizeBytes: 1, contentID: "img1", isInline: false)
+        let unreferencedInline = AttachmentInfo(id: "a2", filename: "logo.png", mimeType: "image/png", sizeBytes: 1, contentID: "logo", isInline: true)
+        let plain = AttachmentInfo(id: "a3", filename: "doc.pdf", mimeType: "application/pdf", sizeBytes: 1, isInline: false)
+        let parts = [referenced, unreferencedInline, plain]
+        let html = "<blockquote><img src=\"cid:img1\"></blockquote>"
+
+        XCTAssertEqual(
+            QuotedReply.partsToCarry(from: parts, quotedHTML: html, isForward: false),
+            [QuotedReply.CarriedPart(info: referenced, contentID: "img1")]
+        )
+        XCTAssertEqual(
+            QuotedReply.partsToCarry(from: parts, quotedHTML: html, isForward: true),
+            [
+                QuotedReply.CarriedPart(info: referenced, contentID: "img1"),
+                QuotedReply.CarriedPart(info: unreferencedInline),
+                QuotedReply.CarriedPart(info: plain),
+            ]
+        )
+    }
+
+    func testReferenceMatchingIsExact() {
+        XCTAssertTrue(QuotedReply.references(contentID: "img1", in: "<img src=\"cid:img1\">"))
+        XCTAssertTrue(QuotedReply.references(contentID: "img1", in: "<td background='cid:img1'>"))
+        XCTAssertTrue(QuotedReply.references(contentID: "img1", in: "style=\"background:url(cid:img1)\""))
+        XCTAssertFalse(QuotedReply.references(contentID: "img1", in: "<img src=\"cid:img10\">"))
+        XCTAssertTrue(QuotedReply.references(contentID: "a&b", in: "<img src=\"cid:a&amp;b\">"))
+    }
 }
