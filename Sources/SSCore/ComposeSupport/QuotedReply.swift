@@ -120,16 +120,45 @@ public enum QuotedReply {
                 try image.attr("src", remote)
                 try image.removeAttr("data-ss-src")
             }
-            for image in try document.select("img[src^=ss-cid://]") {
-                let source = try image.attr("src")
-                if let contentID = inlineContentID(from: source, of: message) {
-                    try image.attr("src", "cid:" + contentID)
+            // The sanitizer points every cid: reference at ss-cid://, not only <img src>: backgrounds, links
+            // and CSS url() too. Each goes back to cid:, or recipients get dead URLs naming internal ids.
+            for element in try document.select("[src*=ss-cid:], [href*=ss-cid:], [background*=ss-cid:], [style*=ss-cid:]") {
+                for key in ["src", "href", "background", "style"] where element.hasAttr(key) {
+                    let value = try element.attr(key)
+                    guard value.contains(inlinePrefix) else { continue }
+                    try element.attr(key, restoringContentIDs(in: value, of: message))
                 }
             }
             return try document.body()?.html() ?? renderedHTML
         } catch {
             return renderedHTML
         }
+    }
+
+    private static let inlinePrefix = RenderURLScheme.inlineImage + "://"
+
+    /// Every `ss-cid://…` URL inside `value` (an attribute, or CSS with several `url()`s) turned back into
+    /// `cid:<id>`. A URL ends at a quote, a closing parenthesis or whitespace, which a percent-encoded id
+    /// never contains.
+    static func restoringContentIDs(in value: String, of message: MessageID?) -> String {
+        var result = ""
+        var remainder = Substring(value)
+        while let range = remainder.range(of: inlinePrefix) {
+            result += remainder[..<range.lowerBound]
+            var end = range.lowerBound
+            while end < remainder.endIndex, !isURLDelimiter(remainder[end]) { end = remainder.index(after: end) }
+            let url = String(remainder[range.lowerBound..<end])
+            if let contentID = inlineContentID(from: url, of: message) {
+                result += "cid:" + contentID
+            }
+            remainder = remainder[end...]
+        }
+        result += remainder
+        return result
+    }
+
+    private static func isURLDelimiter(_ character: Character) -> Bool {
+        character == "\"" || character == "'" || character == ")" || character == "<" || character == ">" || character.isWhitespace
     }
 
     /// The Content-ID an `ss-cid://` URL carries. `RenderURLScheme.inlineImageURL` percent-encodes it (a
@@ -170,7 +199,10 @@ public enum QuotedReply {
             let needle = "cid:" + id
             var searchRange = html.startIndex..<html.endIndex
             while let found = html.range(of: needle, range: searchRange) {
-                if found.upperBound == html.endIndex || endsReference(html[found.upperBound]) { return true }
+                let rest = html[found.upperBound...]
+                if rest.isEmpty || endsReference(rest[rest.startIndex]) { return true }
+                // Inside a style attribute the serializer writes `url("cid:x")` as `url(&quot;cid:x&quot;)`.
+                if rest.hasPrefix("&quot;") || rest.hasPrefix("&#39;") { return true }
                 searchRange = found.upperBound..<html.endIndex
             }
         }

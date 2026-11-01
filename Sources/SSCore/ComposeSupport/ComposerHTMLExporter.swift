@@ -6,8 +6,10 @@ import Foundation
 ///
 /// Inline styling is read from the standard text-system attributes (font traits, underline, link) through
 /// CoreText so this stays AppKit-free; paragraph structure is read from `ComposerBlock.attributeKey`,
-/// which the composer stamps on every paragraph before exporting. Anything else (colors, sizes, fonts)
-/// is intentionally dropped: the composer promises plain mail, and recipients' clients render it their way.
+/// which the composer stamps on every paragraph before exporting. Paragraph direction is kept as `dir`,
+/// from an explicit writing direction or, for natural ones, the first strong character, so right-to-left
+/// text arrives the way it was typed. Anything else (colors, sizes, fonts) is intentionally dropped: the
+/// composer promises plain mail, and recipients' clients render it their way.
 public struct ComposerHTMLExporter: Sendable {
     public struct Output: Hashable, Sendable {
         public var html: String
@@ -31,15 +33,16 @@ public struct ComposerHTMLExporter: Sendable {
             let kind = paragraphs[index].kind
             switch kind {
             case .paragraph:
-                html += "<p>" + paragraphs[index].htmlOrBreak + "</p>"
+                html += "<p\(paragraphs[index].dir)>" + paragraphs[index].htmlOrBreak + "</p>"
                 lines.append(paragraphs[index].text)
                 index += 1
             case .bulletItem, .numberedItem:
                 let tag = kind == .bulletItem ? "ul" : "ol"
-                html += "<\(tag)>"
+                // The list's own direction puts its markers on the side its first item reads from.
+                html += "<\(tag)\(paragraphs[index].dir)>"
                 var number = 1
                 while index < paragraphs.count, paragraphs[index].kind == kind {
-                    html += "<li>" + paragraphs[index].html + "</li>"
+                    html += "<li\(paragraphs[index].dir)>" + paragraphs[index].html + "</li>"
                     lines.append((kind == .bulletItem ? "- " : "\(number). ") + paragraphs[index].text)
                     number += 1
                     index += 1
@@ -48,7 +51,7 @@ public struct ComposerHTMLExporter: Sendable {
             case .quote:
                 html += "<blockquote>"
                 while index < paragraphs.count, paragraphs[index].kind == .quote {
-                    html += "<p>" + paragraphs[index].htmlOrBreak + "</p>"
+                    html += "<p\(paragraphs[index].dir)>" + paragraphs[index].htmlOrBreak + "</p>"
                     lines.append("> " + paragraphs[index].text)
                     index += 1
                 }
@@ -73,7 +76,23 @@ public struct ComposerHTMLExporter: Sendable {
         var kind: ComposerBlock
         var html: String
         var text: String
+        /// ` dir="rtl"` or empty.
+        var dir = ""
         var htmlOrBreak: String { html.isEmpty ? "<br>" : html }
+    }
+
+    private static let paragraphStyleKey = NSAttributedString.Key("NSParagraphStyle")
+
+    /// NSParagraphStyle lives in AppKit; its writing direction is read through KVC so this module stays
+    /// Foundation-only. NSWritingDirection: -1 natural, 0 left to right, 1 right to left.
+    private static func explicitDirection(_ attributes: [NSAttributedString.Key: Any]) -> TextDirection? {
+        guard let style = attributes[paragraphStyleKey] as? NSObject,
+              let raw = style.value(forKey: "baseWritingDirection") as? Int else { return nil }
+        switch raw {
+        case 0: return .leftToRight
+        case 1: return .rightToLeft
+        default: return nil
+        }
     }
 
     private func paragraphs(of body: NSAttributedString) -> [Paragraph] {
@@ -85,7 +104,13 @@ public struct ComposerHTMLExporter: Sendable {
             let probe = enclosing.length > 0 ? enclosing.location : range.location
             let attributes = probe < string.length ? body.attributes(at: probe, effectiveRange: nil) : [:]
             let runs = self.runs(in: body, range: range)
-            result.append(Paragraph(kind: ComposerBlock.from(attributes: attributes), html: self.html(for: runs), text: self.text(for: runs)))
+            let text = self.text(for: runs)
+            result.append(Paragraph(
+                kind: ComposerBlock.from(attributes: attributes),
+                html: self.html(for: runs),
+                text: text,
+                dir: TextDirection.attribute(for: text, explicit: Self.explicitDirection(attributes))
+            ))
         }
         // Foundation does not enumerate the empty paragraph after a trailing newline, yet the editor shows
         // that blank line, and the user typed it on purpose (usually to keep a quote at arm's length).

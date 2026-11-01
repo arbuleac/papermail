@@ -38,6 +38,7 @@ public enum QuickReplyComposer {
     }
 
     /// Blank lines separate paragraphs; single newlines become `<br>`. Text is escaped, never trusted.
+    /// Right-to-left paragraphs say so with `dir`, or recipients' clients lay them out left to right.
     public static func paragraphsHTML(from text: String) -> String {
         let normalized = text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
         let paragraphs = normalized
@@ -45,7 +46,7 @@ public enum QuickReplyComposer {
             .map { $0.trimmingCharacters(in: .newlines) }
             .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         return paragraphs.map { paragraph in
-            "<p>" + RenderPayloadBuilder.escapeHTML(paragraph).replacingOccurrences(of: "\n", with: "<br>") + "</p>"
+            "<p\(TextDirection.attribute(for: paragraph))>" + RenderPayloadBuilder.escapeHTML(paragraph).replacingOccurrences(of: "\n", with: "<br>") + "</p>"
         }.joined()
     }
 

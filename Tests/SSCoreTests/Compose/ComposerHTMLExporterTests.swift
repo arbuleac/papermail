@@ -95,4 +95,30 @@ final class ComposerHTMLExporterTests: XCTestCase {
         XCTAssertEqual(output.html, "<div><p>line one<br>line two</p><p><br></p></div>")
         XCTAssertEqual(output.text, "line one\nline two\n")
     }
+
+    // MARK: Direction
+
+    /// The composer lays out an Arabic or Hebrew paragraph right to left; without a `dir` the recipient's
+    /// client renders it left to right, left-aligned and with trailing punctuation on the wrong side.
+    func testRightToLeftParagraphsCarryTheirDirection() {
+        let body = join([
+            paragraph("مرحبا، كيف حالك؟"),
+            paragraph("Hello there"),
+            paragraph("שלום", block: .bulletItem),
+            paragraph("123 עברית"),
+        ])
+        let html = ComposerHTMLExporter().export(body).html
+        XCTAssertEqual(html, "<div><p dir=\"rtl\">مرحبا، كيف حالك؟</p><p>Hello there</p><ul dir=\"rtl\"><li dir=\"rtl\">שלום</li></ul><p dir=\"rtl\">123 עברית</p></div>")
+    }
+
+    func testExplicitWritingDirectionWins() {
+        let style = NSMutableParagraphStyle()
+        style.baseWritingDirection = .rightToLeft
+        let html = ComposerHTMLExporter().export(paragraph("OK?", extra: [.paragraphStyle: style])).html
+        XCTAssertEqual(html, "<div><p dir=\"rtl\">OK?</p></div>")
+    }
+
+    func testQuickReplyParagraphsCarryTheirDirection() {
+        XCTAssertEqual(QuickReplyComposer.paragraphsHTML(from: "שלום\n\nHi"), "<p dir=\"rtl\">שלום</p><p>Hi</p>")
+    }
 }

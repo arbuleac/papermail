@@ -142,4 +142,33 @@ final class QuotedReplyTests: XCTestCase {
         XCTAssertFalse(QuotedReply.references(contentID: "img1", in: "<img src=\"cid:img10\">"))
         XCTAssertTrue(QuotedReply.references(contentID: "a&b", in: "<img src=\"cid:a&amp;b\">"))
     }
+
+    // MARK: Inline references outside <img src>
+
+    /// Outlook newsletters and signatures paint with `background="cid:…"` and `url(cid:…)`; the sanitizer
+    /// points those at `ss-cid://` like any image, and the quote must turn every one back into `cid:` or
+    /// recipients get dead URLs that also expose the account and provider message ids.
+    func testBackgroundAndStyleReferencesBecomeCIDAgainAndTheirPartsTravel() throws {
+        let messageID = MessageID(accountID: AccountID("9F2C-ACCT"), providerID: "AAMkAD=")
+        var metadata = original
+        metadata.id = messageID
+        let source = #"<table background="cid:bg@1"><tr><td style="background-image:url(cid:bg2@1)"><a href="cid:doc@1">doc</a></td></tr></table>"#
+        let sanitized = HTMLSanitizer().sanitize(MessageBody(html: source, text: nil), messageID: messageID)
+        XCTAssertTrue(sanitized.html.contains("ss-cid://"), "precondition: the sanitizer rewrote the references")
+        let stored = StoredBody(body: MessageBody(html: source, text: nil), renderedHTML: sanitized.html, plainText: sanitized.plainText)
+
+        let rendering = QuotedReply.reply(original: metadata, body: stored)
+
+        XCTAssertFalse(rendering.html.contains("ss-cid"), rendering.html)
+        XCTAssertFalse(rendering.html.contains("9F2C-ACCT"), "the account id must not leave the machine")
+        XCTAssertTrue(rendering.html.contains(#"background="cid:bg@1""#), rendering.html)
+        XCTAssertTrue(rendering.html.contains("cid:bg2@1"), rendering.html)
+        XCTAssertTrue(rendering.html.contains(#"href="cid:doc@1""#), rendering.html)
+        let parts = [
+            AttachmentInfo(id: "A1", filename: "bg.png", mimeType: "image/png", sizeBytes: 10, contentID: "bg@1", isInline: true),
+            AttachmentInfo(id: "A2", filename: "bg2.png", mimeType: "image/png", sizeBytes: 10, contentID: "bg2@1", isInline: true),
+        ]
+        let carried = QuotedReply.partsToCarry(from: parts, quotedHTML: rendering.html, isForward: false)
+        XCTAssertEqual(carried.map(\.contentID), ["bg@1", "bg2@1"])
+    }
 }
