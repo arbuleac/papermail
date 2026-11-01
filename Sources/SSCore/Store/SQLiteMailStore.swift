@@ -175,8 +175,18 @@ public final class SQLiteMailStore: MailStoring, Sendable {
         _ query: ConversationQuery,
         onChange: @escaping @Sendable ([ConversationSummary]) -> Void
     ) -> StoreObservation {
-        let observation = ValueObservation.tracking { db in try ConversationTable.fetch(query, in: db) }
-        let cancellable = database.startObservation(observation, onError: Self.reportObservationFailure, onChange: onChange)
+        // Identical rows are not delivered again: hydration rewrites a message's full-text row with every
+        // body it saves, which invalidates a search without changing a single result.
+        let observation = ValueObservation.tracking { db in try ConversationTable.fetch(query, in: db) }.removeDuplicates()
+        // A full-text query over a large mailbox can take tens of milliseconds for a one-letter prefix, so a
+        // search fetches its first page on a reader; the list keeps the rows it shows until it arrives.
+        let isSearch = !(query.searchText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        let cancellable = database.startObservation(
+            observation,
+            firstValueOnCallingThread: !isSearch,
+            onError: Self.reportObservationFailure,
+            onChange: onChange
+        )
         return StoreObservation { cancellable.cancel() }
     }
 
@@ -185,7 +195,7 @@ public final class SQLiteMailStore: MailStoring, Sendable {
         onChange: @escaping @Sendable ([MessageMetadata]) -> Void
     ) -> StoreObservation {
         let observation = ValueObservation.tracking { db in try MessageTable.fetch(in: id, db: db) }
-        let cancellable = database.startObservation(observation, onError: Self.reportObservationFailure, onChange: onChange)
+        let cancellable = database.startObservation(observation, firstValueOnCallingThread: true, onError: Self.reportObservationFailure, onChange: onChange)
         return StoreObservation { cancellable.cancel() }
     }
 

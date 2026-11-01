@@ -91,13 +91,30 @@ public struct RenderPayload: Hashable, Codable, Sendable {
         }
     }
 
+    /// The read and star state of one card, for `ss.flags`: a mark-read or star needs no bodies.
+    public struct FlagPatch: Hashable, Codable, Sendable {
+        public var id: String
+        public var isUnread: Bool
+        public var isStarred: Bool
+
+        public init(id: String, isUnread: Bool, isStarred: Bool) {
+            self.id = id
+            self.isUnread = isUnread
+            self.isStarred = isStarred
+        }
+    }
+
     public var subject: String
     /// Oldest first, the order the cards are stacked in.
     public var messages: [Message]
+    /// The "Load remote images" preference: when false, bodies render under a policy that blocks every
+    /// remote fetch until the user loads images for a message, whatever the stored HTML holds.
+    public var loadRemoteImages: Bool
 
-    public init(subject: String, messages: [Message]) {
+    public init(subject: String, messages: [Message], loadRemoteImages: Bool = false) {
         self.subject = subject
         self.messages = messages
+        self.loadRemoteImages = loadRemoteImages
     }
 
     // MARK: Message keys

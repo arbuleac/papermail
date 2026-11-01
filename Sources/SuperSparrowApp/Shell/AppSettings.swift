@@ -28,9 +28,13 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(showPreviews, forKey: Key.previews) }
     }
 
-    /// Applies to bodies sanitized after the change; already stored messages keep their blocked images.
+    /// Read live: by the sanitizer for bodies synced from now on, and by the reader, which renders every
+    /// body under a policy that blocks remote fetches while this is off, whatever the body was stored with.
     @Published var loadRemoteImages: Bool {
-        didSet { defaults.set(loadRemoteImages, forKey: Key.remoteImages) }
+        didSet {
+            defaults.set(loadRemoteImages, forKey: Key.remoteImages)
+            applyRemoteImages()
+        }
     }
 
     @Published var undoSendDelay: TimeInterval {
@@ -59,6 +63,17 @@ final class AppSettings: ObservableObject {
         let stored = defaults.double(forKey: Key.undoSend)
         undoSendDelay = AppSettings.undoSendChoices.contains(stored) ? stored : 5
         applyUndoSendDelay()
+        ConversationViewController.loadRemoteImages = loadRemoteImages
+    }
+
+    private func applyRemoteImages() {
+        ConversationViewController.loadRemoteImages = loadRemoteImages
+        NotificationCenter.default.post(name: ConversationViewController.remoteImagesPolicyChanged, object: nil)
+    }
+
+    /// For the sanitizer, which runs off the main actor: UserDefaults is safe to read from any thread.
+    nonisolated static func loadRemoteImagesNow(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: Key.remoteImages)
     }
 
     func applyUndoSendDelay() {

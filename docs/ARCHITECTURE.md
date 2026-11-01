@@ -56,7 +56,8 @@ SuperSparrowApp (AppKit, WebKit)  ──reads──▶  MailStoring (SQLite)  �
 
 - Sanitize at sync time with SwiftSoup: strip `script`, `iframe`, `object`, `embed`, `form`, `input`, `meta`, `link`, `base`, event-handler attributes, `javascript:` URLs; keep `style` attributes and `<style>` blocks (the body is isolated in a sandboxed iframe); rewrite `cid:` images to `ss-cid://` URLs; replace remote image `src` with `data-ss-src` and count them; strip `url(http…)` from inline CSS; wrap detected quoted content in `<div class="ss-quote">`.
 - The conversation view is one `WKWebView` showing a shell document (CSS and JS loaded once). Rendering a conversation is one `evaluateJavaScript("ss.render(json)")` that builds cards and places each body in `<iframe sandbox srcdoc>`. Inline images load through a `WKURLSchemeHandler` for `ss-cid` that reads attachment bytes from the local cache (fetching through `MailClient.attachmentData` when missing).
-- Keep a pool of three warm web views. When the selection lands on a row, render the next row, the previous row, and the next unread conversation into spare views. Selection highlight moves immediately; rendering is debounced by 30 ms while a key repeats.
+- Keep a pool of three warm web views. When the selection lands on a row, render the next row, the previous row, and the next unread conversation into spare views. Selection highlight moves immediately; rendering is debounced by 30 ms while a key repeats, and pre-rendering waits until the selection has rested for 150 ms.
+- A read or star change in the shown conversation patches the card headers (`ss.flags`) instead of re-sending bodies. Whether a body has quoted text and how many remote images it parks are stored with it at sync time, so no render scans HTML.
 - Dark mode: the shell adapts; email bodies get `color-scheme: light dark` and a per-message "show original" escape hatch.
 
 ## Performance budgets
@@ -74,12 +75,12 @@ Measured with `os_signpost` on a synthetic 100,000-message mailbox (see `Tests/S
 | List refresh after a sync transaction | 50 ms |
 | New mail visible with polling | 30 s |
 
-Rules that keep the budgets: fixed row heights; no Auto Layout inside list rows; attributed strings built once per row and cached by conversation id plus a version; avatars decoded off the main thread, initials painted first; `DatabasePool` reads never wait on sync writes; sync writes batched 200 messages per transaction; no network on the launch path.
+Rules that keep the budgets: search observations fetch their first page off the main thread and deliver only when the rows change; fixed row heights; no Auto Layout inside list rows; attributed strings built once per row and cached by conversation id plus a version; avatars decoded off the main thread, initials painted first; `DatabasePool` reads never wait on sync writes; sync writes batched 200 messages per transaction; no network on the launch path.
 
 ## Security and privacy
 
 - Tokens live in the Keychain. The database lives in `~/Library/Application Support/SuperSparrow/mail.sqlite` (0600).
-- Remote images are blocked by default; loading them is per message, and loaded ones are cached on disk.
+- Remote images are blocked by default; loading them is per message, and loaded ones are cached on disk. The "Load remote images" preference is read for every body synced and by the reader, which renders each body that has not had its images loaded under a Content-Security-Policy (`img-src ss-cid: data:`, no other fetches), so turning the preference off takes effect at once, even for bodies stored while it was on.
 - No analytics, no crash reporting, no third-party services. Email content goes only to Google, Microsoft, and this machine.
 
 ## Testing

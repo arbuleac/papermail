@@ -89,7 +89,7 @@ final class AppEnvironment {
             tokenStore: tokenStore,
             tokenProvider: tokenManager,
             authenticator: authenticator,
-            sanitizer: HTMLSanitizer(allowRemoteImages: settings.loadRemoteImages),
+            sanitizer: PreferenceSanitizer(),
             providerFactory: { account in
                 switch account.kind {
                 case .gmail: return GmailProvider(accountID: account.id, tokens: tokenManager)
@@ -110,7 +110,7 @@ final class AppEnvironment {
             tokenStore: InMemoryTokenStore(),
             tokenProvider: DemoTokenProvider(),
             authenticator: DemoAuthenticator(),
-            sanitizer: HTMLSanitizer(allowRemoteImages: settings.loadRemoteImages),
+            sanitizer: PreferenceSanitizer(),
             providerFactory: { service.provider(for: $0) },
             // Short enough that a message arriving every ~45 s shows up promptly.
             pollInterval: 15,

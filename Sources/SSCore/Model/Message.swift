@@ -152,9 +152,22 @@ public struct StoredBody: Hashable, Codable, Sendable {
     /// Sanitized, cid-rewritten, remote-images-blocked HTML. See `HTMLSanitizer`.
     public var renderedHTML: String
     public var plainText: String
-    public init(body: MessageBody, renderedHTML: String, plainText: String) {
+    /// Facts about `renderedHTML` worked out once at sync time, so rendering never scans the body. Nil for
+    /// bodies stored before they were kept; the renderer then derives them from the HTML.
+    public var hasQuotedContent: Bool?
+    /// Remote images parked in `data-ss-src`, which the reader can load on request.
+    public var blockedRemoteImageCount: Int?
+    public init(
+        body: MessageBody,
+        renderedHTML: String,
+        plainText: String,
+        hasQuotedContent: Bool? = nil,
+        blockedRemoteImageCount: Int? = nil
+    ) {
         self.body = body
         self.renderedHTML = renderedHTML
         self.plainText = plainText
+        self.hasQuotedContent = hasQuotedContent
+        self.blockedRemoteImageCount = blockedRemoteImageCount
     }
 }

@@ -216,4 +216,24 @@ final class RenderPayloadBuilderTests: XCTestCase {
     func testEscapeHTML() {
         XCTAssertEqual(RenderPayloadBuilder.escapeHTML("<a href=\"x\">Tom & 'Jerry'</a>"), "&lt;a href=&quot;x&quot;&gt;Tom &amp; &#39;Jerry&#39;&lt;/a&gt;")
     }
+
+    /// The facts the sanitizer worked out at sync time are used as stored; scanning every body of a thread
+    /// on each render cost about 100 ms for a long thread of newsletters.
+    func testStoredRenderFactsAreUsedWithoutScanning() {
+        let message = F.message("m1")
+        var body = F.body(html: "<div class=\"ss-quote\"><img data-ss-src=\"https://x/a.png\"></div>")
+        body.hasQuotedContent = false
+        body.blockedRemoteImageCount = 7
+        let payload = F.builder.build(messages: [message], bodies: [message.id: body], accounts: F.accounts, loadRemoteImages: true)
+        XCTAssertEqual(payload.messages[0].hasQuotedContent, false)
+        XCTAssertEqual(payload.messages[0].blockedRemoteImageCount, 7)
+        XCTAssertTrue(payload.loadRemoteImages)
+
+        body.hasQuotedContent = nil
+        body.blockedRemoteImageCount = nil
+        let legacy = F.builder.build(messages: [message], bodies: [message.id: body], accounts: F.accounts)
+        XCTAssertEqual(legacy.messages[0].hasQuotedContent, true, "bodies stored before the facts were kept are scanned")
+        XCTAssertEqual(legacy.messages[0].blockedRemoteImageCount, 1)
+        XCTAssertFalse(legacy.loadRemoteImages)
+    }
 }

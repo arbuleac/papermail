@@ -63,4 +63,21 @@ public struct RenderInputs: Hashable, Sendable {
     public func refreshed(with messages: [MessageMetadata], probe: (MessageID) -> Bool) -> RenderInputs {
         RenderInputs(messages: messages) { id in bodyIDs.contains(id) || probe(id) }
     }
+
+    /// The patches that bring a slot rendered from `self` up to `fresh` when only read or star flags
+    /// moved; nil when anything else changed and the slot needs a payload.
+    public func flagPatches(to fresh: RenderInputs) -> [RenderPayload.FlagPatch]? {
+        guard messages.count == fresh.messages.count, bodyIDs == fresh.bodyIDs else { return nil }
+        var patches: [RenderPayload.FlagPatch] = []
+        for (old, new) in zip(messages, fresh.messages) {
+            var comparable = new
+            comparable.isRead = old.isRead
+            comparable.isStarred = old.isStarred
+            guard comparable == old else { return nil }
+            if old.isRead != new.isRead || old.isStarred != new.isStarred {
+                patches.append(RenderPayload.FlagPatch(id: RenderPayload.messageKey(for: new.id), isUnread: !new.isRead, isStarred: new.isStarred))
+            }
+        }
+        return patches
+    }
 }

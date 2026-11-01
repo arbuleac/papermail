@@ -160,6 +160,13 @@ public enum ConversationShellAssets {
       'use strict';
       var root = document.getElementById('ss-root');
       var state = { payload: null, cards: [], byID: {}, selected: null };
+      // The "Load remote images" preference of the payload being rendered.
+      var loadRemote = false;
+      // Bodies whose images are not loaded render under this policy: nothing remote is fetched, whatever
+      // the stored HTML holds (a body stored while the preference was on keeps live remote sources).
+      var BLOCKING_CSP = "default-src 'none'; img-src ss-cid: data:; style-src 'unsafe-inline'; font-src ss-cid: data:";
+      // Sources the policy holds back: any image not served locally, plus remote backgrounds.
+      var LIVE_REMOTE = 'img[src]:not([src^="data:" i]):not([src^="ss-cid:" i]), [background^="http" i], [style*="url(http" i]';
 
       function post(handler, body) {
         try {
@@ -176,9 +183,23 @@ public enum ConversationShellAssets {
         return node;
       }
 
-      function bodyDocument(html) {
-        return '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="color-scheme" content="light dark"><style>'
+      function bodyDocument(html, allowRemote) {
+        var policy = allowRemote ? '' : '<meta http-equiv="Content-Security-Policy" content="' + BLOCKING_CSP + '">';
+        return '<!DOCTYPE html><html><head><meta charset="utf-8">' + policy
+          + '<meta name="color-scheme" content="light dark"><style>'
           + SS_BODY_CSS + '</style></head><body>' + html + '</body></html>';
+      }
+
+      // Puts parked remote sources back. Runs only in a frame built without the blocking policy.
+      function restoreRemote(card, doc) {
+        var images = doc.querySelectorAll('img[data-ss-src]');
+        for (var i = 0; i < images.length; i++) {
+          var img = images[i];
+          img.addEventListener('load', card.remeasure);
+          img.addEventListener('error', card.remeasure);
+          img.src = img.getAttribute('data-ss-src');
+          img.removeAttribute('data-ss-src');
+        }
       }
 
       function frameDocument(card) {
@@ -215,6 +236,15 @@ public enum ConversationShellAssets {
       function attachMeasurement(card) {
         var doc = frameDocument(card);
         if (!doc || !doc.body) { return; }
+        if (card.imagesLoaded) {
+          restoreRemote(card, doc);
+        } else {
+          var live = doc.querySelectorAll(LIVE_REMOTE).length;
+          if (live !== card.liveRemote) { card.liveRemote = live; fillTools(card); }
+        }
+        // A frame rebuilt to load images starts from a fresh document; the reader's toggles come along.
+        doc.body.classList.toggle('ss-show-quotes', !!card.quotesShown);
+        doc.body.classList.toggle('ss-original', !!card.original);
         if (card.observer) { try { card.observer.disconnect(); } catch (e) {} card.observer = null; }
         var images = doc.images;
         for (var i = 0; i < images.length; i++) {
@@ -250,7 +280,7 @@ public enum ConversationShellAssets {
         iframe.setAttribute('title', 'Message body');
         iframe.addEventListener('load', function () { attachMeasurement(card); });
         card.iframe = iframe;
-        iframe.srcdoc = bodyDocument(card.message.html);
+        iframe.srcdoc = bodyDocument(card.message.html, card.imagesLoaded);
         card.bodyElement.appendChild(iframe);
       }
 
@@ -284,23 +314,15 @@ public enum ConversationShellAssets {
         post('ss', { kind: 'action', type: type, messageID: card.message.id, attachmentID: attachmentID || null });
       }
 
+      // The blocking policy of a document cannot be lifted, so the frame is rebuilt without it; parked
+      // sources are restored once the new document has loaded.
       function loadImages(card, button) {
-        if (!card.expanded) { expand(card); }
-        var doc = frameDocument(card);
-        if (!doc || !doc.body) {
-          setTimeout(function () { loadImages(card, button); }, 50);
-          return;
-        }
-        var images = doc.querySelectorAll('img[data-ss-src]');
-        for (var i = 0; i < images.length; i++) {
-          var img = images[i];
-          img.addEventListener('load', card.remeasure);
-          img.addEventListener('error', card.remeasure);
-          img.src = img.getAttribute('data-ss-src');
-          img.removeAttribute('data-ss-src');
-        }
         if (button) { button.remove(); }
+        if (card.imagesLoaded) { return; }
         card.imagesLoaded = true;
+        releaseFrame(card);
+        if (card.iframe) { card.iframe.remove(); card.iframe = null; }
+        if (card.expanded) { ensureFrame(card); } else { expand(card); }
         scheduleMeasure(card);
       }
 
@@ -358,8 +380,9 @@ public enum ConversationShellAssets {
         var m = card.message;
         var tools = card.toolsElement;
         tools.replaceChildren();
-        if (m.blockedRemoteImageCount > 0 && !card.imagesLoaded) {
-          var loadButton = el('button', 'ss-button ss-load-images', 'Load images (' + m.blockedRemoteImageCount + ')');
+        var blocked = (m.blockedRemoteImageCount || 0) + (card.liveRemote || 0);
+        if (blocked > 0 && !card.imagesLoaded) {
+          var loadButton = el('button', 'ss-button ss-load-images', 'Load images (' + blocked + ')');
           loadButton.addEventListener('click', function (event) { event.stopPropagation(); loadImages(card, loadButton); });
           tools.appendChild(loadButton);
         }
@@ -395,7 +418,8 @@ public enum ConversationShellAssets {
         releaseFrame(card);
         if (card.iframe) { card.iframe.remove(); card.iframe = null; }
         card.height = 0;
-        card.imagesLoaded = false;
+        card.imagesLoaded = loadRemote;
+        card.liveRemote = 0;
         card.quotesShown = false;
         card.original = false;
         card.bodyElement.classList.toggle('ss-pending-body', !card.message.hasBody);
@@ -417,7 +441,7 @@ public enum ConversationShellAssets {
       function buildCard(m) {
         var card = {
           message: m, element: null, headerElement: null, toolsElement: null, bodyElement: null,
-          attachmentsElement: null, iframe: null, observer: null, expanded: false, imagesLoaded: false,
+          attachmentsElement: null, iframe: null, observer: null, expanded: false, imagesLoaded: loadRemote, liveRemote: 0,
           quotesShown: false, original: false, height: 0, measureTimer: null
         };
         card.remeasure = function () { scheduleMeasure(card); };
@@ -495,6 +519,7 @@ public enum ConversationShellAssets {
       function render(payload) {
         teardown();
         state.payload = payload;
+        loadRemote = !!payload.loadRemoteImages;
         document.title = payload.subject || '';
         var messages = payload.messages || [];
         var fragment = document.createDocumentFragment();
@@ -537,6 +562,7 @@ public enum ConversationShellAssets {
       function update(payload) {
         var messages = payload.messages || [];
         if (!state.payload || state.cards.length === 0 || messages.length === 0) { return render(payload); }
+        if (!!payload.loadRemoteImages !== loadRemote) { return render(payload); }
         var incoming = {};
         for (var i = 0; i < messages.length; i++) { incoming[messages[i].id] = messages[i]; }
         var surviving = [];
@@ -582,6 +608,22 @@ public enum ConversationShellAssets {
         return cards.length;
       }
 
+      // Read and star changes patch the headers only; the bodies, and the frames showing them, stay put.
+      function flags(patches) {
+        var patched = 0;
+        for (var i = 0; i < patches.length; i++) {
+          var p = patches[i];
+          var card = state.byID[p.id];
+          if (!card) { continue; }
+          var m = Object.assign({}, card.message, { isUnread: p.isUnread, isStarred: p.isStarred });
+          var previous = card.message;
+          card.message = m;
+          if (headerKey(previous) !== headerKey(m)) { fillHeader(card); }
+          patched++;
+        }
+        return patched;
+      }
+
       function clear() {
         teardown();
         document.title = '';
@@ -596,6 +638,7 @@ public enum ConversationShellAssets {
         version: 2,
         render: render,
         update: update,
+        flags: flags,
         clear: clear,
         cardCount: function () { return state.cards.length; },
         cardStates: function () {

@@ -119,6 +119,28 @@ final class WebViewPool: NSObject, WKScriptMessageHandler {
         evaluate("window.ss.update", payload, in: slot, generation: generation, completion: completion)
     }
 
+    /// Applies read and star changes to a slot that holds `id` and is otherwise current: a handful of
+    /// header patches instead of a payload carrying every body. Falls back to nothing when the slot is
+    /// busy; the caller then refreshes with a payload.
+    func patchFlags(_ patches: [RenderPayload.FlagPatch], inputs: RenderInputs, id: ConversationID, in slot: PooledConversationView) -> Bool {
+        guard slot.isReady, slot.pendingRender == nil, !slot.renderInFlight, slot.renderedID == id else { return false }
+        slot.renderedInputs = inputs
+        guard !patches.isEmpty, let data = try? JSONEncoder().encode(patches) else { return true }
+        slot.webView.evaluateJavaScript("window.ss.flags(\(String(decoding: data, as: UTF8.self)))") { _, error in
+            if let error {
+                ConversationSignposts.log.error("flag patch failed: \(String(describing: error), privacy: .public)")
+            }
+        }
+        return true
+    }
+
+    /// Clears every slot but the one on screen, so nothing pre-rendered under an old preference is swapped in.
+    func clearAll(except keep: PooledConversationView?) {
+        for slot in slots where slot !== keep {
+            clear(slot)
+        }
+    }
+
     /// Runs `completion` once the render in flight for `slot` lands, whoever started it, with true when
     /// the DOM holds the slot's conversation; at once with true when the slot is idle.
     func whenRenderLands(in slot: PooledConversationView, _ completion: @escaping (Bool) -> Void) {

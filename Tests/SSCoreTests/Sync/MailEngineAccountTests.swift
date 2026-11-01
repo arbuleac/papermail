@@ -22,6 +22,8 @@ final class MailEngineAccountTests: XCTestCase {
         XCTAssertEqual(provider.bodyCalls, ["1"])
         XCTAssertEqual(harness.sanitizer.calls, 1)
         XCTAssertEqual(try harness.store.body(for: id), a)
+        XCTAssertEqual(a.hasQuotedContent, false, "render facts are worked out once, at sync time")
+        XCTAssertEqual(a.blockedRemoteImageCount, 0)
 
         let third = try await harness.engine.ensureBody(for: id)
         XCTAssertEqual(third, a)

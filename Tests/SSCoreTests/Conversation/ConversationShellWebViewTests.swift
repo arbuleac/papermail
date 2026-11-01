@@ -48,7 +48,26 @@ final class ConversationShellWebViewTests: XCTestCase {
         func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {}
     }
 
+    /// Stands in for the network: counts what message bodies try to fetch.
+    @MainActor
+    private final class RemoteSchemeRecorder: NSObject, WKURLSchemeHandler {
+        static let scheme = "ss-remote"
+        private(set) var paths: [String] = []
+
+        func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
+            guard let url = urlSchemeTask.request.url,
+                  let response = HTTPURLResponse(url: url, statusCode: 404, httpVersion: "HTTP/1.1", headerFields: ["Content-Length": "0"])
+            else { return }
+            paths.append(url.path)
+            urlSchemeTask.didReceive(response)
+            urlSchemeTask.didFinish()
+        }
+
+        func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {}
+    }
+
     private var configuration: WKWebViewConfiguration?
+    private let remote = RemoteSchemeRecorder()
 
     override func tearDown() {
         configuration?.userContentController.removeAllScriptMessageHandlers()
@@ -172,6 +191,69 @@ final class ConversationShellWebViewTests: XCTestCase {
         XCTAssertEqual(selected, full.messages[1].id, "the selection is not moved by an update")
     }
 
+    // MARK: Remote images
+
+    /// A body stored while "Load remote images" was on keeps live remote sources. Once the setting is
+    /// off they must not load (trackers included) until the user asks, and then parked ones load too.
+    func testRemoteImagesStayBlockedUntilTheUserLoadsThem() async throws {
+        let (webView, _) = try await loadedShell()
+        typealias F = ConversationFixtures
+        let message = F.message("m1")
+        let html = "<p>Hi</p><img src=\"ss-remote://cdn/live.png\" alt=\"\"><img src=\"\(HTMLSanitizer.placeholderImage)\" data-ss-src=\"ss-remote://cdn/parked.png\" alt=\"\">"
+        let payload = F.builder.build(messages: [message], bodies: [message.id: F.body(html: html)], accounts: F.accounts)
+        XCTAssertFalse(payload.loadRemoteImages)
+        _ = try await evaluate("window.ss.render(\(try payload.jsonString()))", in: webView)
+        try await waitForFrames(count: 1, in: webView)
+        try await Task.sleep(nanoseconds: 500_000_000)
+        XCTAssertEqual(remote.paths, [], "nothing remote loads while images are blocked")
+        let button = try await evaluate("(document.querySelector('.ss-load-images') || {}).textContent", in: webView) as? String
+        XCTAssertEqual(button, "Load images (2)", "live sources count as blocked images too")
+
+        let key = ConversationShellAssets.jsStringLiteral(payload.messages[0].id)
+        _ = try await evaluate("window.ss.loadImages(\(key))", in: webView)
+        for _ in 0..<50 where remote.paths.count < 2 { try await Task.sleep(nanoseconds: 100_000_000) }
+        XCTAssertEqual(Set(remote.paths), ["/live.png", "/parked.png"])
+        let buttons = try await count(".ss-load-images", in: webView)
+        XCTAssertEqual(buttons, 0)
+    }
+
+    func testRemoteImagesLoadAtOnceWhenTheSettingIsOn() async throws {
+        let (webView, _) = try await loadedShell()
+        typealias F = ConversationFixtures
+        let message = F.message("m1")
+        let html = "<p>Hi</p><img src=\"\(HTMLSanitizer.placeholderImage)\" data-ss-src=\"ss-remote://cdn/parked.png\" alt=\"\">"
+        let payload = F.builder.build(messages: [message], bodies: [message.id: F.body(html: html)], accounts: F.accounts, loadRemoteImages: true)
+        _ = try await evaluate("window.ss.render(\(try payload.jsonString()))", in: webView)
+        try await waitForFrames(count: 1, in: webView)
+        for _ in 0..<50 where remote.paths.isEmpty { try await Task.sleep(nanoseconds: 100_000_000) }
+        XCTAssertEqual(remote.paths, ["/parked.png"], "mail stored while the setting was off follows it once it is on")
+        let buttons = try await count(".ss-load-images", in: webView)
+        XCTAssertEqual(buttons, 0)
+    }
+
+    // MARK: Flags
+
+    func testFlagPatchesTouchOnlyTheHeaders() async throws {
+        let (webView, _) = try await loadedShell()
+        typealias F = ConversationFixtures
+        let message = F.message("m1", isRead: false)
+        let payload = F.builder.build(messages: [message], bodies: [message.id: F.body(html: "<p>Body</p>")], accounts: F.accounts)
+        _ = try await evaluate("window.ss.render(\(try payload.jsonString()))", in: webView)
+        try await waitForFrames(count: 1, in: webView)
+        _ = try await evaluate("document.querySelector('.ss-card iframe').dataset.marker = 'kept'", in: webView)
+        let unreadBefore = try await count(".ss-card.ss-unread", in: webView)
+        XCTAssertEqual(unreadBefore, 1)
+
+        let patch = [RenderPayload.FlagPatch(id: payload.messages[0].id, isUnread: false, isStarred: true)]
+        let json = String(decoding: try JSONEncoder().encode(patch), as: UTF8.self)
+        let patched = int(try await evaluate("window.ss.flags(\(json))", in: webView))
+        XCTAssertEqual(patched, 1)
+        let unreadAfter = try await count(".ss-card.ss-unread", in: webView)
+        XCTAssertEqual(unreadAfter, 0)
+        let marker = try await evaluate("document.querySelector('.ss-card iframe').dataset.marker", in: webView) as? String
+        XCTAssertEqual(marker, "kept", "the body frame is left alone")
+    }
+
     // MARK: Helpers
 
     /// The shell in a web view, once it has signalled ready. Skips unless `SS_UI_TESTS=1`.
@@ -182,6 +264,7 @@ final class ConversationShellWebViewTests: XCTestCase {
         let handler = ShellMessages()
         let configuration = WKWebViewConfiguration()
         configuration.setURLSchemeHandler(ShellSchemeStub(), forURLScheme: ConversationShellAssets.scheme)
+        configuration.setURLSchemeHandler(remote, forURLScheme: RemoteSchemeRecorder.scheme)
         configuration.userContentController.add(handler, name: ConversationShellAssets.readyHandlerName)
         configuration.userContentController.add(handler, name: ConversationShellAssets.messageHandlerName)
         self.configuration = configuration

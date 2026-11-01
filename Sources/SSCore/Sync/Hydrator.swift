@@ -111,7 +111,14 @@ actor Hydrator {
             let body = try await provider.body(for: id.providerID)
             try Task.checkCancellation()
             let sanitized = sanitizer.sanitize(body, messageID: id)
-            let stored = StoredBody(body: body, renderedHTML: sanitized.html, plainText: sanitized.plainText)
+            let stored = StoredBody(
+                body: body,
+                renderedHTML: sanitized.html,
+                plainText: sanitized.plainText,
+                hasQuotedContent: sanitized.hasQuotedContent,
+                // What the reader's "Load images" restores: parked <img> sources, not dropped backgrounds.
+                blockedRemoteImageCount: RenderPayloadBuilder.blockedRemoteImageCount(in: sanitized.html)
+            )
             try store.saveBody(stored, for: id)
             return stored
         }

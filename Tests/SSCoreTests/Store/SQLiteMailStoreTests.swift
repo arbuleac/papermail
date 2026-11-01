@@ -342,6 +342,68 @@ final class SQLiteMailStoreTests: XCTestCase {
         observation.cancel()
     }
 
+    /// A full-text search over a large mailbox takes tens of milliseconds for a short prefix; started from
+    /// the main thread it must not run there, while list views keep their synchronous first page.
+    func testSearchObservationDeliversOffTheCallingTurn() throws {
+        let store = try store(with: [accountA])
+        try store.upsertMessages([message("m1", in: "c1", subject: "Quarterly budget", date: date(100))])
+        XCTAssertTrue(Thread.isMainThread)
+
+        let listBox = ObservedValues()
+        let list = store.observeConversations(ConversationQuery(view: .inbox)) { listBox.append($0.map(\.id.providerID)) }
+        XCTAssertEqual(listBox.values, [["c1"]], "list views still get their first page synchronously")
+
+        let searchBox = ObservedValues()
+        let delivered = expectation(description: "search results")
+        let search = store.observeConversations(ConversationQuery(view: .inbox, searchText: "b")) { summaries in
+            XCTAssertTrue(Thread.isMainThread)
+            searchBox.append(summaries.map(\.id.providerID))
+            delivered.fulfill()
+        }
+        XCTAssertTrue(searchBox.values.isEmpty, "the search query ran on the main thread")
+        wait(for: [delivered], timeout: 2)
+        XCTAssertEqual(searchBox.values, [["c1"]])
+        list.cancel()
+        search.cancel()
+    }
+
+    /// Hydration saves one body after another and every save rewrites the message's full-text row; with
+    /// search results on screen each one used to re-deliver identical rows to the main thread, where the
+    /// list then re-read its scrolled tail pages.
+    func testSearchObservationIgnoresBodySavesThatChangeNoRow() throws {
+        let store = try store(with: [accountA])
+        let ids = (1...5).map { "m\($0)" }
+        try store.upsertMessages(ids.enumerated().map { message($1, in: "c\($0)", subject: "Invoice \($0)", date: date(TimeInterval(100 + $0))) })
+        let box = ObservedValues()
+        let initial = expectation(description: "initial")
+        let changed = expectation(description: "new mail")
+        let observation = store.observeConversations(ConversationQuery(view: .inbox, searchText: "invoice")) { summaries in
+            let count = box.append(summaries.map(\.id.providerID))
+            if count == 1 { initial.fulfill() }
+            if summaries.count == 6 { changed.fulfill() }
+        }
+        wait(for: [initial], timeout: 2)
+        for id in ids {
+            try store.saveBody(body("invoice body \(id)"), for: MessageID(accountID: accountA, providerID: id))
+        }
+        try store.upsertMessages([message("m6", in: "c6", subject: "Invoice 6", date: date(200))])
+        wait(for: [changed], timeout: 2)
+        XCTAssertEqual(box.values.count, 2, "body saves that leave every row as it was must not re-deliver: \(box.values)")
+        observation.cancel()
+    }
+
+    func testRenderFactsRoundTrip() throws {
+        let store = try store(with: [accountA])
+        try store.upsertMessages([message("m1", in: "c")])
+        let id = MessageID(accountID: accountA, providerID: "m1")
+        var stored = body("quoted")
+        stored.hasQuotedContent = true
+        stored.blockedRemoteImageCount = 3
+        try store.saveBody(stored, for: id)
+        XCTAssertEqual(try store.body(for: id)?.hasQuotedContent, true)
+        XCTAssertEqual(try store.body(for: id)?.blockedRemoteImageCount, 3)
+    }
+
     // MARK: Compression
 
     func testCompressionRoundTrip() throws {

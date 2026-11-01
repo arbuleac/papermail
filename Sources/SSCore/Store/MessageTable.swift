@@ -185,11 +185,12 @@ enum MessageTable {
         ) else { return false }
         try FullTextIndex.remove(rowid: rowid, in: db)
         try db.cachedStatement(sql: """
-            INSERT INTO bodies (account_id, provider_id, html, text, rendered_html, plain_text, attachments_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO bodies (account_id, provider_id, html, text, rendered_html, plain_text, attachments_json, has_quoted, blocked_images)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(account_id, provider_id) DO UPDATE SET
                 html = excluded.html, text = excluded.text, rendered_html = excluded.rendered_html,
-                plain_text = excluded.plain_text, attachments_json = excluded.attachments_json
+                plain_text = excluded.plain_text, attachments_json = excluded.attachments_json,
+                has_quoted = excluded.has_quoted, blocked_images = excluded.blocked_images
             """).execute(arguments: [
                 id.accountID.rawValue, id.providerID,
                 try body.body.html.map(MailStoreCodec.compress),
@@ -197,6 +198,8 @@ enum MessageTable {
                 try MailStoreCodec.compress(body.renderedHTML),
                 body.plainText,
                 try MailStoreCodec.json(body.body.attachments),
+                body.hasQuotedContent,
+                body.blockedRemoteImageCount,
             ])
         try db.cachedStatement(sql: "UPDATE messages SET has_body = 1 WHERE rowid = ?").execute(arguments: [rowid])
         try FullTextIndex.insert(rowid: rowid, in: db)
@@ -205,7 +208,7 @@ enum MessageTable {
 
     static func body(for id: MessageID, in db: Database) throws -> StoredBody? {
         let statement = try db.cachedStatement(sql: """
-            SELECT html, text, rendered_html, plain_text, attachments_json FROM bodies
+            SELECT html, text, rendered_html, plain_text, attachments_json, has_quoted, blocked_images FROM bodies
             WHERE account_id = ? AND provider_id = ?
             """)
         guard let row = try Row.fetchOne(statement, arguments: [id.accountID.rawValue, id.providerID]) else { return nil }
@@ -220,7 +223,9 @@ enum MessageTable {
                 attachments: try MailStoreCodec.decode([AttachmentInfo].self, from: attachmentsJSON)
             ),
             renderedHTML: try MailStoreCodec.decompress(rendered),
-            plainText: row[3]
+            plainText: row[3],
+            hasQuotedContent: row[5],
+            blockedRemoteImageCount: row[6]
         )
     }
 

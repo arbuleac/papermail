@@ -11,6 +11,13 @@ enum MailSchema {
         migrator.registerMigration("v1-mailbox") { db in
             try db.execute(sql: v1)
         }
+        migrator.registerMigration("v2-body-render-facts") { db in
+            // Nullable: bodies stored before have none, and the renderer derives them from the HTML.
+            try db.execute(sql: """
+                ALTER TABLE bodies ADD COLUMN has_quoted INTEGER;
+                ALTER TABLE bodies ADD COLUMN blocked_images INTEGER;
+                """)
+        }
         return migrator
     }
 

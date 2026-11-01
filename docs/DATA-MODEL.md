@@ -53,6 +53,8 @@ Indexes: `(account_id, conversation_provider_id)`, `(account_id, has_body, date_
 | rendered_html | BLOB | sanitized, zlib-compressed |
 | plain_text | TEXT | extracted, uncompressed, feeds FTS |
 | attachments_json | TEXT | `[AttachmentInfo]` |
+| has_quoted | INTEGER NULL | rendered_html has detected quoted text; NULL for bodies stored before v2 |
+| blocked_images | INTEGER NULL | remote images parked in `data-ss-src`; NULL for bodies stored before v2 |
 
 ### conversations (denormalized summary rows, maintained by the store)
 | column | type | notes |

@@ -21,11 +21,13 @@ public struct RenderPayloadBuilder: Sendable {
     ///   - messages: a conversation's messages in any order; trash and spam are filtered like the list does.
     ///   - bodies: stored bodies keyed by message; missing ones get a snippet fallback.
     ///   - subject: overrides the first non-empty message subject when the caller already has it.
+    ///   - loadRemoteImages: the user's preference, passed through to the shell.
     public func build(
         messages: [MessageMetadata],
         bodies: [MessageID: StoredBody],
         accounts: [AccountID: Account],
         subject: String? = nil,
+        loadRemoteImages: Bool = false,
         now: Date = Date()
     ) -> RenderPayload {
         let visible = Self.visibleMessages(messages)
@@ -34,6 +36,8 @@ public struct RenderPayloadBuilder: Sendable {
         let rendered = visible.map { message -> RenderPayload.Message in
             let body = bodies[message.id]
             let html = Self.html(for: message, body: body)
+            // Stored facts describe renderedHTML; a fallback body (snippet or text) is small enough to scan.
+            let stored = body.flatMap { $0.renderedHTML == html ? $0 : nil }
             return RenderPayload.Message(
                 id: RenderPayload.messageKey(for: message.id),
                 from: Self.sender(for: message.from),
@@ -46,8 +50,8 @@ public struct RenderPayloadBuilder: Sendable {
                 isStarred: message.isStarred,
                 hasBody: body != nil,
                 html: html,
-                hasQuotedContent: Self.hasQuotedContent(in: html),
-                blockedRemoteImageCount: Self.blockedRemoteImageCount(in: html),
+                hasQuotedContent: stored?.hasQuotedContent ?? Self.hasQuotedContent(in: html),
+                blockedRemoteImageCount: stored?.blockedRemoteImageCount ?? Self.blockedRemoteImageCount(in: html),
                 attachments: (body?.body.attachments ?? [])
                     .filter { !$0.isInline }
                     .map { attachment in
@@ -61,7 +65,7 @@ public struct RenderPayloadBuilder: Sendable {
             )
         }
         let resolvedSubject = subject ?? Self.subject(of: visible)
-        return RenderPayload(subject: resolvedSubject, messages: rendered)
+        return RenderPayload(subject: resolvedSubject, messages: rendered, loadRemoteImages: loadRemoteImages)
     }
 
     /// Same rule as the conversation summary: spam never shows; trashed messages show only when the whole

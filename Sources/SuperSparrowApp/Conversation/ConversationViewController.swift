@@ -24,6 +24,9 @@ final class ConversationViewController: NSViewController {
     private static let markReadDelay: TimeInterval = 0.5
     /// Seconds a quick reply is held for undo. The shell sets it from the "Undo send" preference.
     static var undoWindow: TimeInterval = 5
+    /// The "Load remote images" preference, set by `AppSettings`; a change posts `remoteImagesPolicyChanged`.
+    static var loadRemoteImages = false
+    static let remoteImagesPolicyChanged = Notification.Name("SSRemoteImagesPolicyChanged")
 
     private let pool: WebViewPool
     private let preview: AttachmentPreviewController
@@ -53,6 +56,18 @@ final class ConversationViewController: NSViewController {
         super.init(nibName: nil, bundle: nil)
         pool.onMessage = { [weak self] slot, message in self?.handle(message, from: slot) }
         pool.onViewRecreated = { [weak self] slot in self?.slotWasRecreated(slot) }
+        NotificationCenter.default.addObserver(forName: Self.remoteImagesPolicyChanged, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.remoteImagesPolicyDidChange() }
+        }
+    }
+
+    /// Everything rendered under the old preference is stale: pre-rendered slots are dropped and the
+    /// conversation on screen is rendered again, so turning images off stops them at once.
+    private func remoteImagesPolicyDidChange() {
+        pool.clearAll(except: pool.current)
+        guard let id = currentConversationID, let current = pool.current, current.renderedID == id else { return }
+        let prepared = prepare(currentMessages)
+        pool.render(prepared.payload, inputs: prepared.inputs, id: id, into: current)
     }
 
     required init?(coder: NSCoder) {
@@ -325,7 +340,7 @@ final class ConversationViewController: NSViewController {
         for message in messages {
             if let body = try? client.store.body(for: message.id) { bodies[message.id] = body }
         }
-        let payload = builder.build(messages: messages, bodies: bodies, accounts: accountsByID)
+        let payload = builder.build(messages: messages, bodies: bodies, accounts: accountsByID, loadRemoteImages: Self.loadRemoteImages)
         return (payload, RenderInputs(messages: messages) { bodies[$0] != nil })
     }
 
@@ -386,6 +401,10 @@ final class ConversationViewController: NSViewController {
             (try? client.store.body(for: id)) != nil
         }
         guard fresh != rendered else { return }
+        // Mark-read and star are the common changes; they patch the headers without reading a body.
+        if let patches = rendered.flagPatches(to: fresh), pool.patchFlags(patches, inputs: fresh, id: id, in: slot) {
+            return
+        }
         let prepared = prepare(messages)
         pool.refresh(prepared.payload, inputs: prepared.inputs, id: id, into: slot)
     }

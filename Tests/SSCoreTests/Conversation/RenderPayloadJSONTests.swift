@@ -5,7 +5,7 @@ import XCTest
 /// The JSON keys are the contract between `RenderPayload` and the shell script. These snapshots make a
 /// rename on either side fail here rather than render blank cards.
 final class RenderPayloadJSONTests: XCTestCase {
-    static let expectedTopLevelKeys = ["messages", "subject"]
+    static let expectedTopLevelKeys = ["loadRemoteImages", "messages", "subject"]
     static let expectedMessageKeys = [
         "attachments", "blockedRemoteImageCount", "cc", "dateDisplay", "dateISO", "from", "hasBody",
         "hasQuotedContent", "html", "id", "isStarred", "isUnread", "snippet", "to",

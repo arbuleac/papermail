@@ -83,4 +83,24 @@ final class RenderInputsTests: XCTestCase {
         XCTAssertNotEqual(fresh, RenderInputs.empty)
         XCTAssertEqual(RenderInputs.empty.refreshed(with: []) { _ in false }, RenderInputs.empty)
     }
+
+    /// Mark-read and star change only the header of a card; the slot is patched with the flags instead of
+    /// re-reading, re-scanning and re-sending every body of the thread.
+    func testFlagOnlyChangesBecomePatches() {
+        let messages = [F.message("m1", date: F.utc(2025, 1, 1), isRead: false), F.message("m2", date: F.utc(2025, 1, 2), isRead: false)]
+        let rendered = RenderInputs(messages: messages) { _ in true }
+        var read = messages
+        read[0].isRead = true
+        read[1].isStarred = true
+        let patches = rendered.flagPatches(to: RenderInputs(messages: read) { _ in true })
+        XCTAssertEqual(patches, [
+            RenderPayload.FlagPatch(id: RenderPayload.messageKey(for: messages[0].id), isUnread: false, isStarred: false),
+            RenderPayload.FlagPatch(id: RenderPayload.messageKey(for: messages[1].id), isUnread: true, isStarred: true),
+        ])
+        var renamed = read
+        renamed[0].subject = "Other"
+        XCTAssertNil(rendered.flagPatches(to: RenderInputs(messages: renamed) { _ in true }), "anything else needs a payload")
+        XCTAssertNil(rendered.flagPatches(to: RenderInputs(messages: read) { _ in false }), "a body arriving needs a payload")
+        XCTAssertNil(rendered.flagPatches(to: RenderInputs(messages: Array(read.prefix(1))) { _ in true }))
+    }
 }
