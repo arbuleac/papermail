@@ -1,10 +1,66 @@
 # SuperSparrow
 
-A native macOS mail client for Gmail and Microsoft accounts: one unified inbox, no folders or labels in the way, and every interaction answered from a local SQLite store so it stays fast.
+A native macOS mail client for Gmail and Microsoft 365 / Outlook.com. One unified inbox, no folders or labels in the way, and every interaction answered from a local SQLite store, so it stays fast: Sparrow's simplicity with Superhuman's speed.
 
-- Build and run: `scripts/run.sh`
-- Tests: `swift test`
-- Setup your OAuth clients first: `docs/OAUTH-SETUP.md`
-- Design: `docs/ARCHITECTURE.md`, schema: `docs/DATA-MODEL.md`
+![SuperSparrow main window](docs/screenshot.png)
+<!-- Screenshot placeholder: the three-column window (account strip, message list, reader). -->
 
-Requires macOS 15 or later and Xcode 26 or later to build.
+## Build and run
+
+Requires macOS 15 or later and Xcode 26 (Swift 6 toolchain) to build. SwiftPM only, no Xcode project.
+
+```sh
+scripts/run.sh                    # build, bundle dist/SuperSparrow.app and open it
+scripts/run.sh -- --demo          # same, in demo mode
+scripts/run.sh release -- --demo  # release build, demo mode
+open dist/SuperSparrow.app --args --demo
+swift test                        # the whole suite
+```
+
+### Demo mode
+
+`--demo` opens two made-up mailboxes (`alex@demo-gmail.test` on "Gmail" and `alex@demo-outlook.test` on "Microsoft") with about 400 messages over the last 60 days: threads, newsletters, notifications, a Gmail-style and an Outlook-style quoted reply, an inline image and a PDF attachment. A new message arrives roughly every 45 seconds while the app runs. Archive, star, reply and send all work; nothing leaves your Mac.
+
+Demo mode uses its own database (`~/Library/Application Support/SuperSparrow/demo.sqlite`) and never touches your real mail or the Keychain. `--reset-demo` wipes it and starts over. With no accounts set up, the welcome screen also has a **Try the demo** button.
+
+## Adding accounts
+
+SuperSparrow signs in through your browser with OAuth clients you register yourself. Create them once (about ten minutes, see [docs/OAUTH-SETUP.md](docs/OAUTH-SETUP.md)), paste the client IDs into **Settings → OAuth**, then click **Add Gmail account** or **Add Microsoft account**.
+
+## Keyboard shortcuts
+
+| Key | Action |
+|---|---|
+| `j` / `k`, `↓` / `↑` | Next / previous conversation |
+| `Return` | Open the conversation in the reader |
+| `e` | Archive |
+| `s` | Star / unstar |
+| `u` | Mark read / unread |
+| `#`, `⌘⌫` | Move to Trash |
+| `⇧I`, `⇧⌘I` | Move to Inbox (restores from the Trash) |
+| `z`, `⌘Z` | Undo the last mail action (last 20 are kept) |
+| `r` / `a` / `f` | Reply / reply all / forward |
+| `c`, `⌘N` | New message |
+| `/`, `⌘F` | Search (`Esc` clears, in the search field or the list) |
+| `g` then `i` / `s` / `t` / `a` | Go to Inbox / Starred / Sent / All Mail |
+| `⌘0` | All inboxes |
+| `⌘1` … `⌘9` | One account |
+| `⌘\` | Focused inbox on / off |
+| `⌃⌘S` | Hide / show the account strip |
+| `⌘,` | Settings |
+
+Single-letter shortcuts only apply when you are not typing in a text field.
+
+## Privacy
+
+- Your mail is stored only on this Mac, in `~/Library/Application Support/SuperSparrow/mail.sqlite` (mode 0600). Attachments are cached in `~/Library/Caches/SuperSparrow/attachments`.
+- Sign-in tokens live in the login Keychain. SuperSparrow never sees your password.
+- Mail content goes only to Google, Microsoft and this machine. No analytics, no crash reporting, no third-party services.
+- Remote images are blocked by default (they can tell senders you opened a message). You can change that in Settings → General.
+- New-mail notifications show sender and subject by default; turn off **Show sender and subject** in Settings → General to keep notifications content-free.
+
+## More
+
+- Design and performance budgets: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- Database schema: [docs/DATA-MODEL.md](docs/DATA-MODEL.md)
+- OAuth setup: [docs/OAUTH-SETUP.md](docs/OAUTH-SETUP.md)

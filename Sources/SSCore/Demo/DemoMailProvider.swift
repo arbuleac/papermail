@@ -1,0 +1,73 @@
+import Foundation
+
+/// A `MailProvider` over a generated, deterministic mailbox, for demo mode and end-to-end tests. It behaves like
+/// the real providers where the engine can tell: bootstrap pages newest first with a cursor captured up front,
+/// changes come from a log, applied changes and sent messages show up in later polls, and new mail trickles in
+/// while the app runs. Nothing here touches the network.
+public final class DemoMailProvider: MailProvider, Sendable {
+    public let accountID: AccountID
+    public let kind: ProviderKind
+    private let mailbox: DemoMailbox
+
+    init(mailbox: DemoMailbox) {
+        self.accountID = mailbox.accountID
+        self.kind = mailbox.profile.kind
+        self.mailbox = mailbox
+    }
+
+    public convenience init(account: Account, service: DemoMailService) {
+        self.init(mailbox: service.mailbox(for: account.id, kind: account.kind))
+    }
+
+    public func profile() async throws -> AccountProfile {
+        AccountProfile(email: mailbox.profile.email, displayName: mailbox.profile.displayName)
+    }
+
+    public func bootstrap(page: String?, limit: Int) async throws -> BootstrapPage {
+        var offset = 0
+        var cursor: String?
+        if let page {
+            guard page.hasPrefix("offset:"), let value = Int(page.dropFirst("offset:".count)) else {
+                throw ProviderError.decoding("unknown demo bootstrap page \(page)")
+            }
+            offset = value
+        } else {
+            // Captured before enumerating, as the contract requires, so nothing that changes meanwhile is lost.
+            cursor = mailbox.currentCursor
+        }
+        let result = mailbox.bootstrapPage(offset: offset, limit: limit)
+        return BootstrapPage(messages: result.messages, nextPage: result.next.map { "offset:\($0)" }, changeCursor: cursor)
+    }
+
+    public func changes(since cursor: String, limit: Int) async throws -> ChangesPage {
+        mailbox.changes(since: cursor, limit: limit)
+    }
+
+    public func metadata(for providerIDs: [String]) async throws -> [MessageMetadata] {
+        mailbox.metadata(for: providerIDs)
+    }
+
+    public func body(for providerID: String) async throws -> MessageBody {
+        guard let body = mailbox.body(for: providerID) else { throw ProviderError.notFound }
+        return body
+    }
+
+    public func attachment(messageID providerID: String, attachmentID: String) async throws -> Data {
+        guard let data = mailbox.attachment(messageID: providerID, attachmentID: attachmentID) else {
+            throw ProviderError.notFound
+        }
+        return data
+    }
+
+    public func apply(_ change: MetadataChange, to providerIDs: [String]) async throws {
+        mailbox.apply(change, to: providerIDs)
+    }
+
+    public func send(_ message: OutgoingMessage) async throws -> SendReceipt {
+        mailbox.send(message)
+    }
+
+    public func search(_ text: String, limit: Int) async throws -> [String] {
+        mailbox.search(text, limit: limit)
+    }
+}

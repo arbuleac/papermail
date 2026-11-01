@@ -1,8 +1,10 @@
 # OAuth setup
 
-SuperSparrow signs in through the system browser and never sees your password. It needs OAuth client registrations that you own. Create them once and put them in:
+SuperSparrow signs in through the system browser and never sees your password. It needs OAuth client registrations that you own. Create them once (steps below), then enter them in the app:
 
-`~/Library/Application Support/SuperSparrow/oauth-clients.json`
+**SuperSparrow → Settings… (⌘,) → OAuth**: paste the Google client ID and secret and/or the Microsoft client ID and tenant, and click **Save**. If you click "Add Gmail account" or "Add Microsoft account" before a client is configured, the app opens this tab for you. No relaunch is needed.
+
+The tab writes `~/Library/Application Support/SuperSparrow/oauth-clients.json` (readable only by you, mode 0600). You can also edit that file by hand:
 
 ```json
 {
