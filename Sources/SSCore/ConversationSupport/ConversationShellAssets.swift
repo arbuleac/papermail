@@ -323,19 +323,12 @@ public enum ConversationShellAssets {
         scheduleMeasure(card);
       }
 
-      function buildCard(m) {
-        var card = {
-          message: m, element: null, bodyElement: null, iframe: null, observer: null,
-          expanded: false, quotesShown: false, original: false, height: 0, measureTimer: null
-        };
-        card.remeasure = function () { scheduleMeasure(card); };
+      function headerKey(m) {
+        return JSON.stringify([m.from, m.to, m.cc, m.snippet, m.dateDisplay, m.dateISO, m.isUnread, m.isStarred]);
+      }
 
-        var article = el('article', 'ss-card');
-        article.dataset.id = m.id;
-        if (m.isUnread) { article.classList.add('ss-unread'); }
-        if (m.isStarred) { article.classList.add('ss-starred'); }
-
-        var header = el('header', 'ss-header');
+      function fillHeader(card) {
+        var m = card.message;
         var avatar = el('div', 'ss-avatar', m.from.initials);
         avatar.style.backgroundColor = m.from.color;
         var who = el('div', 'ss-who');
@@ -354,40 +347,93 @@ public enum ConversationShellAssets {
         var date = el('time', 'ss-date', m.dateDisplay);
         date.setAttribute('datetime', m.dateISO);
         date.title = m.dateISO;
-        header.appendChild(avatar);
-        header.appendChild(who);
-        header.appendChild(date);
-        header.addEventListener('click', function (event) {
-          event.stopPropagation();
-          select(card);
-          toggle(card);
-        });
+        card.headerElement.replaceChildren(avatar, who, date);
+        card.element.classList.toggle('ss-unread', !!m.isUnread);
+        card.element.classList.toggle('ss-starred', !!m.isStarred);
+      }
 
-        var tools = el('div', 'ss-tools');
-        if (m.blockedRemoteImageCount > 0) {
+      // Tools follow the body: they are rebuilt only with it, so a "Load images" the user already
+      // pressed does not come back on a metadata change.
+      function fillTools(card) {
+        var m = card.message;
+        var tools = card.toolsElement;
+        tools.replaceChildren();
+        if (m.blockedRemoteImageCount > 0 && !card.imagesLoaded) {
           var loadButton = el('button', 'ss-button ss-load-images', 'Load images (' + m.blockedRemoteImageCount + ')');
           loadButton.addEventListener('click', function (event) { event.stopPropagation(); loadImages(card, loadButton); });
           tools.appendChild(loadButton);
         }
         if (m.hasQuotedContent) {
-          var quoteButton = el('button', 'ss-button ss-toggle-quote', 'Show quoted text');
+          var quoteButton = el('button', 'ss-button ss-toggle-quote', card.quotesShown ? 'Hide quoted text' : 'Show quoted text');
           quoteButton.addEventListener('click', function (event) { event.stopPropagation(); toggleQuotes(card, quoteButton); });
           tools.appendChild(quoteButton);
         }
         if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-          var originalButton = el('button', 'ss-button ss-original-colors', 'Original colors');
+          var originalButton = el('button', 'ss-button ss-original-colors', card.original ? 'Adaptive colors' : 'Original colors');
           originalButton.addEventListener('click', function (event) { event.stopPropagation(); toggleOriginal(card, originalButton); });
           tools.appendChild(originalButton);
         }
+      }
 
-        var body = el('div', 'ss-body');
-        if (!m.hasBody) { body.classList.add('ss-pending-body'); }
-
-        var attachments = el('div', 'ss-attachments');
+      function fillAttachments(card) {
+        var m = card.message;
+        var list = card.attachmentsElement;
+        list.replaceChildren();
         for (var i = 0; i < m.attachments.length; i++) {
-          attachments.appendChild(buildChip(card, m.attachments[i]));
+          list.appendChild(buildChip(card, m.attachments[i]));
         }
+      }
 
+      function releaseFrame(card) {
+        if (card.observer) { try { card.observer.disconnect(); } catch (e) {} card.observer = null; }
+        if (card.measureTimer) { clearTimeout(card.measureTimer); card.measureTimer = null; }
+      }
+
+      // The body itself changed (hydration replaced the snippet fallback): the frame is rebuilt, and the
+      // per-frame state goes with it because it described the old document.
+      function replaceBody(card) {
+        releaseFrame(card);
+        if (card.iframe) { card.iframe.remove(); card.iframe = null; }
+        card.height = 0;
+        card.imagesLoaded = false;
+        card.quotesShown = false;
+        card.original = false;
+        card.bodyElement.classList.toggle('ss-pending-body', !card.message.hasBody);
+        fillTools(card);
+        if (card.expanded) {
+          ensureFrame(card);
+          scheduleMeasure(card);
+        }
+      }
+
+      function patch(card, m) {
+        var previous = card.message;
+        card.message = m;
+        if (headerKey(previous) !== headerKey(m)) { fillHeader(card); }
+        if (previous.html !== m.html || previous.hasBody !== m.hasBody) { replaceBody(card); }
+        if (JSON.stringify(previous.attachments) !== JSON.stringify(m.attachments)) { fillAttachments(card); }
+      }
+
+      function buildCard(m) {
+        var card = {
+          message: m, element: null, headerElement: null, toolsElement: null, bodyElement: null,
+          attachmentsElement: null, iframe: null, observer: null, expanded: false, imagesLoaded: false,
+          quotesShown: false, original: false, height: 0, measureTimer: null
+        };
+        card.remeasure = function () { scheduleMeasure(card); };
+
+        var article = el('article', 'ss-card');
+        article.dataset.id = m.id;
+        var header = el('header', 'ss-header');
+        header.addEventListener('click', function (event) {
+          event.stopPropagation();
+          select(card);
+          toggle(card);
+        });
+        var tools = el('div', 'ss-tools');
+        var body = el('div', 'ss-body');
+        body.classList.toggle('ss-pending-body', !m.hasBody);
+        var attachments = el('div', 'ss-attachments');
         var footer = el('footer', 'ss-footer');
         footer.appendChild(buildFooterLink(card, 'reply', 'Reply'));
         footer.appendChild(buildFooterLink(card, 'replyAll', 'Reply all'));
@@ -401,7 +447,13 @@ public enum ConversationShellAssets {
         article.addEventListener('click', function () { select(card); });
 
         card.element = article;
+        card.headerElement = header;
+        card.toolsElement = tools;
         card.bodyElement = body;
+        card.attachmentsElement = attachments;
+        fillHeader(card);
+        fillTools(card);
+        fillAttachments(card);
         return card;
       }
 
@@ -433,11 +485,7 @@ public enum ConversationShellAssets {
       }
 
       function teardown() {
-        for (var i = 0; i < state.cards.length; i++) {
-          var card = state.cards[i];
-          if (card.observer) { try { card.observer.disconnect(); } catch (e) {} }
-          if (card.measureTimer) { clearTimeout(card.measureTimer); }
-        }
+        for (var i = 0; i < state.cards.length; i++) { releaseFrame(state.cards[i]); }
         state.cards = [];
         state.byID = {};
         state.selected = null;
@@ -476,6 +524,64 @@ public enum ConversationShellAssets {
         return state.cards.length;
       }
 
+      function sameList(a, b) {
+        if (a.length !== b.length) { return false; }
+        for (var i = 0; i < a.length; i++) { if (a[i] !== b[i]) { return false; } }
+        return true;
+      }
+
+      // Patches the cards in place so what the reader is looking at survives a store change: expansion,
+      // scroll position, loaded images and shown quotes all stay, and only what changed is touched. New
+      // messages are inserted around the survivors; a reorder of survivors falls back to a full render,
+      // because moving an iframe in the DOM reloads it.
+      function update(payload) {
+        var messages = payload.messages || [];
+        if (!state.payload || state.cards.length === 0 || messages.length === 0) { return render(payload); }
+        var incoming = {};
+        for (var i = 0; i < messages.length; i++) { incoming[messages[i].id] = messages[i]; }
+        var surviving = [];
+        for (var j = 0; j < state.cards.length; j++) {
+          var id = state.cards[j].message.id;
+          if (incoming[id]) { surviving.push(id); }
+        }
+        var kept = [];
+        for (var k = 0; k < messages.length; k++) {
+          if (state.byID[messages[k].id]) { kept.push(messages[k].id); }
+        }
+        if (!sameList(surviving, kept)) { return render(payload); }
+        for (var r = 0; r < state.cards.length; r++) {
+          var gone = state.cards[r];
+          if (incoming[gone.message.id]) { continue; }
+          releaseFrame(gone);
+          gone.element.remove();
+          if (state.selected === gone) { state.selected = null; }
+        }
+        var cards = [];
+        var byID = {};
+        var next = null;
+        for (var n = messages.length - 1; n >= 0; n--) {
+          var m = messages[n];
+          var card = state.byID[m.id];
+          if (card) {
+            patch(card, m);
+          } else {
+            card = buildCard(m);
+            root.insertBefore(card.element, next);
+            if (m.isUnread || n === messages.length - 1) { expand(card); } else { collapse(card); }
+          }
+          cards.push(card);
+          byID[m.id] = card;
+          next = card.element;
+        }
+        cards.reverse();
+        state.cards = cards;
+        state.byID = byID;
+        state.payload = payload;
+        document.title = payload.subject || '';
+        if (!state.selected) { select(cards[cards.length - 1]); }
+        return cards.length;
+      }
+
       function clear() {
         teardown();
         document.title = '';
@@ -487,10 +593,22 @@ public enum ConversationShellAssets {
       });
 
       window.ss = {
-        version: 1,
+        version: 2,
         render: render,
+        update: update,
         clear: clear,
         cardCount: function () { return state.cards.length; },
+        cardStates: function () {
+          var states = [];
+          for (var i = 0; i < state.cards.length; i++) {
+            var card = state.cards[i];
+            states.push({
+              id: card.message.id, expanded: card.expanded, imagesLoaded: card.imagesLoaded,
+              quotesShown: card.quotesShown, hasFrame: !!card.iframe
+            });
+          }
+          return states;
+        },
         measureAll: function () {
           var heights = [];
           for (var i = 0; i < state.cards.length; i++) { heights.push(measure(state.cards[i])); }

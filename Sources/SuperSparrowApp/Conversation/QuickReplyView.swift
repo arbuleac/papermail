@@ -1,4 +1,5 @@
 import AppKit
+import SSCore
 
 /// The reply box docked under the conversation: one line until focused, then it grows with the text.
 ///
@@ -282,8 +283,7 @@ private final class QuickReplyTextView: NSTextView {
     var onFocusChange: ((Bool) -> Void)?
 
     override func keyDown(with event: NSEvent) {
-        let isReturn = event.keyCode == 36 || event.keyCode == 76
-        if isReturn, event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command {
+        if ReaderShortcuts.isSend(keyCode: event.keyCode, rawModifierFlags: event.modifierFlags.rawValue) {
             onCommandReturn?()
             return
         }

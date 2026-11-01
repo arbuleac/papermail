@@ -57,29 +57,7 @@ final class ConversationShellWebViewTests: XCTestCase {
     }
 
     func testShellRendersTwoCardsWithMeasuredFrames() async throws {
-        guard ProcessInfo.processInfo.environment["SS_UI_TESTS"] == "1" else {
-            throw XCTSkip("Set SS_UI_TESTS=1 to drive WebKit")
-        }
-        let handler = ShellMessages()
-        let configuration = WKWebViewConfiguration()
-        configuration.setURLSchemeHandler(ShellSchemeStub(), forURLScheme: ConversationShellAssets.scheme)
-        configuration.userContentController.add(handler, name: ConversationShellAssets.readyHandlerName)
-        configuration.userContentController.add(handler, name: ConversationShellAssets.messageHandlerName)
-        self.configuration = configuration
-
-        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 800, height: 600), configuration: configuration)
-        webView.navigationDelegate = handler
-        webView.loadHTMLString(ConversationShellAssets.html, baseURL: ConversationShellAssets.baseURL)
-        // Sleeping on the main actor keeps the run loop turning, which is what delivers WebKit's callbacks.
-        var attempts = 0
-        while !handler.isReady, attempts < 200 {
-            try await Task.sleep(nanoseconds: 100_000_000)
-            attempts += 1
-        }
-        guard handler.isReady else {
-            return XCTFail("shell never signalled ready; WebKit reported: \(handler.failures)")
-        }
-
+        let (webView, handler) = try await loadedShell()
         let payload = twoMessagePayload()
         let rendered = try await evaluate("window.ss.render(\(try payload.jsonString()))", in: webView)
         XCTAssertEqual((rendered as? NSNumber)?.intValue, 2)
@@ -108,7 +86,140 @@ final class ConversationShellWebViewTests: XCTestCase {
         XCTAssertTrue(handler.received.contains { ($0["kind"] as? String) == "ready" }, "ready is also posted on the ss handler")
     }
 
+    /// Reading a thread marks it read half a second after it opens; the store change that follows must
+    /// not fold the cards the user is looking at, jump to the top, or re-block the images they loaded.
+    func testUpdateKeepsWhatTheReaderIsLookingAt() async throws {
+        let (webView, _) = try await loadedShell()
+        typealias F = ConversationFixtures
+        let messages = (1...3).map { F.message("m\($0)", date: F.utc(2025, 3, $0, 9, 0), isRead: false) }
+        var bodies: [MessageID: StoredBody] = [:]
+        for (index, message) in messages.enumerated() {
+            // Tall enough that the page scrolls; the middle one carries a blocked remote image.
+            let image = index == 1 ? "<img data-ss-src=\"https://example.com/a.png\" alt=\"\">" : ""
+            bodies[message.id] = F.body(html: "<div style=\"height:700px\">Message \(index + 1)</div>" + image)
+        }
+        let now = F.utc(2025, 3, 7, 15, 0)
+        let unread = F.builder.build(messages: messages, bodies: bodies, accounts: F.accounts, now: now)
+        _ = try await evaluate("window.ss.render(\(try unread.jsonString()))", in: webView)
+        let collapsedBefore = try await count(".ss-card.ss-collapsed", in: webView)
+        XCTAssertEqual(collapsedBefore, 0, "unread cards open expanded")
+        let buttonsBefore = try await count(".ss-load-images", in: webView)
+        XCTAssertEqual(buttonsBefore, 1)
+        try await waitForFrames(count: 3, in: webView)
+
+        let middle = ConversationShellAssets.jsStringLiteral(RenderPayload.messageKey(for: messages[1].id))
+        _ = try await evaluate("window.ss.loadImages(\(middle))", in: webView)
+        let buttonsAfterLoad = try await count(".ss-load-images", in: webView)
+        XCTAssertEqual(buttonsAfterLoad, 0)
+        _ = try await evaluate("document.querySelector('.ss-card iframe').dataset.marker = 'kept'", in: webView)
+        let scrolled = int(try await evaluate("window.scrollTo(0, 300); window.scrollY", in: webView))
+        XCTAssertEqual(scrolled, 300, "the page is tall enough to scroll")
+
+        let read = F.builder.build(messages: messages.map { var m = $0; m.isRead = true; return m }, bodies: bodies, accounts: F.accounts, now: now)
+        let updated = int(try await evaluate("window.ss.update(\(try read.jsonString()))", in: webView))
+        XCTAssertEqual(updated, 3)
+        let dots = try await count(".ss-card.ss-unread", in: webView)
+        XCTAssertEqual(dots, 0, "the dots go")
+        let collapsedAfter = try await count(".ss-card.ss-collapsed", in: webView)
+        XCTAssertEqual(collapsedAfter, 0, "nothing folds")
+        let buttonsAfter = try await count(".ss-load-images", in: webView)
+        XCTAssertEqual(buttonsAfter, 0, "loaded images stay loaded")
+        let scrollAfter = int(try await evaluate("window.scrollY", in: webView))
+        XCTAssertEqual(scrollAfter, 300, "the page does not jump")
+        let marker = try await evaluate("document.querySelector('.ss-card iframe').dataset.marker", in: webView) as? String
+        XCTAssertEqual(marker, "kept", "the frames are the same elements")
+        let frames = try await count(".ss-card iframe", in: webView)
+        XCTAssertEqual(frames, 3)
+    }
+
+    /// Hydration and a reply arriving are the other store changes a shown thread sees: the new body
+    /// replaces its snippet fallback and the new card appends, while the untouched card keeps its frame.
+    func testUpdateHydratesBodiesAndAppendsNewMessages() async throws {
+        let (webView, _) = try await loadedShell()
+        typealias F = ConversationFixtures
+        let first = F.message("m1", date: F.utc(2025, 3, 1, 9, 0))
+        let second = F.message("m2", from: F.bob, date: F.utc(2025, 3, 2, 9, 0))
+        let now = F.utc(2025, 3, 7, 15, 0)
+        let partial = F.builder.build(messages: [first, second], bodies: [second.id: F.body(html: "<p>Two</p>")], accounts: F.accounts, now: now)
+        _ = try await evaluate("window.ss.render(\(try partial.jsonString()))", in: webView)
+        let pendingBefore = try await count(".ss-pending-body", in: webView)
+        XCTAssertEqual(pendingBefore, 1)
+        _ = try await evaluate("window.ss.expandAll()", in: webView)
+        try await waitForFrames(count: 2, in: webView)
+        _ = try await evaluate("document.querySelectorAll('.ss-card iframe')[1].dataset.marker = 'kept'", in: webView)
+
+        let third = F.message("m3", from: F.carol, date: F.utc(2025, 3, 3, 9, 0), isRead: false)
+        let bodies: [MessageID: StoredBody] = [
+            first.id: F.body(html: "<p>One</p>"),
+            second.id: F.body(html: "<p>Two</p>"),
+            third.id: F.body(html: "<p>Three</p>"),
+        ]
+        let full = F.builder.build(messages: [first, second, third], bodies: bodies, accounts: F.accounts, now: now)
+        let updated = int(try await evaluate("window.ss.update(\(try full.jsonString()))", in: webView))
+        XCTAssertEqual(updated, 3)
+        let ids = try await evaluate("Array.from(document.querySelectorAll('.ss-card')).map(function (c) { return c.dataset.id; })", in: webView) as? [String]
+        XCTAssertEqual(ids, full.messages.map(\.id), "cards follow payload order")
+        let pendingAfter = try await count(".ss-pending-body", in: webView)
+        XCTAssertEqual(pendingAfter, 0, "the fallback is gone")
+        let marker = try await evaluate("document.querySelectorAll('.ss-card iframe')[1].dataset.marker", in: webView) as? String
+        XCTAssertEqual(marker, "kept", "an unchanged body keeps its frame")
+        let collapsed = try await count(".ss-card.ss-collapsed", in: webView)
+        XCTAssertEqual(collapsed, 0, "the new unread card opens expanded")
+        try await waitForFrames(count: 3, in: webView)
+        let hydrated = try await evaluate("document.querySelector('.ss-card iframe').contentDocument.body.textContent", in: webView) as? String
+        XCTAssertEqual(hydrated, "One")
+        let selected = try await evaluate("window.ss.selectedMessageID()", in: webView) as? String
+        XCTAssertEqual(selected, full.messages[1].id, "the selection is not moved by an update")
+    }
+
     // MARK: Helpers
+
+    /// The shell in a web view, once it has signalled ready. Skips unless `SS_UI_TESTS=1`.
+    private func loadedShell() async throws -> (WKWebView, ShellMessages) {
+        guard ProcessInfo.processInfo.environment["SS_UI_TESTS"] == "1" else {
+            throw XCTSkip("Set SS_UI_TESTS=1 to drive WebKit")
+        }
+        let handler = ShellMessages()
+        let configuration = WKWebViewConfiguration()
+        configuration.setURLSchemeHandler(ShellSchemeStub(), forURLScheme: ConversationShellAssets.scheme)
+        configuration.userContentController.add(handler, name: ConversationShellAssets.readyHandlerName)
+        configuration.userContentController.add(handler, name: ConversationShellAssets.messageHandlerName)
+        self.configuration = configuration
+
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 800, height: 600), configuration: configuration)
+        webView.navigationDelegate = handler
+        webView.loadHTMLString(ConversationShellAssets.html, baseURL: ConversationShellAssets.baseURL)
+        // Sleeping on the main actor keeps the run loop turning, which is what delivers WebKit's callbacks.
+        var attempts = 0
+        while !handler.isReady, attempts < 200 {
+            try await Task.sleep(nanoseconds: 100_000_000)
+            attempts += 1
+        }
+        guard handler.isReady else {
+            XCTFail("shell never signalled ready; WebKit reported: \(handler.failures)")
+            throw XCTSkip("no shell")
+        }
+        return (webView, handler)
+    }
+
+    /// Frames size themselves after their documents load; the page cannot scroll until they have.
+    private func waitForFrames(count: Int, in webView: WKWebView) async throws {
+        var heights: [Double] = []
+        for _ in 0..<100 {
+            heights = numbers(try await evaluate("window.ss.measureAll()", in: webView))
+            if heights.count == count, heights.allSatisfy({ $0 > 0 }) { return }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        XCTFail("frames never measured: \(heights)")
+    }
+
+    private func int(_ value: Any?) -> Int? {
+        (value as? NSNumber)?.intValue
+    }
+
+    private func count(_ selector: String, in webView: WKWebView) async throws -> Int? {
+        int(try await evaluate("document.querySelectorAll(\(ConversationShellAssets.jsStringLiteral(selector))).length", in: webView))
+    }
 
     private func twoMessagePayload() -> RenderPayload {
         typealias F = ConversationFixtures

@@ -82,48 +82,87 @@ final class WebViewPool: NSObject, WKScriptMessageHandler {
 
     /// Renders into `slot`, queuing until the shell is ready. `completion(true)` means the DOM now holds
     /// `payload`; false means the render failed or was superseded by a newer request for the slot.
-    func render(_ payload: RenderPayload, id: ConversationID, into slot: PooledConversationView, completion: @escaping (Bool) -> Void = { _ in }) {
+    func render(
+        _ payload: RenderPayload,
+        inputs: RenderInputs,
+        id: ConversationID,
+        into slot: PooledConversationView,
+        completion: @escaping (Bool) -> Void = { _ in }
+    ) {
         touch(slot)
         assign(id, to: slot)
-        slot.renderedPayload = payload
-        slot.generation &+= 1
-        let generation = slot.generation
+        slot.renderedInputs = inputs
+        let generation = slot.tracker.begin()
         guard slot.isReady else {
-            slot.pendingRender = PooledConversationView.PendingRender(id: id, payload: payload, completion: completion)
+            slot.pendingRender = PooledConversationView.PendingRender(id: id, payload: payload, inputs: inputs, completion: completion)
             return
         }
+        evaluate("window.ss.render", payload, in: slot, generation: generation, completion: completion)
+    }
+
+    /// Brings a slot that already holds `id` up to date in place, so what the reader is looking at
+    /// (expansion, scroll position, loaded images) survives a store change. Anything else is a full render.
+    func refresh(
+        _ payload: RenderPayload,
+        inputs: RenderInputs,
+        id: ConversationID,
+        into slot: PooledConversationView,
+        completion: @escaping (Bool) -> Void = { _ in }
+    ) {
+        guard slot.isReady, slot.pendingRender == nil, slot.renderedID == id else {
+            render(payload, inputs: inputs, id: id, into: slot, completion: completion)
+            return
+        }
+        touch(slot)
+        slot.renderedInputs = inputs
+        let generation = slot.tracker.begin()
+        evaluate("window.ss.update", payload, in: slot, generation: generation, completion: completion)
+    }
+
+    /// Runs `completion` once the render in flight for `slot` lands, whoever started it, with true when
+    /// the DOM holds the slot's conversation; at once with true when the slot is idle.
+    func whenRenderLands(in slot: PooledConversationView, _ completion: @escaping (Bool) -> Void) {
+        guard slot.renderInFlight else {
+            completion(true)
+            return
+        }
+        slot.tracker.wait(completion)
+    }
+
+    private func evaluate(
+        _ function: String,
+        _ payload: RenderPayload,
+        in slot: PooledConversationView,
+        generation: UInt64,
+        completion: @escaping (Bool) -> Void
+    ) {
         let json: String
         do {
             json = try payload.jsonString()
         } catch {
             ConversationSignposts.log.error("payload encoding failed: \(String(describing: error), privacy: .public)")
-            completion(false)
+            slot.renderDidFinish(generation: generation, succeeded: false, completion: completion)
             return
         }
-        slot.renderInFlight = true
         let state = ConversationSignposts.begin(ConversationSignposts.render)
-        slot.webView.evaluateJavaScript("window.ss.render(\(json))") { _, error in
+        slot.webView.evaluateJavaScript("\(function)(\(json))") { _, error in
             ConversationSignposts.end(ConversationSignposts.render, state)
             if let error {
                 ConversationSignposts.log.error("render failed: \(String(describing: error), privacy: .public)")
             }
-            guard slot.generation == generation else {
-                completion(false)
-                return
-            }
-            slot.renderInFlight = false
-            completion(error == nil)
+            slot.renderDidFinish(generation: generation, succeeded: error == nil, completion: completion)
         }
     }
 
     func clear(_ slot: PooledConversationView) {
         assign(nil, to: slot)
-        slot.renderedPayload = nil
+        slot.renderedInputs = nil
         slot.pendingRender = nil
-        slot.generation &+= 1
-        slot.renderInFlight = false
-        guard slot.isReady else { return }
-        slot.webView.evaluateJavaScript("window.ss.clear()") { _, _ in }
+        let waiters = slot.tracker.reset()
+        if slot.isReady {
+            slot.webView.evaluateJavaScript("window.ss.clear()") { _, _ in }
+        }
+        for waiter in waiters { waiter(false) }
     }
 
     // MARK: Web views
@@ -167,7 +206,7 @@ final class WebViewPool: NSObject, WKScriptMessageHandler {
         slot.isReady = true
         if let pending = slot.pendingRender {
             slot.pendingRender = nil
-            render(pending.payload, id: pending.id, into: slot, completion: pending.completion)
+            render(pending.payload, inputs: pending.inputs, id: pending.id, into: slot, completion: pending.completion)
         }
         onReady?(slot)
     }

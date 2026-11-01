@@ -34,10 +34,11 @@ final class ConversationViewController: NSViewController {
 
     private var observation: StoreObservation?
     private var showTimer: Timer?
-    private var pendingShowID: ConversationID?
+    private var pendingShow: (id: ConversationID, messages: [MessageMetadata])?
     private var lastShowAt: TimeInterval = -.infinity
     private var markReadTimer: Timer?
     private var bodyFetches: Set<MessageID> = []
+    private var drafts = QuickReplyDrafts()
     private var keyMonitor: Any?
     private var showSignpost: OSSignpostIntervalState?
 
@@ -136,13 +137,16 @@ final class ConversationViewController: NSViewController {
             showEmptyState()
             return
         }
-        header.subject = subject(for: id)
+        // One metadata read serves the header now and the show that follows; the observation set up
+        // by the show brings anything that changes in between.
+        let messages = visibleMessages(for: id)
+        header.subject = RenderPayloadBuilder.subject(of: messages)
         header.isHidden = false
         emptyLabel.isHidden = true
         let now = ProcessInfo.processInfo.systemUptime
         let tooSoon = now - lastShowAt < Self.showDebounce
         lastShowAt = now
-        pendingShowID = id
+        pendingShow = (id, messages)
         if tooSoon || showTimer != nil {
             showTimer?.invalidate()
             showTimer = Timer.scheduledTimer(withTimeInterval: Self.showDebounce, repeats: false) { [weak self] _ in
@@ -156,6 +160,11 @@ final class ConversationViewController: NSViewController {
     /// Renders `ids` into free slots in order, skipping ones already held, until the pool runs out.
     func prerender(_ ids: [ConversationID]) {
         var reserved: [PooledConversationView] = []
+        // The slot rendering the current conversation may still be in flight and not yet on screen;
+        // evicting it would leave the show waiting on a render that lands another conversation.
+        if let current = currentConversationID, let held = pool.slot(rendering: current) {
+            reserved.append(held)
+        }
         let wanted = ids.filter { $0 != currentConversationID }
         for id in wanted {
             if let held = pool.slot(rendering: id) {
@@ -167,48 +176,72 @@ final class ConversationViewController: NSViewController {
             guard let slot = pool.acquire(excluding: reserved) else { break }
             reserved.append(slot)
             let messages = visibleMessages(for: id)
-            let payload = payload(for: messages, id: id)
+            let prepared = prepare(messages)
             let state = ConversationSignposts.begin(ConversationSignposts.prerender)
-            pool.render(payload, id: id, into: slot) { _ in
+            pool.render(prepared.payload, inputs: prepared.inputs, id: id, into: slot) { _ in
                 ConversationSignposts.end(ConversationSignposts.prerender, state)
             }
-            requestMissingBodies(messages)
+            requestMissingBodies(messages, rendered: prepared.inputs)
         }
     }
 
     private func cancelPendingShow() {
         showTimer?.invalidate()
         showTimer = nil
-        pendingShowID = nil
+        pendingShow = nil
     }
 
     private func flushPendingShow() {
         showTimer = nil
-        guard let id = pendingShowID else { return }
-        pendingShowID = nil
-        performShow(id)
+        guard let pending = pendingShow else { return }
+        pendingShow = nil
+        performShow(pending.id, messages: pending.messages)
     }
 
-    private func performShow(_ id: ConversationID) {
+    private func performShow(_ id: ConversationID, messages: [MessageMetadata]) {
         if let previous = showSignpost {
             ConversationSignposts.end(ConversationSignposts.show, previous)
         }
         showSignpost = ConversationSignposts.begin(ConversationSignposts.show)
+        if currentConversationID != id {
+            // The box shows one thread at a time: its text is parked under the thread it was written for
+            // and the new thread's draft, if any, takes its place.
+            let draft = drafts.move(boxText: quickReply.text, from: currentConversationID, to: id)
+            if draft.isEmpty {
+                quickReply.clear()
+            } else {
+                quickReply.restoreDraft(draft)
+            }
+        }
         currentConversationID = id
         preview.closePanel()
-        quickReply.hideStrip()
+        // The "Sent · Undo" strip stays up: its own timer ends the undo window, not the selection.
 
-        let messages = visibleMessages(for: id)
         applyMessages(messages, for: id)
-        let payload = payload(for: messages, id: id)
+        present(id, messages: messages)
+        observe(id)
+        scheduleMarkRead(for: id)
+        requestMissingBodies(messages, rendered: pool.slot(rendering: id)?.renderedInputs)
+    }
 
+    /// Puts `id` on screen: a swap when a slot already holds it, a swap once an in-flight render lands,
+    /// otherwise a render into a free slot. Only a missing or stale slot pays for a payload.
+    private func present(_ id: ConversationID, messages: [MessageMetadata]) {
         if let held = pool.slot(rendering: id) {
-            if held.renderInFlight {
-                // The completion registered by the earlier show() swaps it in.
-            } else {
+            guard held.renderInFlight else {
                 swap(in: held)
-                if held.renderedPayload != payload {
-                    pool.render(payload, id: id, into: held)
+                refreshIfStale(held, messages: messages, id: id)
+                return
+            }
+            // Whoever started the render (a show, a pre-render or a refresh), the swap waits for it.
+            pool.whenRenderLands(in: held) { [weak self] rendered in
+                guard let self, self.currentConversationID == id else { return }
+                if rendered, held.renderedID == id {
+                    self.swap(in: held)
+                    self.refreshIfStale(held, messages: self.currentMessages, id: id)
+                } else {
+                    // Cleared, evicted or recreated before it landed: start over.
+                    self.present(id, messages: self.currentMessages)
                 }
             }
         } else if let slot = pool.acquire() {
@@ -216,18 +249,18 @@ final class ConversationViewController: NSViewController {
                 // A blank shell is better than another conversation's cards while the render lands.
                 swap(in: slot)
             }
-            pool.render(payload, id: id, into: slot) { [weak self] rendered in
+            let prepared = prepare(messages)
+            pool.render(prepared.payload, inputs: prepared.inputs, id: id, into: slot) { [weak self] rendered in
                 guard let self, rendered, self.currentConversationID == id else { return }
                 self.swap(in: slot)
             }
         }
-
-        observe(id)
-        scheduleMarkRead(for: id)
-        requestMissingBodies(messages)
     }
 
     private func showEmptyState() {
+        if let id = currentConversationID {
+            drafts.park(quickReply.text, under: id)
+        }
         currentConversationID = nil
         currentMessages = []
         selectedMessageID = nil
@@ -236,7 +269,7 @@ final class ConversationViewController: NSViewController {
         markReadTimer?.invalidate()
         markReadTimer = nil
         preview.closePanel()
-        quickReply.hideStrip()
+        quickReply.clear()
         if let current = pool.current {
             current.webView.removeFromSuperview()
             pool.current = nil
@@ -267,27 +300,26 @@ final class ConversationViewController: NSViewController {
     }
 
     private func slotWasRecreated(_ slot: PooledConversationView) {
-        guard slot === pool.current, let id = currentConversationID else { return }
-        let messages = visibleMessages(for: id)
-        pool.render(payload(for: messages, id: id), id: id, into: slot)
+        // A waiter released by the reset may already have re-rendered the current conversation into it.
+        guard slot === pool.current, let id = currentConversationID, slot.renderedID != id else { return }
+        let prepared = prepare(visibleMessages(for: id))
+        pool.render(prepared.payload, inputs: prepared.inputs, id: id, into: slot)
     }
 
     // MARK: Store
-
-    private func subject(for id: ConversationID) -> String {
-        RenderPayloadBuilder.subject(of: visibleMessages(for: id))
-    }
 
     private func visibleMessages(for id: ConversationID) -> [MessageMetadata] {
         RenderPayloadBuilder.visibleMessages((try? client.store.messages(in: id)) ?? [])
     }
 
-    private func payload(for messages: [MessageMetadata], id: ConversationID) -> RenderPayload {
+    /// The payload for one render and the inputs it was built from. The only place bodies are read in bulk.
+    private func prepare(_ messages: [MessageMetadata]) -> (payload: RenderPayload, inputs: RenderInputs) {
         var bodies: [MessageID: StoredBody] = [:]
         for message in messages {
             if let body = try? client.store.body(for: message.id) { bodies[message.id] = body }
         }
-        return builder.build(messages: messages, bodies: bodies, accounts: accountsByID)
+        let payload = builder.build(messages: messages, bodies: bodies, accounts: accountsByID)
+        return (payload, RenderInputs(messages: messages) { bodies[$0] != nil })
     }
 
     private func applyMessages(_ messages: [MessageMetadata], for id: ConversationID) {
@@ -334,15 +366,27 @@ final class ConversationViewController: NSViewController {
     }
 
     private func refreshCurrentIfStale(_ messages: [MessageMetadata], id: ConversationID) {
-        guard let current = pool.current, current.renderedID == id else { return }
-        let fresh = payload(for: messages, id: id)
-        if current.renderedPayload != fresh {
-            pool.render(fresh, id: id, into: current)
-        }
+        guard let current = pool.current else { return }
+        refreshIfStale(current, messages: messages, id: id)
     }
 
-    private func requestMissingBodies(_ messages: [MessageMetadata]) {
+    /// Re-renders `slot` in place only when the metadata or the set of available bodies moved on since
+    /// it was rendered. The check compares inputs, never body bytes the slot already holds.
+    private func refreshIfStale(_ slot: PooledConversationView, messages: [MessageMetadata], id: ConversationID) {
+        guard slot.renderedID == id else { return }
+        let rendered = slot.renderedInputs ?? .empty
+        let fresh = rendered.refreshed(with: messages) { [client] id in
+            (try? client.store.body(for: id)) != nil
+        }
+        guard fresh != rendered else { return }
+        let prepared = prepare(messages)
+        pool.refresh(prepared.payload, inputs: prepared.inputs, id: id, into: slot)
+    }
+
+    /// Fetches bodies the slot rendered without; `rendered` says which ones it had, so those are never looked up.
+    private func requestMissingBodies(_ messages: [MessageMetadata], rendered: RenderInputs?) {
         for message in messages where bodyFetches.contains(message.id) == false {
+            if rendered?.hasBody(message.id) == true { continue }
             guard (try? client.store.body(for: message.id)) == nil else { continue }
             bodyFetches.insert(message.id)
             let client = self.client
@@ -351,8 +395,7 @@ final class ConversationViewController: NSViewController {
                 guard let self else { return }
                 self.bodyFetches.remove(message.id)
                 guard self.currentConversationID == message.conversationID else { return }
-                let visible = self.visibleMessages(for: message.conversationID)
-                self.refreshCurrentIfStale(visible, id: message.conversationID)
+                self.refreshCurrentIfStale(self.currentMessages, id: message.conversationID)
             }
         }
     }
@@ -406,15 +449,23 @@ final class ConversationViewController: NSViewController {
 
     // MARK: Attachments and Quick Look
 
-    /// Space: Quick Look for the selected message's first attachment (or close the panel if it is up).
-    func openQuickLookForSelectedMessage() {
-        if preview.isPanelVisible {
+    /// Space: Quick Look for the selected message's first attachment, or close the panel if it is up.
+    /// Returns false when there was nothing to do, so the key can go on to the web view and page down.
+    @discardableResult
+    func openQuickLookForSelectedMessage() -> Bool {
+        let messageID = selectedMessageID ?? currentMessages.last?.id
+        let parts = messageID.flatMap { (try? client.store.body(for: $0))?.body.attachments } ?? []
+        switch ReaderShortcuts.spaceOutcome(previewVisible: preview.isPanelVisible, attachments: parts) {
+        case .closePreview:
             preview.closePanel()
-            return
+            return true
+        case .preview(let info):
+            guard let messageID else { return false }
+            openAttachment(info, of: messageID)
+            return true
+        case .passThrough:
+            return false
         }
-        guard let messageID = selectedMessageID ?? currentMessages.last?.id,
-              let first = attachments(of: messageID).first else { return }
-        openAttachment(first, of: messageID)
     }
 
     private func attachments(of messageID: MessageID) -> [AttachmentInfo] {
@@ -466,7 +517,7 @@ final class ConversationViewController: NSViewController {
     }
 
     private func sendQuickReply(_ text: String) {
-        guard let latest = currentMessages.last else { return }
+        guard let conversation = currentConversationID, let latest = currentMessages.last else { return }
         let message = QuickReplyComposer.outgoingMessage(text: text, replyingTo: latest, accounts: accountsByID)
         guard !message.to.isEmpty else {
             quickReply.showStrip("No one to reply to")
@@ -476,18 +527,28 @@ final class ConversationViewController: NSViewController {
             let sendID = try client.send(message, undoWindow: Self.undoWindow)
             quickReply.clear()
             quickReply.showStrip("Sent", buttonTitle: "Undo", duration: Self.undoWindow) { [weak self] in
-                guard let self else { return }
-                let cancelled = (try? self.client.cancelSend(id: sendID)) ?? false
-                if cancelled {
-                    self.quickReply.restoreDraft(text)
-                    self.quickReply.focus()
-                } else {
-                    self.quickReply.showStrip("Already sent")
-                }
+                self?.undoSend(sendID, text: text, writtenUnder: conversation)
             }
         } catch {
             ConversationSignposts.log.error("quick reply send failed: \(String(describing: error), privacy: .public)")
             quickReply.showStrip("Couldn't send")
+        }
+    }
+
+    /// Undo can arrive after the selection moved on; the text then waits under the thread it was written for.
+    private func undoSend(_ sendID: String, text: String, writtenUnder conversation: ConversationID) {
+        let cancelled = (try? client.cancelSend(id: sendID)) ?? false
+        guard cancelled else {
+            quickReply.showStrip("Already sent")
+            return
+        }
+        if drafts.restoreUnsent(text, under: conversation, shown: currentConversationID) {
+            // Anything typed since the send belongs to the same thread, so it is kept below the unsent text.
+            let typed = quickReply.text
+            quickReply.restoreDraft(typed.isEmpty ? text : text + "\n\n" + typed)
+            quickReply.focus()
+        } else {
+            quickReply.showStrip("Not sent, draft kept")
         }
     }
 
@@ -506,15 +567,17 @@ final class ConversationViewController: NSViewController {
         keyMonitor = nil
     }
 
-    /// Space opens Quick Look only while focus is inside the reader and not in the reply box.
+    /// Space opens Quick Look only while focus is inside the reader and not in the reply box. With nothing
+    /// to preview the event is left alone, so the web view pages down on it as Safari would.
     private func handleSpace(_ event: NSEvent) -> Bool {
         guard let window = view.window, event.window === window,
-              event.charactersIgnoringModifiers == " ",
-              event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty,
+              ReaderShortcuts.isPlainSpace(
+                  charactersIgnoringModifiers: event.charactersIgnoringModifiers,
+                  rawModifierFlags: event.modifierFlags.rawValue
+              ),
               let responder = window.firstResponder as? NSView,
               responder.isDescendant(of: view),
               !(responder is NSTextView) else { return false }
-        openQuickLookForSelectedMessage()
-        return true
+        return openQuickLookForSelectedMessage()
     }
 }
