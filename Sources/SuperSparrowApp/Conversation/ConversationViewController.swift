@@ -22,7 +22,8 @@ final class ConversationViewController: NSViewController {
 
     private static let showDebounce: TimeInterval = 0.03
     private static let markReadDelay: TimeInterval = 0.5
-    private static let undoWindow: TimeInterval = 5
+    /// Seconds a quick reply is held for undo. The shell sets it from the "Undo send" preference.
+    static var undoWindow: TimeInterval = 5
 
     private let pool: WebViewPool
     private let preview: AttachmentPreviewController

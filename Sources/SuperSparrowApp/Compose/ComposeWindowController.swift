@@ -7,7 +7,8 @@ import os
 /// and fetch the original body afterwards, so the user can start typing before the network answers.
 @MainActor
 final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTextFieldDelegate {
-    static let undoWindow: TimeInterval = 5
+    /// Seconds a send is held for undo. The shell sets it from the "Undo send" preference.
+    static var undoWindow: TimeInterval = 5
 
     private static let sizeDefaultsKey = "ComposeWindowSize"
     private static let defaultSize = NSSize(width: 640, height: 560)
