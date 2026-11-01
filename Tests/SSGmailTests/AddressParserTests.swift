@@ -73,6 +73,25 @@ final class AddressParserTests: XCTestCase {
         XCTAssertEqual(AddressParser.first("a@example.com, b@example.com"), EmailAddress(name: nil, address: "a@example.com"))
     }
 
+    func testFoldedHeadersAreUnfolded() {
+        XCTAssertEqual(AddressParser.parse("Ada\r\n Lovelace <ada@example.com>"), [EmailAddress(name: "Ada Lovelace", address: "ada@example.com")])
+        XCTAssertEqual(AddressParser.parse("\"Lovelace,\r\n\tAda\" <ada@example.com>"), [EmailAddress(name: "Lovelace,\tAda", address: "ada@example.com")])
+    }
+
+    func testLineBreaksNeverSurviveIntoAnAddress() {
+        // A crafted From header that Gmail passes through with a raw line break inside the angle brackets.
+        let smuggled = AddressParser.parse("Mallory <mallory@example.com\r\nBcc: victim@example.net\r\nX-Junk: >")
+        XCTAssertEqual(smuggled, [EmailAddress(name: "Mallory", address: "mallory@example.com Bcc: victim@example.net X-Junk:")])
+
+        for header in ["mallory@example.com\nBcc: victim@example.net", "Mallory\r<mallory@example.com>\r\n", "a@example.com,\nb@example.com"] {
+            for mailbox in AddressParser.parse(header) {
+                let text = (mailbox.name ?? "") + mailbox.address
+                XCTAssertFalse(text.unicodeScalars.contains { $0 == "\r" || $0 == "\n" }, "line break survived in \(header.debugDescription)")
+            }
+        }
+        XCTAssertEqual(AddressParser.parse("a@example.com,\nb@example.com").map(\.address), ["a@example.com", "b@example.com"])
+    }
+
     func testCommaInsideAngleBracketsDoesNotSplit() {
         XCTAssertEqual(AddressParser.parse("Weird <\"a,b\"@example.com>, c@example.com").count, 2)
     }

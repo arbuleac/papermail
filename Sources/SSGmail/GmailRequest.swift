@@ -15,6 +15,8 @@ struct GmailRequest: Sendable {
 
     static let apiHost = "gmail.googleapis.com"
     static let apiPathPrefix = "/gmail/v1/users/me"
+    /// Media uploads (large sends) live under a separate prefix on the same host.
+    static let uploadPathPrefix = "/upload/gmail/v1/users/me"
     static let batchHost = "www.googleapis.com"
     static let batchPath = "/batch/gmail/v1"
 
@@ -28,17 +30,30 @@ struct GmailRequest: Sendable {
     }
 
     static func post<Body: Encodable>(_ resource: String, json body: Body) throws -> GmailRequest {
-        let data: Data
-        do {
-            data = try JSONEncoder().encode(body)
-        } catch {
-            throw ProviderError.decoding("Could not encode request body: \(error)")
-        }
-        return GmailRequest(
+        GmailRequest(
             method: .post,
             url: try apiURL(resource, query: []),
             headers: ["Content-Type": "application/json; charset=UTF-8"],
-            body: data
+            body: try encode(body)
+        )
+    }
+
+    /// A multipart upload (`uploadType=multipart`): the resource's JSON metadata followed by the media bytes
+    /// as they are, for payloads the JSON endpoint would reject as too large.
+    static func upload<Metadata: Encodable>(_ resource: String, metadata: Metadata, media: Data, mediaType: String) throws -> GmailRequest {
+        let boundary = "ss_upload_" + UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "")
+        var body = Data()
+        body.append(Data("--\(boundary)\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n".utf8))
+        body.append(try encode(metadata))
+        body.append(Data("\r\n--\(boundary)\r\nContent-Type: \(mediaType)\r\n\r\n".utf8))
+        body.append(media)
+        body.append(Data("\r\n--\(boundary)--\r\n".utf8))
+        let endpoint = try url(host: apiHost, path: uploadPathPrefix + "/" + resource, query: [URLQueryItem(name: "uploadType", value: "multipart")])
+        return GmailRequest(
+            method: .post,
+            url: endpoint,
+            headers: ["Content-Type": "multipart/related; boundary=\(boundary)"],
+            body: body
         )
     }
 
@@ -56,25 +71,33 @@ struct GmailRequest: Sendable {
         return components.string ?? components.path
     }
 
-    private static func apiURL(_ resource: String, query: [URLQueryItem]) throws -> URL {
-        var components = URLComponents()
-        components.scheme = "https"
-        components.host = apiHost
-        components.path = apiPathPrefix + "/" + resource
-        components.queryItems = query.isEmpty ? nil : query
-        guard let url = components.url else {
-            throw ProviderError.network("Could not build Gmail URL for \(resource)")
+    private static func encode<Body: Encodable>(_ body: Body) throws -> Data {
+        do {
+            return try JSONEncoder().encode(body)
+        } catch {
+            throw ProviderError.decoding("Could not encode request body: \(error)")
         }
-        return url
+    }
+
+    private static func apiURL(_ resource: String, query: [URLQueryItem]) throws -> URL {
+        try url(host: apiHost, path: apiPathPrefix + "/" + resource, query: query)
     }
 
     static func batchURL() throws -> URL {
+        try url(host: batchHost, path: batchPath, query: [])
+    }
+
+    private static func url(host: String, path: String, query: [URLQueryItem]) throws -> URL {
         var components = URLComponents()
         components.scheme = "https"
-        components.host = batchHost
-        components.path = batchPath
+        components.host = host
+        components.path = path
+        components.queryItems = query.isEmpty ? nil : query
+        // URLComponents leaves '+' alone in query values, but Google reads a bare '+' as a space, so a search
+        // for "c++" or "me+tag@example.com" would change meaning in transit without this.
+        components.percentEncodedQuery = components.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
         guard let url = components.url else {
-            throw ProviderError.network("Could not build Gmail batch URL")
+            throw ProviderError.network("Could not build Gmail URL for \(path)")
         }
         return url
     }

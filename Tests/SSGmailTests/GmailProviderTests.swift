@@ -49,7 +49,7 @@ final class GmailProviderTests: XCTestCase {
         XCTAssertEqual(page.messages[1].inboxSection, .other)
 
         let list = try XCTUnwrap(server.requests(to: "/users/me/messages").first)
-        XCTAssertEqual(list.query["q"], ["-in:spam -in:trash"])
+        XCTAssertEqual(list.query["q"], ["-in:spam -in:trash -in:chats"])
         XCTAssertEqual(list.query["maxResults"], ["100"])
         XCTAssertNil(list.query["pageToken"])
 
@@ -88,6 +88,17 @@ final class GmailProviderTests: XCTestCase {
         XCTAssertNil(page.nextPage)
         XCTAssertEqual(server.requests(to: "/users/me/messages").first?.query["maxResults"], ["500"])
         XCTAssertTrue(server.requests(to: "/batch/gmail/v1").isEmpty, "an empty list must not call the batch endpoint")
+    }
+
+    func testBootstrapDropsChatHistoryGmailListsAnyway() async throws {
+        server.on("GET", "/users/me/profile", .json(GmailFixtures.profile))
+        server.on("GET", "/users/me/messages", .json(GmailFixtures.messageListWithChat))
+        TestSupport.stubBatch(messages: ["m1": GmailFixtures.metadataM1, "chat1": GmailFixtures.metadataChat])
+        let provider = TestSupport.makeProvider()
+
+        let page = try await provider.bootstrap(page: nil, limit: 100)
+
+        XCTAssertEqual(page.messages.map(\.id.providerID), ["m1"], "a chat has no subject and no role; it is not mail")
     }
 
     func testBootstrapFallsBackToSequentialGetsWhenBatchIsUnparseable() async throws {
@@ -200,17 +211,66 @@ final class GmailProviderTests: XCTestCase {
         guard case .resetRequired? = error else { return XCTFail("expected resetRequired, got \(String(describing: error))") }
     }
 
-    func testChangesWithOnlyEmptyPagesKeepsCursorAndReportsNoMore() async throws {
-        server.on("GET", "/users/me/history", .json("{\"nextPageToken\":\"again\",\"historyId\":\"8675340\"}"))
+    func testChangesResumesARunOfEmptyPagesThroughTheCursor() async throws {
+        // Gmail answers pages with a next token but no records when every record in range is filtered out.
+        // Pages 0...24 are such pages; the only record sits on page 25, beyond one call's page cap.
+        server.on("GET", "/users/me/history") { request in
+            let page = request.query["pageToken"]?.first.flatMap { Int($0.dropFirst("empty-".count)) } ?? 0
+            if page >= 25 { return .json(GmailFixtures.historyPageTwo) }
+            return .json("{\"nextPageToken\":\"empty-\(page + 1)\",\"historyId\":\"8675340\"}")
+        }
+        TestSupport.stubBatch(messages: ["m2": GmailFixtures.metadataM2])
+        let provider = TestSupport.makeProvider()
+
+        let first = try await provider.changes(since: "8675309", limit: 100)
+
+        XCTAssertTrue(first.upserts.isEmpty)
+        XCTAssertTrue(first.deletedIDs.isEmpty)
+        XCTAssertTrue(first.hasMore, "the run is not over, so the engine must call again")
+        XCTAssertNotEqual(first.cursor, "8675309", "the cursor must carry the progress made")
+        XCTAssertEqual(server.requests(to: "/users/me/history").count, GmailProvider.maxHistoryPagesPerCall)
+        XCTAssertTrue(server.requests(to: "/batch/gmail/v1").isEmpty)
+
+        let second = try await provider.changes(since: first.cursor, limit: 100)
+
+        XCTAssertEqual(second.upserts.map(\.id.providerID), ["m2"])
+        XCTAssertEqual(second.cursor, "8675320")
+        XCTAssertFalse(second.hasMore)
+        let requests = server.requests(to: "/users/me/history")
+        XCTAssertEqual(requests.count, 26, "the second call picks up where the first stopped, not from page 0")
+        XCTAssertEqual(requests[20].query["startHistoryId"], ["8675309"])
+        XCTAssertEqual(requests[20].query["pageToken"], ["empty-20"])
+    }
+
+    func testChangesRestartsFromTheHistoryIDWhenGmailRejectsTheResumeToken() async throws {
+        server.on("GET", "/users/me/history") { request in
+            request.query["pageToken"] == nil ? .json(GmailFixtures.history) : .json(GmailFixtures.invalidPageTokenError, status: 400)
+        }
+        TestSupport.stubBatch(messages: ["m4": GmailFixtures.metadataM4, "m2": GmailFixtures.metadataM2])
+        let provider = TestSupport.makeProvider()
+        let stale = GmailHistoryCursor(startHistoryID: "8675309", pageToken: "stale").encoded
+
+        let page = try await provider.changes(since: stale, limit: 100)
+
+        XCTAssertEqual(page.upserts.map(\.id.providerID), ["m4", "m2"])
+        XCTAssertEqual(page.cursor, "8675320")
+        XCTAssertFalse(page.hasMore)
+        let requests = server.requests(to: "/users/me/history")
+        XCTAssertEqual(requests.map { $0.query["pageToken"]?.first }, ["stale", nil])
+        XCTAssertEqual(requests.last?.query["startHistoryId"], ["8675309"])
+    }
+
+    func testChangesIgnoresChatsWithoutReportingThemDeleted() async throws {
+        server.on("GET", "/users/me/history", .json(GmailFixtures.historyWithChat))
+        TestSupport.stubBatch(messages: ["chat1": GmailFixtures.metadataChat])
         let provider = TestSupport.makeProvider()
 
         let page = try await provider.changes(since: "8675309", limit: 100)
 
         XCTAssertTrue(page.upserts.isEmpty)
-        XCTAssertTrue(page.deletedIDs.isEmpty)
-        XCTAssertFalse(page.hasMore, "an endless run of empty pages must not make the engine loop")
-        XCTAssertEqual(page.cursor, "8675309")
-        XCTAssertEqual(server.requests(to: "/users/me/history").count, GmailProvider.maxHistoryPagesPerCall)
+        XCTAssertTrue(page.deletedIDs.isEmpty, "the store never held the chat, so there is nothing to delete")
+        XCTAssertEqual(page.cursor, "8675320")
+        XCTAssertFalse(page.hasMore)
     }
 
     // MARK: Metadata, body, attachment
@@ -354,8 +414,53 @@ final class GmailProviderTests: XCTestCase {
         _ = try await provider.send(outgoing)
 
         let send = try XCTUnwrap(server.requests(to: "/users/me/messages/send").first)
+        XCTAssertEqual(send.path, "/gmail/v1/users/me/messages/send", "small messages stay on the JSON endpoint")
         XCTAssertNil(send.jsonBody["threadId"])
         XCTAssertNotNil(send.jsonBody["raw"])
+    }
+
+    func testSendLargeMessageUploadsRawBytesInsteadOfJSON() async throws {
+        server.on("GET", "/users/me/profile", .json(GmailFixtures.profile))
+        server.on("GET", "/users/me/messages/m1", .json(GmailFixtures.metadataM1))
+        server.on("POST", "/users/me/messages/send", .json(GmailFixtures.sendResponse))
+        let provider = TestSupport.makeProvider()
+        // Base64 inflates the attachment past the threshold on its own, as any real multi-megabyte file does.
+        let bytes = Data((0..<GmailProvider.uploadThresholdBytes).map { UInt8(truncatingIfNeeded: $0 &* 7) })
+        let outgoing = OutgoingMessage(
+            accountID: TestSupport.accountID,
+            to: [EmailAddress(name: "Charles Babbage", address: "charles@example.com")],
+            subject: "Plans", html: "<p>See attached.</p>", text: "See attached.",
+            inReplyTo: MessageID(accountID: TestSupport.accountID, providerID: "m1"),
+            attachments: [OutgoingAttachment(filename: "plans.pdf", mimeType: "application/pdf", data: bytes)]
+        )
+
+        let receipt = try await provider.send(outgoing)
+
+        XCTAssertEqual(receipt.providerMessageID, "sent-1")
+        XCTAssertEqual(receipt.providerConversationID, "t1")
+        XCTAssertTrue(server.requests.allSatisfy { $0.path != "/gmail/v1/users/me/messages/send" }, "the JSON endpoint rejects bodies this size")
+        let upload = try XCTUnwrap(server.requests.first { $0.path == "/upload/gmail/v1/users/me/messages/send" })
+        XCTAssertEqual(upload.method, "POST")
+        XCTAssertEqual(upload.url.host, "gmail.googleapis.com")
+        XCTAssertEqual(upload.query["uploadType"], ["multipart"])
+        XCTAssertEqual(upload.header("Authorization"), "Bearer token-1")
+        XCTAssertTrue(upload.header("Content-Type")?.hasPrefix("multipart/related; boundary=") ?? false)
+
+        let parts = TestSupport.uploadParts(of: upload)
+        guard parts.count == 2 else { return XCTFail("expected metadata and media parts, got \(parts.count)") }
+        XCTAssertEqual(parts[0].headers, "Content-Type: application/json; charset=UTF-8")
+        let metadata = try XCTUnwrap(JSONSerialization.jsonObject(with: parts[0].body) as? [String: Any])
+        XCTAssertEqual(metadata["threadId"] as? String, "t1")
+        XCTAssertNil(metadata["raw"])
+        XCTAssertEqual(parts[1].headers, "Content-Type: message/rfc822")
+        XCTAssertGreaterThan(parts[1].body.count, GmailProvider.uploadThresholdBytes)
+        let mime = String(decoding: parts[1].body, as: UTF8.self)
+        XCTAssertTrue(mime.hasPrefix("From: ada@example.com\r\n"))
+        XCTAssertTrue(mime.contains("To: Charles Babbage <charles@example.com>\r\n"))
+        XCTAssertTrue(mime.contains("In-Reply-To: <m1@example.com>\r\n"))
+        XCTAssertTrue(mime.contains("Content-Disposition: attachment; filename=\"plans.pdf\"\r\n"))
+        let encoded = bytes.base64EncodedString(options: [.lineLength76Characters, .endLineWithCarriageReturn, .endLineWithLineFeed])
+        XCTAssertTrue(mime.contains(encoded), "the attachment travels base64 inside the MIME, not base64url again outside it")
     }
 
     func testSendStillSucceedsWhenRepliedMessageIsGone() async throws {
@@ -406,6 +511,17 @@ final class GmailProviderTests: XCTestCase {
         let request = try XCTUnwrap(server.requests(to: "/users/me/messages").first)
         XCTAssertEqual(request.query["q"], ["from:ada engine"])
         XCTAssertEqual(request.query["maxResults"], ["25"])
+    }
+
+    func testSearchEncodesPlusSignsSoGmailDoesNotReadThemAsSpaces() async throws {
+        server.on("GET", "/users/me/messages", .json(GmailFixtures.searchList))
+        let provider = TestSupport.makeProvider()
+
+        _ = try await provider.search("c++ from:x+y@example.com", limit: 10)
+
+        let request = try XCTUnwrap(server.requests(to: "/users/me/messages").first)
+        XCTAssertEqual(request.query["q"], ["c++ from:x+y@example.com"])
+        XCTAssertEqual(request.rawQuery, "q=c%2B%2B%20from:x%2By@example.com&maxResults=10")
     }
 
     func testSearchWithBlankTextSkipsTheNetwork() async throws {

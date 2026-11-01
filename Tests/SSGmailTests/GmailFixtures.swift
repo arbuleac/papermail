@@ -15,6 +15,11 @@ enum GmailFixtures {
     {"messages":[{"id":"m2","threadId":"t2"}],"resultSizeEstimate":1}
     """
 
+    /// A bootstrap page that lists a Hangouts chat next to real mail.
+    static let messageListWithChat = """
+    {"messages":[{"id":"m1","threadId":"t1"},{"id":"chat1","threadId":"tc1"}],"resultSizeEstimate":2}
+    """
+
     static let searchList = """
     {"messages":[{"id":"s1","threadId":"t1"},{"id":"s2","threadId":"t2"},{"id":"s3","threadId":"t3"}],"resultSizeEstimate":3}
     """
@@ -93,6 +98,38 @@ enum GmailFixtures {
         ],
         "body": {"size": 0}
       }
+    }
+    """
+
+    /// Hangouts history as Gmail stores it: CHAT label, no Subject, no inbox role.
+    static let metadataChat = """
+    {
+      "id": "chat1",
+      "threadId": "tc1",
+      "labelIds": ["CHAT"],
+      "snippet": "brb",
+      "historyId": "8675002",
+      "internalDate": "1730376000000",
+      "sizeEstimate": 60,
+      "payload": {
+        "mimeType": "text/html",
+        "headers": [
+          {"name": "From", "value": "Ada Lovelace <ada@example.com>"},
+          {"name": "To", "value": "charles@example.com"}
+        ],
+        "body": {"size": 0}
+      }
+    }
+    """
+
+    /// One record whose only message is a chat.
+    static let historyWithChat = """
+    {
+      "history": [
+        {"id": "8675310", "messages": [{"id": "chat1", "threadId": "tc1"}],
+         "messagesAdded": [{"message": {"id": "chat1", "threadId": "tc1", "labelIds": ["CHAT"]}}]}
+      ],
+      "historyId": "8675320"
     }
     """
 
@@ -284,6 +321,10 @@ enum GmailFixtures {
 
     static let forbiddenError = """
     {"error":{"code":403,"message":"Insufficient Permission","errors":[{"message":"Insufficient Permission","domain":"global","reason":"insufficientPermissions"}],"status":"PERMISSION_DENIED"}}
+    """
+
+    static let invalidPageTokenError = """
+    {"error":{"code":400,"message":"Invalid pageToken","errors":[{"message":"Invalid pageToken","domain":"global","reason":"invalidArgument"}],"status":"INVALID_ARGUMENT"}}
     """
 
     static let notFoundError = """

@@ -8,12 +8,37 @@ import SSCore
 /// by design: a malformed header should degrade to "some address text" rather than drop a participant.
 public enum AddressParser {
     public static func parse(_ header: String) -> [EmailAddress] {
-        splitTopLevel(header).compactMap(parseMailbox)
+        splitTopLevel(unfolded(header)).compactMap(parseMailbox)
     }
 
     /// The first mailbox of a header, for single-valued headers such as `From`.
     public static func first(_ header: String) -> EmailAddress? {
         parse(header).first
+    }
+
+    // MARK: Unfolding
+
+    /// RFC 5322 §2.2.3: a folded header continues on a line that starts with whitespace, and unfolding
+    /// removes just the line break. Any other line break is not folding, so it becomes a space; either way
+    /// no CR or LF survives into a name or address, where it could later be written into an outgoing header.
+    private static func unfolded(_ header: String) -> String {
+        // "\r\n" is one Character, so the check has to be on scalars.
+        guard header.unicodeScalars.contains(where: { $0 == "\r" || $0 == "\n" }) else { return header }
+        var output = String.UnicodeScalarView()
+        var pendingBreak = false
+        for scalar in header.unicodeScalars {
+            if scalar == "\r" || scalar == "\n" {
+                pendingBreak = true
+                continue
+            }
+            if pendingBreak {
+                if scalar != " " && scalar != "\t" { output.append(" ") }
+                pendingBreak = false
+            }
+            output.append(scalar)
+        }
+        if pendingBreak { output.append(" ") }
+        return String(output)
     }
 
     // MARK: Splitting

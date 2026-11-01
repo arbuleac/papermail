@@ -64,6 +64,9 @@ struct RecordedRequest {
 
     var bodyText: String { String(decoding: body, as: UTF8.self) }
 
+    /// The query exactly as it goes on the wire; `query` has already undone the percent-encoding.
+    var rawQuery: String { URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedQuery ?? "" }
+
     var jsonBody: [String: Any] {
         (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] ?? [:]
     }
@@ -225,6 +228,33 @@ enum TestSupport {
             let afterPrefix = line.dropFirst("GET /gmail/v1/users/me/messages/".count)
             return afterPrefix.split(whereSeparator: { $0 == "?" || $0 == " " }).first.map(String.init)
         }
+    }
+
+    /// The (headers, bytes) parts of a multipart upload body, split on the boundary its Content-Type declares.
+    static func uploadParts(of request: RecordedRequest) -> [(headers: String, body: Data)] {
+        guard let boundary = GmailBatch.boundary(from: request.header("Content-Type")) else { return [] }
+        let body = request.body
+        let delimiter = Data("--\(boundary)".utf8)
+        var pieces: [Data] = []
+        var cursor = body.startIndex
+        while let range = body.range(of: delimiter, in: cursor..<body.endIndex) {
+            pieces.append(body[cursor..<range.lowerBound])
+            cursor = range.upperBound
+        }
+        pieces.append(body[cursor...])
+        var parts: [(headers: String, body: Data)] = []
+        for piece in pieces.dropFirst() {
+            if piece.starts(with: Data("--".utf8)) { break }
+            var inner = piece
+            if inner.starts(with: Data("\r\n".utf8)) { inner = inner.dropFirst(2) }
+            if inner.suffix(2) == Data("\r\n".utf8) { inner = inner.dropLast(2) }
+            guard let split = inner.range(of: Data("\r\n\r\n".utf8)) else {
+                parts.append((String(decoding: inner, as: UTF8.self), Data()))
+                continue
+            }
+            parts.append((String(decoding: inner[inner.startIndex..<split.lowerBound], as: UTF8.self), Data(inner[split.upperBound...])))
+        }
+        return parts
     }
 
     static func providerError(_ body: () async throws -> Void) async -> ProviderError? {

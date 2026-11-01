@@ -124,6 +124,21 @@ final class GmailMessageMapperTests: XCTestCase {
         XCTAssertEqual(metadata.internetMessageID, "<x@y>")
     }
 
+    func testSubjectIsKeptAsGmailDecodedIt() throws {
+        // Gmail returns headers decoded; a subject that quotes encoded-word syntax must not be decoded again.
+        var message = try decode(GmailFixtures.metadataM2)
+        message.payload?.headers = [GmailHeader(name: "Subject", value: " Literal =?UTF-8?B?Y2Fmw6k=?= in a subject ")]
+        XCTAssertEqual(GmailMessageMapper.metadata(from: message, accountID: accountID).subject, "Literal =?UTF-8?B?Y2Fmw6k=?= in a subject")
+    }
+
+    func testChatHistoryIsRecognizedByLabel() throws {
+        XCTAssertTrue(GmailMessageMapper.isChat(try decode(GmailFixtures.metadataChat)))
+        XCTAssertFalse(GmailMessageMapper.isChat(try decode(GmailFixtures.metadataM1)))
+        var unlabeled = try decode(GmailFixtures.metadataM2)
+        unlabeled.labelIds = nil
+        XCTAssertFalse(GmailMessageMapper.isChat(unlabeled))
+    }
+
     func testSnippetEntityDecoding() {
         XCTAssertEqual(GmailMessageMapper.decodeSnippet("a &amp; b"), "a & b")
         XCTAssertEqual(GmailMessageMapper.decodeSnippet("&#39;quoted&#39; &quot;double&quot;"), "'quoted' \"double\"")

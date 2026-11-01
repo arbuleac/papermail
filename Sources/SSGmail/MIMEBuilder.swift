@@ -85,7 +85,9 @@ public struct MIMEBuilder: Sendable {
     }
 
     static func formatAddress(_ address: EmailAddress) -> String {
-        let spec = address.address.trimmingCharacters(in: .whitespacesAndNewlines)
+        // The spec lands between the angle brackets as it is, so it needs the same line-break guard as the
+        // name; a parsed From/Reply-To is user-controlled input once the user replies to it.
+        let spec = sanitizeHeaderText(address.address).trimmingCharacters(in: .whitespaces)
         guard let rawName = address.name?.trimmingCharacters(in: .whitespacesAndNewlines), !rawName.isEmpty else {
             return spec
         }
@@ -190,7 +192,7 @@ public struct MIMEBuilder: Sendable {
     }
 
     private func attachmentPart(_ attachment: OutgoingAttachment, inline: Bool) -> String {
-        let type = attachment.mimeType.isEmpty ? "application/octet-stream" : attachment.mimeType
+        let type = attachment.mimeType.isEmpty ? "application/octet-stream" : Self.sanitizeHeaderText(attachment.mimeType)
         let nameParameter = Self.filenameParameter("name", attachment.filename)
         let filenameParameter = Self.filenameParameter("filename", attachment.filename)
         var output = "Content-Type: \(type); \(nameParameter)\r\n"

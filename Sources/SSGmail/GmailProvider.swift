@@ -11,14 +11,21 @@ public final class GmailProvider: MailProvider, Sendable {
     private let http: GmailHTTPClient
     private let log = Logger(subsystem: "io.supersparrow.mac", category: "gmail")
 
-    /// Bootstrap and search exclude spam and trash so the first paint matches "All mail".
-    static let bootstrapQuery = "-in:spam -in:trash"
+    /// Bootstrap excludes spam and trash so the first paint matches "All mail". Chat history (Hangouts and
+    /// Google Chat, stored as messages under the CHAT label) is excluded too: Gmail lists it but never shows
+    /// it as mail, and it has no subject or inbox role to show.
+    static let bootstrapQuery = "-in:spam -in:trash -in:chats"
     static let historyTypes = ["messageAdded", "messageDeleted", "labelAdded", "labelRemoved"]
     static let batchModifyChunk = 1000
     /// Gmail rejects maxResults above 500 for list and history calls.
     static let maxListResults = 500
-    /// Bounds the inner paging loop of `changes` so a run of empty history pages cannot spin forever.
+    /// Bounds the work of one `changes` call; a run of history pages longer than this continues on the next
+    /// call through the page token carried in the cursor.
     static let maxHistoryPagesPerCall = 20
+    /// Messages whose RFC 5322 form is larger than this go through the upload endpoint. The JSON endpoint
+    /// inflates them by a third (base64url on top of the MIME base64) and rejects bodies of a few MB,
+    /// where the upload endpoint takes the raw bytes up to Gmail's 35 MB message limit.
+    static let uploadThresholdBytes = 1 << 20
 
     public init(accountID: AccountID, tokens: AccessTokenProvider, session: URLSession = .shared) {
         self.accountID = accountID
@@ -59,21 +66,33 @@ public final class GmailProvider: MailProvider, Sendable {
     // MARK: Changes
 
     public func changes(since cursor: String, limit: Int) async throws -> ChangesPage {
+        let start = GmailHistoryCursor(parsing: cursor)
         var affected: [String] = []
         var affectedSet: Set<String> = []
         var deleted: [String] = []
         var deletedSet: Set<String> = []
         var lastRecordID: String?
         var finalHistoryID: String?
-        var pageToken: String?
+        var pageToken = start.pageToken
+        var pagesFetched = 0
         var hasMore = false
 
         func noteAffected(_ id: String) {
             if affectedSet.insert(id).inserted { affected.append(id) }
         }
 
-        for _ in 0..<Self.maxHistoryPagesPerCall {
-            let response = try await fetchHistory(startHistoryID: cursor, pageToken: pageToken, limit: limit)
+        while true {
+            let response: GmailHistoryList
+            do {
+                response = try await fetchHistory(startHistoryID: start.startHistoryID, pageToken: pageToken, limit: limit)
+            } catch ProviderError.server(let status, _) where status == 400 && pagesFetched == 0 && pageToken != nil {
+                // A resume token Gmail no longer honors must not wedge the account on the same cursor forever;
+                // the run starts over from its history id, which is still valid or answers 404 as usual.
+                log.notice("history page token rejected; restarting the run from its history id")
+                pageToken = nil
+                continue
+            }
+            pagesFetched += 1
             for record in response.history ?? [] {
                 lastRecordID = record.id
                 for entry in record.messagesAdded ?? [] { noteAffected(entry.message.id) }
@@ -89,34 +108,37 @@ public final class GmailProvider: MailProvider, Sendable {
                 hasMore = false
                 break
             }
-            // Stop early once a page's worth of ids is in hand; the engine calls again from the last record.
-            // Otherwise keep paging, but stay marked as incomplete in case the page cap is hit.
             hasMore = true
-            if affected.count + deleted.count >= limit {
+            pageToken = next
+            // Stop early once a page's worth of ids is in hand, or once this call has done its share of
+            // paging; either way the cursor below says where the next call picks up.
+            if affected.count + deleted.count >= limit || pagesFetched >= Self.maxHistoryPagesPerCall {
                 break
             }
-            pageToken = next
-        }
-
-        if hasMore, lastRecordID == nil {
-            // Every page within the cap was empty: claiming more would make the engine spin on the same
-            // start id, so the next poll retries from it instead.
-            hasMore = false
         }
 
         let toFetch = affected.filter { !deletedSet.contains($0) }
-        let fetched = try await fetchMetadata(ids: toFetch)
-        let fetchedIDs = Set(fetched.map(\.id.providerID))
+        let served = try await fetchMessages(ids: toFetch)
+        let servedIDs = Set(served.map(\.id))
         // A message that history still mentions but Gmail no longer serves was deleted after the record.
-        for id in toFetch where !fetchedIDs.contains(id) && deletedSet.insert(id).inserted {
+        for id in toFetch where !servedIDs.contains(id) && deletedSet.insert(id).inserted {
             deleted.append(id)
         }
+        // Chat history rides along in history.list; it is never shown, so it is neither upserted nor
+        // reported as deleted (the store never held it).
+        let fetched = served
+            .filter { !GmailMessageMapper.isChat($0) }
+            .map { GmailMessageMapper.metadata(from: $0, accountID: accountID) }
 
         let nextCursor: String
-        if hasMore {
-            nextCursor = lastRecordID ?? cursor
+        if !hasMore {
+            nextCursor = finalHistoryID ?? lastRecordID ?? start.startHistoryID
+        } else if let lastRecordID {
+            // Records were seen: Gmail serves everything after the last one from its id alone.
+            nextCursor = lastRecordID
         } else {
-            nextCursor = finalHistoryID ?? lastRecordID ?? cursor
+            // Only empty pages so far: the page token is the only way to make progress through the run.
+            nextCursor = GmailHistoryCursor(startHistoryID: start.startHistoryID, pageToken: pageToken).encoded
         }
         log.debug("changes: \(fetched.count, privacy: .public) upserts, \(deleted.count, privacy: .public) deletions")
         return ChangesPage(upserts: fetched, deletedIDs: deleted, cursor: nextCursor, hasMore: hasMore)
@@ -141,17 +163,24 @@ public final class GmailProvider: MailProvider, Sendable {
 
     // MARK: Metadata
 
+    /// Chat history counts as unknown here: it is not mail and the store never holds it.
     public func metadata(for providerIDs: [String]) async throws -> [MessageMetadata] {
         try await fetchMetadata(ids: providerIDs)
     }
 
-    /// Hydrates ids in list order, 50 per batch call, dropping ids Gmail no longer knows.
     private func fetchMetadata(ids: [String]) async throws -> [MessageMetadata] {
+        try await fetchMessages(ids: ids)
+            .filter { !GmailMessageMapper.isChat($0) }
+            .map { GmailMessageMapper.metadata(from: $0, accountID: accountID) }
+    }
+
+    /// Hydrates ids in list order, 50 per batch call, dropping ids Gmail no longer knows.
+    private func fetchMessages(ids: [String]) async throws -> [GmailMessage] {
         guard !ids.isEmpty else { return [] }
-        var byID: [String: MessageMetadata] = [:]
+        var byID: [String: GmailMessage] = [:]
         for chunk in ids.chunked(into: GmailBatch.maxPartsPerBatch) {
             for message in try await metadataChunk(chunk) {
-                byID[message.id] = GmailMessageMapper.metadata(from: message, accountID: accountID)
+                byID[message.id] = message
             }
         }
         return ids.compactMap { byID[$0] }
@@ -277,12 +306,19 @@ public final class GmailProvider: MailProvider, Sendable {
                 threadID = nil
             }
         }
-        let builder = MIMEBuilder(message: outgoing, from: EmailAddress(address: profile.emailAddress))
-        let raw = Base64URL.encode(builder.build())
-        let response = try await http.json(
-            GmailSendResponse.self,
-            for: try GmailRequest.post("messages/send", json: GmailSendRequest(raw: raw, threadId: threadID))
-        )
+        let mime = MIMEBuilder(message: outgoing, from: EmailAddress(address: profile.emailAddress)).build()
+        let request: GmailRequest
+        if mime.count > Self.uploadThresholdBytes {
+            request = try GmailRequest.upload(
+                "messages/send",
+                metadata: GmailUploadSendMetadata(threadId: threadID),
+                media: mime,
+                mediaType: "message/rfc822"
+            )
+        } else {
+            request = try GmailRequest.post("messages/send", json: GmailSendRequest(raw: Base64URL.encode(mime), threadId: threadID))
+        }
+        let response = try await http.json(GmailSendResponse.self, for: request)
         log.debug("sent message \(response.id, privacy: .public)")
         return SendReceipt(providerMessageID: response.id, providerConversationID: response.threadId)
     }

@@ -116,3 +116,8 @@ struct GmailSendRequest: Encodable, Sendable {
     var raw: String
     var threadId: String?
 }
+
+/// Metadata part of a multipart upload to `messages.send`; the message itself travels as the media part.
+struct GmailUploadSendMetadata: Encodable, Sendable {
+    var threadId: String?
+}

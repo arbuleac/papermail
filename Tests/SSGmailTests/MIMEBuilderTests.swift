@@ -213,19 +213,27 @@ final class MIMEBuilderTests: XCTestCase {
     }
 
     func testHeaderInjectionIsNeutralized() {
+        // The cc spec is what AddressParser yields for a crafted From header once the user replies to it.
         let message = OutgoingMessage(
             accountID: accountID,
             to: [EmailAddress(name: "Evil\r\nBcc: victim@example.com", address: "evil@example.com")],
+            cc: [EmailAddress(name: "Mallory", address: "mallory@example.com\r\nBcc: victim@example.net\r\nX-Junk: ")],
             subject: "Hello\r\nX-Injected: yes",
-            html: "", text: ""
+            html: "", text: "",
+            attachments: [OutgoingAttachment(filename: "a.txt", mimeType: "text/plain\r\nX-Part: yes", data: Data([1]))]
         )
         let output = String(decoding: MIMEBuilder(message: message).build(), as: UTF8.self)
         let root = ParsedPart.parse(output)
 
         XCTAssertNil(root.headers["x-injected"])
         XCTAssertNil(root.headers["bcc"])
+        XCTAssertNil(root.headers["x-junk"])
         XCTAssertEqual(root.headers["subject"], "Hello X-Injected: yes")
         XCTAssertEqual(root.headers["to"], "\"Evil Bcc: victim@example.com\" <evil@example.com>")
+        XCTAssertEqual(root.headers["cc"], "Mallory <mallory@example.com Bcc: victim@example.net X-Junk:>")
+        XCTAssertNil(root.children[1].headers["x-part"])
+        let smuggledLines = output.components(separatedBy: "\r\n").filter { $0.hasPrefix("Bcc:") || $0.hasPrefix("X-") }
+        XCTAssertEqual(smuggledLines, [], "no injected text may start a line of its own")
     }
 
     func testNonASCIIFilenameUsesRFC2231() {

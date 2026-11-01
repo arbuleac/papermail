@@ -14,7 +14,9 @@ enum GmailMessageMapper {
             internetMessageID: header("Message-ID").map(trimmedID).flatMap { $0.isEmpty ? nil : $0 },
             inReplyTo: header("In-Reply-To").map(trimmedID).flatMap { $0.isEmpty ? nil : $0 },
             references: header("References").map(referenceList) ?? [],
-            subject: header("Subject").map { RFC2047.decode($0).trimmingCharacters(in: .whitespacesAndNewlines) } ?? "",
+            // Gmail hands headers back already decoded, so decoding again would alter a subject that happens
+            // to talk about encoded words (a bug report quoting "=?UTF-8?B?...?=" would come out as its payload).
+            subject: header("Subject").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) } ?? "",
             snippet: decodeSnippet(message.snippet ?? ""),
             from: header("From").flatMap(AddressParser.first),
             to: header("To").map(AddressParser.parse) ?? [],
@@ -32,6 +34,11 @@ enum GmailMessageMapper {
             providerVersion: message.historyId,
             sizeBytes: message.sizeEstimate
         )
+    }
+
+    /// Hangouts and Google Chat history is stored as messages under this label; it is not mail.
+    static func isChat(_ message: GmailMessage) -> Bool {
+        message.labelIds?.contains("CHAT") ?? false
     }
 
     static func roles(from labels: [String]) -> Set<MailboxRole> {
