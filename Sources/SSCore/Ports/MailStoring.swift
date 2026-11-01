@@ -31,7 +31,8 @@ public protocol MailStoring: AnyObject, Sendable {
     func setSyncCursor(_ cursor: String?, for accountID: AccountID) throws
     func bootstrapState(for accountID: AccountID) throws -> BootstrapState?
     func setBootstrapState(_ state: BootstrapState?, for accountID: AccountID) throws
-    /// Drops messages, bodies, operations and sync state for the account but keeps the account row.
+    /// Drops messages, bodies, contacts and sync state for the account but keeps the account row, its pending
+    /// operations and its pending sends: user intent the provider has not seen survives a re-bootstrap.
     func wipeMailData(for accountID: AccountID) throws
 
     // MARK: Messages

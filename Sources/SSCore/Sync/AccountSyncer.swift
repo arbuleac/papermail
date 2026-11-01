@@ -216,10 +216,25 @@ actor AccountSyncer {
         setPhase(.bootstrapping, progress: state.messagesSeen)
         let id = accountID.rawValue
         let resuming = checkpoint.providerPage != nil
+        // The stored page token, until it has been accepted once.
+        var untestedResumeToken = checkpoint.providerPage
         SyncLog.logger.info("bootstrap \(resuming ? "resuming" : "starting", privacy: .public) for \(id, privacy: .public) after \(state.pagesDone, privacy: .public) pages")
         while true {
             try Task.checkCancellation()
-            let page = try await provider.bootstrap(page: checkpoint.providerPage, limit: tuning.bootstrapPageSize)
+            let page: BootstrapPage
+            do {
+                page = try await provider.bootstrap(page: checkpoint.providerPage, limit: tuning.bootstrapPageSize)
+            } catch let error as ProviderError where untestedResumeToken != nil && Self.rejectsResumeToken(error) {
+                // A page token kept across a long quit may have expired (Gmail answers 400). Retrying it would
+                // fail the same way on every cycle and the account would never get a cursor; start over.
+                SyncLog.logger.notice("bootstrap resume token rejected for \(id, privacy: .public); starting over")
+                untestedResumeToken = nil
+                state = BootstrapState(startedAt: Date())
+                checkpoint = BootstrapCheckpoint()
+                try store.setBootstrapState(state, for: accountID)
+                continue
+            }
+            untestedResumeToken = nil
             try Task.checkCancellation()
             if checkpoint.providerPage == nil {
                 guard let cursor = page.changeCursor, !cursor.isEmpty else {
@@ -250,6 +265,15 @@ actor AccountSyncer {
             try await hydrate(phase: .bootstrapping)
         }
         try await hydrate(phase: .bootstrapping)
+    }
+
+    /// Errors that say the page token itself is no good, as opposed to the provider being unwell.
+    private static func rejectsResumeToken(_ error: ProviderError) -> Bool {
+        switch error {
+        case .notFound, .decoding: return true
+        case .server(let status, _): return status == 400 || status == 404 || status == 410
+        default: return false
+        }
     }
 
     private func drainOutbox() async throws -> Date? {

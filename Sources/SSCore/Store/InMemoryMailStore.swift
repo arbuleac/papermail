@@ -36,6 +36,8 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         accountRows[id] = nil
         wipeLocked(id)
+        operations = operations.filter { $0.value.accountID != id }
+        sends = sends.filter { $0.value.message.accountID != id }
         notifyAll()
     }
 
@@ -70,8 +72,6 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
     private func wipeLocked(_ accountID: AccountID) {
         messagesByID = messagesByID.filter { $0.key.accountID != accountID }
         bodies = bodies.filter { $0.key.accountID != accountID }
-        operations = operations.filter { $0.value.accountID != accountID }
-        sends = sends.filter { $0.value.message.accountID != accountID }
         cursors[accountID] = nil
         bootstraps[accountID] = nil
         contactCounts[accountID] = nil

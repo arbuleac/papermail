@@ -44,8 +44,9 @@ enum AccountTable {
         let accountID = id.rawValue
         try db.execute(sql: "DELETE FROM messages WHERE account_id = ?", arguments: [accountID])
         try db.execute(sql: "DELETE FROM conversations WHERE account_id = ?", arguments: [accountID])
-        try db.execute(sql: "DELETE FROM operations WHERE account_id = ?", arguments: [accountID])
-        try db.execute(sql: "DELETE FROM pending_sends WHERE account_id = ?", arguments: [accountID])
+        // Operations and pending sends are kept: they are what the user asked for and the provider has not
+        // seen yet. After a reset the re-bootstrapped messages take the pending changes again, and queued
+        // mail still goes out. Deleting the account removes them through the foreign keys.
         try db.execute(sql: "DELETE FROM contacts WHERE account_id = ?", arguments: [accountID])
         try db.execute(sql: "UPDATE accounts SET sync_cursor = NULL, bootstrap_json = NULL WHERE id = ?", arguments: [accountID])
     }

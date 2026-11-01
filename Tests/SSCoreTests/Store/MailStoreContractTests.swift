@@ -171,8 +171,10 @@ class MailStoreContractTests: XCTestCase {
         XCTAssertNil(try store.body(for: MessageID(accountID: accountA, providerID: "a1")))
         XCTAssertNil(try store.syncCursor(for: accountA))
         XCTAssertNil(try store.bootstrapState(for: accountA))
-        XCTAssertEqual(try store.pendingOperations(accountID: accountA, limit: 10), [])
-        XCTAssertEqual(try store.pendingSends(), [])
+        // What the user asked for and the provider has not seen yet survives a re-bootstrap: the archive
+        // is re-applied over the provider's state and the queued message still goes out.
+        XCTAssertEqual(try store.pendingOperations(accountID: accountA, limit: 10).map(\.change), [.archive])
+        XCTAssertEqual(try store.pendingSends().count, 1)
         XCTAssertEqual(try conversationIDs(ConversationQuery(view: .all)), ["cb"])
         XCTAssertEqual(try store.suggestAddresses(prefix: "alice", limit: 5), [])
         XCTAssertEqual(try store.suggestAddresses(prefix: "bea", limit: 5), [bea], "the other account's contacts survive")

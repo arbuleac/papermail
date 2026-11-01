@@ -68,6 +68,29 @@ final class MailEngineBootstrapTests: XCTestCase {
         await harness2.shutdown()
     }
 
+    /// A resume token the provider no longer honours (Gmail answers a stale pageToken with 400) must not
+    /// wedge the account in bootstrap forever: the enumeration starts over instead.
+    func testRejectedResumeTokenRestartsTheBootstrap() async throws {
+        let store = InMemoryMailStore()
+        let id = Fixtures.accountID
+        try store.upsertAccount(Fixtures.account())
+        var state = BootstrapState(startedAt: Date())
+        state.pagesDone = 1
+        state.checkpoint = BootstrapCheckpoint(providerPage: "stale", changeCursor: "c-old")
+        try store.setBootstrapState(state, for: id)
+        let provider = ScriptedProvider(accountID: id)
+        provider.bootstrapRuns = [[
+            "stale": .failure(ProviderError.server(status: 400, message: "Invalid pageToken")),
+            "": .success(Fixtures.page(1...2, next: nil, cursor: "c-new")),
+        ]]
+        let harness = try EngineHarness(store: store, provider: provider, seedAccount: false)
+        harness.engine.start()
+        try await waitUntil("restarted bootstrap completes") { try store.syncCursor(for: id) == "c-new" }
+        XCTAssertEqual(provider.bootstrapCalls, ["stale", nil])
+        XCTAssertEqual(try allMessages(store).count, 2)
+        await harness.shutdown()
+    }
+
     func testChangePageAppliesUpsertsAndDeletes() async throws {
         let provider = ScriptedProvider(accountID: Fixtures.accountID)
         provider.bootstrapRuns = [["": .success(Fixtures.page(1...3, next: nil, cursor: "c0"))]]
