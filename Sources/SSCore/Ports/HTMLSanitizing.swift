@@ -30,3 +30,8 @@ public enum RenderURLScheme {
         return components.url!
     }
 }
+
+/// Turns a provider body into render-ready HTML and search text. Pure and thread-safe; called from sync actors.
+public protocol BodySanitizing: Sendable {
+    func sanitize(_ body: MessageBody, messageID: MessageID) -> SanitizedBody
+}

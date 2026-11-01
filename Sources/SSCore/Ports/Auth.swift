@@ -43,3 +43,8 @@ public protocol AccessTokenProvider: Sendable {
     /// Called after a provider receives 401 with a token that looked valid; forces a refresh on next call.
     func invalidateAccessToken(for accountID: AccountID) async
 }
+
+/// Runs an interactive sign-in and returns tokens. Implemented by `OAuthFlow`; the engine never sees the browser.
+public protocol AccountAuthenticator: Sendable {
+    func signIn(kind: ProviderKind) async throws -> OAuthTokens
+}
