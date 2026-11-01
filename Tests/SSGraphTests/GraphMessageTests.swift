@@ -122,7 +122,7 @@ final class GraphMessageTests: GraphTestCase {
         XCTAssertEqual(messageRequest.query["$select"], "body,uniqueBody,internetMessageHeaders")
         XCTAssertEqual(messageRequest.header("Prefer"), "IdType=\"ImmutableId\", outlook.body-content-type=\"html\"")
         let attachmentRequest = try XCTUnwrap(requests(to: "/v1.0/me/messages/M-1/attachments").first)
-        XCTAssertEqual(attachmentRequest.query["$select"], "id,name,contentType,size,isInline,contentId")
+        XCTAssertEqual(attachmentRequest.query["$select"], "id,name,contentType,size,isInline,microsoft.graph.fileAttachment/contentId")
     }
 
     func testBodyTextOnly() async throws {
@@ -139,22 +139,36 @@ final class GraphMessageTests: GraphTestCase {
         XCTAssertTrue(body.attachments.isEmpty)
     }
 
+    /// `contentId` exists only on fileAttachment, so the base collection rejects selecting it by its bare
+    /// name. When even the derived-type form is refused, images are looked up one by one: without their
+    /// Content-ID, `cid:` references in the body could never resolve.
     func testAttachmentListFallsBackWhenContentIdIsRejected() async throws {
+        let listing = """
+        {"value":[
+        {"@odata.type":"#microsoft.graph.fileAttachment","id":"A-1","name":"logo.png","contentType":"image/png","size":1234,"isInline":true},
+        {"@odata.type":"#microsoft.graph.fileAttachment","id":"A-2","name":"report.pdf","contentType":"application/pdf","size":98765,"isInline":false}
+        ]}
+        """
         route { request in
             switch request.path {
             case "/v1.0/me/messages/M-2": return .json(Fixtures.textBody)
             case "/v1.0/me/messages/M-2/attachments":
                 let select = request.query["$select"] ?? ""
-                return select.contains("contentId") ? .json(Fixtures.badRequestError, status: 400) : .json(Fixtures.attachmentsWithoutContentId)
+                return select.contains("contentId") ? .json(Fixtures.badRequestError, status: 400) : .json(listing)
+            case "/v1.0/me/messages/M-2/attachments/A-1":
+                return .json(##"{"@odata.type":"#microsoft.graph.fileAttachment","id":"A-1","contentId":"<img1@example.com>"}"##)
             default: return nil
             }
         }
         let body = try await makeProvider().body(for: "M-2")
-        XCTAssertEqual(body.attachments.map(\.id), ["A-2"])
+        XCTAssertEqual(body.attachments.map(\.id), ["A-1", "A-2"])
+        XCTAssertEqual(body.attachments.map(\.contentID), ["img1@example.com", nil])
         XCTAssertEqual(requests(to: "/v1.0/me/messages/M-2/attachments").map { $0.query["$select"] }, [
-            "id,name,contentType,size,isInline,contentId",
+            "id,name,contentType,size,isInline,microsoft.graph.fileAttachment/contentId",
             "id,name,contentType,size,isInline",
         ])
+        XCTAssertEqual(requests(to: "/v1.0/me/messages/M-2/attachments/A-1").count, 1)
+        XCTAssertTrue(requests(to: "/v1.0/me/messages/M-2/attachments/A-2").isEmpty, "only images are looked up")
     }
 
     func testAttachmentBytesFromValueEndpoint() async throws {

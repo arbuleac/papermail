@@ -4,8 +4,9 @@ import SSCore
 extension GraphProvider {
     /// First enumeration: newest first across the whole mailbox, trash and junk dropped by folder id.
     ///
-    /// The cursor is built before the first list call so the deltas it seeds start no later than any message
-    /// handed back here; overlap between the two is harmless because upserts are idempotent.
+    /// The cursor is built before the first list call. Its folders have no delta link yet, so the first poll
+    /// seeds an unfiltered delta per folder that reports each folder's whole content once and every change
+    /// after that; overlap with this enumeration is harmless because upserts are idempotent.
     public func bootstrap(page: String?, limit: Int) async throws -> BootstrapPage {
         if let page {
             // A corrupt page is rejected before any folder lookup so the failure is cheap and unambiguous.

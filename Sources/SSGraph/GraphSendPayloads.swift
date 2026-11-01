@@ -66,3 +66,31 @@ struct GraphSendMailPayload: Encodable, Sendable {
     var message: GraphMessagePayload
     var saveToSentItems = true
 }
+
+/// Body of `POST /attachments/createUploadSession`.
+struct GraphUploadSessionRequest: Encodable, Sendable {
+    struct Item: Encodable, Sendable {
+        var attachmentType = "file"
+        var name: String
+        var size: Int
+        var contentType: String
+        var isInline: Bool
+        var contentId: String?
+    }
+
+    var AttachmentItem: Item
+
+    init(_ attachment: OutgoingAttachment) {
+        AttachmentItem = Item(
+            name: attachment.filename,
+            size: attachment.data.count,
+            contentType: attachment.mimeType,
+            isInline: attachment.contentID != nil,
+            contentId: attachment.contentID
+        )
+    }
+}
+
+struct GraphUploadSession: Decodable, Sendable {
+    var uploadUrl: String
+}

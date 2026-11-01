@@ -12,11 +12,15 @@ public final class GraphProvider: MailProvider, Sendable {
     let client: GraphHTTPClient
     let folderCache = GraphFolderCache()
     let clock: @Sendable () -> Date
+    let sendLimits: GraphSendLimits
 
     /// `internetMessageHeaders` is not selectable on list calls, so In-Reply-To and References are never mapped.
     static let metadataSelect = "id,conversationId,conversationIndex,internetMessageId,subject,bodyPreview,from,toRecipients,ccRecipients,bccRecipients,replyTo,receivedDateTime,isRead,flag,inferenceClassification,parentFolderId,hasAttachments,changeKey,isDraft"
     static let bodySelect = "body,uniqueBody,internetMessageHeaders"
-    static let attachmentSelect = "id,name,contentType,size,isInline,contentId"
+    /// `contentId` is declared on fileAttachment only; selecting it by its bare name on the attachment
+    /// collection is a 400, so it is named through the derived type.
+    static let attachmentSelect = "id,name,contentType,size,isInline,microsoft.graph.fileAttachment/contentId"
+    static let attachmentBaseSelect = "id,name,contentType,size,isInline"
     /// Graph caps `$top` on message lists; asking for more is a 400.
     static let maxListPageSize = 999
     static let maxSearchPageSize = 250
@@ -25,10 +29,17 @@ public final class GraphProvider: MailProvider, Sendable {
         self.init(accountID: accountID, tokens: tokens, session: session, clock: { Date() })
     }
 
-    init(accountID: AccountID, tokens: AccessTokenProvider, session: URLSession, clock: @escaping @Sendable () -> Date) {
+    init(
+        accountID: AccountID,
+        tokens: AccessTokenProvider,
+        session: URLSession,
+        clock: @escaping @Sendable () -> Date,
+        sendLimits: GraphSendLimits = .graph
+    ) {
         self.accountID = accountID
         self.client = GraphHTTPClient(accountID: accountID, tokens: tokens, session: session)
         self.clock = clock
+        self.sendLimits = sendLimits
     }
 
     // MARK: Profile
@@ -109,9 +120,22 @@ public final class GraphProvider: MailProvider, Sendable {
         do {
             return try await listAttachments(for: providerID, select: Self.attachmentSelect)
         } catch ProviderError.server(let status, _) where status == 400 {
-            // Some tenants reject selecting the fileAttachment-only `contentId` on the base collection.
-            return try await listAttachments(for: providerID, select: "id,name,contentType,size,isInline")
+            // A mailbox that refuses even the derived-type select still owes the Content-IDs: without them no
+            // `cid:` image in the body resolves, in the reader or in a quoted reply. Images are read one at a
+            // time without `$select`, which returns every fileAttachment property.
+            var listed = try await listAttachments(for: providerID, select: Self.attachmentBaseSelect)
+            for index in listed.indices where listed[index].contentId == nil && Self.mayBeReferencedInline(listed[index]) {
+                let url = try GraphURL.make("/me/messages/\(providerID)/attachments/\(listed[index].id)")
+                let full = try? await client.json(GraphAttachment.self, for: GraphRequest(method: .get, url: url))
+                listed[index].contentId = full?.contentId
+            }
+            return listed
         }
+    }
+
+    /// Outlook often marks images a body references as regular attachments, so `isInline` alone is not enough.
+    private static func mayBeReferencedInline(_ attachment: GraphAttachment) -> Bool {
+        attachment.isInline == true || (attachment.contentType?.lowercased().hasPrefix("image/") ?? false)
     }
 
     private func listAttachments(for providerID: String, select: String) async throws -> [GraphAttachment] {

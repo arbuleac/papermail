@@ -106,9 +106,12 @@ extension GraphProvider {
         if let delta = cursor.deltaLink(for: folderID) {
             return try GraphURL.absolute(delta)
         }
+        // No `$filter`: the only one message delta accepts (receivedDateTime) also narrows what the delta
+        // tracks for its whole life, and reads, moves and deletes of older mail would never be reported.
+        // The first round therefore lists the folder's current content once, which also repairs anything
+        // the offset-paged bootstrap skipped; the upserts are idempotent.
         return try GraphURL.make("/me/mailFolders/\(folderID)/messages/delta", query: [
             ("$select", Self.metadataSelect),
-            ("$filter", "receivedDateTime ge \(cursor.since)"),
         ])
     }
 

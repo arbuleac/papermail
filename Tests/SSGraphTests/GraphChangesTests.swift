@@ -47,7 +47,7 @@ final class GraphChangesTests: GraphTestCase {
         let seeds = requests
         XCTAssertEqual(seeds.map(\.path), [inboxDelta, sentDelta])
         for seed in seeds {
-            XCTAssertEqual(seed.query["$filter"], "receivedDateTime ge \(nowString)")
+            XCTAssertNil(seed.query["$filter"], "a receivedDateTime filter would hide changes to mail that predates the account")
             XCTAssertEqual(seed.query["$select"], GraphProvider.metadataSelect)
             let prefer = try XCTUnwrap(seed.header("Prefer"))
             XCTAssertTrue(prefer.contains("odata.maxpagesize=2"), prefer)
@@ -233,7 +233,7 @@ final class GraphChangesTests: GraphTestCase {
         XCTAssertEqual(next.deltaLink(for: "F-INBOX"), inboxLink2)
         XCTAssertEqual(next.wellKnown, Fixtures.folderIDs)
         XCTAssertEqual(requests(to: inboxDelta).first?.query["$deltatoken"], "inbox-d1", "a folder that survives keeps its delta link")
-        XCTAssertEqual(requests(to: "/v1.0/me/mailFolders/F-NEW/messages/delta").first?.query["$filter"], "receivedDateTime ge \(nowString)")
+        XCTAssertNil(requests(to: "/v1.0/me/mailFolders/F-NEW/messages/delta").first?.query["$filter"])
         XCTAssertTrue(requests(to: "/v1.0/me/mailFolders/F-GONE/messages/delta").isEmpty)
         XCTAssertEqual(page.upserts.map(\.id.providerID), ["m-n"])
     }
@@ -247,5 +247,31 @@ final class GraphChangesTests: GraphTestCase {
         route { request in request.path == self.inboxDelta ? .json(Fixtures.list([])) : nil }
         let start = try cursor(folders: ["F-INBOX": nil])
         await expectProviderError({ try await self.makeProvider().changes(since: start, limit: 10) }) { $0.isDecoding }
+    }
+
+    /// Cursors written before deltas tracked the whole mailbox carry deltaLinks scoped to
+    /// `receivedDateTime ge <bootstrap start>`; Graph keeps that scope in the token, so they are dropped and
+    /// every folder is seeded again without a filter.
+    func testLegacyFilteredCursorIsReseededWithoutFilter() async throws {
+        route { request in
+            guard request.method == "GET", request.path == self.inboxDelta else { return nil }
+            if request.query["$deltatoken"] != nil {
+                return .json(Fixtures.list([], deltaLink: self.inboxLink2))
+            }
+            return .json(Fixtures.list([Fixtures.message(id: "old", folder: "F-INBOX", received: "2025-01-01T09:00:00Z")], deltaLink: self.inboxLink))
+        }
+        let legacy = #"{"folders":{"F-INBOX":"\#(inboxLink)"},"nextLinks":{},"wellKnown":{"inbox":"F-INBOX"},"since":"\#(nowString)","foldersResolvedAt":"\#(nowString)"}"#
+
+        let page = try await makeProvider().changes(since: legacy, limit: 50)
+
+        let seed = try XCTUnwrap(requests(to: inboxDelta).first)
+        XCTAssertNil(seed.query["$deltatoken"], "the filtered delta link must not be reused")
+        XCTAssertNil(seed.query["$filter"])
+        XCTAssertEqual(page.upserts.map(\.id.providerID), ["old"], "mail received before the account was added is tracked")
+        let next = try GraphCursor.decode(page.cursor)
+        XCTAssertEqual(next.deltaLink(for: "F-INBOX"), inboxLink)
+        StubURLProtocol.clearRequests()
+        _ = try await makeProvider().changes(since: page.cursor, limit: 50)
+        XCTAssertEqual(requests(to: inboxDelta).first?.query["$deltatoken"], "inbox-d1", "a reseeded cursor keeps its links")
     }
 }

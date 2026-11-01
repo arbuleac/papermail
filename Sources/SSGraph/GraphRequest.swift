@@ -7,6 +7,8 @@ struct GraphRequest: Sendable {
         case get = "GET"
         case post = "POST"
         case patch = "PATCH"
+        case put = "PUT"
+        case delete = "DELETE"
     }
 
     var method: Method
@@ -16,6 +18,9 @@ struct GraphRequest: Sendable {
     var headers: [String: String] = [:]
     var body: Data? = nil
     var accept: String = "application/json"
+    /// False for upload-session URLs: they carry their own credential, and Graph refuses a request to them
+    /// that also has a bearer token.
+    var authenticated = true
 }
 
 /// What came back, with header names lowercased so lookups do not depend on Graph's casing.

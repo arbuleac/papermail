@@ -26,9 +26,9 @@ class GraphTestCase: XCTestCase {
         super.tearDown()
     }
 
-    func makeProvider(now: Date? = nil) -> GraphProvider {
+    func makeProvider(now: Date? = nil, sendLimits: GraphSendLimits = .graph) -> GraphProvider {
         let frozen = now ?? self.now
-        return GraphProvider(accountID: accountID, tokens: tokens, session: StubURLProtocol.makeSession(), clock: { frozen })
+        return GraphProvider(accountID: accountID, tokens: tokens, session: StubURLProtocol.makeSession(), clock: { frozen }, sendLimits: sendLimits)
     }
 
     var requests: [Request] { StubURLProtocol.requests }

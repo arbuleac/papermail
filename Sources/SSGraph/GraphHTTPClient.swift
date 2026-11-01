@@ -23,7 +23,7 @@ final class GraphHTTPClient: Sendable {
     func send(_ request: GraphRequest) async throws -> GraphResponse {
         var retriedAuth = false
         while true {
-            let token = try await tokens.accessToken(for: accountID)
+            let token = request.authenticated ? try await tokens.accessToken(for: accountID) : nil
             let urlRequest = makeURLRequest(request, token: token)
             let data: Data
             let response: URLResponse
@@ -41,7 +41,7 @@ final class GraphHTTPClient: Sendable {
             }
             let headers = Self.lowercasedHeaders(http)
             log.debug("\(request.method.rawValue, privacy: .public) \(request.url.path, privacy: .public) -> \(http.statusCode, privacy: .public)")
-            if http.statusCode == 401 {
+            if http.statusCode == 401, request.authenticated {
                 // The token looked valid when the token provider handed it out; let it refresh and try once more.
                 await tokens.invalidateAccessToken(for: accountID)
                 if !retriedAuth {
@@ -81,12 +81,14 @@ final class GraphHTTPClient: Sendable {
         return try GraphJSON.decode(GraphBatchResponseEnvelope.self, from: response.data).responses
     }
 
-    private func makeURLRequest(_ request: GraphRequest, token: String) -> URLRequest {
+    private func makeURLRequest(_ request: GraphRequest, token: String?) -> URLRequest {
         var urlRequest = URLRequest(url: request.url)
         urlRequest.httpMethod = request.method.rawValue
-        urlRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        if let token {
+            urlRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            urlRequest.setValue(([Self.immutableIDPreference] + request.prefer).joined(separator: ", "), forHTTPHeaderField: "Prefer")
+        }
         urlRequest.setValue(request.accept, forHTTPHeaderField: "Accept")
-        urlRequest.setValue(([Self.immutableIDPreference] + request.prefer).joined(separator: ", "), forHTTPHeaderField: "Prefer")
         for (name, value) in request.headers {
             urlRequest.setValue(value, forHTTPHeaderField: name)
         }
