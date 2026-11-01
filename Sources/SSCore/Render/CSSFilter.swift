@@ -41,6 +41,20 @@ struct CSSFilter: Sendable {
         return (scanner.altered ? scanner.output : nil, scanner.blocked)
     }
 
+    /// An SVG presentation attribute (`fill`, `mask`, `filter`...) is a CSS value in all but name: its url()
+    /// references fetch like any in a style attribute and its fragment references must follow prefixed ids.
+    /// `css` is nil when nothing needed changing; `drop` means the attribute has to go entirely.
+    func filter(presentationValue bytes: [UInt8]) -> (css: [UInt8]?, drop: Bool, blockedRemoteImages: Int) {
+        guard bytes.contains(where: { $0 == ASCII.backslash }) || Scanner.containsIgnoringCase(bytes, Scanner.urlNeedle) else {
+            return (nil, false, 0)
+        }
+        var scanner = Scanner(filter: self, mode: .attribute, bytes: [])
+        guard let value = scanner.filteredValue(lowerName: [], value: Scanner.trim(bytes[...])) else {
+            return (nil, true, scanner.blocked)
+        }
+        return (scanner.altered ? value : nil, false, scanner.blocked)
+    }
+
     fileprivate enum URLRewrite {
         /// The original `url(...)` token is fine as written.
         case keep
@@ -58,7 +72,11 @@ struct CSSFilter: Sendable {
         case .remote(let url):
             guard allowRemoteImages else { return (.replace(Scanner.none), true) }
             return (url == value ? .keep : .replace(Scanner.urlToken(url)), false)
-        case .contact, .fragment, .rejected:
+        case .fragment(let fragment):
+            // Ids carry the ss- prefix in the output, so gradient, clip-path and marker references must too.
+            let name = fragment.dropFirst()
+            return (.replace(name.isEmpty ? Scanner.none : Scanner.urlToken("#ss-" + name)), false)
+        case .contact, .rejected:
             return (.replace(Scanner.none), false)
         }
     }
@@ -105,6 +123,30 @@ private struct Scanner {
                 index = copyString(from: index)
                 continue
             }
+            // An escaped character is never structure: `\"` does not open a string and `\;` ends nothing.
+            // Copying the pair keeps this scanner tokenising the way WebKit does.
+            if byte == ASCII.backslash {
+                index = copyEscape(from: index)
+                continue
+            }
+            if byte == ASCII.lessThan, mode == .sheet {
+                if Scanner.hasBytes(bytes, at: index, Scanner.cdo) {
+                    // `<!--` and `-->` are no-ops in a sheet; old mailers still wrap their rules in them.
+                    index += Scanner.cdo.count
+                    segment.append(ASCII.space)
+                } else {
+                    index += 1
+                    segment.append(contentsOf: Scanner.escapedLessThan)
+                }
+                altered = true
+                continue
+            }
+            if byte == ASCII.hyphen, mode == .sheet, Scanner.hasBytes(bytes, at: index, Scanner.cdc) {
+                index += Scanner.cdc.count
+                segment.append(ASCII.space)
+                altered = true
+                continue
+            }
             if byte == ASCII.openParen {
                 parens += 1
             } else if byte == ASCII.closeParen {
@@ -131,6 +173,31 @@ private struct Scanner {
         return bytes.count
     }
 
+    /// A sheet is raw text inside `<style>`; a `<` in it is the one byte that could ever be read as markup
+    /// (inside foreign content, or by any later re-parse), so it is always written as the CSS escape.
+    private mutating func appendSheetByte(_ byte: UInt8) {
+        if byte == ASCII.lessThan, mode == .sheet {
+            segment.append(contentsOf: Scanner.escapedLessThan)
+            altered = true
+        } else {
+            segment.append(byte)
+        }
+    }
+
+    private mutating func copyEscape(from start: Int) -> Int {
+        guard start + 1 < bytes.count, bytes[start + 1] != ASCII.newline else {
+            segment.append(ASCII.backslash)
+            return start + 1
+        }
+        if bytes[start + 1] == ASCII.lessThan, mode == .sheet {
+            appendSheetByte(ASCII.lessThan)
+        } else {
+            segment.append(ASCII.backslash)
+            segment.append(bytes[start + 1])
+        }
+        return start + 2
+    }
+
     private mutating func copyString(from start: Int) -> Int {
         let quote = bytes[start]
         segment.append(quote)
@@ -138,12 +205,10 @@ private struct Scanner {
         while index < bytes.count {
             let byte = bytes[index]
             if byte == ASCII.backslash, index + 1 < bytes.count {
-                segment.append(byte)
-                segment.append(bytes[index + 1])
-                index += 2
+                index = copyEscape(from: index)
                 continue
             }
-            segment.append(byte)
+            appendSheetByte(byte)
             index += 1
             if byte == quote { return index }
             // An unescaped newline ends a bad string; the parser would drop the declaration, we just stop copying.
@@ -187,20 +252,10 @@ private struct Scanner {
         let name = Scanner.trim(declaration[declaration.startIndex..<colon])
         let value = Scanner.trim(declaration[(colon + 1)...])
         guard !name.isEmpty else { altered = true; return }
-        let lowerName = Scanner.lowercased(name)
+        // CSS resolves escapes in a property name before looking the property up: `pos\69tion` is position.
+        let lowerName = Scanner.decodedLowercase(name) ?? Scanner.lowercased(name)
         if Scanner.droppedProperties.contains(lowerName) { altered = true; return }
-        let lowerValue = Scanner.lowercased(value)
-        if Scanner.contains(lowerValue, Scanner.expressionNeedle), Scanner.contains(Scanner.compact(lowerValue), Scanner.expressionCall) {
-            altered = true
-            return
-        }
-        if lowerName == Scanner.positionName, Scanner.contains(lowerValue, Scanner.fixedNeedle) { altered = true; return }
-        // image-set() accepts bare strings as URLs, which would bypass the url() rewriting below.
-        if Scanner.contains(lowerValue, Scanner.imageSetNeedle) { altered = true; return }
-        var finalValue = Array(value)
-        if Scanner.contains(lowerValue, Scanner.urlNeedle) {
-            finalValue = rewriteURLs(finalValue)
-        }
+        guard let finalValue = filteredValue(lowerName: lowerName, value: value) else { altered = true; return }
         output.append(contentsOf: name)
         output.append(ASCII.colon)
         output.append(ASCII.space)
@@ -208,7 +263,29 @@ private struct Scanner {
         output.append(ASCII.semicolon)
     }
 
-    private mutating func rewriteURLs(_ value: [UInt8]) -> [UInt8] {
+    /// The value with its url() references rewritten, or nil when the whole declaration has to go.
+    mutating func filteredValue(lowerName: [UInt8], value: ArraySlice<UInt8>) -> [UInt8]? {
+        let lowerValue = Scanner.lowercased(value)
+        // The tokenizer resolves escapes outside strings, so `u\72l(` is a url token and `f\69xed` is fixed.
+        // Rewriting through escapes is not worth it: a value that only reaches a dangerous form once decoded
+        // is dropped. Escapes inside strings (`content: "\201C"`) never form a function name.
+        let decodedValue = Scanner.decodedLowercase(value)
+        if let decodedValue, Scanner.contains(decodedValue, Scanner.urlNeedle) || Scanner.contains(decodedValue, Scanner.imageSetNeedle)
+            || Scanner.contains(Scanner.compact(decodedValue), Scanner.expressionCall) {
+            return nil
+        }
+        let checkedValue = decodedValue ?? lowerValue
+        if Scanner.contains(checkedValue, Scanner.expressionNeedle), Scanner.contains(Scanner.compact(checkedValue), Scanner.expressionCall) {
+            return nil
+        }
+        if lowerName == Scanner.positionName, Scanner.contains(checkedValue, Scanner.fixedNeedle) { return nil }
+        // image-set() accepts bare strings as URLs, which would bypass the url() rewriting below.
+        if Scanner.contains(lowerValue, Scanner.imageSetNeedle) { return nil }
+        guard Scanner.contains(lowerValue, Scanner.urlNeedle) else { return Array(value) }
+        return rewriteURLs(Array(value))
+    }
+
+    private mutating func rewriteURLs(_ value: [UInt8]) -> [UInt8]? {
         var out: [UInt8] = []
         out.reserveCapacity(value.count)
         var index = 0
@@ -219,6 +296,12 @@ private struct Scanner {
                 let end = Scanner.endOfString(in: value, from: index)
                 out.append(contentsOf: value[index..<end])
                 index = end
+                continue
+            }
+            if byte == ASCII.backslash, index + 1 < count {
+                out.append(byte)
+                out.append(value[index + 1])
+                index += 2
                 continue
             }
             if Scanner.isURLFunctionStart(value, at: index) {
@@ -240,7 +323,10 @@ private struct Scanner {
                         if inside == quote { break }
                         inner.append(inside)
                     }
-                    while cursor < count, value[cursor] != ASCII.closeParen { cursor += 1 }
+                    while cursor < count, Scanner.isWhitespace(value[cursor]) { cursor += 1 }
+                    // `url("a" ...)` is a function whose further arguments are ordinary tokens, another url()
+                    // among them. Nothing an email needs looks like that, so the declaration goes.
+                    if cursor < count, value[cursor] != ASCII.closeParen { return nil }
                 } else {
                     while cursor < count, value[cursor] != ASCII.closeParen {
                         inner.append(value[cursor])
@@ -309,7 +395,8 @@ private struct Scanner {
 
     private static func isDroppedPrelude(_ prelude: ArraySlice<UInt8>) -> Bool {
         guard prelude.first == ASCII.at else { return false }
-        let lower = lowercased(prelude)
+        let lower = decodedLowercase(prelude) ?? lowercased(prelude)
+        if contains(lower, urlNeedle) { return true }
         return hasPrefix(lower, importNeedle) || hasPrefix(lower, charsetNeedle) || hasPrefix(lower, namespaceNeedle)
     }
 
@@ -324,6 +411,12 @@ private struct Scanner {
                 let end = endOfString(in: prelude, from: index)
                 out.append(contentsOf: prelude[index..<end])
                 index = end
+                continue
+            }
+            if byte == ASCII.backslash, index + 1 < prelude.count {
+                out.append(byte)
+                out.append(prelude[index + 1])
+                index += 2
                 continue
             }
             out.append(byte)
@@ -371,6 +464,93 @@ private struct Scanner {
         return false
     }
 
+    static func containsIgnoringCase(_ haystack: [UInt8], _ needle: [UInt8]) -> Bool {
+        guard needle.count <= haystack.count else { return false }
+        var index = 0
+        let last = haystack.count - needle.count
+        while index <= last {
+            var offset = 0
+            while offset < needle.count, haystack[index + offset] | 0x20 == needle[offset] { offset += 1 }
+            if offset == needle.count { return true }
+            index += 1
+        }
+        return false
+    }
+
+    static func hasBytes(_ bytes: [UInt8], at index: Int, _ expected: [UInt8]) -> Bool {
+        index + expected.count <= bytes.count && bytes[index..<(index + expected.count)].elementsEqual(expected)
+    }
+
+    /// Lowercased text with CSS escapes outside strings resolved, or nil when there were none: the common
+    /// case, where the plain lowercased bytes already are what the tokenizer sees.
+    static func decodedLowercase(_ slice: ArraySlice<UInt8>) -> [UInt8]? {
+        guard slice.contains(ASCII.backslash) else { return nil }
+        var out: [UInt8] = []
+        out.reserveCapacity(slice.count)
+        var decodedAny = false
+        var quote: UInt8?
+        var index = slice.startIndex
+        let end = slice.endIndex
+        while index < end {
+            let byte = slice[index]
+            if let open = quote {
+                out.append(lowercasedByte(byte))
+                if byte == ASCII.backslash, index + 1 < end {
+                    out.append(lowercasedByte(slice[index + 1]))
+                    index += 2
+                    continue
+                }
+                if byte == open || byte == ASCII.newline { quote = nil }
+                index += 1
+                continue
+            }
+            if byte == ASCII.quote || byte == ASCII.apostrophe {
+                quote = byte
+                out.append(byte)
+                index += 1
+                continue
+            }
+            guard byte == ASCII.backslash else {
+                out.append(lowercasedByte(byte))
+                index += 1
+                continue
+            }
+            index += 1
+            guard index < end else { break }
+            if let first = hexValue(slice[index]) {
+                var value = UInt32(first)
+                var digits = 1
+                index += 1
+                while index < end, digits < 6, let digit = hexValue(slice[index]) {
+                    value = value * 16 + UInt32(digit)
+                    digits += 1
+                    index += 1
+                }
+                if index < end, isWhitespace(slice[index]) { index += 1 }
+                let scalar = value == 0 ? nil : Unicode.Scalar(value)
+                for unit in String(scalar ?? "\u{FFFD}").utf8 { out.append(lowercasedByte(unit)) }
+            } else if slice[index] != ASCII.newline {
+                out.append(lowercasedByte(slice[index]))
+                index += 1
+            }
+            decodedAny = true
+        }
+        return decodedAny ? out : nil
+    }
+
+    private static func hexValue(_ byte: UInt8) -> UInt8? {
+        switch byte {
+        case ASCII.zero...ASCII.nine: return byte - ASCII.zero
+        case ASCII.lowerA...ASCII.lowerF: return byte - ASCII.lowerA + 10
+        case ASCII.upperA...ASCII.upperF: return byte - ASCII.upperA + 10
+        default: return nil
+        }
+    }
+
+    private static func lowercasedByte(_ byte: UInt8) -> UInt8 {
+        byte >= ASCII.upperA && byte <= ASCII.upperZ ? byte + 0x20 : byte
+    }
+
     static func hasPrefix(_ bytes: [UInt8], _ prefix: [UInt8]) -> Bool {
         bytes.count >= prefix.count && bytes[0..<prefix.count].elementsEqual(prefix)
     }
@@ -388,15 +568,19 @@ private struct Scanner {
             || byte == ASCII.underscore || byte == ASCII.hyphen || byte == ASCII.backslash || byte >= 0x80
     }
 
-    private static let droppedProperties: Set<[UInt8]> = [
+    static let escapedLessThan = Array("\\3c ".utf8)
+    static let cdo = Array("<!--".utf8)
+    static let cdc = Array("-->".utf8)
+
+    static let droppedProperties: Set<[UInt8]> = [
         Array("behavior".utf8), Array("-ms-behavior".utf8), Array("-moz-binding".utf8),
     ]
-    private static let expressionNeedle = Array("expression".utf8)
-    private static let expressionCall = Array("expression(".utf8)
-    private static let positionName = Array("position".utf8)
-    private static let fixedNeedle = Array("fixed".utf8)
-    private static let imageSetNeedle = Array("image-set(".utf8)
-    private static let urlNeedle = Array("url(".utf8)
+    static let expressionNeedle = Array("expression".utf8)
+    static let expressionCall = Array("expression(".utf8)
+    static let positionName = Array("position".utf8)
+    static let fixedNeedle = Array("fixed".utf8)
+    static let imageSetNeedle = Array("image-set(".utf8)
+    static let urlNeedle = Array("url(".utf8)
     private static let importNeedle = Array("@import".utf8)
     private static let charsetNeedle = Array("@charset".utf8)
     private static let namespaceNeedle = Array("@namespace".utf8)
@@ -422,6 +606,9 @@ private enum ASCII {
     static let colon = UInt8(ascii: ":")
     static let at = UInt8(ascii: "@")
     static let hash = UInt8(ascii: "#")
+    static let lessThan = UInt8(ascii: "<")
+    static let lowerF = UInt8(ascii: "f")
+    static let upperF = UInt8(ascii: "F")
     static let underscore = UInt8(ascii: "_")
     static let hyphen = UInt8(ascii: "-")
     static let zero = UInt8(ascii: "0")

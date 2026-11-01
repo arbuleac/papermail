@@ -91,7 +91,7 @@ public enum QuoteDetector {
     }
 
     private static func looksLikeOutlookHeader(_ element: Element) throws -> Bool {
-        let head = String(try element.text().prefix(400))
+        let head = leadingText(of: element, limit: 400)
         guard headerStarts.contains(where: { head.hasPrefix($0) }) else { return false }
         return headerMarkers.contains(where: { head.contains($0) })
     }
@@ -123,13 +123,52 @@ public enum QuoteDetector {
                     node = current.previousSibling()
                     continue
                 }
-                guard attributionTags.contains(tag), let text = try? candidate.text(), text.count <= 400 else { return [] }
+                guard attributionTags.contains(tag) else { return [] }
+                let text = leadingText(of: candidate, limit: 401)
+                guard text.count <= 400 else { return [] }
                 return QuoteAttribution.isAttributionLine(text) ? [current] + run : []
             }
             // Comments and the like carry no meaning either way.
             node = current.previousSibling()
         }
         return []
+    }
+
+    /// The element's text with whitespace collapsed the way `Element.text()` does it, but cut off after
+    /// `limit` characters. `text()` builds the text of the whole subtree, and candidates nest: 400 bordered
+    /// divs around a large body made quote detection quadratic in the body size.
+    static func leadingText(of element: Element, limit: Int) -> String {
+        let byteLimit = limit * 4
+        var out: [UInt8] = []
+        var pendingSpace = false
+        var stack: [Node] = element.getChildNodes().reversed()
+        while out.count < byteLimit, let node = stack.popLast() {
+            if let text = node as? TextNode {
+                let bytes = text.getWholeTextUTF8()
+                var index = 0
+                while index < bytes.count, out.count < byteLimit {
+                    let byte = bytes[index]
+                    if byte == 0x20 || byte == 0x09 || byte == 0x0A || byte == 0x0D || byte == 0x0C {
+                        pendingSpace = !out.isEmpty
+                        index += 1
+                        continue
+                    }
+                    // U+00A0, which text() also treats as a space.
+                    if byte == 0xC2, index + 1 < bytes.count, bytes[index + 1] == 0xA0 {
+                        pendingSpace = !out.isEmpty
+                        index += 2
+                        continue
+                    }
+                    if pendingSpace { out.append(0x20); pendingSpace = false }
+                    out.append(byte)
+                    index += 1
+                }
+            } else if let child = node as? Element {
+                if child.isBlock() || child.tagNameNormal() == "br" { pendingSpace = !out.isEmpty }
+                stack.append(contentsOf: child.getChildNodes().reversed())
+            }
+        }
+        return String(String(decoding: out, as: UTF8.self).prefix(limit))
     }
 
     private static let attributionTags: Set<String> = ["div", "p", "span", "font", "b", "i", "em", "strong", "small"]
