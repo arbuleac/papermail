@@ -14,6 +14,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var mainWindow: MainWindowController?
     private var settingsWindow: SettingsWindowController?
     private var signInTask: Task<Void, Never>?
+    /// Tells a sign-in's completion whether it is still the current one; a replaced or cancelled sign-in must
+    /// not clear the progress line of the one that took its place.
+    private var signInGeneration = 0
     private var isTerminating = false
 
     init(options: LaunchOptions) {
@@ -110,6 +113,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.onReconnect = { [weak self] account in self?.addAccount(account.kind, reconnecting: account) }
         window.onOpenSettings = { [weak self] in self?.openSettings() }
         window.onTryDemo = { [weak self] in self?.switchToDemo() }
+        window.onCancelSignIn = { [weak self] in self?.cancelSignIn() }
         mainWindow = window
         window.showWindow(nil)
         if environment.isDemo {
@@ -153,6 +157,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         signInTask?.cancel()
+        signInGeneration += 1
+        let generation = signInGeneration
         let message = environment.isDemo ? "Adding demo account…" : "Finish signing in in your browser…"
         setSignInBusy(message)
         signInTask = Task { [weak self] in
@@ -160,18 +166,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 let account = try await environment.engine.addAccount(kind: kind)
                 guard let self else { return }
                 Self.log.info("account ready: \(account.id.rawValue, privacy: .public)")
-                self.setSignInBusy(nil)
+                if self.signInGeneration == generation { self.setSignInBusy(nil) }
                 self.mainWindow?.notifier.requestAuthorizationIfNeeded()
                 self.mainWindow?.refreshAccounts()
                 self.settingsWindow?.refreshAccounts()
                 if reconnecting == nil { self.mainWindow?.showWindow(nil) }
             } catch {
                 guard let self else { return }
-                self.setSignInBusy(nil)
+                if self.signInGeneration == generation { self.setSignInBusy(nil) }
                 if Self.isCancellation(error) { return }
                 self.showError(error, context: reconnecting == nil ? "Couldn't add the account" : "Couldn't reconnect \(reconnecting?.email ?? "the account")")
             }
         }
+    }
+
+    /// The welcome screen's Cancel: stops waiting for the browser. OAuthFlow turns the cancellation into
+    /// `userCancelled`, which the sign-in task treats as a quiet end.
+    private func cancelSignIn() {
+        signInTask?.cancel()
+        signInTask = nil
+        signInGeneration += 1
+        setSignInBusy(nil)
     }
 
     private func setSignInBusy(_ message: String?) {
@@ -297,9 +312,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         j / k or ↓ / ↑   next / previous conversation
         Return   open the conversation
         e   archive          s   star          u   read / unread
-        #  or ⌘⌫   trash     z  or ⌘Z   undo the last action
+        #  or ⌘⌫   trash     ⇧I  or ⇧⌘I   move to inbox
+        z  or ⌘Z   undo the last action
         r   reply     a   reply all     f   forward     c   compose
-        /  or ⌘F   search     Esc   clear search
+        /  or ⌘F   search     Esc   clear search (also from the list)
         g i  inbox     g s  starred     g t  sent     g a  all mail
         ⌘0   all inboxes     ⌘1…⌘9   one account     ⌘\\   focused inbox
         """

@@ -37,16 +37,16 @@ SuperSparrow signs in through your browser with OAuth clients you register yours
 | `s` | Star / unstar |
 | `u` | Mark read / unread |
 | `#`, `⌘⌫` | Move to Trash |
+| `⇧I`, `⇧⌘I` | Move to Inbox (restores from the Trash) |
 | `z`, `⌘Z` | Undo the last mail action (last 20 are kept) |
 | `r` / `a` / `f` | Reply / reply all / forward |
 | `c`, `⌘N` | New message |
-| `/`, `⌘F` | Search (`Esc` clears) |
+| `/`, `⌘F` | Search (`Esc` clears, in the search field or the list) |
 | `g` then `i` / `s` / `t` / `a` | Go to Inbox / Starred / Sent / All Mail |
 | `⌘0` | All inboxes |
 | `⌘1` … `⌘9` | One account |
 | `⌘\` | Focused inbox on / off |
 | `⌃⌘S` | Hide / show the account strip |
-| `Space` | Quick Look the attachment of the selected message |
 | `⌘,` | Settings |
 
 Single-letter shortcuts only apply when you are not typing in a text field.

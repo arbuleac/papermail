@@ -141,6 +141,48 @@ final class DemoMailboxEndToEndTests: XCTestCase {
         await engine.stopAndWait()
     }
 
+    /// A relaunch builds a fresh mailbox over the same store. Acting on a conversation archived in an earlier
+    /// run must not bring it back: the regenerated server state would otherwise overwrite the store.
+    func testRelaunchKeepsEarlierRunsStateOnTheServer() async throws {
+        let store = InMemoryMailStore()
+        let firstReference = Date().addingTimeInterval(-3 * 86_400)
+        let first = makeEngine(store: store, service: DemoMailService(
+            reference: firstReference, liveInterval: 3_600, restore: { try? store.message($0) }
+        ))
+        first.start()
+        let accounts = try await DemoSeeder.seedIfNeeded(first)
+        for account in accounts {
+            let expected = DemoProfile.profile(for: account.kind).messageCount
+            try await waitUntil("bootstrap of \(account.email)", timeout: 15) {
+                try store.syncCursor(for: account.id) != nil && self.messages(store, account: account.id).count == expected
+            }
+        }
+        let outlook = try XCTUnwrap(accounts.first { $0.kind == .microsoft })
+        let target = try XCTUnwrap(try store.conversations(ConversationQuery(accountIDs: [outlook.id], view: .inbox, limit: 1)).first)
+        let dates = try store.messages(in: target.id).map(\.date)
+        try first.perform(.archive, on: target.id)
+        try await waitUntil("archive replayed") { try store.pendingOperations(accountID: outlook.id, limit: 10).isEmpty }
+        await first.stopAndWait()
+
+        // The relaunch: same store, new service laid out before a later "today".
+        let second = makeEngine(store: store, service: DemoMailService(
+            liveInterval: 3_600, restore: { try? store.message($0) }
+        ))
+        second.start()
+        try second.perform(.setStarred(true), on: target.id)
+        try await waitUntil("star replayed") { try store.pendingOperations(accountID: outlook.id, limit: 10).isEmpty }
+        second.syncNow(accountID: outlook.id)
+        // Give the poll that follows the replay time to land whatever the server now reports.
+        try await Task.sleep(for: .milliseconds(600))
+
+        let after = try store.messages(in: target.id)
+        XCTAssertTrue(after.allSatisfy { !$0.isInInbox }, "archived conversation came back to the inbox after starring")
+        XCTAssertTrue(after.allSatisfy(\.isStarred))
+        XCTAssertEqual(after.map(\.date), dates)
+        XCTAssertFalse(try store.conversations(ConversationQuery(view: .inbox, limit: .max)).contains { $0.id == target.id })
+        await second.stopAndWait()
+    }
+
     func testSentReplyAppearsInTheThread() async throws {
         let (engine, store, accounts) = try await seededEngine()
         let outlook = try XCTUnwrap(accounts.first { $0.kind == .microsoft })

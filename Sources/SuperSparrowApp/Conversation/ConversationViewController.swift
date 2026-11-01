@@ -162,11 +162,17 @@ final class ConversationViewController: NSViewController {
     func prerender(_ ids: [ConversationID]) {
         var reserved: [PooledConversationView] = []
         // The slot rendering the current conversation may still be in flight and not yet on screen;
-        // evicting it would leave the show waiting on a render that lands another conversation.
-        if let current = currentConversationID, let held = pool.slot(rendering: current) {
-            reserved.append(held)
+        // evicting it would leave the show waiting on a render that lands another conversation. While a
+        // show is debounced (key repeat) the conversation it will put up is the one to protect too, or
+        // each repeat evicts the slot already holding it and the stop lands on a full render.
+        let protected = [currentConversationID, pendingShow?.id].compactMap { $0 }
+        for id in protected {
+            if let held = pool.slot(rendering: id) {
+                pool.touch(held)
+                reserved.append(held)
+            }
         }
-        let wanted = ids.filter { $0 != currentConversationID }
+        let wanted = ids.filter { !protected.contains($0) }
         for id in wanted {
             if let held = pool.slot(rendering: id) {
                 pool.touch(held)

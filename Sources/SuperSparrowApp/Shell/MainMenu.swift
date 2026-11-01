@@ -117,6 +117,8 @@ enum MainMenu {
         menu.addItem(item("Star", #selector(MainWindowController.toggleStarSelection(_:)), "s", []))
         menu.addItem(item("Mark as Unread", #selector(MainWindowController.markSelectionUnread(_:)), "u", [.command, .shift]))
         menu.addItem(item("Move to Trash", #selector(MainWindowController.trashSelection(_:)), "\u{8}"))
+        // Plain ⇧I also works outside text fields (see KeyboardRouter); this is the discoverable copy.
+        menu.addItem(item("Move to Inbox", #selector(MainWindowController.moveSelectionToInbox(_:)), "i", [.command, .shift]))
         menu.addItem(.separator())
         // ⌘Z is claimed by the keyboard router outside text fields; the menu item shows what it will undo.
         menu.addItem(item("Undo Mail Action", #selector(MainWindowController.undoMailAction(_:)), "z"))

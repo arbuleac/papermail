@@ -19,14 +19,25 @@ final class DemoMailbox: @unchecked Sendable {
     private var lastLiveAt: Date
     private var liveCount = 0
 
-    init(profile: DemoProfile, accountID: AccountID, reference: Date, liveInterval: TimeInterval, now: @escaping @Sendable () -> Date) {
+    init(
+        profile: DemoProfile,
+        accountID: AccountID,
+        reference: Date,
+        liveInterval: TimeInterval,
+        now: @escaping @Sendable () -> Date,
+        restore: (@Sendable (MessageID) -> MessageMetadata?)? = nil
+    ) {
         self.profile = profile
         self.accountID = accountID
         self.now = now
         self.liveInterval = liveInterval
         self.lastLiveAt = now()
         var builder = DemoMailboxBuilder(profile: profile, accountID: accountID, reference: reference)
-        for record in builder.build() {
+        for var record in builder.build() {
+            // A message an earlier run already delivered keeps the state the user left it in.
+            if let stored = restore?(record.metadata.id), stored.id == record.metadata.id {
+                record.metadata = stored
+            }
             records[record.metadata.id.providerID] = record
         }
     }

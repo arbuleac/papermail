@@ -148,11 +148,13 @@ final class ListPaneViewController: NSViewController, NSSearchFieldDelegate {
         searchField.currentEditor()?.selectAll(nil)
     }
 
-    func clearSearch() {
+    /// Empties the field. `notify: false` is for callers that apply the resulting query themselves.
+    func clearSearch(notify: Bool = true) {
         searchTimer?.invalidate()
+        searchTimer = nil
         guard !searchField.stringValue.isEmpty else { return }
         searchField.stringValue = ""
-        onSearchChange?("")
+        if notify { onSearchChange?("") }
     }
 
     // MARK: Actions

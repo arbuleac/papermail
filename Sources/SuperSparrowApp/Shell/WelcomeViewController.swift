@@ -6,10 +6,12 @@ import SSCore
 final class WelcomeViewController: NSViewController {
     var onAddAccount: ((ProviderKind) -> Void)?
     var onTryDemo: (() -> Void)?
+    var onCancelSignIn: (() -> Void)?
 
     private let statusLabel = NSTextField(labelWithString: "")
     private let spinner = NSProgressIndicator()
     private var buttons: [NSButton] = []
+    private let cancelButton = NSButton(title: "Cancel", target: nil, action: nil)
 
     override func loadView() {
         let root = NSView()
@@ -42,14 +44,18 @@ final class WelcomeViewController: NSViewController {
         demo.contentTintColor = .linkColor
         demo.font = .systemFont(ofSize: 13)
         demo.toolTip = "Explore SuperSparrow with two made-up mailboxes. Nothing leaves this Mac."
-        buttons.append(demo)
 
         spinner.style = .spinning
         spinner.controlSize = .small
         spinner.isDisplayedWhenStopped = false
         statusLabel.font = .systemFont(ofSize: 12)
         statusLabel.textColor = .secondaryLabelColor
-        let status = NSStackView(views: [spinner, statusLabel])
+        cancelButton.target = self
+        cancelButton.action = #selector(cancelSignIn)
+        cancelButton.bezelStyle = .push
+        cancelButton.controlSize = .small
+        cancelButton.isHidden = true
+        let status = NSStackView(views: [spinner, statusLabel, cancelButton])
         status.spacing = 8
 
         let stack = NSStackView(views: [icon, title, subtitle, gmail, microsoft, demo, status])
@@ -83,14 +89,19 @@ final class WelcomeViewController: NSViewController {
         return button
     }
 
-    /// While a browser sign-in is under way the buttons stay disabled and the line says what to do.
+    /// While a browser sign-in is under way the add buttons stay disabled and the line says what to do. Cancel
+    /// and "Try the demo" stay usable: a closed browser tab otherwise leaves the screen stuck until the sign-in
+    /// times out minutes later.
     func setBusy(_ message: String?) {
+        loadViewIfNeeded()
         statusLabel.stringValue = message ?? ""
         if message == nil { spinner.stopAnimation(nil) } else { spinner.startAnimation(nil) }
         buttons.forEach { $0.isEnabled = message == nil }
+        cancelButton.isHidden = message == nil
     }
 
     @objc private func addGmail() { onAddAccount?(.gmail) }
     @objc private func addMicrosoft() { onAddAccount?(.microsoft) }
     @objc private func tryDemo() { onTryDemo?() }
+    @objc private func cancelSignIn() { onCancelSignIn?() }
 }

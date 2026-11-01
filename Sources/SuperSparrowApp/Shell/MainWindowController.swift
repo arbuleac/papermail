@@ -20,6 +20,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     var onReconnect: ((Account) -> Void)?
     var onOpenSettings: (() -> Void)?
     var onTryDemo: (() -> Void)?
+    var onCancelSignIn: (() -> Void)?
 
     private let splitController = NSSplitViewController()
     private let strip = AccountStripViewController()
@@ -34,6 +35,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     let notifier: NewMailNotifier
     private var router: KeyboardRouter?
     private var statusObservation: StoreObservation?
+    private var stripCollapseObservation: NSKeyValueObservation?
 
     private(set) var accounts: [Account] = []
     private var statuses: [AccountSyncStatus] = []
@@ -86,6 +88,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         }
         // Otherwise AppKit picks the first key view, the search field, and single-key shortcuts start as text.
         window.initialFirstResponder = Self.firstDescendant(of: list.view, as: NSTableView.self)
+        // The split view's autosave can bring the strip back collapsed, and dragging the divider can collapse
+        // it too; either way the traffic lights then sit over the list header.
+        listPane.setClearsTrafficLights(stripItem.isCollapsed)
+        stripCollapseObservation = stripItem.observe(\.isCollapsed, options: [.new]) { [weak self] item, _ in
+            let collapsed = item.isCollapsed
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { self?.listPane.setClearsTrafficLights(collapsed) }
+            }
+        }
 
         statusObservation = environment.engine.observeStatus { [weak self] statuses in
             MainActor.assumeIsolated { self?.statusesChanged(statuses) }
@@ -106,6 +117,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         router = nil
         statusObservation?.cancel()
         statusObservation = nil
+        stripCollapseObservation?.invalidate()
+        stripCollapseObservation = nil
         inboxMonitor.stop()
         window?.orderOut(nil)
     }
@@ -171,6 +184,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
         welcome.onAddAccount = { [weak self] kind in self?.onAddAccount?(kind) }
         welcome.onTryDemo = { [weak self] in self?.onTryDemo?() }
+        welcome.onCancelSignIn = { [weak self] in self?.onCancelSignIn?() }
 
         inboxMonitor.onCounts = { [weak self] unified, perAccount in
             self?.strip.setUnreadCounts(unified: unified, perAccount: perAccount)
@@ -234,22 +248,34 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         applyQuery()
     }
 
+    /// Picking a mailbox means "show me that mailbox", so it also ends a search that would otherwise keep
+    /// overriding the view.
     private func setView(_ view: MailboxView) {
         mailboxView = view
         if view != .inbox { section = nil }
+        endSearch()
         applyQuery()
     }
 
+    private func endSearch() {
+        guard !searchText.isEmpty || !listPane.searchText.isEmpty else { return }
+        listPane.clearSearch(notify: false)
+        searchText = ""
+    }
+
     private func applyQuery() {
-        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let searching = !trimmed.isEmpty
-        // Search looks through everything but the trash, the way people expect a mail search to work.
-        list.query = ConversationQuery(
-            accountIDs: scope.accountIDs,
-            view: searching ? .all : mailboxView,
-            section: (!searching && mailboxView == .inbox) ? section : nil,
-            searchText: searching ? trimmed : nil
+        let query = ShellQuery.make(
+            scope: scope.accountIDs, view: mailboxView, section: section, searchText: searchText
         )
+        if query != list.query {
+            // A selection carried into another list would be handed to whatever row replaced it there, and the
+            // reader would open (and mark read) a conversation the user never picked.
+            if list.selectedConversationID != nil {
+                list.selectedConversationID = nil
+                conversation.show(nil)
+            }
+            list.query = query
+        }
         listPane.display(view: mailboxView, section: mailboxView == .inbox ? section : nil)
     }
 
@@ -267,7 +293,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// Brings a conversation on screen from outside the list (a notification click).
     func reveal(_ id: ConversationID) {
         showWindow(nil)
-        listPane.clearSearch()
+        listPane.clearSearch(notify: false)
         searchText = ""
         scope = .unified
         strip.select(.unified, notify: false)
@@ -346,6 +372,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         case .search:
             listPane.focusSearch()
             return true
+        case .clearSearch:
+            guard !searchText.isEmpty || !listPane.searchText.isEmpty else { return false }
+            endSearch()
+            applyQuery()
+            return true
+        case .moveToInbox:
+            return moveSelectionToInbox()
         case .undo:
             return undoLastAction()
         case .goTo(let view):
@@ -361,10 +394,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     private func mailAction(_ change: MetadataChange, on id: ConversationID? = nil) -> Bool {
         guard let id = id ?? list.selectedConversationID else { return false }
         let store = environment.store
-        guard var messages = try? store.messages(in: id), !messages.isEmpty else { return false }
-        // Gmail and Outlook mark a conversation unread by its latest message, not every message in it.
-        if change == .setRead(false), let latest = messages.last { messages = [latest] }
-        guard let record = MailActionRecord.make(change, on: messages, conversation: id) else { return true }
+        guard let all = try? store.messages(in: id), !all.isEmpty else { return false }
+        let kind = accountsByID[id.accountID]?.kind ?? .gmail
+        let messages = MailActionRecord.targets(for: change, in: all, kind: kind)
+        guard let record = MailActionRecord.make(change, on: messages, conversation: id) else {
+            // Archive in the Trash, star on nothing: say so rather than appear to ignore the key.
+            NSSound.beep()
+            return true
+        }
         do {
             try environment.engine.perform(change, on: record.targets)
         } catch {
@@ -375,6 +412,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         undoStack.push(record)
         listPane.toast.show(record.title) { [weak self] in self?.undoLastAction() }
         return true
+    }
+
+    /// Brings the selected conversation back to the inbox: out of the trash when it is there, else out of the
+    /// archive.
+    @discardableResult
+    private func moveSelectionToInbox() -> Bool {
+        mailAction(.moveToInbox)
     }
 
     @discardableResult
@@ -393,7 +437,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             return true
         }
         listPane.toast.show("Undid “\(record.title.lowercased())”", buttonTitle: nil)
-        if let id = record.conversation, record.change == .archive || record.change == .trash {
+        if let id = record.conversation, [.archive, .trash, .moveToInbox, .restoreFromTrash].contains(record.change) {
             // The row comes back; put the selection on it so the user sees what was restored.
             list.selectedConversationID = id
             selectionChanged(id)
@@ -463,6 +507,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
     @objc func archiveSelection(_ sender: Any?) { mailAction(.archive) }
     @objc func trashSelection(_ sender: Any?) { mailAction(.trash) }
+    @objc func moveSelectionToInbox(_ sender: Any?) { moveSelectionToInbox() }
     @objc func toggleStarSelection(_ sender: Any?) { _ = perform(.toggleStar) }
     @objc func markSelectionUnread(_ sender: Any?) {
         guard let summary = selectedSummary else { return }
@@ -487,6 +532,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     @objc func toggleFocusedInbox(_ sender: Any?) {
         if mailboxView != .inbox { mailboxView = .inbox }
         section = section == .focused ? nil : .focused
+        endSearch()
         applyQuery()
     }
 
@@ -502,7 +548,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         let typing = KeyboardRouter.isTextInput(window?.firstResponder)
         switch menuItem.action {
-        case #selector(archiveSelection(_:)), #selector(toggleStarSelection(_:)), #selector(trashSelection(_:)):
+        case #selector(archiveSelection(_:)), #selector(toggleStarSelection(_:)), #selector(trashSelection(_:)),
+             #selector(moveSelectionToInbox(_:)):
             // Plain-letter and ⌘⌫ equivalents must not fire while the user is typing.
             return !showingWelcome && !typing && list.selectedConversationID != nil
         case #selector(markSelectionUnread(_:)):

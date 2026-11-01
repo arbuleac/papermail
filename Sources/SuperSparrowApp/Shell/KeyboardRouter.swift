@@ -15,6 +15,10 @@ enum KeyCommand: Equatable {
     case forward
     case compose
     case search
+    /// Esc outside the search field: drop the search and go back to the mailbox.
+    case clearSearch
+    /// Back to the inbox, out of the trash or the archive.
+    case moveToInbox
     case undo
     case goTo(MailboxView)
 }
@@ -114,6 +118,7 @@ final class KeyboardRouter {
         }
 
         switch keyCode {
+        case 53: return (modifiers.isEmpty ? .clearSearch : nil, false) // Esc
         case 125: return (readerFocused ? nil : .next, false) // ↓
         case 126: return (readerFocused ? nil : .previous, false) // ↑
         case 36, 76: return (modifiers.isEmpty ? .open : nil, false) // Return, keypad Enter
@@ -121,6 +126,7 @@ final class KeyboardRouter {
         }
 
         if characters == "#" { return (.trash, false) }
+        if modifiers == .shift, key == "i" { return (.moveToInbox, false) }
         guard modifiers.isEmpty else { return (nil, false) }
         switch key {
         case "j": return (.next, false)
