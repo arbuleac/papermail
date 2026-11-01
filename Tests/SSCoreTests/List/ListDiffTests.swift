@@ -126,7 +126,7 @@ final class ListDiffTests: XCTestCase {
     }
 
     func testRandomSequencesReplayExactly() {
-        var generator = SeededGenerator(seed: 0x5EED_1234)
+        var generator = XorShiftGenerator(seed: 0x5EED_1234)
         for iteration in 0..<300 {
             let oldCount = Int.random(in: 0...40, using: &generator)
             let old = Array(0..<oldCount)
@@ -168,7 +168,7 @@ final class ListDiffTests: XCTestCase {
 }
 
 /// xorshift64*, so the randomized test is repeatable when it fails.
-private struct SeededGenerator: RandomNumberGenerator {
+private struct XorShiftGenerator: RandomNumberGenerator {
     private var state: UInt64
 
     init(seed: UInt64) {

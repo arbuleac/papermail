@@ -5,7 +5,7 @@ import XCTest
 /// Foundation exports an `Operation` too; in these tests the name always means the outbox row.
 typealias Operation = SSCore.Operation
 
-final class InMemoryTokenStore: TokenStore, @unchecked Sendable {
+final class SyncTestTokenStore: TokenStore, @unchecked Sendable {
     private let lock = NSLock()
     private var storage: [AccountID: OAuthTokens] = [:]
 
@@ -211,7 +211,7 @@ func allMessages(_ store: MailStoring, account: AccountID = Fixtures.accountID) 
 /// account; a `factory` makes one per account instead.
 final class EngineHarness {
     let store: InMemoryMailStore
-    let tokenStore = InMemoryTokenStore()
+    let tokenStore = SyncTestTokenStore()
     let tokenProvider = StubAccessTokenProvider()
     let authenticator = StubAuthenticator()
     let sanitizer = RecordingSanitizer()

@@ -30,7 +30,9 @@ final class MailEngineOperationTests: XCTestCase {
         XCTAssertEqual(messages.count, 3)
         XCTAssertTrue(messages.allSatisfy { !$0.roles.contains(.inbox) })
         XCTAssertTrue(try harness.store.conversations(ConversationQuery(view: .inbox)).isEmpty)
-        XCTAssertEqual(try pendingOperations(harness).count, 1)
+        // The runner may already have replayed and deleted the operation on a loaded machine.
+        let queued = try pendingOperations(harness).count
+        XCTAssertTrue(queued == 1 || harness.provider.applyCalls.count == 1, "operation neither queued nor applied")
 
         try await waitUntil("apply called") { harness.provider.applyCalls.count == 1 }
         let call = try XCTUnwrap(harness.provider.applyCalls.first)
