@@ -78,6 +78,12 @@ final class MailEngineAccountTests: XCTestCase {
         XCTAssertNil(try harness.tokenStore.tokens(for: account.id))
         XCTAssertEqual(try harness.store.accounts().map(\.id), [second.id])
         XCTAssertNil(try harness.store.message(MessageID(accountID: account.id, providerID: "1")))
+
+        // The next account takes the colour the removed one freed, not the one the remaining account wears.
+        let third = try await harness.engine.addAccount(kind: .gmail)
+        XCTAssertNotEqual(third.id, second.id)
+        XCTAssertNotEqual(third.colorHex, second.colorHex)
+        XCTAssertEqual(third.colorHex, AccountColorPalette.color(at: 0))
         await harness.shutdown()
     }
 

@@ -120,7 +120,9 @@ actor SendRunner {
             // The sent copy arrives through a poll; ask for it now rather than at the next interval.
             context.syncer.wake(.poll)
         } catch ProviderError.throttled(let retryAfter) {
-            let delay = retryAfter ?? Backoff.delay(attempt: send.attempts, base: tuning.backoffBase, cap: tuning.backoffCap)
+            let delay = Backoff.throttleDelay(
+                retryAfter: retryAfter, attempt: send.attempts, base: tuning.backoffBase, cap: tuning.backoffCap
+            )
             send.status = .scheduled
             send.sendAfter = Date().addingTimeInterval(delay)
             send.lastError = SyncErrorDescription.describe(ProviderError.throttled(retryAfter: retryAfter))

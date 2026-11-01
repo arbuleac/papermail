@@ -2,10 +2,11 @@ import Foundation
 
 /// Drives one account: bootstrap once, then replay the outbox, poll for changes and hydrate bodies, forever.
 ///
-/// The loop sleeps between cycles on a `SyncWaker`, so `syncNow` and user actions wake it at once. Provider
-/// errors set policy here: throttling and network failures back off exponentially (capped at five minutes),
-/// an invalid token parks the account in `needsReauth` until the next `syncNow`, and a stale cursor wipes the
-/// account's local mail and bootstraps again.
+/// The loop sleeps between cycles on a `SyncWaker`, so `syncNow` and user actions wake it at once. A user
+/// action runs the outbox alone; the change poll keeps its own deadline, which only a full cycle moves.
+/// Provider errors set policy here: throttling and network failures back off exponentially (capped at five
+/// minutes), an invalid token parks the account in `needsReauth` until the next `syncNow`, and a stale cursor
+/// wipes the account's local mail and bootstraps again.
 actor AccountSyncer {
     private enum CycleOutcome {
         case completed(nextAttemptAt: Date?)
@@ -29,6 +30,10 @@ actor AccountSyncer {
     private var phase: AccountSyncPhase = .idle
     private var consecutiveFailures = 0
     private var consecutiveResets = 0
+    /// When the next full cycle is due; nil means "as soon as the loop runs". Outbox-only cycles leave it alone.
+    private var nextPollAt: Date?
+    /// The wait timer and `Date()` can disagree by a hair when the timer fires exactly at the deadline.
+    private static let pollDueTolerance: TimeInterval = 0.01
 
     init(
         accountID: AccountID,
@@ -83,24 +88,32 @@ actor AccountSyncer {
                 }
                 await tokenProvider.invalidateAccessToken(for: accountID)
             }
-            let full = reasons.contains(.poll) || reasons.isEmpty
+            // A user action only needs the outbox. The poll keeps its deadline, so a stream of actions cannot
+            // push it back forever, and an outbox cycle during a failure backoff leaves that backoff in place.
+            let full = reasons.contains(.poll) || pollIsDue
             let outcome = await runCycle(full: full)
             if Task.isCancelled { break }
             let timeout: TimeInterval?
             switch outcome {
             case .completed(let nextAttemptAt):
-                consecutiveFailures = 0
-                consecutiveResets = 0
-                var delay = tuning.pollInterval
-                if let nextAttemptAt { delay = min(delay, max(0, nextAttemptAt.timeIntervalSinceNow)) }
+                if full {
+                    consecutiveFailures = 0
+                    consecutiveResets = 0
+                    nextPollAt = Date().addingTimeInterval(tuning.pollInterval)
+                }
+                var delay = nextPollAt.map(Self.seconds(until:)) ?? tuning.pollInterval
+                if let nextAttemptAt { delay = min(delay, Self.seconds(until: nextAttemptAt)) }
                 timeout = delay
             case .throttled(let retryAfter):
                 consecutiveFailures += 1
-                timeout = retryAfter ?? backoffDelay(consecutiveFailures)
+                timeout = schedulePoll(after: Backoff.throttleDelay(
+                    retryAfter: retryAfter, attempt: consecutiveFailures, base: tuning.backoffBase, cap: tuning.backoffCap
+                ))
             case .failed:
                 consecutiveFailures += 1
-                timeout = backoffDelay(consecutiveFailures)
+                timeout = schedulePoll(after: backoffDelay(consecutiveFailures))
             case .needsReauth:
+                nextPollAt = nil
                 timeout = nil
             case .reset:
                 consecutiveResets += 1
@@ -109,7 +122,7 @@ actor AccountSyncer {
                     reasons = [.poll]
                     continue cycles
                 }
-                timeout = backoffDelay(consecutiveResets)
+                timeout = schedulePoll(after: backoffDelay(consecutiveResets))
             case .cancelled:
                 break cycles
             }
@@ -117,6 +130,21 @@ actor AccountSyncer {
         }
         setPhase(.paused, force: true)
         SyncLog.logger.info("syncer stopped for \(id, privacy: .public)")
+    }
+
+    private var pollIsDue: Bool {
+        guard let nextPollAt else { return true }
+        return nextPollAt.timeIntervalSinceNow <= Self.pollDueTolerance
+    }
+
+    /// Books the next full cycle `delay` seconds out and returns that delay for the wait.
+    private func schedulePoll(after delay: TimeInterval) -> TimeInterval {
+        nextPollAt = Date().addingTimeInterval(delay)
+        return delay
+    }
+
+    private static func seconds(until date: Date) -> TimeInterval {
+        max(0, date.timeIntervalSinceNow)
     }
 
     private func runCycle(full: Bool) async -> CycleOutcome {
@@ -233,31 +261,30 @@ actor AccountSyncer {
     private func poll() async throws {
         guard var cursor = try store.syncCursor(for: accountID) else { return }
         setPhase(.syncing)
-        var observed: Set<MessageID> = []
         var upserted = 0
         var deleted = 0
         while true {
             try Task.checkCancellation()
             let page = try await provider.changes(since: cursor, limit: tuning.changesPageSize)
             try Task.checkCancellation()
-            if !page.upserts.isEmpty { try store.upsertMessages(page.upserts) }
             let deletedIDs = page.deletedIDs.map { MessageID(accountID: accountID, providerID: $0) }
+            // Settled before the page lands: an operation the provider has now reported on must not be
+            // re-applied on top of that report (pending operations win) on its way out.
+            settleUncertainOperations(observed: Set(page.upserts.map(\.id)).union(deletedIDs))
+            if !page.upserts.isEmpty { try store.upsertMessages(page.upserts) }
             if !deletedIDs.isEmpty { try store.deleteMessages(deletedIDs) }
-            observed.formUnion(page.upserts.map(\.id))
-            observed.formUnion(deletedIDs)
             upserted += page.upserts.count
             deleted += deletedIDs.count
             cursor = page.cursor
             try store.setSyncCursor(cursor, for: accountID)
             if !page.hasMore { break }
         }
-        settleUncertainOperations(observed: observed)
         SyncLog.logger.debug("poll for \(self.accountID.rawValue, privacy: .public): \(upserted, privacy: .public) upserts, \(deleted, privacy: .public) deletes")
     }
 
     /// An uncertain operation is kept so local state wins until the provider's view of its targets is known.
     /// Once a poll has reported those targets and the operation is old enough for any in-flight request to
-    /// have landed, the provider's state is the truth and the row goes.
+    /// have landed, the provider's state is the truth: the row goes before that state is written.
     private func settleUncertainOperations(observed: Set<MessageID>) {
         guard !observed.isEmpty else { return }
         let cutoff = Date().addingTimeInterval(-tuning.uncertainSettleAge)

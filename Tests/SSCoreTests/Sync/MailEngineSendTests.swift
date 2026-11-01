@@ -64,6 +64,22 @@ final class MailEngineSendTests: XCTestCase {
         await harness.shutdown()
     }
 
+    func testZeroRetryAfterOnSendStillBacksOff() async throws {
+        let provider = ScriptedProvider(accountID: Fixtures.accountID)
+        provider.bootstrapRuns = [["": .success(Fixtures.page(1...1, next: nil, cursor: "c0"))]]
+        provider.sendResults = [.failure(ProviderError.throttled(retryAfter: 0))]
+        // A fast tick would otherwise hide a retry scheduled for "now".
+        let harness = try EngineHarness(provider: provider) { $0.sendTickInterval = 0.01; $0.backoffBase = 0.2 }
+        harness.engine.start()
+        _ = try harness.engine.send(Fixtures.outgoing(), undoWindow: 0)
+        try await waitUntil("sent on the second attempt") { provider.sendCalls.count == 2 }
+        let times = provider.sendTimes
+        guard times.count >= 2 else { return XCTFail("expected two send attempts") }
+        XCTAssertGreaterThanOrEqual(times[1].timeIntervalSince(times[0]), 0.15)
+        try await waitUntil("outbox empty") { try harness.store.pendingSends().isEmpty }
+        await harness.shutdown()
+    }
+
     func testSendWithoutRunningEngineStaysScheduled() async throws {
         let harness = try EngineHarness()
         let id = try harness.engine.send(Fixtures.outgoing(), undoWindow: 0)

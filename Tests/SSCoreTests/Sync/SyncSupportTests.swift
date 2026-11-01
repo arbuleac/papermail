@@ -29,11 +29,26 @@ final class SyncSupportTests: XCTestCase {
         XCTAssertEqual(Backoff.delay(attempt: 0, base: 2, cap: 300), 2)
     }
 
+    func testThrottleDelayFloorsRetryAfterAtTheBase() {
+        XCTAssertEqual(Backoff.throttleDelay(retryAfter: 0, attempt: 1, base: 2, cap: 300), 2)
+        XCTAssertEqual(Backoff.throttleDelay(retryAfter: 1, attempt: 3, base: 2, cap: 300), 2)
+        XCTAssertEqual(Backoff.throttleDelay(retryAfter: 45, attempt: 3, base: 2, cap: 300), 45)
+        XCTAssertEqual(Backoff.throttleDelay(retryAfter: nil, attempt: 3, base: 2, cap: 300), 8)
+    }
+
     func testPaletteWrapsAround() {
         let count = AccountColorPalette.hexColors.count
         XCTAssertEqual(AccountColorPalette.color(at: 0), AccountColorPalette.hexColors[0])
         XCTAssertEqual(AccountColorPalette.color(at: count), AccountColorPalette.hexColors[0])
         XCTAssertNotEqual(AccountColorPalette.color(at: 0), AccountColorPalette.color(at: 1))
+    }
+
+    func testPaletteHandsOutTheFirstFreeColor() {
+        let colors = AccountColorPalette.hexColors
+        XCTAssertEqual(AccountColorPalette.color(avoiding: []), colors[0])
+        XCTAssertEqual(AccountColorPalette.color(avoiding: [colors[1]]), colors[0])
+        XCTAssertEqual(AccountColorPalette.color(avoiding: [colors[0], colors[1].lowercased()]), colors[2])
+        XCTAssertEqual(AccountColorPalette.color(avoiding: colors), colors[0])
     }
 
     func testWakerReturnsPendingSignalImmediately() async {

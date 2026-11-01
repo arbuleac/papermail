@@ -122,6 +122,25 @@ final class MailEngineBootstrapTests: XCTestCase {
         await harness.shutdown()
     }
 
+    func testZeroRetryAfterOnChangesStillBacksOff() async throws {
+        let provider = ScriptedProvider(accountID: Fixtures.accountID)
+        provider.bootstrapRuns = [["": .success(Fixtures.page(1...1, next: nil, cursor: "c0"))]]
+        provider.changesQueue = [
+            .failure(ProviderError.throttled(retryAfter: 0)),
+            .failure(ProviderError.throttled(retryAfter: 0)),
+            .success(Fixtures.changes(cursor: "c1")),
+        ]
+        let harness = try EngineHarness(provider: provider) { $0.backoffBase = 0.2 }
+        harness.engine.start()
+        try await waitUntil("recovered") { try harness.store.syncCursor(for: Fixtures.accountID) == "c1" }
+        let calls = provider.changesCalls
+        guard calls.count >= 3 else { return XCTFail("expected two retries, saw \(calls.count) change calls") }
+        // "Retry-After: 0" is honored as "soon", never as "now": the base backoff is the floor.
+        XCTAssertGreaterThanOrEqual(calls[1].at.timeIntervalSince(calls[0].at), 0.15)
+        XCTAssertGreaterThanOrEqual(calls[2].at.timeIntervalSince(calls[1].at), 0.15)
+        await harness.shutdown()
+    }
+
     func testNetworkErrorsBackOffExponentially() async throws {
         let provider = ScriptedProvider(accountID: Fixtures.accountID)
         provider.bootstrapRuns = [["": .success(Fixtures.page(1...1, next: nil, cursor: "c0"))]]

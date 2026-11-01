@@ -8,4 +8,11 @@ enum Backoff {
         let exponent = Double(max(0, min(attempt - 1, 30)))
         return max(0, min(cap, base * pow(2, exponent)))
     }
+
+    /// The wait after a throttled response: the provider's `Retry-After` when it sent one, but never under
+    /// `base`, so "retry after 0" cannot turn the retry into a hot loop; the regular schedule otherwise.
+    static func throttleDelay(retryAfter: TimeInterval?, attempt: Int, base: TimeInterval, cap: TimeInterval) -> TimeInterval {
+        guard let retryAfter else { return delay(attempt: attempt, base: base, cap: cap) }
+        return max(retryAfter, base)
+    }
 }

@@ -50,7 +50,9 @@ final class MailEngineOperationTests: XCTestCase {
         let target = MessageID(accountID: Fixtures.accountID, providerID: "1")
         try harness.engine.perform(.setStarred(true), on: [target])
         try await waitUntil("apply attempted") { harness.provider.applyCalls.count == 1 }
-        try await waitUntil("failure recorded") { try self.pendingOperations(harness).first?.attempts == 1 }
+        try await waitUntil("failure recorded") {
+            try self.pendingOperations(harness).first.map { $0.status == .pending && $0.attempts == 1 } ?? false
+        }
 
         let operation = try XCTUnwrap(try pendingOperations(harness).first)
         XCTAssertEqual(operation.status, .pending)
@@ -93,7 +95,9 @@ final class MailEngineOperationTests: XCTestCase {
         ) { $0.backoffBase = 0.1 }
         let target = MessageID(accountID: Fixtures.accountID, providerID: "2")
         try harness.engine.perform(.setRead(true), on: [target])
-        try await waitUntil("uncertain recorded") { try self.pendingOperations(harness).first?.status == .uncertain }
+        try await waitUntil("uncertain recorded") {
+            try self.pendingOperations(harness).first.map { $0.status == .uncertain && $0.lastError != nil } ?? false
+        }
         let uncertain = try XCTUnwrap(try pendingOperations(harness).first)
         XCTAssertEqual(uncertain.lastError, "server 503: timeout")
         XCTAssertNotNil(uncertain.nextAttemptAt)
@@ -119,10 +123,107 @@ final class MailEngineOperationTests: XCTestCase {
         try harness.store.updateOperation(old)
         try harness.store.updateOperation(young)
 
+        // The provider reports message 1 unread and unstarred: it never applied either operation.
         harness.provider.enqueueChanges(.success(Fixtures.changes(upserts: [Fixtures.message(1)], cursor: "c1")))
         harness.engine.syncNow(accountID: Fixtures.accountID)
         try await waitUntil("poll applied") { try harness.store.syncCursor(for: Fixtures.accountID) == "c1" }
         XCTAssertEqual(try pendingOperations(harness).map(\.id), [young.id])
+        // The settled operation must not have been re-applied on top of the provider's state on its way out,
+        // while the young one still wins.
+        let message = try XCTUnwrap(try harness.store.message(target))
+        XCTAssertEqual(message.isRead, false)
+        XCTAssertEqual(message.isStarred, true)
+        await harness.shutdown()
+    }
+
+    func testUserActionsDoNotPostponeTheChangePoll() async throws {
+        let harness = try await bootstrappedHarness { $0.pollInterval = 0.3 }
+        try await waitUntil("first poll") { harness.provider.changesCalls.count >= 1 }
+        let pollsBefore = harness.provider.changesCalls.count
+        let target = MessageID(accountID: Fixtures.accountID, providerID: "1")
+        // Twelve actions 80 ms apart: a user triaging, never pausing for a whole poll interval.
+        for step in 0..<12 {
+            try harness.engine.perform(.setRead(step % 2 == 0), on: [target])
+            try await Task.sleep(for: .milliseconds(80))
+        }
+        // Three polls were due in that time; two is the floor that tolerates a slow machine.
+        XCTAssertGreaterThanOrEqual(harness.provider.changesCalls.count - pollsBefore, 2)
+        await harness.shutdown()
+    }
+
+    func testApplyInterruptedByACrashIsReplayedOnTheNextLaunch() async throws {
+        let store = InMemoryMailStore()
+        let first = ScriptedProvider(accountID: Fixtures.accountID)
+        first.bootstrapRuns = [["": .success(Fixtures.page(1...3, next: nil, cursor: "c0"))]]
+        first.holdApplies = true
+        let harness1 = try EngineHarness(store: store, provider: first)
+        harness1.engine.start()
+        try await waitUntil("bootstrap complete") { try store.syncCursor(for: Fixtures.accountID) == "c0" }
+        let conversation = ConversationID(accountID: Fixtures.accountID, providerID: "t1")
+        try harness1.engine.perform(.archive, on: conversation)
+        try await waitUntil("request in flight") { first.applyCalls.count == 1 }
+        // The process dies here: the request never returns and nothing after it runs. `stop` only cancels;
+        // the held apply ignores cancellation, so the store is left exactly as the runner wrote it.
+        harness1.engine.stop()
+
+        let second = ScriptedProvider(accountID: Fixtures.accountID)
+        let harness2 = try EngineHarness(store: store, provider: second)
+        harness2.engine.start()
+        try await waitUntil("replayed after relaunch") { second.applyCalls.count == 1 }
+        XCTAssertEqual(second.applyCalls.first?.change, .archive)
+        XCTAssertEqual(second.applyCalls.first?.ids, ["1", "2", "3"])
+        try await waitUntil("row cleared") { try store.pendingOperations(accountID: Fixtures.accountID, limit: 10).isEmpty }
+        XCTAssertTrue(try store.messages(in: conversation).allSatisfy { !$0.roles.contains(.inbox) })
+        await harness2.shutdown()
+        first.releaseHeldApplies()
+        await harness1.shutdown()
+    }
+
+    func testFreshOperationMergedWithAnOldOneKeepsItsOwnAttemptCount() async throws {
+        let provider = ScriptedProvider(accountID: Fixtures.accountID)
+        provider.bootstrapRuns = [["": .success(Fixtures.page(1...3, next: nil, cursor: "c0"))]]
+        provider.applyResults = [.failure(ProviderError.server(status: 503, message: "unavailable"))]
+        let harness = try EngineHarness(provider: provider) { $0.backoffBase = 10; $0.backoffCap = 60 }
+        let m1 = MessageID(accountID: Fixtures.accountID, providerID: "1")
+        let m2 = MessageID(accountID: Fixtures.accountID, providerID: "2")
+        let old = Operation(
+            accountID: Fixtures.accountID, change: .setRead(true), targets: [m1],
+            createdAt: Date().addingTimeInterval(-60), status: .uncertain, attempts: 24
+        )
+        try harness.store.updateOperation(old)
+        // Queued before the loop runs, so both operations go out in the same request.
+        try harness.engine.perform(.setRead(true), on: [m2])
+        harness.engine.start()
+        try await waitUntil("merged apply attempted") { provider.applyCalls.count == 1 }
+        XCTAssertEqual(provider.applyCalls.first?.ids, ["1", "2"])
+        try await waitUntil("old operation given up") {
+            try !self.pendingOperations(harness).contains { $0.id == old.id }
+        }
+        let remaining = try pendingOperations(harness)
+        XCTAssertEqual(remaining.map(\.targets), [[m2]])
+        let fresh = try XCTUnwrap(remaining.first)
+        XCTAssertEqual(fresh.status, .uncertain)
+        XCTAssertEqual(fresh.attempts, 1)
+        XCTAssertNotNil(fresh.nextAttemptAt)
+
+        // The provider never saw the change; a stale poll must not undo it while the operation is queued.
+        provider.enqueueChanges(.success(Fixtures.changes(upserts: [Fixtures.message(2, isRead: false)], cursor: "c1")))
+        harness.engine.syncNow(accountID: Fixtures.accountID)
+        try await waitUntil("stale poll applied") { try harness.store.syncCursor(for: Fixtures.accountID) == "c1" }
+        XCTAssertEqual(try harness.store.message(m2)?.isRead, true)
+        await harness.shutdown()
+    }
+
+    func testZeroRetryAfterOnApplyStillBacksOff() async throws {
+        let harness = try await bootstrappedHarness(
+            applyResults: [.failure(ProviderError.throttled(retryAfter: 0))]
+        ) { $0.backoffBase = 0.2 }
+        let target = MessageID(accountID: Fixtures.accountID, providerID: "1")
+        try harness.engine.perform(.setStarred(true), on: [target])
+        try await waitUntil("retried") { harness.provider.applyCalls.count == 2 }
+        let calls = harness.provider.applyCalls
+        XCTAssertGreaterThanOrEqual(calls[1].at.timeIntervalSince(calls[0].at), 0.15)
+        try await waitUntil("confirmed") { try self.pendingOperations(harness).isEmpty }
         await harness.shutdown()
     }
 

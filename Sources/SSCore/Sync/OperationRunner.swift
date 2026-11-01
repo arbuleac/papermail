@@ -105,9 +105,12 @@ struct OperationRunner: Sendable {
         }
         var marked: [Operation] = []
         for var operation in group {
-            operation.status = .inFlight
+            // Written ahead of the request as "may have landed, retry after the backoff": a crash during the
+            // request then leaves a row the next launch replays (apply is idempotent) and a poll can settle,
+            // rather than one parked in `inFlight`, which `pendingOperations` never returns.
+            operation.status = .uncertain
             operation.attempts += 1
-            operation.nextAttemptAt = nil
+            operation.nextAttemptAt = Date().addingTimeInterval(backoff(for: operation))
             do {
                 try store.updateOperation(operation)
             } catch {
@@ -142,47 +145,40 @@ struct OperationRunner: Sendable {
     }
 
     private func record(_ error: Error, for operations: [Operation]) -> GroupResult {
-        let attempts = operations.map(\.attempts).max() ?? 1
-        let backoff = Backoff.delay(attempt: attempts, base: tuning.backoffBase, cap: tuning.backoffCap)
         let description = SyncErrorDescription.describe(error)
         let now = Date()
-        let status: OperationStatus
-        let nextAttemptAt: Date?
-        let result: GroupResult
-        switch error as? ProviderError {
-        case .throttled(let retryAfter):
-            let until = now.addingTimeInterval(retryAfter ?? backoff)
-            status = .pending
-            nextAttemptAt = until
-            result = .deferred(until)
-        case .network:
-            let until = now.addingTimeInterval(backoff)
-            status = .pending
-            nextAttemptAt = until
-            result = .deferred(until)
-        case .unauthorized:
-            status = .pending
-            nextAttemptAt = nil
-            result = .needsReauth
-        default:
-            // Timeouts, server errors, decoding failures, cancellation: the provider may or may not have applied
-            // the change. The row stays so local state keeps winning until a poll settles it, and is retried
-            // later because `apply` is idempotent; after too many attempts it is given up as failed.
-            if attempts >= tuning.maxOperationAttempts {
-                status = .failed
-                nextAttemptAt = nil
-                result = .uncertain(nil)
-            } else {
-                let until = now.addingTimeInterval(backoff)
-                status = .uncertain
-                nextAttemptAt = until
-                result = .uncertain(until)
-            }
-        }
+        var earliest: Date?
+        var givenUp = 0
+        // Each operation keeps its own history: a fresh one that shared the request with an old one must not
+        // inherit the old one's backoff, nor be given up after its first try.
         for var operation in operations {
-            operation.status = status
+            switch error as? ProviderError {
+            case .throttled(let retryAfter):
+                operation.status = .pending
+                operation.nextAttemptAt = now.addingTimeInterval(Backoff.throttleDelay(
+                    retryAfter: retryAfter, attempt: operation.attempts, base: tuning.backoffBase, cap: tuning.backoffCap
+                ))
+            case .network:
+                operation.status = .pending
+                operation.nextAttemptAt = now.addingTimeInterval(backoff(for: operation))
+            case .unauthorized:
+                operation.status = .pending
+                operation.nextAttemptAt = nil
+            default:
+                // Timeouts, server errors, decoding failures, cancellation: the provider may or may not have
+                // applied the change. The row stays so local state keeps winning until a poll settles it, and
+                // is retried later because `apply` is idempotent; after too many attempts it is given up.
+                if operation.attempts >= tuning.maxOperationAttempts {
+                    operation.status = .failed
+                    operation.nextAttemptAt = nil
+                    givenUp += 1
+                } else {
+                    operation.status = .uncertain
+                    operation.nextAttemptAt = now.addingTimeInterval(backoff(for: operation))
+                }
+            }
             operation.lastError = description
-            operation.nextAttemptAt = nextAttemptAt
+            if let next = operation.nextAttemptAt { earliest = Self.earlier(earliest, next) }
             do {
                 try store.updateOperation(operation)
             } catch {
@@ -190,8 +186,19 @@ struct OperationRunner: Sendable {
             }
         }
         let count = operations.count
-        SyncLog.logger.error("outbox: apply failed for \(count, privacy: .public) operations (\(status.rawValue, privacy: .public)): \(description, privacy: .private)")
-        return result
+        SyncLog.logger.error("outbox: apply failed for \(count, privacy: .public) operations, \(givenUp, privacy: .public) given up: \(description, privacy: .private)")
+        switch error as? ProviderError {
+        case .throttled, .network:
+            return .deferred(earliest ?? now)
+        case .unauthorized:
+            return .needsReauth
+        default:
+            return .uncertain(earliest)
+        }
+    }
+
+    private func backoff(for operation: Operation) -> TimeInterval {
+        Backoff.delay(attempt: operation.attempts, base: tuning.backoffBase, cap: tuning.backoffCap)
     }
 
     private static func earlier(_ a: Date?, _ b: Date) -> Date {

@@ -157,7 +157,7 @@ public final class MailEngine: MailClient, @unchecked Sendable {
             kind: kind,
             email: profile.email,
             displayName: profile.displayName,
-            colorHex: AccountColorPalette.color(at: existing.count),
+            colorHex: AccountColorPalette.color(avoiding: existing.map(\.colorHex)),
             addedAt: Date()
         )
         try store.upsertAccount(account)

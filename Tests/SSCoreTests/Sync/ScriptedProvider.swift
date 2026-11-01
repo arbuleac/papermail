@@ -25,12 +25,16 @@ final class ScriptedProvider: MailProvider, @unchecked Sendable {
     var attachments: [String: Data] = [:]
     /// Bootstrap page tokens ("" for the first page) that block until `openGate` removes them.
     var gatedBootstrapPages: Set<String> = []
+    /// While set, `apply` records the call and then never returns, not even on cancellation: the request a
+    /// process that died mid-apply would never see answered. `releaseHeldApplies` lets the callers go.
+    var holdApplies = false
+    private var heldApplies: [CheckedContinuation<Void, Never>] = []
 
     // MARK: Recordings
 
     private(set) var bootstrapCalls: [String?] = []
     private(set) var changesCalls: [(cursor: String, at: Date)] = []
-    private(set) var applyCalls: [(change: MetadataChange, ids: [String])] = []
+    private(set) var applyCalls: [(change: MetadataChange, ids: [String], at: Date)] = []
     private(set) var sendCalls: [OutgoingMessage] = []
     private(set) var sendTimes: [Date] = []
     private(set) var bodyCalls: [String] = []
@@ -51,6 +55,15 @@ final class ScriptedProvider: MailProvider, @unchecked Sendable {
 
     func enqueueChanges(_ result: Result<ChangesPage, Error>) {
         locked { changesQueue.append(result) }
+    }
+
+    func releaseHeldApplies() {
+        let waiting: [CheckedContinuation<Void, Never>] = locked {
+            holdApplies = false
+            defer { heldApplies = [] }
+            return heldApplies
+        }
+        for continuation in waiting { continuation.resume() }
     }
 
     // MARK: MailProvider
@@ -116,8 +129,17 @@ final class ScriptedProvider: MailProvider, @unchecked Sendable {
 
     func apply(_ change: MetadataChange, to providerIDs: [String]) async throws {
         let result: Result<Void, Error> = locked {
-            applyCalls.append((change, providerIDs))
+            applyCalls.append((change, providerIDs, Date()))
             return applyResults.isEmpty ? .success(()) : applyResults.removeFirst()
+        }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            locked {
+                if holdApplies {
+                    heldApplies.append(continuation)
+                } else {
+                    continuation.resume()
+                }
+            }
         }
         try result.get()
     }
