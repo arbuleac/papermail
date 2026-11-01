@@ -21,6 +21,9 @@ final class ConversationViewController: NSViewController {
     private(set) var selectedMessageID: MessageID?
 
     private static let showDebounce: TimeInterval = 0.03
+    /// Pre-rendering neighbours costs a store read, a payload build and a render per slot; while `j` is
+    /// held each one would be evicted unseen by the next repeat, so it waits for the selection to rest.
+    private static let prerenderDelay: TimeInterval = 0.15
     private static let markReadDelay: TimeInterval = 0.5
     /// Seconds a quick reply is held for undo. The shell sets it from the "Undo send" preference.
     static var undoWindow: TimeInterval = 5
@@ -38,6 +41,7 @@ final class ConversationViewController: NSViewController {
 
     private var observation: StoreObservation?
     private var showTimer: Timer?
+    private var prerenderTimer: Timer?
     private var pendingShow: (id: ConversationID, messages: [MessageMetadata])?
     private var lastShowAt: TimeInterval = -.infinity
     private var markReadTimer: Timer?
@@ -77,6 +81,7 @@ final class ConversationViewController: NSViewController {
     deinit {
         observation?.cancel()
         showTimer?.invalidate()
+        prerenderTimer?.invalidate()
         markReadTimer?.invalidate()
     }
 
@@ -173,8 +178,21 @@ final class ConversationViewController: NSViewController {
         }
     }
 
-    /// Renders `ids` into free slots in order, skipping ones already held, until the pool runs out.
+    /// Renders `ids` into free slots once the selection has rested for `prerenderDelay`; a newer call
+    /// replaces a pending one, so a held key never pays for neighbours it moves past.
     func prerender(_ ids: [ConversationID]) {
+        prerenderTimer?.invalidate()
+        prerenderTimer = Timer.scheduledTimer(withTimeInterval: Self.prerenderDelay, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.prerenderTimer = nil
+                self.prerenderNow(ids)
+            }
+        }
+    }
+
+    /// Renders `ids` into free slots in order, skipping ones already held, until the pool runs out.
+    private func prerenderNow(_ ids: [ConversationID]) {
         var reserved: [PooledConversationView] = []
         // The slot rendering the current conversation may still be in flight and not yet on screen;
         // evicting it would leave the show waiting on a render that lands another conversation. While a
@@ -211,6 +229,8 @@ final class ConversationViewController: NSViewController {
         showTimer?.invalidate()
         showTimer = nil
         pendingShow = nil
+        prerenderTimer?.invalidate()
+        prerenderTimer = nil
     }
 
     private func flushPendingShow() {
