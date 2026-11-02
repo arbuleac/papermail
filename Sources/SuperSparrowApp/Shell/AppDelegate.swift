@@ -324,6 +324,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.onOpenSettings = { [weak self] in self?.openSettings() }
         window.onTryDemo = { [weak self] in self?.switchToDemo() }
         window.onCancelSignIn = { [weak self] in self?.cancelSignIn() }
+        window.onLeaveDemo = { [weak self] in self?.leaveDemo() }
         mainWindow = window
         window.showWindow(nil)
         if environment.isDemo {
@@ -344,6 +345,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task {
             await old.shutdown()
             self.start(mode: .demo)
+        }
+    }
+
+    /// Leave Demo (§5.43), confirmed by the main window's sheet: the demo store is wiped and the welcome
+    /// screen returns over the real store.
+    private func leaveDemo() {
+        guard let old = environment, old.isDemo else { return }
+        signInTask?.cancel()
+        mainWindow?.tearDown()
+        mainWindow = nil
+        settingsWindow?.tearDown()
+        settingsWindow = nil
+        environment = nil
+        Task {
+            await old.shutdown()
+            AppEnvironment.wipeDemoData()
+            self.start(mode: .real)
         }
     }
 

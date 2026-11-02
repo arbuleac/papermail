@@ -29,6 +29,8 @@ final class MessageListViewController: NSViewController {
 
     var onSelectionChange: ((ConversationID?) -> Void)?
     var onOpen: ((ConversationID) -> Void)?
+    /// After every refresh of the rows (the search field's result count and spinner follow it).
+    var onRowsChange: (() -> Void)?
 
     var accountsByID: [AccountID: Account] = [:] {
         didSet {
@@ -389,6 +391,7 @@ final class MessageListViewController: NSViewController {
         suppressSelectionCallbacks = false
         updateEmptyState()
         if selectionMoved { onSelectionChange?(selectedID) }
+        onRowsChange?()
     }
 
     private func rebuildIndex() {

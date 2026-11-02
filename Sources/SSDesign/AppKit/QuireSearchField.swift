@@ -56,6 +56,10 @@ public final class QuireSearchField: QuireControl, NSTextFieldDelegate {
     public var onCancel: (@MainActor () -> Void)?
     /// The query was cleared by Esc or the clear button.
     public var onClear: (@MainActor () -> Void)?
+    /// Editing started (true) or ended (false): the list header expands and collapses the field on it (§5.6).
+    public var onFocusChange: (@MainActor (Bool) -> Void)?
+    /// Any other editing command (↓ to hand the keyboard to the list, for one); return true when handled.
+    public var onCommand: (@MainActor (Selector) -> Bool)?
 
     private var inner: QuireInnerTextField { textField as! QuireInnerTextField }
     private let clearButton = QuireSearchClearButton(frame: .zero)
@@ -68,7 +72,10 @@ public final class QuireSearchField: QuireControl, NSTextFieldDelegate {
         // The text field inside takes keyboard focus; the container never sits in the key-view loop itself.
         refusesFirstResponder = true
         textField.delegate = self
-        inner.onFocusChange = { [weak self] _ in self?.contentDidChange() }
+        inner.onFocusChange = { [weak self] focused in
+            self?.contentDidChange()
+            self?.onFocusChange?(focused)
+        }
         clearButton.target = self
         clearButton.action = #selector(clearClicked(_:))
         clearButton.refusesFirstResponder = true
@@ -233,7 +240,7 @@ public final class QuireSearchField: QuireControl, NSTextFieldDelegate {
             onSubmit?(query)
             return true
         default:
-            return false
+            return onCommand?(commandSelector) ?? false
         }
     }
 

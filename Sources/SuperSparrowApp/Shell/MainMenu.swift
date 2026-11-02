@@ -71,6 +71,7 @@ enum MainMenu {
         let menu = NSMenu(title: "File")
         menu.addItem(item("New Message", #selector(AppDelegate.newMessage(_:)), "n", target: delegate))
         menu.addItem(item("Add Account…", #selector(AppDelegate.addAccountFromMenu(_:)), target: delegate))
+        menu.addItem(item("Leave Demo…", #selector(MainWindowController.leaveDemo(_:))))
         menu.addItem(.separator())
         menu.addItem(item("Close Window", #selector(NSWindow.performClose(_:)), "w"))
         return menu
@@ -105,6 +106,10 @@ enum MainMenu {
         }
         menu.addItem(.separator())
         menu.addItem(item("Focused Inbox", #selector(MainWindowController.toggleFocusedInbox(_:)), "\\"))
+        for (index, title) in ["All", "Focused", "Other"].enumerated() {
+            menu.addItem(item(title, #selector(MainWindowController.selectInboxSection(_:)), "\(index + 1)", .option, tag: index))
+        }
+        menu.addItem(item("Check for New Mail", #selector(MainWindowController.checkForNewMail(_:)), "n", [.command, .shift]))
         menu.addItem(item("Hide Account Strip", #selector(MainWindowController.toggleAccountStrip(_:)), "s", [.command, .control]))
         menu.addItem(.separator())
         menu.addItem(item("Enter Full Screen", #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control]))
