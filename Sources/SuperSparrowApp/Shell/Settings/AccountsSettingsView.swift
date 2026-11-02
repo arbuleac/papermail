@@ -73,6 +73,11 @@ struct AccountDetailForm: View {
     @ObservedObject var model: SettingsModel
     let account: Account
 
+    /// The field's own text: a binding straight to the store would leave a third typed character on screen,
+    /// because cutting it back to two characters leaves the stored value unchanged and SwiftUI then keeps
+    /// the field as typed.
+    @State private var monogramText = ""
+
     var body: some View {
         let s = Quire.Layout.Settings.self
         QuireSettingsGrid {
@@ -81,10 +86,13 @@ struct AccountDetailForm: View {
                            title: { Quire.accountInkNames[$0] }, swatch: { $0 })
             }
             QuireSettingsRow("Monogram", minHeight: s.detailRow) {
-                TextField("", text: monogram, prompt: QuireFieldStyle.prompt(model.derivedMonogram(for: account)))
+                TextField("", text: $monogramText, prompt: QuireFieldStyle.prompt(model.derivedMonogram(for: account)))
                     .quireFieldStyle()
                     .frame(width: s.monogramFieldWidth)
                     .accessibilityLabel("Monogram")
+                    .onAppear { monogramText = account.monogram ?? "" }
+                    .onChange(of: account.id) { monogramText = account.monogram ?? "" }
+                    .onChange(of: monogramText) { _, typed in commitMonogram(typed) }
             }
             if let error = model.lastError(for: account) {
                 QuireSettingsTextRow("Last error", text: error)
@@ -102,12 +110,16 @@ struct AccountDetailForm: View {
         Binding(get: { account.inkSlot }, set: { model.setInkSlot($0, account) })
     }
 
-    /// At most two characters (§5.40); clearing the field returns to the derived monogram, its placeholder.
-    private var monogram: Binding<String> {
-        Binding(get: { account.monogram ?? "" }, set: { typed in
-            let cut = String(typed.prefix(Account.monogramMaxLength))
-            model.setMonogram(cut.isEmpty ? nil : cut, account)
-        })
+    /// At most two characters (§5.40), written as typed; clearing the field returns to the derived monogram,
+    /// its placeholder.
+    private func commitMonogram(_ typed: String) {
+        let cut = String(typed.prefix(Account.monogramMaxLength))
+        guard cut == typed else {
+            monogramText = cut
+            return
+        }
+        guard Account.normalizedMonogram(cut) != Account.normalizedMonogram(account.monogram) else { return }
+        model.setMonogram(cut.isEmpty ? nil : cut, account)
     }
 }
 

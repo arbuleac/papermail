@@ -16,7 +16,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
     init(environment: AppEnvironment, settings: AppSettings) {
         self.environment = environment
-        model = SettingsModel(isDemo: environment.isDemo, oauthFileURL: environment.clientConfigurations.fileURL, settings: settings)
+        model = SettingsModel(isDemo: environment.isDemo, oauthFileURL: environment.clientConfigurations.fileURL)
         tabs = SettingsTabViewController(model: model, settings: settings)
         let window = NSWindow(contentViewController: tabs)
         window.styleMask = [.titled, .closable]
@@ -180,7 +180,14 @@ final class SettingsTabViewController: NSTabViewController {
         let content = window.contentRect(forFrameRect: window.frame)
         guard abs(content.height - size.height) > 0.5 || abs(content.width - size.width) > 0.5 else { return }
         let target = window.frameRect(forContentRect: NSRect(x: content.minX, y: content.maxY - size.height, width: size.width, height: size.height))
-        window.setFrame(target, display: true, animate: animate && !QuireEnvironment.reduceMotion)
+        guard animate else {
+            window.setFrame(target, display: true)
+            return
+        }
+        // A height change, so it simply happens under Reduce Motion (§4.10).
+        Quire.Motion.run(Quire.Motion.standard, .settle, reduced: .instant, animations: { _ in
+            window.animator().setFrame(target, display: true)
+        })
     }
 }
 

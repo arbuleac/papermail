@@ -393,6 +393,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // File › Leave Demo… exists only in demo mode (§5.35). Set here, not in validation, which skips hidden items.
         let fileItems = NSApp.mainMenu?.items.flatMap { $0.submenu?.items ?? [] } ?? []
         fileItems.first { $0.action == #selector(leaveDemo(_:)) }?.isHidden = !environment.isDemo
+        // The cheat sheet belongs to the window being replaced.
+        if old != nil { CheatSheetController.shared.dismiss(animated: false) }
         // The old window gives up the saved frame name so the new one restores (and later saves) it.
         let oldFrame = old?.window?.frame
         old?.window?.setFrameAutosaveName("")
@@ -531,7 +533,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func addAccount(_ kind: ProviderKind?, origin: Origin) {
         guard let environment, !isPreparingDemo else { return }
         guard let kind else {
-            popUpAddAccountMenu()
+            // The welcome screen's two buttons are its provider choice.
+            if origin != .welcome { popUpAddAccountMenu() }
             return
         }
         guard signIn == nil else { return }
@@ -627,6 +630,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             welcome?.setActivity(.idle)
         }
         mainWindow?.setSignInInProgress(current == nil ? nil : "Finish signing in in your browser…")
+        let progress = current.map { signIn in
+            SignInProgress(kind: signIn.kind, reconnecting: signIn.reconnecting?.id,
+                           subject: signIn.reconnecting.map(AccountLabels.name(for:)) ?? (signIn.kind == .gmail ? "Gmail" : "Microsoft 365"))
+        }
+        NotificationCenter.default.post(name: SignInProgress.didChange, object: progress)
         if let model = settingsWindow?.model {
             model.pendingSignIn = current?.reconnecting == nil ? current?.kind : nil
             model.reconnecting = current?.reconnecting?.id
@@ -638,11 +646,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard let current = signIn, current.generation == generation else { return }
         signIn = nil
         Self.log.info("account ready: \(account.id.rawValue, privacy: .public)")
+        reflectSignIn()
         if let replacement = current.replacement {
             replaceDemo(with: replacement)
             return
         }
-        reflectSignIn()
         if let reconnected = current.reconnecting {
             // The check that follows a reconnect is one the user asked for (§5.11): Settings says so.
             settingsWindow?.model.userChecks.insert(reconnected.id)

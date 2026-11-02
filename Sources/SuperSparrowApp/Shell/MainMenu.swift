@@ -162,8 +162,12 @@ enum MainMenu {
         menu.addItem(item("All Inboxes", #selector(MainWindowController.selectAccountShortcut(_:)), "0", symbol: Quire.Icon.unifiedInbox,
                           tag: 0))
         for number in 1...9 {
-            // Retitled with the account's name and hidden past the last account (MainMenuController).
-            menu.addItem(item("Account \(number)", #selector(MainWindowController.selectAccountShortcut(_:)), "\(number)", tag: number))
+            // Retitled with the account's name and hidden past the last account (MainMenuController). Hidden
+            // items keep their shortcut, so an account added since the menu last opened still answers ⌘n; the
+            // main window's validation decides whether that account exists.
+            let account = item("Account \(number)", #selector(MainWindowController.selectAccountShortcut(_:)), "\(number)", tag: number)
+            account.allowsKeyEquivalentWhenHidden = true
+            menu.addItem(account)
         }
         menu.addItem(.separator())
         menu.addItem(item("Check for New Mail", #selector(AppDelegate.checkForNewMail(_:)), "n", [.command, .shift],

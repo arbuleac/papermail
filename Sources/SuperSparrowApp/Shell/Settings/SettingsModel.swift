@@ -55,7 +55,6 @@ final class SettingsModel: ObservableObject {
 
     let isDemo: Bool
     let oauthFileURL: URL
-    let settings: AppSettings
 
     var addAccount: (ProviderKind) -> Void = { _ in }
     var cancelSignIn: () -> Void = {}
@@ -66,10 +65,9 @@ final class SettingsModel: ObservableObject {
     var setInkSlot: (Int, Account) -> Void = { _, _ in }
     var setMonogram: (String?, Account) -> Void = { _, _ in }
 
-    init(isDemo: Bool, oauthFileURL: URL, settings: AppSettings) {
+    init(isDemo: Bool, oauthFileURL: URL) {
         self.isDemo = isDemo
         self.oauthFileURL = oauthFileURL
-        self.settings = settings
         reloadOAuth()
     }
 
