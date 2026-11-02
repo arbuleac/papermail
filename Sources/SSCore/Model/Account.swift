@@ -43,8 +43,12 @@ public struct Account: Hashable, Codable, Sendable, Identifiable {
     /// How the store keeps a monogram: trimmed, at most `monogramMaxLength` characters, and nil when nothing
     /// is left, so "derived" has one representation.
     public static func normalizedMonogram(_ monogram: String?) -> String? {
-        guard let trimmed = monogram?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else { return nil }
-        return String(trimmed.prefix(monogramMaxLength))
+        guard let monogram else { return nil }
+        // Trimmed again after the cut: "A B" cut to two characters ends in a space, which would draw an
+        // off-centre one-letter monogram.
+        let cut = String(monogram.trimmingCharacters(in: .whitespacesAndNewlines).prefix(monogramMaxLength))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return cut.isEmpty ? nil : cut
     }
 }
 

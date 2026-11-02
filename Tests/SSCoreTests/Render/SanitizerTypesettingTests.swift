@@ -39,6 +39,7 @@ final class SanitizerTypesettingTests: XCTestCase {
             ("apple", MailShapeFixtures.appleMailReply),
             ("generic", MailShapeFixtures.genericReply),
             ("inline image", MailShapeFixtures.inlineImage),
+            ("fastmail", MailShapeFixtures.fastmailReply),
         ] {
             let out = RenderTestSupport.sanitize(html)
             XCTAssertEqual(out.typesetting, .unstyled, name)
@@ -56,6 +57,12 @@ final class SanitizerTypesettingTests: XCTestCase {
             #"<font>no attributes</font>"#,
             #"<style>/* only a comment */</style><p>x</p>"#,
             #"<style><!-- --></style><p>x</p>"#,
+            // A stylesheet follows the same neutral-property rule as a style attribute: Fastmail adds the first
+            // to every message, Outlook on the web the second.
+            "<style>p{margin:0}</style><p>x</p>",
+            #"<style type="text/css">p.MsoNormal,p.MsoNoSpacing{margin:0}</style><div>x</div>"#,
+            #"<html><head><style type="text/css">P {margin-top:0;margin-bottom:0;}</style></head><body dir="ltr"><div dir="ltr">Hi</div></body></html>"#,
+            "<style>@media (max-width:600px){blockquote{padding-left:4px;border-left:2px solid}}</style><p>x</p>",
         ]
         for html in cases {
             let out = RenderTestSupport.sanitize(html)
@@ -79,7 +86,9 @@ final class SanitizerTypesettingTests: XCTestCase {
 
     func testAuthorStylingWithoutColourIsStyled() {
         let cases = [
-            "<style>p{margin:0}</style><p>x</p>",
+            "<style>p{font-family:x}</style><p>x</p>",
+            "<style>p{margin:0}.a{display:none}</style><p>x</p>",
+            "<style>img{max-width:100%}</style><p>x</p>",
             #"<p style="font-family:Georgia,serif">x</p>"#,
             #"<p style="font-size:18px">x</p>"#,
             #"<div style="width:600px">x</div>"#,
@@ -120,6 +129,9 @@ final class SanitizerTypesettingTests: XCTestCase {
             #"<div background="https://cdn.example/bg.png">x</div>"#,
             #"<div style="background-image:url(https://cdn.example/a.png)">x</div>"#,
             "<style>.hero{background:url(https://cdn.example/hero.jpg) center/cover}</style><div class=hero>x</div>",
+            // WebKit paints text with this over `color`.
+            #"<p style="-webkit-text-fill-color: #000">x</p>"#,
+            "<style>p{-webkit-text-fill-color:rgb(0,0,0)}</style><p>x</p>",
         ]
         for html in cases {
             let out = RenderTestSupport.sanitize(html)
@@ -136,6 +148,7 @@ final class SanitizerTypesettingTests: XCTestCase {
             #"<p style="background-image:none">x</p>"#,
             #"<p style="background-color:initial">x</p>"#,
             #"<p style="color:">x</p>"#,
+            #"<p style="-webkit-text-fill-color: currentColor">x</p>"#,
         ] {
             XCTAssertFalse(RenderTestSupport.sanitize(html).declaresColors, html)
         }
@@ -166,6 +179,9 @@ final class SanitizerTypesettingTests: XCTestCase {
             "Русский: Съешь же ещё этих мягких французских булок",
             "Українська: Ґанок, їжак, єнот",
             "Emoji and symbols fall back the same in both faces: 🎉 👍🏽 ✓ → ★",
+            // U+2139 is a lowercase letter by category and an emoji by use; it is drawn as the emoji.
+            "\u{2139}\u{FE0F} Your order shipped",
+            "\u{2139} Details below",
         ] {
             XCTAssertTrue(RenderTestSupport.sanitizeText(text).coveredByNewYork, text)
             XCTAssertTrue(RenderTestSupport.sanitize("<p>\(text)</p>").coveredByNewYork, text)

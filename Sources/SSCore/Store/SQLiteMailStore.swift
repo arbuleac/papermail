@@ -230,6 +230,10 @@ public final class SQLiteMailStore: MailStoring, Sendable {
         try write { try OperationTable.update(operation, in: $0) }
     }
 
+    public func confirmOperation(id: String) throws {
+        try write { try OperationTable.confirm(id: id, in: $0) }
+    }
+
     public func deleteOperation(id: String) throws {
         try write { try OperationTable.delete(id: id, in: $0) }
     }

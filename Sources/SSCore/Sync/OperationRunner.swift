@@ -134,7 +134,7 @@ struct OperationRunner: Sendable {
             }
             for operation in marked {
                 do {
-                    try store.deleteOperation(id: operation.id)
+                    try store.confirmOperation(id: operation.id)
                 } catch {
                     // The provider has the change; an uncertain row lets the next poll settle the local copy.
                     var settled = operation
@@ -177,6 +177,7 @@ struct OperationRunner: Sendable {
                 // is retried later because `apply` is idempotent; after too many attempts it is given up.
                 if operation.attempts >= tuning.maxOperationAttempts {
                     // A failed row is never tried again; its next_attempt_at is when it is pruned instead.
+                    // Writing it failed also puts its targets back the way they were (`updateOperation`).
                     operation.status = .failed
                     operation.nextAttemptAt = now.addingTimeInterval(tuning.failedOperationRetention)
                     givenUp += 1

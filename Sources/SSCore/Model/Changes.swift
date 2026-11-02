@@ -49,6 +49,12 @@ public enum OperationStatus: String, Codable, Sendable {
     case uncertain
 }
 
+extension OperationStatus {
+    /// Pending, in flight or uncertain: the operation's change still wins over provider state
+    /// (docs/DATA-MODEL.md, "Pending operations win").
+    var isLive: Bool { self == .pending || self == .inFlight || self == .uncertain }
+}
+
 /// A queued metadata change (the outbox). One operation targets messages of exactly one account.
 public struct Operation: Hashable, Codable, Sendable, Identifiable {
     public var id: String

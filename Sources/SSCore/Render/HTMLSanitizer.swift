@@ -441,9 +441,10 @@ private struct Pass {
             }
             blockedRemoteImages += result.blockedRemoteImages
             if result.facts.declaresColors { declaresColors = true }
-            // Any stylesheet that still says something is author styling; one left empty by the filter
-            // (comments, `<!-- -->` wrappers, dropped imports) is not.
-            if !styled, !result.css.allSatisfy(\.isWhitespace) { styled = true }
+            // A stylesheet is held to the same neutral-property rule as a style attribute: Fastmail puts
+            // `p.MsoNormal{margin:0}` in every message and Outlook on the web `P {margin-top:0}`, which are
+            // no more a design than `<p style="margin:0">`. One left empty by the filter is not styling either.
+            if result.facts.styles { styled = true }
         }
     }
 

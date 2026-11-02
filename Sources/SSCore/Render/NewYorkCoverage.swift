@@ -47,11 +47,14 @@ enum NewYorkCoverage {
     /// True when New York draws every letter and decimal digit in `text`. Those are what a script is made of;
     /// punctuation, symbols and emoji come from the same system fallback fonts beside either face, so they
     /// never decide between the serif page and its sans twin. Marks are skipped too, because a variation
-    /// selector after an emoji is one and says nothing about the script.
+    /// selector after an emoji is one and says nothing about the script. Emoji are skipped by their emoji
+    /// property rather than their category, because U+2139 INFORMATION SOURCE (ℹ️, common in notification
+    /// mail) is a lowercase letter by category.
     static func covers(_ text: String) -> Bool {
         for scalar in text.unicodeScalars {
             // ASCII letters and digits are all covered, and everything else below 0x80 is skipped anyway.
-            if scalar.value < 0x80 || contains(scalar) { continue }
+            // (ASCII digits, # and * are emoji too, so the emoji test only runs above it.)
+            if scalar.value < 0x80 || contains(scalar) || scalar.properties.isEmoji { continue }
             switch scalar.properties.generalCategory {
             case .uppercaseLetter, .lowercaseLetter, .titlecaseLetter, .modifierLetter, .otherLetter, .decimalNumber:
                 return false

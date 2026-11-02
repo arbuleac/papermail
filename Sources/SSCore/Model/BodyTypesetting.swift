@@ -9,10 +9,10 @@ public enum BodyTypesetting: String, Codable, Sendable, CaseIterable {
     /// The body came from a text/plain part: there was no HTML part, it was blank, or it could not be parsed.
     case plain
     /// HTML with no author styling. All of these hold:
-    /// - no `<style>` element with any content left after filtering;
-    /// - no `style` attribute declaring anything beyond text flow and spacing (the properties
-    ///   `HTMLSanitizer` treats as neutral: direction, alignment, wrapping, margins, padding and borders, plus
-    ///   width and height on images);
+    /// - no `style` attribute or `<style>` element declaring anything beyond text flow and spacing (the
+    ///   properties `HTMLSanitizer` treats as neutral: direction, alignment, wrapping, margins, padding and
+    ///   borders, plus width and height in a `style` attribute on an image), so Fastmail's
+    ///   `<style>p.MsoNormal{margin:0}</style>` is not styling any more than `<p style="margin:0">` is;
     /// - no colour at all, so an unstyled body never `declaresColors`;
     /// - no `<font>` with a `face` or `size`;
     /// - no layout table: a `<table>` with `width`, `height`, `align`, `bgcolor`, `background`, `cellpadding`,

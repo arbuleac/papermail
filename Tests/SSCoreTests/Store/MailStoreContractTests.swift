@@ -502,7 +502,7 @@ class MailStoreContractTests: XCTestCase {
         XCTAssertEqual(try store.message(target)?.roles, [])
 
         // Once the archive is confirmed and deleted, the star still wins but the inbox role follows the provider.
-        try store.deleteOperation(id: "op-archive")
+        try store.confirmOperation(id: "op-archive")
         try store.upsertMessages([providerState])
         XCTAssertEqual(try store.message(target)?.roles, [.inbox])
         XCTAssertTrue(try XCTUnwrap(try store.message(target)).isStarred)

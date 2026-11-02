@@ -62,22 +62,30 @@ public protocol MailStoring: AnyObject, Sendable {
     func unreadInboxCount(accountIDs: [AccountID]?) throws -> Int
 
     // MARK: Operations (outbox)
-    /// In one transaction: apply `operation.change` to every target locally and insert the operation as pending.
+    /// In one transaction: apply `operation.change` to every target locally, insert the operation as pending,
+    /// and record what it replaced on each target, which a give-up puts back (see `updateOperation`).
     func enqueue(_ operation: Operation) throws
     func pendingOperations(accountID: AccountID, limit: Int) throws -> [Operation]
-    /// Saves the operation. Writing it as `failed` (from any other status) marks every conversation it targets
-    /// with its kind in the same transaction, unless that conversation already shows a newer failure.
-    /// Writing it out of `failed`, or as `confirmed`, settles it like `deleteOperation`.
+    /// Saves the operation. Writing a live (pending, in-flight or uncertain) operation as `failed` gives it up,
+    /// in one transaction: each target it changed goes back to the state the change replaced (as last reported
+    /// by the provider), with newer live operations on that target replayed on top, and every conversation it
+    /// targets is marked with its kind unless that conversation already shows a newer failure. Writing it out
+    /// of `failed` clears marks like a pruned failure (see `deleteOperation`); writing it as `confirmed` clears
+    /// them like `confirmOperation`. Neither changes message state.
     func updateOperation(_ operation: Operation) throws
-    /// Removes the operation. A confirmed operation is deleted (docs/DATA-MODEL.md), so deleting one settles it:
-    /// every conversation it targets loses its failed mark unless a failed operation newer than it still
-    /// targets that conversation. Deleting a failed operation (pruning) settles it the same way.
+    /// Removes an operation the provider applied (docs/DATA-MODEL.md, "Confirmed operations"), keeping its
+    /// local change. Every conversation it targets loses its failed mark unless a failed operation created
+    /// after it still targets that conversation: a later success settles an earlier failure.
+    func confirmOperation(id: String) throws
+    /// Removes the operation without saying it landed, keeping its local change: a live one a poll has settled
+    /// changes no failed mark. Deleting a failed one (pruning) ends that failure: each conversation it targets
+    /// loses its mark unless another failed operation still targets that conversation.
     func deleteOperation(id: String) throws
     /// Clears the conversation's failed mark (`ConversationSummary.failedOperation`); the failed operation
-    /// itself stays until it is pruned. The app calls it once a conversation has been open for 150 ms.
+    /// itself stays until it is pruned. For the app to call once a conversation has been open for 150 ms.
     func acknowledgeFailedOperation(conversationID: ConversationID) throws
     /// Deletes the account's failed operations whose `nextAttemptAt` (for a failed row, its expiry) is at or
-    /// before `now`, or that have none, settling each like `deleteOperation`. Returns how many went.
+    /// before `now`, or that have none, each like `deleteOperation`. Returns how many went.
     @discardableResult
     func pruneFailedOperations(accountID: AccountID, now: Date) throws -> Int
     func enqueueSend(_ send: PendingSend) throws

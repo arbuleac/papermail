@@ -26,7 +26,7 @@ struct CSSFilter: Sendable {
     /// What the declarations a call kept say about the body's design, gathered in the same pass so the
     /// sanitizer can classify a body (`BodyTypesetting`, `SanitizedBody.declaresColors`) without a second scan.
     struct Facts: Sendable {
-        /// A `color` or `background` family declaration whose value sets something.
+        /// A `color`, `-webkit-text-fill-color` or `background` family declaration whose value sets something.
         var declaresColors = false
         /// A declaration outside the neutral text-flow and spacing properties.
         var styles = false
@@ -620,7 +620,10 @@ private struct Scanner {
     private static let paddingPrefix = Array("padding-".utf8)
     private static let borderPrefix = Array("border-".utf8)
     static let sizingProperties: Set<[UInt8]> = Set(["width", "height", "max-width", "max-height"].map { Array($0.utf8) })
-    static let colorProperties: Set<[UInt8]> = Set(["color", "background", "background-color", "background-image"].map { Array($0.utf8) })
+    /// `-webkit-text-fill-color` is what WebKit paints text with when it is set, over `color`.
+    static let colorProperties: Set<[UInt8]> = Set([
+        "color", "background", "background-color", "background-image", "-webkit-text-fill-color",
+    ].map { Array($0.utf8) })
 
     /// A colour declaration whose whole value (before any `!important`) is one of these paints nothing of its own.
     static func setsNoColor(_ value: ArraySlice<UInt8>) -> Bool {

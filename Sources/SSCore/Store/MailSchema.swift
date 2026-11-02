@@ -45,6 +45,15 @@ enum MailSchema {
         migrator.registerMigration("v5-failed-operation-mark") { db in
             try db.execute(sql: "ALTER TABLE conversations ADD COLUMN failed_op_kind TEXT")
         }
+        migrator.registerMigration("v6-operation-priors") { db in
+            // Nullable: what an operation already queued replaced was never recorded. Its target rows fill in
+            // when a poll next reports the message; until then a give-up leaves that message as it is.
+            try db.execute(sql: """
+                ALTER TABLE operation_targets ADD COLUMN prior_roles INTEGER;
+                ALTER TABLE operation_targets ADD COLUMN prior_is_read INTEGER;
+                ALTER TABLE operation_targets ADD COLUMN prior_is_starred INTEGER;
+                """)
+        }
         return migrator
     }
 

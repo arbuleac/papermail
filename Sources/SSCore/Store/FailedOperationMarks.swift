@@ -8,30 +8,44 @@ import GRDB
 /// - an operation written as failed marks each conversation it targets with its kind, unless the conversation
 ///   already carries a mark and a failed operation created after this one (by `created_at`, then `id`) also
 ///   targets it: the mark names the newest failure;
-/// - an operation that is settled (deleted, which is how a confirmed operation leaves the outbox and how a
-///   failed one is pruned, or written out of `failed`, or written as `confirmed`) clears the mark of each
+/// - an operation that is confirmed (`confirmOperation`, or written as `confirmed`) clears the mark of each
 ///   conversation it targets, unless a failed operation created after it still targets that conversation;
+/// - a failure that ends (a failed row deleted, which is how pruning removes it, or written out of `failed`)
+///   clears the mark of each conversation it targets, unless another failed operation still targets it.
+///   Failures expire in the order they happened, so one still standing gave up after this one and, if the
+///   conversation carries a mark at all, after the last acknowledgement: its mark must stay;
+/// - deleting a live operation (a poll settling an uncertain one) says nothing about failures: no change;
 /// - acknowledging a conversation clears its mark.
 /// "Targets a conversation" means one of the operation's targets is a message of that conversation now.
 enum FailedOperationMarks {
     typealias ConversationKey = (accountID: String, providerID: String)
 
+    /// How an operation stopped standing in the way of a conversation's mark.
+    enum Settlement {
+        /// The provider applied it. `createdAt` is its `created_at`: failures created before it are settled.
+        case confirmed(createdAt: Int64)
+        /// It was a failure, and it no longer is one.
+        case failureEnded
+    }
+
     /// Applies the rules for a write that took the operation from `previousStatus` (nil when new) to its status.
     static func operationWritten(_ operation: Operation, previousStatus: OperationStatus?, in db: Database) throws {
+        let settlement: Settlement
         if operation.status == .failed {
             guard previousStatus != .failed else { return }
             try mark(operation, in: db)
-        } else if previousStatus == .failed || (operation.status == .confirmed && previousStatus != .confirmed) {
-            try settle(
-                operationID: operation.id,
-                createdAt: MailStoreCodec.milliseconds(operation.createdAt),
-                conversations: conversations(ofOperation: operation.id, in: db),
-                in: db
-            )
+            return
+        } else if operation.status == .confirmed, previousStatus != .confirmed {
+            settlement = .confirmed(createdAt: MailStoreCodec.milliseconds(operation.createdAt))
+        } else if previousStatus == .failed {
+            settlement = .failureEnded
+        } else {
+            return
         }
+        try settle(settlement, operationID: operation.id, conversations: conversations(ofOperation: operation.id, in: db), in: db)
     }
 
-    static func settle(operationID: String, createdAt: Int64, conversations: [ConversationKey], in db: Database) throws {
+    static func settle(_ settlement: Settlement, operationID: String, conversations: [ConversationKey], in db: Database) throws {
         let clear = try db.cachedStatement(sql: """
             UPDATE conversations SET failed_op_kind = NULL
             WHERE account_id = ? AND provider_id = ? AND failed_op_kind IS NOT NULL
@@ -39,8 +53,15 @@ enum FailedOperationMarks {
         for conversation in conversations {
             // Every confirmed operation passes through here and almost no conversation carries a mark, so the
             // key lookup goes first and the join only runs where there is something to clear.
-            guard try hasMark(conversation, in: db),
-                  try !newerFailureExists(in: conversation, than: operationID, createdAt: createdAt, db: db) else { continue }
+            guard try hasMark(conversation, in: db) else { continue }
+            let standing: Bool
+            switch settlement {
+            case .confirmed(let createdAt):
+                standing = try newerFailureExists(in: conversation, than: operationID, createdAt: createdAt, db: db)
+            case .failureEnded:
+                standing = try otherFailureExists(in: conversation, than: operationID, db: db)
+            }
+            guard !standing else { continue }
             try clear.execute(arguments: [conversation.accountID, conversation.providerID])
         }
     }
@@ -89,6 +110,16 @@ enum FailedOperationMarks {
             }
             try set.execute(arguments: [operation.change.kind.rawValue, conversation.accountID, conversation.providerID])
         }
+    }
+
+    private static func otherFailureExists(in conversation: ConversationKey, than operationID: String, db: Database) throws -> Bool {
+        try Bool.fetchOne(db.cachedStatement(sql: """
+            SELECT EXISTS (
+                SELECT 1 FROM messages m
+                CROSS JOIN operation_targets t ON t.account_id = m.account_id AND t.provider_id = m.provider_id
+                CROSS JOIN operations o ON o.id = t.operation_id
+                WHERE m.account_id = ? AND m.conversation_provider_id = ? AND o.status = 'failed' AND o.id != ?)
+            """), arguments: [conversation.accountID, conversation.providerID, operationID]) ?? false
     }
 
     private static func newerFailureExists(

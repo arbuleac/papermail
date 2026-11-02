@@ -79,9 +79,7 @@ enum MessageTable {
         for incoming in messages {
             var metadata = incoming
             if accountsWithOperations.contains(incoming.id.accountID.rawValue) {
-                for change in try OperationTable.liveChanges(for: incoming.id, in: db) {
-                    metadata = applying(change, to: metadata)
-                }
+                metadata = try OperationTable.replayLive(on: incoming, in: db)
             }
             let accountID = incoming.id.accountID.rawValue
             let indexed = try IndexedFields(metadata)

@@ -50,6 +50,11 @@ extension MailStoreContractTests {
 
         try store.setMonogram("abc", for: accountA)
         XCTAssertEqual(try store.accounts().first?.monogram, "ab", "Settings allows two characters and so does the store")
+        // The cut can leave whitespace at the end, which is trimmed like the rest.
+        try store.setMonogram("A B", for: accountA)
+        XCTAssertEqual(try store.accounts().first?.monogram, "A")
+        try store.setMonogram(" A\nB", for: accountA)
+        XCTAssertEqual(try store.accounts().first?.monogram, "A")
         try store.setMonogram("   ", for: accountA)
         XCTAssertNil(try store.accounts().first?.monogram, "blank means derived")
         try store.setMonogram("G", for: accountA)
@@ -66,6 +71,9 @@ extension MailStoreContractTests {
         XCTAssertEqual(reread.inkSlot, 3)
         XCTAssertEqual(reread.monogram, "Cx")
         XCTAssertEqual(reread.colorHex, updated.colorHex)
+        updated.monogram = "D E"
+        try store.upsertAccount(updated)
+        XCTAssertEqual(try store.accounts().last?.monogram, "D")
     }
 
     func testInkSlotAndMonogramRejectUnknownAccountsAndSlots() throws {
@@ -157,7 +165,7 @@ extension MailStoreContractTests {
         // An operation created before the failure being confirmed does not clear it...
         let earlier = operation("op-earlier", .setRead(true), ["m1"], at: 1_500)
         try store.enqueue(earlier)
-        try store.deleteOperation(id: earlier.id)
+        try store.confirmOperation(id: earlier.id)
         XCTAssertEqual(try failedMark("c"), .unstar)
 
         // ...a later one does, once it is confirmed rather than merely queued, and only where it landed.
@@ -167,7 +175,7 @@ extension MailStoreContractTests {
         inFlight.status = .uncertain
         try store.updateOperation(inFlight)
         XCTAssertEqual(try failedMark("c"), .unstar, "queued or uncertain is not confirmed")
-        try store.deleteOperation(id: later.id)
+        try store.confirmOperation(id: later.id)
         XCTAssertNil(try failedMark("c"))
         XCTAssertEqual(try failedMark("d"), .archive)
 
@@ -211,6 +219,66 @@ extension MailStoreContractTests {
         try store.updateOperation(failed(restore, expiresAt: 20))
         try store.updateOperation(failed(star, expiresAt: 20))
         XCTAssertEqual(try store.pruneFailedOperations(accountID: accountA, now: date(20)), 2)
+        XCTAssertNil(try failedMark("c"))
+    }
+
+    func testDroppingALaterOperationIsNotAConfirmation() throws {
+        try store.upsertMessages([message("m1", in: "c", date: date(100))])
+        let read = operation("op-read", .setRead(true), ["m1"], at: 1_000)
+        try store.enqueue(read)
+        try store.updateOperation(failed(read))
+        XCTAssertEqual(try failedMark("c"), .markRead)
+
+        // A later operation the poll settles as uncertain (the provider's report decides, landed or not) is
+        // deleted without being confirmed, so it says nothing about the failure.
+        let star = operation("op-star", .setStarred(true), ["m1"], at: 2_000)
+        try store.enqueue(star)
+        var uncertain = star
+        uncertain.status = .uncertain
+        uncertain.attempts = 1
+        try store.updateOperation(uncertain)
+        try store.deleteOperation(id: star.id)
+        XCTAssertEqual(try failedMark("c"), .markRead)
+
+        // Deleting the failed row itself (what pruning does) settles it.
+        try store.deleteOperation(id: read.id)
+        XCTAssertNil(try failedMark("c"))
+    }
+
+    func testPruningKeepsTheMarkWhileAnotherFailureStands() throws {
+        // Operations on different messages of one conversation are not ordered by the runner, so the newer
+        // one can give up first.
+        try store.upsertMessages([message("m1", in: "c", date: date(100)), message("m2", in: "c", date: date(200))])
+        let older = operation("op-older", .archive, ["m1"], at: 1_000)
+        let newer = operation("op-newer", .setStarred(true), ["m2"], at: 2_000)
+        try store.enqueue(older)
+        try store.enqueue(newer)
+        try store.updateOperation(failed(newer, expiresAt: 10))
+        try store.updateOperation(failed(older, expiresAt: 20))
+        XCTAssertEqual(try failedMark("c"), .star, "the mark names the newest operation")
+
+        // The newer failure expires first; the older one gave up later, is unacknowledged and still stands.
+        XCTAssertEqual(try store.pruneFailedOperations(accountID: accountA, now: date(10)), 1)
+        XCTAssertNotNil(try failedMark("c"))
+        XCTAssertEqual(try store.pruneFailedOperations(accountID: accountA, now: date(20)), 1)
+        XCTAssertNil(try failedMark("c"))
+    }
+
+    func testPruningKeepsTheMarkOfAFailureAfterTheAcknowledgement() throws {
+        try store.upsertMessages([message("m1", in: "c", date: date(100)), message("m2", in: "c", date: date(200))])
+        let older = operation("op-older", .archive, ["m1"], at: 1_000)
+        let newer = operation("op-newer", .setStarred(true), ["m2"], at: 2_000)
+        try store.enqueue(older)
+        try store.enqueue(newer)
+        try store.updateOperation(failed(newer, expiresAt: 10))
+        try store.acknowledgeFailedOperation(conversationID: conversationID("c"))
+        try store.updateOperation(failed(older, expiresAt: 20))
+        XCTAssertEqual(try failedMark("c"), .archive)
+
+        // Pruning the acknowledged, newer failure must not take the mark the older, unseen one set.
+        XCTAssertEqual(try store.pruneFailedOperations(accountID: accountA, now: date(10)), 1)
+        XCTAssertEqual(try failedMark("c"), .archive)
+        XCTAssertEqual(try store.pruneFailedOperations(accountID: accountA, now: date(20)), 1)
         XCTAssertNil(try failedMark("c"))
     }
 

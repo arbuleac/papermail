@@ -36,7 +36,9 @@ final class MailEngineOperationTests: XCTestCase {
         let target = MessageID(accountID: Fixtures.accountID, providerID: "2")
         let queuedAt = Date()
         try harness.engine.perform(.setStarred(true), on: [target])
+        XCTAssertEqual(try harness.store.message(target)?.isStarred, true)
         try await waitUntil("failure marked") { try self.failedMark(harness, conversation) == .star }
+        XCTAssertEqual(try harness.store.message(target)?.isStarred, false, "the change the provider refused is given back")
         XCTAssertTrue(try pendingOperations(harness).isEmpty, "a failed operation is not replayed")
         XCTAssertFalse(try XCTUnwrap(try harness.store.conversations(ConversationQuery(view: .all)).first).hasPendingOperations)
 
@@ -162,6 +164,49 @@ final class MailEngineOperationTests: XCTestCase {
         let message = try XCTUnwrap(try harness.store.message(target))
         XCTAssertEqual(message.isRead, false)
         XCTAssertEqual(message.isStarred, true)
+        await harness.shutdown()
+    }
+
+    func testGivenUpArchiveReturnsTheConversationToTheInbox() async throws {
+        let harness = try await bootstrappedHarness(
+            applyResults: [.failure(ProviderError.server(status: 500, message: "boom"))]
+        ) { $0.maxOperationAttempts = 1 }
+        let conversation = ConversationID(accountID: Fixtures.accountID, providerID: "t1")
+        try harness.engine.perform(.archive, on: conversation)
+        XCTAssertTrue(try harness.store.conversations(ConversationQuery(view: .inbox)).isEmpty)
+
+        try await waitUntil("restored") {
+            try harness.store.conversations(ConversationQuery(view: .inbox)).first?.failedOperation == .archive
+        }
+        XCTAssertTrue(try harness.store.messages(in: conversation).allSatisfy { $0.roles == [.inbox] })
+        XCTAssertEqual(harness.provider.applyCalls.count, 1)
+        await harness.shutdown()
+    }
+
+    func testPollSettlingALaterUncertainOperationKeepsAnEarlierFailureMarked() async throws {
+        let harness = try await bootstrappedHarness()
+        let conversation = ConversationID(accountID: Fixtures.accountID, providerID: "t1")
+        let target = MessageID(accountID: Fixtures.accountID, providerID: "1")
+        let farFuture = Date().addingTimeInterval(3600)
+        let failed = Operation(
+            accountID: Fixtures.accountID, change: .archive, targets: [target],
+            createdAt: Date().addingTimeInterval(-800), status: .failed, attempts: 25, nextAttemptAt: farFuture
+        )
+        let uncertain = Operation(
+            accountID: Fixtures.accountID, change: .setStarred(true), targets: [target],
+            createdAt: Date().addingTimeInterval(-700), status: .uncertain, attempts: 1, nextAttemptAt: farFuture
+        )
+        try harness.store.updateOperation(failed)
+        try harness.store.updateOperation(uncertain)
+        XCTAssertEqual(try failedMark(harness, conversation), .archive)
+
+        // The poll drops the uncertain star because the provider has reported its target, not because the
+        // star landed: that is no confirmation, and the archive's failure still stands.
+        harness.provider.enqueueChanges(.success(Fixtures.changes(upserts: [Fixtures.message(1)], cursor: "c1")))
+        harness.engine.syncNow(accountID: Fixtures.accountID)
+        try await waitUntil("poll applied") { try harness.store.syncCursor(for: Fixtures.accountID) == "c1" }
+        XCTAssertTrue(try pendingOperations(harness).isEmpty)
+        XCTAssertEqual(try failedMark(harness, conversation), .archive)
         await harness.shutdown()
     }
 

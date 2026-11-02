@@ -13,14 +13,16 @@ public struct SanitizedBody: Hashable, Sendable {
     public var typesetting: BodyTypesetting
     /// True when the body sets its own background or text colour (docs/DESIGN-LANGUAGE.md §8.5), so a dark
     /// appearance has to adapt it and the reader offers Original colors. Any one of these makes it true:
-    /// - a `color`, `background`, `background-color` or `background-image` declaration in a `style` attribute
-    ///   or a `<style>` block, unless its whole value is a keyword that sets no colour (`inherit`, `initial`,
-    ///   `unset`, `revert`, `revert-layer`, `currentcolor`, `transparent`, `none`);
+    /// - a `color`, `-webkit-text-fill-color`, `background`, `background-color` or `background-image`
+    ///   declaration in a `style` attribute or a `<style>` block, unless its whole value is a keyword that sets
+    ///   no colour (`inherit`, `initial`, `unset`, `revert`, `revert-layer`, `currentcolor`, `transparent`,
+    ///   `none`);
     /// - a non-empty `bgcolor` or `background` attribute on any element;
     /// - a non-empty `color` attribute on `<font>`;
     /// - a non-empty `text` or `link` attribute on `<body>`.
     /// A remote background that was blocked still counts: the fact describes the body as designed, and
-    /// loading images brings it back. Plain bodies never declare colours.
+    /// loading images brings it back. Plain bodies never declare colours. The reader's dark adaptation has to
+    /// override every property in the first item, or what it misses keeps the sender's colour.
     public var declaresColors: Bool
     /// True when New York draws every letter and decimal digit of `plainText` itself (`NewYorkCoverage`), so
     /// the serif reading face can set the body without falling back mid-word.

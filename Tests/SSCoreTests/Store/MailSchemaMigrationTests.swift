@@ -32,7 +32,7 @@ final class MailSchemaMigrationTests: XCTestCase {
         ("acct-j2", 9_000), ("acct-j1", 9_000),
     ]
 
-    private func writeVersion1Database(at path: String) throws {
+    private func writeVersion1Database(at path: String, then extraSQL: String = "") throws {
         var handle: OpaquePointer?
         guard sqlite3_open(path, &handle) == SQLITE_OK, let db = handle else {
             throw XCTSkip("could not create a SQLite file")
@@ -76,6 +76,7 @@ final class MailSchemaMigrationTests: XCTestCase {
             VALUES ('acct-a', 'c1', 'Hello', 'Hello there', '[{"address":"bob@example.com","name":"Bob"}]',
                     \(base + 60_000), 'm1', 1, 1, 0, 0, 1, 0, 0, 0, 'unknown', 0);
             """)
+        if !extraSQL.isEmpty { try run(extraSQL) }
     }
 
     func testVersion1DatabaseMigratesAndBackfillsInkSlots() throws {
@@ -134,9 +135,53 @@ final class MailSchemaMigrationTests: XCTestCase {
         XCTAssertEqual(try store.body(for: message)?.typesetting, .unstyled)
         var operation = Operation(accountID: AccountID("acct-a"), change: .archive, targets: [message])
         try store.enqueue(operation)
+        XCTAssertTrue(try store.conversations(ConversationQuery(view: .inbox)).isEmpty)
         operation.status = .failed
         try store.updateOperation(operation)
         XCTAssertEqual(try store.conversations(ConversationQuery(view: .all)).first?.failedOperation, .archive)
+        XCTAssertEqual(try store.conversations(ConversationQuery(view: .inbox)).first?.failedOperation, .archive,
+                       "the give-up put the conversation back, through the v6 prior columns")
+    }
+
+    func testOperationsQueuedBeforeV6GiveBackOnceAPollReportsTheirTargets() throws {
+        let path = try XCTUnwrap(directory).appendingPathComponent("mail.sqlite").path
+        let star = try MailStoreCodec.json(MetadataChange.setStarred(true))
+        let read = try MailStoreCodec.json(MetadataChange.setRead(true))
+        // Two operations an older build queued on m1, with their local effects already applied.
+        try writeVersion1Database(at: path, then: """
+            UPDATE messages SET is_starred = 1, is_read = 1 WHERE provider_id = 'm1';
+            INSERT INTO operations (id, account_id, change_json, targets_json, created_at, status, attempts)
+            VALUES ('op-star', 'acct-a', '\(star)', '["m1"]', \(base + 70_000), 'pending', 0),
+                   ('op-read', 'acct-a', '\(read)', '["m1"]', \(base + 71_000), 'pending', 0);
+            INSERT INTO operation_targets (operation_id, account_id, provider_id)
+            VALUES ('op-star', 'acct-a', 'm1'), ('op-read', 'acct-a', 'm1');
+            """)
+        let store = try SQLiteMailStore(path: path)
+        defer { try? store.close() }
+        let account = AccountID("acct-a")
+        let id = MessageID(accountID: account, providerID: "m1")
+        func giveUp(_ operationID: String, _ change: MetadataChange, at offset: Int64) throws {
+            try store.updateOperation(Operation(
+                id: operationID, accountID: account, change: change, targets: [id],
+                createdAt: MailStoreCodec.date(base + offset), status: .failed, attempts: 25,
+                nextAttemptAt: MailStoreCodec.date(base + offset + 86_400_000)
+            ))
+        }
+
+        // Nothing recorded what the read replaced, so giving it up leaves the message as it is.
+        try giveUp("op-read", .setRead(true), at: 71_000)
+        XCTAssertEqual(try store.message(id)?.isRead, true)
+
+        // A poll reports m1 as the provider has it; the star still wins and now knows what it replaced.
+        var reported = try XCTUnwrap(try store.message(id))
+        reported.isStarred = false
+        reported.isRead = false
+        try store.upsertMessages([reported])
+        XCTAssertEqual(try store.message(id)?.isStarred, true)
+        try giveUp("op-star", .setStarred(true), at: 70_000)
+        XCTAssertEqual(try store.message(id)?.isStarred, false)
+        // The row names the newer of the two failures.
+        XCTAssertEqual(try store.conversations(ConversationQuery(view: .all)).first?.failedOperation, .markRead)
     }
 
     func testReopeningAMigratedDatabaseChangesNothing() throws {
