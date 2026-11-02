@@ -36,7 +36,7 @@ final class WelcomeViewController: NSViewController {
 
     private(set) var activity: Activity = .idle
     private(set) var banner: Banner?
-    /// The provider of the last button pressed, which `setBusy(_:)` turns into the waiting state.
+    /// The provider of the last button pressed or waited for.
     private var chosen: ProviderKind = .gmail
 
     private let gmailButton = QuireButton(title: "Add Gmail account", variant: .secondary, size: .large,
@@ -85,13 +85,14 @@ final class WelcomeViewController: NSViewController {
 
     // MARK: States
 
-    /// The main window's sign-in progress: any message means the browser is open for the provider chosen
-    /// here; nil ends the wait. Kept for `MainWindowController.setSignInInProgress(_:)`.
-    func setBusy(_ message: String?) {
+    /// The running sign-in (`SignInProgress`). Whichever window started an add (these buttons, File › Add…,
+    /// Settings' +), the welcome shows the provider that is actually waiting, with Cancel, and offers no
+    /// second sign-in; a reconnect has nothing to show here. Preparing the demo is not a sign-in's to end.
+    func showSignIn(_ progress: SignInProgress?) {
         loadViewIfNeeded()
-        if message != nil {
-            if case .waiting = activity { return }
-            setActivity(.waiting(chosen))
+        if let progress {
+            guard progress.reconnecting == nil, activity != .waiting(progress.kind) else { return }
+            setActivity(.waiting(progress.kind))
         } else if case .waiting = activity {
             setActivity(.idle)
         }

@@ -629,23 +629,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         reflectSignIn()
     }
 
-    /// Shows the running sign-in everywhere it appears: the welcome's waiting button, the main window (rail
-    /// tile and sync line), and Settings' pending or reconnecting row.
+    /// Shows the running sign-in everywhere it appears: the main window (welcome, rail tile and sync line)
+    /// follows `SignInProgress`; Settings' pending or reconnecting row is set here.
     private func reflectSignIn() {
         let current = signIn
-        if let current {
-            // Whichever window started it (the welcome's own buttons, File › Add…, Settings' +), the welcome
-            // shows the provider that is actually waiting, with Cancel, and offers no second sign-in.
-            if current.reconnecting == nil, welcome?.activity != .waiting(current.kind) { welcome?.setActivity(.waiting(current.kind)) }
-        } else if welcome?.activity != .preparingDemo {
-            welcome?.setActivity(.idle)
-        }
-        mainWindow?.setSignInInProgress(current == nil ? nil : "Finish signing in in your browser…")
         let progress = current.map { signIn in
             SignInProgress(kind: signIn.kind, reconnecting: signIn.reconnecting?.id,
                            subject: signIn.reconnecting.map(AccountLabels.name(for:)) ?? (signIn.kind == .gmail ? "Gmail" : "Microsoft 365"))
         }
-        NotificationCenter.default.post(name: SignInProgress.didChange, object: progress)
+        SignInProgress.post(progress)
         if let model = settingsWindow?.model {
             model.pendingSignIn = current?.reconnecting == nil ? current?.kind : nil
             model.reconnecting = current?.reconnecting?.id

@@ -30,8 +30,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     var onLeaveDemo: (() -> Void)?
 
     private let splitController = MainSplitViewController()
-    private let strip = AccountStripViewController()
     // The panes are internal, not private, so the app's tests can drive the window as a user would.
+    let strip = AccountStripViewController()
     let list: MessageListViewController
     let listPane: ListPaneViewController
     let conversation: ConversationViewController
@@ -71,8 +71,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     private var shownSelection: [ConversationID] = []
 
     // Sign-in, checks
-    private var pendingSignIn: PendingSignIn?
-    private var requestedSignIn: (request: PendingSignIn, at: Date)?
+    private(set) var pendingSignIn: PendingSignIn?
     private var signInEndedAt: Date?
     private var reconnectedAccount: AccountID?
     private var checkStartedAt: Date?
@@ -151,6 +150,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         UndoSendPanel.undoKeyArbiter = self
         NotificationCenter.default.addObserver(self, selector: #selector(composeDraftDiscarded(_:)),
                                                name: ComposeWindowController.draftDiscardedNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(signInProgressChanged(_:)),
+                                               name: SignInProgress.didChange, object: nil)
+        // A window built while a sign-in runs (the demo replaced mid-way) shows it from the start.
+        if let running = SignInProgress.current { applySignIn(running) }
     }
 
     /// A composer's Message › Discard Draft… confirms here: “Draft discarded · Undo” (spec §5.20). It joins the
@@ -367,26 +370,20 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         return statuses
     }
 
-    /// Shows progress on the welcome screen while a browser sign-in runs, and the waiting state in the rail and
-    /// the sync line (§5.44).
-    func setSignInInProgress(_ message: String?) {
-        welcome.setBusy(message)
-        if message != nil {
-            if let requested = requestedSignIn, Date().timeIntervalSince(requested.at) < 3 {
-                pendingSignIn = requested.request
-            } else if pendingSignIn == nil {
-                pendingSignIn = .other
-            }
-            requestedSignIn = nil
-        } else if let ended = pendingSignIn {
-            pendingSignIn = nil
-            signInEndedAt = Date()
-            if case .reconnecting(let id) = ended {
-                // A finished reconnect checks that account for mail, a check the user asked for (§5.11).
-                reconnectedAccount = id
-                startCheck(onlyFor: id)
-            }
-        }
+    @objc private func signInProgressChanged(_ note: Notification) {
+        applySignIn(note.object as? SignInProgress)
+    }
+
+    /// The browser sign-in that is really running, wherever it started (the rail, the welcome, File › Add…,
+    /// the sync line, Settings): the welcome's waiting button, the rail's pending tile (an add) or its
+    /// reconnecting tooltip, and the sync line's waiting state with Cancel follow it (§5.44). Success is told
+    /// apart from Cancel by the accounts that arrive and by `reconnectDidSucceed`, never by timing.
+    func applySignIn(_ progress: SignInProgress?) {
+        welcome.showSignIn(progress)
+        let next = progress.map { $0.reconnecting.map(PendingSignIn.reconnecting) ?? .adding($0.kind) }
+        guard next != pendingSignIn else { return }
+        if pendingSignIn != nil, next == nil { signInEndedAt = Date() }
+        pendingSignIn = next
         applySignInState()
     }
 
@@ -402,7 +399,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         switch pendingSignIn {
         case .adding?: strip.setSignIn(active: true, adding: true, reconnecting: nil)
         case .reconnecting(let id)?: strip.setSignIn(active: true, adding: false, reconnecting: id)
-        case .other?: strip.setSignIn(active: true, adding: false, reconnecting: nil)
         case nil: strip.setSignIn(active: false, adding: false, reconnecting: nil)
         }
         listPane.statusBar.actionsEnabled = pendingSignIn == nil
@@ -411,13 +407,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
     private func requestAddAccount(_ kind: ProviderKind) {
         guard pendingSignIn == nil else { return }
-        requestedSignIn = (.adding(kind), Date())
         onAddAccount?(kind)
     }
 
     private func requestReconnect(_ account: Account) {
         guard pendingSignIn == nil else { return }
-        requestedSignIn = (.reconnecting(account.id), Date())
         onReconnect?(account)
     }
 
@@ -430,7 +424,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         switch pendingSignIn {
         case .adding(let kind)?: signIn = .adding(kind)
         case .reconnecting(let id)?: signIn = .reconnecting(id)
-        case .other?: signIn = .adding(nil)
         case nil: signIn = nil
         }
         let summary = SyncLineSummary.make(SyncLineSummary.Input(
@@ -1236,14 +1229,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     }
 }
 
-/// A browser sign-in the window is waiting on (§5.44).
-private enum PendingSignIn: Equatable {
-    /// Started from this window's rail or Demo tag, for this provider.
+/// A browser sign-in the window is waiting on (§5.44), from `SignInProgress`.
+enum PendingSignIn: Equatable {
+    /// Adding an account of this provider: the rail shows its pending tile.
     case adding(ProviderKind)
-    /// Started from the sync line's Reconnect.
+    /// Reconnecting this account: its tile keeps the attention badge.
     case reconnecting(AccountID)
-    /// Started elsewhere (Settings, the File menu): the line waits, the rail does not guess.
-    case other
 }
 
 #if DEBUG
@@ -1273,12 +1264,10 @@ extension MainWindowController {
             debugStatuses = statuses.map { $0.accountID == second.id ? AccountSyncStatus(accountID: second.id, phase: .needsReauth) : $0 }
         }
         if states.contains("adding") {
-            requestedSignIn = (.adding(.gmail), Date())
-            setSignInInProgress("Finish signing in in your browser…")
+            applySignIn(SignInProgress(kind: .gmail, reconnecting: nil, subject: "Gmail"))
         }
         if states.contains("reconnect"), let second {
-            requestedSignIn = (.reconnecting(second.id), Date())
-            setSignInInProgress("Finish signing in in your browser…")
+            applySignIn(SignInProgress(kind: second.kind, reconnecting: second.id, subject: AccountLabels.name(for: second)))
         }
         refreshSyncLine()
         if states.contains("toast") {

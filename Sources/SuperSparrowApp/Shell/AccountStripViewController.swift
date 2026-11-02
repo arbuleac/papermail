@@ -117,6 +117,9 @@ final class AccountStripViewController: NSViewController {
         updateClipEdges()
     }
 
+    /// A sign-in adding an account is waiting for the browser (§5.44).
+    var showsPendingTile: Bool { pendingTile != nil }
+
     /// Account tiles in rail order, then the pending tile.
     private var orderedTiles: [AccountStripButton] {
         accounts.compactMap { accountTiles[$0.id] } + (pendingTile.map { [$0] } ?? [])
