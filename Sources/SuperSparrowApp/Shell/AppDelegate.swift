@@ -117,6 +117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSGraphicsContext.saveGraphicsState()
             NSGraphicsContext.current = context
             reader.image.draw(in: frame, from: .zero, operation: .sourceOver, fraction: 1)
+            ReaderSnapshotOverlay.draw(over: webView, in: view)
             NSGraphicsContext.restoreGraphicsState()
         }
         writePNG(bitmap, to: path)

@@ -14,7 +14,6 @@ final class RenderInputsTests: XCTestCase {
         after.folderID = "AAMk"
         after.sizeBytes = 4096
         after.inboxSection = .focused
-        after.bcc = [F.carol]
         XCTAssertEqual(
             RenderInputs(messages: [before]) { _ in true },
             RenderInputs(messages: [after]) { _ in true }
@@ -33,6 +32,12 @@ final class RenderInputsTests: XCTestCase {
         XCTAssertNotEqual(rendered, RenderInputs(messages: [base]) { _ in false }, "a body arriving")
         XCTAssertNotEqual(rendered, RenderInputs(messages: [base, F.message("m2")]) { _ in true }, "a new message")
         XCTAssertNotEqual(rendered, RenderInputs(messages: [F.message("m1", subject: "Re: Engines", isRead: false)]) { _ in true })
+        var blind = base
+        blind.bcc = [F.carol]
+        XCTAssertNotEqual(rendered, RenderInputs(messages: [blind]) { _ in true }, "Bcc shows in the expanded recipients")
+        var draft = base
+        draft.roles = [.drafts]
+        XCTAssertNotEqual(rendered, RenderInputs(messages: [draft]) { _ in true }, "a draft renders read-only")
     }
 
     func testOrderAndVisibilityFollowTheBuilder() {

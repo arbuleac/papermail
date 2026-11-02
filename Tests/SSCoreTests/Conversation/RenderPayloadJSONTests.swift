@@ -5,14 +5,18 @@ import XCTest
 /// The JSON keys are the contract between `RenderPayload` and the shell script. These snapshots make a
 /// rename on either side fail here rather than render blank cards.
 final class RenderPayloadJSONTests: XCTestCase {
-    static let expectedTopLevelKeys = ["inkSlot", "loadRemoteImages", "messages", "subject"]
-    static let expectedMessageKeys = [
-        "attachments", "blockedRemoteImageCount", "cc", "coveredByNewYork", "dateDisplay", "dateISO",
-        "declaresColors", "from", "hasBody", "hasQuotedContent", "html", "id", "isStarred", "isUnread", "snippet",
-        "to", "typesetting",
+    static let expectedTopLevelKeys = [
+        "colorsNoticeDismissed", "inkSlot", "loadRemoteImages", "messages", "participants", "readingSans", "subject",
     ]
-    static let expectedSenderKeys = ["address", "color", "initials", "name"]
-    static let expectedAttachmentKeys = ["id", "mime", "name", "size"]
+    static let expectedMessageKeys = [
+        "attachments", "blockedRemoteImageCount", "bodyState", "cc", "coveredByNewYork", "dateDisplay", "dateISO",
+        "declaresColors", "from", "hasBody", "hasQuotedContent", "html", "id", "isDraft", "isStarred", "isUnread",
+        "recipients", "snippet", "to", "typesetting",
+    ]
+    static let expectedSenderKeys = ["address", "initials", "name", "tint"]
+    static let expectedAttachmentKeys = ["id", "kind", "mime", "name", "size", "symbol"]
+    static let expectedRecipientFieldKeys = ["label", "people"]
+    static let expectedPersonKeys = ["address", "name"]
 
     private func samplePayload(html: String = "<p>Hello</p>") -> RenderPayload {
         RenderPayload(
@@ -20,9 +24,10 @@ final class RenderPayloadJSONTests: XCTestCase {
             messages: [
                 RenderPayload.Message(
                     id: "acct|m1",
-                    from: RenderPayload.Sender(name: "Ada", address: "ada@example.com", initials: "A", color: "#1E88E5"),
+                    from: RenderPayload.Sender(name: "Ada", address: "ada@example.com", initials: "A", tint: 4),
                     to: "me",
                     cc: "",
+                    recipients: [RenderPayload.RecipientField(label: "To", people: [RenderPayload.Person(name: "me", address: "me@example.com")])],
                     dateISO: "2025-03-07T14:05:00Z",
                     dateDisplay: "Today 14:05",
                     snippet: "Hello",
@@ -32,7 +37,8 @@ final class RenderPayloadJSONTests: XCTestCase {
                     html: html,
                     hasQuotedContent: false,
                     blockedRemoteImageCount: 0,
-                    attachments: [RenderPayload.Attachment(id: "att-1", name: "plan.pdf", size: "1.2 MB", mime: "application/pdf")],
+                    attachments: [RenderPayload.Attachment(id: "att-1", name: "plan.pdf", size: "1.2 MB", mime: "application/pdf",
+                                                           symbol: "doc", kind: "PDF")],
                     typesetting: .unstyled,
                     declaresColors: false,
                     coveredByNewYork: true
@@ -40,6 +46,18 @@ final class RenderPayloadJSONTests: XCTestCase {
             ],
             inkSlot: 3
         )
+    }
+
+    func testBodyStateTravelsByName() throws {
+        let data = try JSONEncoder().encode(samplePayload())
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let message = try XCTUnwrap((object["messages"] as? [[String: Any]])?.first)
+        XCTAssertEqual(message["bodyState"] as? String, "ready")
+        XCTAssertEqual(RenderPayload.BodyState.allCases.map(\.rawValue), ["ready", "loading", "offline", "failed"])
+        for state in RenderPayload.BodyState.allCases {
+            XCTAssertTrue(ConversationShellAssets.js.contains("'" + state.rawValue + "'") || state == .ready,
+                          "the shell never names `\(state.rawValue)`")
+        }
     }
 
     func testDesignFactsEncodeAsTheShellReadsThem() throws {
@@ -65,11 +83,16 @@ final class RenderPayloadJSONTests: XCTestCase {
         XCTAssertEqual(sender.keys.sorted(), Self.expectedSenderKeys)
         let attachments = try XCTUnwrap(message["attachments"] as? [[String: Any]])
         XCTAssertEqual(try XCTUnwrap(attachments.first).keys.sorted(), Self.expectedAttachmentKeys)
+        let fields = try XCTUnwrap(message["recipients"] as? [[String: Any]])
+        XCTAssertEqual(try XCTUnwrap(fields.first).keys.sorted(), Self.expectedRecipientFieldKeys)
+        let people = try XCTUnwrap(fields.first?["people"] as? [[String: Any]])
+        XCTAssertEqual(try XCTUnwrap(people.first).keys.sorted(), Self.expectedPersonKeys)
     }
 
     func testShellScriptReadsEveryPayloadKey() {
         let script = ConversationShellAssets.js
         let keys = Self.expectedTopLevelKeys + Self.expectedMessageKeys + Self.expectedSenderKeys + Self.expectedAttachmentKeys
+            + Self.expectedRecipientFieldKeys + Self.expectedPersonKeys
         for key in keys {
             XCTAssertTrue(script.contains("." + key), "the shell never reads `\(key)`")
         }
@@ -106,9 +129,33 @@ final class RenderPayloadJSONTests: XCTestCase {
         XCTAssertEqual(ConversationShellAssets.baseURL?.scheme, "ss-shell")
         XCTAssertEqual(ConversationShellAssets.baseURL?.host, "local")
         XCTAssertTrue(ConversationShellAssets.js.contains("sandbox', 'allow-same-origin'"))
-        XCTAssertTrue(ConversationShellAssets.css.contains("prefers-color-scheme: dark"))
-        XCTAssertTrue(ConversationShellAssets.css.contains("border-radius: 12px"))
+        XCTAssertTrue(ConversationShellAssets.css.hasPrefix(QuireCSS.head), "the Quire head comes first (spec §8.4)")
+        XCTAssertTrue(ConversationShellAssets.css.contains("--ss-card: var(--q-sheet)"), "old variable names map onto Quire")
         XCTAssertTrue(ConversationShellAssets.bodyCSS.contains(".ss-quote { display: none; }"))
+        let withSymbols = ConversationShellAssets.document(symbolCSS: ":root{--sym-star:url(data:x)}")
+        XCTAssertTrue(withSymbols.contains(":root{--sym-star:url(data:x)}"))
+    }
+
+    /// Spec §8.4: no hex colour is written by hand in the shell; every colour comes from a Quire variable.
+    func testShellCSSDrawsOnlyWithQuireVariables() {
+        for css in [ConversationShellAssets.shellCSS] {
+            let hex = css.range(of: "#[0-9A-Fa-f]{3,8}\\b", options: .regularExpression)
+            XCTAssertNil(hex, "hand-written colour: \(hex.map { String(css[$0]) } ?? "")")
+            XCTAssertFalse(css.contains("rgba("), "hand-written colour")
+        }
+    }
+
+    /// The body documents carry the variables they use, in every block of the head (IC and Graphite included).
+    func testBodyDocumentsCarryTheirVariables() {
+        let variables = ConversationShellAssets.bodyVariables
+        for needle in ["--q-ink:", "--q-accent:", "--q-rule:", "--q-focus:", "--q-originalPage:", "--q-font-reading:",
+                       "--q-font-readingSans:", "html.ss-ic{", "html.ss-graphite{", "@media (prefers-color-scheme:dark){:root{"] {
+            XCTAssertTrue(variables.contains(needle), needle)
+        }
+        XCTAssertFalse(variables.contains("--q-spine:"), "only what bodies use")
+        for line in variables.components(separatedBy: "\n") {
+            XCTAssertEqual(line.filter { $0 == "{" }.count, line.filter { $0 == "}" }.count, "balanced: \(line.prefix(60))")
+        }
     }
 
     /// Parses the shell script with JavaScriptCore without running it, so a syntax slip fails headlessly.

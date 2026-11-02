@@ -22,10 +22,11 @@ enum ConversationFixtures {
 
     static var accounts: [AccountID: Account] { [accountID: account] }
 
-    /// Fixed calendar, locale and zone so date strings do not depend on the machine running the tests.
+    /// Fixed calendar, locale and zone so date strings do not depend on the machine running the tests. British
+    /// English writes the spec's own forms: a 24-hour clock and day before month ("Fri 30 Oct").
     static let builder = RenderPayloadBuilder(
         calendar: Calendar(identifier: .gregorian),
-        locale: Locale(identifier: "en_US_POSIX"),
+        locale: Locale(identifier: "en_GB"),
         timeZone: TimeZone(identifier: "UTC") ?? .current
     )
 

@@ -27,26 +27,36 @@ final class AttachmentPreviewController: NSObject, @MainActor QLPreviewPanelData
         QLPreviewPanel.sharedPreviewPanelExists() && QLPreviewPanel.shared()?.isVisible == true
     }
 
+    /// Drops a preview still fetching and closes the panel: a double click hands the file to its app instead,
+    /// and the first click's Quick Look must not open over it when its fetch lands.
+    func cancel() {
+        pendingBatch &+= 1
+        closePanel()
+    }
+
     func closePanel() {
         guard isPanelVisible else { return }
         QLPreviewPanel.shared()?.orderOut(nil)
     }
 
-    /// Shows `attachment` and then fetches its siblings in the background so the panel's arrows work.
-    func preview(_ attachment: AttachmentInfo, of message: MessageID, siblings: [AttachmentInfo]) async {
+    /// Shows `attachment` and then fetches its siblings in the background so the panel's arrows work. False
+    /// when the attachment itself could not be fetched, so its chip can say so (spec §5.17).
+    @discardableResult
+    func preview(_ attachment: AttachmentInfo, of message: MessageID, siblings: [AttachmentInfo]) async -> Bool {
         pendingBatch &+= 1
         let batch = pendingBatch
-        guard let url = await file(for: attachment, of: message) else { return }
-        guard batch == pendingBatch else { return }
+        guard let url = await file(for: attachment, of: message) else { return false }
+        guard batch == pendingBatch else { return true }
         items = [url]
         presentPanel()
         for sibling in siblings where sibling.id != attachment.id && !sibling.isInline {
-            guard batch == pendingBatch else { return }
+            guard batch == pendingBatch else { return true }
             if let siblingURL = await file(for: sibling, of: message), batch == pendingBatch {
                 items.append(siblingURL)
                 if isPanelVisible { QLPreviewPanel.shared()?.reloadData() }
             }
         }
+        return true
     }
 
     private func presentPanel() {
@@ -62,7 +72,8 @@ final class AttachmentPreviewController: NSObject, @MainActor QLPreviewPanelData
         }
     }
 
-    private func file(for attachment: AttachmentInfo, of message: MessageID) async -> URL? {
+    /// The attachment as a file in the session's preview folder, fetched once; nil when the fetch failed.
+    func file(for attachment: AttachmentInfo, of message: MessageID) async -> URL? {
         let key = message.accountID.rawValue + "/" + message.providerID + "/" + attachment.id
         if let existing = files[key], FileManager.default.fileExists(atPath: existing.path) { return existing }
         do {

@@ -22,6 +22,24 @@ final class QuickReplyComposerTests: XCTestCase {
         XCTAssertEqual(QuickReplyComposer.replyRecipients(to: F.message("m3", from: nil, to: []), accounts: F.accounts), [])
     }
 
+    func testReplyAllCopiesEveryoneElseWithoutTheUser() {
+        let latest = F.message("m1", from: F.ada, to: [F.me, F.bob], cc: [F.carol, EmailAddress(name: nil, address: "ADA@example.com")])
+        let all = QuickReplyComposer.replyAllRecipients(to: latest, accounts: F.accounts)
+        XCTAssertEqual(all.to, [F.ada])
+        XCTAssertEqual(all.cc, [F.bob, F.carol], "the sender once, the user never")
+        XCTAssertTrue(QuickReplyComposer.replyAllAvailable(for: latest, accounts: F.accounts))
+        XCTAssertEqual(QuickReplyComposer.replyAllTargetName(for: latest, accounts: F.accounts), "Ada Lovelace and 2 others")
+        let message = QuickReplyComposer.outgoingMessage(text: "Hi", replyingTo: latest, accounts: F.accounts, all: true)
+        XCTAssertEqual(message.to, [F.ada])
+        XCTAssertEqual(message.cc, [F.bob, F.carol])
+    }
+
+    func testReplyAllIsUnavailableWithOneOtherParticipant() {
+        let latest = F.message("m1", from: F.ada, to: [F.me])
+        XCTAssertFalse(QuickReplyComposer.replyAllAvailable(for: latest, accounts: F.accounts))
+        XCTAssertEqual(QuickReplyComposer.outgoingMessage(text: "Hi", replyingTo: latest, accounts: F.accounts).cc, [])
+    }
+
     func testReplyTargetName() {
         XCTAssertEqual(QuickReplyComposer.replyTargetName(for: F.message("m1", from: F.ada), accounts: F.accounts), "Ada Lovelace")
         XCTAssertEqual(QuickReplyComposer.replyTargetName(for: F.message("m2", from: F.me, to: [F.bob, F.carol]), accounts: F.accounts), "Bob and 1 more")
