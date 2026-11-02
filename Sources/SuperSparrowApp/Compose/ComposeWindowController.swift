@@ -321,7 +321,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     }
 
     private func populateFromPopup() {
-        fromPopup.titles = accounts.map(Self.senderTitle)
+        fromPopup.titles = accounts.map(AccountLabels.senderTitle(for:))
         selectAccountInFromPopup()
         fromPopup.isEnabled = accounts.count > 1
     }
@@ -331,11 +331,6 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
             fromPopup.selectedIndex = index
         }
         fromPopup.inkMark = .dot(slot: account.inkSlot)
-    }
-
-    private static func senderTitle(for account: Account) -> String {
-        let name = account.displayName.trimmingCharacters(in: .whitespaces)
-        return name.isEmpty ? account.email : "\(name) <\(account.email)>"
     }
 
     private func focusInitialField() {

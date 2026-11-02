@@ -80,7 +80,7 @@ enum TitleMenu {
         if model.unifiedUnread > 0 { unified.badge = NSMenuItemBadge(count: model.unifiedUnread) }
         menu.addItem(unified)
         for (index, entry) in model.accounts.enumerated() {
-            let name = AccountMonogram.name(for: entry.account)
+            let name = AccountLabels.name(for: entry.account)
             let item = NSMenuItem(title: "\(name) · \(entry.account.email)", action: scopeAction, keyEquivalent: index < 9 ? "\(index + 1)" : "")
             item.keyEquivalentModifierMask = .command
             item.target = target

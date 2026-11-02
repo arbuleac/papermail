@@ -560,7 +560,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         case let .one(id, inTrash, emptied):
             let account = accountsByID[id.accountID]
             let multipleAccounts = accountsByID.count > 1
-            let name = multipleAccounts ? account.map(ReaderAccountLabel.name(of:)) : nil
+            let name = multipleAccounts ? account.map(AccountLabels.name(for:)) : nil
             let slot = multipleAccounts ? account?.inkSlot : nil
             let drafts = mailboxView == .drafts
             let count = messages.count == 1 ? "1 message" : "\(messages.count) messages"
@@ -596,7 +596,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         quickReply.replyAllName = QuickReplyComposer.replyAllTargetName(for: latest, accounts: accountsByID)
         quickReply.replyAllAvailable = QuickReplyComposer.replyAllAvailable(for: latest, accounts: accountsByID)
         if let account = accountsByID[latest.id.accountID] {
-            let monogram = ReaderAccountLabel.monogram(of: account, among: Array(accountsByID.values))
+            let monogram = AccountLabels.monogram(for: account, among: Array(accountsByID.values))
             quickReply.face = (monogram, account.inkSlot)
         } else {
             quickReply.face = nil

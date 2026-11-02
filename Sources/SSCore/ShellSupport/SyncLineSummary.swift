@@ -134,7 +134,7 @@ public struct SyncLineSummary: Equatable, Sendable {
         let tooltip = tooltipText(statuses: statuses, accounts: byID, signIn: input.signIn, isOffline: isOffline, isDemo: input.isDemo,
                                   now: input.now, numberFormatter: numberFormatter)
         func name(_ id: AccountID) -> String {
-            byID[id].map(AccountMonogram.name(for:)) ?? "an account"
+            byID[id].map(AccountLabels.name(for:)) ?? "an account"
         }
         func named(_ ids: [AccountID]) -> String {
             ids.count == 1 ? name(ids[0]) : "\(ids.count) accounts"
@@ -278,7 +278,7 @@ public struct SyncLineSummary: Equatable, Sendable {
             } else {
                 words = accountWords(status, now: now, numberFormatter: numberFormatter)
             }
-            return "\(AccountMonogram.name(for: account)): \(words)"
+            return "\(AccountLabels.name(for: account)): \(words)"
         }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }

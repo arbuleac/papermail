@@ -142,7 +142,7 @@ final class AccountStripViewController: NSViewController {
 
     func setAccounts(_ accounts: [Account]) {
         self.accounts = accounts
-        let monograms = AccountMonogram.monograms(for: accounts)
+        let monograms = AccountLabels.monograms(for: accounts)
         var tiles: [AccountID: AccountStripButton] = [:]
         for account in accounts {
             let content = AccountStripButton.Content.account(monogram: monograms[account.id] ?? "?", slot: account.inkSlot)
@@ -217,7 +217,7 @@ final class AccountStripViewController: NSViewController {
             tile.status = statusByAccount[account.id] ?? .normal
             tile.unreadCount = unreadByAccount[account.id] ?? 0
             tile.onArrow = { [weak self] delta in self?.moveSelection(from: .account(account.id), by: delta) }
-            let name = AccountMonogram.name(for: account)
+            let name = AccountLabels.name(for: account)
             let shortcut = index < 9 ? "  ⌘\(index + 1)" : ""
             if reconnectingID == account.id {
                 tile.toolTip = "Finish signing in in your browser…"

@@ -720,15 +720,16 @@ final class MessageListViewController: NSViewController {
         var marks: [AccountID: ConversationCellView.AccountMark] = [:]
         var names: [AccountID: String] = [:]
         var own: Set<String> = []
+        let initials = AccountLabels.initials(for: Array(accountsByID.values))
         for (id, account) in accountsByID {
             marks[id] = ConversationCellView.AccountMark(
                 inkSlot: account.inkSlot,
-                initial: ListAccountMark.initial(email: account.email, monogram: account.monogram),
+                initial: initials[id] ?? "?",
                 isUnified: true,
                 showsInitial: false,
                 accountAddress: account.email
             )
-            names[id] = ListAccountMark.name(email: account.email)
+            names[id] = AccountLabels.name(for: account)
             own.insert(account.email.lowercased())
         }
         self.marks = marks
@@ -821,7 +822,7 @@ final class MessageListViewController: NSViewController {
     private func firstSyncFinishedAccount(_ scoped: [AccountSyncStatus]) -> String? {
         let finished = scoped.filter { bootstrappedThisSession.contains($0.accountID) && $0.phase != .bootstrapping }
         guard finished.count == 1, scoped.count == 1, let account = accountsByID[finished[0].accountID] else { return nil }
-        return ListAccountMark.name(email: account.email)
+        return AccountLabels.name(for: account)
     }
 
     private func setFooterPhase(_ phase: ListFooterRowView.Phase) {

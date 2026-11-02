@@ -433,7 +433,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
               status.phase != .needsReauth else { return }
         reconnectedAccount = nil
         if let account = accountsByID[id] {
-            announce("\(AccountMonogram.name(for: account)) reconnected.")
+            announce("\(AccountLabels.name(for: account)) reconnected.")
         }
     }
 
@@ -632,7 +632,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     }
 
     private var titleMenuModel: TitleMenu.Model {
-        let monograms = AccountMonogram.monograms(for: accounts)
+        let monograms = AccountLabels.monograms(for: accounts)
         let inboxUnread: Int
         if case .account(let id) = scope { inboxUnread = unreadByAccount[id] ?? 0 } else { inboxUnread = unifiedUnread }
         return TitleMenu.Model(

@@ -107,7 +107,7 @@ final class SettingsModel: ObservableObject {
     }
 
     func derivedMonogram(for account: Account) -> String {
-        AccountLabels.derivedMonograms(for: accounts)[account.id] ?? ""
+        AccountLabels.derivedMonogram(for: account, among: accounts)
     }
 
     private func tag(for account: Account) -> String {
