@@ -87,6 +87,14 @@ final class MessageListTableView: NSTableView {
         return row(at: point)
     }
 
+    /// Rows were inserted, removed or moved: the hovered index may now name another row, so the wash goes to
+    /// whatever is under the pointer now.
+    func refreshHoverAfterRowEdits() {
+        guard !isHoverSuspended else { return }
+        setHoveredRow(-1)
+        setHoveredRow(rowUnderPointer())
+    }
+
     /// Live scroll began (a trackpad gesture, momentum included): stop following the pointer.
     func beginScrollHoverSuspension() {
         isLiveScrolling = true

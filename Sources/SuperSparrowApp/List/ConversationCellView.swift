@@ -111,6 +111,8 @@ final class ConversationCellView: NSView {
         return c
     }
 
+    /// The specimen's compact line 2 caps the subject at this share of the line.
+    private static let compactSubjectShare: CGFloat = 0.6
     private static let otherTagText = "Other"
     private static let otherTagSize = QuireTag.size(for: otherTagText)
 
@@ -182,8 +184,21 @@ final class ConversationCellView: NSView {
             x = rect.minX - Row.glyphGap
         }
         let line2End = x == right ? right : x + Row.glyphGap - Row.clusterGap
-        drawLine(compact ? content.compactLine : content.subject, x: textX, top: line2Top, width: line2End - textX,
-                 height: Row.subjectHeight)
+        let line2Width = line2End - textX
+        if compact, let snippet = content.compactSnippet {
+            // The subject keeps at most 60 % of the line so some of the snippet always shows after it.
+            let cap = (line2Width * ConversationCellView.compactSubjectShare).rounded()
+            var subjectWidth = content.subjectWidth
+            if subjectWidth > cap {
+                // Truncation ends on a glyph, short of the cap; the snippet follows the ellipsis, not the cap.
+                let size = NSSize(width: cap, height: Row.subjectHeight)
+                subjectWidth = min(cap, ceil(content.subject.boundingRect(with: size, options: QuireFont.drawingOptions).width))
+            }
+            drawLine(content.subject, x: textX, top: line2Top, width: subjectWidth, height: Row.subjectHeight)
+            drawLine(snippet, x: textX + subjectWidth, top: line2Top, width: line2Width - subjectWidth, height: Row.subjectHeight)
+        } else {
+            drawLine(content.subject, x: textX, top: line2Top, width: line2Width, height: Row.subjectHeight)
+        }
 
         if !compact {
             drawLine(content.snippet, x: textX, top: Row.snippetY, width: right - textX, height: Row.snippetHeight)

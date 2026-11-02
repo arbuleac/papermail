@@ -15,8 +15,10 @@ final class ConversationRowContent {
     let timeWidth: CGFloat
     let subject: NSAttributedString
     let snippet: NSAttributedString
-    /// Compact density's line 2: the subject, " — " and the snippet on the subject's baseline.
-    let compactLine: NSAttributedString
+    /// The subject's natural width, for compact density, where it gives way to the snippet past 60 % of the line.
+    let subjectWidth: CGFloat
+    /// Compact density's line 2 after the subject: " — " and the snippet, on the subject's baseline.
+    let compactSnippet: NSAttributedString?
     let messageCount: Int?
     let badgeSize: NSSize
     let initials: String
@@ -37,7 +39,8 @@ final class ConversationRowContent {
         timeWidth = ceil(time.size().width)
         subject = Style.subject(text, unread: unread)
         snippet = QuireFont.attributedString(text.snippetText, role: .snippet, color: .qInk2)
-        compactLine = Style.compactLine(subject: subject, snippet: text.snippetText)
+        subjectWidth = ceil(subject.size().width)
+        compactSnippet = Style.compactSnippet(subject: subject, snippet: text.snippetText)
         messageCount = text.messageCount
         badgeSize = text.messageCount.map { QuireBadge.size(for: .messageCount($0)) } ?? .zero
         initials = text.initials
@@ -101,15 +104,13 @@ final class ConversationRowContent {
 
         /// The snippet joins the subject's line box: its own font and colour, but the subject's paragraph style
         /// and baseline offset, so both sit on one baseline inside the 18 pt line.
-        static func compactLine(subject: NSAttributedString, snippet: String) -> NSAttributedString {
-            guard !snippet.isEmpty, subject.length > 0 else { return subject }
-            let line = NSMutableAttributedString(attributedString: subject)
+        static func compactSnippet(subject: NSAttributedString, snippet: String) -> NSAttributedString? {
+            guard !snippet.isEmpty, subject.length > 0 else { return nil }
             var attributes = subject.attributes(at: 0, effectiveRange: nil)
             attributes[.font] = QuireFont.font(.snippet)
             attributes[.foregroundColor] = NSColor.qInk2
             attributes[.kern] = nil
-            line.append(NSAttributedString(string: " — " + snippet, attributes: attributes))
-            return line
+            return NSAttributedString(string: " — " + snippet, attributes: attributes)
         }
     }
 }

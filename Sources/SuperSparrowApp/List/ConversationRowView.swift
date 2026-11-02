@@ -51,7 +51,12 @@ final class ConversationRowView: NSTableRowView {
         didSet { if oldValue != isSelected { needsDisplay = true } }
     }
 
-    private var isWindowKey: Bool { window?.isKeyWindow ?? false }
+    /// Forces the key state drawn (state renders and tests, where no window is key); nil follows the window.
+    var windowKeyOverride: Bool? {
+        didSet { needsDisplay = true }
+    }
+
+    private var isWindowKey: Bool { windowKeyOverride ?? window?.isKeyWindow ?? false }
 
     override func draw(_ dirtyRect: NSRect) {
         let compact = density == .compact

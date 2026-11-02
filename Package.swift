@@ -58,6 +58,9 @@ let package = Package(
         .testTarget(name: "SSGmailTests", dependencies: ["SSGmail"], swiftSettings: settings),
         .testTarget(name: "SSGraphTests", dependencies: ["SSGraph"], swiftSettings: settings),
         .testTarget(name: "SSDesignTests", dependencies: ["SSDesign"], swiftSettings: settings),
+        // The app's own views (the message list): behaviour always, timings with SS_PERF=1, state renders with
+        // SS_UI_TESTS=1. SwiftPM lets a test target import an executable target.
+        .testTarget(name: "SuperSparrowAppTests", dependencies: ["SuperSparrowApp", "SSCore", "SSDesign"], swiftSettings: settings),
     ],
     swiftLanguageModes: [.v5]
 )

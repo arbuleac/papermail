@@ -92,12 +92,13 @@ final class MessageListViewController: NSViewController {
 
     private let store: MailStoring
     private let settings: AppSettings
-    private let scrollView = NSScrollView()
-    private let tableView = MessageListTableView()
-    private let emptyView = QuireEmptyStateView(sentence: "")
-    private let skeletonView = ListSkeletonView()
+    // The views and the row cache are internal, not private, so the list's tests can drive and measure them.
+    let scrollView = NSScrollView()
+    let tableView = MessageListTableView()
+    let emptyView = QuireEmptyStateView(sentence: "")
+    let skeletonView = ListSkeletonView()
     private let focusOverlay = ListFocusRingOverlay()
-    private let rowContentCache: RowContentCache
+    let rowContentCache: RowContentCache
     private let signposter = ListSignposts.signposter
     private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "SuperSparrow", category: "list")
 
@@ -110,7 +111,7 @@ final class MessageListViewController: NSViewController {
 
     private var selectedID: ConversationID?
     private var indexByID: [ConversationID: Int] = [:]
-    private var layout = ListLayout.empty
+    private(set) var layout = ListLayout.empty
     private var itemIDs: [ListLayout.ItemID] = []
     private var density: AppSettings.ListDensity
     private var showsAccountInitials: Bool
@@ -217,7 +218,7 @@ final class MessageListViewController: NSViewController {
                            object: scrollView)
         center.addObserver(self, selector: #selector(calendarDayChanged(_:)), name: .NSCalendarDayChanged, object: nil)
         center.addObserver(self, selector: #selector(displayPreferencesChanged(_:)), name: AppSettings.displayPreferencesChanged,
-                           object: nil)
+                           object: settings)
         center.addObserver(self, selector: #selector(quireEnvironmentChanged(_:)), name: QuireEnvironment.didChangeNotification,
                            object: nil)
         environmentKey = makeEnvironmentKey()
@@ -252,11 +253,19 @@ final class MessageListViewController: NSViewController {
         let current = selectedID.flatMap { indexByID[$0] } ?? 0
         let target = min(max(current + delta, 0), conversations.count - 1)
         guard let row = layout.row(ofConversation: target) else { return }
+        let id = conversations[target].id
+        let wasSuppressed = suppressSelectionCallbacks
+        suppressSelectionCallbacks = true
         withoutAnimation {
             tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: true)
+            scrollToRow(row)
         }
-        selectedID = conversations[target].id
-        scrollToRow(row)
+        suppressSelectionCallbacks = wasSuppressed
+        onSelectionSetChange?(selectedConversationIDs)
+        guard id != selectedID else { return }
+        selectedID = id
+        selectionDidSettle()
+        onSelectionChange?(id)
     }
 
     /// The rows the conversation view should pre-render around `id`.
@@ -422,7 +431,8 @@ final class MessageListViewController: NSViewController {
         }
     }
 
-    private func handleHeadUpdate(_ rows: [ConversationSummary]) {
+    /// Internal so the refresh budget can be timed on its own.
+    func handleHeadUpdate(_ rows: [ConversationSummary]) {
         let state = signposter.beginInterval("list.refresh")
         defer { signposter.endInterval("list.refresh", state) }
         hasReceivedFirstPage = true
@@ -525,6 +535,7 @@ final class MessageListViewController: NSViewController {
                         tableView.insertRows(at: IndexSet(diff.insertions))
                     }
                     tableView.endUpdates()
+                    tableView.refreshHoverAfterRowEdits()
                 }
             }
             // Changed summaries, and rows whose time format moved with the heads, pick up new content; unchanged
