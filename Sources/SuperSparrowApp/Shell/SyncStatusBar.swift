@@ -88,7 +88,9 @@ final class SyncStatusBar: QuireControl {
             spinner.stopAnimation()
         }
         if summary.state == .downloading {
-            contrail.mode = summary.progress.map { .determinate($0) } ?? .indeterminate
+            // Set only on a change: re-setting the mode would restart the sweep on every status update.
+            let mode: QuireProgressMode = summary.progress.map { .determinate($0) } ?? .indeterminate
+            if contrail.mode != mode || contrail.isHidden { contrail.mode = mode }
             contrail.isHidden = false
         } else {
             contrail.isHidden = true

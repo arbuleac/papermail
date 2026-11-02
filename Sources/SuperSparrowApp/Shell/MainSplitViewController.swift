@@ -5,9 +5,14 @@ import SSDesign
 /// Increase Contrast) with a 6 pt hit area, so the list's edge is easy to grab without a visible bar.
 @MainActor
 final class MainSplitViewController: NSSplitViewController {
-    override func loadView() {
+    init() {
+        super.init(nibName: nil, bundle: nil)
+        // Before the view loads, so the autosave name and the items land on this split view.
         splitView = HairlineSplitView()
-        super.loadView()
+    }
+
+    required init?(coder: NSCoder) {
+        nil
     }
 
     override func splitView(_ splitView: NSSplitView, effectiveRect proposedEffectiveRect: NSRect, forDrawnRect drawnRect: NSRect,

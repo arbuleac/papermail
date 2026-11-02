@@ -107,19 +107,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         window.contentViewController = showingWelcome ? welcome : splitController
         window.setContentSize(Self.defaultSize)
         window.center()
-        let isSnapshot = LaunchOptions().snapshotPath != nil
         if !isSnapshot {
-            // Restores the last frame, which also overrides the centering above after the first run. Snapshots
-            // keep the default size so they compare with the specimen and never rewrite the user's frame.
+            // Restores the last frame, which also overrides the centering above after the first run.
             window.setFrameAutosaveName("MainWindow")
-            splitController.splitView.autosaveName = "MainSplit"
         }
         chrome = QuireWindowChrome.metrics(of: window)
         applyRailWidth()
-        if isSnapshot || isFirstSplitLayout {
-            splitController.splitView.layoutSubtreeIfNeeded()
-            splitController.splitView.setPosition(chrome.railWidth + ListPaneViewController.preferredWidth, ofDividerAt: 1)
-        }
+        if !showingWelcome { placeDividersIfNeeded() }
         window.shellKeyViews = { [weak self] in self?.shellKeyViews ?? [] }
         window.readerRoot = conversationPane.view
         // Otherwise AppKit picks the first key view, the search field, and single-key shortcuts start as text.
@@ -168,6 +162,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     // MARK: Layout
 
     private func buildSplit() {
+        if !isSnapshot { splitController.splitView.autosaveName = "MainSplit" }
         stripItem = NSSplitViewItem(viewController: strip)
         stripItem.canCollapse = true
         stripItem.holdingPriority = .defaultHigh + 10
@@ -199,7 +194,22 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// A first run has no autosaved divider positions; the list then starts at its preferred width.
     private let isFirstSplitLayout = UserDefaults.standard.object(forKey: "NSSplitView Subview Frames MainSplit") == nil
 
+    /// `--snapshot`: the window keeps the default size and divider positions, so it compares with the specimen
+    /// and never rewrites the user's saved frame.
+    private let isSnapshot = LaunchOptions().snapshotPath != nil
+
     private var isMinimal: Bool { stripItem?.isCollapsed ?? false }
+
+    private var didPlaceDividers = false
+
+    /// With no saved positions (a first run, or a snapshot) the list starts at its default 364 pt. Done once the
+    /// split is in the window, which after the welcome screen is only when the first account arrives.
+    private func placeDividersIfNeeded() {
+        guard !didPlaceDividers, isSnapshot || isFirstSplitLayout else { return }
+        didPlaceDividers = true
+        splitController.splitView.layoutSubtreeIfNeeded()
+        splitController.splitView.setPosition(chrome.railWidth + ListPaneViewController.preferredWidth, ofDividerAt: 1)
+    }
 
     /// Minimal mode (§5.1): the masthead moves past the would-be rail, the title menu gains the accounts and the
     /// new-mail dot may show. Row 2 of the header never changes.
@@ -300,7 +310,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         let frame = window.frame
         window.contentViewController = wantsWelcome ? welcome : splitController
         window.setFrame(frame, display: true)
-        if !wantsWelcome { focusList() }
+        if !wantsWelcome {
+            placeDividersIfNeeded()
+            focusList()
+        }
     }
 
     private func statusesChanged(_ statuses: [AccountSyncStatus]) {
@@ -429,6 +442,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
                     timer.invalidate()
                     self.checkTimer = nil
                     self.checkStartedAt = nil
+                    self.reconnectedAccount = nil
                 }
                 self.refreshSyncLine()
             }
@@ -522,6 +536,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
                 conversation.show(nil)
             }
             list.query = query
+        } else {
+            // The same query (a trailing space, say) brings no new rows; the field must not wait for them.
+            listPane.listRowsDidChange()
         }
         listPane.display(view: mailboxView, section: mailboxView == .inbox ? section : nil)
     }
@@ -1020,7 +1037,8 @@ private enum PendingSignIn: Equatable {
 
 #if DEBUG
 extension MainWindowController {
-    /// `--snapshot-state=minimal,notkey,narrowed,adding,reconnect,signin,toast,search,focus-rail` (debug builds):
+    /// `--snapshot-state=key,notkey,minimal,narrowed,adding,reconnect,signin,toast,search,focus-rail,focus-action,
+    /// hover-demo,hover-masthead` (debug builds):
     /// puts the window in the named states before `--snapshot` captures it, so every state of the chrome can be
     /// compared with the specimen without a screen recording.
     fileprivate func applyDebugSnapshotStates() {
@@ -1070,9 +1088,16 @@ extension MainWindowController {
         if states.contains("hover-masthead") {
             listPane.header.masthead.displayState = .hover
         }
-        if !states.contains("notkey") {
-            window?.makeKeyAndOrderFront(nil)
-            NSApp.activate()
+        if states.contains("key") {
+            // Draws the key-window marks of the chrome's own controls even when another app is frontmost (the
+            // traffic lights stay the system's).
+            func forceKey(_ view: NSView) {
+                (view as? QuireControl)?.windowKeyOverride = true
+                view.subviews.forEach(forceKey)
+            }
+            forceKey(strip.view)
+            forceKey(listPane.header)
+            forceKey(listPane.statusBar)
         }
         if states.contains("notkey") {
             // A borderless window far off screen takes key, so this one draws its not-key marks.
