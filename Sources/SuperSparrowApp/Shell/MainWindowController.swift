@@ -30,6 +30,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     var onLeaveDemo: (() -> Void)?
 
     private let splitController = MainSplitViewController()
+    /// The panes' split view (the app's tests measure its dividers).
+    var splitView: NSSplitView { splitController.splitView }
     // The panes are internal, not private, so the app's tests can drive the window as a user would.
     let strip = AccountStripViewController()
     let list: MessageListViewController

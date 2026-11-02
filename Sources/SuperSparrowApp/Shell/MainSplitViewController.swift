@@ -25,7 +25,16 @@ final class MainSplitViewController: NSSplitViewController {
 
 /// A vertical split view whose dividers are Quire hairlines.
 @MainActor
-private final class HairlineSplitView: NSSplitView {
+final class HairlineSplitView: NSSplitView {
+    /// Tests stand in for a display of another scale; nil reads the window's (or, before there is one, the
+    /// main screen's).
+    var backingScaleOverride: CGFloat? {
+        didSet { thicknessMayHaveChanged() }
+    }
+
+    /// The thickness NSSplitViewController last built its divider constraints for; nil until it is known.
+    private var builtThickness: CGFloat?
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         isVertical = true
@@ -37,8 +46,12 @@ private final class HairlineSplitView: NSSplitView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("built in code") }
 
+    /// One device pixel. The split controller's items are added before the view is in a window, so the main
+    /// screen's scale is the best guess then; guessing 2 on a 1× display laid out a half-point divider that
+    /// pixel rounding then dropped, and the list ran straight into the reader.
     override var dividerThickness: CGFloat {
-        QuireHairline.width(backingScale: window?.backingScaleFactor ?? 2, increasedContrast: QuireEnvironment.increaseContrast)
+        let scale = backingScaleOverride ?? window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        return QuireHairline.width(backingScale: scale, increasedContrast: QuireEnvironment.increaseContrast)
     }
 
     override var dividerColor: NSColor { .qRule }
@@ -48,15 +61,33 @@ private final class HairlineSplitView: NSSplitView {
         rect.fill()
     }
 
-    @objc private func environmentDidChange(_ note: Notification) {
-        adjustSubviews()
+    /// NSSplitViewController builds its divider constraints from `dividerThickness` once, when its items are
+    /// set, and `adjustSubviews` does not rebuild them; changing the divider style does. So whenever the
+    /// thickness may differ (a window of another scale, Increase Contrast), the style is set again.
+    private func thicknessMayHaveChanged() {
+        let thickness = dividerThickness
+        if thickness != builtThickness {
+            builtThickness = thickness
+            let style = dividerStyle
+            dividerStyle = style == .thin ? .thick : .thin
+            dividerStyle = style
+            adjustSubviews()
+        }
         needsDisplay = true
+    }
+
+    @objc private func environmentDidChange(_ note: Notification) {
+        thicknessMayHaveChanged()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil { thicknessMayHaveChanged() }
     }
 
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        adjustSubviews()
-        needsDisplay = true
+        thicknessMayHaveChanged()
     }
 
     override func viewDidChangeEffectiveAppearance() {
