@@ -418,6 +418,29 @@ final class ConversationShellWebViewTests: XCTestCase {
         XCTAssertEqual(margins, ["0px", "0px", "0px"])
     }
 
+    /// A reply still in the outbox is the last sheet, dated “Sending…” with the spinner and offering no actions
+    /// (spec §5.14).
+    func testAPendingReplyReadsSending() async throws {
+        let (webView, _) = try await loadedShell()
+        typealias F = ConversationFixtures
+        let original = F.message("m1")
+        let outgoing = OutgoingMessage(accountID: original.id.accountID, to: [EmailAddress(name: "Ada", address: "ada@example.com")],
+                                       subject: "Re: Engines", html: "<p>On my way</p>", text: "On my way", inReplyTo: original.id)
+        let sheet = try XCTUnwrap(PendingSheet.sheets(for: [PendingSend(id: "s1", message: outgoing, sendAfter: Date())],
+                                                      answering: [original], accounts: F.accounts).first)
+        let payload = F.builder.build(messages: [original, sheet.metadata],
+                                      bodies: [original.id: F.body(html: "<p>Engines</p>"), sheet.metadata.id: sheet.body],
+                                      accounts: F.accounts, pending: [sheet.metadata.id])
+        _ = try await evaluate("window.ss.render(\(try payload.jsonString()))", in: webView)
+        let last = "document.querySelectorAll('.ss-card')[1]"
+        let date = try await evaluate("\(last).querySelector('.ss-meta .ss-date').textContent", in: webView) as? String
+        XCTAssertEqual(date, "Sending\u{2026}")
+        let spinners = int(try await evaluate("\(last).querySelectorAll('.ss-meta .ss-spin').length", in: webView))
+        XCTAssertEqual(spinners, 1)
+        let buttons = int(try await evaluate("\(last).querySelectorAll('.ss-hacts button, .ss-foot button').length", in: webView))
+        XCTAssertEqual(buttons, 0)
+    }
+
     /// A chip whose file could not be fetched says so and offers the retry (spec §5.17); opening it again clears it.
     func testAFailedAttachmentChipOffersRetry() async throws {
         let (webView, handler) = try await loadedShell()

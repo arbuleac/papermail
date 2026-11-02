@@ -260,6 +260,8 @@ public enum ConversationShellAssets {
     .ss-frame .ss-banner { margin: 0; }
     .ss-banner > .ss-sym { font-size: 14px; color: var(--q-ink2); }
     .ss-banner > .ss-spin { color: var(--q-ink3); margin: 0 1px; }
+    .ss-sending { display: inline-flex; align-items: center; gap: 6px; }
+    .ss-sending > .ss-spin { color: var(--q-ink3); }
     .ss-btxt { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 8px 0; }
     .ss-btxt .ss-narrow { display: none; }
     @media (max-width: 419px) { .ss-btxt .ss-wide { display: none; } .ss-btxt .ss-narrow { display: inline; } }
@@ -989,8 +991,8 @@ public enum ConversationShellAssets {
         avatar.setAttribute('aria-hidden', 'true');
         var name = nameNode(m, 'ss-rname');
         var snippet = el('span', 'ss-rsnip', m.isDraft ? 'Draft' : (m.snippet || ''));
-        var date = el('time', 'ss-rdate', m.dateDisplay);
-        date.setAttribute('datetime', m.dateISO);
+        var date = m.isPending ? sendingDate('ss-rdate') : el('time', 'ss-rdate', m.dateDisplay);
+        if (!m.isPending) { date.setAttribute('datetime', m.dateISO); }
         var parts = [pip, avatar, name, snippet];
         if (m.isStarred) { parts.push(sym('star.fill', 'ss-rstar')); }
         parts.push(date);
@@ -1115,9 +1117,22 @@ public enum ConversationShellAssets {
         return node;
       }
 
+      // A reply still in the outbox reads “Sending…” with the 12 pt spinner where its date goes (spec §5.14).
+      function sendingDate(className) {
+        var date = el('span', className + ' ss-sending');
+        date.appendChild(el('span', 'ss-spin'));
+        date.appendChild(document.createTextNode('Sending\u2026'));
+        return date;
+      }
+
       function fillMeta(card) {
         var m = card.message;
         var actions = el('span', 'ss-hacts');
+        if (m.isPending) {
+          // Nothing to star, reply to or open a menu on until the provider has it.
+          card.meta.replaceChildren(actions, sendingDate('ss-date'));
+          return;
+        }
         if (!m.isDraft) {
           var star = headerAction(m.isStarred ? 'star.fill' : 'star', m.isStarred ? 'Unstar Message' : 'Star Message',
             m.isStarred ? 'Unstar' : 'Star', m.isStarred ? 'ss-on' : '');
@@ -1294,7 +1309,9 @@ public enum ConversationShellAssets {
         var m = card.message;
         var foot = card.foot;
         var parts = [];
-        if (m.isDraft) {
+        if (m.isPending) {
+          parts = [];
+        } else if (m.isDraft) {
           var cont = button('ss-sb ss-continueDraft', null, 'Continue Editing  ↩');
           cont.appendChild(glyph(NIB_SVG));
           cont.appendChild(document.createTextNode('Continue editing'));

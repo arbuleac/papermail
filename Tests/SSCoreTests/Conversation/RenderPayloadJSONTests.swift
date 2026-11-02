@@ -10,7 +10,7 @@ final class RenderPayloadJSONTests: XCTestCase {
     ]
     static let expectedMessageKeys = [
         "attachments", "blockedRemoteImageCount", "bodyState", "cc", "coveredByNewYork", "dateDisplay", "dateISO",
-        "declaresColors", "from", "hasBody", "hasQuotedContent", "html", "id", "isDraft", "isStarred", "isUnread",
+        "declaresColors", "from", "hasBody", "hasQuotedContent", "html", "id", "isDraft", "isPending", "isStarred", "isUnread",
         "recipients", "snippet", "to", "typesetting",
     ]
     static let expectedSenderKeys = ["address", "initials", "name", "tint"]

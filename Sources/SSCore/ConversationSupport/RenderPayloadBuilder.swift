@@ -25,6 +25,7 @@ public struct RenderPayloadBuilder: Sendable {
     ///   - loadRemoteImages: the user's preference, passed through to the shell.
     ///   - readingSans: the SF Pro reading font setting (spec §4.4).
     ///   - colorsNoticeDismissed: the Original colors notice was dismissed for good (spec §5.16).
+    ///   - pending: messages that are replies still in the outbox (`PendingSheet`), shown as sending.
     public func build(
         messages: [MessageMetadata],
         bodies: [MessageID: StoredBody],
@@ -34,6 +35,7 @@ public struct RenderPayloadBuilder: Sendable {
         loadRemoteImages: Bool = false,
         readingSans: Bool = false,
         colorsNoticeDismissed: Bool = false,
+        pending: Set<MessageID> = [],
         now: Date = Date()
     ) -> RenderPayload {
         let visible = Self.visibleMessages(messages)
@@ -62,6 +64,7 @@ public struct RenderPayloadBuilder: Sendable {
                 isUnread: !message.isRead,
                 isStarred: message.isStarred,
                 isDraft: isDraft,
+                isPending: pending.contains(message.id),
                 hasBody: body != nil,
                 bodyState: body != nil ? .ready : (bodyStates[message.id] ?? .loading),
                 html: html,

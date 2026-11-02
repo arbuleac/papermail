@@ -101,6 +101,9 @@ public struct RenderPayload: Hashable, Codable, Sendable {
         public var isStarred: Bool
         /// A draft (Drafts view): read-only, set in `writing`, with Continue editing and Discard draft.
         public var isDraft: Bool
+        /// A reply still in the outbox (`PendingSheet`): the date reads “Sending…” with a spinner and the sheet
+        /// offers no actions (spec §5.14).
+        public var isPending: Bool
         /// False while the body is still being hydrated; `html` then carries a snippet fallback.
         public var hasBody: Bool
         public var bodyState: BodyState
@@ -129,6 +132,7 @@ public struct RenderPayload: Hashable, Codable, Sendable {
             isUnread: Bool,
             isStarred: Bool,
             isDraft: Bool = false,
+            isPending: Bool = false,
             hasBody: Bool,
             bodyState: BodyState? = nil,
             html: String,
@@ -150,6 +154,7 @@ public struct RenderPayload: Hashable, Codable, Sendable {
             self.isUnread = isUnread
             self.isStarred = isStarred
             self.isDraft = isDraft
+            self.isPending = isPending
             self.hasBody = hasBody
             self.bodyState = bodyState ?? (hasBody ? .ready : .loading)
             self.html = html

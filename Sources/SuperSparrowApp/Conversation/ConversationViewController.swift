@@ -94,7 +94,12 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     /// Quick replies whose undo window has ended, watched until they leave: a failure then becomes the error
     /// toast of §5.18 (“Couldn't send your reply · Open draft”). Keyed by send id.
     private var watchedSends: [String: ComposeDraft] = [:]
-    private var sendWatchTimer: Timer?
+    /// Replies on their way out (scheduled or sending, not forwards): the open conversation shows the ones that
+    /// answer it as pending sheets (spec §5.14). Read on events and on each outbox tick, never per selection.
+    private var outbox: [PendingSend] = []
+    /// Ticks once a second while a send is watched or a reply is on its way; the store has no observation for
+    /// the outbox.
+    private var outboxTimer: Timer?
     private var notificationTokens: [NSObjectProtocol] = []
     private var keyMonitor: Any?
     private var motionFinisher: ShellMotionFinisher?
@@ -170,7 +175,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         markReadTimer?.invalidate()
         acknowledgeTimer?.invalidate()
         quickSendTimer?.invalidate()
-        sendWatchTimer?.invalidate()
+        outboxTimer?.invalidate()
         for token in notificationTokens { NotificationCenter.default.removeObserver(token) }
     }
 
@@ -225,6 +230,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
 
         view = root
         refreshChrome()
+        // Replies a previous session left in the outbox (offline sends) show from the first render.
+        outboxTick()
     }
 
     override func viewDidAppear() {
@@ -669,13 +676,17 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             if let body = renderableBody(message) { bodies[message.id] = body }
             if showsDraftInComposer(message) { states[message.id] = .inComposer }
         }
+        // Replies still in the outbox follow as the newest sheets; they are never the target and never fetched.
+        let sheets = pendingSheets(answering: messages)
+        for sheet in sheets { bodies[sheet.metadata.id] = sheet.body }
+        let all = messages + sheets.map(\.metadata)
         let settings = AppSettings.shared
         let payload = builder.build(
-            messages: messages, bodies: bodies, accounts: accountsByID, bodyStates: states,
+            messages: all, bodies: bodies, accounts: accountsByID, bodyStates: states,
             loadRemoteImages: Self.loadRemoteImages, readingSans: settings.readingFont == .sfPro,
-            colorsNoticeDismissed: settings.originalColorsNoticeDismissed
+            colorsNoticeDismissed: settings.originalColorsNoticeDismissed, pending: Set(sheets.map(\.metadata.id))
         )
-        return (payload, RenderInputs(messages: messages) { bodies[$0] != nil })
+        return (payload, RenderInputs(messages: all) { bodies[$0] != nil })
     }
 
     private func applyMessages(_ messages: [MessageMetadata], for id: ConversationID) {
@@ -730,10 +741,11 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     private func refreshIfStale(_ slot: PooledConversationView, messages: [MessageMetadata], id: ConversationID) {
         guard slot.renderedID == id else { return }
         let rendered = slot.renderedInputs ?? .empty
-        let byID = Dictionary(messages.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let fresh = rendered.refreshed(with: messages) { [weak self] id in
+        let all = messages + pendingSheets(answering: messages).map(\.metadata)
+        let byID = Dictionary(all.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let fresh = rendered.refreshed(with: all) { [weak self] id in
             guard let self, let message = byID[id] else { return false }
-            return self.renderableBody(message) != nil
+            return PendingSheet.isPending(id) || self.renderableBody(message) != nil
         }
         guard fresh != rendered else { return }
         // Mark-read and star are the common changes; they patch the headers without reading a body.
@@ -1259,6 +1271,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     /// A composer opened or closed: the bar turns disabled while one holds this conversation's reply.
     func composersDidChange() {
         draftsDidChange()
+        // A composer that closed may have queued a reply to this conversation, or an undo cancelled one.
+        outboxTick()
         guard isViewLoaded, case .one = selection, !quickReply.isHidden else { return }
         quickReply.isComposerOpen = replyComposer(for: currentMessages) != nil
     }
@@ -1329,6 +1343,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             onQuickSendChange?()
             quickReply.clear()
             quickReply.showStrip(.counting(endsAt: endsAt, duration: Self.undoWindow, recipient: recipient))
+            outboxTick()
             quickSendTimer?.invalidate()
             quickSendTimer = Timer.scheduledTimer(withTimeInterval: Self.undoWindow, repeats: false) { [weak self] _ in
                 MainActor.assumeIsolated { self?.quickSendWindowEnded() }
@@ -1356,48 +1371,76 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         watchOutcome(of: send.sendID, draft: send.draft)
     }
 
-    /// Polls the outbox for a send past its undo window, as the undo-send panel does for a composer's: the
-    /// store has no observation for it, and a second's delay on a failure notice is fine.
+    /// Watches a send past its undo window until it leaves, as the undo-send panel does for a composer's.
     private func watchOutcome(of sendID: String, draft: ComposeDraft) {
         watchedSends[sendID] = draft
-        guard sendWatchTimer == nil else { return }
-        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] timer in
-            MainActor.assumeIsolated {
-                guard let self else { return timer.invalidate() }
-                self.pollWatchedSends()
-            }
+        outboxTick()
+    }
+
+    /// One read of the outbox serves both the watched sends and the pending sheets; the timer runs only while
+    /// either has something to follow.
+    func outboxTick() {
+        if let sends = try? client.store.pendingSends() {
+            settleWatchedSends(sends)
+            updateOutbox(sends)
         }
-        RunLoop.main.add(timer, forMode: .common)
-        sendWatchTimer = timer
-        pollWatchedSends()
+        if watchedSends.isEmpty, outbox.isEmpty {
+            outboxTimer?.invalidate()
+            outboxTimer = nil
+        } else if outboxTimer == nil {
+            let timer = Timer(timeInterval: 1, repeats: true) { [weak self] timer in
+                MainActor.assumeIsolated {
+                    guard let self else { return timer.invalidate() }
+                    self.outboxTick()
+                }
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            outboxTimer = timer
+        }
+    }
+
+    /// The tests' name for a tick: a watched send's outcome is read now rather than within the second.
+    func pollWatchedSends() {
+        outboxTick()
     }
 
     /// A sent reply's row is gone (or marked sent); a failed one stays with its reason. The failure is kept
     /// as a draft on this Mac before the toast offers to open it, so closing the toast loses nothing.
-    func pollWatchedSends() {
-        if let sends = try? client.store.pendingSends() {
-            let byID = Dictionary(sends.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-            for (id, draft) in watchedSends {
-                let send = byID[id]
-                switch send?.status {
-                case nil, .sent?:
-                    watchedSends[id] = nil
-                case .failed?:
-                    watchedSends[id] = nil
-                    var kept = draft
-                    kept.sendFailure = SendFailureWording.banner(lastError: send?.lastError, provider: draft.account.kind)
-                    ComposeDraftStore.shared.save(kept)
-                    onAction?(.quickReplyFailed(kept))
-                case .scheduled?, .sending?:
-                    break
-                }
+    private func settleWatchedSends(_ sends: [PendingSend]) {
+        guard !watchedSends.isEmpty else { return }
+        let byID = Dictionary(sends.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        for (id, draft) in watchedSends {
+            let send = byID[id]
+            switch send?.status {
+            case nil, .sent?:
+                watchedSends[id] = nil
+            case .failed?:
+                watchedSends[id] = nil
+                var kept = draft
+                kept.sendFailure = SendFailureWording.banner(lastError: send?.lastError, provider: draft.account.kind)
+                ComposeDraftStore.shared.save(kept)
+                onAction?(.quickReplyFailed(kept))
+            case .scheduled?, .sending?:
+                break
             }
         }
-        if watchedSends.isEmpty {
-            sendWatchTimer?.invalidate()
-            sendWatchTimer = nil
-        }
     }
+
+    /// The replies on their way changed: the open conversation gains or loses its pending sheets.
+    private func updateOutbox(_ sends: [PendingSend]) {
+        let leaving = sends.filter { ($0.status == .scheduled || $0.status == .sending) && !$0.message.isForward && $0.message.inReplyTo != nil }
+        guard leaving.map(\.id) != outbox.map(\.id) else { return }
+        outbox = leaving
+        if case .one(let id) = selection, !currentMessages.isEmpty { refreshCurrentIfStale(currentMessages, id: id) }
+    }
+
+    /// The pending sheets answering `messages` (spec §5.14).
+    private func pendingSheets(answering messages: [MessageMetadata]) -> [PendingSheet] {
+        outbox.isEmpty ? [] : PendingSheet.sheets(for: outbox, answering: messages, accounts: accountsByID)
+    }
+
+    /// The pending sheets of the open conversation (tests).
+    var pendingSheetIDs: [MessageID] { pendingSheets(answering: currentMessages).map(\.metadata.id) }
 
     /// Quick replies past their window whose outcome is still being watched (tests).
     var watchedSendIDs: Set<String> { Set(watchedSends.keys) }
@@ -1418,6 +1461,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         quickSend = nil
         onQuickSendChange?()
         let cancelled = (try? client.cancelSend(id: send.sendID)) ?? false
+        outboxTick()
         guard cancelled else {
             quickReply.showStrip(.alreadySent)
             return

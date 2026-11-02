@@ -83,6 +83,19 @@ final class QuickReplyBehaviourTests: XCTestCase {
         XCTAssertEqual(send.message.to.map(\.address), [messages[0].from?.address].compactMap { $0 }, "the reply goes to the target's sender")
     }
 
+    /// §5.14 Pending send: the reply shows in its conversation while it is on its way, and goes with an undo.
+    func testASentReplyShowsAsAPendingSheetUntilItIsUndone() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        _ = try openThreeMessageThread(harness)
+        XCTAssertTrue(harness.reader.pendingSheetIDs.isEmpty)
+        harness.reader.sendQuickReply("On my way", mode: .reply)
+        XCTAssertEqual(harness.reader.pendingSheetIDs.count, 1)
+        XCTAssertFalse(harness.reader.currentMessages.contains { PendingSheet.isPending($0.id) }, "never the target, never acted on")
+        XCTAssertTrue(harness.reader.cancelQuickSend())
+        XCTAssertTrue(harness.reader.pendingSheetIDs.isEmpty, "the undone reply leaves the conversation")
+    }
+
     func testEscFromTheQuickReplyDismissesAToastFirstThenReturnsToTheList() throws {
         let harness = try MainWindowHarness()
         defer { harness.close() }
