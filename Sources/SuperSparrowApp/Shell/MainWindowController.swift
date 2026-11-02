@@ -355,6 +355,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
     var keyboardWindow: NSWindow? { showingWelcome ? nil : window }
 
+    /// The g-sequence HUD sits where the toast does, at the bottom centre of the list pane, and replaces it.
+    var sequenceHUDHost: NSView? { listPane.view }
+    func sequenceHUDWillAppear() { listPane.toast.hide() }
+
     var isReaderFocused: Bool {
         guard let responder = window?.firstResponder as? NSView else { return false }
         return responder.isDescendant(of: conversationPane.view)
@@ -558,6 +562,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         applyQuery()
     }
 
+    /// View › All / Focused / Other, ⌥1–3 (spec §5.5, §5.35); the menu item's tag is the filter's index.
+    @objc func selectInboxSection(_ sender: Any?) {
+        guard let item = sender as? NSMenuItem, (0...2).contains(item.tag) else { return }
+        mailboxView = .inbox
+        section = [nil, InboxSection.focused, InboxSection.other][item.tag]
+        endSearch()
+        applyQuery()
+    }
+
     @objc func toggleAccountStrip(_ sender: Any?) {
         let collapse = !stripItem.isCollapsed
         NSAnimationContext.runAnimationGroup { context in
@@ -593,7 +606,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             menuItem.state = MailboxView.allCases.indices.contains(menuItem.tag) && MailboxView.allCases[menuItem.tag] == mailboxView ? .on : .off
             return !showingWelcome
         case #selector(toggleAccountStrip(_:)):
-            menuItem.title = stripItem.isCollapsed ? "Show Account Strip" : "Hide Account Strip"
+            menuItem.title = stripItem.isCollapsed ? "Show Account Rail" : "Hide Account Rail"
             return !showingWelcome
         case #selector(focusSearchField(_:)):
             return !showingWelcome

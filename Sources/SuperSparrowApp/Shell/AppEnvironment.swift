@@ -156,6 +156,14 @@ final class AppEnvironment {
         }
     }
 
+    /// “Try the demo” (spec §5.39): starts the demo engine and returns once both made-up mailboxes exist, so
+    /// the welcome screen can show Preparing the demo until then and Demo failed when seeding throws.
+    func startAndSeedDemo() async throws {
+        precondition(isDemo, "only the demo environment seeds")
+        engine.start()
+        try await DemoSeeder.seedIfNeeded(engine)
+    }
+
     /// Stops sync and waits for in-flight work so another environment can take over cleanly.
     func shutdown() async {
         await engine.stopAndWait()

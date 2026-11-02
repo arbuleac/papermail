@@ -1,13 +1,33 @@
 import AppKit
 import SSCore
+import SSDesign
 import WebKit
 import os
 
 /// Application lifecycle: builds the environment for the launch mode, owns the main and settings windows,
 /// runs sign-in, and keeps the app alive with no windows open, as mail clients do.
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private static let log = Logger(subsystem: "io.supersparrow.mac", category: "shell")
+
+    /// Where an action started: its alerts go on that window (spec §5.33), and the welcome screen answers
+    /// with banners instead because it has no rail or sync line (§5.39).
+    enum Origin {
+        case welcome
+        case main
+        case settings
+    }
+
+    /// The one browser sign-in that may run at a time (§5.44).
+    private struct SignIn {
+        let generation: Int
+        let kind: ProviderKind
+        let reconnecting: Account?
+        let origin: Origin
+        let task: Task<Void, Never>
+        /// A real environment built to replace the demo, kept apart until the sign-in succeeds (§5.43).
+        let replacement: AppEnvironment?
+    }
 
     private let options: LaunchOptions
     private let settings = AppSettings.shared
@@ -15,13 +35,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var mainWindow: MainWindowController?
     private var settingsWindow: SettingsWindowController?
     private var galleryWindow: DesignGalleryWindowController?
-    /// Snapshots still to write before a `--snapshot-gallery/-welcome/-settings` launch quits.
+    /// Snapshots still to write before a quitting `--snapshot-…` launch quits.
     private var pendingQuittingSnapshots = 0
-    private var signInTask: Task<Void, Never>?
+    private var signIn: SignIn?
     /// Tells a sign-in's completion whether it is still the current one; a replaced or cancelled sign-in must
-    /// not clear the progress line of the one that took its place.
+    /// not touch the state of the one that took its place.
     private var signInGeneration = 0
+    private var isPreparingDemo = false
     private var isTerminating = false
+    private var notifierObservation: StoreObservation?
 
     init(options: LaunchOptions) {
         self.options = options
@@ -119,7 +141,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             reader.image.draw(in: frame, from: .zero, operation: .sourceOver, fraction: 1)
             NSGraphicsContext.restoreGraphicsState()
         }
-        writePNG(bitmap, to: path)
+        SnapshotRenderer.writePNG(bitmap, to: path)
     }
 
     private func writeComposeSnapshot(to path: String) {
@@ -137,27 +159,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     return
                 }
                 view.cacheDisplay(in: view.bounds, to: bitmap)
-                self.writePNG(bitmap, to: path)
+                SnapshotRenderer.writePNG(bitmap, to: path)
             }
         }
     }
 
-    private func writePNG(_ bitmap: NSBitmapImageRep, to path: String) {
-        SnapshotRenderer.writePNG(bitmap, to: path)
-    }
-
     // MARK: Snapshots that quit (debug aid)
 
-    /// `--snapshot-gallery`, `--snapshot-welcome` and `--snapshot-settings` each write one PNG; once all of
-    /// them have, the app quits, unless `--snapshot` or `--snapshot-compose` (which never quit) are running too.
+    /// Each quitting `--snapshot-…` option writes one PNG; once all of them have, the app quits, unless
+    /// `--snapshot` or `--snapshot-compose` (which never quit) are running too.
     private func runQuittingSnapshots() {
         var jobs: [(String?, (String) -> Void)] = []
         #if DEBUG
         // The design gallery is a debug-build tool (Debug › Design Gallery).
         jobs.append((options.gallerySnapshotPath, writeGallerySnapshot))
         #endif
-        jobs.append((options.welcomeSnapshotPath, writeWelcomeSnapshot))
-        jobs.append((options.settingsSnapshotPath, writeSettingsSnapshot))
+        jobs.append((options.welcomeSnapshotPath, { [unowned self] in self.writeWelcomeSnapshot(to: $0, states: false) }))
+        jobs.append((options.welcomeStatesSnapshotPath, { [unowned self] in self.writeWelcomeSnapshot(to: $0, states: true) }))
+        jobs.append((options.settingsSnapshotPath, { [unowned self] in self.writeSettingsSnapshot(to: $0, states: false) }))
+        jobs.append((options.settingsStatesSnapshotPath, { [unowned self] in self.writeSettingsSnapshot(to: $0, states: true) }))
+        jobs.append((options.cheatSheetSnapshotPath, writeCheatSheetSnapshot))
+        jobs.append((options.hudSnapshotPath, writeHUDSnapshot))
+        jobs.append((options.alertsSnapshotPath, writeAlertsSnapshot))
         let requested = jobs.compactMap { path, job in path.map { (path: $0, job: job) } }
         // Counted before any starts, so an early finisher cannot quit while the others are still queued.
         pendingQuittingSnapshots = requested.count
@@ -184,8 +207,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// The main window's welcome screen, over a throwaway empty store in a temporary directory: the user's
-    /// mail database, Keychain and saved window frame are never touched.
-    private func writeWelcomeSnapshot(to path: String) {
+    /// mail database, Keychain and saved window frame are never touched. With `states`, every state of
+    /// §5.39 one under the other, in a smaller window.
+    private func writeWelcomeSnapshot(to path: String, states: Bool) {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("SuperSparrow-welcome-\(UUID().uuidString)", isDirectory: true)
         let scratch: AppEnvironment
@@ -201,29 +225,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Detach from the real main window's saved frame before sizing, so the snapshot is always the default
         // size and never rewrites the user's frame.
         controller.window?.setFrameAutosaveName("")
-        controller.window?.setContentSize(MainWindowController.defaultSize)
+        controller.window?.setContentSize(states ? AppSnapshots.welcomeStatesSize : MainWindowController.defaultSize)
         controller.showWindow(nil)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+        let finish: @MainActor () -> Void = { [weak self] in
+            controller.tearDown()
+            controller.close()
+            Task { @MainActor in
+                await scratch.shutdown()
+                try? FileManager.default.removeItem(at: directory)
+                self?.quittingSnapshotFinished()
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             MainActor.assumeIsolated {
-                if let window = controller.window, let bitmap = SnapshotRenderer.render(window: window) {
+                guard let window = controller.window else { return finish() }
+                if states {
+                    AppSnapshots.renderWelcomeStates(in: window) { bitmap in
+                        if let bitmap { SnapshotRenderer.writePNG(bitmap, to: path) }
+                        finish()
+                    }
+                    return
+                }
+                if let bitmap = SnapshotRenderer.render(window: window) {
                     SnapshotRenderer.writePNG(bitmap, to: path)
                 } else {
                     Self.log.error("snapshot: the welcome window did not render")
                 }
-                controller.tearDown()
-                controller.close()
-                Task { @MainActor in
-                    await scratch.shutdown()
-                    try? FileManager.default.removeItem(at: directory)
-                    self?.quittingSnapshotFinished()
-                }
+                finish()
             }
         }
     }
 
-    /// Every Settings tab in demo mode, one under the other. Waits for the demo inbox so the Accounts tab
-    /// shows rows, not the empty state.
-    private func writeSettingsSnapshot(to path: String) {
+    /// Every Settings tab in demo mode, one under the other, or (`states`) the Accounts and OAuth states of
+    /// §5.40. Waits for the demo inbox so the Accounts tab shows rows, not the empty state.
+    private func writeSettingsSnapshot(to path: String, states: Bool) {
         waitForInbox(deadline: Date().addingTimeInterval(20)) { [weak self] in
             guard let self else { return }
             self.openSettings()
@@ -232,34 +267,66 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.quittingSnapshotFinished()
                 return
             }
-            let tabs: [SettingsModel.Tab] = [.accounts, .oauth, .general]
-            var bitmaps: [NSBitmapImageRep] = []
-            @MainActor func capture(_ index: Int) {
-                guard index < tabs.count else {
-                    let appearance = controller.window?.effectiveAppearance ?? NSApp.effectiveAppearance
-                    if let sheet = SnapshotRenderer.stack(bitmaps, appearance: appearance) {
-                        SnapshotRenderer.writePNG(sheet, to: path)
-                    }
-                    self.quittingSnapshotFinished()
-                    return
-                }
-                controller.model.tab = tabs[index]
-                // Let SwiftUI swap the tab and lay it out before drawing it.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                    MainActor.assumeIsolated {
-                        if let window = controller.window, let bitmap = SnapshotRenderer.render(window: window) {
-                            bitmaps.append(bitmap)
-                        }
-                        capture(index + 1)
-                    }
-                }
-            }
             // Statuses settle a moment after the inbox fills.
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                MainActor.assumeIsolated { capture(0) }
+                MainActor.assumeIsolated {
+                    let render = states ? AppSnapshots.renderSettingsStates : AppSnapshots.renderSettingsTabs
+                    render(controller) { bitmap in
+                        if let bitmap { SnapshotRenderer.writePNG(bitmap, to: path) }
+                        self.quittingSnapshotFinished()
+                    }
+                }
             }
         }
     }
+
+    /// The main window in demo mode with the keyboard cheat sheet open (§5.32).
+    private func writeCheatSheetSnapshot(to path: String) {
+        waitForInbox(deadline: Date().addingTimeInterval(20)) { [weak self] in
+            guard let self, let window = self.mainWindow?.window else {
+                self?.quittingSnapshotFinished()
+                return
+            }
+            window.makeKeyAndOrderFront(nil)
+            CheatSheetController.shared.present(in: window, animated: false)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                MainActor.assumeIsolated {
+                    if let bitmap = SnapshotRenderer.render(window: window) { SnapshotRenderer.writePNG(bitmap, to: path) }
+                    CheatSheetController.shared.dismiss(animated: false)
+                    self.quittingSnapshotFinished()
+                }
+            }
+        }
+    }
+
+    /// The main window in demo mode with the g-sequence HUD showing (§5.32).
+    private func writeHUDSnapshot(to path: String) {
+        waitForInbox(deadline: Date().addingTimeInterval(20)) { [weak self] in
+            guard let self, let window = self.mainWindow?.window else {
+                self?.quittingSnapshotFinished()
+                return
+            }
+            window.makeKeyAndOrderFront(nil)
+            KeyboardRouter.active?.showSequenceHUDNow()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                MainActor.assumeIsolated {
+                    if let bitmap = SnapshotRenderer.render(window: window) { SnapshotRenderer.writePNG(bitmap, to: path) }
+                    KeyboardRouter.active?.disarmSequence(animated: false)
+                    self.quittingSnapshotFinished()
+                }
+            }
+        }
+    }
+
+    /// The alert inventory this app shows (§5.33), each as the system draws it.
+    private func writeAlertsSnapshot(to path: String) {
+        AppSnapshots.renderAlerts { [weak self] bitmap in
+            if let bitmap { SnapshotRenderer.writePNG(bitmap, to: path) }
+            self?.quittingSnapshotFinished()
+        }
+    }
+
+    // MARK: Lifecycle
 
     func applicationDidBecomeActive(_ notification: Notification) {
         environment?.engine.syncNow(accountID: nil)
@@ -277,6 +344,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let environment, !isTerminating else { return .terminateNow }
         isTerminating = true
+        let replacement = signIn?.replacement
         // Let in-flight writes finish so the next launch resumes from a consistent store, but never hang quitting.
         var replied = false
         let reply = {
@@ -286,6 +354,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         Task {
             await environment.shutdown()
+            await replacement?.shutdown()
             reply()
         }
         Task {
@@ -307,72 +376,231 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             environment = try AppEnvironment.make(mode: mode, settings: settings)
         } catch {
             Self.log.fault("could not open the mail database: \(String(describing: error), privacy: .public)")
-            let alert = NSAlert()
-            alert.messageText = "SuperSparrow couldn't open its mail database"
-            alert.informativeText = "\(error.localizedDescription)\n\nThe database lives in ~/Library/Application Support/SuperSparrow."
-            alert.addButton(withTitle: "Quit")
-            alert.runModal()
+            // No window exists yet: app-modal, nothing behind it, and the app quits when it closes (§5.33).
+            AppAlert.databaseUnavailable(reason: "The database file couldn't be opened, or it is damaged.").present(on: nil)
             NSApp.terminate(nil)
             return
         }
-        self.environment = environment
         environment.start()
+        install(environment, replacing: nil)
+    }
 
+    /// Makes `environment` the app's and shows its main window, cross-fading from `old` when one is being
+    /// replaced (`dur.slow`, §5.39, §5.43). The old window's controller is torn down; its environment is the
+    /// caller's to shut down.
+    private func install(_ environment: AppEnvironment, replacing old: MainWindowController?) {
+        self.environment = environment
+        // File › Leave Demo… exists only in demo mode (§5.35). Set here, not in validation, which skips hidden items.
+        let fileItems = NSApp.mainMenu?.items.flatMap { $0.submenu?.items ?? [] } ?? []
+        fileItems.first { $0.action == #selector(leaveDemo(_:)) }?.isHidden = !environment.isDemo
+        // The old window gives up the saved frame name so the new one restores (and later saves) it.
+        let oldFrame = old?.window?.frame
+        old?.window?.setFrameAutosaveName("")
         let window = MainWindowController(environment: environment, settings: settings)
-        window.onAddAccount = { [weak self] kind in self?.addAccount(kind) }
-        window.onReconnect = { [weak self] account in self?.addAccount(account.kind, reconnecting: account) }
-        window.onOpenSettings = { [weak self] in self?.openSettings() }
+        window.onAddAccount = { [weak self] kind in self?.addAccount(kind, origin: self?.originForMainWindow() ?? .main) }
+        window.onReconnect = { [weak self] account in self?.reconnect(account, origin: .main) }
+        window.onOpenSettings = { [weak self] in self?.openSettings(tab: .accounts) }
         window.onTryDemo = { [weak self] in self?.switchToDemo() }
         window.onCancelSignIn = { [weak self] in self?.cancelSignIn() }
         mainWindow = window
+        observeForNotifier(environment)
+        if let oldFrame { window.window?.setFrame(oldFrame, display: false) }
+        guard let old, let oldWindow = old.window, let newWindow = window.window, oldWindow.isVisible else {
+            old?.tearDown()
+            window.showWindow(nil)
+            requestNotificationsIfDemo(window)
+            return
+        }
+        newWindow.alphaValue = 0
         window.showWindow(nil)
-        if environment.isDemo {
-            // Demo accounts arrive through addAccount like real ones; ask now so notifications work in the demo too.
-            window.notifier.requestAuthorizationIfNeeded()
+        Quire.Motion.run(Quire.Motion.slow, .settle, reduced: .keep, animations: { _ in
+            newWindow.animator().alphaValue = 1
+            oldWindow.animator().alphaValue = 0
+        }, completion: {
+            newWindow.alphaValue = 1
+            old.tearDown()
+            old.close()
+            oldWindow.alphaValue = 1
+        })
+        requestNotificationsIfDemo(window)
+    }
+
+    private func requestNotificationsIfDemo(_ window: MainWindowController) {
+        // Demo accounts arrive through addAccount like real ones; ask now so notifications work in the demo too.
+        if environment?.isDemo == true { window.notifier.requestAuthorizationIfNeeded() }
+    }
+
+    /// No notification for an account's first sync (§5.41): the notifier learns which accounts are bootstrapping.
+    private func observeForNotifier(_ environment: AppEnvironment) {
+        notifierObservation?.cancel()
+        notifierObservation = environment.engine.observeStatus { [weak self] statuses in
+            MainActor.assumeIsolated {
+                self?.mainWindow?.notifier.accountsInFirstSync = Set(statuses.filter { $0.phase == .bootstrapping }.map(\.accountID))
+            }
         }
     }
 
-    /// "Try the demo" from the welcome screen: swap the whole graph in place instead of relaunching.
+    /// “Try the demo” from the welcome screen (§5.39): the welcome shows Preparing the demo while the demo store
+    /// is seeded beside the real one, then the window cross-fades to the demo inbox. A failure leaves the real
+    /// environment untouched and says so in the banner slot.
     private func switchToDemo() {
-        guard let old = environment, !old.isDemo else { return }
-        signInTask?.cancel()
-        mainWindow?.tearDown()
-        mainWindow = nil
+        guard let old = environment, !old.isDemo, !isPreparingDemo else { return }
+        cancelSignIn()
+        isPreparingDemo = true
+        welcome?.setActivity(.preparingDemo)
+        Task { [weak self] in
+            var demo: AppEnvironment?
+            do {
+                guard let settings = self?.settings else { return }
+                let made = try AppEnvironment.make(mode: .demo, settings: settings)
+                demo = made
+                try await made.startAndSeedDemo()
+                guard let self else { return }
+                self.isPreparingDemo = false
+                self.settingsWindow?.tearDown()
+                self.settingsWindow = nil
+                let oldWindow = self.mainWindow
+                self.install(made, replacing: oldWindow)
+                await old.shutdown()
+            } catch {
+                Self.log.error("demo could not start: \(String(describing: error), privacy: .public)")
+                await demo?.shutdown()
+                guard let self else { return }
+                self.isPreparingDemo = false
+                self.welcome?.setActivity(.idle)
+                self.welcome?.showBanner(.demoFailed)
+            }
+        }
+    }
+
+    /// Leave Demo (§5.43): the demo store is wiped and the welcome screen returns, cross-fading.
+    private func leaveDemoNow() {
+        guard let old = environment, old.isDemo else { return }
+        cancelSignIn()
         settingsWindow?.tearDown()
         settingsWindow = nil
-        environment = nil
-        Task {
+        let oldWindow = mainWindow
+        Task { [weak self] in
             await old.shutdown()
-            self.start(mode: .demo)
+            AppEnvironment.wipeDemoData()
+            guard let self else { return }
+            do {
+                let real = try AppEnvironment.make(mode: .real, settings: self.settings)
+                real.start()
+                self.install(real, replacing: oldWindow)
+            } catch {
+                Self.log.fault("could not open the mail database: \(String(describing: error), privacy: .public)")
+                AppAlert.databaseUnavailable(reason: "The database file couldn't be opened, or it is damaged.").present(on: nil)
+                NSApp.terminate(nil)
+            }
         }
+    }
+
+    private var welcome: WelcomeViewController? {
+        mainWindow?.window?.contentViewController as? WelcomeViewController
     }
 
     // MARK: Accounts
 
-    /// Starts a browser sign-in. With no kind given, asks which service first.
-    func addAccount(_ kind: ProviderKind?, reconnecting: Account? = nil) {
-        guard let environment else { return }
-        guard let kind = kind ?? chooseProvider() else { return }
-        if !environment.isDemo {
+    var isSigningIn: Bool { signIn != nil }
+
+    /// The accounts in rail order, for the View menu's ⌘1…⌘9 titles.
+    var menuAccounts: [Account] {
+        ((try? environment?.store.accounts()) ?? []).sorted { $0.addedAt < $1.addedAt }
+    }
+
+    private func originForMainWindow() -> Origin {
+        welcome != nil ? .welcome : .main
+    }
+
+    /// Where a menu command started: Settings when it is the key window, else the main window.
+    private func originForMenu() -> Origin {
+        if let settings = settingsWindow?.window, settings.isKeyWindow { return .settings }
+        return originForMainWindow()
+    }
+
+    private func window(for origin: Origin) -> NSWindow? {
+        switch origin {
+        case .settings: return settingsWindow?.visibleWindow ?? mainWindow?.window
+        case .main, .welcome: return mainWindow?.window
+        }
+    }
+
+    /// Starts a browser sign-in for a new account (§5.44). With no kind (the rail's +), the provider is chosen
+    /// in a pull-down menu, never an alert.
+    func addAccount(_ kind: ProviderKind?, origin: Origin) {
+        guard let environment, !isPreparingDemo else { return }
+        guard let kind else {
+            popUpAddAccountMenu()
+            return
+        }
+        guard signIn == nil else { return }
+        if environment.isDemo {
+            confirmReplacingDemo(kind, origin: origin)
+            return
+        }
+        guard clientIsConfigured(kind, in: environment, origin: origin) else { return }
+        beginSignIn(kind: kind, reconnecting: nil, origin: origin, in: environment, replacement: nil)
+    }
+
+    /// Runs the browser sign-in again for an account that needs it (§5.44, Reconnecting).
+    func reconnect(_ account: Account, origin: Origin) {
+        guard let environment, signIn == nil, !isPreparingDemo else { return }
+        guard environment.isDemo || clientIsConfigured(account.kind, in: environment, origin: origin) else { return }
+        beginSignIn(kind: account.kind, reconnecting: account, origin: origin, in: environment, replacement: nil)
+    }
+
+    /// No client: the welcome screen shows its info banner; elsewhere the alert offers Settings › OAuth with
+    /// the incoming notice. An unreadable settings file is not an alert: Settings › OAuth opens with the danger
+    /// banner (§5.33).
+    private func clientIsConfigured(_ kind: ProviderKind, in environment: AppEnvironment, origin: Origin) -> Bool {
+        do {
+            _ = try environment.clientConfigurations.configuration(for: kind)
+            return true
+        } catch AuthError.missingClientConfiguration {
+            if origin == .welcome, let welcome {
+                welcome.onOpenOAuthSettings = { [weak self] in self?.openSettings(tab: .oauth, oauthNotice: .needsClient(kind)) }
+                welcome.showBanner(.missingClient(kind))
+            } else {
+                AppAlert.missingClient(kind).present(on: window(for: origin)) { [weak self] choice in
+                    if choice == 0 { self?.openSettings(tab: .oauth, oauthNotice: .needsClient(kind)) }
+                }
+            }
+            return false
+        } catch {
+            Self.log.error("OAuth settings unreadable: \(String(describing: error), privacy: .public)")
+            openSettings(tab: .oauth, oauthNotice: .unreadable(reason: ErrorText.oauthFile(error)))
+            return false
+        }
+    }
+
+    /// In demo mode a real account replaces the demo (§5.43): asked first, then signed in against a real
+    /// environment built beside the demo, which is swapped in only when the sign-in succeeds.
+    private func confirmReplacingDemo(_ kind: ProviderKind, origin: Origin) {
+        AppAlert.replaceDemo.present(on: window(for: origin)) { [weak self] choice in
+            guard choice == 0, let self, self.signIn == nil else { return }
+            let real: AppEnvironment
             do {
-                _ = try environment.clientConfigurations.configuration(for: kind)
-            } catch AuthError.missingClientConfiguration {
-                let name = kind == .gmail ? "Google" : "Microsoft"
-                openSettings(tab: .oauth, notice: "To add a \(kind == .gmail ? "Gmail" : "Microsoft") account, SuperSparrow needs your own \(name) OAuth client ID. Enter it below and click Save, then try again. docs/OAUTH-SETUP.md walks through creating one.")
-                return
+                real = try AppEnvironment.make(mode: .real, settings: self.settings)
             } catch {
-                showError(error, context: "Your OAuth settings could not be read")
-                openSettings(tab: .oauth, notice: Self.message(for: error))
+                AppAlert.addFailed(reason: "The mail database couldn't be opened.").present(on: self.window(for: origin))
                 return
             }
+            guard self.clientIsConfigured(kind, in: real, origin: origin) else {
+                Task { await real.shutdown() }
+                return
+            }
+            real.start()
+            self.beginSignIn(kind: kind, reconnecting: nil, origin: origin, in: real, replacement: real)
         }
-        signInTask?.cancel()
+    }
+
+    private func beginSignIn(kind: ProviderKind, reconnecting: Account?, origin: Origin, in environment: AppEnvironment,
+                             replacement: AppEnvironment?) {
         signInGeneration += 1
         let generation = signInGeneration
-        let message = environment.isDemo ? "Adding demo account…" : "Finish signing in in your browser…"
-        setSignInBusy(message)
         let knownIDs = Set(((try? environment.engine.accounts()) ?? []).map(\.id))
-        signInTask = Task { [weak self] in
+        let task = Task { [weak self] in
             do {
                 let account: Account
                 if let reconnecting {
@@ -380,153 +608,209 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 } else {
                     account = try await environment.engine.addAccount(kind: kind)
                 }
-                guard let self else { return }
-                Self.log.info("account ready: \(account.id.rawValue, privacy: .public)")
-                if reconnecting == nil, knownIDs.contains(account.id) {
-                    // The browser signed in to a mailbox that is already here (often its own session):
-                    // say so, or the add looks like it did nothing.
-                    self.showNotice(
-                        "\(account.email) is already in SuperSparrow",
-                        detail: "Its sign-in was renewed. To add another account, pick it in the browser's account chooser, or sign out of \(account.email) there first."
-                    )
-                }
-                if self.signInGeneration == generation { self.setSignInBusy(nil) }
-                self.mainWindow?.notifier.requestAuthorizationIfNeeded()
-                self.mainWindow?.refreshAccounts()
-                self.settingsWindow?.refreshAccounts()
-                if reconnecting == nil { self.mainWindow?.showWindow(nil) }
+                self?.signInSucceeded(account, generation: generation, wasKnown: knownIDs.contains(account.id))
             } catch {
-                guard let self else { return }
-                if self.signInGeneration == generation { self.setSignInBusy(nil) }
-                if Self.isCancellation(error) { return }
-                self.showError(error, context: reconnecting == nil ? "Couldn't add the account" : "Couldn't reconnect \(reconnecting?.email ?? "the account")")
+                await self?.signInFailed(error, generation: generation)
+            }
+        }
+        signIn = SignIn(generation: generation, kind: kind, reconnecting: reconnecting, origin: origin, task: task, replacement: replacement)
+        reflectSignIn()
+    }
+
+    /// Shows the running sign-in everywhere it appears: the welcome's waiting button, the main window (rail
+    /// tile and sync line), and Settings' pending or reconnecting row.
+    private func reflectSignIn() {
+        let current = signIn
+        if let current, current.origin == .welcome {
+            welcome?.setActivity(.waiting(current.kind))
+        } else if current == nil, welcome?.activity != .preparingDemo {
+            welcome?.setActivity(.idle)
+        }
+        mainWindow?.setSignInInProgress(current == nil ? nil : "Finish signing in in your browser…")
+        if let model = settingsWindow?.model {
+            model.pendingSignIn = current?.reconnecting == nil ? current?.kind : nil
+            model.reconnecting = current?.reconnecting?.id
+            if current != nil { model.accountsNotice = nil }
+        }
+    }
+
+    private func signInSucceeded(_ account: Account, generation: Int, wasKnown: Bool) {
+        guard let current = signIn, current.generation == generation else { return }
+        signIn = nil
+        Self.log.info("account ready: \(account.id.rawValue, privacy: .public)")
+        if let replacement = current.replacement {
+            replaceDemo(with: replacement)
+            return
+        }
+        reflectSignIn()
+        if let reconnected = current.reconnecting {
+            // The check that follows a reconnect is one the user asked for (§5.11): Settings says so.
+            settingsWindow?.model.userChecks.insert(reconnected.id)
+            NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
+                                 userInfo: [.announcement: "\(AccountLabels.name(for: reconnected)) reconnected.",
+                                            .priority: NSAccessibilityPriorityLevel.medium.rawValue])
+        } else if wasKnown {
+            // The browser signed in to a mailbox that is already here (often its own session): say so, or the
+            // add looks like it did nothing.
+            AppAlert.alreadyAdded(account).present(on: window(for: current.origin)) { [weak self] choice in
+                if choice == 0 { self?.showAccount(account.id, origin: current.origin) }
+            }
+        } else {
+            settings.accountWasAdded(totalAccounts: menuAccounts.count)
+        }
+        mainWindow?.notifier.requestAuthorizationIfNeeded()
+        mainWindow?.refreshAccounts()
+        settingsWindow?.refreshAccounts()
+        if current.reconnecting == nil, !wasKnown {
+            mainWindow?.showWindow(nil)
+            showAccount(account.id, origin: current.origin)
+        }
+    }
+
+    private func signInFailed(_ error: Error, generation: Int) async {
+        guard let current = signIn, current.generation == generation else { return }
+        signIn = nil
+        await current.replacement?.shutdown()
+        reflectSignIn()
+        if error is CancellationError { return }
+        Self.log.error("sign-in failed: \(String(describing: error), privacy: .public)")
+        let reason = ErrorText.signIn(error, kind: current.kind)
+        if case AuthError.wrongAccount(let expected, let actual) = error, let account = current.reconnecting {
+            AppAlert.wrongAccount(expected: expected, actual: actual).present(on: window(for: current.origin)) { [weak self] choice in
+                if choice == 0 { self?.reconnect(account, origin: current.origin) }
+            }
+            return
+        }
+        if let account = current.reconnecting {
+            AppAlert.reconnectFailed(account, reason: reason).present(on: window(for: current.origin)) { [weak self] choice in
+                if choice == 0 { self?.reconnect(account, origin: current.origin) }
+            }
+            return
+        }
+        switch current.origin {
+        case .welcome:
+            welcome?.showBanner(.signInError(reason: reason))
+        case .settings:
+            settingsWindow?.model.accountsNotice = .addFailed(kind: current.kind, reason: reason)
+        case .main:
+            AppAlert.addFailed(reason: reason).present(on: window(for: .main)) { [weak self] choice in
+                if choice == 0 { self?.addAccount(current.kind, origin: .main) }
             }
         }
     }
 
-    /// The welcome screen's Cancel: stops waiting for the browser. OAuthFlow turns the cancellation into
-    /// `userCancelled`, which the sign-in task treats as a quiet end.
+    /// Cancel (welcome, sync line, Settings): the pending tile and row leave at once, with no message.
+    /// OAuthFlow turns the cancellation into `userCancelled`, which the replaced generation ignores.
     private func cancelSignIn() {
-        signInTask?.cancel()
-        signInTask = nil
+        guard let current = signIn else { return }
+        signIn = nil
         signInGeneration += 1
-        setSignInBusy(nil)
+        current.task.cancel()
+        if let replacement = current.replacement { Task { await replacement.shutdown() } }
+        reflectSignIn()
     }
 
-    private func setSignInBusy(_ message: String?) {
-        mainWindow?.setSignInInProgress(message)
-        settingsWindow?.model.busyMessage = message
-    }
-
-    private func chooseProvider() -> ProviderKind? {
-        let alert = NSAlert()
-        alert.messageText = "Add an account"
-        alert.informativeText = "Which kind of account? You'll sign in in your browser; SuperSparrow never sees your password."
-        alert.addButton(withTitle: "Gmail")
-        alert.addButton(withTitle: "Microsoft")
-        alert.addButton(withTitle: "Cancel")
-        switch alert.runModal() {
-        case .alertFirstButtonReturn: return .gmail
-        case .alertSecondButtonReturn: return .microsoft
-        default: return nil
+    /// The first real account replaced the demo: the demo store is wiped and the window shows the real inbox.
+    private func replaceDemo(with real: AppEnvironment) {
+        guard let demo = environment else { return }
+        settingsWindow?.tearDown()
+        settingsWindow = nil
+        install(real, replacing: mainWindow)
+        Task {
+            await demo.shutdown()
+            AppEnvironment.wipeDemoData()
         }
     }
 
+    /// Selects an account where the user will look: its Settings row, or its rail tile (⌘1…⌘9).
+    private func showAccount(_ id: AccountID, origin: Origin) {
+        if origin == .settings, let model = settingsWindow?.model {
+            model.selection = id.rawValue
+            settingsWindow?.show()
+            return
+        }
+        guard let index = menuAccounts.firstIndex(where: { $0.id == id }), index < 9, let mainWindow else { return }
+        let item = NSMenuItem()
+        item.tag = index + 1
+        mainWindow.selectAccountShortcut(item)
+        mainWindow.showWindow(nil)
+    }
+
+    /// The provider pull-down for a + that did not bring its own menu (§5.44): at the pointer, in the key window.
+    private func popUpAddAccountMenu() {
+        guard let window = NSApp.keyWindow ?? mainWindow?.window, let view = window.contentView else { return }
+        let menu = AddAccountMenu.make(target: self)
+        let point = view.convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        menu.popUp(positioning: nil, at: point, in: view)
+    }
+
     private func removeAccount(_ account: Account) {
+        AppAlert.remove(account).present(on: window(for: .settings)) { [weak self] choice in
+            if choice == 1 { self?.performRemove(account) }
+        }
+    }
+
+    private func performRemove(_ account: Account) {
         guard let environment else { return }
-        let alert = NSAlert()
-        alert.messageText = "Remove \(account.email)?"
-        alert.informativeText = "Its mail is deleted from this Mac and its sign-in is removed from the Keychain. Nothing is deleted on the server."
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "Remove")
-        alert.addButton(withTitle: "Cancel")
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
         Task { [weak self] in
             do {
                 try await environment.engine.removeAccount(account.id)
             } catch {
-                self?.showError(error, context: "Couldn't remove the account")
+                Self.log.error("remove failed: \(String(describing: error), privacy: .public)")
+                guard let self else { return }
+                AppAlert.removeFailed(account, reason: "The account couldn't be removed from the mail database.")
+                    .present(on: self.window(for: .settings)) { [weak self] choice in
+                        if choice == 0 { self?.performRemove(account) }
+                    }
             }
             self?.mainWindow?.refreshAccounts()
             self?.settingsWindow?.refreshAccounts()
         }
     }
 
-    // MARK: Errors
-
-    private static func isCancellation(_ error: Error) -> Bool {
-        if error is CancellationError { return true }
-        if case AuthError.userCancelled = error { return true }
-        if case ProviderError.cancelled = error { return true }
-        return false
-    }
-
-    static func message(for error: Error) -> String {
-        switch error {
-        case AuthError.missingClientConfiguration(let kind):
-            return "No \(kind == .gmail ? "Google" : "Microsoft") OAuth client is configured. Add one in Settings → OAuth."
-        case AuthError.invalidResponse(let detail):
-            return "The sign-in response wasn't what SuperSparrow expected. \(detail)"
-        case AuthError.tokenExchangeFailed(let detail):
-            return "The provider refused the sign-in. Check the client ID (and secret for Google) in Settings → OAuth.\n\n\(detail)"
-        case AuthError.refreshFailed(let detail):
-            return "Your sign-in expired and couldn't be renewed. \(detail)"
-        case AuthError.keychain(let status):
-            return "The Keychain refused to store the sign-in (status \(status))."
-        case AuthError.wrongAccount(let expected, let actual):
-            return "You signed in as \(actual), but this account is \(expected). Nothing was changed; reconnect again and choose \(expected)."
-        case ProviderError.unauthorized:
-            return "The account refused access. Make sure you granted mail permissions when signing in."
-        case ProviderError.network(let detail):
-            return "Couldn't reach the mail server. Check your internet connection.\n\n\(detail)"
-        case ProviderError.throttled:
-            return "The mail service is rate limiting requests. Try again in a minute."
-        case ProviderError.server(let status, let message):
-            return "The mail service returned an error (\(status)). \(message)"
-        case let urlError as URLError:
-            return "Couldn't reach the server: \(urlError.localizedDescription)"
-        default:
-            return error.localizedDescription
-        }
-    }
-
-    private func showNotice(_ message: String, detail: String) {
-        let alert = NSAlert()
-        alert.messageText = message
-        alert.informativeText = detail
-        alert.addButton(withTitle: "OK")
-        if let window = mainWindow?.window, window.isVisible {
-            alert.beginSheetModal(for: window)
-        } else {
-            alert.runModal()
-        }
-    }
-
-    private func showError(_ error: Error, context: String) {
-        Self.log.error("\(context, privacy: .public): \(String(describing: error), privacy: .public)")
-        let alert = NSAlert()
-        alert.messageText = context
-        alert.informativeText = Self.message(for: error)
-        alert.addButton(withTitle: "OK")
-        if let window = mainWindow?.window, window.isVisible {
-            alert.beginSheetModal(for: window)
-        } else {
-            alert.runModal()
+    private func confirmLeavingDemo(origin: Origin) {
+        guard environment?.isDemo == true else { return }
+        AppAlert.leaveDemo.present(on: window(for: origin)) { [weak self] choice in
+            if choice == 0 { self?.leaveDemoNow() }
         }
     }
 
     // MARK: Settings
 
-    private func openSettings(tab: SettingsModel.Tab? = nil, notice: String? = nil) {
+    private func openSettings(tab: SettingsModel.Tab? = nil, oauthNotice: SettingsModel.OAuthNotice? = nil) {
         guard let environment else { return }
         if settingsWindow == nil {
             let controller = SettingsWindowController(environment: environment, settings: settings)
-            controller.model.addAccount = { [weak self] kind in self?.addAccount(kind) }
-            controller.model.removeAccount = { [weak self] account in self?.removeAccount(account) }
-            controller.model.reconnect = { [weak self] account in self?.addAccount(account.kind, reconnecting: account) }
+            let model = controller.model
+            model.addAccount = { [weak self] kind in self?.addAccount(kind, origin: .settings) }
+            model.cancelSignIn = { [weak self] in self?.cancelSignIn() }
+            model.removeAccount = { [weak self] account in self?.removeAccount(account) }
+            model.reconnect = { [weak self] account in self?.reconnect(account, origin: .settings) }
+            model.retry = { [weak self] account in
+                self?.settingsWindow?.model.userChecks.insert(account.id)
+                self?.environment?.engine.syncNow(accountID: account.id)
+            }
+            model.leaveDemo = { [weak self] in self?.confirmLeavingDemo(origin: .settings) }
+            model.setInkSlot = { [weak self] slot, account in self?.edit(account) { try $0.setInkSlot(slot, for: account.id) } }
+            model.setMonogram = { [weak self] monogram, account in self?.edit(account) { try $0.setMonogram(monogram, for: account.id) } }
             settingsWindow = controller
+            reflectSignIn()
         }
-        settingsWindow?.show(tab: tab, notice: notice)
+        settingsWindow?.show(tab: tab)
+        if let oauthNotice { settingsWindow?.model.oauthNotice = oauthNotice }
+    }
+
+    /// Colour and monogram are written to the store directly; both windows re-read their accounts.
+    private func edit(_ account: Account, _ change: (MailStoring) throws -> Void) {
+        guard let environment else { return }
+        do {
+            try change(environment.store)
+        } catch {
+            Self.log.error("account edit failed: \(String(describing: error), privacy: .public)")
+            NSSound.beep()
+        }
+        mainWindow?.refreshAccounts()
+        settingsWindow?.refreshAccounts()
     }
 
     // MARK: Menu actions
@@ -539,29 +823,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         mainWindow?.composeNew()
     }
 
-    @objc func addAccountFromMenu(_ sender: Any?) {
-        addAccount(nil)
+    @objc func addGmailAccount(_ sender: Any?) {
+        addAccount(.gmail, origin: originForMenu())
     }
 
+    @objc func addMicrosoftAccount(_ sender: Any?) {
+        addAccount(.microsoft, origin: originForMenu())
+    }
+
+    @objc func leaveDemo(_ sender: Any?) {
+        confirmLeavingDemo(origin: originForMenu())
+    }
+
+    /// View › Check for New Mail: a check the user asked for, which Settings shows as Checking for mail…
+    @objc func checkForNewMail(_ sender: Any?) {
+        guard let environment else { return }
+        settingsWindow?.model.userChecks.formUnion(menuAccounts.map(\.id))
+        environment.engine.syncNow(accountID: nil)
+    }
+
+    @objc func toggleCompactRows(_ sender: Any?) {
+        settings.listDensity = settings.listDensity == .compact ? .standard : .compact
+    }
+
+    /// ? and ⌘/ (Help › Keyboard Shortcuts): the in-window cheat sheet over the main window (§5.32).
     @objc func showKeyboardHelp(_ sender: Any?) {
-        let alert = NSAlert()
-        alert.messageText = "Keyboard Shortcuts"
-        alert.informativeText = """
-        j / k or ↓ / ↑   next / previous conversation
-        Return   open the conversation
-        e   archive          s   star          u   read / unread
-        #  or ⌘⌫   trash     ⇧I  or ⇧⌘I   move to inbox
-        z  or ⌘Z   undo the last action
-        r   reply     a   reply all     f   forward     c   compose
-        /  or ⌘F   search     Esc   clear search (also from the list)
-        g i  inbox     g s  starred     g t  sent     g a  all mail
-        ⌘0   all inboxes     ⌘1…⌘9   one account     ⌘\\   focused inbox
-        """
-        alert.runModal()
+        guard let mainWindow, let window = mainWindow.keyboardWindow else { return }
+        if !window.isKeyWindow { window.makeKeyAndOrderFront(nil) }
+        CheatSheetController.shared.toggle(in: window)
     }
 
+    /// The welcome screen's “Set up OAuth clients…”.
     @objc func showOAuthHelp(_ sender: Any?) {
-        openSettings(tab: .oauth, notice: nil)
+        openSettings(tab: .oauth)
     }
 
     /// Debug › Design Gallery (and `--gallery`): every SSDesign component in every state. Each opening starts
@@ -573,5 +867,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             galleryWindow = controller
         }
         galleryWindow?.show()
+    }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        let hasEnvironment = environment != nil
+        switch menuItem.action {
+        case #selector(addGmailAccount(_:)), #selector(addMicrosoftAccount(_:)):
+            // One sign-in at a time (§5.44).
+            return hasEnvironment && signIn == nil && !isPreparingDemo
+        case #selector(leaveDemo(_:)):
+            return environment?.isDemo == true && signIn == nil
+        case #selector(checkForNewMail(_:)):
+            return hasEnvironment && !menuAccounts.isEmpty
+        case #selector(toggleCompactRows(_:)):
+            menuItem.state = settings.listDensity == .compact ? .on : .off
+            return true
+        case #selector(showKeyboardHelp(_:)):
+            return mainWindow?.keyboardWindow != nil
+        case #selector(newMessage(_:)), #selector(showSettings(_:)), #selector(showOAuthHelp(_:)):
+            return hasEnvironment
+        default:
+            return true
+        }
     }
 }

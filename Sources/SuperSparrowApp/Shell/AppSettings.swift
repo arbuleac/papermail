@@ -35,7 +35,13 @@ final class AppSettings: ObservableObject {
         static let listDensity = "listDensity"
         static let showAccountInitials = "showAccountInitials"
         static let originalColorsNoticeDismissed = "originalColorsNoticeDismissed"
+        static let accountInitialsTurnedOnAutomatically = "accountInitialsTurnedOnAutomatically"
+        static let accountInitialsChosenByUser = "accountInitialsChosenByUser"
+        static let sevenAccountsNoticePending = "sevenAccountsNoticePending"
     }
+
+    /// Spec §4.2: with this many accounts, colours alone can look alike, so account initials turn on once.
+    static let accountInitialsThreshold = 7
 
     private let defaults: UserDefaults
 
@@ -91,6 +97,45 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(originalColorsNoticeDismissed, forKey: Key.originalColorsNoticeDismissed) }
     }
 
+    /// Spec §5.40 Seven accounts: account initials were turned on by a seventh account, not by the user.
+    /// While this holds and the user has not touched the checkbox, General captions it.
+    @Published private(set) var accountInitialsTurnedOnAutomatically: Bool {
+        didSet { defaults.set(accountInitialsTurnedOnAutomatically, forKey: Key.accountInitialsTurnedOnAutomatically) }
+    }
+
+    /// The user changed Show account initials themselves; their choice is kept and an eighth account does not
+    /// turn it back on.
+    @Published private(set) var accountInitialsChosenByUser: Bool {
+        didSet { defaults.set(accountInitialsChosenByUser, forKey: Key.accountInitialsChosenByUser) }
+    }
+
+    /// Settings › Accounts shows the seven-accounts notice until it is dismissed or followed, across launches.
+    @Published var sevenAccountsNoticePending: Bool {
+        didSet { defaults.set(sevenAccountsNoticePending, forKey: Key.sevenAccountsNoticePending) }
+    }
+
+    /// General's caption under the Rows checkbox: “Turned on when you added a seventh account.”
+    var showsSevenAccountsCaption: Bool {
+        showAccountInitials && accountInitialsTurnedOnAutomatically && !accountInitialsChosenByUser
+    }
+
+    /// The Rows checkbox: the user's own choice, which ends the automatic state for good.
+    func setShowAccountInitialsByUser(_ on: Bool) {
+        accountInitialsChosenByUser = true
+        sevenAccountsNoticePending = false
+        if showAccountInitials != on { showAccountInitials = on }
+    }
+
+    /// Called after an account is added. The seventh account turns initials on, once ever, unless the user
+    /// already chose (spec §4.2).
+    func accountWasAdded(totalAccounts: Int) {
+        guard totalAccounts >= Self.accountInitialsThreshold, !accountInitialsTurnedOnAutomatically, !accountInitialsChosenByUser,
+              !showAccountInitials else { return }
+        accountInitialsTurnedOnAutomatically = true
+        sevenAccountsNoticePending = true
+        showAccountInitials = true
+    }
+
     var hasAskedForNotifications: Bool {
         get { defaults.bool(forKey: Key.askedForNotifications) }
         set { defaults.set(newValue, forKey: Key.askedForNotifications) }
@@ -107,6 +152,9 @@ final class AppSettings: ObservableObject {
             Key.listDensity: ListDensity.standard.rawValue,
             Key.showAccountInitials: false,
             Key.originalColorsNoticeDismissed: false,
+            Key.accountInitialsTurnedOnAutomatically: false,
+            Key.accountInitialsChosenByUser: false,
+            Key.sevenAccountsNoticePending: false,
         ])
         notificationsEnabled = defaults.bool(forKey: Key.notifications)
         showPreviews = defaults.bool(forKey: Key.previews)
@@ -117,6 +165,9 @@ final class AppSettings: ObservableObject {
         listDensity = ListDensity(rawValue: defaults.string(forKey: Key.listDensity) ?? "") ?? .standard
         showAccountInitials = defaults.bool(forKey: Key.showAccountInitials)
         originalColorsNoticeDismissed = defaults.bool(forKey: Key.originalColorsNoticeDismissed)
+        accountInitialsTurnedOnAutomatically = defaults.bool(forKey: Key.accountInitialsTurnedOnAutomatically)
+        accountInitialsChosenByUser = defaults.bool(forKey: Key.accountInitialsChosenByUser)
+        sevenAccountsNoticePending = defaults.bool(forKey: Key.sevenAccountsNoticePending)
         applyUndoSendDelay()
         ConversationViewController.loadRemoteImages = loadRemoteImages
     }

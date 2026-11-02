@@ -39,6 +39,8 @@ if [ -d "$ROOT/Resources/Assets.xcassets" ]; then
     echo "warning: xcrun actool not found (install Xcode); the bundle has no AccentColor asset" >&2
   fi
 fi
+# Settings › OAuth links to the setup guide (“How to create these…”).
+cp "$ROOT/docs/OAUTH-SETUP.md" "$APP/Contents/Resources/OAUTH-SETUP.md"
 if [ -f "$ROOT/Resources/AppIcon.icns" ]; then
   cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
   /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string AppIcon" "$APP/Contents/Info.plist" >/dev/null 2>&1 || true

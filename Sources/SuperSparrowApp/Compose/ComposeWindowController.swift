@@ -386,6 +386,28 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         window?.makeFirstResponder(ccField)
     }
 
+    /// Message › Add Cc Field / Add Bcc Field (spec §5.35).
+    @objc func addCcField(_ sender: Any?) {
+        showCcBccRows()
+        window?.makeFirstResponder(ccField)
+    }
+
+    @objc func addBccField(_ sender: Any?) {
+        showCcBccRows()
+        window?.makeFirstResponder(bccField)
+    }
+
+    /// Message › Discard Draft… (spec §5.20, §5.33): the one way to throw a draft away; closing keeps it.
+    @objc func discardDraft(_ sender: Any?) {
+        guard let window, !isSending else { return }
+        let recipient = toField.addresses.first.map { $0.name?.isEmpty == false ? $0.name ?? $0.address : $0.address }
+        AppAlert.discardDraft(recipient: recipient).present(on: window) { [weak self] choice in
+            guard choice == 1, let self else { return }
+            self.closesWithoutPrompt = true
+            self.close()
+        }
+    }
+
     private func showCcBccRows() {
         ccRow.isHidden = false
         bccRow.isHidden = false
