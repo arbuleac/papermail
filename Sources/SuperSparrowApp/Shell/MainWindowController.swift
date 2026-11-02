@@ -264,6 +264,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     }
 
     private func applyQuery() {
+        conversation.mailboxView = mailboxView
         let query = ShellQuery.make(
             scope: scope.accountIDs, view: mailboxView, section: section, searchText: searchText
         )
@@ -277,7 +278,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             list.query = query
         }
         listPane.display(view: mailboxView, section: mailboxView == .inbox ? section : nil)
-        conversation.mailboxView = mailboxView
     }
 
     // MARK: Selection
