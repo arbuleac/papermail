@@ -52,6 +52,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     func tearDown() {
         statusObservation?.cancel()
         statusObservation = nil
+        model.stopRetryClock()
         window?.orderOut(nil)
     }
 

@@ -156,8 +156,12 @@ final class SettingsModel: ObservableObject {
         now = Date()
         let waiting = statuses.values.contains { ($0.retryAt ?? .distantPast) > now }
         if waiting, retryClock == nil {
-            let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
-                MainActor.assumeIsolated { self?.tickRetryClock() }
+            // A replaced model must not leave its clock ticking for ever: with the model gone the timer ends itself.
+            let timer = Timer(timeInterval: 1, repeats: true) { [weak self] timer in
+                MainActor.assumeIsolated {
+                    guard let self else { return timer.invalidate() }
+                    self.tickRetryClock()
+                }
             }
             RunLoop.main.add(timer, forMode: .common)
             retryClock = timer
@@ -165,6 +169,12 @@ final class SettingsModel: ObservableObject {
             retryClock?.invalidate()
             retryClock = nil
         }
+    }
+
+    /// Stops the clock now (the Settings window is being torn down).
+    func stopRetryClock() {
+        retryClock?.invalidate()
+        retryClock = nil
     }
 
     private func tickRetryClock() {

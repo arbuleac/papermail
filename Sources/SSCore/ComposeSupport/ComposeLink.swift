@@ -14,7 +14,9 @@ public enum ComposeLink {
             return AddressListParser.isValid(String(trimmed.dropFirst("mailto:".count))) ? trimmed : nil
         }
         if trimmed.contains("://") {
-            guard let url = URL(string: trimmed), let scheme = url.scheme, !scheme.isEmpty,
+            // A web address means http or https: `javascript://`, `file://` and `smb://` would go out as links
+            // the popover never promised.
+            guard let url = URL(string: trimmed), let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
                   let host = url.host, !host.isEmpty else { return nil }
             return trimmed
         }

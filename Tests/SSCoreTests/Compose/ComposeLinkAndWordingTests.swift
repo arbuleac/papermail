@@ -16,6 +16,12 @@ final class ComposeLinkAndWordingTests: XCTestCase {
         XCTAssertNil(ComposeLink.normalized("runbook"))
         XCTAssertNil(ComposeLink.normalized("ben@contoso"))
         XCTAssertNil(ComposeLink.normalized("https://"))
+        // Only web schemes: a link must open a page, not run a script or reach into the recipient's disk.
+        XCTAssertNil(ComposeLink.normalized("javascript://x/%0Aalert(1)"))
+        XCTAssertNil(ComposeLink.normalized("javascript:alert(1)"))
+        XCTAssertNil(ComposeLink.normalized("file://host/etc/passwd"))
+        XCTAssertNil(ComposeLink.normalized("smb://server/share"))
+        XCTAssertEqual(ComposeLink.normalized("HTTP://contoso.test"), "HTTP://contoso.test")
         XCTAssertEqual(ComposeLink.invalidMessage, "Enter a web address or an email address.")
     }
 

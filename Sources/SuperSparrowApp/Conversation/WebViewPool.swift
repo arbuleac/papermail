@@ -30,6 +30,8 @@ final class WebViewPool: NSObject, WKScriptMessageHandler {
     private let document: String
     /// The script that mirrors the display modes onto a shell, kept so a slot that becomes ready gets it too.
     private var modesScript = ""
+    /// Full Keyboard Access is a keyboard setting, not a display option, so QuireEnvironment never reports it.
+    private var fullKeyboardAccessObservation: NSKeyValueObservation?
 
     init(client: MailClient, size: Int = 3) {
         let document = ConversationShellAssets.document(symbolCSS: ReaderSymbolSheet.css)
@@ -56,6 +58,21 @@ final class WebViewPool: NSObject, WKScriptMessageHandler {
         modesScript = Self.modesScript()
         NotificationCenter.default.addObserver(self, selector: #selector(environmentDidChange(_:)),
                                                name: QuireEnvironment.didChangeNotification, object: nil)
+        fullKeyboardAccessObservation = NSApp.observe(\.isFullKeyboardAccessEnabled, options: [.new]) { [weak self] _, _ in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { self?.updateTabFocusesLinks() }
+            }
+        }
+    }
+
+    /// Links in a body join the Tab order exactly while Full Keyboard Access is on (spec §5.14), switched in
+    /// every live web view, not only in the configuration future ones are made from.
+    private func updateTabFocusesLinks() {
+        let enabled = NSApp.isFullKeyboardAccessEnabled
+        guard configuration.preferences.tabFocusesLinks != enabled else { return }
+        configuration.preferences.tabFocusesLinks = enabled
+        for slot in slots { slot.webView.configuration.preferences.tabFocusesLinks = enabled }
+        broadcast(modesScript)
     }
 
     // MARK: Display modes
@@ -70,8 +87,8 @@ final class WebViewPool: NSObject, WKScriptMessageHandler {
 
     @objc private func environmentDidChange(_ note: Notification) {
         modesScript = Self.modesScript()
-        configuration.preferences.tabFocusesLinks = NSApp.isFullKeyboardAccessEnabled
         broadcast(modesScript)
+        updateTabFocusesLinks()
     }
 
     /// Runs `script` in every shell that is ready; slots that become ready later get the modes on `markReady`.
