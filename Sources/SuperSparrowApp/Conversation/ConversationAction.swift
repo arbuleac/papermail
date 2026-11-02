@@ -20,8 +20,9 @@ enum ConversationAction {
     case openAttachment(MessageID, AttachmentInfo)
     /// Continue Editing on a read-only draft (spec §5.19).
     case continueDraft(MessageID)
-    /// Discard Draft, after the reader's "Discard this draft?" alert was confirmed.
-    case discardDraft(ConversationID)
+    /// Discard Draft… on one draft or several (the header, the sheet's footer): the main window asks “Discard
+    /// this draft?” (§5.33), the same alert # asks, and discards on confirm.
+    case discardDrafts([ConversationID])
     /// The quick reply's "Show" after an undo that came once the selection had moved on.
     case reveal(ConversationID)
 }

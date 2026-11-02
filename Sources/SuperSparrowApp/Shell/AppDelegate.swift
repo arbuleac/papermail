@@ -793,6 +793,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         Task { [weak self] in
             do {
                 try await environment.engine.removeAccount(account.id)
+                Self.removeDrafts(of: account.id)
             } catch {
                 Self.log.error("remove failed: \(String(describing: error), privacy: .public)")
                 guard let self else { return }
@@ -804,6 +805,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             self?.mainWindow?.refreshAccounts()
             self?.settingsWindow?.refreshAccounts()
         }
+    }
+
+    /// Remove takes the account's mail off this Mac (§5.40), and its drafts go with it: its composers close
+    /// keeping nothing (closing would otherwise save them again), then its drafts folder is deleted.
+    static func removeDrafts(of account: AccountID) {
+        for composer in ComposeWindowRegistry.shared.openControllers where composer.accountID == account {
+            composer.closeWithoutSaving()
+        }
+        ComposeDraftStore.shared.removeDrafts(for: account)
     }
 
     private func confirmLeavingDemo(origin: Origin) {

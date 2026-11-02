@@ -32,6 +32,12 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     private var account: Account
     /// This message's identity in `ComposeDraftStore`.
     private(set) var draftID = UUID()
+    /// The provider's draft this message continues (Continue Editing on a synced Drafts row); sending it
+    /// discards the provider's copy, so Drafts never keeps the original beside the sent message.
+    private(set) var continuesDraft: MessageID?
+
+    /// The account the message is sent from.
+    var accountID: AccountID { account.id }
 
     private let content = ComposeContentView()
     private let fromPopup: QuirePopUpButton
@@ -668,12 +674,14 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
             attachments: attachments,
             quoted: quoted,
             threading: threading,
-            sendFailure: sendFailure
+            sendFailure: sendFailure,
+            continuesDraft: continuesDraft
         )
     }
 
     private func restore(_ draft: ComposeDraft) {
         draftID = draft.id
+        continuesDraft = draft.continuesDraft
         // The draft remembers the From the user chose, which `init` replaced with the original's owner.
         account = draft.account
         selectAccountInFromPopup()
@@ -897,6 +905,14 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
                 let sendID = try self.client.send(message, undoWindow: Self.undoWindow)
                 // The outbox holds the message now; the panel keeps the draft for Undo and for a failure.
                 ComposeDraftStore.shared.remove(id: self.draftID)
+                if let original = self.continuesDraft {
+                    // The provider's draft this one continued goes to Trash, as the reader's Discard sends it.
+                    do {
+                        try self.client.perform(.trash, on: [original])
+                    } catch {
+                        Self.logger.error("Discarding the continued draft failed: \(String(describing: error), privacy: .public)")
+                    }
+                }
                 self.closesWithoutSaving = true
                 self.close()
                 UndoSendPanel.show(client: self.client, accounts: self.accounts, sendID: sendID, draft: sent,
@@ -978,6 +994,13 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
             ComposeWindowController.present(client: client, accounts: accounts, draft: draft)
         }
         NotificationCenter.default.post(name: Self.draftDiscardedNotification, object: nil, userInfo: [Self.draftUndoKey: undo])
+    }
+
+    /// Closes the window and keeps nothing: its draft was discarded elsewhere, or its account was removed.
+    func closeWithoutSaving() {
+        autosaveTimer?.invalidate()
+        closesWithoutSaving = true
+        close()
     }
 
     // MARK: Menu validation

@@ -25,6 +25,12 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         didSet { if oldValue != accountsByID { refreshChrome() } }
     }
     var onAction: ((ConversationAction) -> Void)?
+    /// Drafts kept on this Mac, which the Drafts view lists beside the store's: shown read-only like any draft,
+    /// but read from here and never fetched, observed or acted on through the engine.
+    var localDrafts: LocalDrafts?
+    /// Whether a composer window holds this draft; its sheet then reads “Open in a composer window” instead of
+    /// the body being changed there (spec §5.19).
+    var isDraftInComposer: (MessageID) -> Bool = { _ in false }
     /// The mailbox the selection comes from; it decides the header's actions and whether the quick reply shows.
     var mailboxView: MailboxView = .inbox {
         didSet { if oldValue != mailboxView { refreshChrome() } }
@@ -586,18 +592,33 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     // MARK: Store
 
     private func visibleMessages(for id: ConversationID) -> [MessageMetadata] {
-        RenderPayloadBuilder.visibleMessages((try? client.store.messages(in: id)) ?? [])
+        if let local = localDrafts?.messages(in: id) { return local }
+        return RenderPayloadBuilder.visibleMessages((try? client.store.messages(in: id)) ?? [])
+    }
+
+    private func showsDraftInComposer(_ message: MessageMetadata) -> Bool {
+        message.roles.contains(.drafts) && isDraftInComposer(message.id)
+    }
+
+    /// The body a render shows for `message`: none while its draft is open in a composer, a kept draft's from
+    /// this Mac, otherwise the store's.
+    private func renderableBody(_ message: MessageMetadata) -> StoredBody? {
+        if showsDraftInComposer(message) { return nil }
+        if LocalDraftConversation.isLocal(message.id) { return localDrafts?.body(for: message.id) }
+        return try? client.store.body(for: message.id)
     }
 
     /// The payload for one render and the inputs it was built from. The only place bodies are read in bulk.
     private func prepare(_ messages: [MessageMetadata]) -> (payload: RenderPayload, inputs: RenderInputs) {
         var bodies: [MessageID: StoredBody] = [:]
+        var states = bodyStates
         for message in messages {
-            if let body = try? client.store.body(for: message.id) { bodies[message.id] = body }
+            if let body = renderableBody(message) { bodies[message.id] = body }
+            if showsDraftInComposer(message) { states[message.id] = .inComposer }
         }
         let settings = AppSettings.shared
         let payload = builder.build(
-            messages: messages, bodies: bodies, accounts: accountsByID, bodyStates: bodyStates,
+            messages: messages, bodies: bodies, accounts: accountsByID, bodyStates: states,
             loadRemoteImages: Self.loadRemoteImages, readingSans: settings.readingFont == .sfPro,
             colorsNoticeDismissed: settings.originalColorsNoticeDismissed
         )
@@ -616,6 +637,9 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
 
     private func observe(_ id: ConversationID) {
         observation?.cancel()
+        observation = nil
+        // A kept draft is not in the store; `draftsDidChange()` brings its edits.
+        guard !LocalDraftConversation.isLocal(id) else { return }
         // The store contract delivers on the main thread; the dispatch branch only guards a store that does not.
         observation = client.store.observeConversation(id) { [weak self] messages in
             if Thread.isMainThread {
@@ -653,8 +677,10 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     private func refreshIfStale(_ slot: PooledConversationView, messages: [MessageMetadata], id: ConversationID) {
         guard slot.renderedID == id else { return }
         let rendered = slot.renderedInputs ?? .empty
-        let fresh = rendered.refreshed(with: messages) { [client] id in
-            (try? client.store.body(for: id)) != nil
+        let byID = Dictionary(messages.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let fresh = rendered.refreshed(with: messages) { [weak self] id in
+            guard let self, let message = byID[id] else { return false }
+            return self.renderableBody(message) != nil
         }
         guard fresh != rendered else { return }
         // Mark-read and star are the common changes; they patch the headers without reading a body.
@@ -671,6 +697,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     private func requestMissingBodies(_ messages: [MessageMetadata], rendered: RenderInputs?) {
         for message in messages where bodyFetches.contains(message.id) == false {
             if rendered?.hasBody(message.id) == true { continue }
+            // A kept draft has no provider copy, and a draft open in a composer shows no body.
+            if LocalDraftConversation.isLocal(message.id) || showsDraftInComposer(message) { continue }
             guard (try? client.store.body(for: message.id)) == nil else { continue }
             fetchBody(message.id, conversation: message.conversationID)
         }
@@ -768,6 +796,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     /// has been seen. Selections that only pass through it on `j`/`k` leave the mark alone.
     private func scheduleAcknowledge(for id: ConversationID) {
         acknowledgeTimer?.invalidate()
+        acknowledgeTimer = nil
+        guard !LocalDraftConversation.isLocal(id) else { return }
         acknowledgeTimer = Timer.scheduledTimer(withTimeInterval: Self.acknowledgeDelay, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
@@ -853,7 +883,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             case "continueDraft":
                 onAction?(.continueDraft(messageID))
             case "discardDraft":
-                confirmDiscardDraft()
+                if let id = currentConversationID { onAction?(.discardDrafts([id])) }
             default:
                 ConversationSignposts.log.debug("unknown shell action \(type, privacy: .public)")
             }
@@ -861,6 +891,11 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     }
 
     private func performOnMessage(_ change: MetadataChange, _ id: MessageID) {
+        // A kept draft lives only on this Mac: there is nothing to star or mark on a provider.
+        guard !LocalDraftConversation.isLocal(id) else {
+            NSSound.beep()
+            return
+        }
         do {
             try client.perform(change, on: [id])
         } catch {
@@ -929,6 +964,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             case .archive: onAction?(.applyToSelection(.archive, ids))
             case .trash: onAction?(.applyToSelection(.trash, ids))
             case .moveToInbox: onAction?(.applyToSelection(.moveToInbox, ids))
+            case .discardDraft: onAction?(.discardDrafts(ids))
             default: break
             }
         case .one(let id):
@@ -944,29 +980,22 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             case .continueEditing:
                 let draft = currentMessages.last { $0.roles.contains(.drafts) } ?? currentMessages.last
                 if let draft { onAction?(.continueDraft(draft.id)) }
-            case .discardDraft: confirmDiscardDraft()
+            case .discardDraft: onAction?(.discardDrafts([id]))
             }
         }
     }
 
-    /// "Discard this draft?" in its reader form (spec §5.33): Cancel is the default, Discard the destructive one.
-    private func confirmDiscardDraft() {
-        guard let window = view.window, case .one(let id) = selection else { return }
-        let draft = currentMessages.last { $0.roles.contains(.drafts) } ?? currentMessages.last
-        let alert = NSAlert()
-        alert.messageText = "Discard this draft?"
-        let names = (draft?.to ?? []).map(\.shortDisplay)
-        alert.informativeText = names.isEmpty
-            ? "The message hasn\u{2019}t been sent. Discarding removes it from this Mac."
-            : "The message to \(names.joined(separator: ", ")) hasn\u{2019}t been sent. Discarding removes it from this Mac."
-        alert.addButton(withTitle: "Cancel")
-        alert.addButton(withTitle: "Discard").hasDestructiveAction = true
-        alert.beginSheetModal(for: window) { [weak self] response in
-            MainActor.assumeIsolated {
-                guard response == .alertSecondButtonReturn, let self else { return }
-                self.onAction?(.discardDraft(id))
-            }
-        }
+    /// A composer opened or closed, or a kept draft changed on disk: the draft on screen renders again with its
+    /// body or with “Open in a composer window”, and a kept draft that is gone (sent, discarded) empties the
+    /// reader as a conversation emptied elsewhere does.
+    func draftsDidChange() {
+        guard isViewLoaded, case .one(let id) = selection, mailboxView == .drafts || LocalDraftConversation.isLocal(id) else { return }
+        let messages = visibleMessages(for: id)
+        applyMessages(messages, for: id)
+        guard !messages.isEmpty, let current = pool.current, current.renderedID == id else { return }
+        let prepared = prepare(messages)
+        guard prepared.inputs != current.renderedInputs else { return }
+        pool.refresh(prepared.payload, inputs: prepared.inputs, id: id, into: current)
     }
 
     // MARK: Attachments and Quick Look

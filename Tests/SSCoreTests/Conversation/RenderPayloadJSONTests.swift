@@ -53,7 +53,7 @@ final class RenderPayloadJSONTests: XCTestCase {
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let message = try XCTUnwrap((object["messages"] as? [[String: Any]])?.first)
         XCTAssertEqual(message["bodyState"] as? String, "ready")
-        XCTAssertEqual(RenderPayload.BodyState.allCases.map(\.rawValue), ["ready", "loading", "offline", "failed"])
+        XCTAssertEqual(RenderPayload.BodyState.allCases.map(\.rawValue), ["ready", "loading", "offline", "failed", "inComposer"])
         for state in RenderPayload.BodyState.allCases {
             XCTAssertTrue(ConversationShellAssets.js.contains("'" + state.rawValue + "'") || state == .ready,
                           "the shell never names `\(state.rawValue)`")

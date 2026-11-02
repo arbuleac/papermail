@@ -150,6 +150,18 @@ struct AppAlert {
                         buttons: [Button(title: "Keep Writing", role: .cancel), Button(title: "Discard", role: .destructive)])
     }
 
+    /// Drafts reader and # in Drafts (§5.19): one draft or several. Cancel is the default here, unlike the
+    /// composer's form, because nothing is being written.
+    static func discardDrafts(count: Int, recipient: String?) -> AppAlert {
+        guard count > 1 else {
+            let subject = recipient.map { "The message to \($0) hasn't been sent." } ?? "This message hasn't been sent."
+            return AppAlert(title: "Discard this draft?", body: subject + " Discarding removes it from this Mac.",
+                            buttons: [Button(title: "Cancel"), Button(title: "Discard", role: .destructive)])
+        }
+        return AppAlert(title: "Discard \(count) drafts?", body: "They haven't been sent. Discarding removes them from this Mac.",
+                        buttons: [Button(title: "Cancel"), Button(title: "Discard", role: .destructive)])
+    }
+
     /// Every alert of the inventory this surface owns, with sample values, for the alert snapshot.
     static var specimens: [AppAlert] {
         let contoso = Account(id: AccountID("contoso"), kind: .microsoft, email: "alex@contoso.test", displayName: "Alex Morgan",
@@ -158,6 +170,7 @@ struct AppAlert {
                                colorHex: "#000000", addedAt: Date())
         return [
             discardDraft(recipient: "Ben Carter"),
+            discardDrafts(count: 3, recipient: nil),
             remove(contoso),
             removeFailed(contoso, reason: "The mail database is busy."),
             missingClient(.gmail),

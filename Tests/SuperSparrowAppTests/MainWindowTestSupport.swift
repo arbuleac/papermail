@@ -60,3 +60,10 @@ final class MainWindowHarness {
         try? FileManager.default.removeItem(at: directory)
     }
 }
+
+extension MainWindowHarness {
+    /// A client over a throwaway store, for windows that need one but no main window.
+    static func scratchClient(in folder: URL) throws -> MailClient {
+        try AppEnvironment.makeScratch(in: folder.appendingPathComponent("client-\(UUID().uuidString)")).engine
+    }
+}

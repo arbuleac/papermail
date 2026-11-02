@@ -479,6 +479,20 @@ final class ConversationShellWebViewTests: XCTestCase {
         XCTAssertTrue(handler.received.contains { ($0["type"] as? String) == "retryBody" })
     }
 
+    /// A draft open in a composer window reads “Open in a composer window” in place of its body (spec §5.19).
+    func testADraftOpenInAComposerSaysSo() async throws {
+        let (webView, _) = try await loadedShell()
+        typealias F = ConversationFixtures
+        let draft = F.message("d1", roles: [.drafts])
+        let payload = F.builder.build(messages: [draft], bodies: [:], accounts: F.accounts, bodyStates: [draft.id: .inComposer])
+        XCTAssertEqual(payload.messages[0].bodyState, .inComposer)
+        _ = try await evaluate("window.ss.render(\(try payload.jsonString()))", in: webView)
+        let line = try await evaluate("document.querySelector('.ss-incomposer').textContent", in: webView) as? String
+        XCTAssertEqual(line, "Open in a composer window")
+        let frames = try await count("iframe", in: webView)
+        XCTAssertEqual(frames, 0, "no body is shown while the composer holds it")
+    }
+
     /// A styled newsletter wider than its sheet is zoomed to fit, never below 0.74 (spec §5.14).
     func testWideHTMLIsZoomedToFit() async throws {
         let (webView, _) = try await loadedShell()

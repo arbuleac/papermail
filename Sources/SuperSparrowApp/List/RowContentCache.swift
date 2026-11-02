@@ -10,6 +10,8 @@ import SSDesign
 final class RowContentCache {
     private let cache = NSCache<NSNumber, ConversationRowContent>()
     private let store: MailStoring
+    /// Messages of rows the store does not hold (drafts kept on this Mac); nil defers to the store.
+    var localMessages: ((ConversationID) -> [MessageMetadata]?)?
     let formatter: DateFormatting
     private(set) var reference: DateFormatting.Reference
     private let signposter = ListSignposts.signposter
@@ -49,7 +51,7 @@ final class RowContentCache {
     /// denormalized summary, so a cache miss reads the conversation's messages once. The summary's
     /// `latestMessageID` is in the key, so the read happens once per new message, not per redraw.
     private func fillPeople(of summary: ConversationSummary, into context: inout ConversationRowText.Context) {
-        let messages = (try? store.messages(in: summary.id)) ?? []
+        let messages = localMessages?(summary.id) ?? (try? store.messages(in: summary.id)) ?? []
         context.latestSender = ConversationRowText.latestSender(in: messages, ownAddresses: context.ownAddresses)
         if context.kind != .received {
             context.recipients = ConversationRowText.recipients(in: messages, kind: context.kind)

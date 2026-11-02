@@ -1,10 +1,14 @@
 import AppKit
+import SSCore
 
 /// Owns every open composer window and undo-send panel. Window controllers are otherwise released as soon
 /// as the presenting code returns, and a composer must outlive the code that opened it.
 @MainActor
 final class ComposeWindowRegistry {
     static let shared = ComposeWindowRegistry()
+
+    /// Posted when a composer opens or closes, so the reader can show a draft as “Open in a composer window”.
+    static let didChange = Notification.Name("ComposeWindowRegistry.didChange")
 
     private var controllers: [ObjectIdentifier: ComposeWindowController] = [:]
     /// In the order they were shown: the first sits lowest in the stack.
@@ -19,10 +23,21 @@ final class ComposeWindowRegistry {
 
     func register(_ controller: ComposeWindowController) {
         controllers[ObjectIdentifier(controller)] = controller
+        NotificationCenter.default.post(name: Self.didChange, object: self)
     }
 
     func unregister(_ controller: ComposeWindowController) {
-        controllers[ObjectIdentifier(controller)] = nil
+        guard controllers.removeValue(forKey: ObjectIdentifier(controller)) != nil else { return }
+        NotificationCenter.default.post(name: Self.didChange, object: self)
+    }
+
+    /// The open composer holding the draft `id` shows: a kept draft (its own window), or the provider's draft
+    /// a kept one continues.
+    func controller(holdingDraft id: MessageID) -> ComposeWindowController? {
+        if let draftID = LocalDraftConversation.draftID(of: id) {
+            return controllers.values.first { $0.draftID == draftID }
+        }
+        return controllers.values.first { $0.continuesDraft == id }
     }
 
     func register(_ panel: UndoSendPanel) {

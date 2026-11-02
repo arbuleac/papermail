@@ -42,6 +42,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
     private let inboxMonitor: InboxMonitor
     private let activity: SyncActivityMonitor
+    /// Drafts kept on this Mac, which the Drafts view lists and the reader shows beside the provider's.
+    let localDrafts = LocalDrafts()
     let notifier: NewMailNotifier
     private var router: KeyboardRouter?
     private var statusObservation: StoreObservation?
@@ -154,6 +156,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
                                                name: SignInProgress.didChange, object: nil)
         // A window built while a sign-in runs (the demo replaced mid-way) shows it from the start.
         if let running = SignInProgress.current { applySignIn(running) }
+        NotificationCenter.default.addObserver(self, selector: #selector(composersChanged(_:)),
+                                               name: ComposeWindowRegistry.didChange, object: nil)
+    }
+
+    /// A composer opened or closed: a draft it holds reads “Open in a composer window” in the reader (§5.19).
+    @objc private func composersChanged(_ note: Notification) {
+        conversation.draftsDidChange()
     }
 
     /// A composer's Message › Discard Draft… confirms here: “Draft discarded · Undo” (spec §5.20). It joins the
@@ -275,6 +284,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         list.onSelectionSetChange = { [weak self] _ in self?.listSelectionDidChange() }
         list.onOpen = { [weak self] id in
             guard let self else { return }
+            // In Drafts, ↩ and a double-click are Continue Editing (§5.19).
+            if self.mailboxView == .drafts {
+                if let draft = self.draftMessageID(in: id) { self.continueDraft(draft) }
+                return
+            }
             if self.conversation.currentConversationID != id { self.conversation.show(id) }
             self.focusReader()
         }
@@ -282,6 +296,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
         conversation.onAction = { [weak self] action in self?.handle(action) }
         conversation.onQuickSendChange = { UndoSendPanel.refreshUndoKeyOwner() }
+        conversation.localDrafts = localDrafts
+        conversation.isDraftInComposer = { ComposeWindowRegistry.shared.controller(holdingDraft: $0) != nil }
+        list.localMessages = { [weak self] id in self?.localDrafts.messages(in: id) }
+        localDrafts.onChange = { [weak self] in
+            self?.showLocalDrafts()
+            self?.conversation.draftsDidChange()
+        }
 
         welcome.onAddAccount = { [weak self] kind in self?.onAddAccount?(kind) }
         welcome.onTryDemo = { [weak self] in self?.onTryDemo?() }
@@ -315,6 +336,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             strip.setAccounts(fresh)
             list.accountsByID = byID
             conversation.accountsByID = byID
+            localDrafts.accounts = fresh
+            showLocalDrafts()
             inboxMonitor.updateAccounts(fresh.map(\.id))
             listPane.setSearchEnabled(!fresh.isEmpty)
             selectAddedAccount(previous: previous)
@@ -829,6 +852,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             guard let change = readChangeForSelection else { return false }
             return mailAction(change)
         case .trash:
+            // In Drafts, # is Discard Draft…, asked first (§5.12).
+            if mailboxView == .drafts {
+                confirmDiscardDrafts(selectedIDs)
+                return true
+            }
             return mailAction(.trash)
         case .reply, .replyAll, .forward:
             // A reply answers one conversation: with several selected R, A and F do nothing (§5.12).
@@ -1117,11 +1145,101 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             // The reader already opened Quick Look.
             break
         case .continueDraft(let id):
-            DraftReopener.present(id, client: environment.engine, accounts: accounts)
-        case .discardDraft(let id):
-            mailAction(.trash, on: [id])
+            continueDraft(id)
+        case .discardDrafts(let ids):
+            confirmDiscardDrafts(ids)
         case .reveal(let id):
             reveal(id)
+        }
+    }
+
+    // MARK: Drafts (§5.19)
+
+    /// The Drafts view lists the kept drafts beside the provider's; a provider's draft that a kept one continues
+    /// gives way to it.
+    private func showLocalDrafts() {
+        list.localDrafts = localDrafts.summaries
+        let store = environment.store
+        list.hiddenDrafts = Set(localDrafts.continuedDrafts.compactMap { try? store.message($0)?.conversationID })
+    }
+
+    /// The draft a Drafts row stands for: a kept draft's own message, or the conversation's newest draft.
+    private func draftMessageID(in id: ConversationID) -> MessageID? {
+        if let draftID = LocalDraftConversation.draftID(of: id) {
+            return LocalDraftConversation.messageID(draftID: draftID, account: id.accountID)
+        }
+        let messages = (try? environment.store.messages(in: id)) ?? []
+        return (messages.last { $0.roles.contains(.drafts) } ?? messages.last)?.id
+    }
+
+    /// Continue Editing: a kept draft reopens as it was left (its window comes forward if open), so sending it
+    /// leaves nothing behind; a provider's draft goes through `DraftReopener`.
+    private func continueDraft(_ id: MessageID) {
+        if let draftID = LocalDraftConversation.draftID(of: id) {
+            if !ComposeWindowController.reopenKeptDraft(id: draftID, client: environment.engine, accounts: accounts) { NSSound.beep() }
+            return
+        }
+        DraftReopener.present(id, client: environment.engine, accounts: accounts)
+    }
+
+    /// “Discard this draft?” (or “Discard 3 drafts?”), the reader's form (§5.33), from the header, the sheet's
+    /// footer or #.
+    private func confirmDiscardDrafts(_ ids: [ConversationID]) {
+        guard !ids.isEmpty else { return }
+        let recipient = ids.count == 1 ? draftMessageID(in: ids[0]).flatMap(draftRecipient(of:)) : nil
+        AppAlert.discardDrafts(count: ids.count, recipient: recipient).present(on: window) { [weak self] choice in
+            if choice == 1 { self?.discardDrafts(ids) }
+        }
+    }
+
+    private func draftRecipient(of id: MessageID) -> String? {
+        let message = LocalDraftConversation.isLocal(id)
+            ? localDrafts.messages(in: ConversationID(accountID: id.accountID, providerID: id.providerID))?.first
+            : try? environment.store.message(id)
+        guard let first = message.flatMap({ $0.to.first ?? $0.cc.first ?? $0.bcc.first }) else { return nil }
+        return QuotedReply.authorName(first)
+    }
+
+    /// Discards confirmed drafts as one step with one toast, “Draft discarded · Undo” (§5.19): kept drafts leave
+    /// this Mac (a composer holding one closes, keeping nothing), the provider's go to Trash. Undo brings back
+    /// both.
+    func discardDrafts(_ ids: [ConversationID]) {
+        var kept: [ComposeDraft] = []
+        var records: [MailActionRecord] = []
+        for id in ids {
+            if let draftID = LocalDraftConversation.draftID(of: id) {
+                guard let draft = localDrafts.draft(draftID) else { continue }
+                kept.append(draft)
+                ComposeWindowRegistry.shared.openControllers.first { $0.draftID == draftID }?.closeWithoutSaving()
+                ComposeDraftStore.shared.remove(id: draftID)
+            } else if let all = try? environment.store.messages(in: id), !all.isEmpty {
+                let kind = accountsByID[id.accountID]?.kind ?? .gmail
+                let targets = MailActionRecord.targets(for: .trash, in: all, kind: kind)
+                if let record = MailActionRecord.make(.trash, on: targets, conversation: id) { records.append(record) }
+            }
+        }
+        do {
+            if !records.isEmpty { try environment.engine.perform(.trash, on: records.flatMap(\.targets)) }
+        } catch {
+            Self.log.error("discarding drafts failed: \(String(describing: error), privacy: .public)")
+            NSSound.beep()
+        }
+        let count = kept.count + records.count
+        guard count > 0 else {
+            NSSound.beep()
+            return
+        }
+        let engine = environment.engine
+        recordExternalUndo(command: "Discard Draft", toast: count == 1 ? "Draft discarded" : "Discarded \(count) drafts",
+                           symbol: Quire.Icon.trash) {
+            for draft in kept { ComposeDraftStore.shared.save(draft) }
+            do {
+                for record in records.reversed() {
+                    for step in record.inverse { try engine.perform(step.change, on: step.targets) }
+                }
+            } catch {
+                Self.log.error("bringing back drafts failed: \(String(describing: error), privacy: .public)")
+            }
         }
     }
 

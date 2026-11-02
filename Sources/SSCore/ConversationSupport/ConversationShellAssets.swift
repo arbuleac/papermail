@@ -232,6 +232,7 @@ public enum ConversationShellAssets {
     .ss-body { margin-top: 18px; }
     .ss-card.ss-typeset .ss-body { margin-left: 48px; max-width: 576px; }
     .ss-card.ss-draft .ss-body { margin-left: 0; margin-top: 10px; }
+    .ss-incomposer { margin: 0; font: var(--q-font-snippet); letter-spacing: var(--q-track-snippet); color: var(--q-ink3); }
     /* A draft's body is set from the sheet's edge, so its elision chip, chips and footer start there too (spec §5.19). */
     .ss-card.ss-draft .ss-ind { margin-left: 0; }
     .ss-frame { position: relative; }
@@ -862,6 +863,8 @@ public enum ConversationShellAssets {
             wrap.appendChild(notice);
           } else if (m.bodyState === 'loading') {
             wrap.appendChild(skeletons('ss-delayed'));
+          } else if (m.bodyState === 'inComposer') {
+            wrap.appendChild(el('p', 'ss-incomposer', 'Open in a composer window'));
           }
           return;
         }

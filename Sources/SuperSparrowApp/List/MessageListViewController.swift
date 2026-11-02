@@ -73,6 +73,23 @@ final class MessageListViewController: NSViewController {
     /// Past this many row edits a batch of inserts and removes costs more than starting over.
     var reloadThreshold = 500
 
+    /// Drafts kept on this Mac, listed with the provider's drafts in the Drafts view (spec §5.19), newest
+    /// first; ignored in every other view and while searching.
+    var localDrafts: [ConversationSummary] = [] {
+        didSet { if oldValue != localDrafts, showsLocalDrafts { apply(storeRows) } }
+    }
+
+    /// Provider drafts that a kept draft continues: the kept one stands in for them in the Drafts view.
+    var hiddenDrafts: Set<ConversationID> = [] {
+        didSet { if oldValue != hiddenDrafts, showsLocalDrafts { apply(storeRows) } }
+    }
+
+    /// The messages of a kept draft's row, which the store does not hold, for the row's “Draft to …”.
+    var localMessages: ((ConversationID) -> [MessageMetadata]?)? {
+        get { rowContentCache.localMessages }
+        set { rowContentCache.localMessages = newValue }
+    }
+
     /// `settings` defaults to `AppSettings.shared`; tests pass their own.
     init(store: MailStoring, query: ConversationQuery = ConversationQuery(), settings: AppSettings? = nil) {
         let settings = settings ?? AppSettings.shared
@@ -135,6 +152,8 @@ final class MessageListViewController: NSViewController {
     private var hasReceivedFirstPage = false
     /// Pages fetched with `query.before` beyond the observed head, refreshed on every head update.
     private var tailPageCount = 0
+    /// The rows as the store gave them (head and tail pages), before kept drafts are merged in.
+    private var storeRows: [ConversationSummary] = []
     private var reachedEnd = false
     private var isLoadingMore = false
     private var footerPhase = ListFooterRowView.Phase.idle
@@ -306,7 +325,8 @@ final class MessageListViewController: NSViewController {
     /// Fetches the page after the last row with `query.before` off the main thread and appends it. The head
     /// observation keeps delivering, so a later refresh re-reads the tail pages to keep every row live.
     func loadMore() {
-        guard !isLoadingMore, !reachedEnd, hasReceivedFirstPage, let cursor = conversations.last?.latestDate else { return }
+        // The cursor is the store's last row: a kept draft merged in below it says nothing about the store's pages.
+        guard !isLoadingMore, !reachedEnd, hasReceivedFirstPage, let cursor = storeRows.last?.latestDate else { return }
         isLoadingMore = true
         setFooterPhase(.loading)
         var pageQuery = query
@@ -485,6 +505,20 @@ final class MessageListViewController: NSViewController {
         apply(merged)
     }
 
+    private var showsLocalDrafts: Bool {
+        isViewLoaded && hasReceivedFirstPage && query.view == .drafts && (query.searchText?.isEmpty ?? true)
+    }
+
+    /// The store's rows with the kept drafts of the accounts in scope merged in by date. Every other view gets
+    /// the store's rows untouched.
+    private func withLocalDrafts(_ rows: [ConversationSummary]) -> [ConversationSummary] {
+        guard showsLocalDrafts, !localDrafts.isEmpty || !hiddenDrafts.isEmpty else { return rows }
+        let scope = query.accountIDs.map(Set.init)
+        let locals = localDrafts.filter { scope?.contains($0.id.accountID) ?? true }
+        let kept = rows.filter { !hiddenDrafts.contains($0.id) }
+        return (kept + locals).sorted { $0.latestDate > $1.latestDate }
+    }
+
     /// Re-reads the tail pages from the current head so that rows below the first page stay as live as the
     /// head. Each page is one indexed read; the count is bounded by how far the user scrolled.
     private func fetchTails(after head: [ConversationSummary], pages: Int) -> [ConversationSummary] {
@@ -524,9 +558,9 @@ final class MessageListViewController: NSViewController {
         setFooterPhase(.idle)
         if page.count < query.limit { reachedEnd = true }
         tailPageCount += 1
-        var seen = Set(conversations.map(\.id))
+        var seen = Set(storeRows.map(\.id))
         let additions = page.filter { seen.insert($0.id).inserted }
-        apply(conversations + additions)
+        apply(storeRows + additions)
     }
 
     // MARK: Applying rows
@@ -542,7 +576,7 @@ final class MessageListViewController: NSViewController {
         )
     }
 
-    private func apply(_ incoming: [ConversationSummary]) {
+    private func apply(_ fromStore: [ConversationSummary]) {
         rowContentCache.refreshReference()
         let old = conversations
         let oldItemIDs = itemIDs
@@ -550,7 +584,8 @@ final class MessageListViewController: NSViewController {
         let previousSelection = selectedID
 
         let diffState = signposter.beginInterval("list.diff")
-        conversations = incoming
+        storeRows = fromStore
+        conversations = withLocalDrafts(fromStore)
         rebuildIndex()
         layout = makeLayout()
         itemIDs = layout.itemIDs(conversationIDs: conversations.map(\.id))

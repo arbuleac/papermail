@@ -50,13 +50,20 @@ public struct ComposeDraftRecord: Codable, Hashable, Sendable, Identifiable {
     /// Set when the send failed after the undo window, with the provider's reason; the composer opens with
     /// the danger banner then.
     public var sendFailure: String?
+    /// The start of the body's text, so the Drafts view can list kept drafts from their records alone, without
+    /// unarchiving every body. Nil in records written before it was kept.
+    public var preview: String?
+    /// The provider's draft (a Drafts row synced from Gmail or Outlook) this one continues: Continue Editing
+    /// brings this draft back instead of starting another, and sending it discards the provider's copy.
+    public var continuesDraft: MessageID?
 
     public static let bodyFile = "body.archive"
     public static let recordFile = "draft.json"
 
     public init(id: UUID, kind: Kind, originalMessageID: MessageID?, accountID: AccountID, to: [EmailAddress],
                 cc: [EmailAddress], bcc: [EmailAddress], subject: String, attachments: [Attachment],
-                quoted: QuotedReply.Rendering?, threading: ReplyThreading?, editedAt: Date, sendFailure: String? = nil) {
+                quoted: QuotedReply.Rendering?, threading: ReplyThreading?, editedAt: Date, sendFailure: String? = nil,
+                preview: String? = nil, continuesDraft: MessageID? = nil) {
         self.id = id
         self.kind = kind
         self.originalMessageID = originalMessageID
@@ -70,6 +77,17 @@ public struct ComposeDraftRecord: Codable, Hashable, Sendable, Identifiable {
         self.threading = threading
         self.editedAt = editedAt
         self.sendFailure = sendFailure
+        self.preview = preview
+        self.continuesDraft = continuesDraft
+    }
+
+    /// How long `preview` is kept: more than a list row's snippet line can show.
+    public static let previewLength = 200
+
+    /// The preview kept for `bodyText`: whitespace runs folded to one space, cut to `previewLength`.
+    public static func preview(of bodyText: String) -> String {
+        let folded = bodyText.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        return String(folded.prefix(previewLength))
     }
 
     public func encoded() throws -> Data {

@@ -9,9 +9,14 @@ import os
 /// Grouping by account lets removing an account take its drafts with it (`removeDrafts(for:)`).
 ///
 /// Writes happen off the main thread except `saveNow`, which closing uses so the last edit is never lost.
+/// Every write and removal posts `didChange` on the main thread once it is on disk, so the Drafts view can
+/// list what is kept.
 @MainActor
 final class ComposeDraftStore {
     static let shared = ComposeDraftStore()
+
+    /// Posted on the main thread after a draft was written or removed; `object` is the store.
+    static let didChange = Notification.Name("ComposeDraftStore.didChange")
 
     private nonisolated static let logger = Logger(subsystem: "io.supersparrow.mac", category: "compose")
     private var directory: URL
@@ -38,6 +43,24 @@ final class ComposeDraftStore {
         directory = demo ? Self.demoDirectory : Self.defaultDirectory
     }
 
+    /// Points the store at `folder`: the app's tests keep their drafts in a temporary folder, never the user's.
+    func useDirectory(_ folder: URL) {
+        directory = folder
+    }
+
+    /// Runs on the writer queue after `work`, then tells observers on the main thread.
+    private func write(_ work: @escaping @Sendable () -> Void, then completion: (@MainActor () -> Void)? = nil) {
+        writer.async { [weak self] in
+            work()
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    completion?()
+                    if let self { NotificationCenter.default.post(name: Self.didChange, object: self) }
+                }
+            }
+        }
+    }
+
     // MARK: Writing
 
     /// Writes the draft in the background; `completion` runs on the main actor with the outcome.
@@ -45,14 +68,13 @@ final class ComposeDraftStore {
         let package = Self.package(draft)
         let folder = folder(for: draft.id, account: draft.account.id)
         let stale = folders(for: draft.id).filter { $0.standardizedFileURL != folder.standardizedFileURL }
-        writer.async {
+        let outcome = WriteOutcome()
+        write({
             let ok = Self.write(package, to: folder)
             // A draft whose From changed moves to its new account's folder.
             if ok { stale.forEach { try? FileManager.default.removeItem(at: $0) } }
-            if let completion {
-                DispatchQueue.main.async { MainActor.assumeIsolated { completion(ok) } }
-            }
-        }
+            outcome.ok = ok
+        }, then: { completion?(outcome.ok) })
     }
 
     /// Writes the draft before returning: closing a window must not lose the last keystrokes.
@@ -61,29 +83,50 @@ final class ComposeDraftStore {
         let package = Self.package(draft)
         let folder = folder(for: draft.id, account: draft.account.id)
         let stale = folders(for: draft.id).filter { $0.standardizedFileURL != folder.standardizedFileURL }
-        return writer.sync {
+        let ok = writer.sync {
             let ok = Self.write(package, to: folder)
             if ok { stale.forEach { try? FileManager.default.removeItem(at: $0) } }
             return ok
         }
+        NotificationCenter.default.post(name: Self.didChange, object: self)
+        return ok
     }
 
     func remove(id: UUID) {
         let folders = folders(for: id)
-        writer.async {
-            folders.forEach { try? FileManager.default.removeItem(at: $0) }
-        }
+        write({ folders.forEach { try? FileManager.default.removeItem(at: $0) } })
     }
 
     /// Removes every draft of an account (Settings › Remove takes the account's mail off this Mac).
     func removeDrafts(for accountID: AccountID) {
         let folder = directory.appendingPathComponent(accountID.rawValue, isDirectory: true)
-        writer.async {
-            try? FileManager.default.removeItem(at: folder)
-        }
+        write({ try? FileManager.default.removeItem(at: folder) })
+    }
+
+    /// Waits for every write queued so far; for tests that read what they just saved.
+    func waitForWrites() {
+        writer.sync {}
     }
 
     // MARK: Reading
+
+    /// Every kept draft's record for `accounts`, newest first: only the small JSON files are read, so the
+    /// Drafts view can list them on every change.
+    func records(accounts: [Account]) -> [ComposeDraftRecord] {
+        let known = Set(accounts.map(\.id))
+        return accounts.flatMap { account -> [ComposeDraftRecord] in
+            let accountFolder = directory.appendingPathComponent(account.id.rawValue, isDirectory: true)
+            let folders = (try? FileManager.default.contentsOfDirectory(at: accountFolder, includingPropertiesForKeys: nil)) ?? []
+            return folders.compactMap(Self.record(in:)).filter { known.contains($0.accountID) }
+        }
+        .sorted { $0.editedAt > $1.editedAt }
+    }
+
+    /// The kept draft that continues the provider's draft `message`, if one was started from it.
+    func keptDraft(continuing message: MessageID, accounts: [Account]) -> ComposeDraft? {
+        guard let record = records(accounts: accounts).first(where: { $0.continuesDraft == message }) else { return nil }
+        return draft(id: record.id, accounts: accounts)
+    }
 
     /// Every kept draft of `accounts`, newest first.
     func keptDrafts(accounts: [Account]) -> [ComposeDraft] {
@@ -123,7 +166,7 @@ final class ComposeDraftStore {
         !folders(for: id).isEmpty
     }
 
-    private static func record(in folder: URL) -> ComposeDraftRecord? {
+    nonisolated private static func record(in folder: URL) -> ComposeDraftRecord? {
         guard let data = try? Data(contentsOf: folder.appendingPathComponent(ComposeDraftRecord.recordFile)) else { return nil }
         return try? ComposeDraftRecord.decode(data)
     }
@@ -168,7 +211,8 @@ final class ComposeDraftStore {
             id: draft.id, kind: kind(of: draft.mode), originalMessageID: draft.mode.originalMessageID,
             accountID: draft.account.id, to: draft.to, cc: draft.cc, bcc: draft.bcc, subject: draft.subject,
             attachments: attachments, quoted: draft.quoted, threading: draft.threading, editedAt: Date(),
-            sendFailure: draft.sendFailure)
+            sendFailure: draft.sendFailure, preview: ComposeDraftRecord.preview(of: draft.body.string),
+            continuesDraft: draft.continuesDraft)
         return Package(record: record, body: archive(draft.body), parts: parts)
     }
 
@@ -209,7 +253,7 @@ final class ComposeDraftStore {
             id: record.id, mode: Self.mode(record.kind, original: record.originalMessageID), account: account,
             to: record.to, cc: record.cc, bcc: record.bcc, subject: record.subject,
             body: Self.unarchive(bodyData), attachments: attachments, quoted: record.quoted, threading: record.threading,
-            sendFailure: record.sendFailure)
+            sendFailure: record.sendFailure, continuesDraft: record.continuesDraft)
         return (draft, record.editedAt)
     }
 
@@ -247,4 +291,9 @@ final class ComposeDraftStore {
         let body = try? NSKeyedUnarchiver.unarchivedObject(ofClasses: classes, from: data) as? NSAttributedString
         return body ?? NSAttributedString()
     }
+}
+
+/// Carries a background write's result to the main-thread completion.
+private final class WriteOutcome: @unchecked Sendable {
+    var ok = false
 }

@@ -35,6 +35,8 @@ struct ComposeDraft {
     var threading: ReplyThreading?
     /// The provider's reason when this draft comes back from a failed send; the composer shows the banner.
     var sendFailure: String?
+    /// The provider's draft this one continues (Continue Editing on a synced Drafts row): sending discards it.
+    var continuesDraft: MessageID? = nil
 
     var fingerprint: Fingerprint {
         Fingerprint(

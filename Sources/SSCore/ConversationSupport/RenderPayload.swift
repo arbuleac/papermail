@@ -80,6 +80,9 @@ public struct RenderPayload: Hashable, Codable, Sendable {
         case offline
         /// No body and the fetch failed online: "Couldn't load this message · Retry".
         case failed
+        /// A draft that is open in a composer window: the sheet reads “Open in a composer window” in place of
+        /// the body, which is being changed elsewhere (spec §5.19). The reader sends no body with it.
+        case inComposer
     }
 
     public struct Message: Hashable, Codable, Sendable {
