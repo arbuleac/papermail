@@ -10,8 +10,8 @@ final class MetricDriftTests: XCTestCase {
     private let file = DesignTokensFile.shared
 
     func testEveryMetricIsCovered() {
-        // tokens.json had 640 leaves under layout, border and platform when this file was generated.
-        XCTAssertEqual(file.leafCount(under: ["layout", "border", "platform"]), 640, "regenerate with swift scripts/tools/quire-tokens.swift")
+        // tokens.json had 642 leaves under layout, border and platform when this file was generated.
+        XCTAssertEqual(file.leafCount(under: ["layout", "border", "platform"]), 642, "regenerate with swift scripts/tools/quire-tokens.swift")
     }
 
     func testLayoutWindow() {
@@ -748,7 +748,9 @@ final class MetricDriftTests: XCTestCase {
         string(Quire.Layout.AppIcon.darkFaceBottom, "layout.appIcon.darkFaceBottom")
         number(Quire.Layout.AppIcon.laidLineAlpha, "layout.appIcon.laidLineAlpha")
         number(Quire.Layout.AppIcon.laidLineStep, "layout.appIcon.laidLineStep")
+        number(Quire.Layout.AppIcon.corner, "layout.appIcon.corner")
         number(Quire.Layout.AppIcon.stampInset, "layout.appIcon.stampInset")
+        number(Quire.Layout.AppIcon.stampWidth, "layout.appIcon.stampWidth")
         number(Quire.Layout.AppIcon.stampAlpha, "layout.appIcon.stampAlpha")
         number(Quire.Layout.AppIcon.markWidth, "layout.appIcon.markWidth")
         number(Quire.Layout.AppIcon.markOffsetX, "layout.appIcon.markOffsetX")

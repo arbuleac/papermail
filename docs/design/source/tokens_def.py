@@ -2,7 +2,7 @@
 and the rendered DESIGN-LANGUAGE.md. Colour order: light, dark, lightHC, darkHC."""
 
 NAME = "Quire"
-VERSION = "1.3.0"
+VERSION = "1.3.1"
 
 # (token, light, dark, lightHC, darkHC, group, use)
 COLOR = [
@@ -255,7 +255,7 @@ LAYOUT = {
  "menu": {"titleMenuOffsetY": 4},
  "iconSize": {"window": 15, "inText": 14, "row": 12, "rail": 18},
  "notification": {"bodyMaxChars": 120, "summaryThreshold": 3, "summaryWindowSeconds": 30},
- "appIcon": {"faceTop": "#FBF8F1", "faceBottom": "#ECE5D7", "darkFaceTop": "#2A2825", "darkFaceBottom": "#171614", "laidLineAlpha": 0.04, "laidLineStep": 0.03125, "stampInset": 0.09, "stampAlpha": 0.28, "markWidth": 0.6, "markOffsetX": -0.02, "markOffsetY": -0.03},
+ "appIcon": {"faceTop": "#FBF8F1", "faceBottom": "#ECE5D7", "darkFaceTop": "#2A2825", "darkFaceBottom": "#171614", "laidLineAlpha": 0.04, "laidLineStep": 0.03125, "corner": 0.225, "stampInset": 0.09, "stampWidth": 0.015625, "stampAlpha": 0.28, "markWidth": 0.6, "markOffsetX": -0.02, "markOffsetY": -0.03},
 }
 ICON = {
  "archive": "archivebox", "trash": "trash", "star": "star", "unstar": "star.fill", "markUnread": "envelope.badge", "markRead": "envelope.open",

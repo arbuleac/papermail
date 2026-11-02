@@ -109,7 +109,9 @@ struct Appearance {
 let metrics = (
     laidAlpha: number("layout.appIcon.laidLineAlpha"),
     laidStep: number("layout.appIcon.laidLineStep"),
+    corner: number("layout.appIcon.corner"),
     stampInset: number("layout.appIcon.stampInset"),
+    stampWidth: number("layout.appIcon.stampWidth"),
     stampAlpha: number("layout.appIcon.stampAlpha"),
     markWidth: number("layout.appIcon.markWidth"),
     markOffsetX: number("layout.appIcon.markOffsetX"),
@@ -124,11 +126,11 @@ let darkAppearance = Appearance(name: "dark", faceTop: Ink(string("layout.appIco
 let tintedAppearance = Appearance(name: "tinted", faceTop: nil, faceBottom: nil, laid: nil, mark: Ink("#FFFFFF"), showsStamp: false)
 let sparrowData = glyphPath(string("icon.brand"))
 
-/// The squircle's corner radius as a fraction of its side, the system's (185.4 of 824). The stamp rule's corners
+/// The squircle's corner radius as a fraction of its side, the system's (185.4 of 824); the stamp rule's corners
 /// are concentric with it.
-let cornerFraction: CGFloat = 0.225
+let cornerFraction = metrics.corner
 /// The stamp rule's width as a fraction of the face: one point on a 64 pt icon, as the specimen draws it.
-let stampWidthFraction: CGFloat = 1.0 / 64
+let stampWidthFraction = metrics.stampWidth
 
 // MARK: - SVG path data
 

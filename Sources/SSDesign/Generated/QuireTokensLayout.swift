@@ -706,7 +706,9 @@ extension Quire {
             public static let darkFaceBottom: String = "#171614"
             public static let laidLineAlpha: CGFloat = 0.04
             public static let laidLineStep: CGFloat = 0.03125
+            public static let corner: CGFloat = 0.225
             public static let stampInset: CGFloat = 0.09
+            public static let stampWidth: CGFloat = 0.015625
             public static let stampAlpha: CGFloat = 0.28
             public static let markWidth: CGFloat = 0.6
             public static let markOffsetX: CGFloat = -0.02
