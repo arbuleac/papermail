@@ -1423,7 +1423,7 @@ enum PendingSignIn: Equatable {
 #if DEBUG
 extension MainWindowController {
     /// `--snapshot-state=key,notkey,minimal,narrowed,adding,reconnect,signin,toast,search,focus-rail,focus-action,
-    /// hover-demo,hover-masthead,ic,graphite` (debug builds):
+    /// hover-demo,hover-masthead,ic,graphite` (debug builds; `several` is applied where the first selection is made):
     /// puts the window in the named states before `--snapshot` captures it, so every state of the chrome can be
     /// compared with the specimen without a screen recording.
     fileprivate func applyDebugSnapshotStates() {

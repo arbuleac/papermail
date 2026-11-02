@@ -14,7 +14,7 @@ scripts/run.sh                    # build, bundle dist/SuperSparrow.app and open
 scripts/run.sh -- --demo          # same, in demo mode
 scripts/run.sh release -- --demo  # release build, demo mode
 open dist/SuperSparrow.app --args --demo
-swift test                        # the whole suite
+scripts/test.sh                   # the generated design files' check, then the whole suite
 ```
 
 ### Demo mode
@@ -51,6 +51,10 @@ SuperSparrow signs in through your browser with OAuth clients you register yours
 
 Single-letter shortcuts only apply when you are not typing in a text field.
 
+## Design
+
+SuperSparrow's look is **Quire**: New York subjects on warm paper, one blue-black ink (Iron Gall) for what needs you, and a still list beside a generous reading page. The spec is [docs/DESIGN-LANGUAGE.md](docs/DESIGN-LANGUAGE.md); [docs/design/specimen.html](docs/design/specimen.html) shows every token and component (rendered as [light](docs/design/specimen-light.png) and [dark](docs/design/specimen-dark.png)). [docs/design/tokens.json](docs/design/tokens.json) is the single source: the app's design runtime (`Sources/SSDesign`), the reader's CSS, the accent colour and the app icon are generated from it, and debug builds show every component in **Debug → Design Gallery**.
+
 ## Privacy
 
 - Your mail is stored only on this Mac, in `~/Library/Application Support/SuperSparrow/mail.sqlite` (mode 0600). Attachments are cached in `~/Library/Caches/SuperSparrow/attachments`.
@@ -61,6 +65,7 @@ Single-letter shortcuts only apply when you are not typing in a text field.
 
 ## More
 
-- Design and performance budgets: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- Architecture, launch options and performance budgets: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- Design language: [docs/DESIGN-LANGUAGE.md](docs/DESIGN-LANGUAGE.md)
 - Database schema: [docs/DATA-MODEL.md](docs/DATA-MODEL.md)
 - OAuth setup: [docs/OAUTH-SETUP.md](docs/OAUTH-SETUP.md)

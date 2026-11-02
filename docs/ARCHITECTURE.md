@@ -21,6 +21,8 @@ Out of scope for v1: rules, snooze, send later, calendar invites, S/MIME, server
 ## Modules
 
 ```
+SSDesign (Quire tokens, components)
+        ▲ draws with
 SuperSparrowApp (AppKit, WebKit)  ──reads──▶  MailStoring (SQLite)  ◀──writes──  SyncEngine (actors)
         │ commands                                                                   │
         └──────────────▶  MailClient (facade)  ─────────────────────────────────────┘
@@ -40,7 +42,9 @@ SuperSparrowApp (AppKit, WebKit)  ──reads──▶  MailStoring (SQLite)  �
 - **SSCore/Render**: `HTMLSanitizer` producing `SanitizedBody` with SwiftSoup, plus `QuoteDetector` and `TextExtractor`.
 - **SSGmail**: Gmail REST API client. Bootstrap = `users.messages.list` newest first with `-in:spam -in:trash -in:chats` (chats are hidden from All mail in Gmail too), hydrated via batch `messages.get?format=metadata`. Changes = `users.history.list` from the `historyId` captured by `users.getProfile` before enumeration. Bodies via `messages.get?format=full`, MIME tree walked for text/html, text/plain, attachments and inline parts. Send builds RFC 5322 MIME (multipart/alternative inside multipart/mixed) base64url-encoded into `messages.send`, with `threadId` when replying; messages over 1 MiB of MIME go through the media upload endpoint (`uploadType=multipart`) instead because Gmail caps JSON request bodies. Changes map to `messages.batchModify` label edits.
 - **SSGraph**: Microsoft Graph client. Bootstrap = `/me/messages?$orderby=receivedDateTime desc&$select=...` paging, excluding Deleted Items and Junk by parentFolderId. Changes = per-folder `/me/mailFolders/{id}/messages/delta` for inbox, sentitems, drafts, archive, deleteditems, junkemail and every other folder discovered via `/me/mailFolders?includeHiddenFolders=false`, seeded without a `$filter` (the only filter message delta accepts, `receivedDateTime ge`, also limits which messages the delta tracks, so reads, moves and deletes of older mail would never be reported); the first round lists each folder once, which also repairs anything the offset-paged bootstrap skipped. The opaque cursor is a JSON map of folder id to deltaLink. Bodies via `/me/messages/{id}?$select=body,uniqueBody` with `Prefer: outlook.body-content-type="html"` and `/attachments` (Content-IDs selected as `microsoft.graph.fileAttachment/contentId`, since the base attachment type has none). Send via `/me/sendMail` while attachments fit its 4 MB request, otherwise via a draft (`POST /me/messages`); replies via `/me/messages/{id}/createReply` then PATCH then `/send` so Outlook threads them. Draft attachments of 3 MB and more go through `createUploadSession` in 3.125 MiB chunks; a draft whose filling fails is deleted so retries leave no orphans. Changes map to PATCH `isRead`/`flag` and POST `/move`. Batch with `$batch` (20 per call). Honor 429 `Retry-After`.
-- **SuperSparrowApp**: `AppDelegate`, `MainWindowController` (NSSplitViewController: account strip, message list, conversation), `MessageListViewController` (NSTableView, fixed 72pt rows, manual layout, cached attributed strings), `ConversationViewController` (warm `WKWebView` pool, `ss-cid` scheme handler, quick reply `NSTextView`), `ComposeWindowController`, `SearchField`, `KeyboardShortcuts`, `NotificationCenter` bridge, `DockBadge`.
+- **SSCore support folders** (`ListSupport/`, `ConversationSupport/`, `ComposeSupport/`, `ShellSupport/`): the pure, testable halves of the app's surfaces (row text and layout, the reader's render payload and shell, reply recipients and drafts, the sync line, undo order, toasts' words). `Model/AccountLabels` is the one place an account's monogram, tile letter, name and From title are derived, so every surface shows the same ones.
+- **SSDesign**: the Quire design runtime and every component, as a library the app links. See "Design" below.
+- **SuperSparrowApp**: `AppDelegate`, `MainWindowController` (NSSplitViewController: account rail, message list, conversation), `MessageListViewController` (NSTableView, fixed rows, manual layout, cached attributed strings), `ConversationViewController` (warm `WKWebView` pool, `ss-cid` scheme handler, quick reply), `ComposeWindowController`, `KeyboardRouter`, `SettingsWindowController` (SwiftUI), `NewMailNotifier`, the Dock badge, and, in debug builds, the Design Gallery (`Design/`, below).
 
 ## Data flow
 
@@ -71,11 +75,15 @@ docs/design/tokens.json ──swift scripts/tools/quire-tokens.swift──▶ So
                                                                     Sources/SSCore/ConversationSupport/QuireCSS.swift
                                                                     Tests/SSDesignTests/Generated/*.swift
                                                                     Resources/Assets.xcassets (AccentColor)
+docs/design/tokens.json ──swift scripts/tools/app-icon.swift──▶ Resources/AppIcon.icns (iconutil, macOS 15)
+                                                                Resources/AppIcon.icon (Icon Composer document, macOS 26+)
 ```
 
 - **SSDesign** (`Sources/SSDesign`): the design runtime as a library, so it can be unit-tested; the app depends on it. AppKit, SwiftUI and QuartzCore only: no SSCore, GRDB or WebKit. Generated tokens (`NSColor.q…` and `Color.q…` providers with the Graphite branch, account and avatar palettes, `QuireFont.Role`, `Quire.Space`/`Radius`/`Border`/`Elevation`/`Motion`, `Quire.Layout.<Group>.<name>`, icons, glyphs, the cheat sheet) sit in `Generated/`; beside them the hand-written runtime: `QuireFont` (cached fonts, exact line heights, the New York coverage test), `QuireEnvironment` (Graphite, Increase Contrast, Reduce Motion, Reduce Transparency as a thread-safe snapshot plus a change notification), `QuireLayerColors` (re-resolves `CGColor`s on appearance and environment changes), `Quire.Motion` (token animations, Reduce Motion fallbacks, `finishAll()`), `QuireGlyph`/`QuireSVGPath` and `QuireSymbol`.
 - **Reader CSS**: `QuireCSS.head` lives in SSCore because the reader shell is built there and SSCore does not import AppKit. It is byte-identical to the specimen's `<style>` head (`QuireCSSTests`).
-- **Accent**: `scripts/build-app.sh` compiles `Resources/Assets.xcassets` into `Contents/Resources/Assets.car` with `xcrun actool` (Xcode) and sets `NSAccentColorName = AccentColor`; without actool it warns and the bundle falls back to the system accent.
+- **Components**: `Sources/SSDesign/AppKit` holds the AppKit components: `QuireControl` and the controls built on it (`QuireButton`, `QuireIconButton`, `QuirePopUpButton`, `QuireCheckbox`, `QuireRadioGroupView`, `QuireToggle`, `QuireTextField` with its secure variant, `QuireSearchField`), `QuireBannerView`, the slips (`QuireSlipView` for toasts, `QuireUndoPanelView`, `QuireSequenceHUDView`), `QuireKeycap`, `QuireAvatarRenderer`, `QuireHairline`, and `QuireWindowChrome`, which configures and measures the main and composer windows' title bars. `Sources/SSDesign/SwiftUI` holds the Settings controls (`QuireButtonStyle`, `QuireFieldStyle`, `QuireSecureField`, `QuireRadioGroup`, `QuireBanner`, `QuireAccountRow` and the rest). The app composes them and defines no colours, fonts or metrics of its own.
+- **Accent and icon**: `scripts/build-app.sh` compiles `Resources/Assets.xcassets` and `Resources/AppIcon.icon` into `Contents/Resources/Assets.car` with `xcrun actool` (Xcode), and sets `NSAccentColorName = AccentColor` and `CFBundleIconName = AppIcon`; the drawn `AppIcon.icns` is copied beside it as `CFBundleIconFile`. Without actool it warns: the bundle falls back to the system accent and the `.icns` alone (no dark or tinted icon on macOS 26 and later). A macOS app icon set cannot carry dark or tinted images, which is why the icon is an Icon Composer document.
+- **Design Gallery** (`Sources/SuperSparrowApp/Design`, debug builds only): Debug › Design Gallery, or `--gallery`, opens every SSDesign component in every state on a page laid out like section D of `docs/design/specimen.html`, with a bar that forces the appearance and the Quire environment (Graphite, Increase Contrast, Reduce Motion, Reduce Transparency) for that window. `--snapshot-gallery=<png>` renders the whole page. Its page furniture (`DesignGalleryStudio`) copies the specimen's, which is not a Quire token and appears on no other screen.
 - **Tests**: `Tests/SSDesignTests` asserts every contrast pair in four modes (and every Graphite pair), the account-palette rules, the radius scale, row metrics across scripts, the glyph paths, and that the runtime still equals `tokens.json`. The colour math is a port of `docs/design/source/colorlib.py`; a pair that fails in Swift but passes in python is a port bug.
 
 Regenerate after changing tokens:
@@ -84,7 +92,32 @@ Regenerate after changing tokens:
 sh docs/design/source/make.sh               # tokens.json, the spec and the specimen, from the python sources
 swift scripts/tools/quire-tokens.swift      # Swift runtime, reader CSS, generated tests, accent asset
 swift scripts/tools/quire-tokens.swift --check   # exits 1 and lists stale outputs; scripts/test.sh runs it first
+swift scripts/tools/app-icon.swift          # the app icon, after a change to the mark, layout.appIcon or the inks
 ```
+
+## Launch options
+
+Debug aids, read by `LaunchOptions` (and `--snapshot-state` by the main window). They never touch the user's mail: the welcome and alert snapshots run over a throwaway store, and the others need `--demo`. Every path is absolute. Options marked “debug” exist only in debug builds.
+
+| Option | What it does |
+|---|---|
+| `--demo` | Opens the two made-up demo mailboxes (`demo.sqlite`, §5.43) instead of the user's accounts. |
+| `--reset-demo` | Wipes the demo store first; implies `--demo`. |
+| `--appearance=light` / `=dark` | Forces the app's appearance, so one machine can check both. |
+| `--snapshot=<png>` | In demo mode, opens the first inbox conversation and writes the main window with the reader composited in. The app keeps running. |
+| `--snapshot-compose=<png>` | In demo mode, writes a reply composer for the first inbox conversation. The app keeps running. |
+| `--snapshot-state=<a,b,…>` | Debug. Puts the main window in named states before `--snapshot`: `key`, `notkey`, `several` (three conversations selected), `minimal`, `narrowed`, `search`, `toast`, `adding`, `signin`, `reconnect`, `focus-rail`, `focus-action`, `hover-demo`, `hover-masthead`, `ic`, `graphite`. |
+| `--snapshot-welcome=<png>` | Writes the welcome screen over a throwaway store, then quits. |
+| `--snapshot-welcome-states=<png>` | Every welcome state of §5.39, stacked, then quits. |
+| `--snapshot-settings=<png>` | Every Settings tab, stacked, then quits (implies `--demo`). Settings › OAuth shows the configured client ID. |
+| `--snapshot-settings-states=<png>` | The Settings states of §5.40 (adding, add failed, reconnecting, empty, the OAuth notices, Saved), stacked, then quits. |
+| `--snapshot-cheatsheet=<png>` | The main window with the keyboard cheat sheet open, then quits. |
+| `--snapshot-hud=<png>` | The main window with the g-sequence HUD showing, then quits. |
+| `--snapshot-alerts=<png>` | The alert inventory (§5.33) as the system draws it, then quits. |
+| `--gallery` | Debug. Opens the Design Gallery at launch. |
+| `--snapshot-gallery=<png>` | Debug. Writes the whole Design Gallery page, then quits. |
+
+For example: `scripts/build-app.sh debug && dist/SuperSparrow.app/Contents/MacOS/SuperSparrow --demo --reset-demo --appearance=dark --snapshot-state=key --snapshot=/tmp/main-dark.png`.
 
 ## Performance budgets
 
@@ -111,8 +144,22 @@ Rules that keep the budgets: search observations fetch their first page off the 
 
 ## Testing
 
+`scripts/test.sh` checks that the generated design files match `tokens.json`, then runs every target:
+
+- **SSCoreTests**, **SSGmailTests**, **SSGraphTests**: the store, engine, providers, sanitizer and the surfaces' pure halves.
+- **SSDesignTests**: the generated contrast, palette, radius and metric tests (`Generated/`, never edited) and the hand-written component, font, glyph and window-chrome tests.
+- **SuperSparrowAppTests**: the app's own windows. `MainWindowHarness` builds a main window over a throwaway store in a temporary directory, and the draft tests point the shared draft store at a temporary folder, so no test touches real mail, real drafts, the Keychain or the network.
+
+Gated runs, skipped unless asked for:
+
+- `SS_PERF=1 swift test -c release --filter …`: the list benchmark (`MessageListPerformanceTests`, `SS_LIST_PERF_MESSAGES` sets the mailbox size, 100,000 by default), the store, row-text, layout and sanitizer throughput measurements.
+- `SS_UI_TESTS=1 swift test --filter …`: renders that write files or need a live web view (`ConversationRowStatesRenderTests`, the reader shell's web view test).
+- `QUIRE_GALLERY_OUT=<dir>` (`ComponentGalleryTests`) and `QUIRE_GALLERY_DIR=<dir>` (`SettingsGalleryTests`): the component galleries in all four modes, as PNGs.
+
+What each layer covers:
+
 - Store: contract tests against in-memory GRDB covering upsert, conversation summaries, the unified query, pending-operations-win, FTS, and paging.
 - Engine: fake provider with scripted pages, throttling, reset, and uncertain outcomes; assert store state after each step and after a simulated restart.
 - Providers: JSON fixtures recorded from real APIs (anonymized) decoded through the real mappers; MIME builder round-trips.
 - Sanitizer: attack fixtures (script injection, event handlers, `javascript:` URLs, CSS exfiltration, cid spoofing) and real Gmail/Outlook HTML shapes.
-- UI: a smoke test that launches the app with a seeded database and asserts first paint under budget.
+- UI: the main window, list, multi-selection, menus, undo order, drafts, sign-in and the composer's chrome through `SuperSparrowAppTests`; the snapshots above for looking at.
