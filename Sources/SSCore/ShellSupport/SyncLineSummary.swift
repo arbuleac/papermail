@@ -125,7 +125,11 @@ public struct SyncLineSummary: Equatable, Sendable {
         // A status can outlive its account by a moment (removal, a store swapped underneath); only accounts the
         // shell shows take part.
         let statuses = input.statuses.filter { byID[$0.accountID] != nil }
-        let tooltip = tooltipText(statuses: statuses, accounts: byID, signIn: input.signIn, numberFormatter: numberFormatter)
+        // Offline: no network path, or everything that is not idle failed on the network.
+        let busy = statuses.filter { isActive($0) }
+        let isOffline = !input.isNetworkReachable || (!busy.isEmpty && busy.allSatisfy { $0.phase == .error && isNetworkFailure($0) })
+        let tooltip = tooltipText(statuses: statuses, accounts: byID, signIn: input.signIn, isOffline: isOffline, isDemo: input.isDemo,
+                                  numberFormatter: numberFormatter)
         func name(_ id: AccountID) -> String {
             byID[id].map(AccountMonogram.name(for:)) ?? "an account"
         }
@@ -158,14 +162,13 @@ public struct SyncLineSummary: Equatable, Sendable {
             return SyncLineSummary(state: .error, glyph: .alert, lead: lead, detail: detail, action: .retry(ids), isAlert: true,
                                    tooltip: tooltip)
         }
-        // 4. Offline: no network path, or everything that is not idle failed on the network.
-        let busy = statuses.filter { isActive($0) }
-        let networkFailed = statuses.filter { $0.phase == .error && isNetworkFailure($0) }
-        if !input.isNetworkReachable || (!busy.isEmpty && busy.allSatisfy { $0.phase == .error && isNetworkFailure($0) }) {
+        // 4. Offline.
+        if isOffline {
             return SyncLineSummary(state: .offline, glyph: .offline, lead: "Offline", detail: "changes will sync when you're back",
                                    tooltip: tooltip)
         }
         // 5. Slow or retrying: a network failure while others are online, or the server asked us to slow down.
+        let networkFailed = statuses.filter { $0.phase == .error && isNetworkFailure($0) }
         let slow = networkFailed + statuses.filter(isRateLimited)
         if !slow.isEmpty {
             let ids = slow.map(\.accountID)
@@ -241,14 +244,20 @@ public struct SyncLineSummary: Equatable, Sendable {
 
     // MARK: Tooltip
 
-    /// “Contoso: Downloading 3,412 messages · Fabrikam: Sign in required · Gmail: Offline”.
-    static func tooltipText(statuses: [AccountSyncStatus], accounts: [AccountID: Account], signIn: SignIn?,
-                            numberFormatter: (Int) -> String) -> String? {
+    /// “Contoso: Downloading 3,412 messages · Fabrikam: Sign in required · Gmail: Offline”. While the line says
+    /// Offline, every account that has not failed for another reason says so too; demo accounts that are not
+    /// doing anything read as Settings shows them, “Made up, nothing syncs”.
+    static func tooltipText(statuses: [AccountSyncStatus], accounts: [AccountID: Account], signIn: SignIn?, isOffline: Bool,
+                            isDemo: Bool, numberFormatter: (Int) -> String) -> String? {
         let parts = statuses.compactMap { status -> String? in
             guard let account = accounts[status.accountID] else { return nil }
             let words: String
             if case .reconnecting(let id)? = signIn, id == status.accountID {
                 words = "Waiting for your browser"
+            } else if isOffline, status.phase != .needsReauth, status.phase != .error || isNetworkFailure(status) {
+                words = "Offline"
+            } else if isDemo, status.phase == .idle || (status.phase == .paused && !isRateLimited(status)) {
+                words = "Made up, nothing syncs"
             } else {
                 words = accountWords(status, numberFormatter: numberFormatter)
             }

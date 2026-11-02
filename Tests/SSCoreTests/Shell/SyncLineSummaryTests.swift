@@ -157,4 +157,19 @@ final class SyncLineSummaryTests: XCTestCase {
                       status(gmail, .error, message: "network: x")])
         XCTAssertEqual(s.tooltip, "Contoso: Downloading 3412 messages · Fabrikam: Sign in required · Gmail: Retrying shortly")
     }
+
+    func testTooltipSaysOfflineWhileTheLineDoes() {
+        let noPath = make([status(contoso, .idle), status(fabrikam, .needsReauth), status(gmail, .error, message: "server 500: x")],
+                          reachable: false)
+        XCTAssertEqual(noPath.tooltip, "Contoso: Offline · Fabrikam: Sign in required · Gmail: Couldn't sync")
+        let allNetwork = make([status(contoso, .error, message: "network: down"), status(gmail, .idle)], accounts: [contoso, gmail])
+        XCTAssertEqual(allNetwork.state, .offline)
+        XCTAssertEqual(allNetwork.tooltip, "Contoso: Offline · Gmail: Offline")
+    }
+
+    func testDemoTooltipUsesTheDemoAccountWords() {
+        let demo = make([status(contoso, .idle), status(fabrikam, .bootstrapping, progress: 12)], accounts: [contoso, fabrikam],
+                        isDemo: true)
+        XCTAssertEqual(demo.tooltip, "Contoso: Made up, nothing syncs · Fabrikam: Downloading 12 messages")
+    }
 }
