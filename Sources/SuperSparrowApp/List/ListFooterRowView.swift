@@ -127,7 +127,8 @@ final class ListFooterRowView: NSTableRowView {
     // MARK: Accessibility
 
     override func isAccessibilityElement() -> Bool { phase != .idle }
-    override func accessibilityRole() -> NSAccessibility.Role? { .staticText }
+    /// A group while failed, so VoiceOver reaches the Retry button inside it; static text never has children.
+    override func accessibilityRole() -> NSAccessibility.Role? { phase == .failed ? .group : .staticText }
     override func accessibilityLabel() -> String? {
         switch phase {
         case .idle: return nil

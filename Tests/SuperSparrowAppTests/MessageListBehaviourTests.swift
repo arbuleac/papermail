@@ -57,6 +57,26 @@ final class MessageListBehaviourTests: XCTestCase {
         XCTAssertEqual(list.tableView.numberOfRows, list.layout.rowCount)
     }
 
+    func testRowEditsDoNotAnimate() throws {
+        // Nothing in the list moves on its own (spec §1, §5.7): new mail at the top shifts the rows below at once.
+        let now = Date()
+        let store = try Support.store(threads: 20, now: now, spacing: 600)
+        let (list, window) = Support.host(store: store, settings: Support.settings())
+        window.displayIfNeeded()
+        try store.upsertMessages([MessageMetadata(
+            id: MessageID(accountID: Support.accountA.id, providerID: "new-on-top"),
+            conversationID: ConversationID(accountID: Support.accountA.id, providerID: "new-thread"),
+            subject: "New", snippet: "Arrives at the top", from: Support.senders[2], date: now.addingTimeInterval(60), roles: [.inbox],
+            isRead: false, isStarred: false, hasAttachments: false
+        )])
+        Support.spin(until: { list.conversations.first?.id.providerID == "new-thread" }, timeout: 2)
+        var animated: [String] = []
+        list.tableView.enumerateAvailableRowViews { rowView, row in
+            if let keys = rowView.layer?.animationKeys(), !keys.isEmpty { animated.append("row \(row): \(keys)") }
+        }
+        XCTAssertEqual(animated, [], "row views carry no animation after an insert")
+    }
+
     func testHeadsAreHiddenInShortViewsAndInSearch() throws {
         let short = Support.host(store: try Support.store(threads: 7), settings: Support.settings()).list
         XCTAssertFalse(short.layout.showsHeads)
@@ -75,6 +95,23 @@ final class MessageListBehaviourTests: XCTestCase {
         XCTAssertFalse(list.tableView.delegate?.tableView?(list.tableView, shouldSelectRow: footer) ?? true)
         XCTAssertFalse(list.tableView.delegate?.tableView?(list.tableView, shouldSelectRow: 0) ?? true, "the first row is a head")
         XCTAssertEqual(list.tableView.delegate?.tableView?(list.tableView, heightOfRow: footer), Quire.Layout.ListFooter.height)
+    }
+
+    func testClickingAHeadOrTheFooterKeepsTheSelection() throws {
+        let store = try Support.store(threads: 30)
+        let (list, _) = Support.host(store: store, query: ConversationQuery(limit: 10), settings: Support.settings())
+        list.selectNext()
+        list.selectNext()
+        let selected = list.tableView.selectedRowIndexes
+        let footer = try XCTUnwrap(list.layout.footerRow)
+        let ask = { (rows: IndexSet) in
+            list.tableView.delegate?.tableView?(list.tableView, selectionIndexesForProposedSelection: rows)
+        }
+        XCTAssertEqual(ask(IndexSet(integer: 0)), selected, "a click on the first head leaves the selection alone")
+        XCTAssertEqual(ask(IndexSet(integer: footer)), selected, "so does a click on the footer")
+        XCTAssertEqual(ask(IndexSet()), IndexSet(), "a click below the rows still deselects")
+        let row = try XCTUnwrap(list.layout.row(ofConversation: 4))
+        XCTAssertEqual(ask(IndexSet([0, row])), IndexSet(integer: row), "heads drop out of a mixed proposal")
     }
 
     func testTheFooterGoesAtTheTrueEnd() throws {
@@ -100,6 +137,7 @@ final class MessageListBehaviourTests: XCTestCase {
         window.displayIfNeeded()
         XCTAssertTrue(Support.spin(until: { footer()?.phase == .failed }, timeout: 2), "a failed page shows the failed tail")
         XCTAssertEqual(footer()?.accessibilityLabel(), "Couldn't load older mail")
+        XCTAssertEqual(footer()?.accessibilityRole(), .group, "VoiceOver reaches Retry inside the failed tail")
         XCTAssertEqual(list.conversations.count, 10)
 
         // A click on Retry reaches the link inside the table row and loads the page.

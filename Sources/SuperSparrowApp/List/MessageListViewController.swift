@@ -519,10 +519,12 @@ final class MessageListViewController: NSViewController {
         itemIDs = layout.itemIDs(conversationIDs: conversations.map(\.id))
         suppressSelectionCallbacks = true
         withoutAnimation {
+            var rowsMoved = true
             if oldItemIDs.isEmpty || itemIDs.isEmpty {
                 tableView.reloadData()
             } else {
                 let diff = ListDiff.compute(old: oldItemIDs, new: itemIDs)
+                rowsMoved = !diff.isEmpty
                 if diff.changeCount > reloadThreshold {
                     tableView.reloadData()
                 } else if !diff.isEmpty {
@@ -537,9 +539,10 @@ final class MessageListViewController: NSViewController {
                         tableView.insertRows(at: IndexSet(diff.insertions))
                     }
                     tableView.endUpdates()
-                    tableView.refreshHoverAfterRowEdits()
                 }
             }
+            // Edits and reloads can put another conversation under the hovered index.
+            if rowsMoved { tableView.refreshHoverAfterRowEdits() }
             // Changed summaries, and rows whose time format moved with the heads, pick up new content; unchanged
             // rows hit the cache and keep the content they draw.
             reconfigureVisibleRows()
@@ -798,6 +801,7 @@ final class MessageListViewController: NSViewController {
             withoutAnimation {
                 tableView.reloadData()
             }
+            tableView.refreshHoverAfterRowEdits()
             syncTableSelection(scroll: true)
             skeletonView.density = density
         } else {
@@ -911,8 +915,13 @@ extension MessageListViewController: NSTableViewDelegate {
         layout.conversationIndex(atRow: row) != nil
     }
 
+    /// AppKit asks this instead of `shouldSelectRow` for clicks. A click on a head or the footer proposes only
+    /// that row; filtering it out would leave an empty set and clear the selection, so such a click keeps the
+    /// selection as it is. A click on empty space below the rows still proposes nothing and still deselects.
     func tableView(_ tableView: NSTableView, selectionIndexesForProposedSelection proposedSelectionIndexes: IndexSet) -> IndexSet {
-        IndexSet(proposedSelectionIndexes.filter { layout.conversationIndex(atRow: $0) != nil })
+        let selectable = IndexSet(proposedSelectionIndexes.filter { layout.conversationIndex(atRow: $0) != nil })
+        if selectable.isEmpty, !proposedSelectionIndexes.isEmpty { return tableView.selectedRowIndexes }
+        return selectable
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
