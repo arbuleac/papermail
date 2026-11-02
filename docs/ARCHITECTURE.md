@@ -133,6 +133,9 @@ Measured with `os_signpost` on a synthetic 100,000-message mailbox (see `Tests/S
 | Launch to usable inbox | 500 ms |
 | List refresh after a sync transaction | 50 ms |
 | New mail visible with polling | 30 s |
+| Sanitize a 200 KB newsletter (sync time, off the main thread) | ≤ 2.5 × the SwiftSoup parse of the same HTML, about 21 ms on M-series (`SanitizerThroughputTests`) |
+
+The sanitizer's budget is relative because the parse is a floor the module cannot go under (about 8.5 ms for that fixture on an M-series Mac); what sanitizing adds (the scrub, the CSS filter and its design facts, quote detection, text extraction, one serialisation) must stay within 1.5 parses on top. It runs at sync time and in the design-facts backfill, never when a message opens.
 
 Rules that keep the budgets: search observations fetch their first page off the main thread and deliver only when the rows change; fixed row heights; no Auto Layout inside list rows; attributed strings built once per row and cached by conversation id plus a version; avatars decoded off the main thread, initials painted first; `DatabasePool` reads never wait on sync writes; sync writes batched 200 messages per transaction; no network on the launch path.
 

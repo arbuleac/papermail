@@ -154,8 +154,22 @@ final class RenderPayloadBuilderTests: XCTestCase {
             accounts: F.accounts,
             now: now
         )
-        XCTAssertEqual(payload.messages[0].html, "<div class=\"ss-plain\">Hello &lt;there&gt;<br>World</div>")
+        XCTAssertEqual(payload.messages[0].html, "<div class=\"ss-body ss-plain\"><p>Hello &lt;there&gt;<br>World</p></div>")
         XCTAssertTrue(payload.messages[0].hasBody)
+    }
+
+    /// m2: a fallback is set like every plain body: real paragraphs (the reading page's gap, not empty 24 pt
+    /// lines), links, and folded quotes.
+    func testTextFallbackHasParagraphsLinksAndQuotes() {
+        let message = F.message("m1")
+        let text = "Para one\n\nPara two https://example.com\n\n> quoted line"
+        let payload = builder.build(messages: [message], bodies: [message.id: F.body(html: "", text: text)], accounts: F.accounts, now: now)
+        let html = payload.messages[0].html
+        XCTAssertTrue(html.hasPrefix("<div class=\"ss-body ss-plain\"><p>Para one</p><p>Para two "), html)
+        XCTAssertFalse(html.contains("<br><br>"))
+        XCTAssertTrue(html.contains("href=\"https://example.com\""), html)
+        XCTAssertTrue(payload.messages[0].hasQuotedContent)
+        XCTAssertEqual(payload.messages[0].typesetting, .plain)
     }
 
     func testPlainTextFallbackWhenOnlyExtractedTextExists() {
@@ -166,7 +180,7 @@ final class RenderPayloadBuilderTests: XCTestCase {
             accounts: F.accounts,
             now: now
         )
-        XCTAssertEqual(payload.messages[0].html, "<div class=\"ss-plain\">Extracted</div>")
+        XCTAssertEqual(payload.messages[0].html, "<div class=\"ss-body ss-plain\"><p>Extracted</p></div>")
     }
 
     func testSnippetFallbackWhenBodyIsMissing() {

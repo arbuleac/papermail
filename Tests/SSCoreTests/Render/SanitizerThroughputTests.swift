@@ -20,16 +20,16 @@ final class SanitizerThroughputTests: XCTestCase {
         let sanitizeMs = Self.millisecondsPerIteration(iterations) {
             _ = sanitizer.sanitize(body, messageID: RenderTestSupport.messageID)
         }
-        // The parse alone is a floor this module cannot go under (about 8 ms for this fixture on an M-series
-        // Mac, above the 5 ms target by itself), so the guard is on what sanitizing adds on top of it: the
-        // scrub, quote detection, text extraction and a DOM serialisation together stay under one parse.
+        // The parse alone is a floor this module cannot go under (about 8.5 ms for this fixture on an M-series
+        // Mac), so the budget in docs/ARCHITECTURE.md is relative: the scrub, the CSS filter, quote detection,
+        // text extraction and a DOM serialisation together stay within 1.5 parses on top of the parse.
         let parseMs = try Self.millisecondsPerIteration(iterations) { _ = try SwiftSoup.parseHTML(html) }
         print(String(
-            format: "HTMLSanitizer: %.2f ms per %d KB newsletter over %d iterations (target under 5 ms; SwiftSoup parse alone %.2f ms)",
-            sanitizeMs, html.utf8.count / 1024, iterations, parseMs
+            format: "HTMLSanitizer: %.2f ms per %d KB newsletter over %d iterations (budget %.2f ms = 2.5 × the SwiftSoup parse, %.2f ms)",
+            sanitizeMs, html.utf8.count / 1024, iterations, parseMs * 2.5, parseMs
         ))
         #if !DEBUG
-        XCTAssertLessThan(sanitizeMs, max(5, parseMs * 2.5), "sanitizing must not cost more than 1.5 parses on top of the parse")
+        XCTAssertLessThan(sanitizeMs, parseMs * 2.5, "sanitizing must not cost more than 1.5 parses on top of the parse")
         #endif
     }
 

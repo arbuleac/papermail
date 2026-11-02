@@ -274,8 +274,11 @@ public struct RenderPayloadBuilder: Sendable {
         return textFallbackHTML(message.snippet)
     }
 
+    /// A body with no rendered HTML set from its text the way every plain body is (`PlainTextRenderer`:
+    /// paragraphs, so the reading page's 12 pt gap applies instead of empty 24 pt lines, links and folded
+    /// quotes), in the sanitizer's plain wrapper. String work only: opening a message never parses HTML.
     public static func textFallbackHTML(_ text: String) -> String {
-        "<div class=\"ss-plain\">" + escapeHTML(text).replacingOccurrences(of: "\n", with: "<br>") + "</div>"
+        plainBodyPrefix + PlainTextRenderer.render(text).html + "</div>"
     }
 
     public static func escapeHTML(_ text: String) -> String {
