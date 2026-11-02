@@ -315,6 +315,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         }
         inboxMonitor.onFailures = { [weak self] failures in self?.operationsFailed(failures) }
         notifier.onOpenConversation = { [weak self] id in self?.reveal(id) }
+        notifier.conversationOpenInKeyWindow = { [weak self] in
+            guard let self, self.window?.isKeyWindow == true else { return nil }
+            return self.conversation.currentConversationID
+        }
         activity.onChange = { [weak self] in self?.refreshSyncLine() }
     }
 

@@ -3,11 +3,20 @@ import SSCore
 import UserNotifications
 import os
 
-/// Posts a notification for unread inbox conversations that arrive after launch while the app is in the
-/// background, and routes a click on one back to that conversation (spec §5.41). macOS draws them; the words
-/// come from `NewMailNotificationContent`. No actions in v1.
+/// Posts a notification for unread inbox conversations that arrive after launch, and routes a click on one back
+/// to that conversation (spec §5.41). macOS draws them; the words come from `NewMailNotificationContent`. No
+/// actions in v1. While the app is frontmost they come without sound, and never for the conversation open in
+/// a key window, which the user is already reading.
 @MainActor
 final class NewMailNotifier: NSObject, UNUserNotificationCenterDelegate {
+    /// One notification to post.
+    struct Post: Equatable {
+        var id: String
+        var content: NewMailNotificationContent
+        var account: AccountID
+        var conversation: ConversationID?
+        var playsSound: Bool
+    }
     nonisolated private static let log = Logger(subsystem: "io.supersparrow.mac", category: "notifications")
     nonisolated private static let accountKey = "account"
     nonisolated private static let conversationKey = "conversation"
@@ -17,6 +26,10 @@ final class NewMailNotifier: NSObject, UNUserNotificationCenterDelegate {
     var accountsInFirstSync: Set<AccountID> = []
     /// Set while the Inbox filter is Focused: Other mail then does not notify.
     var hidesOtherMail = false
+    /// The app is frontmost: notifications come without sound.
+    var isFrontmost: () -> Bool = { NSApp.isActive }
+    /// The conversation open in a key window, which never notifies: its new message is already on screen.
+    var conversationOpenInKeyWindow: () -> ConversationID? = { nil }
 
     private let settings: AppSettings
     private let launchDate = Date()
@@ -53,17 +66,28 @@ final class NewMailNotifier: NSObject, UNUserNotificationCenterDelegate {
 
     /// Called with the unified inbox on every change. The first call only records what is already there.
     func inboxDidChange(_ rows: [ConversationSummary], accounts: [AccountID: Account]) {
+        let posts = plan(rows, accounts: accounts, now: Date())
+        guard let center else { return }
+        for post in posts { self.post(post, to: center) }
+    }
+
+    /// What `inboxDidChange` posts for `rows`, recording them as seen. Internal so the rules are tested without a
+    /// notification center.
+    func plan(_ rows: [ConversationSummary], accounts: [AccountID: Account], now: Date) -> [Post] {
         defer { seeded = true }
+        let open = conversationOpenInKeyWindow()
         var fresh: [ConversationSummary] = []
         for row in rows where seenLatest.insert(row.latestMessageID).inserted {
             // Bootstrap pages land after launch too; only mail dated after launch is new to the user.
             guard seeded, row.unreadCount > 0, row.latestDate > launchDate.addingTimeInterval(-60) else { continue }
             guard !accountsInFirstSync.contains(row.id.accountID) else { continue }
             if hidesOtherMail, row.inboxSection == .other { continue }
+            if row.id == open { continue }
             fresh.append(row)
         }
-        guard !fresh.isEmpty, settings.notificationsEnabled, !NSApp.isActive, let center else { return }
-        let now = Date()
+        guard !fresh.isEmpty, settings.notificationsEnabled else { return [] }
+        let sound = !isFrontmost()
+        var posts: [Post] = []
         for (accountID, rows) in Dictionary(grouping: fresh, by: \.id.accountID) {
             let accountName = accounts[accountID].map(AccountLabels.name(for:)) ?? "Mail"
             let window = NewMailNotificationContent.summaryWindow
@@ -72,25 +96,30 @@ final class NewMailNotifier: NSObject, UNUserNotificationCenterDelegate {
             recentPosts[accountID] = recent
             if recent.count > NewMailNotificationContent.summaryThreshold {
                 // One summary per account replaces the run: the same identifier updates it in place.
-                post(center, id: "summary-\(accountID.rawValue)",
-                     content: .summary(count: recent.count, accountName: accountName), account: accountID, conversation: nil)
+                posts.append(Post(id: "summary-\(accountID.rawValue)", content: .summary(count: recent.count, accountName: accountName),
+                                  account: accountID, conversation: nil, playsSound: sound))
                 continue
             }
             for row in rows {
-                post(center, id: row.latestMessageID.providerID,
-                     content: .conversation(row, accountName: accountName, showPreviews: settings.showPreviews),
-                     account: accountID, conversation: row.id)
+                posts.append(Post(id: row.latestMessageID.providerID,
+                                  content: .conversation(row, accountName: accountName, showPreviews: settings.showPreviews),
+                                  account: accountID, conversation: row.id, playsSound: sound))
             }
         }
+        return posts
     }
 
-    private func post(_ center: UNUserNotificationCenter, id: String, content made: NewMailNotificationContent, account: AccountID,
-                      conversation: ConversationID?) {
+    private func post(_ post: Post, to center: UNUserNotificationCenter) {
+        let made = post.content
+        let account = post.account
+        let conversation = post.conversation
+        let id = post.id
         let content = UNMutableNotificationContent()
         content.title = made.title
         content.subtitle = made.subtitle
         if let body = made.body { content.body = body }
-        content.sound = .default
+        // Off while the app is frontmost (§5.41); the banner still shows (`willPresent`).
+        content.sound = post.playsSound ? .default : nil
         // Grouped per account; a click opens and selects the conversation.
         content.threadIdentifier = account.rawValue
         if let conversation {
@@ -109,8 +138,9 @@ final class NewMailNotifier: NSObject, UNUserNotificationCenterDelegate {
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        // The app is in front: the list already shows the new row, and sound is off while frontmost.
-        completionHandler([])
+        // The app is in front: the notification shows, without sound (§5.41). The conversation open in a key
+        // window never got one.
+        completionHandler([.banner, .list])
     }
 
     nonisolated func userNotificationCenter(
