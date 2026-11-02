@@ -28,7 +28,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
 
     private let client: MailClient
     private let accounts: [Account]
-    private let mode: ComposeMode
+    let mode: ComposeMode
     private var account: Account
     /// This message's identity in `ComposeDraftStore`.
     private(set) var draftID = UUID()
@@ -38,6 +38,16 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
 
     /// The account the message is sent from.
     var accountID: AccountID { account.id }
+
+    /// The body as plain text (the app's tests read it).
+    var bodyText: String { textView.string }
+
+    /// The message this composer replies to (not a forward): the reader disables its quick reply while one
+    /// of its conversation's messages has a reply open here (§5.18).
+    var repliesTo: MessageID? {
+        if case .reply(let id, _) = mode { return id }
+        return nil
+    }
 
     private let content = ComposeContentView()
     private let fromPopup: QuirePopUpButton
@@ -90,14 +100,33 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
 
     /// Opens a composer and keeps it alive until its window closes. A reply or forward that was kept as a
     /// draft opens with what was written; one already open comes forward.
+    ///
+    /// `body` is text already written for it (the quick reply's, §5.18): it opens in the editor with the caret
+    /// at its end, below anything a kept draft held. With `attach`, the Attach Files panel follows at once.
     @discardableResult
-    static func present(client: MailClient, account: Account, accounts: [Account], mode: ComposeMode) -> ComposeWindowController {
-        if let kept = ComposeDraftStore.shared.keptDraft(for: mode, accounts: accounts) {
-            return present(client: client, accounts: accounts, draft: kept)
+    static func present(client: MailClient, account: Account, accounts: [Account], mode: ComposeMode, body: String = "",
+                        attach: Bool = false) -> ComposeWindowController {
+        let typed = body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : body
+        let controller: ComposeWindowController
+        if var kept = ComposeDraftStore.shared.keptDraft(for: mode, accounts: accounts) {
+            if !typed.isEmpty {
+                let joined = NSMutableAttributedString(attributedString: kept.body)
+                if joined.length > 0 { joined.append(NSAttributedString(string: "\n\n")) }
+                joined.append(NSAttributedString(string: typed))
+                kept.body = joined
+            }
+            controller = present(client: client, accounts: accounts, draft: kept)
+        } else {
+            controller = ComposeWindowController(client: client, account: account, accounts: accounts, mode: mode)
+            if !typed.isEmpty { controller.textView.replaceContents(with: NSAttributedString(string: typed)) }
+            controller.show()
+            controller.beginPrefill()
         }
-        let controller = ComposeWindowController(client: client, account: account, accounts: accounts, mode: mode)
-        controller.show()
-        controller.beginPrefill()
+        if !typed.isEmpty {
+            controller.textView.setSelectedRange(NSRange(location: (controller.textView.string as NSString).length, length: 0))
+            controller.draftChanged(body: true)
+        }
+        if attach { controller.attachFile(nil) }
         return controller
     }
 

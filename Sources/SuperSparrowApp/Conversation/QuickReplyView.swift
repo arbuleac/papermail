@@ -33,6 +33,8 @@ final class QuickReplyView: NSView {
     /// The bar's height changed; the owner moves the web view's bottom inset, once per change.
     var onHeightChange: ((CGFloat) -> Void)?
     var onOpenInComposer: ((String, Mode) -> Void)?
+    /// Attach (⇧⌘A): the reply moves to the composer, which then asks for the files.
+    var onAttach: ((String, Mode) -> Void)?
     var onUndo: (() -> Void)?
     var onShowDraft: (() -> Void)?
     /// A click on the field while a composer holds this conversation's draft.
@@ -67,7 +69,16 @@ final class QuickReplyView: NSView {
 
     /// A composer window holds this conversation's draft: the field is a quiet `fill` that brings it forward.
     var isComposerOpen = false {
-        didSet { if oldValue != isComposerOpen { updatePlaceholder(); needsDisplay = true; needsLayout = true } }
+        didSet {
+            guard oldValue != isComposerOpen else { return }
+            if isComposerOpen { blur() }
+            // VoiceOver hears a dimmed field that cannot be typed in; a click still brings the composer forward.
+            textView.setAccessibilityEnabled(!isComposerOpen)
+            updatePlaceholder()
+            updateHeight(animated: false)
+            needsDisplay = true
+            needsLayout = true
+        }
     }
 
     var text: String {
@@ -163,6 +174,9 @@ final class QuickReplyView: NSView {
         textView.delegate = self
         textView.onCommandReturn = { [weak self] in self?.sendPressed() }
         textView.onOpenInComposer = { [weak self] in self?.openInComposerPressed() }
+        textView.onAttach = { [weak self] in self?.attachPressed() }
+        // The placeholder is a separate label that goes away while typing, so the field carries its own name.
+        textView.setAccessibilityLabel("Reply")
         textView.onEscape = { [weak self] in self?.escape() }
         textView.onFocusChange = { [weak self] focused in self?.focusDidChange(focused) }
 
@@ -170,6 +184,7 @@ final class QuickReplyView: NSView {
         placeholder.maximumNumberOfLines = 1
         placeholder.cell?.truncatesLastVisibleLine = true
         placeholder.isSelectable = false
+        placeholder.setAccessibilityElement(false)
         addSubview(placeholder)
 
         restSend.target = self
@@ -185,7 +200,7 @@ final class QuickReplyView: NSView {
         }
         addSubview(tabs)
         attach.target = self
-        attach.action = #selector(openInComposerPressed)
+        attach.action = #selector(attachPressed)
         attach.toolTip = "Attach Files…  ⇧⌘A"
         addSubview(attach)
         openInComposer.target = self
@@ -558,6 +573,10 @@ final class QuickReplyView: NSView {
         onOpenInComposer?(text, mode)
     }
 
+    @objc private func attachPressed() {
+        if let onAttach { onAttach(text, mode) } else { onOpenInComposer?(text, mode) }
+    }
+
     @objc private func statusLabelClicked() {
         if status == .error { onOpenInComposer?(text, mode) }
     }
@@ -570,9 +589,10 @@ final class QuickReplyView: NSView {
         }
     }
 
+    /// The owner applies the window's Esc order (§6.1: a toast first, then back to the list); with no owner the
+    /// field just lets go of focus. The text stays either way.
     private func escape() {
-        blur()
-        onEscape?()
+        if let onEscape { onEscape() } else { blur() }
     }
 
     private func focusDidChange(_ focused: Bool) {
@@ -595,6 +615,7 @@ final class QuickReplyView: NSView {
         } else {
             words = replyName.isEmpty ? "Reply…" : "Reply to \(replyName)…"
         }
+        textView.setAccessibilityPlaceholderValue(words)
         placeholder.attributedStringValue = ReaderFonts.fieldString(QuireFont.attributedString(words, role: .writing, color: .qInk3))
     }
 
@@ -657,11 +678,12 @@ extension QuickReplyView: NSTextViewDelegate {
     }
 }
 
-/// Catches the keys the delegate protocol cannot: ⌘↩ is not a text command, ⇧⌘R opens the composer, and
-/// Escape must blur rather than cancel completion.
+/// Catches the keys the delegate protocol cannot: ⌘↩ is not a text command, ⇧⌘R opens the composer, ⇧⌘A
+/// attaches there, and Escape must go to the owner rather than cancel completion.
 private final class QuickReplyTextView: NSTextView {
     var onCommandReturn: (() -> Void)?
     var onOpenInComposer: (() -> Void)?
+    var onAttach: (() -> Void)?
     var onEscape: (() -> Void)?
     var onFocusChange: ((Bool) -> Void)?
 
@@ -673,6 +695,10 @@ private final class QuickReplyTextView: NSTextView {
         let chord = ReaderShortcuts.chord(event.modifierFlags.rawValue)
         if chord == ReaderShortcuts.shift | ReaderShortcuts.command, event.charactersIgnoringModifiers?.lowercased() == "r" {
             onOpenInComposer?()
+            return
+        }
+        if chord == ReaderShortcuts.shift | ReaderShortcuts.command, event.charactersIgnoringModifiers?.lowercased() == "a" {
+            onAttach?()
             return
         }
         super.keyDown(with: event)

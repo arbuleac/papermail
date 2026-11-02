@@ -40,8 +40,11 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     private(set) var currentConversationID: ConversationID?
     private(set) var currentMessages: [MessageMetadata] = []
     /// The target message (spec §5.14): R, A, F and Space act on it. The last expanded message on open, then
-    /// the one last clicked or reached with N, P or Tab.
-    private(set) var selectedMessageID: MessageID?
+    /// the one last clicked or reached with N, P or Tab. The quick reply answers it, so its placeholder and
+    /// Reply all follow it.
+    private(set) var selectedMessageID: MessageID? {
+        didSet { if oldValue != selectedMessageID, selectedMessageID != nil { targetDidChange() } }
+    }
 
     private static let showDebounce: TimeInterval = 0.03
     /// Pre-rendering neighbours costs a store read, a payload build and a render per slot; while `j` is
@@ -86,6 +89,11 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     private var drafts = QuickReplyDrafts()
     private var quickSend: QuickSend?
     private var quickSendTimer: Timer?
+    /// Quick replies whose undo window has ended, watched until they leave: a failure then becomes the error
+    /// toast of §5.18 (“Couldn't send your reply · Open draft”). Keyed by send id.
+    private var watchedSends: [String: ComposeDraft] = [:]
+    private var sendWatchTimer: Timer?
+    private var notificationTokens: [NSObjectProtocol] = []
     private var keyMonitor: Any?
     private var motionFinisher: ShellMotionFinisher?
     private var showSignpost: OSSignpostIntervalState?
@@ -123,12 +131,13 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         pool.onMessage = { [weak self] slot, message in self?.handle(message, from: slot) }
         pool.onViewRecreated = { [weak self] slot in self?.slotWasRecreated(slot) }
         let center = NotificationCenter.default
-        center.addObserver(forName: Self.remoteImagesPolicyChanged, object: nil, queue: .main) { [weak self] _ in
+        // Block observers stay registered until removed, so their tokens are kept for deinit.
+        notificationTokens.append(center.addObserver(forName: Self.remoteImagesPolicyChanged, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.renderAgain() }
-        }
-        center.addObserver(forName: AppSettings.displayPreferencesChanged, object: nil, queue: .main) { [weak self] _ in
+        })
+        notificationTokens.append(center.addObserver(forName: AppSettings.displayPreferencesChanged, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.displayPreferencesDidChange() }
-        }
+        })
         statusObservation = client.observeStatus { [weak self] statuses in
             if Thread.isMainThread {
                 MainActor.assumeIsolated { self?.statusesChanged(statuses) }
@@ -159,6 +168,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         markReadTimer?.invalidate()
         acknowledgeTimer?.invalidate()
         quickSendTimer?.invalidate()
+        sendWatchTimer?.invalidate()
+        for token in notificationTokens { NotificationCenter.default.removeObserver(token) }
     }
 
     // MARK: View
@@ -199,9 +210,11 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
 
         header.onAction = { [weak self] action in self?.headerAction(action) }
         quickReply.onSend = { [weak self] text, mode in self?.sendQuickReply(text, mode: mode) }
-        quickReply.onEscape = { [weak self] in self?.focusWebView() }
+        quickReply.onEscape = { [weak self] in self?.quickReplyEscape() }
         quickReply.onHeightChange = { [weak self] _ in self?.applyBottomInset() }
-        quickReply.onOpenInComposer = { [weak self] _, mode in self?.openQuickReplyInComposer(mode: mode) }
+        quickReply.onOpenInComposer = { [weak self] text, mode in self?.openQuickReplyInComposer(text: text, mode: mode, attach: false) }
+        quickReply.onAttach = { [weak self] text, mode in self?.openQuickReplyInComposer(text: text, mode: mode, attach: true) }
+        quickReply.onDisabledClick = { [weak self] in self?.bringReplyComposerForward() }
         quickReply.onUndo = { [weak self] in self?.undoQuickSend() }
         quickReply.onShowDraft = { [weak self] in
             guard let self, let conversation = self.quickSendShown else { return }
@@ -567,8 +580,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             let kicker = drafts
                 ? ReaderHeaderView.Kicker(inkSlot: slot, lead: "Draft", accountName: name, trail: nil)
                 : ReaderHeaderView.Kicker(inkSlot: slot, lead: nil, accountName: name, trail: emptied ? nil : count)
-            let latest = messages.last
-            let replyAll = latest.map { QuickReplyComposer.replyAllAvailable(for: $0, accounts: accountsByID) } ?? false
+            let target = replyTarget(in: messages)
+            let replyAll = target.map { QuickReplyComposer.replyAllAvailable(for: $0, accounts: accountsByID) } ?? false
             let actions = ReaderActionSet.make(.one(view: mailboxView, inTrash: inTrash, emptied: emptied,
                                                     starred: messages.contains(where: \.isStarred), replyAllAvailable: replyAll))
             let subject = emptied ? (header.content.headline ?? "") : RenderPayloadBuilder.subject(of: messages)
@@ -590,8 +603,22 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         return words.prefix(1).uppercased() + words.dropFirst() + " conversations, one keystroke."
     }
 
+    /// The message R, A and the quick reply answer: the target (spec §5.14), else the latest.
+    private func replyTarget(in messages: [MessageMetadata]) -> MessageMetadata? {
+        if let id = selectedMessageID, let target = messages.first(where: { $0.id == id }) { return target }
+        return messages.last
+    }
+
+    /// N, P, a click or Tab moved the target: the header's Reply All and the quick reply's names follow it.
+    private func targetDidChange() {
+        guard isViewLoaded, case .one = selection else { return }
+        header.apply(headerContent(readerState, messages: currentMessages))
+        if !quickReply.isHidden { configureQuickReply(messages: currentMessages) }
+    }
+
     private func configureQuickReply(messages: [MessageMetadata]) {
-        guard let latest = messages.last else { return }
+        quickReply.isComposerOpen = replyComposer(for: messages) != nil
+        guard let latest = replyTarget(in: messages) else { return }
         quickReply.replyName = QuickReplyComposer.replyTargetName(for: latest, accounts: accountsByID)
         quickReply.replyAllName = QuickReplyComposer.replyAllTargetName(for: latest, accounts: accountsByID)
         quickReply.replyAllAvailable = QuickReplyComposer.replyAllAvailable(for: latest, accounts: accountsByID)
@@ -866,7 +893,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             motionFinisher = finisher
             Quire.Motion.register(finisher)
         case .select(let id):
-            selectedMessageID = id
+            setTarget(id)
             if focusedAttachment?.message != id { focusedAttachment = nil }
         case .focusAttachment(let id, let attachment):
             focusedAttachment = (id, attachment)
@@ -1186,18 +1213,69 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     // MARK: Quick reply
 
     var isQuickReplyFocused: Bool { quickReply.isFocused }
+    /// The bar itself, for the app's tests.
+    var quickReplyBar: QuickReplyView { quickReply }
+
+    /// Makes `id` the target message, as a click on it in the shell does (the shell's `select`, and tests).
+    func setTarget(_ id: MessageID) {
+        guard currentMessages.contains(where: { $0.id == id }) else { return }
+        selectedMessageID = id
+    }
 
     func focusQuickReply() {
+        if bringReplyComposerForward() { return }
         quickReply.focus()
     }
 
     /// R and A from the list or the reader focus the field in Reply or Reply all mode (spec §5.18). False when
     /// the quick reply is hidden (Trash, Drafts, nothing or several selected), so the key opens the composer.
+    /// While a composer holds this conversation's reply the bar is disabled and the key brings that window
+    /// forward instead, so two replies never diverge.
     @discardableResult
     func focusQuickReply(all: Bool) -> Bool {
         guard isViewLoaded, !quickReply.isHidden else { return false }
+        if bringReplyComposerForward() { return true }
         quickReply.focus(mode: all ? .replyAll : .reply)
         return true
+    }
+
+    /// The open composer replying to one of `messages` (spec §5.18, Disabled).
+    private func replyComposer(for messages: [MessageMetadata]) -> ComposeWindowController? {
+        guard !messages.isEmpty else { return nil }
+        let controllers = ComposeWindowRegistry.shared.openControllers
+        guard !controllers.isEmpty else { return nil }
+        let ids = Set(messages.map(\.id))
+        return controllers.first { $0.repliesTo.map(ids.contains) ?? false }
+    }
+
+    /// A composer opened or closed: the bar turns disabled while one holds this conversation's reply.
+    func composersDidChange() {
+        draftsDidChange()
+        guard isViewLoaded, case .one = selection, !quickReply.isHidden else { return }
+        quickReply.isComposerOpen = replyComposer(for: currentMessages) != nil
+    }
+
+    /// Brings forward the composer holding this conversation's reply; false when there is none.
+    @discardableResult
+    private func bringReplyComposerForward() -> Bool {
+        guard case .one = selection, let composer = replyComposer(for: currentMessages), let window = composer.window else {
+            quickReply.isComposerOpen = false
+            return false
+        }
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate()
+        return true
+    }
+
+    /// Esc in the quick reply: the main window decides (§6.1 rows 6–7). Without one the field lets go and the
+    /// web view takes focus.
+    private func quickReplyEscape() {
+        if let onAction {
+            onAction(.escapeQuickReply)
+        } else {
+            quickReply.blur()
+            focusWebView()
+        }
     }
 
     private func focusWebView() {
@@ -1209,14 +1287,19 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         }
     }
 
-    private func openQuickReplyInComposer(mode: QuickReplyView.Mode) {
-        guard let target = selectedMessageID ?? currentMessages.last?.id else { return }
-        onAction?(mode == .replyAll ? .replyAll(target) : .reply(target))
+    /// The typed text moves to a reply composer and leaves the bar, which then shows its disabled state while
+    /// that composer is open, so the reply is never in two places (§5.18).
+    private func openQuickReplyInComposer(text: String, mode: QuickReplyView.Mode, attach: Bool) {
+        guard let target = replyTarget(in: currentMessages)?.id else { return }
+        onAction?(.replyInComposer(target, all: mode == .replyAll, body: text, attach: attach))
+        quickReply.clear()
+        if let id = currentConversationID { drafts.park("", under: id) }
+        quickReply.isComposerOpen = replyComposer(for: currentMessages) != nil
     }
 
     /// ⌘↩ in the quick reply; internal so the app's tests can send one.
     func sendQuickReply(_ text: String, mode: QuickReplyView.Mode) {
-        guard let conversation = currentConversationID, let latest = currentMessages.last,
+        guard let conversation = currentConversationID, let latest = replyTarget(in: currentMessages),
               let account = accountsByID[latest.id.accountID] else { return }
         let message = QuickReplyComposer.outgoingMessage(text: text, replyingTo: latest, accounts: accountsByID, all: mode == .replyAll)
         guard !message.to.isEmpty else {
@@ -1262,7 +1345,54 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         } else {
             quickReply.status = .none
         }
+        watchOutcome(of: send.sendID, draft: send.draft)
     }
+
+    /// Polls the outbox for a send past its undo window, as the undo-send panel does for a composer's: the
+    /// store has no observation for it, and a second's delay on a failure notice is fine.
+    private func watchOutcome(of sendID: String, draft: ComposeDraft) {
+        watchedSends[sendID] = draft
+        guard sendWatchTimer == nil else { return }
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] timer in
+            MainActor.assumeIsolated {
+                guard let self else { return timer.invalidate() }
+                self.pollWatchedSends()
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        sendWatchTimer = timer
+        pollWatchedSends()
+    }
+
+    /// A sent reply's row is gone (or marked sent); a failed one stays with its reason. The failure is kept
+    /// as a draft on this Mac before the toast offers to open it, so closing the toast loses nothing.
+    func pollWatchedSends() {
+        if let sends = try? client.store.pendingSends() {
+            let byID = Dictionary(sends.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            for (id, draft) in watchedSends {
+                let send = byID[id]
+                switch send?.status {
+                case nil, .sent?:
+                    watchedSends[id] = nil
+                case .failed?:
+                    watchedSends[id] = nil
+                    var kept = draft
+                    kept.sendFailure = SendFailureWording.banner(lastError: send?.lastError, provider: draft.account.kind)
+                    ComposeDraftStore.shared.save(kept)
+                    onAction?(.quickReplyFailed(kept))
+                case .scheduled?, .sending?:
+                    break
+                }
+            }
+        }
+        if watchedSends.isEmpty {
+            sendWatchTimer?.invalidate()
+            sendWatchTimer = nil
+        }
+    }
+
+    /// Quick replies past their window whose outcome is still being watched (tests).
+    var watchedSendIDs: Set<String> { Set(watchedSends.keys) }
 
     /// ⌘Z while a quick reply is inside its undo window cancels it, wherever the selection is. False when no
     /// quick reply is waiting, so the key goes on to the toast's undo.

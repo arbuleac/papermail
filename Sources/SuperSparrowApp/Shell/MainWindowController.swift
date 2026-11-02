@@ -163,7 +163,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
     /// A composer opened or closed: a draft it holds reads “Open in a composer window” in the reader (§5.19).
     @objc private func composersChanged(_ note: Notification) {
-        conversation.draftsDidChange()
+        conversation.composersDidChange()
     }
 
     /// A composer's Message › Discard Draft… confirms here: “Draft discarded · Undo” (spec §5.20). It joins the
@@ -1169,6 +1169,24 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             confirmDiscardDrafts(ids)
         case .reveal(let id):
             reveal(id)
+        case let .replyInComposer(id, all, body, attach):
+            guard let account = accounts.first(where: { $0.id == id.accountID }) ?? accounts.first else { return }
+            ComposeWindowController.present(client: environment.engine, account: account, accounts: accounts, mode: .reply(id, all: all),
+                                            body: body, attach: attach)
+        case .quickReplyFailed(let draft):
+            // §5.18: the bar is not involved; the draft is already kept, so this toast only points at it.
+            let engine = environment.engine
+            listPane.toasts.show("Couldn\u{2019}t send your reply", kind: .error, symbol: Quire.Icon.error, actionTitle: "Open draft") { [weak self] in
+                guard let self else { return }
+                ComposeWindowController.present(client: engine, accounts: self.accounts, draft: draft)
+            }
+        case .escapeQuickReply:
+            // §6.1: a visible toast takes the first Esc; the next returns to the list, the bar keeping its text.
+            if listPane.toasts.isVisible {
+                listPane.toasts.dismiss()
+            } else {
+                focusList()
+            }
         }
     }
 

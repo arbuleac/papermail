@@ -25,4 +25,12 @@ enum ConversationAction {
     case discardDrafts([ConversationID])
     /// The quick reply's "Show" after an undo that came once the selection had moved on.
     case reveal(ConversationID)
+    /// Open in Composer (⇧⌘R), the error state's “Open in composer” and Attach (⇧⌘A) on the quick reply
+    /// (spec §5.18): a reply composer to `message` holding what was typed; with `attach`, it then asks for files.
+    case replyInComposer(MessageID, all: Bool, body: String, attach: Bool)
+    /// A quick reply failed after its undo window (§5.18): the main window says so in an error toast whose
+    /// “Open draft” reopens `draft`, which is already kept on this Mac.
+    case quickReplyFailed(ComposeDraft)
+    /// Esc in the quick reply: the main window applies §6.1 (a toast first, then back to the list).
+    case escapeQuickReply
 }
