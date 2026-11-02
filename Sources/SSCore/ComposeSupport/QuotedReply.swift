@@ -109,7 +109,7 @@ public enum QuotedReply {
     /// `message` is the quoted message; with it known, an inline reference is resolved by stripping the
     /// exact `ss-cid://` prefix, which keeps Content-IDs that contain a slash intact.
     public static func sendableHTML(_ renderedHTML: String, of message: MessageID? = nil) -> String {
-        guard renderedHTML.contains("data-ss-src") || renderedHTML.contains("ss-cid://")
+        guard renderedHTML.contains("data-ss-src") || renderedHTML.contains("data-ss-background") || renderedHTML.contains("ss-cid://")
             || renderedHTML.range(of: "<style", options: .caseInsensitive) != nil else { return renderedHTML }
         do {
             let document = try SwiftSoup.parseBodyFragment(renderedHTML)
@@ -119,6 +119,10 @@ public enum QuotedReply {
                 let remote = try image.attr("data-ss-src")
                 try image.attr("src", remote)
                 try image.removeAttr("data-ss-src")
+            }
+            for element in try document.select("[data-ss-background]") {
+                try element.attr("background", element.attr("data-ss-background"))
+                try element.removeAttr("data-ss-background")
             }
             // The sanitizer points every cid: reference at ss-cid://, not only <img src>: backgrounds, links
             // and CSS url() too. Each goes back to cid:, or recipients get dead URLs naming internal ids.

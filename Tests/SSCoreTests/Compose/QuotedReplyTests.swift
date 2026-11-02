@@ -43,6 +43,12 @@ final class QuotedReplyTests: XCTestCase {
         XCTAssertFalse(rendering.html.contains("ss-cid://"))
     }
 
+    func testParkedBackgroundsAreMadeSendable() {
+        let html = QuotedReply.sendableHTML("<table><tr><td data-ss-background=\"https://cdn.example/hero.jpg\">Hi</td></tr></table>")
+        XCTAssertTrue(html.contains("background=\"https://cdn.example/hero.jpg\""), html)
+        XCTAssertFalse(html.contains("data-ss-background"), html)
+    }
+
     func testForwardRenderingHasHeaderBlock() {
         let rendering = QuotedReply.forward(original: original, body: body, locale: Locale(identifier: "en_US_POSIX"), timeZone: TimeZone(identifier: "UTC")!)
         XCTAssertTrue(rendering.html.hasPrefix("<div class=\"ss-forward-header\">---------- Forwarded message ----------<br><b>From:</b> Alice &lt;alice@example.com&gt;<br><b>Date:</b> "))

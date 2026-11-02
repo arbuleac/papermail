@@ -91,6 +91,15 @@ final class SanitizerShapeTests: XCTestCase {
         XCTAssertFalse(out.hasQuotedContent)
     }
 
+    func testBlockedBackgroundAttributeIsParkedForLoadImages() {
+        // A hero cell whose only image is a background= attribute: blocked, but kept so "Load images" can
+        // put it back, like a parked <img src>.
+        let out = RenderTestSupport.sanitize("<table><tr><td background=\"https://cdn.example/hero.jpg\">Hi</td></tr></table>")
+        XCTAssertEqual(out.blockedRemoteImageCount, 1)
+        assertContains(out.html, "data-ss-background=\"https://cdn.example/hero.jpg\"")
+        assertNotContains(out.html, " background=")
+    }
+
     func testNewsletterWithRemoteImagesAllowed() {
         let out = RenderTestSupport.sanitize(MailShapeFixtures.newsletter, allowRemoteImages: true)
         XCTAssertEqual(out.blockedRemoteImageCount, 0)

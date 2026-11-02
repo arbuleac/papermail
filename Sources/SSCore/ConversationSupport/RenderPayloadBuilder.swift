@@ -187,9 +187,10 @@ public struct RenderPayloadBuilder: Sendable {
         html.contains("ss-quote")
     }
 
-    /// Remote images are stored with their `src` moved to `data-ss-src`, one attribute per blocked image.
+    /// Remote images are stored with their `src` moved to `data-ss-src` (backgrounds to `data-ss-background`),
+    /// one attribute per blocked image.
     public static func blockedRemoteImageCount(in html: String) -> Int {
-        occurrences(of: "data-ss-src=", in: html)
+        occurrences(of: "data-ss-src=", in: html) + occurrences(of: "data-ss-background=", in: html)
     }
 
     static func occurrences(of needle: String, in haystack: String) -> Int {

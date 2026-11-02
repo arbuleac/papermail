@@ -217,6 +217,23 @@ final class ConversationShellWebViewTests: XCTestCase {
         XCTAssertEqual(buttons, 0)
     }
 
+    func testLoadImagesRestoresParkedBackgrounds() async throws {
+        let (webView, _) = try await loadedShell()
+        typealias F = ConversationFixtures
+        let message = F.message("m1")
+        let html = "<table><tr><td data-ss-background=\"ss-remote://cdn/hero.png\">Hi</td></tr></table>"
+        let payload = F.builder.build(messages: [message], bodies: [message.id: F.body(html: html)], accounts: F.accounts)
+        _ = try await evaluate("window.ss.render(\(try payload.jsonString()))", in: webView)
+        try await waitForFrames(count: 1, in: webView)
+        let button = try await evaluate("(document.querySelector('.ss-load-images') || {}).textContent", in: webView) as? String
+        XCTAssertEqual(button, "Load images (1)")
+
+        let key = ConversationShellAssets.jsStringLiteral(payload.messages[0].id)
+        _ = try await evaluate("window.ss.loadImages(\(key))", in: webView)
+        for _ in 0..<50 where remote.paths.isEmpty { try await Task.sleep(nanoseconds: 100_000_000) }
+        XCTAssertEqual(remote.paths, ["/hero.png"])
+    }
+
     func testRemoteImagesLoadAtOnceWhenTheSettingIsOn() async throws {
         let (webView, _) = try await loadedShell()
         typealias F = ConversationFixtures

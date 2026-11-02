@@ -54,7 +54,7 @@ Indexes: `(account_id, conversation_provider_id)`, `(account_id, has_body, date_
 | plain_text | TEXT | extracted, uncompressed, feeds FTS |
 | attachments_json | TEXT | `[AttachmentInfo]` |
 | has_quoted | INTEGER NULL | rendered_html has detected quoted text; NULL for bodies stored before v2 |
-| blocked_images | INTEGER NULL | remote images parked in `data-ss-src`; NULL for bodies stored before v2 |
+| blocked_images | INTEGER NULL | remote images blocked at sync time (parked in `data-ss-src` or `data-ss-background`, or dropped CSS `url()`); NULL for bodies stored before v2 |
 
 ### conversations (denormalized summary rows, maintained by the store)
 | column | type | notes |

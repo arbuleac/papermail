@@ -200,6 +200,11 @@ public enum ConversationShellAssets {
           img.src = img.getAttribute('data-ss-src');
           img.removeAttribute('data-ss-src');
         }
+        var backgrounds = doc.querySelectorAll('[data-ss-background]');
+        for (var j = 0; j < backgrounds.length; j++) {
+          backgrounds[j].setAttribute('background', backgrounds[j].getAttribute('data-ss-background'));
+          backgrounds[j].removeAttribute('data-ss-background');
+        }
       }
 
       function frameDocument(card) {

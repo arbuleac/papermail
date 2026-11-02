@@ -23,6 +23,8 @@ public struct HTMLSanitizer: BodySanitizing, Sendable {
     public static let baseStyleClass = "ss-base"
     /// Keeps a blocked remote image URL so the UI can restore it on demand.
     public static let blockedSourceAttribute = "data-ss-src"
+    /// A blocked remote `background=` attribute, parked so "Load images" can put it back.
+    public static let blockedBackgroundAttribute = "data-ss-background"
     /// 1x1 transparent GIF standing in for blocked remote images so layouts keep their shape.
     public static let placeholderImage = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
     /// Width constraints every body carries; the shell may add to them but a body renders acceptably alone.
@@ -256,6 +258,7 @@ private struct Pass {
         // Set when a remote image source was blocked; added after the pass because the pass can only keep,
         // drop or rewrite what is already there (and an incoming data-ss-src is dropped by it first).
         var blockedSource: String?
+        var blockedBackground: String?
         attributes.compactAndMutate { attribute in
             let key = Pass.lowercased(attribute.getKeyUTF8())
             if Pass.hasPrefix(key, Pass.eventPrefix) || Pass.hasPrefix(key, Pass.reservedAttributePrefix) {
@@ -305,7 +308,7 @@ private struct Pass {
                 if isSVGImage { return imagePolicy(attribute.getValue(), isImageSource: false, blockedSource: &blockedSource) }
                 return Pass.drop
             case .background:
-                return imagePolicy(attribute.getValue(), isImageSource: false, blockedSource: &blockedSource)
+                return imagePolicy(attribute.getValue(), isImageSource: false, parks: true, blockedSource: &blockedBackground)
             case .href:
                 if isSVGImage { return imagePolicy(attribute.getValue(), isImageSource: false, blockedSource: &blockedSource) }
                 if isLink { return linkPolicy(attribute.getValue()) }
@@ -317,12 +320,14 @@ private struct Pass {
             }
         }
         if let blockedSource { try element.attr(HTMLSanitizer.blockedSourceAttribute, blockedSource) }
+        if let blockedBackground { try element.attr(HTMLSanitizer.blockedBackgroundAttribute, blockedBackground) }
         return facts
     }
 
     /// `isImageSource` is true only for `<img src>`: that is the one place a data: payload or a blocked-image
-    /// placeholder makes sense. Backgrounds, posters and SVG image references are dropped instead.
-    private mutating func imagePolicy(_ value: String, isImageSource: Bool, blockedSource: inout String?) -> AttributeMutation {
+    /// placeholder makes sense. Backgrounds, posters and SVG image references are dropped instead; with `parks`
+    /// (a `background=` attribute) a blocked remote URL is still handed back so it can be parked.
+    private mutating func imagePolicy(_ value: String, isImageSource: Bool, parks: Bool = false, blockedSource: inout String?) -> AttributeMutation {
         switch URLPolicy.classify(value) {
         case .inlineImage(let contentID):
             return Pass.replacing(RenderURLScheme.inlineImageURL(for: messageID, contentID: contentID).absoluteString)
@@ -332,7 +337,10 @@ private struct Pass {
         case .remote(let url):
             if allowRemoteImages { return url == value ? Pass.keep : Pass.replacing(url) }
             blockedRemoteImages += 1
-            guard isImageSource else { return Pass.drop }
+            guard isImageSource else {
+                if parks { blockedSource = url }
+                return Pass.drop
+            }
             blockedSource = url
             return AttributeMutation(keep: true, newValue: Pass.placeholderBytes)
         case .contact, .fragment, .rejected:
