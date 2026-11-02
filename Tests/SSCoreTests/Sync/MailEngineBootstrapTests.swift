@@ -202,6 +202,24 @@ final class MailEngineBootstrapTests: XCTestCase {
         await harness.shutdown()
     }
 
+    func testDeniedKeychainAccessParksAccountInsteadOfRetrying() async throws {
+        // Each retry of a denied keychain read brings the macOS password prompt back; the account waits for
+        // the user instead, like a revoked token.
+        let provider = ScriptedProvider(accountID: Fixtures.accountID)
+        provider.bootstrapRuns = [["": .success(Fixtures.page(1...3, next: nil, cursor: "c0"))]]
+        provider.changesQueue = [.failure(AuthError.keychain(status: errSecAuthFailed)), .success(Fixtures.changes(cursor: "c1"))]
+        let harness = try EngineHarness(provider: provider)
+        let phases = PhaseRecorder()
+        let observation = harness.engine.observeStatus { phases.record($0) }
+        harness.engine.start()
+        try await waitUntil("needsReauth reported") { phases.latest.first?.phase == .needsReauth }
+        try await Task.sleep(for: .milliseconds(500))
+        XCTAssertEqual(provider.changesCalls.count, 1)
+        XCTAssertTrue(phases.latest.first?.message?.contains("Keychain") ?? false)
+        observation.cancel()
+        await harness.shutdown()
+    }
+
     func testUnauthorizedParksAccountUntilSyncNow() async throws {
         let provider = ScriptedProvider(accountID: Fixtures.accountID)
         provider.bootstrapRuns = [["": .success(Fixtures.page(1...3, next: nil, cursor: "c0"))]]

@@ -163,6 +163,13 @@ actor AccountSyncer {
             return .cancelled
         } catch let error as ProviderError {
             return handle(error)
+        } catch let error as AuthError where error.isKeychainDenial {
+            // macOS asks for the keychain password on every read the user has not allowed (each rebuild of an
+            // ad hoc signed app counts as a new app). Retrying on a backoff would bring the prompt back again
+            // and again; the account waits for Reconnect or Sync Now instead, like a revoked token.
+            setPhase(.needsReauth, message: "Keychain access was denied; reconnect or allow SuperSparrow to read its tokens")
+            SyncLog.logger.error("keychain read denied for \(self.accountID.rawValue, privacy: .public)")
+            return .needsReauth
         } catch {
             let description = SyncErrorDescription.describe(error)
             setPhase(.error, message: description)

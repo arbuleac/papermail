@@ -32,3 +32,12 @@ public enum AuthError: Error, Sendable {
     /// A reconnect signed in to a different mailbox than the account being reconnected.
     case wrongAccount(expected: String, actual: String)
 }
+
+extension AuthError {
+    /// The user refused (or dismissed) the keychain prompt, or no prompt could be shown.
+    public var isKeychainDenial: Bool {
+        guard case .keychain(let status) = self else { return false }
+        // errSecAuthFailed, errSecUserCanceled, errSecInteractionNotAllowed; spelled out so this file needs no Security import.
+        return [-25293, -128, -25308].contains(status)
+    }
+}
