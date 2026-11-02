@@ -518,6 +518,9 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             emptyState.sentence = Self.severalSentence(ids.count)
             if mailboxView == .trash {
                 emptyState.hint = [.keys(["\u{21e7}I"]), .text("moves them to Inbox \u{00b7}"), .keys(["S"]), .text("stars them")]
+            } else if mailboxView == .drafts {
+                // The header offers only Discard Draft here (§5.19), so the hint names only that.
+                emptyState.hint = [.keys(["#"]), .text("discards them")]
             } else {
                 emptyState.hint = [.keys(["E"]), .text("archives them \u{00b7}"), .keys(["#"]), .text("moves them to Trash \u{00b7}"),
                                    .keys(["S"]), .text("stars them")]

@@ -2,8 +2,10 @@ import AppKit
 
 /// An empty state (spec §5.9): one serif sentence and one hint, centred, at most 300 pt wide. The sentence is
 /// `aside` (New York Italic 17/24, or its sans twin when New York cannot set it) in `ink`; the hint is
-/// `snippet` in `ink3`, 4 pt below, and may carry keycaps inline (“J K to move · ↩ to open”), which wrap with
-/// the words. Inbox zero adds the sparrow, offline the `wifi.slash` glyph, 8 pt above the sentence.
+/// `snippet` in `ink3`, 4 pt below, and may carry keycaps inline (“J K to move · ↩ to open”). A hint with
+/// keycaps is a row of commands, so it may use the whole pane rather than the sentence's 300 pt, and it wraps
+/// only between commands: a keycap never ends a line apart from the words it goes with. Inbox zero adds the
+/// sparrow, offline the `wifi.slash` glyph, 8 pt above the sentence.
 ///
 /// The block centres itself in the view's bounds, so the view can simply fill the pane.
 @MainActor
@@ -66,12 +68,19 @@ public final class QuireEmptyStateView: NSView {
     /// Keycaps are taller than the snippet's 15 pt line, so a hint that carries them sets its lines at the
     /// cap height plus 2 pt above and below.
     private var hintLineHeight: CGFloat {
-        let hasKeys = hint.contains { if case .keys = $0 { return true } else { return false } }
         let base = QuireFont.Role.snippet.lineHeight
-        return hasKeys ? max(base, QuireKeycap.Style.standard.height + 2 * Quire.Space.s1) : base
+        return hintHasKeys ? max(base, QuireKeycap.Style.standard.height + 2 * Quire.Space.s1) : base
     }
 
-    private func hintString() -> NSAttributedString? {
+    private var hintHasKeys: Bool {
+        hint.contains { if case .keys = $0 { return true } else { return false } }
+    }
+
+    private static let noBreakSpace = "\u{00A0}"
+    private static let wordJoiner = "\u{2060}"
+
+
+    func hintString() -> NSAttributedString? {
         guard !hint.isEmpty else { return nil }
         let font = QuireFont.font(.snippet)
         let lineHeight = hintLineHeight
@@ -81,14 +90,24 @@ public final class QuireEmptyStateView: NSView {
             .paragraphStyle: paragraph(lineHeight: lineHeight),
             .baselineOffset: QuireFont.baselineOffset(for: font, lineHeight: lineHeight),
         ]
+        // Commands stay whole: inside a keycap and the words after it every space is a no-break space and the
+        // caps are joined, so a line can break only before the next keycap.
+        let grouped = hintHasKeys
         let result = NSMutableAttributedString()
         for (index, part) in hint.enumerated() {
-            if index > 0 { result.append(NSAttributedString(string: " ", attributes: attributes)) }
+            if index > 0 {
+                let startsCommand: Bool
+                if case .keys = part { startsCommand = true } else { startsCommand = false }
+                let space = grouped && !startsCommand ? Self.noBreakSpace : " "
+                result.append(NSAttributedString(string: space, attributes: attributes))
+            }
             switch part {
             case .text(let words):
-                result.append(NSAttributedString(string: words, attributes: attributes))
+                let text = grouped ? words.replacingOccurrences(of: " ", with: Self.noBreakSpace) : words
+                result.append(NSAttributedString(string: text, attributes: attributes))
             case .keys(let keys):
-                for key in keys {
+                for (keyIndex, key) in keys.enumerated() {
+                    if grouped, keyIndex > 0 { result.append(NSAttributedString(string: Self.wordJoiner, attributes: attributes)) }
                     let attachment = NSTextAttachment()
                     // Caps sit 4 pt apart, as on the cheat sheet: 2 pt of margin on each side.
                     attachment.attachmentCell = QuireKeycapAttachmentCell(legend: key, margin: Quire.Space.s1, font: font)
@@ -121,28 +140,46 @@ public final class QuireEmptyStateView: NSView {
         }
     }
 
+    /// The sentence's width, and a words-only hint's: the longer line, at most 300.
     private var blockWidth: CGFloat {
         var width = singleLineWidth(of: sentenceString())
-        if let hint = hintString() { width = max(width, singleLineWidth(of: hint)) }
+        if !hintHasKeys, let hint = hintString() { width = max(width, singleLineWidth(of: hint)) }
         return min(QuireEmptyStateView.maxWidth, width)
     }
 
-    private func blockHeight(width: CGFloat) -> CGFloat {
+    /// A keycap hint's width: one line when `available` allows, else `available`, wrapping between commands.
+    private func hintWidth(_ hint: NSAttributedString, block: CGFloat, available: CGFloat) -> CGFloat {
+        guard hintHasKeys else { return block }
+        return min(singleLineWidth(of: hint), available)
+    }
+
+    /// The hint's box in a pane `available` points wide (tests measure where it wraps).
+    func hintSize(available: CGFloat) -> NSSize {
+        guard let hint = hintString() else { return .zero }
+        let width = hintWidth(hint, block: min(blockWidth, available), available: available)
+        return NSSize(width: width, height: height(of: hint, width: width))
+    }
+
+    private func blockHeight(width: CGFloat, available: CGFloat) -> CGFloat {
         var height = height(of: sentenceString(), width: width)
         if let g = glyphMetrics { height += g.size + g.gap }
-        if let hint = hintString() { height += Quire.Layout.EmptyState.lineGap + self.height(of: hint, width: width) }
+        if let hint = hintString() {
+            height += Quire.Layout.EmptyState.lineGap + self.height(of: hint, width: hintWidth(hint, block: width, available: available))
+        }
         return height
     }
 
+    /// 300 pt at most, even for a keycap hint that may draw wider: the pane decides how wide the view is, and a
+    /// wide intrinsic size would hold the reader open.
     public override var intrinsicContentSize: NSSize {
         let width = blockWidth
-        return NSSize(width: width, height: blockHeight(width: width))
+        return NSSize(width: width, height: blockHeight(width: width, available: QuireEmptyStateView.maxWidth))
     }
 
     public override func draw(_ dirtyRect: NSRect) {
         let width = min(blockWidth, bounds.width)
         let x = (bounds.midX - width / 2).rounded()
-        var y = (bounds.midY - blockHeight(width: width) / 2).rounded()
+        var y = (bounds.midY - blockHeight(width: width, available: bounds.width) / 2).rounded()
         if let g = glyphMetrics {
             let rect = NSRect(x: bounds.midX - g.size / 2, y: y, width: g.size, height: g.size)
             QuireDraw.symbol(g.name, size: .custom(g.size), color: .qInk3, centredIn: rect)
@@ -154,8 +191,10 @@ public final class QuireEmptyStateView: NSView {
         y += sentenceHeight
         if let hint = hintString() {
             y += Quire.Layout.EmptyState.lineGap
-            let hintHeight = height(of: hint, width: width)
-            hint.draw(with: NSRect(x: x, y: y, width: width, height: hintHeight), options: [.usesLineFragmentOrigin], context: nil)
+            let hintWidth = hintWidth(hint, block: width, available: bounds.width)
+            let hintHeight = height(of: hint, width: hintWidth)
+            let hintX = (bounds.midX - hintWidth / 2).rounded()
+            hint.draw(with: NSRect(x: hintX, y: y, width: hintWidth, height: hintHeight), options: [.usesLineFragmentOrigin], context: nil)
         }
     }
 

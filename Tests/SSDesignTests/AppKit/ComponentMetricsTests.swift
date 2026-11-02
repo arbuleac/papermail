@@ -283,6 +283,26 @@ final class ComponentMetricsTests: XCTestCase {
         XCTAssertEqual(short.intrinsicContentSize.height, 30 + 8 + 24 + 4 + 15, "glyph, gap, aside line, 4 pt, snippet line")
     }
 
+    /// §5.19: the several-selected hint is one line in a normal reader, wider than the sentence's 300 pt,
+    /// and when it must wrap it breaks only before a keycap, never between a keycap and its words.
+    func testAKeycapHintKeepsItsCommandsWhole() throws {
+        let view = QuireEmptyStateView(sentence: "Three conversations, one keystroke.",
+                                       hint: [.keys(["E"]), .text("archives them \u{00b7}"), .keys(["#"]),
+                                              .text("moves them to Trash \u{00b7}"), .keys(["S"]), .text("stars them")])
+        let wide = view.hintSize(available: 790)
+        XCTAssertGreaterThan(wide.width, 300, "the hint may be wider than the sentence's cap")
+        let oneLine = QuireEmptyStateView(sentence: "", hint: [.keys(["E"]), .text("archives")]).hintSize(available: 790).height
+        XCTAssertEqual(wide.height, oneLine, "one line")
+        XCTAssertLessThanOrEqual(view.intrinsicContentSize.width, 300, "the view never asks the pane for more")
+
+        let narrow = view.hintSize(available: wide.width - 10)
+        XCTAssertEqual(narrow.height, 2 * oneLine, accuracy: 1, "two lines")
+        let string = try XCTUnwrap(view.hintString()).string
+        let breakable = string.enumerated().filter { $0.element == " " }.map(\.offset)
+        let attachments = string.enumerated().filter { $0.element == "\u{FFFC}" }.map(\.offset)
+        XCTAssertEqual(breakable.map { $0 + 1 }, Array(attachments.dropFirst()), "breaks only right before the second and third keycaps")
+    }
+
     func testHairlineWidth() {
         XCTAssertEqual(QuireHairline.width(backingScale: 2, increasedContrast: false), 0.5)
         XCTAssertEqual(QuireHairline.width(backingScale: 1, increasedContrast: false), 1)

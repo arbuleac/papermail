@@ -883,7 +883,7 @@ Rows are grouped under local-day heads: Today, Yesterday, Earlier this week, Las
 
 ### 5.9 Empty states
 
-Centred in the pane, max width 300. Line 1 is `aside` (New York Italic 17/24) in `ink`; line 2 is `snippet` in `ink3`, 4 pt below.
+Centred in the pane, max width 300. Line 1 is `aside` (New York Italic 17/24) in `ink`; line 2 is `snippet` in `ink3`, 4 pt below. A line 2 that carries keycaps is a row of commands: it may run past 300 pt, up to the pane's width, and when it must wrap it breaks only before a keycap, so a keycap never ends a line apart from the words that follow it.
 
 | Case | Glyph | Line 1 | Line 2 |
 |---|---|---|---|
@@ -1247,7 +1247,7 @@ Keycaps never sit on accent fills: “⌘↩” is beside the Send button, not i
 
 ### 5.19 Reader multi-selection, drafts and empty reader
 
-**Several selected.** With two or more conversations selected, the header kicker reads “Selection”, the headline “3 conversations selected”, and the header shows only the actions that can apply to all of them: Star · Archive · Trash (Star · Move to Inbox in Trash); the reply group is hidden and Star follows the all-starred rule (§5.12). The desk shows the empty-state style: “Three conversations, one keystroke.” with “E archives them · # moves them to Trash · S stars them” and keycaps (in Trash: “⇧I moves them to Inbox · S stars them”).
+**Several selected.** With two or more conversations selected, the header kicker reads “Selection”, the headline “3 conversations selected”, and the header shows only the actions that can apply to all of them: Star · Archive · Trash (Star · Move to Inbox in Trash); the reply group is hidden and Star follows the all-starred rule (§5.12). The desk shows the empty-state style: “Three conversations, one keystroke.” with “E archives them · # moves them to Trash · S stars them” and keycaps (in Trash: “⇧I moves them to Inbox · S stars them”; in Drafts, where the header offers only Discard Draft: “# discards them”). The hint sets on one line in any reader wide enough for it, past the sentence's 300 pt (§5.9).
 
 **Nothing selected.** The desk shows “No conversation selected” and “J K to move · ↩ to open”.
 
