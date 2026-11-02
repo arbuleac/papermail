@@ -8,11 +8,12 @@ final class ConversationRowTextTests: XCTestCase {
         calendar.timeZone = utc
         return calendar
     }()
-    private lazy var formatting = DateFormatting(locale: Locale(identifier: "en_US"), calendar: calendar, timeZone: utc)
+    private lazy var formatting = DateFormatting(locale: Locale(identifier: "en_GB"), calendar: calendar, timeZone: utc)
     private lazy var now: Date = calendar.date(from: DateComponents(year: 2025, month: 3, day: 6, hour: 14, minute: 5)) ?? Date()
     private lazy var reference = formatting.reference(now: now)
 
     private let account = AccountID("acct-1")
+    private let me = EmailAddress(name: "Alex Morgan", address: "alex@contoso.test")
 
     private func summary(
         id: String = "t1",
@@ -24,7 +25,9 @@ final class ConversationRowTextTests: XCTestCase {
         unreadCount: Int = 0,
         isStarred: Bool = false,
         hasAttachments: Bool = false,
-        hasPendingOperations: Bool = false
+        inboxSection: InboxSection = .focused,
+        hasPendingOperations: Bool = false,
+        failedOperation: OperationKind? = nil
     ) -> ConversationSummary {
         ConversationSummary(
             id: ConversationID(accountID: account, providerID: id),
@@ -37,14 +40,33 @@ final class ConversationRowTextTests: XCTestCase {
             isStarred: isStarred,
             hasAttachments: hasAttachments,
             inInbox: true,
-            inboxSection: .focused,
+            inboxSection: inboxSection,
             latestMessageID: MessageID(accountID: account, providerID: id + "-m"),
-            hasPendingOperations: hasPendingOperations
+            hasPendingOperations: hasPendingOperations,
+            failedOperation: failedOperation
         )
     }
 
-    private func text(_ summary: ConversationSummary) -> ConversationRowText {
-        ConversationRowText(summary: summary, reference: reference, formatter: formatting)
+    private func text(_ summary: ConversationSummary, _ context: ConversationRowText.Context = .init()) -> ConversationRowText {
+        ConversationRowText(summary: summary, reference: reference, formatter: formatting, context: context)
+    }
+
+    private func message(_ id: String, from: EmailAddress?, to: [EmailAddress] = [], cc: [EmailAddress] = [],
+                         roles: Set<MailboxRole> = [.inbox], minutesAgo: Double = 10) -> MessageMetadata {
+        MessageMetadata(
+            id: MessageID(accountID: account, providerID: id),
+            conversationID: ConversationID(accountID: account, providerID: "t1"),
+            subject: "Lunch?",
+            snippet: "",
+            from: from,
+            to: to,
+            cc: cc,
+            date: now.addingTimeInterval(-minutesAgo * 60),
+            roles: roles,
+            isRead: true,
+            isStarred: false,
+            hasAttachments: false
+        )
     }
 
     // MARK: Content rules
@@ -52,27 +74,46 @@ final class ConversationRowTextTests: XCTestCase {
     func testBasicRow() {
         let row = text(summary())
         XCTAssertEqual(row.senderLine, "Ada Lovelace")
+        XCTAssertNil(row.senderPrefix)
+        XCTAssertFalse(row.isSenderPlaceholder)
         XCTAssertEqual(row.timeText, "13:55")
         XCTAssertEqual(row.subjectText, "Lunch?")
+        XCTAssertFalse(row.isSubjectPlaceholder)
         XCTAssertEqual(row.snippetText, "Are you free at noon")
         XCTAssertEqual(row.initials, "AL")
-        XCTAssertNil(row.countBadge)
+        XCTAssertEqual(row.avatarAddress, "ada@example.com")
+        XCTAssertNil(row.messageCount)
         XCTAssertFalse(row.isUnread)
+        XCTAssertEqual(row.status, .none)
+        XCTAssertFalse(row.showsOtherTag)
     }
 
-    func testUnreadCountAndBadge() {
+    func testUnreadAndMessageCount() {
         let row = text(summary(messageCount: 4, unreadCount: 2))
         XCTAssertTrue(row.isUnread)
-        XCTAssertEqual(row.countBadge, "4")
+        XCTAssertEqual(row.messageCount, 4)
+        XCTAssertNil(text(summary(messageCount: 1)).messageCount, "one message shows no count")
     }
 
-    func testEmptySubjectGetsPlaceholder() {
-        XCTAssertEqual(text(summary(subject: "   ")).subjectText, ConversationRowText.noSubject)
+    func testTimeFollowsTheHeadStyle() {
+        let yesterday = now.addingTimeInterval(-86_400)
+        XCTAssertEqual(text(summary(date: yesterday)).timeText, "Yesterday")
+        XCTAssertEqual(text(summary(date: yesterday), .init(timeStyle: .timeOfDay)).timeText, "14:05")
     }
 
-    func testSnippetCollapsesToOneLine() {
-        let row = text(summary(snippet: "  Hello\n\n  world\t\r\n  again \u{A0} end  "))
+    func testMissingSubjectAndSenderUsePlaceholders() {
+        let row = text(summary(subject: "  \n ", participants: []))
+        XCTAssertEqual(row.subjectText, "No subject")
+        XCTAssertTrue(row.isSubjectPlaceholder)
+        XCTAssertEqual(row.senderLine, "No sender")
+        XCTAssertTrue(row.isSenderPlaceholder)
+        XCTAssertEqual(row.initials, "?")
+    }
+
+    func testSnippetAndSubjectCollapseToOneLine() {
+        let row = text(summary(subject: " Re:\n  plans ", snippet: "  Hello\n\n  world\t\r\n  again \u{A0} end  "))
         XCTAssertEqual(row.snippetText, "Hello world again end")
+        XCTAssertEqual(row.subjectText, "Re: plans")
     }
 
     func testSenderLineShowsLastThreeParticipantsOldestFirst() {
@@ -82,42 +123,127 @@ final class ConversationRowTextTests: XCTestCase {
         XCTAssertEqual(ConversationRowText.senderLine(for: []), ConversationRowText.noSender)
     }
 
+    func testTheUserReadsMe() {
+        let ben = EmailAddress(name: "Ben Carter", address: "ben@contoso.test")
+        let tom = EmailAddress(name: "Tom Hughes", address: "tom@contoso.test")
+        let shouting = EmailAddress(name: "Alex Morgan", address: "ALEX@Contoso.test")
+        let context = ConversationRowText.Context(ownAddresses: ["alex@contoso.test"])
+        XCTAssertEqual(text(summary(participants: [ben, shouting, tom]), context).senderLine, "Ben Carter, me, Tom Hughes")
+        XCTAssertEqual(text(summary(participants: [ben, me, tom])).senderLine, "Ben Carter, Alex Morgan, Tom Hughes",
+                       "without own addresses nobody is me")
+    }
+
     func testSenderWithoutNameUsesLocalPart() {
         let row = text(summary(participants: [EmailAddress(address: "grace.hopper@navy.mil")]))
         XCTAssertEqual(row.senderLine, "grace.hopper")
-        XCTAssertEqual(row.initials, "GH")
+        XCTAssertEqual(row.initials, "G")
     }
 
     func testWhitespaceNameFallsBackToLocalPart() {
         // `shortDisplay` hands back a blank name untouched; the row must not show an empty sender.
         let row = text(summary(participants: [EmailAddress(name: "  ", address: "linus_torvalds@x")]))
         XCTAssertEqual(row.senderLine, "linus_torvalds")
-        XCTAssertEqual(row.initials, "LT")
+        XCTAssertEqual(row.initials, "L")
     }
 
+    /// Spec §4.3: first and last word of the display name, else the first letter or digit of the address.
     func testInitialsRules() {
         XCTAssertEqual(ConversationRowText.initials(for: EmailAddress(name: "Ada Lovelace", address: "a@x")), "AL")
+        XCTAssertEqual(ConversationRowText.initials(for: EmailAddress(name: "Ada King Lovelace", address: "a@x")), "AL")
         XCTAssertEqual(ConversationRowText.initials(for: EmailAddress(name: "ada", address: "a@x")), "A")
-        XCTAssertEqual(ConversationRowText.initials(for: EmailAddress(name: "Mary-Jane O'Neil", address: "a@x")), "MJ")
-        XCTAssertEqual(ConversationRowText.initials(for: EmailAddress(name: "  ", address: "linus_torvalds@x")), "LT")
+        XCTAssertEqual(ConversationRowText.initials(for: EmailAddress(name: "Mary-Jane O'Neil", address: "a@x")), "MO")
+        XCTAssertEqual(ConversationRowText.initials(for: EmailAddress(name: "Lovelace, Ada", address: "a@x")), "LA")
+        XCTAssertEqual(ConversationRowText.initials(for: EmailAddress(name: "  ", address: "linus_torvalds@x")), "L")
         XCTAssertEqual(ConversationRowText.initials(for: EmailAddress(name: "éric cartman", address: "a@x")), "ÉC")
         XCTAssertEqual(ConversationRowText.initials(for: EmailAddress(name: "***", address: "@@")), "?")
         XCTAssertEqual(ConversationRowText.initials(for: EmailAddress(name: "42 Labs", address: "a@x")), "4L")
+        XCTAssertEqual(ConversationRowText.initials(for: EmailAddress(address: "_42@x")), "4")
     }
 
-    func testAvatarSeedIsStableAndCaseInsensitive() {
-        let lower = text(summary(participants: [EmailAddress(address: "ada@example.com")]))
-        let upper = text(summary(participants: [EmailAddress(name: "Ada", address: "ADA@Example.com")]))
-        let other = text(summary(participants: [EmailAddress(address: "bob@example.com")]))
-        XCTAssertEqual(lower.avatarSeed, upper.avatarSeed)
-        XCTAssertNotEqual(lower.avatarSeed, other.avatarSeed)
-        XCTAssertEqual(StableHasher.hash("ada@example.com"), lower.avatarSeed)
+    // MARK: Faces
+
+    func testTheFaceIsTheMostRecentSenderWhoIsNotTheUser() {
+        let ben = EmailAddress(name: "Ben Carter", address: "ben@contoso.test")
+        let tom = EmailAddress(name: "Tom Hughes", address: "tom@contoso.test")
+        let own: Set<String> = ["alex@contoso.test"]
+        let messages = [
+            message("1", from: tom, minutesAgo: 50),
+            message("2", from: ben, minutesAgo: 40),
+            message("3", from: me, minutesAgo: 30),
+        ]
+        XCTAssertEqual(ConversationRowText.latestSender(in: messages, ownAddresses: own), ben)
+        XCTAssertEqual(ConversationRowText.latestSender(in: [message("1", from: me)], ownAddresses: own), me,
+                       "a thread only the user wrote shows the user")
+        XCTAssertNil(ConversationRowText.latestSender(in: [], ownAddresses: own))
+
+        let row = text(summary(participants: [tom, ben, me]), .init(ownAddresses: own, latestSender: ben))
+        XCTAssertEqual(row.initials, "BC")
+        XCTAssertEqual(row.avatarAddress, "ben@contoso.test")
+        // Without a read, the newest distinct sender stands in.
+        XCTAssertEqual(text(summary(participants: [tom, ben])).initials, "BC")
     }
 
-    func testNoParticipants() {
-        let row = text(summary(participants: []))
-        XCTAssertEqual(row.senderLine, ConversationRowText.noSender)
-        XCTAssertEqual(row.initials, "?")
+    func testAvatarAddressIsLowercasedForTheTint() {
+        let row = text(summary(participants: [EmailAddress(name: "Ada", address: "ADA@Example.com")]))
+        XCTAssertEqual(row.avatarAddress, "ada@example.com")
+    }
+
+    // MARK: Drafts and Sent
+
+    func testDraftsAndSentNameTheRecipients() {
+        let ben = EmailAddress(name: "Ben Carter", address: "ben@contoso.test")
+        let draft = text(summary(participants: [me]), .init(kind: .draft, recipients: [ben]))
+        XCTAssertEqual(draft.senderPrefix, "Draft to")
+        XCTAssertEqual(draft.senderNames, "Ben Carter")
+        XCTAssertEqual(draft.senderLine, "Draft to Ben Carter")
+        XCTAssertEqual(draft.initials, "BC", "the face is the recipient's")
+
+        let sent = text(summary(participants: [me]), .init(kind: .sent, recipients: [ben]))
+        XCTAssertEqual(sent.senderLine, "To Ben Carter")
+
+        let empty = text(summary(participants: [me]), .init(kind: .draft))
+        XCTAssertEqual(empty.senderLine, "Draft", "a draft with nobody on it yet")
+    }
+
+    func testRecipientsComeFromTheNewestMessageInTheRole() {
+        let ben = EmailAddress(name: "Ben Carter", address: "ben@contoso.test")
+        let priya = EmailAddress(name: "Priya Raman", address: "priya@contoso.test")
+        let messages = [
+            message("1", from: me, to: [priya], roles: [.sent], minutesAgo: 50),
+            message("2", from: me, cc: [ben], roles: [.sent], minutesAgo: 40),
+            message("3", from: priya, to: [me], roles: [.inbox], minutesAgo: 30),
+        ]
+        XCTAssertEqual(ConversationRowText.recipients(in: messages, kind: .sent), [ben], "To is empty, so Cc")
+        XCTAssertEqual(ConversationRowText.recipients(in: messages, kind: .received), [])
+    }
+
+    // MARK: Marks
+
+    func testOtherTagNeedsTheContextAndTheSection() {
+        XCTAssertTrue(text(summary(inboxSection: .other), .init(showsOtherTag: true)).showsOtherTag)
+        XCTAssertFalse(text(summary(inboxSection: .focused), .init(showsOtherTag: true)).showsOtherTag)
+        XCTAssertFalse(text(summary(inboxSection: .other)).showsOtherTag, "only Inbox › All tags Other rows")
+    }
+
+    func testQueuedAndFailedStatus() {
+        XCTAssertEqual(text(summary(hasPendingOperations: true)).status, .queued)
+        XCTAssertEqual(text(summary(failedOperation: .archive)).status, .failed(.archive))
+        XCTAssertEqual(text(summary(hasPendingOperations: true, failedOperation: .trash)).status, .failed(.trash),
+                       "the triangle replaces the queued glyph")
+        XCTAssertEqual(ConversationRowText.failureText(for: .archive), "Couldn't archive")
+        XCTAssertEqual(ConversationRowText.failureText(for: .markUnread), "Couldn't mark as unread")
+        XCTAssertEqual(ConversationRowText.failureText(for: .unstar), "Couldn't unstar")
+    }
+
+    func testVoiceOverLabel() {
+        let priya = EmailAddress(name: "Priya Raman", address: "priya@example.com")
+        let row = text(summary(subject: "Lisbon in March?", snippet: "Booked the flat", participants: [priya],
+                               messageCount: 3, unreadCount: 1, isStarred: true, hasPendingOperations: true),
+                       .init(accountName: "Personal"))
+        XCTAssertEqual(row.accessibilityLabel,
+                       "Unread. Starred. Priya Raman. Lisbon in March? Booked the flat. 13:55. 3 messages. Waiting to sync. Personal account.")
+        let failed = text(summary(failedOperation: .archive))
+        XCTAssertTrue(failed.accessibilityLabel.contains("Couldn't archive."))
     }
 
     // MARK: Cache key
@@ -130,6 +256,8 @@ final class ConversationRowTextTests: XCTestCase {
 
     func testCacheKeyChangesWithEveryVisibleField() {
         let base = ConversationRowText.cacheKey(for: summary(), dayStamp: 1)
+        var newMessage = summary()
+        newMessage.latestMessageID = MessageID(accountID: account, providerID: "other")
         let variants: [ConversationSummary] = [
             summary(id: "t2"),
             summary(subject: "Dinner?"),
@@ -140,7 +268,10 @@ final class ConversationRowTextTests: XCTestCase {
             summary(unreadCount: 1),
             summary(isStarred: true),
             summary(hasAttachments: true),
+            summary(inboxSection: .other),
             summary(hasPendingOperations: true),
+            summary(failedOperation: .archive),
+            newMessage,
         ]
         for variant in variants {
             XCTAssertNotEqual(ConversationRowText.cacheKey(for: variant, dayStamp: 1), base, "\(variant)")
@@ -151,9 +282,26 @@ final class ConversationRowTextTests: XCTestCase {
     func testCacheKeyIgnoresFieldsTheRowDoesNotShow() {
         var changed = summary()
         changed.inInbox = false
-        changed.inboxSection = .other
-        changed.latestMessageID = MessageID(accountID: account, providerID: "other")
         XCTAssertEqual(ConversationRowText.cacheKey(for: changed, dayStamp: 1), ConversationRowText.cacheKey(for: summary(), dayStamp: 1))
+    }
+
+    func testContextAndEnvironmentAreInTheExtendedKey() {
+        let environment = "light|ic0|g0|newYork"
+        let base = ConversationRowText.cacheKey(for: summary(), dayStamp: 1, context: .init(), environment: environment)
+        let contexts: [ConversationRowText.Context] = [
+            .init(kind: .sent),
+            .init(timeStyle: .timeOfDay),
+            .init(showsOtherTag: true),
+            .init(ownAddresses: ["ada@example.com"]),
+            .init(accountName: "Personal"),
+        ]
+        for context in contexts {
+            XCTAssertNotEqual(ConversationRowText.cacheKey(for: summary(), dayStamp: 1, context: context, environment: environment),
+                              base, "\(context)")
+        }
+        for other in ["dark|ic0|g0|newYork", "light|ic1|g0|newYork", "light|ic0|g1|newYork", "light|ic0|g0|sfPro"] {
+            XCTAssertNotEqual(ConversationRowText.cacheKey(for: summary(), dayStamp: 1, context: .init(), environment: other), base)
+        }
     }
 
     func testStableHasherSeparatesAdjacentStrings() {
@@ -180,9 +328,10 @@ final class ConversationRowTextTests: XCTestCase {
 
         let start = DispatchTime.now()
         var checksum: UInt64 = 0
+        let context = ConversationRowText.Context(timeStyle: .timeOfDay, showsOtherTag: true, ownAddresses: ["ada.lovelace@example.com"])
         for summary in summaries {
-            let row = ConversationRowText(summary: summary, reference: reference, formatter: formatting)
-            checksum ^= ConversationRowText.cacheKey(for: summary, dayStamp: reference.dayStamp)
+            let row = ConversationRowText(summary: summary, reference: reference, formatter: formatting, context: context)
+            checksum ^= ConversationRowText.cacheKey(for: summary, dayStamp: reference.dayStamp, context: context, environment: "light|ic0|g0")
             checksum &+= UInt64(row.senderLine.utf8.count + row.timeText.utf8.count + row.subjectText.utf8.count + row.snippetText.utf8.count)
         }
         let elapsed = Double(DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1e9
@@ -191,7 +340,7 @@ final class ConversationRowTextTests: XCTestCase {
     }
 
     /// A deterministic mailbox: fifty senders, dates spread over the past year, snippets that need collapsing.
-    private static func syntheticSummaries(count: Int, account: AccountID, now: Date) -> [ConversationSummary] {
+    static func syntheticSummaries(count: Int, account: AccountID, now: Date) -> [ConversationSummary] {
         let firstNames = ["Ada", "Grace", "Linus", "Margaret", "Dennis", "Barbara", "Ken", "Radia", "Alan", "Hedy"]
         let lastNames = ["Lovelace", "Hopper", "Torvalds", "Hamilton", "Ritchie"]
         var senders: [EmailAddress] = []

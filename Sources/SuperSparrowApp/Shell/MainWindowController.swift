@@ -233,6 +233,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     private func statusesChanged(_ statuses: [AccountSyncStatus]) {
         self.statuses = statuses
         refreshAccounts()
+        list.syncStatuses = statuses
         listPane.statusBar.apply(SyncStatusSummary.make(statuses: statuses, accounts: accountsByID))
     }
 

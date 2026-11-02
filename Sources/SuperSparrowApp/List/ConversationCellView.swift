@@ -1,172 +1,249 @@
 import AppKit
+import SSCore
+import SSDesign
 
-/// The visible content of one row.
+/// The visible content of one conversation row (spec §5.7), drawn by hand.
 ///
-/// Laid out by hand in `layout()` with a flipped coordinate system, because Auto Layout inside table rows is the
-/// single biggest scrolling cost on long lists. Text lives in `NSTextField` labels so it can be truncated and
-/// read by accessibility; the dots and the count badge are drawn directly since they are a few fills.
+/// Everything is drawn in `draw(_:)` from frames computed by arithmetic: no Auto Layout, no labels, no layer per
+/// mark, no shadow. The view's layer is transparent, so the row view's fill (`paper`, hover, either selection
+/// wash) shows through, the avatar ring's gap included: the gap is never drawn, which is what lets one cached
+/// face serve every row state. A selection or hover change redraws only the row view underneath; this layer
+/// keeps its contents.
 final class ConversationCellView: NSView {
     static let identifier = NSUserInterfaceItemIdentifier("ConversationCell")
 
-    enum Metrics {
-        static let rowHeight: CGFloat = 72
-        static let avatarDiameter: CGFloat = 36
-        static let avatarX: CGFloat = 16
-        static let avatarY: CGFloat = 18
-        static let accountDotDiameter: CGFloat = 10
-        static let unreadDotDiameter: CGFloat = 8
-        static let textX: CGFloat = 64
-        static let trailingInset: CGFloat = 14
-        static let glyphSize: CGFloat = 14
-        static let glyphSpacing: CGFloat = 5
-        static let badgeHeight: CGFloat = 16
+    /// How the row marks its account: nothing in a single-account view; the ring (standard) or the square
+    /// (compact) in unified views, plus the initial tile when Show account initials is on.
+    struct AccountMark: Equatable {
+        var inkSlot: Int
+        var initial: String
+        var isUnified: Bool
+        var showsInitial: Bool
+
+        static let none = AccountMark(inkSlot: 0, initial: "", isUnified: false, showsInitial: false)
     }
 
-    private let avatarView = NSImageView()
-    private let senderLabel = ConversationCellView.makeLabel()
-    private let timeLabel = ConversationCellView.makeLabel()
-    private let subjectLabel = ConversationCellView.makeLabel()
-    private let snippetLabel = ConversationCellView.makeLabel()
-    private let starView = ConversationCellView.makeGlyph(symbol: "star.fill", tint: .systemYellow, description: "Starred")
-    private let attachmentView = ConversationCellView.makeGlyph(symbol: "paperclip", tint: .secondaryLabelColor, description: "Has attachments")
+    private typealias Row = Quire.Layout.Row
+    private typealias Compact = Quire.Layout.RowCompact
 
-    private var content: ConversationRowContent?
-    private var avatarKey: AvatarCache.Key?
-    private var badgeRect = CGRect.zero
-    private var accountColor: NSColor?
+    private(set) var content: ConversationRowContent?
+    private var mark = AccountMark.none
+    private var density = AppSettings.ListDensity.standard
+    /// Bumped on every configure so a face that lands after the row was reused is ignored.
+    private var generation = 0
+
+    /// Faces drawn before their cached bitmap was ready, across all rows. The list's hover-while-scrolling
+    /// test reads it; a miss is also a signpost event so Instruments shows when one happens.
+    private(set) static var faceMisses = 0
 
     override var isFlipped: Bool { true }
+    override var isOpaque: Bool { false }
+    override var wantsUpdateLayer: Bool { false }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         identifier = ConversationCellView.identifier
         wantsLayer = true
-        avatarView.imageScaling = .scaleNone
-        avatarView.wantsLayer = true
-        for subview in [avatarView, senderLabel, timeLabel, subjectLabel, snippetLabel, starView, attachmentView] {
-            addSubview(subview)
-        }
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
     }
 
     required init?(coder: NSCoder) {
         nil
     }
 
-    func configure(with content: ConversationRowContent, accountColor: NSColor?, avatarCache: AvatarCache) {
+    func configure(with content: ConversationRowContent, mark: AccountMark, density: AppSettings.ListDensity) {
+        guard content !== self.content || mark != self.mark || density != self.density else { return }
         self.content = content
-        self.accountColor = accountColor
-        senderLabel.attributedStringValue = content.sender
-        timeLabel.attributedStringValue = content.time
-        subjectLabel.attributedStringValue = content.subject
-        snippetLabel.attributedStringValue = content.snippet
-        starView.isHidden = !content.isStarred
-        attachmentView.isHidden = !content.hasAttachments
-        // A queued operation has already been applied locally; the fade says "on its way", not "disabled".
-        alphaValue = content.hasPendingOperations ? 0.6 : 1
-
-        let key = AvatarCache.Key(initials: content.initials, colorIndex: content.avatarColorIndex)
-        avatarKey = key
-        avatarView.image = avatarCache.image(for: key) { [weak self] image in
-            // The row may have been reused for another conversation while the render was in flight.
-            guard let self, self.avatarKey == key else { return }
-            self.avatarView.image = image
-        }
-        needsLayout = true
+        self.mark = mark
+        self.density = density
+        generation &+= 1
+        toolTip = content.failureText
         needsDisplay = true
     }
 
-    override func layout() {
-        super.layout()
-        let width = bounds.width
-        let right = width - Metrics.trailingInset
+    // MARK: Geometry
 
-        avatarView.frame = CGRect(x: Metrics.avatarX, y: Metrics.avatarY, width: Metrics.avatarDiameter, height: Metrics.avatarDiameter)
+    private var isCompact: Bool { density == .compact }
 
-        let timeWidth = content?.timeWidth ?? 0
-        timeLabel.frame = CGRect(x: right - timeWidth, y: 11, width: timeWidth, height: 15)
-        senderLabel.frame = CGRect(x: Metrics.textX, y: 9, width: max(0, timeLabel.frame.minX - 8 - Metrics.textX), height: 18)
-
-        // Glyphs stack leftwards from the trailing edge under the time, in a fixed order so the eye can rely on it.
-        var cursor = right
-        let glyphY: CGFloat = 30
-        if !starView.isHidden {
-            starView.frame = CGRect(x: cursor - Metrics.glyphSize, y: glyphY, width: Metrics.glyphSize, height: Metrics.glyphSize)
-            cursor -= Metrics.glyphSize + Metrics.glyphSpacing
-        }
-        if !attachmentView.isHidden {
-            attachmentView.frame = CGRect(x: cursor - Metrics.glyphSize, y: glyphY, width: Metrics.glyphSize, height: Metrics.glyphSize)
-            cursor -= Metrics.glyphSize + Metrics.glyphSpacing
-        }
-        if let content, content.badge != nil {
-            badgeRect = CGRect(x: cursor - content.badgeWidth, y: glyphY - 1, width: content.badgeWidth, height: Metrics.badgeHeight)
-            cursor -= content.badgeWidth + Metrics.glyphSpacing
-        } else {
-            badgeRect = .zero
-        }
-
-        subjectLabel.frame = CGRect(x: Metrics.textX, y: 28, width: max(0, cursor - 6 - Metrics.textX), height: 17)
-        snippetLabel.frame = CGRect(x: Metrics.textX, y: 46, width: max(0, right - Metrics.textX), height: 16)
+    /// The time cluster's pieces, right to left: time, initial tile, Other tag, queued or failed glyph.
+    private struct Cluster {
+        var time = NSRect.zero
+        var tile: NSRect?
+        var square: NSRect?
+        var tag: NSRect?
+        var status: NSRect?
+        var leadingEdge: CGFloat = 0
     }
+
+    private func cluster(for content: ConversationRowContent) -> Cluster {
+        let lineTop = isCompact ? Compact.senderY : Row.senderY
+        let lineMid = lineTop + Row.senderHeight / 2
+        var c = Cluster()
+        var x = bounds.width - Row.trailing
+        let timeHeight = QuireFont.Role.meta.lineHeight
+        c.time = NSRect(x: x - content.timeWidth, y: lineMid - timeHeight / 2, width: content.timeWidth, height: timeHeight)
+        x = c.time.minX
+        if mark.isUnified {
+            if mark.showsInitial {
+                // With initials on, the tile carries both the colour and the letter; it replaces the square.
+                let size = Row.accountTile
+                c.tile = NSRect(x: x - Row.tileGap - size, y: lineMid - size / 2, width: size, height: size)
+                x = c.tile!.minX
+            } else if isCompact {
+                let size = Compact.accountSquare
+                c.square = NSRect(x: x - Row.tileGap - size, y: lineMid - size / 2, width: size, height: size)
+                x = c.square!.minX
+            }
+        }
+        if content.showsOtherTag {
+            let size = ConversationCellView.otherTagSize
+            // The tag's gap is `tagGap` after a tile or square, `tileGap` straight after the time: both are 6.
+            let gap = (c.tile != nil || c.square != nil) ? Row.tagGap : Row.tileGap
+            c.tag = NSRect(x: x - gap - size.width, y: lineMid - size.height / 2, width: size.width, height: size.height)
+            x = c.tag!.minX
+        }
+        if content.status != .none {
+            let size = Row.queuedGlyph
+            c.status = NSRect(x: x - Row.queuedGap - size, y: lineMid - size / 2, width: size, height: size)
+            x = c.status!.minX
+        }
+        c.leadingEdge = x
+        return c
+    }
+
+    private static let otherTagText = "Other"
+    private static let otherTagSize = QuireTag.size(for: otherTagText)
+
+    // MARK: Drawing
 
     override func draw(_ dirtyRect: NSRect) {
         guard let content else { return }
+        let compact = isCompact
+        let textX = compact ? Compact.textX : Row.textX
+        let right = bounds.width - Row.trailing
 
         if content.isUnread {
-            NSColor.controlAccentColor.setFill()
-            let dot = CGRect(
-                x: 4,
-                y: (bounds.height - Metrics.unreadDotDiameter) / 2,
-                width: Metrics.unreadDotDiameter,
-                height: Metrics.unreadDotDiameter
-            )
-            NSBezierPath(ovalIn: dot).fill()
+            let y = compact ? Compact.pipY : Row.pipY
+            QuireDraw.fillCircle(NSRect(x: Row.pipX, y: y, width: Row.pip, height: Row.pip), .qAccent)
         }
 
-        if let accountColor {
-            let dot = CGRect(
-                x: Metrics.avatarX + Metrics.avatarDiameter - Metrics.accountDotDiameter + 2,
-                y: Metrics.avatarY + Metrics.avatarDiameter - Metrics.accountDotDiameter + 2,
-                width: Metrics.accountDotDiameter,
-                height: Metrics.accountDotDiameter
-            )
-            // A ring in the row background keeps the dot legible where it overlaps the avatar.
-            NSColor.controlBackgroundColor.setFill()
-            NSBezierPath(ovalIn: dot.insetBy(dx: -1.5, dy: -1.5)).fill()
-            accountColor.setFill()
-            NSBezierPath(ovalIn: dot).fill()
+        if !compact {
+            let inset = (Row.avatarBox - Row.avatarFace) / 2
+            let face = NSRect(x: Row.avatarBoxX + inset, y: Row.avatarBoxY + inset, width: Row.avatarFace, height: Row.avatarFace)
+            drawFace(content, in: face)
+            if mark.isUnified {
+                QuireAvatarRenderer.drawRing(around: face, accountSlot: mark.inkSlot)
+            }
         }
 
-        if let badge = content.badge, !badgeRect.isEmpty {
-            NSColor.quaternaryLabelColor.setFill()
-            NSBezierPath(roundedRect: badgeRect, xRadius: Metrics.badgeHeight / 2, yRadius: Metrics.badgeHeight / 2).fill()
-            let size = badge.size()
-            badge.draw(at: CGPoint(x: badgeRect.midX - size.width / 2, y: badgeRect.midY - size.height / 2))
+        // Line 1: sender, then the time cluster.
+        let c = cluster(for: content)
+        let senderTop = compact ? Compact.senderY : Row.senderY
+        drawLine(content.sender, x: textX, top: senderTop, width: c.leadingEdge - Row.timeGap - textX, height: Row.senderHeight)
+        drawLine(content.time, x: c.time.minX, top: c.time.minY, width: c.time.width + 1, height: c.time.height)
+        if let tile = c.tile {
+            drawInitialTile(in: tile)
+        }
+        if let square = c.square {
+            QuireDraw.fill(square, radius: Compact.accountSquareRadius, .qAccount(mark.inkSlot))
+        }
+        if let tag = c.tag {
+            QuireTag.draw(ConversationCellView.otherTagText, in: tag)
+        }
+        if let status = c.status {
+            switch content.status {
+            case .queued:
+                QuireSymbol.draw(Quire.Icon.pending, size: .custom(Row.queuedGlyph), color: .qInk3, centredIn: status)
+            case .failed:
+                QuireSymbol.draw(Quire.Icon.failed, size: .row, color: .qDanger, centredIn: status)
+            case .none:
+                break
+            }
+        }
+
+        // Line 2: subject (compact: subject — snippet), then the glyph cluster.
+        let line2Top = compact ? Compact.line2Y : Row.subjectY
+        let line2Mid = line2Top + Row.subjectHeight / 2
+        var x = right
+        if content.isStarred {
+            let rect = NSRect(x: x - Row.glyph, y: line2Mid - Row.glyph / 2, width: Row.glyph, height: Row.glyph)
+            QuireSymbol.draw(Quire.Icon.unstar, size: .row, color: .qStar, centredIn: rect)
+            x = rect.minX - Row.glyphGap
+        }
+        if content.hasAttachments {
+            let rect = NSRect(x: x - Row.glyph, y: line2Mid - Row.glyph / 2, width: Row.glyph, height: Row.glyph)
+            QuireSymbol.draw(Quire.Icon.attach, size: .row, color: .qInk2, centredIn: rect)
+            x = rect.minX - Row.glyphGap
+        }
+        if let count = content.messageCount {
+            let size = content.badgeSize
+            let rect = NSRect(x: x - size.width, y: line2Mid - size.height / 2, width: size.width, height: size.height)
+            QuireBadge.draw(.messageCount(count), in: rect)
+            x = rect.minX - Row.glyphGap
+        }
+        let line2End = x == right ? right : x + Row.glyphGap - Row.clusterGap
+        drawLine(compact ? content.compactLine : content.subject, x: textX, top: line2Top, width: line2End - textX,
+                 height: Row.subjectHeight)
+
+        if !compact {
+            drawLine(content.snippet, x: textX, top: Row.snippetY, width: right - textX, height: Row.snippetHeight)
         }
     }
 
-    // MARK: Factories
-
-    private static func makeLabel() -> NSTextField {
-        let label = NSTextField(labelWithString: "")
-        label.lineBreakMode = .byTruncatingTail
-        label.maximumNumberOfLines = 1
-        label.usesSingleLineMode = true
-        label.cell?.truncatesLastVisibleLine = true
-        label.allowsDefaultTighteningForTruncation = false
-        label.drawsBackground = false
-        label.isBezeled = false
-        label.isEditable = false
-        label.isSelectable = false
-        return label
+    /// One line, truncated at its width with a tail ellipsis; the role's paragraph style and baseline offset
+    /// centre the glyphs in the line box.
+    private func drawLine(_ string: NSAttributedString, x: CGFloat, top: CGFloat, width: CGFloat, height: CGFloat) {
+        guard width > 0, string.length > 0 else { return }
+        string.draw(with: NSRect(x: x, y: top, width: width, height: height), options: QuireFont.drawingOptions, context: nil)
     }
 
-    private static func makeGlyph(symbol: String, tint: NSColor, description: String) -> NSImageView {
-        let view = NSImageView()
-        view.image = NSImage(systemSymbolName: symbol, accessibilityDescription: description)
-        view.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
-        view.contentTintColor = tint
-        view.imageScaling = .scaleProportionallyDown
-        view.isHidden = true
-        return view
+    /// The cached, ring-less face; until it lands, the same face drawn in place, so a row never shows an empty
+    /// circle (spec §5.7, avatars).
+    private func drawFace(_ content: ConversationRowContent, in rect: NSRect) {
+        let scale = window?.backingScaleFactor ?? 2
+        let expected = generation
+        let face = QuireAvatarRenderer.shared.face(initials: content.initials, tint: content.tint, diameter: rect.width,
+                                                   appearance: effectiveAppearance, scale: scale) { [weak self] _ in
+            guard let self, self.generation == expected else { return }
+            self.needsDisplay = true
+        }
+        if let face {
+            face.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+        } else {
+            ConversationCellView.faceMisses += 1
+            ListSignposts.signposter.emitEvent("list.faceMiss")
+            QuireAvatarRenderer.drawFace(initials: content.initials, tint: content.tint, in: rect)
+        }
     }
+
+    /// The optional account initial tile (spec §4.2): no fill of its own, so the row's fill shows through, a
+    /// 1.5 pt edge in the account ink and the monogram's first letter in `tag` `ink2`.
+    private func drawInitialTile(in rect: NSRect) {
+        QuireDraw.strokeInside(rect, radius: Row.accountTileRadius, width: Row.accountTileBorder, .qAccount(mark.inkSlot))
+        let letter = ConversationCellView.tileLetter(mark.initial)
+        let size = letter.size()
+        let lineHeight = QuireFont.Role.tag.lineHeight
+        drawLine(letter, x: (rect.midX - size.width / 2).rounded(), top: (rect.midY - lineHeight / 2).rounded(), width: ceil(size.width) + 1,
+                 height: lineHeight)
+    }
+
+    private static var tileLetters: [String: NSAttributedString] = [:]
+
+    private static func tileLetter(_ letter: String) -> NSAttributedString {
+        if let cached = tileLetters[letter] { return cached }
+        let string = QuireFont.attributedString(letter, role: .tag, color: .qInk2)
+        tileLetters[letter] = string
+        return string
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+
+    // MARK: Accessibility
+
+    override func isAccessibilityElement() -> Bool { true }
+    override func accessibilityRole() -> NSAccessibility.Role? { .staticText }
+    override func accessibilityLabel() -> String? { content?.accessibilityLabel }
 }

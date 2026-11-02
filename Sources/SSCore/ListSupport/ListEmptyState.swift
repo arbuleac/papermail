@@ -1,0 +1,65 @@
+import Foundation
+
+/// The empty list's sentence and hint (spec §5.9): one serif sentence and one hint for every view, filter and
+/// sync state, chosen without AppKit so the copy table can be tested.
+public struct ListEmptyState: Hashable, Sendable {
+    /// The only glyphs an empty list carries.
+    public enum Glyph: Hashable, Sendable {
+        /// Inbox zero: the sparrow.
+        case sparrow
+        /// Offline with nothing cached: `wifi.slash`.
+        case offline
+    }
+
+    public let sentence: String
+    public let hint: String
+    public let glyph: Glyph?
+
+    public init(sentence: String, hint: String, glyph: Glyph? = nil) {
+        self.sentence = sentence
+        self.hint = hint
+        self.glyph = glyph
+    }
+
+    /// What an empty list says for `query`.
+    ///
+    /// - Parameters:
+    ///   - isOfflineWithNothingCached: no network and no account in the view has ever finished a sync, so the
+    ///     list is empty because nothing could arrive, not because the mailbox is.
+    ///   - firstSyncFinishedAccount: the name of the account whose first sync finished in this session with
+    ///     nothing for this view ("No mail in Contoso yet").
+    public static func make(query: ConversationQuery, isOfflineWithNothingCached: Bool = false,
+                            firstSyncFinishedAccount: String? = nil) -> ListEmptyState {
+        if let text = query.searchText?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty {
+            return ListEmptyState(sentence: "No results for “\(text)”", hint: "Search looks at subjects, people and message text.")
+        }
+        if isOfflineWithNothingCached {
+            return ListEmptyState(sentence: "You're offline", hint: "Mail will appear when you reconnect.", glyph: .offline)
+        }
+        if let account = firstSyncFinishedAccount {
+            return ListEmptyState(sentence: "No mail in \(account) yet", hint: "Sync finished. New mail will land here.")
+        }
+        switch query.view {
+        case .inbox:
+            switch query.section {
+            case .focused?:
+                return ListEmptyState(sentence: "Nothing in Focused",
+                                      hint: "Mail from people lands here; newsletters and notifications go to Other.")
+            case .other?:
+                return ListEmptyState(sentence: "Nothing in Other", hint: "Newsletters and notifications land here.")
+            case .unknown?, nil:
+                return ListEmptyState(sentence: "Nothing left to read.", hint: "New mail will land here.", glyph: .sparrow)
+            }
+        case .starred:
+            return ListEmptyState(sentence: "No starred conversations", hint: "Press S to star one.")
+        case .sent:
+            return ListEmptyState(sentence: "No sent mail", hint: "Messages you send appear here.")
+        case .drafts:
+            return ListEmptyState(sentence: "Nothing in Drafts", hint: "Drafts you start here are kept on this Mac.")
+        case .trash:
+            return ListEmptyState(sentence: "Trash is empty", hint: "Conversations you move to Trash appear here.")
+        case .all:
+            return ListEmptyState(sentence: "No mail", hint: "Every conversation in this account appears here, archived ones too.")
+        }
+    }
+}
