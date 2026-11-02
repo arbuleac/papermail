@@ -366,12 +366,12 @@ final class ComponentColorTests: XCTestCase {
     // MARK: Surfaces
 
     func testBannerWashes() {
-        let kinds: [(QuireBanner.Kind, [String])] = [
+        let kinds: [(QuireBannerView.Kind, [String])] = [
             (.neutral, ["sheet", "fill"]), (.info, ["infoWash"]), (.success, ["successWash"]), (.warning, ["warningWash"]), (.danger, ["dangerWash"]),
         ]
         for mode in QuireMode.allCases {
             for (kind, stack) in kinds {
-                let banner = QuireBanner(kind: kind, message: "Words")
+                let banner = QuireBannerView(kind: kind, message: "Words")
                 banner.setFrameSize(NSSize(width: 300, height: 32))
                 let snapshot = ComponentSnapshot.render(banner, mode: mode, surface: .qSheet, padding: pad)
                 assertPixel(snapshot, NSPoint(x: pad + 4, y: pad + 16), TokenResolver.resolveStack(stack, mode), "\(mode) \(kind)")

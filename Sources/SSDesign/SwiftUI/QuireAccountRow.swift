@@ -46,7 +46,7 @@ public struct QuireAccountRow: View {
                             .quireLine(.bodyStrong)
                             .truncationMode(.tail)
                             .foregroundStyle(Color.qInk)
-                        QuireTag(content.tag)
+                        QuireSettingsTag(content.tag)
                             .fixedSize()
                             .layoutPriority(1)
                     }
@@ -69,7 +69,7 @@ public struct QuireAccountRow: View {
         }
         .overlay(alignment: .leading) {
             if let rule = selection.rule {
-                QuireMarginRule(color: rule)
+                QuireSettingsMarginRule(color: rule)
             }
         }
         .overlay {
@@ -109,7 +109,7 @@ public struct QuireAccountRow: View {
 
 /// The 3 pt margin rule, full row height, flush with the leading edge; its trailing corners round by 2 pt
 /// (`border.marginRule.radius`), its leading ones stay square.
-struct QuireMarginRule: View {
+struct QuireSettingsMarginRule: View {
     let color: QuireColorToken
 
     var body: some View {
@@ -122,7 +122,7 @@ struct QuireMarginRule: View {
 }
 
 /// A provider tag (spec §5.28): 16 pt, padding 0 5, radius 3, 1 pt `ruleStrong` inset, `tag` `ink2`.
-struct QuireTag: View {
+struct QuireSettingsTag: View {
     let text: String
 
     init(_ text: String) {

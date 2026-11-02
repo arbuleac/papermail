@@ -131,7 +131,7 @@ final class ComponentBehaviourTests: XCTestCase {
     func testRadioGroupIsOneTabStopAndArrowsMoveTheChoice() {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 60), styleMask: .titled, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        let group = QuireRadioGroup(titles: ["Standard", "Compact", "Roomy"], selectedIndex: 0)
+        let group = QuireRadioGroupView(titles: ["Standard", "Compact", "Roomy"], selectedIndex: 0)
         window.contentView?.addSubview(group)
         var changes: [Int] = []
         group.onChange = { changes.append($0) }

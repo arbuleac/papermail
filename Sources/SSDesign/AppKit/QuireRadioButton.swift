@@ -2,7 +2,7 @@ import AppKit
 
 /// A Quire radio button (spec §5.26): a 14 pt circle, off `sheet` with a 1 pt `ruleStrong` edge, on
 /// `accentFill` with a 6 pt `onAccent` dot; hover, press, focus and disabled as the checkbox. Radios belong to a
-/// `QuireRadioGroup`, which makes the group one Tab stop and moves the choice with the arrow keys.
+/// `QuireRadioGroupView`, which makes the group one Tab stop and moves the choice with the arrow keys.
 @MainActor
 public final class QuireRadioButton: QuireControl {
     public var title: String? {
@@ -13,8 +13,8 @@ public final class QuireRadioButton: QuireControl {
         didSet { if oldValue != isSelected { needsDisplay = true } }
     }
 
-    /// The group this radio belongs to; set by `QuireRadioGroup`.
-    public internal(set) weak var group: QuireRadioGroup?
+    /// The group this radio belongs to; set by `QuireRadioGroupView`.
+    public internal(set) weak var group: QuireRadioGroupView?
 
     public var state: NSControl.StateValue {
         get { isSelected ? .on : .off }

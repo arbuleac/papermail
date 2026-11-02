@@ -77,7 +77,7 @@ enum QuireFocusRingMetrics {
 }
 
 /// A decorative hairline: one device pixel in `rule`, 1 pt under Increase Contrast (spec §4.7).
-struct QuireHairline: View {
+struct QuireSettingsHairline: View {
     enum Axis { case horizontal, vertical }
     var axis: Axis = .horizontal
 
@@ -85,7 +85,7 @@ struct QuireHairline: View {
     @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
-        let width = QuireHairline.width(displayScale: displayScale, increasedContrast: contrast == .increased)
+        let width = QuireSettingsHairline.width(displayScale: displayScale, increasedContrast: contrast == .increased)
         Rectangle()
             .fill(QuireColorToken.rule.swiftUIColor)
             .frame(width: axis == .vertical ? width : nil, height: axis == .horizontal ? width : nil)

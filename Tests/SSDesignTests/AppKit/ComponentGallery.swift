@@ -163,7 +163,7 @@ enum ComponentGallery {
         offline.setFrameSize(NSSize(width: 300, height: 90))
         builder.add(offline, width: 320)
         builder.newline()
-        let banners: [(QuireBanner.Kind, String, String?, String?)] = [
+        let banners: [(QuireBannerView.Kind, String, String?, String?)] = [
             (.neutral, "3 remote images hidden to protect your privacy.", Quire.Icon.loadImages, "Load images"),
             (.warning, "This message uses its own colours.", Quire.Icon.originalColors, nil),
             (.info, "Focused mirrors Gmail Primary.", nil, nil),
@@ -171,14 +171,14 @@ enum ComponentGallery {
             (.danger, "Couldn't load this message.", nil, "Retry"),
         ]
         for (index, spec) in banners.enumerated() {
-            let banner = QuireBanner(kind: spec.0, message: spec.1, symbolName: spec.2)
+            let banner = QuireBannerView(kind: spec.0, message: spec.1, symbolName: spec.2)
             if let action = spec.3 { banner.setAction(action) }
             if index == 1 { banner.setDismissible(true) }
             banner.setFrameSize(NSSize(width: 380, height: 32))
             builder.add(banner, width: 390)
             if index % 3 == 2 { builder.newline() }
         }
-        let multi = QuireBanner(kind: .danger, message: "Couldn't send: Microsoft 365 rejected the attachment size. The draft is kept on this Mac.")
+        let multi = QuireBannerView(kind: .danger, message: "Couldn't send: Microsoft 365 rejected the attachment size. The draft is kept on this Mac.")
         multi.allowsMultipleLines = true
         multi.setAction("Open draft")
         multi.setFrameSize(NSSize(width: 380, height: multi.height(forWidth: 380)))
@@ -277,7 +277,7 @@ enum ComponentGallery {
         let disabledRadio = QuireRadioButton()
         disabledRadio.isEnabled = false
         builder.add(disabledRadio, width: 28)
-        builder.add(QuireRadioGroup(titles: ["Standard", "Compact"], selectedIndex: 0), width: 200)
+        builder.add(QuireRadioGroupView(titles: ["Standard", "Compact"], selectedIndex: 0), width: 200)
         builder.newline()
         builder.label("toggle")
         for spec in [(false, nil), (true, nil), (false, QuireDisplayState.focused), (true, .focused), (false, .pressed), (true, .pressed)] as [(Bool, QuireDisplayState?)] {
@@ -410,7 +410,7 @@ enum ComponentGallery {
 
         /// Shows loading spinners now instead of after their 150 ms delay.
         private func reveal(_ view: NSView) {
-            let spinner = (view as? QuireButton)?.spinner ?? (view as? QuireIconButton)?.spinner ?? (view as? QuireBanner)?.spinner
+            let spinner = (view as? QuireButton)?.spinner ?? (view as? QuireIconButton)?.spinner ?? (view as? QuireBannerView)?.spinner
             guard let spinner, !spinner.isRevealed else { return }
             spinner.stopAnimation()
             spinner.delay = 0

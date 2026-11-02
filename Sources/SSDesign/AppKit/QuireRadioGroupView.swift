@@ -1,11 +1,11 @@
 import AppKit
 
-/// One choice among a few (spec §5.26, §8.3 “QuireRadioGroup”): a row (or column) of `QuireRadioButton`s that
+/// One choice among a few (spec §5.26, §8.3 “QuireRadioGroupView”): a row (or column) of `QuireRadioButton`s that
 /// is one Tab stop, the selected radio, with ← → (and ↑ ↓) moving the choice and the focus together, skipping
 /// disabled radios. It sends its action when the choice changes. Accessibility: a radio group whose children
 /// are the radios.
 @MainActor
-public final class QuireRadioGroup: NSControl {
+public final class QuireRadioGroupView: NSControl {
     public private(set) var buttons: [QuireRadioButton] = []
 
     public var selectedIndex: Int? {
@@ -37,7 +37,7 @@ public final class QuireRadioGroup: NSControl {
     }
 
     @available(*, unavailable)
-    public required init?(coder: NSCoder) { fatalError("QuireRadioGroup is built in code") }
+    public required init?(coder: NSCoder) { fatalError("QuireRadioGroupView is built in code") }
 
     public override var isFlipped: Bool { true }
 

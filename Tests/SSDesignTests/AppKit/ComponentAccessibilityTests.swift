@@ -50,7 +50,7 @@ final class ComponentAccessibilityTests: XCTestCase {
         XCTAssertEqual(toggle.accessibilitySubrole(), .switch)
         XCTAssertEqual(toggle.accessibilityValue() as? NSNumber, 1)
 
-        let group = QuireRadioGroup(titles: ["Standard", "Compact"], selectedIndex: 1)
+        let group = QuireRadioGroupView(titles: ["Standard", "Compact"], selectedIndex: 1)
         XCTAssertEqual(group.accessibilityRole(), .radioGroup)
         let radios = group.accessibilityChildren() as? [QuireRadioButton]
         XCTAssertEqual(radios?.count, 2)
@@ -101,7 +101,7 @@ final class ComponentAccessibilityTests: XCTestCase {
     }
 
     func testSurfacesAndFields() {
-        let banner = QuireBanner(kind: .danger, message: "Couldn't load this message.")
+        let banner = QuireBannerView(kind: .danger, message: "Couldn't load this message.")
         let retry = banner.setAction("Retry")
         XCTAssertEqual(banner.accessibilityRole(), .group)
         XCTAssertEqual(banner.accessibilityLabel(), "Couldn't load this message.")

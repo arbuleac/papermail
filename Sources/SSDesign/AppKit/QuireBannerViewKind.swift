@@ -1,6 +1,6 @@
 import AppKit
 
-extension QuireBanner {
+extension QuireBannerView {
     /// Banner variants (spec §5.38): a wash and a glyph colour, always with words.
     public enum Kind: String, CaseIterable, Sendable {
         /// `fill`, glyph `ink2`: the remote-images banner, the offline notice. Privacy is not a warning.

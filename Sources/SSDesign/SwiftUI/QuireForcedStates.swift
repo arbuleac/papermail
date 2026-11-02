@@ -5,7 +5,7 @@ import SwiftUI
 ///
 /// Set them with `.quireForcedStates(_:)` (the `quireForcedStates` environment value). Every Quire style in
 /// this folder reads it and ORs it into the live state: `QuireButtonStyle`, `QuireToggleStyle`,
-/// `QuireCheckboxStyle`, `QuireRadioGroup`, `QuirePopupLabel`, `QuireFieldStyle`, `QuireFocusRing`, the +/−
+/// `QuireCheckboxStyle`, `QuireRadioGroup`, `QuirePopupLabel`, `QuireFieldStyle`, `QuireFocusRingModifier`, the +/−
 /// buttons of `QuireAccountGroup` and the banner's dismiss button. Forcing never changes enabled or window-key
 /// state: disable with `.disabled(true)` and show a non-key window with
 /// `.environment(\.controlActiveState, .inactive)`. A forced ring is still hidden in a non-key window or on a

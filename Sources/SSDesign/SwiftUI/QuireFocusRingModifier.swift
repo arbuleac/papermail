@@ -8,7 +8,7 @@ import SwiftUI
 /// this modifier is for everything else: a custom focusable view, or a control whose style is not Quire's.
 /// The ring is hidden while the window is not key (`controlActiveState == .inactive`, spec §3.4) and when the
 /// view is disabled. `.quireForcedStates(.focused)` shows it without focus.
-public struct QuireFocusRing: ViewModifier {
+public struct QuireFocusRingModifier: ViewModifier {
     public let shape: QuireFocusRingShape
     public let gap: CGFloat
     public let makesFocusable: Bool
@@ -59,9 +59,9 @@ struct QuireOptionalFocusable: ViewModifier {
 }
 
 extension View {
-    /// Draws the Quire focus ring around this view while it has keyboard focus (see `QuireFocusRing`).
+    /// Draws the Quire focus ring around this view while it has keyboard focus (see `QuireFocusRingModifier`).
     public func quireFocusRing(_ shape: QuireFocusRingShape, gap: CGFloat = Quire.Border.FocusRing.gap,
                                focusable: Bool = false) -> some View {
-        modifier(QuireFocusRing(shape, gap: gap, focusable: focusable))
+        modifier(QuireFocusRingModifier(shape, gap: gap, focusable: focusable))
     }
 }

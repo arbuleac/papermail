@@ -7,7 +7,7 @@ public struct QuireSettingsDivider: View {
 
     public var body: some View {
         GridRow {
-            QuireHairline()
+            QuireSettingsHairline()
                 .frame(height: Quire.Layout.Settings.row)
                 .gridCellColumns(2)
                 .gridCellUnsizedAxes(.horizontal)

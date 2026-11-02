@@ -3,7 +3,7 @@ import SwiftUI
 import XCTest
 @testable import SSDesign
 
-/// `QuireFieldStyle`, `QuirePopupLabel` / `QuirePopup` and `QuireFocusRing` against spec §5.25, §5.27 and §4.1.
+/// `QuireFieldStyle`, `QuirePopupLabel` / `QuirePopup` and `QuireFocusRingModifier` against spec §5.25, §5.27 and §4.1.
 @MainActor
 final class FieldAndPopupTests: XCTestCase {
     override func setUp() async throws {
@@ -193,7 +193,7 @@ final class FieldAndPopupTests: XCTestCase {
         }
     }
 
-    // MARK: QuireFocusRing
+    // MARK: QuireFocusRingModifier
 
     func testFocusRingModifierFollowsFocusAndKeyState() {
         let model = FocusModel()

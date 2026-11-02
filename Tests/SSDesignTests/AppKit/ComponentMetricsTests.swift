@@ -248,7 +248,7 @@ final class ComponentMetricsTests: XCTestCase {
         XCTAssertEqual(toast.intrinsicContentSize.width,
                        ceil(14 + 14 + 10 + labelWidth("Archived", .bodyMedium) + 10 + 1 + 10 + action.intrinsicContentSize.width + 6))
 
-        let banner = QuireBanner(kind: .neutral, message: "3 remote images hidden to protect your privacy.")
+        let banner = QuireBannerView(kind: .neutral, message: "3 remote images hidden to protect your privacy.")
         XCTAssertEqual(banner.height(forWidth: 400), 32)
         banner.allowsMultipleLines = true
         let wrapped = banner.height(forWidth: 160)

@@ -125,10 +125,10 @@ public struct QuireAccountGroup<AddMenu: View>: View {
         .background(Color.qSheet)
         .clipShape(shape)
         .overlay(alignment: .top) {
-            if scrolls && edges.top { QuireHairline() }
+            if scrolls && edges.top { QuireSettingsHairline() }
         }
         .overlay(alignment: .bottom) {
-            if scrolls && edges.bottom { QuireHairline() }
+            if scrolls && edges.bottom { QuireSettingsHairline() }
         }
         .overlay { QuireGroupEdge(cornerRadius: s.groupRadius) }
         .focusable()
@@ -216,7 +216,7 @@ struct QuireGroupEdge: View {
     @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
-        let width = QuireHairline.width(displayScale: displayScale, increasedContrast: contrast == .increased)
+        let width = QuireSettingsHairline.width(displayScale: displayScale, increasedContrast: contrast == .increased)
         // An inset stroke of a shape one hairline larger: whole-pixel geometry at every scale (see
         // `QuireFocusRingView`).
         RoundedRectangle(cornerRadius: cornerRadius + width, style: .circular)
@@ -229,7 +229,7 @@ struct QuireGroupEdge: View {
 /// A separator from the text column (x = 62) to the trailing edge.
 struct QuireRowSeparator: View {
     var body: some View {
-        QuireHairline()
+        QuireSettingsHairline()
             .padding(.leading, Quire.Layout.Settings.accountHairlineX)
     }
 }

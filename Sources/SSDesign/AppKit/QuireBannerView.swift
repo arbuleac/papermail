@@ -10,7 +10,7 @@ import AppKit
 /// not fit there). `height(forWidth:)` gives the height for a width; the intrinsic height follows the
 /// current width.
 @MainActor
-public final class QuireBanner: NSView {
+public final class QuireBannerView: NSView {
     public var kind: Kind {
         didSet { needsDisplay = true }
     }
@@ -51,7 +51,7 @@ public final class QuireBanner: NSView {
     }
 
     @available(*, unavailable)
-    public required init?(coder: NSCoder) { fatalError("QuireBanner is built in code") }
+    public required init?(coder: NSCoder) { fatalError("QuireBannerView is built in code") }
 
     public override var isFlipped: Bool { true }
 
