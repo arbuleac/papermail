@@ -1105,11 +1105,46 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         onAction?(.openAttachment(messageID, info))
         let siblings = attachments(of: messageID)
         setAttachmentFailed(false, info.id, of: messageID)
+        let shown = showDownloadSoon(info.id, of: messageID)
         Task { [weak self] in
             guard let self else { return }
-            let opened = await self.preview.preview(info, of: messageID, siblings: siblings)
+            let opened = await self.preview.preview(info, of: messageID, siblings: siblings) { [weak self] in
+                shown.cancel()
+                self?.setAttachmentProgress(.done, info.id, of: messageID)
+            }
             if !opened { self.setAttachmentFailed(true, info.id, of: messageID) }
         }
+    }
+
+    /// What a chip's download shows (spec §5.17): the engine reports no byte counts yet, so a fetch sweeps the
+    /// contrail; `fraction` is ready for a provider that does.
+    enum AttachmentProgress: Equatable {
+        case sweeping
+        case fraction(Double)
+        case done
+    }
+
+    /// The chip shows its download only once the fetch outlasts a cached file (150 ms, as spinners wait), so
+    /// opening a file already on this Mac never flashes it.
+    private func showDownloadSoon(_ attachmentID: String, of messageID: MessageID) -> Task<Void, Never> {
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(150))
+            guard !Task.isCancelled else { return }
+            self?.setAttachmentProgress(.sweeping, attachmentID, of: messageID)
+        }
+    }
+
+    private func setAttachmentProgress(_ progress: AttachmentProgress, _ attachmentID: String, of messageID: MessageID) {
+        guard let current = pool.current, currentMessages.contains(where: { $0.id == messageID }) else { return }
+        let key = ConversationShellAssets.jsStringLiteral(RenderPayload.messageKey(for: messageID))
+        let value: String
+        switch progress {
+        case .sweeping: value = "null"
+        case .fraction(let fraction): value = String(max(0, min(1, fraction)))
+        case .done: value = "-1"
+        }
+        evaluate("window.ss && window.ss.attachmentProgress(\(key), \(ConversationShellAssets.jsStringLiteral(attachmentID)), \(value))",
+                 in: current)
     }
 
     private func performAttachment(_ command: AttachmentMenu.Command) {
@@ -1127,9 +1162,13 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         }
         setAttachmentFailed(false, info.id, of: messageID)
         let window = view.window
+        let shown = showDownloadSoon(info.id, of: messageID)
         Task { [weak self] in
             guard let self else { return }
-            guard let file = await self.preview.file(for: info, of: messageID) else {
+            let fetched = await self.preview.file(for: info, of: messageID)
+            shown.cancel()
+            self.setAttachmentProgress(.done, info.id, of: messageID)
+            guard let file = fetched else {
                 self.setAttachmentFailed(true, info.id, of: messageID)
                 return
             }

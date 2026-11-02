@@ -334,6 +334,20 @@ public enum ConversationShellAssets {
     .ss-chip.ss-failed .ss-chip-meta, .ss-chip.ss-failed:hover .ss-chip-meta .ss-rest-meta { display: inline; color: var(--q-danger); }
     .ss-chip.ss-failed .ss-chip-meta .ss-hover-meta { display: none; }
     .ss-chip.ss-failed .ss-retry { font: var(--q-font-metaStrong); color: var(--q-accent); }
+    /* Downloading (spec §5.17, §5.37): the meta gives way to a 120 × 2 pt contrail on a rule track. Determinate
+       when the fetch reports progress, otherwise a 0.36 segment sweeping (Reduce Motion: a still 0.4 segment). */
+    .ss-dl { display: none; position: relative; width: 120px; height: 2px; margin: 6px 0 5px; border-radius: 1px;
+             background: var(--q-rule); overflow: visible; }
+    .ss-chip.ss-loading .ss-chip-meta { display: none; }
+    .ss-chip.ss-loading .ss-dl { display: block; }
+    .ss-dl-fill { position: absolute; left: 0; top: 0; height: 2px; width: 0;
+                  background: linear-gradient(to left, var(--q-accent) calc(100% - 32px), transparent 100%); }
+    .ss-dl-fill::after { content: ''; position: absolute; right: -2px; top: -1px; width: 4px; height: 4px; border-radius: 50%;
+                         background: var(--q-accent); }
+    .ss-dl.ss-sweep .ss-dl-fill { width: 36%; animation: ss-sweep var(--q-dur-contrailSweep) linear infinite; }
+    @keyframes ss-sweep { from { left: -36%; } to { left: 100%; } }
+    @media (prefers-reduced-motion: reduce) { .ss-dl.ss-sweep .ss-dl-fill { width: 40%; left: 30%; animation: none; } }
+    html.ss-rm .ss-dl.ss-sweep .ss-dl-fill { width: 40%; left: 30%; animation: none; }
 
     /* Footer (spec §5.14): ghost buttons at the indent; the target's carry R · A · F keycaps. */
     .ss-foot {
@@ -1245,6 +1259,12 @@ public enum ConversationShellAssets {
         }
         meta.appendChild(el('span', 'ss-hover-meta', 'Space to Quick Look'));
         text.appendChild(meta);
+        var download = el('span', 'ss-dl');
+        download.setAttribute('aria-hidden', 'true');
+        download.appendChild(el('span', 'ss-dl-fill'));
+        text.appendChild(download);
+        var progress = card.attachmentProgress ? card.attachmentProgress[attachment.id] : undefined;
+        if (progress !== undefined && !failed) { showProgress(chip, progress); }
         chip.appendChild(tile);
         chip.appendChild(text);
         chip.addEventListener('click', function (event) {
@@ -1283,9 +1303,40 @@ public enum ConversationShellAssets {
         refitCard(card);
       }
 
+      // A chip's download (spec §5.17): fraction 0…1 fills the contrail, null sweeps it (size unknown), and a
+      // negative value ends the download, giving the meta back. Kept per card so a rebuilt chip keeps it.
+      function showProgress(chip, fraction) {
+        var bar = chip.querySelector('.ss-dl');
+        var fill = chip.querySelector('.ss-dl-fill');
+        chip.classList.add('ss-loading');
+        chip.setAttribute('aria-busy', 'true');
+        if (fraction === null) {
+          bar.classList.add('ss-sweep');
+          fill.style.width = '';
+        } else {
+          bar.classList.remove('ss-sweep');
+          fill.style.width = Math.round(Math.max(0, Math.min(1, fraction)) * 120) + 'px';
+        }
+      }
+
+      function attachmentProgress(id, attachmentID, fraction) {
+        var card = state.byID[id];
+        if (!card) { return; }
+        card.attachmentProgress = card.attachmentProgress || {};
+        var chip = card.atts.querySelector('.ss-chip[data-attachment-id="' + CSS.escape(attachmentID) + '"]');
+        if (fraction !== null && fraction < 0) {
+          delete card.attachmentProgress[attachmentID];
+          if (chip) { chip.classList.remove('ss-loading'); chip.removeAttribute('aria-busy'); }
+          return;
+        }
+        card.attachmentProgress[attachmentID] = fraction;
+        if (chip) { showProgress(chip, fraction); }
+      }
+
       function attachmentFailed(id, attachmentID, failed) {
         var card = state.byID[id];
         if (!card) { return; }
+        if (card.attachmentProgress) { delete card.attachmentProgress[attachmentID]; }
         card.failedAttachments = card.failedAttachments || {};
         if (!!card.failedAttachments[attachmentID] === !!failed) { return; }
         if (failed) { card.failedAttachments[attachmentID] = true; } else { delete card.failedAttachments[attachmentID]; }
@@ -2045,7 +2096,8 @@ public enum ConversationShellAssets {
         select: function (id) { var card = state.byID[id]; if (card) { setTarget(card, true); } },
         selectedMessageID: function () { return state.target ? state.target.message.id : null; },
         loadImages: function (id) { loadImages(id ? state.byID[id] : targetCard()); },
-        attachmentFailed: attachmentFailed
+        attachmentFailed: attachmentFailed,
+        attachmentProgress: attachmentProgress
       };
 
       post('ssReady', { kind: 'ready' });

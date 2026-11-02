@@ -418,6 +418,31 @@ final class ConversationShellWebViewTests: XCTestCase {
         XCTAssertEqual(margins, ["0px", "0px", "0px"])
     }
 
+    /// Downloading (spec §5.17): the chip's meta gives way to the 120 pt contrail, sweeping until a fraction is
+    /// known, and comes back when the fetch ends.
+    func testADownloadingChipShowsItsContrail() async throws {
+        let (webView, _) = try await loadedShell()
+        typealias F = ConversationFixtures
+        let message = F.message("m1")
+        let file = AttachmentInfo(id: "att-1", filename: "plan.pdf", mimeType: "application/pdf", sizeBytes: 240_000, isInline: false)
+        let payload = F.builder.build(messages: [message], bodies: [message.id: F.body(html: "<p>Plan</p>", attachments: [file])], accounts: F.accounts)
+        _ = try await evaluate("window.ss.render(\(try payload.jsonString()))", in: webView)
+        let key = ConversationShellAssets.jsStringLiteral(payload.messages[0].id)
+        _ = try await evaluate("window.ss.attachmentProgress(\(key), 'att-1', null)", in: webView)
+        let sweeping = try await count(".ss-chip.ss-loading .ss-dl.ss-sweep", in: webView)
+        XCTAssertEqual(sweeping, 1)
+        let metaShown = try await evaluate("getComputedStyle(document.querySelector('.ss-chip .ss-chip-meta')).display", in: webView) as? String
+        XCTAssertEqual(metaShown, "none", "the meta gives way")
+        let barWidth = try await evaluate("getComputedStyle(document.querySelector('.ss-chip .ss-dl')).width", in: webView) as? String
+        XCTAssertEqual(barWidth, "120px")
+        _ = try await evaluate("window.ss.attachmentProgress(\(key), 'att-1', 0.5)", in: webView)
+        let fill = try await evaluate("document.querySelector('.ss-chip .ss-dl-fill').style.width", in: webView) as? String
+        XCTAssertEqual(fill, "60px")
+        _ = try await evaluate("window.ss.attachmentProgress(\(key), 'att-1', -1)", in: webView)
+        let loading = try await count(".ss-chip.ss-loading", in: webView)
+        XCTAssertEqual(loading, 0, "the meta comes back")
+    }
+
     /// A reply still in the outbox is the last sheet, dated “Sending…” with the spinner and offering no actions
     /// (spec §5.14).
     func testAPendingReplyReadsSending() async throws {

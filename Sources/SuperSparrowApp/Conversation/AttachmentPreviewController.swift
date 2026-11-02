@@ -41,12 +41,16 @@ final class AttachmentPreviewController: NSObject, @MainActor QLPreviewPanelData
     }
 
     /// Shows `attachment` and then fetches its siblings in the background so the panel's arrows work. False
-    /// when the attachment itself could not be fetched, so its chip can say so (spec §5.17).
+    /// when the attachment itself could not be fetched, so its chip can say so (spec §5.17). `onFetched` runs
+    /// as soon as the attachment's own fetch ends, either way, so its chip can stop showing the download.
     @discardableResult
-    func preview(_ attachment: AttachmentInfo, of message: MessageID, siblings: [AttachmentInfo]) async -> Bool {
+    func preview(_ attachment: AttachmentInfo, of message: MessageID, siblings: [AttachmentInfo],
+                 onFetched: (() -> Void)? = nil) async -> Bool {
         pendingBatch &+= 1
         let batch = pendingBatch
-        guard let url = await file(for: attachment, of: message) else { return false }
+        let fetched = await file(for: attachment, of: message)
+        onFetched?()
+        guard let url = fetched else { return false }
         guard batch == pendingBatch else { return true }
         items = [url]
         presentPanel()

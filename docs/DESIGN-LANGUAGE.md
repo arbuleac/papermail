@@ -1170,7 +1170,7 @@ Anatomy: type tile (28 pt, radius 5, `fill`, 15 pt symbol `ink2`: `doc`, `doc.ri
 | Hover | `sheet + hover`, edge `ruleStrong`, meta reads “Space to Quick Look” |
 | Pressed | `sheet + pressed` |
 | Focused | ring (1 pt gap) |
-| Downloading | meta replaced by a determinate contrail 120 × 2 pt on a `rule` track |
+| Downloading | meta replaced by a determinate contrail 120 × 2 pt on a `rule` track, shown once the fetch outlasts 150 ms (a cached file never flashes it); while the size of what is arriving is unknown (today's providers fetch a file in one response) the contrail's indeterminate sweep, Reduce Motion a still segment. The meta returns when the fetch ends; a failure shows the Failed state |
 | Error | tile glyph `exclamationmark.triangle.fill` `danger`; meta “Couldn't download · Retry” in `danger`, “Retry” in `metaStrong` `accent` |
 | Dragging out | lifts with `e2` (the only shadowed chip state) |
 
