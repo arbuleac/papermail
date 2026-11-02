@@ -277,6 +277,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             list.query = query
         }
         listPane.display(view: mailboxView, section: mailboxView == .inbox ? section : nil)
+        // No notification for Other mail while the Inbox filter is Focused (spec §5.41).
+        notifier.hidesOtherMail = mailboxView == .inbox && section == .focused
     }
 
     // MARK: Selection
