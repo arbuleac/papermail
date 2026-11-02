@@ -19,6 +19,8 @@ final class MessageListTableView: NSTableView {
     var onReturn: (() -> Void)?
     /// Asked whether a row takes the hover wash (conversation rows do; heads and the footer do not).
     var isHoverableRow: ((Int) -> Bool)?
+    /// The context menu for a right-click (or control-click) on `row`; nil for rows that have none.
+    var menuForRow: ((Int) -> NSMenu?)?
 
     private(set) var hoveredRow = -1
     private(set) var isHoverSuspended = false
@@ -35,6 +37,14 @@ final class MessageListTableView: NSTableView {
             return
         }
         super.keyDown(with: event)
+    }
+
+    // MARK: Context menu
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let index = row(at: convert(event.locationInWindow, from: nil))
+        guard index >= 0, let menuForRow else { return nil }
+        return menuForRow(index)
     }
 
     // MARK: Hit testing

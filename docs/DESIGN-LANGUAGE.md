@@ -1714,7 +1714,7 @@ Main menu (system), with Quire content. Single-key shortcuts are handled by `Key
 - **Format** (composer windows only): Show Format Row ⇧⌘T · — · Bold ⌘B · Italic ⌘I · Underline ⌘U · — · Bulleted List ⇧⌘8 · Numbered List ⇧⌘7 · Quote ⌘' · — · Add Link… ⌘K. In a composer window the Message menu holds Send ⌘↩ · Attach Files… ⇧⌘A · Add Cc Field ⇧⌘C · Add Bcc Field ⇧⌘B · — · Discard Draft… (§5.20).
 - **Window**, **Help** (Keyboard Shortcuts ⌘/).
 
-Context menu on rows and messages: Reply, Reply All, Forward, —, Archive, Star, Mark as Unread, Move to Inbox (disabled where it does not apply), —, Move to Trash; every item with its symbol and shortcut, title case, disabled items visible. The message More menu is §5.14; the rail's add menu §5.44; the demo tag's menu §5.43. The highlight is the system's (Iron Gall under Multicolor, §3.1).
+Context menu on rows and messages: Reply, Reply All, Forward, —, Archive, Star, Mark as Unread, Move to Inbox (disabled where it does not apply), —, Move to Trash; every item with its symbol and shortcut, title case, disabled items visible. It acts on the selection, like the Message menu, and shares its validation (Star reads Unstar when every selected conversation is starred; Move to Inbox is disabled in the Inbox; Move to Trash in Trash). A right-click on a row outside the selection selects that row first; heads and the list tail have no menu. On a message it opens over the sheet's or collapsed row's own chrome; inside a body, which is the sender's document, the system's text menu stays, for Copy and links. The message More menu is §5.14; the rail's add menu §5.44; the demo tag's menu §5.43. The highlight is the system's (Iron Gall under Multicolor, §3.1).
 
 ### 5.36 Keyboard shortcut hints (keycaps)
 

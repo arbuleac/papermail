@@ -291,6 +291,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
         list.onSelectionChange = { [weak self] _ in self?.listSelectionDidChange() }
         list.onSelectionSetChange = { [weak self] _ in self?.listSelectionDidChange() }
+        list.rowMenu = { [weak self] in self?.selectionContextMenu() }
+        conversation.messageMenu = { [weak self] in self?.selectionContextMenu() }
         list.onOpen = { [weak self] id in
             guard let self else { return }
             // In Drafts, ↩ and a double-click are Continue Editing (§5.19).
@@ -883,6 +885,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
                 confirmDiscardDrafts(selectedIDs)
                 return true
             }
+            // In Trash the conversation is already there and v1 has no Delete Forever: # does nothing, quietly,
+            // and never trashes the rest of a conversation only partly in Trash (§5.12).
+            if mailboxView == .trash { return true }
             return mailAction(.trash)
         case .reply, .replyAll, .forward:
             // A reply answers one conversation: with several selected R, A and F do nothing (§5.12).
@@ -1325,6 +1330,30 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         ComposeWindowController.present(client: environment.engine, account: account, accounts: accounts, mode: mode)
     }
 
+    // MARK: Context menu (§5.35)
+
+    /// Rows and messages share one menu acting on the selection: Reply · Reply All · Forward · — · Archive ·
+    /// Star · Mark as Unread · Move to Inbox · — · Move to Trash, each with its symbol and shortcut. Items
+    /// that do not apply stay visible, disabled, through the same validation as the Message menu, so the two
+    /// never disagree.
+    func selectionContextMenu() -> NSMenu {
+        let menu = NSMenu(title: "Conversation")
+        let items: [NSMenuItem] = [
+            MainMenu.item("Reply", #selector(replyToSelection(_:)), "r", [], symbol: Quire.Icon.reply, target: self),
+            MainMenu.item("Reply All", #selector(replyAllToSelection(_:)), "a", [], symbol: Quire.Icon.replyAll, target: self),
+            MainMenu.item("Forward", #selector(forwardSelection(_:)), "f", [], symbol: Quire.Icon.forward, target: self),
+            .separator(),
+            MainMenu.item("Archive", #selector(archiveSelection(_:)), "e", [], symbol: Quire.Icon.archive, target: self),
+            MainMenu.item("Star", #selector(toggleStarSelection(_:)), "s", [], symbol: Quire.Icon.star, target: self),
+            MainMenu.item("Mark as Unread", #selector(markSelectionUnread(_:)), "u", [], symbol: Quire.Icon.markUnread, target: self),
+            MainMenu.item("Move to Inbox", #selector(moveSelectionToInbox(_:)), "I", [.shift], symbol: Quire.Icon.moveToInbox, target: self),
+            .separator(),
+            MainMenu.item("Move to Trash", #selector(trashSelection(_:)), "#", [], symbol: Quire.Icon.trash, target: self),
+        ]
+        items.forEach(menu.addItem)
+        return menu
+    }
+
     // MARK: Menu actions (first responder)
 
     @objc func archiveSelection(_ sender: Any?) { mailAction(.archive) }
@@ -1394,10 +1423,18 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             return !showingWelcome && conversation.validateMenuItem(menuItem)
         }
         switch menuItem.action {
-        case #selector(archiveSelection(_:)), #selector(toggleStarSelection(_:)), #selector(trashSelection(_:)),
-             #selector(moveSelectionToInbox(_:)):
+        case #selector(archiveSelection(_:)):
             // Plain-letter and ⌘⌫ equivalents must not fire while the user is typing.
             return !showingWelcome && !typing && list.selectedConversationID != nil
+        case #selector(toggleStarSelection(_:)):
+            if case .setStarred(let star)? = starChangeForSelection { menuItem.title = star ? "Star" : "Unstar" }
+            return !showingWelcome && !typing && list.selectedConversationID != nil
+        case #selector(trashSelection(_:)):
+            // Already in Trash (§5.12): Message › Move to Trash is disabled there.
+            return !showingWelcome && !typing && list.selectedConversationID != nil && mailboxView != .trash
+        case #selector(moveSelectionToInbox(_:)):
+            // Everything in the Inbox view is in the Inbox already.
+            return !showingWelcome && !typing && list.selectedConversationID != nil && mailboxView != .inbox
         case #selector(markSelectionUnread(_:)):
             if case .setRead(let read)? = readChangeForSelection {
                 menuItem.title = read ? "Mark as Read" : "Mark as Unread"

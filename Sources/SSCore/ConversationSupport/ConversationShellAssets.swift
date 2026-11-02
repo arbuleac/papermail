@@ -1369,6 +1369,18 @@ public enum ConversationShellAssets {
         var article = el('article', 'ss-card ss-collapsed ss-strow');
         article.dataset.id = m.id;
         article.tabIndex = 0;
+        // A collapsed row is a control that opens: VoiceOver says so, and expand/collapse keep it current.
+        article.setAttribute('role', 'button');
+        article.setAttribute('aria-expanded', 'false');
+        // The conversation's context menu on the card's own chrome (spec §5.35). A body lives in its own frame,
+        // where the system's text menu stays for Copy and links; a chip has its own menu and stops the event.
+        article.addEventListener('contextmenu', function (event) {
+          if (event.defaultPrevented) { return; }
+          event.preventDefault();
+          setTarget(card, true);
+          post('ss', { kind: 'action', type: 'messageMenu', messageID: m.id, attachmentID: null,
+                       x: event.clientX, y: event.clientY });
+        });
         var row = el('div', 'ss-row');
         var inner = el('div', 'ss-inner');
         var head = el('header', 'ss-head');
@@ -1464,6 +1476,9 @@ public enum ConversationShellAssets {
         card.expanded = true;
         card.element.classList.remove('ss-collapsed', 'ss-strow', 'ss-run-start', 'ss-run-end');
         card.element.classList.add('ss-sheet');
+        // Open, the sheet is content again, not a button.
+        card.element.removeAttribute('role');
+        card.element.setAttribute('aria-expanded', 'true');
         ensureFrame(card);
         restack();
         if (animate) {
@@ -1491,6 +1506,8 @@ public enum ConversationShellAssets {
         if (card.expanded) { return; }
         card.element.classList.remove('ss-sheet');
         card.element.classList.add('ss-collapsed', 'ss-strow');
+        card.element.setAttribute('role', 'button');
+        card.element.setAttribute('aria-expanded', 'false');
         dropFrame(card);
         if (card.message.hasBody) { card.frameWrap.replaceChildren(); }
         setHeight(card.element, 44, false);

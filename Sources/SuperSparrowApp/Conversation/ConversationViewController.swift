@@ -25,6 +25,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         didSet { if oldValue != accountsByID { refreshChrome() } }
     }
     var onAction: ((ConversationAction) -> Void)?
+    /// The conversation context menu for a right-click on a message's chrome (spec §5.35), from the window.
+    var messageMenu: (() -> NSMenu?)?
     /// Drafts kept on this Mac, which the Drafts view lists beside the store's: shown read-only like any draft,
     /// but read from here and never fetched, observed or acted on through the engine.
     var localDrafts: LocalDrafts?
@@ -925,6 +927,9 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
                 performOnMessage(.setStarred(on ?? true), messageID)
             case "more":
                 showMoreMenu(for: messageID, at: point ?? .zero, in: slot)
+            case "messageMenu":
+                // The selection's menu (§5.35): the reader shows one conversation, which is the selection.
+                messageMenu?()?.popUp(positioning: nil, at: point ?? .zero, in: slot.webView)
             case "retryBody":
                 guard let conversation = currentConversationID, !bodyFetches.contains(messageID) else { return }
                 fetchBody(messageID, conversation: conversation)

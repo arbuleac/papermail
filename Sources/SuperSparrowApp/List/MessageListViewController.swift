@@ -33,6 +33,9 @@ final class MessageListViewController: NSViewController {
 
     var onSelectionChange: ((ConversationID?) -> Void)?
     var onOpen: ((ConversationID) -> Void)?
+    /// The host's context menu for conversation rows (spec §5.35). It acts on the selection, so a right-click
+    /// on a row outside the selection selects that row first; heads and the list tail have none.
+    var rowMenu: (() -> NSMenu?)?
     /// After every refresh of the rows (the search field's result count and spinner follow it).
     var onRowsChange: (() -> Void)?
 
@@ -198,6 +201,7 @@ final class MessageListViewController: NSViewController {
         tableView.target = self
         tableView.doubleAction = #selector(didDoubleClick(_:))
         tableView.onReturn = { [weak self] in self?.openSelection() }
+        tableView.menuForRow = { [weak self] row in self?.contextMenu(forRow: row) }
         tableView.isHoverableRow = { [weak self] row in
             guard let self else { return false }
             return self.layout.conversationIndex(atRow: row) != nil
@@ -297,6 +301,14 @@ final class MessageListViewController: NSViewController {
         if delta > 0, let row = layout.row(ofConversation: target), isWithinLoadMoreDistance(ofRow: row) {
             loadMore()
         }
+    }
+
+    /// What a right-click on `row` shows (internal so the app's tests can ask for it).
+    func contextMenu(forRow row: Int) -> NSMenu? {
+        guard let rowMenu, let index = layout.conversationIndex(atRow: row), conversations.indices.contains(index) else { return nil }
+        let id = conversations[index].id
+        if !selectedConversationIDs.contains(id) { select(id, notify: true, scroll: false) }
+        return rowMenu()
     }
 
     /// Puts the selection on `ids` (an undo bringing several conversations back) without reporting it, as
