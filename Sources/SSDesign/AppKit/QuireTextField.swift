@@ -7,12 +7,37 @@ import AppKit
 /// 1 pt colour change alone); error draws a 1.5 pt `danger` edge and a help line 5 pt below in `meta` `danger`
 /// with the triangle; disabled is `fill` with no edge and `inkDisabled` text.
 ///
-/// The editable `NSTextField` is `textField`: set its delegate, target and action as usual. The container is
-/// not an accessibility element; the text field is.
+/// Secure (`isSecure`): bullets with 2 pt tracking, and a reveal button (`eye`) only while the pointer is over
+/// the field; revealed, the text shows and the button (`eye.slash`) stays until it hides the text again.
+///
+/// The editable `NSTextField` is `textField`: set its delegate, target and action as usual (a secure field
+/// swaps it for an `NSSecureTextField` and back, carrying text, delegate, target and action over). The
+/// container is not an accessibility element; the text field is.
 @MainActor
 public final class QuireTextField: QuireControl {
-    /// The editable field. Its frame belongs to the container.
-    public let textField: NSTextField
+    /// The editable field. Its frame belongs to the container. Secure fields replace it when the text is
+    /// revealed or hidden, so read it when needed rather than keeping it.
+    public private(set) var textField: NSTextField
+
+    /// Shows bullets instead of the text (OAuth client secrets, §5.40).
+    public var isSecure = false {
+        didSet {
+            guard oldValue != isSecure else { return }
+            if !isSecure { isRevealed = false }
+            secureDidChange()
+        }
+    }
+
+    /// A secure field showing its text, after the reveal button was clicked.
+    public var isRevealed = false {
+        didSet {
+            guard oldValue != isRevealed else { return }
+            secureDidChange()
+        }
+    }
+
+    /// The secure field's reveal button, while the field is secure.
+    public private(set) var revealButton: QuireIconButton?
 
     public var size: Size = .regular {
         didSet { if oldValue != size { contentDidChange() } }
@@ -28,8 +53,14 @@ public final class QuireTextField: QuireControl {
     }
 
     /// The error help line (“That doesn't look like a Google client ID.”); non-nil draws the error state.
+    /// VoiceOver reads it as the field's help and hears it once when it appears (§4.14).
     public var errorMessage: String? {
-        didSet { if oldValue != errorMessage { contentDidChange() } }
+        didSet {
+            guard oldValue != errorMessage else { return }
+            textField.setAccessibilityHelp(errorMessage)
+            if let errorMessage { QuireAccessibility.announce(errorMessage, from: textField) }
+            contentDidChange()
+        }
     }
 
     /// The field's text.
@@ -38,17 +69,19 @@ public final class QuireTextField: QuireControl {
         set { textField.stringValue = newValue }
     }
 
-    private var inner: QuireInnerTextField { textField as! QuireInnerTextField }
+    private var inner: any QuireInnerField { textField as! any QuireInnerField }
 
-    public init(placeholder: String? = nil, size: Size = .regular) {
-        textField = QuireInnerTextField(frame: .zero)
+    public init(placeholder: String? = nil, size: Size = .regular, isSecure: Bool = false) {
+        textField = isSecure ? QuireSecureInnerTextField(frame: .zero) : QuireInnerTextField(frame: .zero)
         self.placeholder = placeholder
         self.size = size
+        self.isSecure = isSecure
         super.init(frame: .zero)
         // The text field inside takes keyboard focus; the container never sits in the key-view loop itself.
         refusesFirstResponder = true
         addSubview(textField)
         inner.onFocusChange = { [weak self] _ in self?.stateDidChange() }
+        if isSecure { updateRevealButton() }
         applyText()
         setFrameSize(frame(forAlignmentRect: NSRect(origin: .zero, size: NSSize(width: 220, height: intrinsicContentSize.height))).size)
     }
@@ -101,13 +134,96 @@ public final class QuireTextField: QuireControl {
         return NSRect(x: body.minX, y: body.minY, width: body.width, height: size.height)
     }
 
+    /// The reveal button's visual rect: a small icon button centred in the field's height, as far from the
+    /// trailing edge as from the top and bottom.
+    private var revealRect: NSRect {
+        let face = faceRect
+        let side = QuireIconButton.Size.small.side
+        let inset = max(1, ((face.height - side) / 2).rounded(.down))
+        return NSRect(x: face.maxX - inset - side, y: (face.midY - side / 2).rounded(), width: side, height: side)
+    }
+
     public override func layout() {
         super.layout()
         let face = faceRect
         let padX = Quire.Layout.TextField.padX - QuireInnerTextField.cellInset
         let height = textField.intrinsicContentSize.height
+        // A secure field always keeps room for its reveal button (and a 4 pt gap before it), so the text never
+        // shifts when the button appears.
+        let trailing = isSecure ? face.maxX - revealRect.minX + Quire.Space.s2 - QuireInnerTextField.cellInset : padX
         textField.frame = NSRect(x: face.minX + padX, y: (face.midY - height / 2).rounded(),
-                                 width: max(0, face.width - 2 * padX), height: height)
+                                 width: max(0, face.width - padX - trailing), height: height)
+        if let revealButton { revealButton.frame = revealButton.frame(forVisualRect: revealRect) }
+    }
+
+    // MARK: Secure
+
+    private func secureDidChange() {
+        swapFieldIfNeeded()
+        updateRevealButton()
+        needsLayout = true
+        stateDidChange()
+    }
+
+    /// Puts the secure or the plain field in place, carrying over what callers set on it.
+    private func swapFieldIfNeeded() {
+        let wantsSecure = isSecure && !isRevealed
+        guard wantsSecure != (textField is NSSecureTextField) else { return }
+        let old = textField
+        let wasEditing = old.currentEditor() != nil
+        let replacement: NSTextField = wantsSecure ? QuireSecureInnerTextField(frame: old.frame) : QuireInnerTextField(frame: old.frame)
+        replacement.stringValue = old.stringValue
+        replacement.delegate = old.delegate
+        replacement.target = old.target
+        replacement.action = old.action
+        replacement.isEnabled = old.isEnabled
+        replacement.setAccessibilityHelp(old.accessibilityHelp())
+        replacement.setAccessibilityLabel(old.accessibilityLabel())
+        if wasEditing { window?.makeFirstResponder(nil) }
+        replaceSubview(old, with: replacement)
+        textField = replacement
+        inner.onFocusChange = { [weak self] _ in self?.stateDidChange() }
+        applyText()
+        if wasEditing, window?.makeFirstResponder(replacement) == true {
+            replacement.currentEditor()?.selectedRange = NSRange(location: (replacement.stringValue as NSString).length, length: 0)
+        }
+    }
+
+    /// The reveal button shows only while the pointer is over the field (or a forced hover), or while the text
+    /// is revealed, so it can be hidden again.
+    private func updateRevealButton() {
+        guard isSecure else {
+            revealButton?.removeFromSuperview()
+            revealButton = nil
+            return
+        }
+        let button = revealButton ?? {
+            let button = QuireIconButton(symbolName: Quire.Icon.reveal, size: .small, target: self, action: #selector(toggleReveal(_:)))
+            addSubview(button)
+            revealButton = button
+            return button
+        }()
+        button.symbolName = isRevealed ? Quire.Icon.conceal : Quire.Icon.reveal
+        button.setAccessibilityLabel(isRevealed ? "Hide secret" : "Show secret")
+        button.toolTip = isRevealed ? "Hide Secret" : "Show Secret"
+        button.windowKeyOverride = windowKeyOverride
+        let pointerOver = isHovered || displayState == .hover
+        button.isHidden = !(isEnabled && (pointerOver || isRevealed))
+        needsLayout = true
+    }
+
+    @objc private func toggleReveal(_ sender: Any?) {
+        isRevealed.toggle()
+    }
+
+    public override func hoverDidChange() {
+        super.hoverDidChange()
+        if isSecure { updateRevealButton() }
+    }
+
+    public override func stateDidChange() {
+        super.stateDidChange()
+        if isSecure, revealButton != nil { updateRevealButton() }
     }
 
     // MARK: State
@@ -115,7 +231,7 @@ public final class QuireTextField: QuireControl {
     public override var hasKeyboardFocus: Bool { inner.isEditing }
 
     public override var isEnabled: Bool {
-        didSet { textField.isEnabled = isEnabled; applyText() }
+        didSet { textField.isEnabled = isEnabled; applyText(); if isSecure { updateRevealButton() } }
     }
 
     private func applyText() {

@@ -89,6 +89,10 @@ extension Quire.Motion {
     /// Animates one layer property from its presentation value to `value`. The model value is set first, so
     /// removing the animation (`finishAll()`) shows the end state. Under Reduce Motion a `.fade` fallback
     /// fades only `opacity`; any other key path snaps, because a single property cannot cross-fade.
+    ///
+    /// `completion` runs when the animation ends or `finishAll()` finishes it, never when a newer `animate`
+    /// call on the same layer and key path replaces it: the newer call owns the end state then, so a
+    /// fade-out-then-remove cannot remove a view that a fade-in has brought back.
     @MainActor @discardableResult
     public static func animate(_ layer: CALayer, keyPath: String, to value: Any?, duration: TimeInterval, curve: Curve,
                                reduced: ReducedMotion, completion: (@MainActor () -> Void)? = nil) -> QuireAnimator? {
@@ -98,6 +102,7 @@ extension Quire.Motion {
         }
         let from = (layer.presentation() ?? layer).value(forKeyPath: keyPath)
         let key = "quire." + keyPath
+        LayerAnimation.running(on: layer, key: key)?.supersede()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         layer.removeAnimation(forKey: key)
@@ -163,8 +168,12 @@ final class GroupAnimation: QuireAnimator {
     }
 
     /// A frame change animates sublayers too (their positions follow the resize), so the whole tree settles.
+    /// Only the group's implicit animations go: `quire.*` keys belong to `Quire.Motion.animate` runners, which
+    /// `finishAll()` finishes itself, and to spinners and contrails, whose loops and countdowns it never ends.
     static func removeAnimations(_ layer: CALayer) {
-        layer.removeAllAnimations()
+        for key in layer.animationKeys() ?? [] where !key.hasPrefix("quire.") {
+            layer.removeAnimation(forKey: key)
+        }
         for sub in layer.sublayers ?? [] { removeAnimations(sub) }
     }
 }
@@ -177,28 +186,60 @@ final class LayerAnimation: QuireAnimator {
     private var completion: (@MainActor () -> Void)?
     private(set) var isDone = false
 
+    private struct Slot: Hashable {
+        let layer: ObjectIdentifier
+        let key: String
+    }
+
+    private final class WeakRunner {
+        weak var runner: LayerAnimation?
+        init(_ runner: LayerAnimation) { self.runner = runner }
+    }
+
+    /// The runner animating each layer and key now, so a newer `animate` call can supersede it.
+    private static var slots: [Slot: WeakRunner] = [:]
+
     init(layer: CALayer, key: String, completion: (@MainActor () -> Void)?) {
         self.layer = layer
         self.key = key
         self.completion = completion
+        LayerAnimation.slots[Slot(layer: ObjectIdentifier(layer), key: key)] = WeakRunner(self)
+    }
+
+    /// The live runner for `key` on `layer`, if one is still running.
+    static func running(on layer: CALayer, key: String) -> LayerAnimation? {
+        guard let runner = slots[Slot(layer: ObjectIdentifier(layer), key: key)]?.runner,
+              !runner.isDone, runner.layer === layer else { return nil }
+        return runner
     }
 
     func finishAnimation() {
         guard !isDone else { return }
         layer?.removeAnimation(forKey: key)
-        end()
+        end(runCompletion: true)
     }
 
     func animationDidEnd() {
         guard !isDone else { return }
         Quire.Motion.unregister(self)
-        end()
+        end(runCompletion: true)
     }
 
-    private func end() {
+    /// A newer animation of the same layer and key replaced this one: it ends without its completion.
+    func supersede() {
+        guard !isDone else { return }
+        Quire.Motion.unregister(self)
+        end(runCompletion: false)
+    }
+
+    private func end(runCompletion: Bool) {
         isDone = true
+        if let layer {
+            let slot = Slot(layer: ObjectIdentifier(layer), key: key)
+            if LayerAnimation.slots[slot]?.runner === self { LayerAnimation.slots[slot] = nil }
+        }
         let c = completion
         completion = nil
-        c?()
+        if runCompletion { c?() }
     }
 }

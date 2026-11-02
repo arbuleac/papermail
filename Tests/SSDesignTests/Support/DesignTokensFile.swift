@@ -39,6 +39,15 @@ final class DesignTokensFile {
 
     func number(_ path: String) -> Double? { (value(path) as? NSNumber)?.doubleValue }
 
+    /// How many leaves (numbers, strings, booleans and arrays) the objects under `keys` hold.
+    func leafCount(under keys: [String]) -> Int {
+        func count(_ v: Any) -> Int {
+            if let d = v as? [String: Any] { return d.values.reduce(0) { $0 + count($1) } }
+            return 1
+        }
+        return keys.reduce(0) { $0 + count(object($1)) }
+    }
+
     /// Every numeric metric under `layout` whose key contains "adius" (build.py's test), as dotted paths.
     func layoutRadiusPaths() -> [String] {
         var out: [String] = []

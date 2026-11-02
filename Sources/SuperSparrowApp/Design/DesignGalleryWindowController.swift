@@ -17,6 +17,9 @@ final class DesignGalleryWindowController: NSWindowController, NSWindowDelegate 
     private let controls = DesignGalleryControlsBar()
     private let savedOverrides = QuireEnvironment.shared.overrides
 
+    /// Called after the window closed and the environment is given back; the owner drops the controller.
+    var onClose: (@MainActor () -> Void)?
+
     init() {
         let screen = NSScreen.main?.visibleFrame.size ?? NSSize(width: 1440, height: 900)
         let size = NSSize(width: min(DesignGalleryStudio.pageWidth + 16, screen.width), height: min(960, screen.height))
@@ -59,8 +62,11 @@ final class DesignGalleryWindowController: NSWindowController, NSWindowDelegate 
     }
 
     func windowWillClose(_ notification: Notification) {
-        // The overrides are app-wide; the gallery only borrows them.
+        // The overrides are app-wide; the gallery only borrows them. The forced appearance goes too, and the
+        // owner starts a new controller next time, whose bar reads the restored state.
         QuireEnvironment.shared.setOverrides(savedOverrides)
+        window?.appearance = nil
+        onClose?()
     }
 
     private func scrollToTop() {

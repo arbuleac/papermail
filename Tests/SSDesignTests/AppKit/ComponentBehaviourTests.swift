@@ -112,10 +112,22 @@ final class ComponentBehaviourTests: XCTestCase {
                                              characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36)!
         XCTAssertTrue(button.performKeyEquivalent(with: commandReturn))
         XCTAssertEqual(target.count, 3)
+        // Caps Lock never blocks ⌘↩, and keypad Enter counts as Return, as with NSButton.
+        let capsLock = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command, .capsLock], timestamp: 0, windowNumber: 0,
+                                        context: nil, characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36)!
+        XCTAssertTrue(button.performKeyEquivalent(with: capsLock))
+        XCTAssertEqual(target.count, 4)
+        let enter = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command, .numericPad], timestamp: 0, windowNumber: 0,
+                                     context: nil, characters: "\u{3}", charactersIgnoringModifiers: "\u{3}", isARepeat: false, keyCode: 76)!
+        XCTAssertTrue(button.performKeyEquivalent(with: enter))
+        XCTAssertEqual(target.count, 5)
+        let shifted = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command, .shift], timestamp: 0, windowNumber: 0,
+                                       context: nil, characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36)!
+        XCTAssertFalse(button.performKeyEquivalent(with: shifted), "another modifier is another shortcut")
         button.isEnabled = false
         button.performClick(nil)
         XCTAssertFalse(button.accessibilityPerformPress())
-        XCTAssertEqual(target.count, 3, "disabled buttons do nothing")
+        XCTAssertEqual(target.count, 5, "disabled buttons do nothing")
     }
 
     func testCheckboxCyclesAndSendsItsAction() {

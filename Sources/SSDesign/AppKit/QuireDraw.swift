@@ -3,7 +3,10 @@ import AppKit
 /// Drawing helpers the AppKit components share. Everything here runs inside `draw(_:)` (or a drawing handler)
 /// and resolves colours at that moment, under the current drawing appearance, so a component never caches a
 /// colour that an appearance, Increase Contrast or Graphite change would make stale.
-enum QuireDraw {
+///
+/// The shape helpers are public for views that draw several Quire marks in one `draw(_:)` (list rows, §8.2),
+/// so their pips, chips and edges match the components exactly.
+public enum QuireDraw {
     // MARK: Mode
 
     /// The mode the current drawing appearance resolves to (Increase Contrast included).
@@ -13,18 +16,18 @@ enum QuireDraw {
     // MARK: Shapes
 
     /// A rounded rect whose radius never exceeds half the shorter side, so a "pill" radius stays a pill.
-    static func roundedRect(_ rect: NSRect, radius: CGFloat) -> NSBezierPath {
+    public static func roundedRect(_ rect: NSRect, radius: CGFloat) -> NSBezierPath {
         let r = min(max(0, radius), rect.width / 2, rect.height / 2)
         return NSBezierPath(roundedRect: rect, xRadius: r, yRadius: r)
     }
 
-    static func fill(_ rect: NSRect, radius: CGFloat, _ color: NSColor) {
+    public static func fill(_ rect: NSRect, radius: CGFloat, _ color: NSColor) {
         color.setFill()
         roundedRect(rect, radius: radius).fill()
     }
 
     /// An edge drawn inside the shape (CSS `inset 0 0 0 1px`): the stroke's outer edge lies on `rect`.
-    static func strokeInside(_ rect: NSRect, radius: CGFloat, width: CGFloat, _ color: NSColor) {
+    public static func strokeInside(_ rect: NSRect, radius: CGFloat, width: CGFloat, _ color: NSColor) {
         let inner = rect.insetBy(dx: width / 2, dy: width / 2)
         let path = roundedRect(inner, radius: radius - width / 2)
         path.lineWidth = width
@@ -32,7 +35,7 @@ enum QuireDraw {
         path.stroke()
     }
 
-    static func fillCircle(_ rect: NSRect, _ color: NSColor) {
+    public static func fillCircle(_ rect: NSRect, _ color: NSColor) {
         color.setFill()
         NSBezierPath(ovalIn: rect).fill()
     }

@@ -2,7 +2,7 @@ import AppKit
 
 extension QuireKeycap {
     /// The keycap sizes and surfaces of spec §5.36 (`layout.kbd`).
-    public enum Style: Sendable {
+    public enum Style: Hashable, Sendable {
         /// 18 pt, radius 3, `raised` with a `rule` edge and key depth: menus aside, every keycap in content.
         case standard
         /// 16 pt, inside the search field.

@@ -19,8 +19,10 @@ public final class QuireAvatarRenderer: @unchecked Sendable {
     private var waiters: [String: [@MainActor @Sendable (NSImage) -> Void]] = [:]
 
     public init() {
-        // A few thousand distinct senders is a large address book; past that the oldest re-render.
+        // A few thousand distinct senders is a large address book; past that the oldest re-render. The cost
+        // is the bitmap's bytes, so faces at a large size or scale count for what they hold.
         cache.countLimit = 4_000
+        cache.totalCostLimit = 32 * 1024 * 1024
     }
 
     /// The avatar diameters in use: 24 (stack, autocomplete), 30 (rows), 36 (message header).
@@ -74,13 +76,16 @@ public final class QuireAvatarRenderer: @unchecked Sendable {
 
     // MARK: Cache keys
 
-    /// The face cache key: the environment's colour key for `appearance`, the size, the tint and the initials.
-    public static func cacheKey(initials: String, tint: Quire.AvatarTint, diameter: CGFloat, appearance: NSAppearance) -> String {
-        "\(QuireEnvironment.cacheKey(for: appearance))|\(diameter)|t\(tint.rawValue)|\(initials)"
+    /// The face cache key: the environment's colour key for `appearance`, the size and the backing scale it
+    /// was rendered at (a 1× face is blurry on a 2× row), the tint and the initials.
+    public static func cacheKey(initials: String, tint: Quire.AvatarTint, diameter: CGFloat, appearance: NSAppearance,
+                                scale: CGFloat = 2) -> String {
+        "\(QuireEnvironment.cacheKey(for: appearance))|\(diameter)@\(scale)|t\(tint.rawValue)|\(initials)"
     }
 
-    public static func accountCacheKey(monogram: String, slot: Int, diameter: CGFloat, appearance: NSAppearance) -> String {
-        "\(QuireEnvironment.cacheKey(for: appearance))|\(diameter)|a\(slot)|\(monogram)"
+    public static func accountCacheKey(monogram: String, slot: Int, diameter: CGFloat, appearance: NSAppearance,
+                                       scale: CGFloat = 2) -> String {
+        "\(QuireEnvironment.cacheKey(for: appearance))|\(diameter)@\(scale)|a\(slot)|\(monogram)"
     }
 
     // MARK: Faces
@@ -105,14 +110,23 @@ public final class QuireAvatarRenderer: @unchecked Sendable {
         let colors = mode.performAsCurrent {
             (NSColor.qSheet.cgColor, NSColor.qAccount(slot).withAlphaComponent(Quire.Layout.Rail.faceAlpha).cgColor, NSColor.qInk.cgColor)
         }
-        let spec = QuireFont.Role.monogram.spec
-        let font = QuireFont.make(spec, size: monogramSize(for: monogram, diameter: diameter), weight: spec.weight)
+        let font = accountFont(size: monogramSize(for: monogram, diameter: diameter))
         return Recipe(text: monogram, face: [colors.0, colors.1], ink: colors.2, font: font, diameter: diameter, scale: scale)
+    }
+
+    private static let accountFonts = LockedCache<CGFloat, NSFont>()
+
+    /// The domain monogram's font at `size`, built once: rows and tiles draw faces in place on every redraw.
+    private static func accountFont(size: CGFloat) -> NSFont {
+        accountFonts.value(for: size) {
+            let spec = QuireFont.Role.monogram.spec
+            return QuireFont.make(spec, size: size, weight: spec.weight)
+        }
     }
 
     /// A sender's face, ring-less, from the cache or rendered now.
     public func face(initials: String, tint: Quire.AvatarTint, diameter: CGFloat, appearance: NSAppearance, scale: CGFloat = 2) -> NSImage {
-        let key = QuireAvatarRenderer.cacheKey(initials: initials, tint: tint, diameter: diameter, appearance: appearance)
+        let key = QuireAvatarRenderer.cacheKey(initials: initials, tint: tint, diameter: diameter, appearance: appearance, scale: scale)
         return image(for: key) {
             QuireAvatarRenderer.recipe(initials: initials, tint: tint, diameter: diameter, appearance: appearance, scale: scale)
         }
@@ -120,15 +134,18 @@ public final class QuireAvatarRenderer: @unchecked Sendable {
 
     /// An account face (rail tile, Settings row, quick reply), ring-less.
     public func accountFace(monogram: String, slot: Int, diameter: CGFloat, appearance: NSAppearance, scale: CGFloat = 2) -> NSImage {
-        let key = QuireAvatarRenderer.accountCacheKey(monogram: monogram, slot: slot, diameter: diameter, appearance: appearance)
+        let key = QuireAvatarRenderer.accountCacheKey(monogram: monogram, slot: slot, diameter: diameter, appearance: appearance,
+                                                      scale: scale)
         return image(for: key) {
             QuireAvatarRenderer.accountRecipe(monogram: monogram, slot: slot, diameter: diameter, appearance: appearance, scale: scale)
         }
     }
 
     /// The cached face, if it has been rendered.
-    public func cachedFace(initials: String, tint: Quire.AvatarTint, diameter: CGFloat, appearance: NSAppearance) -> NSImage? {
-        cache.object(forKey: QuireAvatarRenderer.cacheKey(initials: initials, tint: tint, diameter: diameter, appearance: appearance) as NSString)
+    public func cachedFace(initials: String, tint: Quire.AvatarTint, diameter: CGFloat, appearance: NSAppearance,
+                           scale: CGFloat = 2) -> NSImage? {
+        cache.object(forKey: QuireAvatarRenderer.cacheKey(initials: initials, tint: tint, diameter: diameter, appearance: appearance,
+                                                          scale: scale) as NSString)
     }
 
     /// Returns the cached face at once, or nil after scheduling one render off the main thread (however many
@@ -136,7 +153,7 @@ public final class QuireAvatarRenderer: @unchecked Sendable {
     @MainActor
     public func face(initials: String, tint: Quire.AvatarTint, diameter: CGFloat, appearance: NSAppearance, scale: CGFloat = 2,
                      ready: @escaping @MainActor @Sendable (NSImage) -> Void) -> NSImage? {
-        let key = QuireAvatarRenderer.cacheKey(initials: initials, tint: tint, diameter: diameter, appearance: appearance)
+        let key = QuireAvatarRenderer.cacheKey(initials: initials, tint: tint, diameter: diameter, appearance: appearance, scale: scale)
         if let image = cache.object(forKey: key as NSString) { return image }
         lock.lock()
         let pending = waiters[key] != nil
@@ -147,7 +164,7 @@ public final class QuireAvatarRenderer: @unchecked Sendable {
         let recipe = QuireAvatarRenderer.recipe(initials: initials, tint: tint, diameter: diameter, appearance: appearance, scale: scale)
         queue.async { [self] in
             let image = QuireAvatarRenderer.render(recipe)
-            cache.setObject(image, forKey: key as NSString)
+            cache.setObject(image, forKey: key as NSString, cost: QuireAvatarRenderer.cost(of: recipe))
             lock.lock()
             let callbacks = waiters.removeValue(forKey: key) ?? []
             lock.unlock()
@@ -167,9 +184,16 @@ public final class QuireAvatarRenderer: @unchecked Sendable {
 
     private func image(for key: String, recipe: () -> Recipe) -> NSImage {
         if let image = cache.object(forKey: key as NSString) { return image }
-        let image = QuireAvatarRenderer.render(recipe())
-        cache.setObject(image, forKey: key as NSString)
+        let r = recipe()
+        let image = QuireAvatarRenderer.render(r)
+        cache.setObject(image, forKey: key as NSString, cost: QuireAvatarRenderer.cost(of: r))
         return image
+    }
+
+    /// The bitmap's bytes: RGBA at the recipe's pixel size.
+    private static func cost(of r: Recipe) -> Int {
+        let pixels = Int((r.diameter * r.scale).rounded())
+        return pixels * pixels * 4
     }
 
     // MARK: Rendering

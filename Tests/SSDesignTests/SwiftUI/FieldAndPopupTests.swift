@@ -36,6 +36,37 @@ final class FieldAndPopupTests: XCTestCase {
         XCTAssertNil(disabled.ringGap)
     }
 
+    func testPlaceholderFollowsTheFieldsEnabledState() {
+        XCTAssertEqual(QuirePlaceholderStyle.token(isEnabled: true), .ink3)
+        XCTAssertEqual(QuirePlaceholderStyle.token(isEnabled: false), .inkDisabled, "a disabled empty field's prompt is inkDisabled (§5.25)")
+    }
+
+    /// The help glyph is `textField.helpGlyph` (10 pt) with `helpGlyphGap` (4 pt) before the words, as AppKit
+    /// draws it, not the Settings status glyph (12 pt).
+    func testHelpLineGlyphMatchesTheAppKitField() {
+        QuireEnvironment.shared.setOverrides(.pinned(.light))
+        let view = TextField("", text: .constant("x")).quireFieldStyle(.mono, error: "Bad ID").frame(width: 200).padding(8)
+            .background(Color.qSheet)
+        let host = SwiftUIHost(view)
+        let rep = host.render()
+        let top = 8 + Quire.Layout.TextField.settingsHeight + Quire.Layout.TextField.helpGap
+        let danger = Expected.color(.danger, over: .sheet, .light)
+        func isInk(_ c: RGBA) -> Bool { abs(c.r - danger.r) < 0.25 && abs(c.g - danger.g) < 0.25 && abs(c.b - danger.b) < 0.25 }
+        // Columns (in points from the field's leading edge) that hold danger ink anywhere on the help line.
+        var inked: [CGFloat] = []
+        for x in stride(from: CGFloat(0), to: 40, by: 0.5) {
+            let column = stride(from: top, to: top + QuireFont.Role.meta.lineHeight, by: 0.5)
+            if column.contains(where: { isInk(rep.srgb(at: CGPoint(x: 8 + x, y: $0))) }) { inked.append(x) }
+        }
+        host.close()
+        let glyphEnd = zip(inked, inked.dropFirst()).first(where: { $1 - $0 > 1.5 })?.0
+        let textStart = zip(inked, inked.dropFirst()).first(where: { $1 - $0 > 1.5 })?.1
+        let image = QuireSymbol.image(Quire.Icon.error, size: .custom(Quire.Layout.TextField.helpGlyph))!
+        XCTAssertNotNil(glyphEnd)
+        XCTAssertLessThanOrEqual(glyphEnd ?? 99, image.size.width + 0.5, "a 10 pt glyph")
+        XCTAssertLessThanOrEqual(textStart ?? 99, image.size.width + Quire.Layout.TextField.helpGlyphGap + 1.5, "4 pt before the words")
+    }
+
     func testFieldHeightsAndHelpLine() {
         let recorder = FrameRecorder()
         let view = VStack(alignment: .leading, spacing: 0) {
@@ -238,5 +269,32 @@ struct FocusRingHarness: View {
             .background(Color.qCanvas)
             .environment(\.controlActiveState, model.key ? .key : .inactive)
             .onChange(of: model.focused) { _, wants in focus = wants }
+    }
+}
+
+/// `QuireSecureField` (§5.25 Secure, §5.40 Client secret).
+@MainActor
+final class SecureFieldTests: XCTestCase {
+    override func setUp() async throws {
+        try await super.setUp()
+        QuireTestEnvironment.forceDefaults()
+    }
+
+    override func tearDown() async throws {
+        QuireTestEnvironment.reset()
+        try await super.tearDown()
+    }
+
+    private func secureFields(in view: NSView) -> [QuireSecureInnerTextField] {
+        (view as? QuireSecureInnerTextField).map { [$0] } ?? view.subviews.flatMap { secureFields(in: $0) }
+    }
+
+    func testBulletsComeFromTheSpacedAppKitField() {
+        let host = SwiftUIHost(QuireSecureField("Client secret", text: .constant("GOCSPX-k2v9")).frame(width: 240))
+        let fields = secureFields(in: host.hostingView)
+        XCTAssertEqual(fields.count, 1, "the hidden secret is drawn by the AppKit secure field, whose bullets are 2 pt apart")
+        XCTAssertEqual(fields.first?.stringValue, "GOCSPX-k2v9")
+        XCTAssertEqual(fields.first?.font, QuireFont.font(.mono), "secrets set in mono")
+        host.close()
     }
 }

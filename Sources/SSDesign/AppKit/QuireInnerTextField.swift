@@ -5,7 +5,7 @@ import AppKit
 /// and tells its container when editing starts and ends so the container can draw focus. While it edits, the
 /// shared field editor's caret is `accent`.
 @MainActor
-final class QuireInnerTextField: NSTextField {
+final class QuireInnerTextField: NSTextField, QuireInnerField {
     var onFocusChange: (@MainActor (Bool) -> Void)?
 
     /// What a borderless text field cell insets its text by on each side; containers subtract it so the text
@@ -14,33 +14,22 @@ final class QuireInnerTextField: NSTextField {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        isBezeled = false
-        isBordered = false
-        drawsBackground = false
-        focusRingType = .none
-        usesSingleLineMode = true
-        lineBreakMode = .byTruncatingTail
-        cell?.isScrollable = true
-        cell?.wraps = false
+        configureInnerField()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("built in code") }
 
-    var isEditing: Bool { currentEditor() != nil }
-
     override func becomeFirstResponder() -> Bool {
+        innerFieldWillBecomeFirstResponder()
         let accepted = super.becomeFirstResponder()
-        if accepted {
-            (currentEditor() as? NSTextView)?.insertionPointColor = .qAccent
-            onFocusChange?(true)
-        }
+        innerFieldDidBecomeFirstResponder(accepted)
         return accepted
     }
 
     override func textDidEndEditing(_ notification: Notification) {
-        (currentEditor() as? NSTextView)?.insertionPointColor = .textInsertionPointColor
+        innerFieldWillEndEditing()
         super.textDidEndEditing(notification)
-        onFocusChange?(false)
+        innerFieldDidEndEditing()
     }
 }

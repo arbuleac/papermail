@@ -193,6 +193,7 @@ enum ComponentGallery {
         builder.add(target, width: 180)
         let focused = QuireSheetView(frame: NSRect(x: 0, y: 0, width: 160, height: 60))
         focused.isFocused = true
+        focused.windowKeyOverride = true
         builder.add(focused, width: 180)
         let toast = QuireSlipView(kind: .undoable, message: "Archived", symbolName: Quire.Icon.archive)
         toast.setAction("Undo", keycap: "Z")

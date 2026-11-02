@@ -1,6 +1,7 @@
 // swift-tools-version: 6.0
 import PackageDescription
 
+// Release builds treat warnings as errors in every target, the app and its tests included.
 let settings: [SwiftSetting] = [
     .unsafeFlags(["-warnings-as-errors"], .when(configuration: .release)),
 ]
@@ -25,10 +26,11 @@ let package = Package(
             dependencies: [
                 .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "SwiftSoup", package: "SwiftSoup"),
-            ]
+            ],
+            swiftSettings: settings
         ),
-        .target(name: "SSGmail", dependencies: ["SSCore"]),
-        .target(name: "SSGraph", dependencies: ["SSCore"]),
+        .target(name: "SSGmail", dependencies: ["SSCore"], swiftSettings: settings),
+        .target(name: "SSGraph", dependencies: ["SSCore"], swiftSettings: settings),
         // The Quire design runtime. Kept out of the executable so it can be unit-tested, and free of
         // SSCore, GRDB and WebKit so tokens never pull the mail stack into a test or a preview.
         .target(
@@ -43,6 +45,7 @@ let package = Package(
         .executableTarget(
             name: "SuperSparrowApp",
             dependencies: ["SSCore", "SSGmail", "SSGraph", "SSDesign"],
+            swiftSettings: settings,
             linkerSettings: [
                 .linkedFramework("AppKit"),
                 .linkedFramework("WebKit"),
@@ -51,10 +54,10 @@ let package = Package(
                 .linkedFramework("UserNotifications"),
             ]
         ),
-        .testTarget(name: "SSCoreTests", dependencies: ["SSCore"]),
-        .testTarget(name: "SSGmailTests", dependencies: ["SSGmail"]),
-        .testTarget(name: "SSGraphTests", dependencies: ["SSGraph"]),
-        .testTarget(name: "SSDesignTests", dependencies: ["SSDesign"]),
+        .testTarget(name: "SSCoreTests", dependencies: ["SSCore"], swiftSettings: settings),
+        .testTarget(name: "SSGmailTests", dependencies: ["SSGmail"], swiftSettings: settings),
+        .testTarget(name: "SSGraphTests", dependencies: ["SSGraph"], swiftSettings: settings),
+        .testTarget(name: "SSDesignTests", dependencies: ["SSDesign"], swiftSettings: settings),
     ],
     swiftLanguageModes: [.v5]
 )

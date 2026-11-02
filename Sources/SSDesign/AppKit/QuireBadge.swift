@@ -52,40 +52,29 @@ public final class QuireBadge: NSView {
         }
     }
 
-    private var label: NSAttributedString? {
-        guard let text = QuireBadge.text(for: kind) else { return nil }
+    private static func label(for kind: Kind) -> NSAttributedString? {
+        guard let text = text(for: kind) else { return nil }
         let color: NSColor
         if case .unread = kind { color = .qOnAccent } else { color = .qInk2 }
         return QuireDraw.line(text, .badge, color)
     }
 
-    public override var intrinsicContentSize: NSSize {
+    /// The badge's visual size, without the cut-out ring: what a row lays out (§8.2).
+    public static func size(for kind: Kind) -> NSSize {
         let b = Quire.Layout.Badge.self
         switch kind {
         case .dot: return NSSize(width: b.dot, height: b.dot)
         case .attention: return NSSize(width: b.attention, height: b.attention)
         case .unread, .messageCount:
-            let minWidth = isMessageCount ? b.rowMinWidth : b.minWidth
-            let textWidth = label.map { QuireDraw.width($0) } ?? 0
+            let minWidth = kind.isMessageCount ? b.rowMinWidth : b.minWidth
+            let textWidth = label(for: kind).map { QuireDraw.width($0) } ?? 0
             return NSSize(width: max(minWidth, textWidth + 2 * b.padX), height: b.height)
         }
     }
 
-    private var isMessageCount: Bool {
-        if case .messageCount = kind { return true }
-        return false
-    }
-
-    private var badgeRect: NSRect {
-        let i = alignmentRectInsets
-        return NSRect(x: bounds.minX + i.left, y: bounds.minY + i.top,
-                      width: bounds.width - i.left - i.right, height: bounds.height - i.top - i.bottom)
-    }
-
-    // MARK: Drawing
-
-    public override func draw(_ dirtyRect: NSRect) {
-        let rect = badgeRect
+    /// Draws a badge filling `rect` (its visual rect) in the current context, with the 2 pt cut-out ring in
+    /// `cutoutColor` outside it when given. Rows call this from their own `draw(_:)`; the view does too.
+    public static func draw(_ kind: Kind, in rect: NSRect, cutoutColor: NSColor? = nil) {
         let radius = rect.height / 2
         if let cutoutColor {
             let c = Quire.Layout.Badge.cutout
@@ -99,13 +88,27 @@ public final class QuireBadge: NSView {
             QuireDraw.symbol(Quire.Icon.attention, size: .custom(Quire.Layout.Badge.attentionGlyph, weight: .semibold),
                              color: .qOnDanger, centredIn: rect)
         case .unread, .messageCount:
-            QuireDraw.fill(rect, radius: radius, isMessageCount ? .qFill : .qAccentFill)
-            guard let label else { return }
+            QuireDraw.fill(rect, radius: radius, kind.isMessageCount ? .qFill : .qAccentFill)
+            guard let label = label(for: kind) else { return }
             let lineHeight = QuireFont.Role.badge.lineHeight
             let width = QuireDraw.width(label)
             QuireDraw.draw(label, x: (rect.midX - width / 2).rounded(), top: (rect.midY - lineHeight / 2).rounded(),
                            maxWidth: width + 1, lineHeight: lineHeight)
         }
+    }
+
+    public override var intrinsicContentSize: NSSize { QuireBadge.size(for: kind) }
+
+    private var badgeRect: NSRect {
+        let i = alignmentRectInsets
+        return NSRect(x: bounds.minX + i.left, y: bounds.minY + i.top,
+                      width: bounds.width - i.left - i.right, height: bounds.height - i.top - i.bottom)
+    }
+
+    // MARK: Drawing
+
+    public override func draw(_ dirtyRect: NSRect) {
+        QuireBadge.draw(kind, in: badgeRect, cutoutColor: cutoutColor)
     }
 
     @objc private func environmentDidChange(_ note: Notification) {

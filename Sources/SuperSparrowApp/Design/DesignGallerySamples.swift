@@ -61,6 +61,7 @@ enum DesignGallerySamples {
     static func pinKeyWindow(in view: NSView) {
         if let control = view as? QuireControl, control.windowKeyOverride == nil { control.windowKeyOverride = true }
         if let rule = view as? QuireMarginRule, rule.windowKeyOverride == nil { rule.windowKeyOverride = true }
+        if let sheet = view as? QuireSheetView, sheet.windowKeyOverride == nil { sheet.windowKeyOverride = true }
         for subview in view.subviews { pinKeyWindow(in: subview) }
     }
 }

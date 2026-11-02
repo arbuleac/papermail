@@ -13,7 +13,10 @@ enum MainMenu {
         main.addItem(submenu(editMenu()))
         main.addItem(submenu(viewMenu()))
         main.addItem(submenu(messageMenu()))
+        #if DEBUG
+        // The gallery rewrites app-wide QuireEnvironment overrides while open: a development tool only.
         main.addItem(submenu(debugMenu(appDelegate)))
+        #endif
         let window = windowMenu()
         main.addItem(submenu(window))
         NSApp.windowsMenu = window
@@ -126,12 +129,14 @@ enum MainMenu {
         return menu
     }
 
-    /// Tools for checking the app's own drawing; nothing here touches mail.
+    #if DEBUG
+    /// Tools for checking the app's own drawing; nothing here touches mail. Debug builds only.
     private static func debugMenu(_ delegate: AppDelegate) -> NSMenu {
         let menu = NSMenu(title: "Debug")
         menu.addItem(item("Design Gallery", #selector(AppDelegate.showDesignGallery(_:)), target: delegate))
         return menu
     }
+    #endif
 
     private static func windowMenu() -> NSMenu {
         let menu = NSMenu(title: "Window")

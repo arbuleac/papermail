@@ -104,6 +104,14 @@ public final class QuireContrailView: NSView {
         return (lineClip.presentation() ?? lineClip).bounds.width / bounds.width
     }
 
+    /// The indeterminate segment's model frame (what snapshots draw), for tests.
+    var sweepModelFrame: CGRect { sweep.frame }
+
+    /// True while a drain or sweep animation is attached.
+    var isMoving: Bool {
+        lineClip.animation(forKey: QuireContrailView.animationKey) != nil || sweep.animation(forKey: QuireContrailView.animationKey) != nil
+    }
+
     /// Seconds left on a countdown.
     public var countdownRemaining: TimeInterval? { clock?.remaining }
 
@@ -195,11 +203,14 @@ public final class QuireContrailView: NSView {
             if reduceMotion {
                 sweep.position = CGPoint(x: (width - segment) / 2, y: top)
             } else {
-                sweep.position = CGPoint(x: -segment, y: top)
+                // The model rests mid-sweep and the loop starts from there (half its period in), so a snapshot,
+                // which draws model values, shows the segment rather than nothing off the leading edge.
+                sweep.position = CGPoint(x: (width - segment) / 2, y: top)
                 let move = CABasicAnimation(keyPath: "position.x")
                 move.fromValue = -segment
                 move.toValue = width
                 move.duration = Quire.Motion.contrailSweep
+                move.timeOffset = Quire.Motion.contrailSweep / 2
                 move.timingFunction = Quire.Motion.Curve.linear.timingFunction
                 move.repeatCount = .infinity
                 sweep.add(move, forKey: QuireContrailView.animationKey)

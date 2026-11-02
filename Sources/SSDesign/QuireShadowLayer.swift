@@ -28,18 +28,32 @@ public struct QuireShadowLayer: Equatable, Sendable {
     /// `CALayer.shadowRadius`: CSS blur = 2 × shadowRadius.
     public var shadowRadius: CGFloat { blur / 2 }
 
-    /// `CALayer.shadowOffset`: a shadow that falls 6 pt is (0, -6). This holds for sublayers of a flipped,
-    /// layer-backed `NSView` too: `geometryFlipped` flips sublayer geometry but not shadow offsets (measured on
-    /// macOS 27, where (0, +6) cast the shadow upward in a flipped view).
+    /// `CALayer.shadowOffset` for a layer in a bottom-up coordinate space: a shadow that falls 6 pt is (0, -6).
     public var layerOffset: CGSize { CGSize(width: x, height: -y) }
 
-    /// Puts this shadow on `layer`. Pass `flipped` only for a layer whose own coordinate space is turned upside
-    /// down (a y-scale of -1), not for one in a flipped view. The caller still sets `shadowPath` (spec §4.8
+    /// `CALayer.shadowOffset` for a layer in a bottom-up (`flipped` false) or top-down (`flipped` true)
+    /// coordinate space. The window server applies a flipped view's geometry to the shadow offsets of every
+    /// layer in its tree, at any depth, so a shadow that falls 6 pt in a flipped view is (0, +6). Measured on
+    /// macOS 27 with a window-server capture: (0, -6) under a flipped view's layer cast the shadow upward on
+    /// screen. `cacheDisplay` disagrees in some hierarchies (it renders the offset unflipped when the cached
+    /// view is itself flipped), so only a window-server capture can check the direction.
+    public func layerOffset(flipped: Bool) -> CGSize {
+        flipped ? CGSize(width: x, height: y) : layerOffset
+    }
+
+    /// Puts this shadow on `layer`. Pass `flipped` when the layer is in a flipped view's layer tree (every
+    /// Quire component is flipped); see `layerOffset(flipped:)`. The caller still sets `shadowPath` (spec §4.8
     /// requires one on every shadowed layer, so AppKit never rasterises the alpha mask).
-    public func apply(to layer: CALayer, flipped: Bool = false) {
+    public func apply(to layer: CALayer, flipped: Bool) {
         layer.shadowColor = NSColor(quireRGBA: rgba | 0xFF).cgColor
         layer.shadowOpacity = opacity
         layer.shadowRadius = shadowRadius
-        layer.shadowOffset = flipped ? CGSize(width: x, height: y) : layerOffset
+        layer.shadowOffset = layerOffset(flipped: flipped)
+    }
+
+    /// Puts this shadow on `layer`, a layer in `view`'s layer tree, with the offset for `view`'s geometry.
+    @MainActor
+    public func apply(to layer: CALayer, in view: NSView) {
+        apply(to: layer, flipped: view.isFlipped)
     }
 }

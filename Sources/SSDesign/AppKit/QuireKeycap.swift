@@ -47,11 +47,42 @@ public final class QuireKeycap: NSView {
 
     // MARK: Shared drawing
 
+    private struct SizeKey: Hashable {
+        let legend: String
+        let style: Style
+    }
+
+    /// What a style's legend needs to draw, built once per style: the paragraph style and baseline offset
+    /// cost a layout manager each, and buttons ask for the cap's size on every pointer move (`hitTest`).
+    private struct LegendStyle: @unchecked Sendable {
+        let font: NSFont
+        let paragraph: NSParagraphStyle
+        let baselineOffset: CGFloat
+    }
+
+    nonisolated private static let sizes = LockedCache<SizeKey, NSSize>()
+    nonisolated private static let legendStyles = LockedCache<Style, LegendStyle>()
+
+    nonisolated private static func legendStyle(_ style: Style) -> LegendStyle {
+        legendStyles.value(for: style) {
+            let font = style.font
+            let lineHeight = QuireFont.Role.kbd.lineHeight
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.minimumLineHeight = lineHeight
+            paragraph.maximumLineHeight = lineHeight
+            paragraph.alignment = .center
+            paragraph.lineBreakMode = .byClipping
+            return LegendStyle(font: font, paragraph: paragraph, baselineOffset: QuireFont.baselineOffset(for: font, lineHeight: lineHeight))
+        }
+    }
+
     /// The cap's size: at least as wide as it is tall, the legend padded by `kbd.padX` on each side.
     nonisolated public static func size(for legend: String, style: Style) -> NSSize {
-        let text = NSAttributedString(string: legend, attributes: [.font: style.font])
-        let width = max(style.height, ceil(text.size().width) + 2 * Quire.Layout.Kbd.padX)
-        return NSSize(width: width, height: style.height)
+        sizes.value(for: SizeKey(legend: legend, style: style)) {
+            let text = NSAttributedString(string: legend, attributes: [.font: legendStyle(style).font])
+            let width = max(style.height, ceil(text.size().width) + 2 * Quire.Layout.Kbd.padX)
+            return NSSize(width: width, height: style.height)
+        }
     }
 
     /// Draws a keycap filling `rect` in the current graphics context; colours resolve now.
@@ -75,18 +106,13 @@ public final class QuireKeycap: NSView {
             NSGraphicsContext.restoreGraphicsState()
             legendColor = .qInk2
         }
-        let font = style.font
         let lineHeight = QuireFont.Role.kbd.lineHeight
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.minimumLineHeight = lineHeight
-        paragraph.maximumLineHeight = lineHeight
-        paragraph.alignment = .center
-        paragraph.lineBreakMode = .byClipping
+        let legendStyle = legendStyle(style)
         let text = NSAttributedString(string: legend, attributes: [
-            .font: font,
+            .font: legendStyle.font,
             .foregroundColor: legendColor,
-            .paragraphStyle: paragraph,
-            .baselineOffset: QuireFont.baselineOffset(for: font, lineHeight: lineHeight),
+            .paragraphStyle: legendStyle.paragraph,
+            .baselineOffset: legendStyle.baselineOffset,
         ])
         let top = rect.minY + ((rect.height - lineHeight) / 2).rounded(.down)
         text.draw(with: NSRect(x: rect.minX, y: top, width: rect.width, height: lineHeight),

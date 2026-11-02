@@ -306,12 +306,22 @@ public final class QuireButton: QuireControl {
     // MARK: Keyboard
 
     public override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        guard isEnabled, !keyEquivalent.isEmpty,
-              event.charactersIgnoringModifiers == keyEquivalent,
-              event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function]) == keyEquivalentModifierMask
+        guard isEnabled, !keyEquivalent.isEmpty, QuireButton.matches(event, keyEquivalent: keyEquivalent, modifiers: keyEquivalentModifierMask)
         else { return super.performKeyEquivalent(with: event) }
         activate()
         return true
+    }
+
+    /// NSButton's matching: Caps Lock, the keypad and the function-key flag never stop a match, and keypad
+    /// Enter (U+0003) counts as Return.
+    static func matches(_ event: NSEvent, keyEquivalent: String, modifiers: NSEvent.ModifierFlags) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function, .capsLock])
+        guard flags == modifiers.intersection(.deviceIndependentFlagsMask) else { return false }
+        var characters = event.charactersIgnoringModifiers ?? ""
+        // Caps Lock can uppercase the characters of an unshifted letter; the equivalent is still meant.
+        if event.modifierFlags.contains(.capsLock), !flags.contains(.shift) { characters = characters.lowercased() }
+        if characters == keyEquivalent { return true }
+        return keyEquivalent == "\r" && characters == "\u{3}"
     }
 
     // MARK: Accessibility

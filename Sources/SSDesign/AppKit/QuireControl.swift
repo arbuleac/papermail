@@ -161,6 +161,31 @@ open class QuireControl: NSControl {
         addTrackingArea(area)
         hoverArea = area
         super.updateTrackingAreas()
+        syncHoverWithPointer()
+    }
+
+    /// A new tracking area starts with no entered event, so a control that appears or moves under a resting
+    /// pointer asks where the pointer is.
+    private func syncHoverWithPointer() {
+        guard let window, !isHidden, NSApp?.isActive ?? false else { return }
+        let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        setHovered(hitRect.contains(point))
+    }
+
+    /// Hover and press never stick: a control that leaves its window or hides (a reused row, a button removed
+    /// by its own click) comes back at rest, because no exit event follows.
+    private func resetPointerState() {
+        guard isHovered || isPressed || isTrackingPress else { return }
+        isHovered = false
+        isPressed = false
+        isTrackingPress = false
+        hoverDidChange()
+        stateDidChange()
+    }
+
+    open override func viewDidHide() {
+        super.viewDidHide()
+        resetPointerState()
     }
 
     open override func mouseEntered(with event: NSEvent) {
@@ -281,6 +306,7 @@ open class QuireControl: NSControl {
                                                    name: NSWindow.didResignKeyNotification, object: newWindow)
         }
         observedWindow = newWindow
+        resetPointerState()
         super.viewWillMove(toWindow: newWindow)
     }
 

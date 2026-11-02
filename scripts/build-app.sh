@@ -21,7 +21,10 @@ done
 # on native controls (menu highlights, default buttons) instead of Iron Gall.
 if [ -d "$ROOT/Resources/Assets.xcassets" ]; then
   if xcrun --find actool >/dev/null 2>&1; then
-    ASSET_PLIST="$(mktemp -t supersparrow-assets).plist"
+    # A private directory, removed on every exit path, so a failing actool leaves nothing in $TMPDIR.
+    ASSET_DIR="$(mktemp -d -t supersparrow-assets)"
+    trap 'rm -rf "$ASSET_DIR"' EXIT
+    ASSET_PLIST="$ASSET_DIR/partial.plist"
     xcrun actool "$ROOT/Resources/Assets.xcassets" \
       --compile "$APP/Contents/Resources" \
       --platform macosx \
@@ -29,7 +32,7 @@ if [ -d "$ROOT/Resources/Assets.xcassets" ]; then
       --accent-color AccentColor \
       --output-partial-info-plist "$ASSET_PLIST" \
       --errors --warnings >/dev/null
-    rm -f "$ASSET_PLIST"
+    rm -rf "$ASSET_DIR"
     /usr/libexec/PlistBuddy -c "Add :NSAccentColorName string AccentColor" "$APP/Contents/Info.plist" >/dev/null 2>&1 \
       || /usr/libexec/PlistBuddy -c "Set :NSAccentColorName AccentColor" "$APP/Contents/Info.plist"
   else

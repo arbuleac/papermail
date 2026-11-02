@@ -72,6 +72,8 @@ public final class QuireSlipView: NSView {
             return nil
         }
         let button = actionButton ?? QuireSlipActionButton(title: title)
+        // A toast's action joins the Tab loop only with Full Keyboard Access (§5.30): Z undoes from anywhere.
+        button.requiresFullKeyboardAccess = true
         button.title = title
         button.keycap = keycap
         button.target = target
@@ -196,6 +198,25 @@ public final class QuireSlipView: NSView {
     }
 
     // MARK: Accessibility
+
+    /// What VoiceOver says when the slip appears: the message, then the action and its key (“Archived.
+    /// Press Z to undo.”, “Undid Archive.”).
+    public var announcement: String {
+        var text = QuireAccessibility.sentence(message)
+        if let actionButton {
+            if let keycap = actionButton.keycap {
+                text += " Press \(QuireAccessibility.spoken(keycap: keycap)) to \(actionButton.title.lowercased())."
+            } else {
+                text += " " + QuireAccessibility.sentence(actionButton.title)
+            }
+        }
+        return text
+    }
+
+    /// Speaks `announcement`; the shell calls it when it shows the slip (§5.30, §4.13).
+    public func announce() {
+        QuireAccessibility.announce(announcement, from: self)
+    }
 
     public override func isAccessibilityElement() -> Bool { true }
     public override func accessibilityRole() -> NSAccessibility.Role? { .group }

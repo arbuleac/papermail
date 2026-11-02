@@ -388,7 +388,7 @@ Every `radius` metric under `layout` is one of these values; the build fails oth
 
 ### 4.8 Elevation
 
-Paper is flat. Only things that float cast shadows; rows, the rail and the list never do. AppKit gives every shadowed layer an explicit `shadowPath`; two-shadow levels use a container layer (key shadow) plus one sublayer (contact shadow). CSS blur = 2 × `CALayer.shadowRadius`. Increase Contrast keeps the shadows and adds the `ruleStrong` edge (`border.icOutline`) to sheets, the stack, autocomplete, the link popover and the cheat sheet; slips use their own `slipEdge`. A shadowed `NSPanel` (the undo-send panel) is transparent and larger than what it draws, by `layout.undoPanel.shadowMargin*`, so the shadow is never clipped. The toggle knob's static contact shadow is a control detail, not a level: `layout.toggle.knobShadow`.
+Paper is flat. Only things that float cast shadows; rows, the rail and the list never do. AppKit gives every shadowed layer an explicit `shadowPath`; two-shadow levels use a container layer (key shadow) plus one sublayer (contact shadow). CSS blur = 2 × `CALayer.shadowRadius`. The AppKit offsets below are for a bottom-up layer; the window server applies a flipped view's geometry to the shadow offsets of every layer in its tree, so in a flipped view (every Quire component is one) the same downward shadow is (0, +6). Only a window-server capture shows the direction truthfully: `cacheDisplay` renders some flipped hierarchies the other way. Increase Contrast keeps the shadows and adds the `ruleStrong` edge (`border.icOutline`) to sheets, the stack, autocomplete, the link popover and the cheat sheet; slips use their own `slipEdge`. A shadowed `NSPanel` (the undo-send panel) is transparent and larger than what it draws, by `layout.undoPanel.shadowMargin*`, so the shadow is never clipped. The toggle knob's static contact shadow is a control detail, not a level: `layout.toggle.knobShadow`.
 
 | Level | Light (CSS) | Dark (CSS) | AppKit | Used for |
 |---|---|---|---|---|
@@ -517,6 +517,7 @@ Glyph colour: `ink2` at rest, `ink` on hover and press, `inkDisabled` when disab
 | Settings tabs (system toolbar) | `person.crop.circle`, `key`, `gearshape` | — |
 | Undo confirmation (toast) | `arrow.uturn.backward` | — |
 | Privacy note / success / info | `lock` / `checkmark.circle.fill` / `info.circle` | — |
+| Show / hide a secret (the secure field's reveal button, §5.25) | `eye` / `eye.slash` | — |
 
 The full action-to-symbol map is `icon` in `tokens.json`: every symbol the app draws is in it, and a symbol that is not in it is not used.
 
@@ -1446,7 +1447,7 @@ Sizes: small 22 (padding 9, radius 5, `label` / `labelStrong`, glyph 12), regula
 | Filled | as rest |
 | Error | 1.5 pt `danger` edge; help line 5 pt below in `meta` `danger` with `exclamationmark.triangle.fill`: “That doesn't look like a Google client ID.” |
 | Disabled | `fill`, no edge, `inkDisabled` |
-| Secure | bullets with 2 pt tracking; a reveal button only on hover |
+| Secure | bullets with 2 pt tracking; a reveal button only on hover (a small icon button, `eye`, `eye.slash` while revealed, centred in the field's height at its trailing edge); while the secret shows, the button stays until it is hidden again |
 
 ### 5.26 Checkbox, radio and toggle
 

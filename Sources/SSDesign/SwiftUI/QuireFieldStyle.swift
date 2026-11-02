@@ -15,6 +15,8 @@ public struct QuireFieldStyle: ViewModifier {
     public let error: String?
     public let height: CGFloat
     let focus: FocusState<Bool>.Binding?
+    /// Focus reported by an AppKit field inside (the secure field), which SwiftUI's focus state cannot see.
+    var bridgedFocus: Bool?
 
     @FocusState private var ownFocus: Bool
     @Environment(\.isEnabled) private var isEnabled
@@ -34,14 +36,15 @@ public struct QuireFieldStyle: ViewModifier {
         self.focus = focus
     }
 
-    /// A placeholder in `ink3`, for the field's `prompt:`.
+    /// A placeholder for the field's `prompt:`: `ink3`, or `inkDisabled` in a disabled field. The colour is
+    /// resolved in the field's own environment, so `.disabled(true)` on the field is all it takes.
     public static func prompt(_ text: String) -> Text {
-        Text(text).foregroundStyle(Color.qInk3)
+        Text(text).foregroundStyle(QuirePlaceholderStyle())
     }
 
     public func body(content: Content) -> some View {
         let f = Quire.Layout.TextField.self
-        let focused = focus?.wrappedValue ?? ownFocus
+        let focused = bridgedFocus ?? focus?.wrappedValue ?? ownFocus
         let state = QuireControlState(isHovered: isHovered, isFocused: focused, isEnabled: isEnabled,
                                       isWindowKey: activeState != .inactive).forcing(forced.subtracting(.pressed))
         let a = QuireFieldAppearance.resolve(hasError: error != nil, state: state)
@@ -53,7 +56,7 @@ public struct QuireFieldStyle: ViewModifier {
                 .foregroundStyle(a.text.swiftUIColor)
                 .tint(Color.qAccent)
                 .focusEffectDisabled()
-                .modifier(QuireFieldFocusBinding(external: focus, own: $ownFocus))
+                .modifier(QuireFieldFocusBinding(external: focus, own: $ownFocus, isBridged: bridgedFocus != nil))
                 .padding(.horizontal, f.padX)
                 .frame(height: height)
                 .background {
@@ -79,13 +82,30 @@ public struct QuireFieldStyle: ViewModifier {
     }
 }
 
-/// Binds the field to the caller's focus state when there is one, else to the style's own.
+/// The placeholder colour of `QuireFieldAppearance` for the environment it is drawn in.
+struct QuirePlaceholderStyle: ShapeStyle {
+    static func token(isEnabled: Bool) -> QuireColorToken {
+        QuireFieldAppearance.resolve(hasError: false, state: QuireControlState(isEnabled: isEnabled)).placeholder
+    }
+
+    func resolve(in environment: EnvironmentValues) -> Color {
+        QuirePlaceholderStyle.token(isEnabled: environment.isEnabled).swiftUIColor
+    }
+}
+
+/// Binds the field to the caller's focus state when there is one, else to the style's own. A bridged AppKit
+/// field keeps its own first-responder state, so it is left alone.
 struct QuireFieldFocusBinding: ViewModifier {
     let external: FocusState<Bool>.Binding?
     let own: FocusState<Bool>.Binding
+    var isBridged = false
 
     func body(content: Content) -> some View {
-        content.focused(external ?? own)
+        if isBridged {
+            content
+        } else {
+            content.focused(external ?? own)
+        }
     }
 }
 
@@ -95,8 +115,8 @@ struct QuireFieldHelp: View {
 
     var body: some View {
         // The glyph sits on the first line, whatever the text wraps to.
-        HStack(alignment: .top, spacing: Quire.Space.s2) {
-            QuireSymbolImage(name: Quire.Icon.error, size: .custom(Quire.Layout.Settings.statusGlyph))
+        HStack(alignment: .top, spacing: Quire.Layout.TextField.helpGlyphGap) {
+            QuireSymbolImage(name: Quire.Icon.error, size: .custom(Quire.Layout.TextField.helpGlyph))
                 .frame(height: QuireFont.Role.meta.lineHeight)
             Text(text)
                 .quireParagraph(.meta)

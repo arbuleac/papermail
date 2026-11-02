@@ -13,7 +13,11 @@ public final class QuireCheckbox: QuireControl {
 
     /// `.off`, `.on` or `.mixed`.
     public var state: NSControl.StateValue = .off {
-        didSet { if oldValue != state { needsDisplay = true } }
+        didSet {
+            guard oldValue != state else { return }
+            needsDisplay = true
+            QuireAccessibility.valueChanged(self)
+        }
     }
 
     public init(title: String? = nil, state: NSControl.StateValue = .off, target: AnyObject? = nil, action: Selector? = nil) {

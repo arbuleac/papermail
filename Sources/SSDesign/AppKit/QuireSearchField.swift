@@ -24,8 +24,25 @@ public final class QuireSearchField: QuireControl, NSTextFieldDelegate {
     }
 
     /// The result count while results show; nil hides the count and the clear button.
+    /// While the field has focus a new count is announced to VoiceOver (after what it is reading).
     public var resultCount: Int? {
-        didSet { if oldValue != resultCount { contentDidChange() } }
+        didSet {
+            guard oldValue != resultCount else { return }
+            contentDidChange()
+            if hasKeyboardFocus { announceResults() }
+        }
+    }
+
+    /// The count in words (“38 results”, “1 result”); nil while no results show.
+    public var resultsText: String? {
+        guard showsResults, let count = resultCount else { return nil }
+        return count == 1 ? "1 result" : "\(QuireDraw.grouped(count)) results"
+    }
+
+    /// Speaks the result count, as the search field's counterpart of the slip's announcement.
+    public func announceResults() {
+        guard let resultsText else { return }
+        QuireAccessibility.announce(resultsText, from: self, priority: .medium)
     }
 
     /// The first page is being fetched: the spinner replaces the magnifier after its delay.
@@ -85,8 +102,7 @@ public final class QuireSearchField: QuireControl, NSTextFieldDelegate {
     public var showsResults: Bool { isEnabled && resultCount != nil && !query.isEmpty }
 
     private var resultsString: NSAttributedString? {
-        guard showsResults, let count = resultCount else { return nil }
-        let text = count == 1 ? "1 result" : "\(QuireDraw.grouped(count)) results"
+        guard let text = resultsText else { return nil }
         return QuireDraw.line(text, .meta, .qInk3)
     }
 

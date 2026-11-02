@@ -34,10 +34,22 @@ public final class QuireSheetView: NSView {
         didSet { surface.apply() }
     }
 
-    /// The keyboard ring around the sheet, outside a 2 pt gap (`n`/`p`, Tab).
+    /// The keyboard ring around the sheet, outside a 2 pt gap (`n`/`p`, Tab). Drawn only while the window is
+    /// key: no first responder is shown in a window that is not (§3.4).
     public var isFocused = false {
-        didSet { surface.ringColor = isFocused ? .qFocus : nil }
+        didSet { updateRing() }
     }
+
+    /// Forces the window key state the ring follows, for galleries; nil follows the window.
+    public var windowKeyOverride: Bool? {
+        didSet { updateRing() }
+    }
+
+    /// The window key state the sheet draws for.
+    public var isWindowKey: Bool { windowKeyOverride ?? window?.isKeyWindow ?? false }
+
+    /// True while the focus ring shows.
+    public var showsFocusRing: Bool { isFocused && isWindowKey }
 
     /// Where the sheet's content goes; clipped to the corner radius.
     public let contentView: NSView
@@ -73,6 +85,37 @@ public final class QuireSheetView: NSView {
     public required init?(coder: NSCoder) { fatalError("QuireSheetView is built in code") }
 
     public override var isFlipped: Bool { true }
+
+    private func updateRing() {
+        surface.ringColor = showsFocusRing ? .qFocus : nil
+    }
+
+    // MARK: Window key state
+
+    private weak var observedWindow: NSWindow?
+
+    public override func viewWillMove(toWindow newWindow: NSWindow?) {
+        let center = NotificationCenter.default
+        if let observedWindow {
+            center.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: observedWindow)
+            center.removeObserver(self, name: NSWindow.didResignKeyNotification, object: observedWindow)
+        }
+        if let newWindow {
+            center.addObserver(self, selector: #selector(windowKeyDidChange(_:)), name: NSWindow.didBecomeKeyNotification, object: newWindow)
+            center.addObserver(self, selector: #selector(windowKeyDidChange(_:)), name: NSWindow.didResignKeyNotification, object: newWindow)
+        }
+        observedWindow = newWindow
+        super.viewWillMove(toWindow: newWindow)
+    }
+
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateRing()
+    }
+
+    @objc private func windowKeyDidChange(_ note: Notification) {
+        updateRing()
+    }
 
     public override func isAccessibilityElement() -> Bool { false }
 }

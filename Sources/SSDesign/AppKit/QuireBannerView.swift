@@ -24,6 +24,15 @@ public final class QuireBannerView: NSView {
         didSet { needsDisplay = true }
     }
 
+    /// The glyph's colour; nil uses the kind's. A neutral banner reporting a partial failure (“2 images
+    /// couldn't load”) keeps its `fill` wash and draws the triangle in `warning` (§5.16).
+    public var glyphColor: NSColor? {
+        didSet { needsDisplay = true }
+    }
+
+    /// The colour the glyph draws in now.
+    public var resolvedGlyphColor: NSColor { glyphColor ?? kind.glyphColor }
+
     public var allowsMultipleLines = false {
         didSet { contentDidChange() }
     }
@@ -222,7 +231,7 @@ public final class QuireBannerView: NSView {
         let g = geometry(width: bounds.width)
         if !isLoading {
             let glyphRect = NSRect(x: b.padLeft, y: g.glyphCenterY - b.glyph / 2, width: b.glyph, height: b.glyph)
-            QuireDraw.symbol(symbolName ?? kind.defaultSymbol, size: .custom(b.glyph), color: kind.glyphColor, centredIn: glyphRect)
+            QuireDraw.symbol(symbolName ?? kind.defaultSymbol, size: .custom(b.glyph), color: resolvedGlyphColor, centredIn: glyphRect)
         }
         if allowsMultipleLines {
             string(wrapping: true).draw(with: g.textRect, options: [.usesLineFragmentOrigin], context: nil)

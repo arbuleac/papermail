@@ -35,7 +35,7 @@ final class DesignGalleryDocumentView: NSView {
 
     private func pinContrastCards(in view: NSView) {
         for subview in view.subviews {
-            if let contrast = subview as? DesignGalleryContrastView { contrast.pinAppearance() } else { pinContrastCards(in: subview) }
+            if let contrast = subview as? DesignGalleryContrastView { contrast.refresh() } else { pinContrastCards(in: subview) }
         }
     }
 
@@ -45,10 +45,11 @@ final class DesignGalleryDocumentView: NSView {
                detail: "AppKit components from SSDesign, drawn live from the generated tokens. Labels name the state; "
                    + "numbers come from tokens.json.", first: true)
         cardRow([DesignGalleryCards.buttons(), DesignGalleryCards.fields()])
-        cardRow([DesignGalleryCards.listHeader(), DesignGalleryCards.sheet(), DesignGalleryCards.slips()])
+        cardRow([DesignGalleryCards.listHeader(), DesignGalleryCards.sheet(), DesignGalleryCards.rules()])
         cardRow([DesignGalleryCards.banners(), DesignGalleryCards.badges(), DesignGalleryCards.keycaps()])
         cardRow([DesignGalleryCards.avatars(), DesignGalleryCards.emptyStates(), DesignGalleryCards.progress()])
-        cardRow([DesignGalleryCards.rules()])
+        cardRow([DesignGalleryCards.slips()])
+        cardRow([DesignGalleryCards.cheatSheet()])
         cardRow([DesignGalleryCards.increasedContrast()])
         header(number: "D · SwiftUI", title: "Settings controls, hosted",
                detail: "The SwiftUI counterparts (QuireButtonStyle, QuireToggleStyle, QuireFieldStyle, account rows and the "

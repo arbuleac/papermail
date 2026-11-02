@@ -274,6 +274,7 @@ ICON = {
  "removeAccount": "minus", "bold": "bold", "italic": "italic", "underline": "underline", "bulletedList": "list.bullet", "numberedList": "list.number",
  "blockQuote": "text.quote", "link": "link", "undone": "arrow.uturn.backward", "demo": "info.circle",
  "addAccountProvider": "envelope", "attention": "exclamationmark", "waitingToSync": "clock", "discardDraft": "trash",
+ "reveal": "eye", "conceal": "eye.slash",
 }
 GLYPHS = {
  "ss.quire": {"grid": 16, "stroke": 1.5, "paths": ["M2.75 6.25h10.5a1 1 0 0 1 1 1v5.5a1 1 0 0 1-1 1H2.75a1 1 0 0 1-1-1v-5.5a1 1 0 0 1 1-1z", "M2.1 7 8 10.6 13.9 7", "M3.5 3.75h9", "M5.25 1.5h5.5"], "fills": [], "meaning": "All Inboxes: a gathering of letters"},

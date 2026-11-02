@@ -25,7 +25,11 @@ public final class QuireIconButton: QuireControl {
 
     /// The button is on (starred, quiet toggle on).
     public var isOn = false {
-        didSet { if oldValue != isOn { stateDidChange() } }
+        didSet {
+            guard oldValue != isOn else { return }
+            stateDidChange()
+            if togglesOnClick { QuireAccessibility.valueChanged(self) }
+        }
     }
 
     public var onStyle: OnStyle = .star {

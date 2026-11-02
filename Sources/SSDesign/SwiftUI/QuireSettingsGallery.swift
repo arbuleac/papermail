@@ -138,7 +138,11 @@ struct QuireGalleryFields: View {
             field("Disabled", prompt: "").disabled(true)
             field("1084-ab3f.apps", prompt: "", variant: .mono, error: "That doesn't look like a Google client ID.")
             field("1084-ab3f.apps.googleusercontent.com", prompt: "", variant: .mono)
+            field("", prompt: "Disabled placeholder").disabled(true)
+            QuireSecureField("Client secret", text: .constant("GOCSPX-k2v9"))
+            QuireSecureField("Client secret", text: .constant("GOCSPX-k2v9")).quireForcedStates(.hovered)
             QuireGalleryCaption("rest · hover · focused · disabled · error · mono")
+            QuireGalleryCaption("disabled placeholder · secure · secure hover")
         }
         .frame(width: 260)
     }
@@ -266,6 +270,7 @@ struct QuireGalleryBanners: View {
         VStack(alignment: .leading, spacing: Quire.Space.s4) {
             QuireBanner(.neutral, "3 remote images hidden to protect your privacy.", glyph: Quire.Icon.loadImages,
                         link: ("Load images", {}), wraps: false)
+            QuireBanner(.neutral, "2 images couldn't load.", glyph: Quire.Icon.warning, glyphColor: .warning, wraps: false)
             QuireBanner(.info, "Focused mirrors Gmail Primary.")
             QuireBanner(.success, "OAuth clients saved.")
             QuireBanner(.warning, "This message uses its own colours.", glyph: Quire.Icon.originalColors)
@@ -392,6 +397,9 @@ struct QuireGalleryGeneral: View {
             QuireSettingsRow("Client ID") {
                 TextField("", text: .constant("1084-ab3f9kq2.apps.googleusercontent.com"), prompt: QuireFieldStyle.prompt("….apps.googleusercontent.com"))
                     .quireFieldStyle(.mono)
+            }
+            QuireSettingsRow("Client secret") {
+                QuireSecureField("Client secret", text: .constant("GOCSPX-k2v9f3Qm"))
             }
             QuireSettingsRow("Tenant") {
                 TextField("", text: .constant(""), prompt: QuireFieldStyle.prompt("common"))

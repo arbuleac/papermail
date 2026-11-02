@@ -14,19 +14,23 @@ public struct QuireBanner: View {
     let variant: QuireBannerVariant
     let message: String
     let glyph: String?
+    let glyphColor: QuireColorToken?
     let link: (title: String, action: () -> Void)?
     let wraps: Bool
     let onDismiss: (() -> Void)?
 
     /// - Parameters:
     ///   - glyph: a name from `Quire.Icon`; the variant's default otherwise (`info.circle`, …).
+    ///   - glyphColor: the glyph's colour; the variant's otherwise. A neutral banner reporting a partial failure
+    ///     keeps its `fill` face and draws the triangle in `.warning` (§5.16).
     ///   - link: the link button's words (sentence case, spec §4.13) and its action.
     ///   - onDismiss: shows the dismiss button.
-    public init(_ variant: QuireBannerVariant, _ message: String, glyph: String? = nil,
+    public init(_ variant: QuireBannerVariant, _ message: String, glyph: String? = nil, glyphColor: QuireColorToken? = nil,
                 link: (title: String, action: () -> Void)? = nil, wraps: Bool = true, onDismiss: (() -> Void)? = nil) {
         self.variant = variant
         self.message = message
         self.glyph = glyph
+        self.glyphColor = glyphColor
         self.link = link
         self.wraps = wraps
         self.onDismiss = onDismiss
@@ -51,7 +55,7 @@ public struct QuireBanner: View {
 
     private var glyphView: some View {
         QuireSymbolImage(name: glyph ?? variant.defaultGlyph, size: .custom(Quire.Layout.Banner.glyph))
-            .foregroundStyle(variant.glyphColor.swiftUIColor)
+            .foregroundStyle((glyphColor ?? variant.glyphColor).swiftUIColor)
     }
 
     /// The one-line banner. `fixed` keeps the words at their full width so `ViewThatFits` can tell when they

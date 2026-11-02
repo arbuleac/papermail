@@ -9,5 +9,10 @@ extension QuireBadge {
         case dot
         /// Needs sign-in: a 16 pt `dangerFill` circle with `exclamationmark` 9 pt Semibold in `onDanger`.
         case attention
+
+        var isMessageCount: Bool {
+            if case .messageCount = self { return true }
+            return false
+        }
     }
 }

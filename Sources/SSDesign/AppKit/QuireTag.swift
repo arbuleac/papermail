@@ -21,18 +21,25 @@ public final class QuireTag: NSView {
 
     public override var isFlipped: Bool { true }
 
-    public override var intrinsicContentSize: NSSize {
+    /// The tag's size for `text`: what a row lays out (§8.2).
+    public static func size(for text: String) -> NSSize {
         let width = QuireDraw.width(QuireDraw.line(text, .tag, .black))
         return NSSize(width: width + 2 * Quire.Layout.Tag.padX, height: Quire.Layout.Tag.height)
     }
 
-    public override func draw(_ dirtyRect: NSRect) {
-        let rect = bounds
+    /// Draws a tag filling `rect` in the current context; rows call this from their own `draw(_:)`.
+    public static func draw(_ text: String, in rect: NSRect) {
         QuireDraw.strokeInside(rect, radius: Quire.Layout.Tag.radius, width: Quire.Border.Strong.width, .qRuleStrong)
         let lineHeight = QuireFont.Role.tag.lineHeight
         QuireDraw.draw(QuireDraw.line(text, .tag, .qInk2), x: rect.minX + Quire.Layout.Tag.padX,
                        top: (rect.midY - lineHeight / 2).rounded(), maxWidth: rect.width - 2 * Quire.Layout.Tag.padX,
                        lineHeight: lineHeight)
+    }
+
+    public override var intrinsicContentSize: NSSize { QuireTag.size(for: text) }
+
+    public override func draw(_ dirtyRect: NSRect) {
+        QuireTag.draw(text, in: bounds)
     }
 
     @objc private func environmentDidChange(_ note: Notification) {

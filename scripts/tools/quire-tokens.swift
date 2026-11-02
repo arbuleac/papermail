@@ -1067,6 +1067,103 @@ func emitRadiusTests(_ t: Tokens) -> String {
     return out
 }
 
+// MARK: - Emitter: metric drift tests (spec §8.7)
+
+/// Every leaf of `layout`, `border` and `platform` checked against tokens.json at test time, so a value edited in
+/// tokens.json without regenerating fails plain `swift test`, not only `--check`.
+func emitMetricTests(_ t: Tokens) -> String {
+    var functions: [(name: String, lines: [String])] = []
+    var total = 0
+    func leaves(_ path: [String], _ swiftPath: [String], _ v: JSON, into lines: inout [String]) {
+        if let obj = v.object {
+            for (k, vv) in obj { leaves(path + [k], swiftPath + [typeName(k)], vv, into: &lines) }
+            return
+        }
+        let dotted = path.joined(separator: ".")
+        let swift = (swiftPath.dropLast() + [memberName(path.last!)]).joined(separator: ".")
+        total += 1
+        switch v {
+        case .number:
+            lines.append("        number(\(swift), \(swiftString(dotted)))")
+        case .string:
+            lines.append("        string(\(swift), \(swiftString(dotted)))")
+        case .bool:
+            lines.append("        bool(\(swift), \(swiftString(dotted)))")
+        case .array(let items):
+            if items.allSatisfy({ $0.string != nil }) {
+                lines.append("        strings(\(swift), \(swiftString(dotted)))")
+            } else if items.allSatisfy({ if case .bool = $0 { return true }; return false }) {
+                lines.append("        bools(\(swift), \(swiftString(dotted)))")
+            } else {
+                lines.append("        numbers(\(swift).map { Double($0) }, \(swiftString(dotted)))")
+            }
+        default:
+            fail("\(dotted): no Swift value to check")
+        }
+    }
+    for (top, type) in [("layout", "Quire.Layout"), ("border", "Quire.Border"), ("platform", "Quire.Platform")] {
+        guard let obj = t.root.require(top, "").object else { fail("\(top) must be an object") }
+        if top == "layout" {
+            for (k, v) in obj {
+                var lines: [String] = []
+                leaves([top, k], [type, typeName(k)], v, into: &lines)
+                functions.append(("Layout" + upperFirst(typeName(k)), lines))
+            }
+        } else {
+            var lines: [String] = []
+            for (k, v) in obj { leaves([top, k], [type, typeName(k)], v, into: &lines) }
+            functions.append((upperFirst(top), lines))
+        }
+    }
+    var out = header + "\nimport XCTest\nimport SSDesign\n\n"
+    out += "/// Every metric of `layout`, `border` and `platform` equals its value in docs/design/tokens.json (spec §8.7):\n"
+    out += "/// the generated Swift is compared with the file at test time, so editing tokens.json without regenerating fails.\n"
+    out += "final class MetricDriftTests: XCTestCase {\n"
+    out += "    private let file = DesignTokensFile.shared\n\n"
+    out += "    func testEveryMetricIsCovered() {\n"
+    out += "        // tokens.json had \(total) leaves under layout, border and platform when this file was generated.\n"
+    out += "        XCTAssertEqual(file.leafCount(under: [\"layout\", \"border\", \"platform\"]), \(total), \"regenerate with swift scripts/tools/quire-tokens.swift\")\n"
+    out += "    }\n"
+    for f in functions {
+        out += "\n    func test\(f.name)() {\n"
+        out += f.lines.joined(separator: "\n") + "\n"
+        out += "    }\n"
+    }
+    out += """
+
+        private func number<T: BinaryFloatingPoint>(_ value: T, _ path: String, file: StaticString = #filePath, line: UInt = #line) {
+            XCTAssertEqual(Double(value), self.file.number(path) ?? .nan, accuracy: 1e-9, path, file: file, line: line)
+        }
+
+        private func number(_ value: Int, _ path: String, file: StaticString = #filePath, line: UInt = #line) {
+            XCTAssertEqual(Double(value), self.file.number(path) ?? .nan, path, file: file, line: line)
+        }
+
+        private func string(_ value: String, _ path: String, file: StaticString = #filePath, line: UInt = #line) {
+            XCTAssertEqual(value, self.file.value(path) as? String, path, file: file, line: line)
+        }
+
+        private func bool(_ value: Bool, _ path: String, file: StaticString = #filePath, line: UInt = #line) {
+            XCTAssertEqual(value, self.file.value(path) as? Bool, path, file: file, line: line)
+        }
+
+        private func numbers(_ value: [Double], _ path: String, file: StaticString = #filePath, line: UInt = #line) {
+            XCTAssertEqual(value, (self.file.value(path) as? [NSNumber])?.map(\\.doubleValue), path, file: file, line: line)
+        }
+
+        private func strings(_ value: [String], _ path: String, file: StaticString = #filePath, line: UInt = #line) {
+            XCTAssertEqual(value, self.file.value(path) as? [String], path, file: file, line: line)
+        }
+
+        private func bools(_ value: [Bool], _ path: String, file: StaticString = #filePath, line: UInt = #line) {
+            XCTAssertEqual(value, self.file.value(path) as? [Bool], path, file: file, line: line)
+        }
+    }
+
+    """
+    return out
+}
+
 // MARK: - Emitter: accent colour asset (spec §3.1)
 
 func colorsetEntry(_ hex: String, appearances: [(String, String)]) -> String {
@@ -1151,6 +1248,7 @@ let outputs: [(String, String)] = [
     ("\(testsGenerated)/DesignContrastTests.swift", emitContrastTests(tokens)),
     ("\(testsGenerated)/AccountPaletteTests.swift", emitAccountPaletteTests(tokens)),
     ("\(testsGenerated)/RadiusScaleTests.swift", emitRadiusTests(tokens)),
+    ("\(testsGenerated)/MetricDriftTests.swift", emitMetricTests(tokens)),
     ("Resources/Assets.xcassets/Contents.json", emitAssetCatalogRoot()),
     ("Resources/Assets.xcassets/AccentColor.colorset/Contents.json", emitAccentColorset(tokens)),
 ]

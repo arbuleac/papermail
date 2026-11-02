@@ -10,7 +10,11 @@ public final class QuireRadioButton: QuireControl {
     }
 
     public var isSelected = false {
-        didSet { if oldValue != isSelected { needsDisplay = true } }
+        didSet {
+            guard oldValue != isSelected else { return }
+            needsDisplay = true
+            QuireAccessibility.valueChanged(self)
+        }
     }
 
     /// The group this radio belongs to; set by `QuireRadioGroupView`.

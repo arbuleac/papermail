@@ -2,13 +2,20 @@ import AppKit
 import SSDesign
 
 /// The specimen's “Increased contrast” card: the same components with every token at its `lightHC` /
-/// `darkHC` value and 3 pt focus rings, drawn inside a container pinned to the high-contrast appearance.
+/// `darkHC` value and 3 pt focus rings, rendered off screen with Increase Contrast forced
+/// (`DesignGalleryContrastView`) and shown as an image beside the normal page.
 extension DesignGalleryCards {
     static func increasedContrast() -> NSView {
-        let card = DesignGalleryCard("Increased contrast", code: "lightHC / darkHC",
-                                     caption: "The same components with every token at its increased-contrast value: sheets and slips "
-                                         + "gain stronger edges, focus rings grow to 3 pt.",
-                                     span: 12) { block in
+        let size = increasedContrastCard().frame.size
+        return DesignGalleryContrastView(size: size) { increasedContrastCard() }
+    }
+
+    private static func increasedContrastCard() -> NSView {
+        DesignGalleryCard("Increased contrast", code: "lightHC / darkHC",
+                          caption: "The same components with every token at its increased-contrast value: sheets and slips "
+                              + "gain stronger edges, focus rings grow to 3 pt. Rendered off screen with Increase Contrast forced, "
+                              + "so it shows lightHC / darkHC whatever the bar says.",
+                          span: 12) { block in
             block.labelWidth = 0
             let focused = S.button("Focused", .secondary, state: .focused)
             block.row(nil, [
@@ -38,9 +45,5 @@ extension DesignGalleryCards {
             sheet.isTarget = true
             block.row(nil, [slip, banner, sheet, S.spinner(.medium)], gap: 16)
         }
-        let container = DesignGalleryContrastView(frame: card.frame)
-        card.autoresizingMask = [.width, .height]
-        container.addSubview(card)
-        return container
     }
 }

@@ -82,6 +82,8 @@ extension Quire {
         public static let attention = "exclamationmark"
         public static let waitingToSync = "clock"
         public static let discardDraft = "trash"
+        public static let reveal = "eye"
+        public static let conceal = "eye.slash"
     }
 
     /// The custom glyphs (spec §4.11): SVG path data in grid units, y down.

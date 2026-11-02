@@ -91,7 +91,7 @@ final class QuireSurfaceView: NSView {
         let layers = elevation.layers(for: mode)
         for (index, layer) in [keyShadow, contactShadow].enumerated() {
             if index < layers.count {
-                layers[index].apply(to: layer)
+                layers[index].apply(to: layer, in: self)
             } else {
                 layer.shadowOpacity = 0
             }
@@ -134,5 +134,6 @@ final class QuireSurfaceView: NSView {
     var resolvedFill: CGColor? { surface.backgroundColor }
     var resolvedEdge: (color: CGColor?, width: CGFloat) { (surface.borderColor, surface.borderWidth) }
     var resolvedShadowOpacity: Float { keyShadow.shadowOpacity }
+    var resolvedShadowOffsets: [CGSize] { [keyShadow.shadowOffset, contactShadow.shadowOffset] }
     var isRingShown: Bool { !ring.isHidden }
 }

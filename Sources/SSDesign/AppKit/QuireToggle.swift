@@ -83,6 +83,7 @@ public final class QuireToggle: QuireControl {
         storedOn = on
         moveKnob(animated: animated)
         needsDisplay = true
+        QuireAccessibility.valueChanged(self)
     }
 
     private func moveKnob(animated: Bool) {
@@ -138,7 +139,7 @@ public final class QuireToggle: QuireControl {
         case .lightHC: hex = s.lightHC
         case .darkHC: hex = s.darkHC
         }
-        QuireShadowLayer(x: s.x, y: s.y, blur: s.blur, spread: s.spread, rgba: QuireDraw.rgba(hex: hex)).apply(to: knob)
+        QuireShadowLayer(x: s.x, y: s.y, blur: s.blur, spread: s.spread, rgba: QuireDraw.rgba(hex: hex)).apply(to: knob, in: self)
     }
 
     // MARK: Drawing

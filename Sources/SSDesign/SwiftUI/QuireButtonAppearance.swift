@@ -89,7 +89,7 @@ public struct QuireButtonAppearance: Equatable, Sendable {
         case .link:
             a.ringGap = ring ? gap : nil
             // The specimen's link box: 4 pt either side of the words, at least the minimum hit height.
-            a.padX = Quire.Space.s2
+            a.padX = Quire.Layout.Button.linkPadX
             a.height = max(size.height, Quire.Layout.Button.minHit)
             if !state.isEnabled {
                 a.label = .inkDisabled

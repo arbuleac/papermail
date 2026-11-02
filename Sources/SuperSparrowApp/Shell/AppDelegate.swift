@@ -46,7 +46,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             runSnapshots(main: options.snapshotPath, compose: options.composeSnapshotPath)
         }
         runQuittingSnapshots()
+        #if DEBUG
         if options.gallery { showDesignGallery(nil) }
+        #endif
     }
 
     // MARK: Snapshots (debug aid)
@@ -149,11 +151,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// `--snapshot-gallery`, `--snapshot-welcome` and `--snapshot-settings` each write one PNG; once all of
     /// them have, the app quits, unless `--snapshot` or `--snapshot-compose` (which never quit) are running too.
     private func runQuittingSnapshots() {
-        let jobs: [(String?, (String) -> Void)] = [
-            (options.gallerySnapshotPath, writeGallerySnapshot),
-            (options.welcomeSnapshotPath, writeWelcomeSnapshot),
-            (options.settingsSnapshotPath, writeSettingsSnapshot),
-        ]
+        var jobs: [(String?, (String) -> Void)] = []
+        #if DEBUG
+        // The design gallery is a debug-build tool (Debug › Design Gallery).
+        jobs.append((options.gallerySnapshotPath, writeGallerySnapshot))
+        #endif
+        jobs.append((options.welcomeSnapshotPath, writeWelcomeSnapshot))
+        jobs.append((options.settingsSnapshotPath, writeSettingsSnapshot))
         let requested = jobs.compactMap { path, job in path.map { (path: $0, job: job) } }
         // Counted before any starts, so an early finisher cannot quit while the others are still queued.
         pendingQuittingSnapshots = requested.count
@@ -560,9 +564,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         openSettings(tab: .oauth, notice: nil)
     }
 
-    /// Debug › Design Gallery (and `--gallery`): every SSDesign component in every state.
+    /// Debug › Design Gallery (and `--gallery`): every SSDesign component in every state. Each opening starts
+    /// fresh: the controller forgets itself when its window closes, so the bar and the drawing never disagree.
     @objc func showDesignGallery(_ sender: Any?) {
-        if galleryWindow == nil { galleryWindow = DesignGalleryWindowController() }
+        if galleryWindow == nil {
+            let controller = DesignGalleryWindowController()
+            controller.onClose = { [weak self] in self?.galleryWindow = nil }
+            galleryWindow = controller
+        }
         galleryWindow?.show()
     }
 }

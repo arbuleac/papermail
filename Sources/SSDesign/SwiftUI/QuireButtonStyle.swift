@@ -66,7 +66,17 @@ struct QuireButtonChrome<Label: View>: View {
         label()
             .quireFont(a.font)
             .lineLimit(1)
-            .underline(a.underline)
+            .overlay(alignment: Alignment(horizontal: .leading, vertical: .firstTextBaseline)) {
+                // The link underline as AppKit draws it (§5.24): 1 pt, its top 2 pt below the baseline. Text's
+                // own underline takes the font's position and thickness, which crosses the descenders.
+                if a.underline {
+                    Rectangle()
+                        .fill(a.label.swiftUIColor)
+                        .frame(height: Quire.Layout.TextStyle.linkUnderline)
+                        .alignmentGuide(.firstTextBaseline) { _ in -Quire.Layout.TextStyle.linkUnderlineOffset }
+                        .accessibilityHidden(true)
+                }
+            }
             .foregroundStyle(a.label.swiftUIColor)
             .environment(\.quireButtonSize, size)
             .padding(.horizontal, a.padX)

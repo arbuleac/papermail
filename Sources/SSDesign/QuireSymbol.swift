@@ -20,6 +20,19 @@ public enum QuireSymbol {
         return image
     }
 
+    /// The template image for `name` at `size` from the shared cache: what components draw with. Building a
+    /// configured symbol image costs tens of microseconds, too much for every row's `draw(_:)`.
+    public static func cachedImage(_ name: String, size: QuireSymbolSize = .inText) -> NSImage? {
+        QuireDraw.symbolImage(name, size: size)
+    }
+
+    /// Draws `name` in `color` (resolved now, in the current drawing appearance), centred on `rect` at its
+    /// natural size on whole points, from the shared cache. Returns the rect it drew in.
+    @discardableResult
+    public static func draw(_ name: String, size: QuireSymbolSize = .inText, color: NSColor, centredIn rect: NSRect) -> NSRect {
+        QuireDraw.symbol(name, size: size, color: color, centredIn: rect)
+    }
+
     /// True when `name` is one Quire can draw: an SF Symbol the system has, or a custom glyph.
     public static func exists(_ name: String) -> Bool {
         Quire.CustomGlyph(rawValue: name) != nil || NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil

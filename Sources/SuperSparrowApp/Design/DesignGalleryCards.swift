@@ -116,6 +116,20 @@ enum DesignGalleryCards {
             mono.stringValue = "1084-ab3f.apps.googleusercontent.com"
             block.row("Error", [error, mono], at: xs)
 
+            @MainActor func secure(_ state: QuireDisplayState?, revealed: Bool = false) -> QuireTextField {
+                let field = S.sized(QuireTextField(placeholder: "Client secret", isSecure: true), fieldSize)
+                field.isMonospaced = true
+                field.stringValue = "GOCSPX-k2v9f3Qm"
+                field.isRevealed = revealed
+                field.displayState = state
+                return field
+            }
+            block.row("Secure", [secure(nil), secure(.hover)], at: xs)
+            block.row("", [secure(.hover, revealed: true)], at: xs, ann: "rest · hover (reveal) · revealed", annWidth: column)
+            let disabledEmpty = S.sized(QuireTextField(placeholder: "Disabled placeholder"), fieldSize)
+            disabledEmpty.isEnabled = false
+            block.row("", [disabledEmpty], at: xs)
+
             @MainActor func check(_ state: NSControl.StateValue, _ display: QuireDisplayState? = nil, enabled: Bool = true) -> NSView {
                 S.forced(QuireCheckbox(state: state), display, enabled: enabled)
             }

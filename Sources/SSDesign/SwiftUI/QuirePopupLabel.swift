@@ -39,7 +39,7 @@ public struct QuirePopupLabel: View {
                                       isWindowKey: activeState != .inactive).forcing(forced)
         let a = QuirePopupAppearance.resolve(borderless: borderless, state: state)
         let shape = RoundedRectangle(cornerRadius: p.radius, style: .circular)
-        HStack(spacing: Quire.Space.s4) {
+        HStack(spacing: p.gap) {
             if let swatch {
                 QuirePopupSwatch(slot: swatch, halo: !borderless || !a.face.isClear)
             }
