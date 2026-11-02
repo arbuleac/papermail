@@ -1119,7 +1119,7 @@ Adaptation **replaces** colours rather than inverting them or relying on `color-
 | Unfolded, pressed | `accentWashPressed` | `accent` |
 | Focused (either) | ring outside a 1 pt `sheet` gap | unchanged |
 
-The label carries the state; `accent` keeps 4.5:1 on all three unfolded fills in every mode (§7). In the composer the folded original is a glyph-only 22 pt chip followed by “Ben Carter wrote on Yesterday 23:39” in `snippet` `ink3`; clicking either unfolds it. Unfolding animates the quote height (`dur.standard`; Reduce Motion: instant). Revealed quotes use the shared quote style (`layout.textStyle`): a 2 pt `rule` leading bar and a 12 pt indent, text in `ink2`, in the reader and the composer alike.
+The label carries the state; `accent` keeps 4.5:1 on all three unfolded fills in every mode (§7). In the composer the folded original is a glyph-only 22 pt chip followed by the attribution the message will carry, with the author's name only: “On 1 Nov 2026 at 23:39, Ben Carter wrote:” (a forward: “Forwarded message from Ben Carter · 1 Nov 2026 at 23:39”), in `snippet` `ink3`; the date is absolute, as sent, never “Today”. Clicking either unfolds it. Unfolding animates the quote height (`dur.standard`; Reduce Motion: instant). Revealed quotes use the shared quote style (`layout.textStyle`): a 2 pt `rule` leading bar and a 12 pt indent, text in `ink2`, in the reader and the composer alike.
 
 ### 5.16 Remote-images banner and Original colors
 
@@ -1294,7 +1294,7 @@ The quick reply is hidden in Drafts.
 | To / Cc / Bcc | token fields (§5.21); small ghost “Cc” and “Bcc” buttons trail the To row until used, the last one's trailing edge 16 pt from the window's edge, 4 pt apart, centred on the row's first line |
 | Subject | `composeSubject` (New York; `composeSubjectSans` when needed), `ink` |
 | Body | `sheet`, padding 20 24 0 84 (the text starts on the value axis); `writing`; text styles below |
-| Folded original | the elision chip + “Ben Carter wrote on Yesterday 23:39” (§5.15) |
+| Folded original | the elision chip + “On 1 Nov 2026 at 23:39, Ben Carter wrote:” (§5.15) |
 | Format row | toggled by the Format button or ⇧⌘T, remembered per window: a 36 pt `paper` row with a top hairline directly above the bottom bar (and above the strip when attachments show) |
 | Attachment strip | §5.22 |
 | Bottom bar | below |

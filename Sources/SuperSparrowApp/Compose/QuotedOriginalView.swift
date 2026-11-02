@@ -3,8 +3,8 @@ import SSCore
 import SSDesign
 
 /// The quoted original beneath the editor (spec §5.15, §5.20): folded, a glyph-only 22 pt elision chip
-/// (`ss.elide`) followed by “Ben Carter wrote on Yesterday 23:39” in `snippet` `ink3`; clicking either unfolds
-/// it. Unfolded, the chip turns `accentWash` and the original shows in the shared quote style: a 2 pt `rule`
+/// (`ss.elide`) followed by the attribution, “On 1 Nov 2026 at 23:39, Ben Carter wrote:”, in `snippet` `ink3`;
+/// clicking either unfolds it. Unfolded, the chip turns `accentWash` and the original shows in the shared quote style: a 2 pt `rule`
 /// bar, a 12 pt indent, `writing` in `ink2`. The height animates over `dur.standard` (instant under Reduce
 /// Motion).
 ///
@@ -236,7 +236,7 @@ final class ElisionChip: QuireControl {
     override func accessibilityLabel() -> String? { title }
 }
 
-/// “Ben Carter wrote on Yesterday 23:39”: clicking it unfolds the quote, like the chip.
+/// “On 1 Nov 2026 at 23:39, Ben Carter wrote:”: clicking it unfolds the quote, like the chip.
 @MainActor
 private final class AttributionLabel: NSView {
     var text = "" {

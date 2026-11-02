@@ -29,17 +29,21 @@ final class ComposeLinkAndWordingTests: XCTestCase {
         XCTAssertEqual(SendFailureWording.reason(lastError: nil, provider: .gmail), "Gmail didn't accept the message.")
     }
 
-    func testFoldedAttributionUsesTheReadersDate() {
+    /// The folded original names what will be sent, with an absolute date (§5.15): never “wrote on Today”.
+    func testFoldedAttributionReadsLikeTheSentHeader() {
         var calendar = Calendar(identifier: .gregorian)
         let zone = TimeZone(identifier: "Europe/London")!
         calendar.timeZone = zone
-        let now = calendar.date(from: DateComponents(year: 2026, month: 11, day: 2, hour: 9))!
         let sent = calendar.date(from: DateComponents(year: 2026, month: 11, day: 1, hour: 23, minute: 39))!
-        let rendering = QuotedReply.Rendering(html: "", text: "", header: "On …, Ben wrote:", author: "Ben Carter", date: sent)
-        XCTAssertEqual(rendering.foldedAttribution(now: now, calendar: calendar, locale: Locale(identifier: "en_GB"), timeZone: zone),
-                       "Ben Carter wrote on Yesterday 23:39")
+        let british = Locale(identifier: "en_GB")
+        let when = QuotedReply.headerDate(sent, locale: british, timeZone: zone)
+        let reply = QuotedReply.Rendering(html: "", text: "", header: "On …, Ben <ben@example.com> wrote:", author: "Ben Carter", date: sent)
+        XCTAssertEqual(reply.foldedAttribution(locale: british, timeZone: zone), "On \(when), Ben Carter wrote:")
+        XCTAssertFalse(reply.foldedAttribution(locale: british, timeZone: zone).contains("Yesterday"))
+        let forward = QuotedReply.Rendering(html: "", text: "", header: "---", author: "Ben Carter", date: sent, isForward: true)
+        XCTAssertEqual(forward.foldedAttribution(locale: british, timeZone: zone), "Forwarded message from Ben Carter \u{00b7} \(when)")
         let bare = QuotedReply.Rendering(html: "", text: "", header: "On …, Ben wrote:")
-        XCTAssertEqual(bare.foldedAttribution(now: now), "On …, Ben wrote:")
+        XCTAssertEqual(bare.foldedAttribution(), "On …, Ben wrote:")
     }
 
     func testDraftRecordsSurviveARoundTrip() throws {

@@ -22,23 +22,28 @@ public enum QuotedReply {
         public var author: String
         /// When the original was sent; nil for renderings made without one.
         public var date: Date?
+        /// A forward's original rather than a reply's. Optional so drafts kept before it was recorded decode;
+        /// those count as replies.
+        public var isForward: Bool?
         public init(html: String, text: String, header: String = "", originalText: String = "", author: String = "",
-                    date: Date? = nil) {
+                    date: Date? = nil, isForward: Bool? = nil) {
             self.html = html
             self.text = text
             self.header = header
             self.originalText = originalText
             self.author = author
             self.date = date
+            self.isForward = isForward
         }
 
-        /// The composer's line beside the folded original (spec §5.15): “Ben Carter wrote on Yesterday 23:39”,
-        /// the date as the reader writes it. Falls back to the attribution header without an author or date.
-        public func foldedAttribution(now: Date = Date(), calendar: Calendar = .current, locale: Locale = .current,
-                                      timeZone: TimeZone = .current) -> String {
+        /// The composer's line beside the folded original (spec §5.15): the attribution the message will carry,
+        /// with the author's name instead of name and address, “On 2 Nov 2026 at 21:42, Ben Carter wrote:”, or for
+        /// a forward “Forwarded message from Ben Carter · 2 Nov 2026 at 21:42”. The date is absolute, as sent: a
+        /// draft read tomorrow must not say “Today”. Falls back to the attribution header without an author or date.
+        public func foldedAttribution(locale: Locale = .current, timeZone: TimeZone = .current) -> String {
             guard !author.isEmpty, let date else { return header }
-            let when = RenderPayloadBuilder(calendar: calendar, locale: locale, timeZone: timeZone).dateDisplay(for: date, now: now)
-            return "\(author) wrote on \(when)"
+            let when = QuotedReply.headerDate(date, locale: locale, timeZone: timeZone)
+            return isForward == true ? "Forwarded message from \(author) \u{00b7} \(when)" : "On \(when), \(author) wrote:"
         }
     }
 
@@ -88,7 +93,7 @@ public enum QuotedReply {
         let headerText = rule + "\n" + fields.map { "\($0.label): \($0.value)" }.joined(separator: "\n")
         let text = headerText + "\n\n" + body.plainText
         return Rendering(html: html, text: text, header: headerText, originalText: body.plainText,
-                         author: authorName(original.from), date: original.date)
+                         author: authorName(original.from), date: original.date, isForward: true)
     }
 
     /// "Nov 1, 2026 at 10:04" in the user's locale: readable, and recognizable to other clients' quote detectors.
