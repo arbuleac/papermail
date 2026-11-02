@@ -47,6 +47,8 @@ enum ErrorText {
     /// Why the OAuth settings file could not be read, for the Settings › OAuth danger banner.
     static func oauthFile(_ error: Error) -> String {
         if case AuthError.invalidResponse = error { return "The file isn't valid JSON." }
+        // JSONSerialization reports malformed text as Cocoa's “corrupt data” read error.
+        if let cocoa = error as? CocoaError, cocoa.code == .propertyListReadCorrupt { return "The file isn't valid JSON." }
         return "The file couldn't be read."
     }
 

@@ -29,8 +29,9 @@ final class WelcomeViewController: NSViewController {
     var onAddAccount: ((ProviderKind) -> Void)?
     var onTryDemo: (() -> Void)?
     var onCancelSignIn: (() -> Void)?
-    /// “Set up OAuth clients…” and the missing-client banner's “Open Settings”. When unset the request goes up
-    /// the responder chain to the app delegate (`showOAuthHelp(_:)`).
+    /// The missing-client banner's “Open Settings”, which opens Settings › OAuth with the incoming notice. When
+    /// unset, and always for “Set up OAuth clients…”, the request goes up the responder chain to the app
+    /// delegate (`showOAuthHelp(_:)`), which opens the tab without one.
     var onOpenOAuthSettings: (() -> Void)?
 
     private(set) var activity: Activity = .idle
@@ -147,7 +148,7 @@ final class WelcomeViewController: NSViewController {
             let company = ErrorText.company(kind)
             made = QuireBannerView(kind: .info, message: "Add your \(company) OAuth client in Settings › OAuth first.",
                                    symbolName: Quire.Icon.info)
-            made.setAction("Open Settings", target: self, action: #selector(openOAuthSettings))
+            made.setAction("Open Settings", target: self, action: #selector(openOAuthSettingsFromBanner))
         }
         made.allowsMultipleLines = true
         welcomeView.addSubview(made)
@@ -181,10 +182,15 @@ final class WelcomeViewController: NSViewController {
 
     @objc private func openOAuthSettings() {
         guard activity == .idle else { return }
+        NSApp.sendAction(#selector(AppDelegate.showOAuthHelp(_:)), to: nil, from: self)
+    }
+
+    @objc private func openOAuthSettingsFromBanner() {
+        guard activity == .idle else { return }
         if let onOpenOAuthSettings {
             onOpenOAuthSettings()
         } else {
-            NSApp.sendAction(#selector(AppDelegate.showOAuthHelp(_:)), to: nil, from: self)
+            openOAuthSettings()
         }
     }
 }

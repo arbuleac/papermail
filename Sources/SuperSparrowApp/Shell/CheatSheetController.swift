@@ -28,7 +28,13 @@ final class CheatSheetController {
     func present(in window: NSWindow, animated: Bool = true) {
         guard overlay == nil, let host = window.contentView else { return }
         KeyboardRouter.active?.disarmSequence(animated: false)
-        returnFocus = window.firstResponder
+        // ⌘/ from the search field leaves its field editor as first responder; focus goes back to the field
+        // itself, since making a field editor first responder directly does not restart editing.
+        if let editor = window.firstResponder as? NSTextView, editor.isFieldEditor, let field = editor.delegate as? NSView {
+            returnFocus = field
+        } else {
+            returnFocus = window.firstResponder
+        }
         let overlay = QuireCheatSheetOverlay(frame: host.bounds)
         overlay.autoresizingMask = [.width, .height]
         // VoiceOver treats the panel as a modal group titled “Keyboard Shortcuts” (the panel names itself).
@@ -67,8 +73,11 @@ final class CheatSheetController {
             let key = (event.charactersIgnoringModifiers ?? "").lowercased()
             return !Self.passThroughCommands.contains(key)
         }
-        // A click elsewhere can leave focus outside the panel; the keys still belong to the sheet.
-        if let responder = overlay.window?.firstResponder as? NSView, responder === overlay || responder.isDescendant(of: overlay) {
+        // ⌥ and ⌃ chords are menu shortcuts too (⌥1–3 pick an Inbox filter); they must not reach the menu
+        // and act behind the sheet. Plain keys inside the panel take the normal path, so the close button
+        // still answers Space.
+        if let responder = overlay.window?.firstResponder as? NSView, responder === overlay || responder.isDescendant(of: overlay),
+           modifiers.isEmpty {
             return false
         }
         overlay.keyDown(with: event)

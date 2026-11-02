@@ -586,7 +586,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             do {
                 real = try AppEnvironment.make(mode: .real, settings: self.settings)
             } catch {
-                AppAlert.addFailed(reason: "The mail database couldn't be opened.").present(on: self.window(for: origin))
+                Self.log.error("could not open the real mail database: \(String(describing: error), privacy: .public)")
+                AppAlert.addFailed(reason: "The mail database couldn't be opened.").present(on: self.window(for: origin)) { [weak self] choice in
+                    if choice == 0 { self?.addAccount(kind, origin: origin) }
+                }
                 return
             }
             guard self.clientIsConfigured(kind, in: real, origin: origin) else {
@@ -624,9 +627,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// tile and sync line), and Settings' pending or reconnecting row.
     private func reflectSignIn() {
         let current = signIn
-        if let current, current.origin == .welcome {
-            welcome?.setActivity(.waiting(current.kind))
-        } else if current == nil, welcome?.activity != .preparingDemo {
+        if let current {
+            // Whichever window started it (the welcome's own buttons, File › Add…, Settings' +), the welcome
+            // shows the provider that is actually waiting, with Cancel, and offers no second sign-in.
+            if current.reconnecting == nil, welcome?.activity != .waiting(current.kind) { welcome?.setActivity(.waiting(current.kind)) }
+        } else if welcome?.activity != .preparingDemo {
             welcome?.setActivity(.idle)
         }
         mainWindow?.setSignInInProgress(current == nil ? nil : "Finish signing in in your browser…")
@@ -744,12 +749,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         mainWindow.showWindow(nil)
     }
 
-    /// The provider pull-down for a + that did not bring its own menu (§5.44): at the pointer, in the key window.
+    /// The provider pull-down for a + that did not bring its own menu (§5.44). It opens 4 pt below the control
+    /// that asked, leading-aligned: the view under the click, or the focused control when a key pressed it
+    /// (Full Keyboard Access); only when neither is known does it open at the pointer.
     private func popUpAddAccountMenu() {
-        guard let window = NSApp.keyWindow ?? mainWindow?.window, let view = window.contentView else { return }
+        guard let window = NSApp.keyWindow ?? mainWindow?.window, let content = window.contentView else { return }
+        if let control = Self.invokingControl(in: window), control !== content {
+            AddAccountMenu.popUp(below: control, target: self)
+            return
+        }
         let menu = AddAccountMenu.make(target: self)
-        let point = view.convert(window.mouseLocationOutsideOfEventStream, from: nil)
-        menu.popUp(positioning: nil, at: point, in: view)
+        let point = content.convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        menu.popUp(positioning: nil, at: point, in: content)
+    }
+
+    /// The control behind the current event: a small view under a mouse click, or the first responder for a key.
+    private static func invokingControl(in window: NSWindow) -> NSView? {
+        guard let event = NSApp.currentEvent, event.window === window else { return nil }
+        switch event.type {
+        case .leftMouseDown, .leftMouseUp:
+            guard let frame = window.contentView?.superview,
+                  let hit = frame.hitTest(frame.convert(event.locationInWindow, from: nil)) else { return nil }
+            // A + is a small control; a large view under the pointer means something else asked. The click may
+            // land on a part of the control (its glyph), so the outermost small ancestor is the control.
+            let limit = 2 * Quire.Layout.Rail.tile
+            let isSmall = { (view: NSView) in view.bounds.width <= limit && view.bounds.height <= limit }
+            guard isSmall(hit) else { return nil }
+            var control = hit
+            while let parent = control.superview, isSmall(parent) { control = parent }
+            return control
+        case .keyDown:
+            return window.firstResponder as? NSView
+        default:
+            return nil
+        }
     }
 
     private func removeAccount(_ account: Account) {

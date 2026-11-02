@@ -37,11 +37,14 @@ struct AppAlert {
             let made = alert.addButton(withTitle: button.title)
             made.hasDestructiveAction = button.role == .destructive
         }
+        // NSAlert gives a first button titled Cancel only Esc, so “Remove …?” would have no default at all.
+        // The safe choice is the default (↩, which also moves it to the default position); `installEscape`
+        // keeps Esc on it.
+        if let first = alert.buttons.first, first.keyEquivalent != "\r" { first.keyEquivalent = "\r" }
         return alert
     }
 
-    /// The button Esc presses: the one titled Cancel (NSAlert's own rule), else the one marked `.cancel`, else
-    /// the only button.
+    /// The button Esc presses: the one titled Cancel, else the one marked `.cancel`, else the only button.
     var escapeIndex: Int? {
         if let cancel = buttons.firstIndex(where: { $0.title == "Cancel" }) { return cancel }
         if let marked = buttons.firstIndex(where: { $0.role == .cancel }) { return marked }
@@ -67,9 +70,12 @@ struct AppAlert {
         }
     }
 
-    /// NSAlert maps Esc only to a button titled “Cancel”. “Keep Writing” and the lone “Quit” need it too.
+    /// NSAlert maps Esc only to a button titled “Cancel” that is not the default. “Keep Writing”, the lone
+    /// “Quit” and a default Cancel need it too.
     private func installEscape(for alert: NSAlert) -> Any? {
-        guard let index = escapeIndex, buttons[index].title != "Cancel" else { return nil }
+        guard let index = escapeIndex, alert.buttons.indices.contains(index), alert.buttons[index].keyEquivalent != "\u{1b}" else {
+            return nil
+        }
         let button = alert.buttons[index]
         return NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak alert] event in
             guard event.keyCode == 53, let alert, event.window === alert.window else { return event }

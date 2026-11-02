@@ -264,8 +264,59 @@ enum MainMenu {
 @MainActor
 final class MainMenuBar: NSMenu {
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        guard !event.modifierFlags.intersection([.command, .control, .option]).isEmpty else { return false }
-        return super.performKeyEquivalent(with: event)
+        if !event.modifierFlags.intersection([.command, .control, .option]).isEmpty {
+            return super.performKeyEquivalent(with: event)
+        }
+        // The Globe-key items AppKit adds to Edit (Emoji & Symbols fn-E, Start Dictation fn-D) carry only fn, and
+        // must keep working in text fields. NSMenu ignores fn when it matches, so fn-E would reach Archive's plain
+        // E through `super`; those keys are matched exactly instead, once, from the top of the bar.
+        guard self === NSApp.mainMenu, event.modifierFlags.contains(.function), event.specialKey == nil else { return false }
+        return Self.performExactly(event, in: self)
+    }
+
+    /// `KeyboardRouter`'s way to the single-key items (N, P, . and the rest): the visible item whose key
+    /// equivalent is exactly this key with no ⌘, ⌃ or ⌥, performed only when it validates, so a disabled item
+    /// lets the key go on to the responder chain.
+    static func performSingleKey(_ event: NSEvent) -> Bool {
+        guard event.modifierFlags.intersection([.command, .control, .option]).isEmpty, let bar = NSApp.mainMenu else { return false }
+        return performExactly(event, in: bar)
+    }
+
+    private static func performExactly(_ event: NSEvent, in menu: NSMenu) -> Bool {
+        guard let item = exactItem(for: event, in: menu), let action = item.action,
+              let target = NSApp.target(forAction: action, to: item.target, from: item) as AnyObject? else { return false }
+        if let validator = target as? NSMenuItemValidation {
+            guard validator.validateMenuItem(item) else { return false }
+        } else if let validator = target as? NSUserInterfaceValidations {
+            guard validator.validateUserInterfaceItem(item) else { return false }
+        }
+        return NSApp.sendAction(action, to: target, from: item)
+    }
+
+    /// The item whose key equivalent and modifiers are exactly the event's, depth first. Shift counts for
+    /// letters (an uppercase equivalent implies it) and is ignored for symbols it produces (# is ⇧3).
+    static func exactItem(for event: NSEvent, in menu: NSMenu) -> NSMenuItem? {
+        let key = (event.charactersIgnoringModifiers ?? "").lowercased()
+        guard !key.isEmpty else { return nil }
+        let significant: NSEvent.ModifierFlags = [.command, .control, .option, .shift, .function]
+        var pressed = event.modifierFlags.intersection(significant)
+        // Arrows and function keys always carry fn; only a fn chord (Globe-E) means it.
+        if event.specialKey != nil { pressed.remove(.function) }
+        for item in menu.items {
+            if let submenu = item.submenu {
+                if let found = exactItem(for: event, in: submenu) { return found }
+                continue
+            }
+            guard !item.keyEquivalent.isEmpty, !item.isHidden || item.allowsKeyEquivalentWhenHidden else { continue }
+            var mask = item.keyEquivalentModifierMask.intersection(significant)
+            let equivalent = item.keyEquivalent
+            let isLetter = equivalent.unicodeScalars.allSatisfy { CharacterSet.letters.contains($0) }
+            if isLetter, equivalent != equivalent.lowercased() { mask.insert(.shift) }
+            var flags = pressed
+            if !isLetter, !mask.contains(.shift) { flags.remove(.shift) }
+            if equivalent.lowercased() == key, mask == flags { return item }
+        }
+        return nil
     }
 }
 

@@ -131,7 +131,10 @@ final class KeyboardRouter {
             armSequence()
             return true
         }
-        guard let command = outcome.command else { return false }
+        // Keys the table does not know may still be a menu's single-key shortcut (N, P and . belong to the
+        // reader's Next Message, Previous Message and Show Quoted Text). The menu bar refuses plain keys, so
+        // they are performed from here, outside text fields; a disabled item lets the key go on.
+        guard let command = outcome.command else { return MainMenuBar.performSingleKey(event) }
         return target.perform(command)
     }
 
@@ -242,9 +245,10 @@ final class KeyboardRouter {
         }
     }
 
-    private func showHUD() {
+    /// `force` skips the key-window check for `--snapshot-hud`: a window launched from a terminal is never key.
+    private func showHUD(force: Bool = false) {
         hudTimer = nil
-        guard sequenceArmed, hud == nil, let target, let host = target.sequenceHUDHost, host.window?.isKeyWindow == true else { return }
+        guard sequenceArmed, hud == nil, let target, let host = target.sequenceHUDHost, force || host.window?.isKeyWindow == true else { return }
         target.sequenceHUDWillAppear()
         let view = QuireSequenceHUDView()
         place(view, in: host)
@@ -269,7 +273,7 @@ final class KeyboardRouter {
         hudTimer = nil
         sequenceTimer?.invalidate()
         sequenceTimer = nil
-        showHUD()
+        showHUD(force: true)
         hud?.layer?.opacity = 1
     }
 
