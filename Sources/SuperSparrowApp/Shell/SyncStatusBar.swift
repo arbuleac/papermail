@@ -61,6 +61,12 @@ final class SyncStatusBar: QuireControl {
         return NSRect(x: s.padX, y: ((bounds.height - s.glyph) / 2).rounded(), width: s.glyph, height: s.glyph)
     }
 
+    /// Frames are set by hand; a new size lays the contents out again.
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        needsLayout = true
+    }
+
     override func layout() {
         super.layout()
         let s = Quire.Layout.SyncLine.self

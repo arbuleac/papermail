@@ -306,6 +306,12 @@ private final class ListPaneView: NonDraggingView {
 
     override var isOpaque: Bool { true }
 
+    /// Frames are set by hand; a new size lays the contents out again.
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        needsLayout = true
+    }
+
     override func layout() {
         super.layout()
         let width = bounds.width

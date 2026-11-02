@@ -31,6 +31,12 @@ final class ToastView: NonDraggingView {
                       width: width, height: t.height)
     }
 
+    /// Frames are set by hand; a new size lays the contents out again.
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        needsLayout = true
+    }
+
     override func layout() {
         super.layout()
         if let slip { slip.frame = frame(for: slip) }

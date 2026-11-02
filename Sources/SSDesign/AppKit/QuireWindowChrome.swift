@@ -7,32 +7,11 @@ import AppKit
 /// bar (lights near x 7–9, centre y 14–16) and every Quire metric above the horizon would be wrong. The lights
 /// are never moved by hand; the rail width and the minimal-mode masthead are read from them instead, because
 /// their horizontal extent differs between macOS releases (72 pt to the zoom button's end on macOS 15, 79 pt on
-/// 26 and later). `WindowChromeTests` builds a window with exactly this configuration, so a release that moves
-/// the lights fails a test rather than drifting by eye.
+/// 26 and later, 73 pt for an app AppKit lays out in its compatibility appearance). `WindowChromeTests` builds a
+/// window with exactly this configuration, so a release that moves the lights fails a test rather than drifting
+/// by eye.
 @MainActor
 public enum QuireWindowChrome {
-    /// What the shell reads from a configured window, in points from the content view's top-leading corner.
-    public struct Metrics: Equatable, Sendable {
-        /// The zoom button's trailing edge (`lightsEnd`, §3.2).
-        public var lightsEnd: CGFloat
-        /// The close button's vertical centre (`lightsCenterY`): 26 on every supported release.
-        public var lightsCenterY: CGFloat
-
-        public init(lightsEnd: CGFloat, lightsCenterY: CGFloat) {
-            self.lightsEnd = lightsEnd
-            self.lightsCenterY = lightsCenterY
-        }
-
-        /// The rail width these lights call for (`QuireWindowChrome.railWidth(lightsEnd:)`).
-        public var railWidth: CGFloat { QuireWindowChrome.railWidth(lightsEnd: lightsEnd) }
-
-        /// The title-bar zone: twice the lights' centre line (52 while the centre is 26).
-        public var titlebarZone: CGFloat { (2 * lightsCenterY).rounded() }
-
-        /// Where the masthead starts while the rail is hidden: clear of the would-be rail by 8 pt.
-        public var mastheadMinimalX: CGFloat { railWidth + Quire.Layout.ListHeader.mastheadMinimalGap }
-    }
-
     /// The style the main window is created with.
     public nonisolated static let mainStyleMask: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
 

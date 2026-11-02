@@ -84,6 +84,12 @@ final class AccountStripButton: QuireControl {
                       width: size.width, height: size.height)
     }
 
+    /// Frames are set by hand; a new size lays the contents out again.
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        needsLayout = true
+    }
+
     override func layout() {
         super.layout()
         guard let spinner else { return }

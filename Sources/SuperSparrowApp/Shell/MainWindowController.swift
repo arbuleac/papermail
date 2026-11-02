@@ -1069,6 +1069,11 @@ extension MainWindowController {
         if states.contains("toast") {
             listPane.toasts.show(MailActionCopy.toast(for: .archive, count: 3), kind: .undoable, symbol: Quire.Icon.archive,
                                  actionTitle: "Undo", keycap: "Z") {}
+            // Frozen part-way through its life, as the specimen draws it, so the contrail shows in the snapshot.
+            if let contrail = listPane.toastView.slip?.lifetimeContrail {
+                contrail.mode = .countdown(duration: Quire.Motion.toastLife, remaining: Quire.Motion.toastLife * 0.6)
+                contrail.isPaused = true
+            }
         }
         if states.contains("search") {
             listPane.header.search.query = "lisbon"
