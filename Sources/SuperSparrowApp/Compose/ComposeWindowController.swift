@@ -828,15 +828,9 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
             return
         }
         if subjectField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let window {
-            let alert = NSAlert()
-            alert.messageText = "Send without a subject?"
-            alert.informativeText = "Messages without a subject are easy to miss."
-            alert.addButton(withTitle: "Add Subject")
-            alert.addButton(withTitle: "Send Anyway").keyEquivalent = ""
-            // Add Subject takes ↩ and Esc (§5.20).
-            Self.beginSheet(alert, escapeAnswers: .alertFirstButtonReturn, on: window) { [weak self] response in
+            AppAlert.sendWithoutSubject.present(on: window) { [weak self] choice in
                 guard let self else { return }
-                if response == .alertSecondButtonReturn {
+                if choice == 1 {
                     self.performSend()
                 } else {
                     self.window?.makeFirstResponder(self.subjectField)
@@ -955,28 +949,6 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     /// Presents `alert` as a sheet on `window` with Esc answering `escapeAnswers`. NSAlert gives Esc only to a
     /// button titled “Cancel”, and a button holds one key equivalent (a hidden button's never fires), so the
     /// sheet's Esc is caught by a local monitor that lives as long as the sheet.
-    private static func beginSheet(_ alert: NSAlert, escapeAnswers response: NSApplication.ModalResponse, on window: NSWindow,
-                                   completion: @escaping @MainActor (NSApplication.ModalResponse) -> Void) {
-        let index = response.rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
-        let sheet = alert.window
-        let monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak alert] event in
-            // 53 is Escape.
-            guard event.keyCode == 53 else { return event }
-            let answered = MainActor.assumeIsolated {
-                guard event.window === sheet, let alert, alert.buttons.indices.contains(index) else { return false }
-                alert.buttons[index].performClick(nil)
-                return true
-            }
-            return answered ? nil : event
-        }
-        alert.beginSheetModal(for: window) { answer in
-            MainActor.assumeIsolated {
-                if let monitor { NSEvent.removeMonitor(monitor) }
-                completion(answer)
-            }
-        }
-    }
-
     private func confirmDiscard() {
         let draft = currentDraft()
         let client = client

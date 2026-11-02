@@ -3,7 +3,8 @@ import QuickLookUI
 import SSCore
 
 /// Opens attachments in Quick Look. Bytes are written to a per-session temporary directory because
-/// `QLPreviewPanel` previews files, not data; the directory is removed when the controller goes away.
+/// `QLPreviewPanel` previews files, not data; the directory is removed when the controller goes away. Every file
+/// is quarantined as it is written (`AttachmentSafety`), so the copies saved from it are too.
 @MainActor
 final class AttachmentPreviewController: NSObject, @MainActor QLPreviewPanelDataSource, @MainActor QLPreviewPanelDelegate {
     private let client: MailClient
@@ -81,11 +82,14 @@ final class AttachmentPreviewController: NSObject, @MainActor QLPreviewPanelData
             let folder = directory.appendingPathComponent(Self.folderName(for: key), isDirectory: true)
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             let url = folder.appendingPathComponent(Self.safeFilename(attachment.filename))
-            try data.write(to: url, options: .atomic)
+            try AttachmentSafety.write(data, to: url)
             files[key] = url
             return url
         } catch {
-            ConversationSignposts.log.error("attachment preview failed: \(String(describing: error), privacy: .public)")
+            let failure = error as NSError
+            // A Cocoa file error carries the attachment's name and path, which are message content.
+            ConversationSignposts.log.error("attachment preview failed: \(failure.domain, privacy: .public) \(failure.code, privacy: .public)")
+            ConversationSignposts.log.debug("attachment preview failed: \(String(describing: error), privacy: .private)")
             return nil
         }
     }

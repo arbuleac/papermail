@@ -140,6 +140,7 @@ Rules that keep the budgets: search observations fetch their first page off the 
 
 - Tokens live in the Keychain. The database lives in `~/Library/Application Support/SuperSparrow/mail.sqlite` (0600).
 - Remote images are blocked by default; loading them is per message, and loaded ones are cached on disk. The "Load remote images" preference is read for every body synced and by the reader, which renders each body that has not had its images loaded under a Content-Security-Policy (`img-src ss-cid: data:`, no other fetches), so turning the preference off takes effect at once, even for bodies stored while it was on.
+- Attachments are written to a per-session temporary folder and quarantined as they are written (`com.apple.quarantine`, type email attachment, agent SuperSparrow), so Gatekeeper asks before anything in them runs; copies saved to Downloads or with Save As keep the mark. Opening a program or script (`.app`, `.command`, `.terminal`, `.jar`, `.pkg`, shell and AppleScripts, `.fileloc`) from the reader asks first, with Cancel as the default. Errors about these files are logged by domain and code only, since a file error names the attachment.
 - No analytics, no crash reporting, no third-party services. Email content goes only to Google, Microsoft, and this machine.
 
 ## Testing

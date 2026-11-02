@@ -1090,7 +1090,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             case .quickLook:
                 break
             case .open:
-                NSWorkspace.shared.open(file)
+                self.open(file, in: window)
             case .saveToDownloads:
                 guard let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first else { return }
                 if let saved = Self.copy(file, into: downloads) {
@@ -1109,7 +1109,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
                         }
                         try FileManager.default.copyItem(at: file, to: destination)
                     } catch {
-                        ConversationSignposts.log.error("saving an attachment failed: \(String(describing: error), privacy: .public)")
+                        Self.logSaveFailure(error)
                         NSSound.beep()
                     }
                 }
@@ -1119,6 +1119,27 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
                 NSPasteboard.general.writeObjects([file as NSURL])
             }
         }
+    }
+
+    /// Hands the file to its app. A program or script asks first (Cancel is the default), as Mail does; the file
+    /// is quarantined either way, so Gatekeeper still has its say over anything that runs.
+    private func open(_ file: URL, in window: NSWindow?) {
+        if !AttachmentSafety.isQuarantined(file) { try? AttachmentSafety.quarantine(file) }
+        guard AttachmentSafety.runsCode(file) else {
+            NSWorkspace.shared.open(file)
+            return
+        }
+        AppAlert.openProgram(filename: file.lastPathComponent).present(on: window) { choice in
+            if choice == 1 { NSWorkspace.shared.open(file) }
+        }
+    }
+
+    /// A Cocoa file error names the attachment and its path, which are message content: only the domain and
+    /// code are public.
+    private static func logSaveFailure(_ error: Error) {
+        let failure = error as NSError
+        ConversationSignposts.log.error("saving an attachment failed: \(failure.domain, privacy: .public) \(failure.code, privacy: .public)")
+        ConversationSignposts.log.debug("saving an attachment failed: \(String(describing: error), privacy: .private)")
     }
 
     /// Copies `file` into `folder` under its own name, numbered like the Finder ("plan 2.pdf") when taken.
@@ -1134,7 +1155,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
                 try manager.copyItem(at: file, to: destination)
                 return destination
             } catch {
-                ConversationSignposts.log.error("saving an attachment failed: \(String(describing: error), privacy: .public)")
+                logSaveFailure(error)
                 return nil
             }
         }

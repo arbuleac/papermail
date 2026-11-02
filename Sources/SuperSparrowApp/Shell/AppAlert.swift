@@ -150,6 +150,11 @@ struct AppAlert {
                         buttons: [Button(title: "Keep Writing", role: .cancel), Button(title: "Discard", role: .destructive)])
     }
 
+    /// Composer: Send with an empty subject (§5.20). Add Subject takes ↩ and Esc; Send Anyway is the choice
+    /// that cannot be taken back once the undo window ends.
+    static let sendWithoutSubject = AppAlert(title: "Send without a subject?", body: "Messages without a subject are easy to miss.",
+                                             buttons: [Button(title: "Add Subject", role: .cancel), Button(title: "Send Anyway")])
+
     /// Drafts reader and # in Drafts (§5.19): one draft or several. Cancel is the default here, unlike the
     /// composer's form, because nothing is being written.
     static func discardDrafts(count: Int, recipient: String?) -> AppAlert {
@@ -162,6 +167,15 @@ struct AppAlert {
                         buttons: [Button(title: "Cancel"), Button(title: "Discard", role: .destructive)])
     }
 
+    /// Reader: Open on an attachment that is a program or script (§5.17). Cancel is the default: nothing is
+    /// lost by not opening it.
+    static func openProgram(filename: String) -> AppAlert {
+        AppAlert(title: "Open \u{201c}\(filename)\u{201d}?",
+                 body: "It is a program or script, and opening it lets it change your Mac. Open it only if you trust the sender "
+                     + "and expected it.",
+                 buttons: [Button(title: "Cancel"), Button(title: "Open")])
+    }
+
     /// Every alert of the inventory this surface owns, with sample values, for the alert snapshot.
     static var specimens: [AppAlert] {
         let contoso = Account(id: AccountID("contoso"), kind: .microsoft, email: "alex@contoso.test", displayName: "Alex Morgan",
@@ -169,6 +183,7 @@ struct AppAlert {
         let fabrikam = Account(id: AccountID("fabrikam"), kind: .microsoft, email: "alex@fabrikam.test", displayName: "Alex Morgan",
                                addedAt: Date())
         return [
+            sendWithoutSubject,
             discardDraft(recipient: "Ben Carter"),
             discardDrafts(count: 3, recipient: nil),
             remove(contoso),
@@ -181,6 +196,7 @@ struct AppAlert {
             databaseUnavailable(reason: "The disk is full."),
             leaveDemo,
             replaceDemo,
+            openProgram(filename: "Invoice.command"),
         ]
     }
 
