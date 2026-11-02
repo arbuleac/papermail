@@ -9,8 +9,8 @@ final class DesignGalleryCard: NSView {
         case paper
         case canvas
         case sheet
-        /// The desk itself, as the specimen shows slips: they float over content, so they are read against a
-        /// surface darker than paper.
+        /// The specimen's `--studio-card`, as it shows slips and the cheat sheet: they float over content, so they
+        /// are read against a surface darker than paper, a tint apart from the desk the cards sit on.
         case studio
 
         @MainActor var color: NSColor {
@@ -18,7 +18,7 @@ final class DesignGalleryCard: NSView {
             case .paper: return .qPaper
             case .canvas: return .qCanvas
             case .sheet: return .qSheet
-            case .studio: return DesignGalleryStudio.background
+            case .studio: return DesignGalleryStudio.card
             }
         }
     }

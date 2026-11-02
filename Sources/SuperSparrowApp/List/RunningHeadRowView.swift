@@ -57,7 +57,16 @@ final class RunningHeadRowView: NSTableRowView {
         let ruleY = compact ? Head.compactRuleY : Head.ruleY
         let width = QuireHairline.width(for: self)
         NSColor.qRule.setFill()
-        NSRect(x: ruleX, y: (ruleY - width / 2), width: ruleEnd - ruleX, height: width).fill()
+        // On the device grid: centred on the label's line, a hairline straddled two pixel rows at half
+        // strength and read softer than every other rule (§4.7).
+        let y = Self.pixelAligned(ruleY - width / 2, scale: window?.backingScaleFactor ?? 2)
+        NSRect(x: ruleX, y: y, width: ruleEnd - ruleX, height: width).fill()
+    }
+
+    /// `y` moved down to the device pixel it starts in, so a one-pixel rule fills exactly one row.
+    static func pixelAligned(_ y: CGFloat, scale: CGFloat) -> CGFloat {
+        guard scale > 0 else { return y }
+        return (y * scale + 0.001).rounded(.down) / scale
     }
 
     override func drawSelection(in dirtyRect: NSRect) {}

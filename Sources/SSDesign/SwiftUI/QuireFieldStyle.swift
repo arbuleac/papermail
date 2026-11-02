@@ -57,6 +57,11 @@ public struct QuireFieldStyle: ViewModifier {
                 .tint(Color.qAccent)
                 .focusEffectDisabled()
                 .modifier(QuireFieldFocusBinding(external: focus, own: $ownFocus, isBridged: bridgedFocus != nil))
+                // A long value ends in an ellipsis inside the 8 pt padding (§5.25); views no longer clip, and the
+                // text otherwise ran under the trailing edge.
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .clipped()
                 .padding(.horizontal, f.padX)
                 .frame(height: height)
                 .background {

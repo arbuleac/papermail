@@ -16,6 +16,8 @@ enum DesignGalleryStudio {
     static let rule = studio("studioRule", light: 0xCCC6BBFF, dark: 0x2B2926FF)
     static let ink = studio("studioInk", light: 0x2E2B27FF, dark: 0xDAD5CCFF)
     static let ink2 = studio("studioInk2", light: 0x5E5850FF, dark: 0xA09A90FF)
+    /// `--studio-card`: the tinted card the specimen sets slips and overlays on, a step off the desk.
+    static let card = studio("studioCard", light: 0xEFECE6FF, dark: 0x141312FF)
 
     private static func studio(_ name: String, light: UInt32, dark: UInt32) -> NSColor {
         NSColor.quire(name, QuireColorValues(light: light, dark: dark, lightHC: light, darkHC: dark))

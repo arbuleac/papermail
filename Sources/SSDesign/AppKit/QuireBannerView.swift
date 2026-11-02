@@ -178,7 +178,10 @@ public final class QuireBannerView: NSView {
                 actionVisual = NSRect(x: textX + ceil(last.width) + b.gap, y: b.padY + lastTop + (lineHeight - actionSize.height) / 2,
                                       width: actionSize.width, height: actionSize.height)
             } else {
-                actionVisual = NSRect(x: textX, y: b.padY + textHeight + (lineHeight - actionSize.height) / 2,
+                // On a line of its own the link's words start on the text column; its 4 pt padding, part of
+                // its hit area, hangs into the margin instead of indenting it.
+                let inset = actionButton?.variant == .link ? Quire.Layout.Button.linkPadX : 0
+                actionVisual = NSRect(x: textX - inset, y: b.padY + textHeight + (lineHeight - actionSize.height) / 2,
                                       width: actionSize.width, height: actionSize.height)
                 textHeight += lineHeight
             }

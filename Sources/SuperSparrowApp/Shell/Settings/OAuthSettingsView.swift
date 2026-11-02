@@ -15,7 +15,7 @@ struct OAuthSettingsView: View {
             }
             QuireSettingsGrid {
                 QuireSettingsSection("Google", isFirst: true)
-                QuireSettingsRow("Client ID") {
+                QuireSettingsFieldRow("Client ID") {
                     TextField("", text: $model.oauth.googleClientID, prompt: QuireFieldStyle.prompt("….apps.googleusercontent.com"))
                         .quireFieldStyle(.mono, error: SettingsModel.googleClientIDError(model.oauth.googleClientID))
                         .accessibilityLabel("Google client ID")
@@ -24,7 +24,7 @@ struct OAuthSettingsView: View {
                     QuireSecureField("Google client secret", text: $model.oauth.googleClientSecret, prompt: "GOCSPX-…")
                 }
                 QuireSettingsSection("Microsoft")
-                QuireSettingsRow("Client ID") {
+                QuireSettingsFieldRow("Client ID") {
                     TextField("", text: $model.oauth.microsoftClientID, prompt: QuireFieldStyle.prompt("00000000-0000-0000-0000-000000000000"))
                         .quireFieldStyle(.mono, error: SettingsModel.microsoftClientIDError(model.oauth.microsoftClientID))
                         .accessibilityLabel("Microsoft client ID")

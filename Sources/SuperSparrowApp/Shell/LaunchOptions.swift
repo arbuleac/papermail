@@ -87,6 +87,13 @@ struct LaunchOptions: Equatable {
             || settingsStatesSnapshotPath != nil || cheatSheetSnapshotPath != nil || hudSnapshotPath != nil || alertsSnapshotPath != nil
     }
 
+    /// Any snapshot that draws the main window or a composer from the demo: those windows then take their
+    /// default size and divider positions, ignore the pointer, and never read or write the user's saved frames,
+    /// so a render depends on nothing but the build (§5.1 1280 × 800, §5.20 640 × 600).
+    var isWindowSnapshot: Bool {
+        snapshotPath != nil || composeSnapshotPath != nil || cheatSheetSnapshotPath != nil || hudSnapshotPath != nil
+    }
+
     /// The gallery, welcome and alert snapshots need no mail store of the user's (or the demo's); with nothing
     /// else asked for, launch skips opening one.
     var needsMailEnvironment: Bool {

@@ -116,6 +116,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         buildSplit()
         wireCallbacks()
         list.allowsMultipleSelection = true
+        if isSnapshot {
+            // Wherever the pointer happens to rest, no row draws a hover wash into the render.
+            list.loadViewIfNeeded()
+            list.tableView.isHoverableRow = { _ in false }
+        }
         refreshAccounts()
         applyQuery()
 
@@ -238,9 +243,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// A first run has no autosaved divider positions; the list then starts at its preferred width.
     private let isFirstSplitLayout = UserDefaults.standard.object(forKey: "NSSplitView Subview Frames MainSplit") == nil
 
-    /// `--snapshot`: the window keeps the default size and divider positions, so it compares with the specimen
-    /// and never rewrites the user's saved frame.
-    private let isSnapshot = LaunchOptions().snapshotPath != nil
+    /// `--snapshot` and the other window snapshots (`LaunchOptions.isWindowSnapshot`): the window keeps the
+    /// default size and divider positions and ignores the pointer, so it compares with the specimen and never
+    /// rewrites the user's saved frame.
+    private let isSnapshot = LaunchOptions().isWindowSnapshot
 
     private var isMinimal: Bool { stripItem?.isCollapsed ?? false }
 

@@ -1066,12 +1066,14 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     /// Stores the content size, which is what `init` feeds back as `contentRect`; storing the frame
     /// would add a title bar's height on every reopen.
     private func saveSize() {
-        guard let window else { return }
+        guard let window, !LaunchOptions().isWindowSnapshot else { return }
         let content = window.contentRect(forFrameRect: window.frame).size
         UserDefaults.standard.set(NSStringFromSize(content), forKey: Self.sizeDefaultsKey)
     }
 
     private static func savedSize() -> NSSize? {
+        // A snapshot draws the default 640 × 600 (§5.20), whatever size the user left the composer at.
+        guard !LaunchOptions().isWindowSnapshot else { return nil }
         guard let stored = UserDefaults.standard.string(forKey: sizeDefaultsKey) else { return nil }
         let size = NSSizeFromString(stored)
         guard size.width >= minimumSize.width, size.height >= minimumSize.height else { return nil }
