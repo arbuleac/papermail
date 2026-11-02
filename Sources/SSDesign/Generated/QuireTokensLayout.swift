@@ -451,9 +451,12 @@ extension Quire {
             public static let iconRadius: [CGFloat] = [5, 5, 6]
             public static let minHit: CGFloat = 24
             public static let glyphGap: CGFloat = 6
+            public static let linkPadX: CGFloat = 4
         }
         public enum TextField {
             public static let helpGap: CGFloat = 5
+            public static let helpGlyph: CGFloat = 10
+            public static let helpGlyphGap: CGFloat = 4
             public static let secureTracking: CGFloat = 2
             public static let height: CGFloat = 28
             public static let radius: CGFloat = 6
@@ -510,6 +513,7 @@ extension Quire {
             public static let padRight: CGFloat = 6
             public static let chevron: CGFloat = 12
             public static let inkHalo: CGFloat = 2
+            public static let gap: CGFloat = 8
         }
         public enum Badge {
             public static let autoInitialsAt: CGFloat = 7

@@ -1422,7 +1422,7 @@ A primary button (§5.24) with `paperplane` 14 pt and the label “Send”: regu
 | `regular.radius` | 6 | `regular.font` | bodyMedium | `regular.fontStrong` | bodyStrong | `regular.glyph` | 14 |
 | `large.height` | 36 | `large.padX` | 16 | `large.radius` | 8 | `large.font` | buttonLarge |
 | `large.fontStrong` | buttonLargeStrong | `large.glyph` | 18 | `icon` | 22 / 24 / 28 | `iconRadius` | 5 / 5 / 6 |
-| `minHit` | 24 | `glyphGap` | 6 |  |  |  |  |
+| `minHit` | 24 | `glyphGap` | 6 | `linkPadX` | 4 |  |  |
 
 | State | Primary | Secondary | Ghost / Icon / Link | Destructive |
 |---|---|---|---|---|
