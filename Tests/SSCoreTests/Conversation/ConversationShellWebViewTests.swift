@@ -408,6 +408,25 @@ final class ConversationShellWebViewTests: XCTestCase {
         XCTAssertEqual(margins, ["0px", "0px", "0px"])
     }
 
+    /// A chip whose file could not be fetched says so and offers the retry (spec §5.17); opening it again clears it.
+    func testAFailedAttachmentChipOffersRetry() async throws {
+        let (webView, _) = try await loadedShell()
+        typealias F = ConversationFixtures
+        let message = F.message("m1")
+        let file = AttachmentInfo(id: "att-1", filename: "plan.pdf", mimeType: "application/pdf", sizeBytes: 240_000, isInline: false)
+        let payload = F.builder.build(messages: [message], bodies: [message.id: F.body(html: "<p>Plan</p>", attachments: [file])], accounts: F.accounts)
+        _ = try await evaluate("window.ss.render(\(try payload.jsonString()))", in: webView)
+        let key = ConversationShellAssets.jsStringLiteral(payload.messages[0].id)
+        _ = try await evaluate("window.ss.attachmentFailed(\(key), 'att-1', true)", in: webView)
+        let meta = try await evaluate("document.querySelector('.ss-chip.ss-failed .ss-rest-meta').textContent", in: webView) as? String
+        XCTAssertEqual(meta, "Couldn\u{2019}t download \u{00b7} Retry")
+        _ = try await evaluate("window.ss.attachmentFailed(\(key), 'att-1', false)", in: webView)
+        let failed = try await count(".ss-chip.ss-failed", in: webView)
+        XCTAssertEqual(failed, 0)
+        let rest = try await evaluate("document.querySelector('.ss-chip .ss-rest-meta').textContent", in: webView) as? String
+        XCTAssertEqual(rest, "PDF \u{00b7} 240 KB")
+    }
+
     /// The bottom inset pads the conversation by the quick reply's height + 12, the frame never moves (§8.4).
     func testBottomInsetPadsTheConversation() async throws {
         let (webView, _) = try await loadedShell()

@@ -404,6 +404,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         case .moveToInbox:
             return moveSelectionToInbox()
         case .undo:
+            // ⌘Z cancels a quick reply still in its undo window, as its strip's keycap says; Z never does (spec §6.1).
+            if NSApp.currentEvent?.modifierFlags.contains(.command) == true, conversation.cancelQuickSend() { return true }
             return undoLastAction()
         case .goTo(let view):
             setView(view)

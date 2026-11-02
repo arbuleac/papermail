@@ -62,7 +62,7 @@ final class ReaderHeaderView: NSView {
         heightAnchor.constraint(equalToConstant: Quire.Layout.ReaderHeader.height).isActive = true
         NotificationCenter.default.addObserver(self, selector: #selector(environmentDidChange(_:)),
                                                name: QuireEnvironment.didChangeNotification, object: nil)
-        apply(content)
+        showContent()
     }
 
     /// Graphite and Increase Contrast change token values without changing the appearance.
@@ -75,7 +75,13 @@ final class ReaderHeaderView: NSView {
     // MARK: Content
 
     func apply(_ content: Content) {
+        // The reader applies its state several times per selection change; only a change costs a relayout.
+        guard content != self.content else { return }
         self.content = content
+        showContent()
+    }
+
+    private func showContent() {
         kickerView.kicker = content.kicker
         kickerView.isHidden = content.kicker == nil
         applyHeadline()

@@ -987,9 +987,19 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     private func openAttachment(_ info: AttachmentInfo, of messageID: MessageID) {
         onAction?(.openAttachment(messageID, info))
         let siblings = attachments(of: messageID)
+        setAttachmentFailed(false, info.id, of: messageID)
         Task { [weak self] in
-            await self?.preview.preview(info, of: messageID, siblings: siblings)
+            guard let self else { return }
+            let opened = await self.preview.preview(info, of: messageID, siblings: siblings)
+            if !opened { self.setAttachmentFailed(true, info.id, of: messageID) }
         }
+    }
+
+    /// "Couldn't download · Retry" on the chip (spec §5.17); opening it again is the retry.
+    private func setAttachmentFailed(_ failed: Bool, _ attachmentID: String, of messageID: MessageID) {
+        guard let current = pool.current, currentMessages.contains(where: { $0.id == messageID }) else { return }
+        let key = ConversationShellAssets.jsStringLiteral(RenderPayload.messageKey(for: messageID))
+        evaluate("window.ss && window.ss.attachmentFailed(\(key), \(ConversationShellAssets.jsStringLiteral(attachmentID)), \(failed))", in: current)
     }
 
     override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool {
@@ -1076,6 +1086,14 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         } else {
             quickReply.status = .none
         }
+    }
+
+    /// ⌘Z while a quick reply is inside its undo window cancels it, wherever the selection is. False when no
+    /// quick reply is waiting, so the key goes on to the toast's undo.
+    func cancelQuickSend() -> Bool {
+        guard quickSend != nil else { return false }
+        undoQuickSend()
+        return true
     }
 
     /// Undo can arrive after the selection moved on; the text then waits under the thread it was written for.

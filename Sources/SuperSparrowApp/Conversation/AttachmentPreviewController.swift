@@ -32,21 +32,24 @@ final class AttachmentPreviewController: NSObject, @MainActor QLPreviewPanelData
         QLPreviewPanel.shared()?.orderOut(nil)
     }
 
-    /// Shows `attachment` and then fetches its siblings in the background so the panel's arrows work.
-    func preview(_ attachment: AttachmentInfo, of message: MessageID, siblings: [AttachmentInfo]) async {
+    /// Shows `attachment` and then fetches its siblings in the background so the panel's arrows work. False
+    /// when the attachment itself could not be fetched, so its chip can say so (spec §5.17).
+    @discardableResult
+    func preview(_ attachment: AttachmentInfo, of message: MessageID, siblings: [AttachmentInfo]) async -> Bool {
         pendingBatch &+= 1
         let batch = pendingBatch
-        guard let url = await file(for: attachment, of: message) else { return }
-        guard batch == pendingBatch else { return }
+        guard let url = await file(for: attachment, of: message) else { return false }
+        guard batch == pendingBatch else { return true }
         items = [url]
         presentPanel()
         for sibling in siblings where sibling.id != attachment.id && !sibling.isInline {
-            guard batch == pendingBatch else { return }
+            guard batch == pendingBatch else { return true }
             if let siblingURL = await file(for: sibling, of: message), batch == pendingBatch {
                 items.append(siblingURL)
                 if isPanelVisible { QLPreviewPanel.shared()?.reloadData() }
             }
         }
+        return true
     }
 
     private func presentPanel() {

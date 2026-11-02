@@ -39,14 +39,16 @@ final class QuickReplyView: NSView {
     var onDisabledClick: (() -> Void)?
 
     /// The replying account's rail face (spec §5.18).
+    /// The reader sets these on every selection change (key repeat included), so each one acts only on a change.
     var face: (monogram: String, inkSlot: Int)? {
-        didSet { needsDisplay = true }
+        didSet { if oldValue?.monogram != face?.monogram || oldValue?.inkSlot != face?.inkSlot { needsDisplay = true } }
     }
 
-    var replyName = "" { didSet { updatePlaceholder() } }
-    var replyAllName = "" { didSet { updatePlaceholder() } }
+    var replyName = "" { didSet { if oldValue != replyName { updatePlaceholder() } } }
+    var replyAllName = "" { didSet { if oldValue != replyAllName { updatePlaceholder() } } }
     var replyAllAvailable = true {
         didSet {
+            guard oldValue != replyAllAvailable else { return }
             tabs.items = Self.tabItems(replyAll: replyAllAvailable)
             if !replyAllAvailable, mode == .replyAll { mode = .reply }
         }

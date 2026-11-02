@@ -327,6 +327,10 @@ public enum ConversationShellAssets {
     .ss-chip-meta { font: var(--q-font-meta); color: var(--q-ink3); }
     .ss-chip-meta .ss-hover-meta, .ss-chip:hover .ss-chip-meta .ss-rest-meta { display: none; }
     .ss-chip:hover .ss-chip-meta .ss-hover-meta { display: inline; }
+    .ss-chip.ss-failed .ss-tile { color: var(--q-danger); }
+    .ss-chip.ss-failed .ss-chip-meta, .ss-chip.ss-failed:hover .ss-chip-meta .ss-rest-meta { display: inline; color: var(--q-danger); }
+    .ss-chip.ss-failed .ss-chip-meta .ss-hover-meta { display: none; }
+    .ss-chip.ss-failed .ss-retry { font: var(--q-font-metaStrong); color: var(--q-accent); }
 
     /* Footer (spec §5.14): ghost buttons at the indent; the target's carry R · A · F keycaps. */
     .ss-foot {
@@ -1203,12 +1207,21 @@ public enum ConversationShellAssets {
         chip.tabIndex = index === 0 ? 0 : -1;
         chip.dataset.attachmentId = attachment.id;
         chip.dataset.mime = attachment.mime || '';
+        var failed = !!(card.failedAttachments && card.failedAttachments[attachment.id]);
+        chip.classList.toggle('ss-failed', failed);
         var tile = el('span', 'ss-tile');
-        tile.appendChild(sym(attachment.symbol || 'doc'));
+        tile.appendChild(sym(failed ? 'exclamationmark.triangle.fill' : (attachment.symbol || 'doc')));
         var text = el('span', 'ss-chip-text');
         text.appendChild(chipName(attachment.name));
         var meta = el('span', 'ss-chip-meta');
-        meta.appendChild(el('span', 'ss-rest-meta', (attachment.kind ? attachment.kind + ' · ' : '') + attachment.size));
+        if (failed) {
+          // Opening the chip again is the retry (spec §5.17).
+          var rest = el('span', 'ss-rest-meta', 'Couldn’t download · ');
+          rest.appendChild(el('span', 'ss-retry', 'Retry'));
+          meta.appendChild(rest);
+        } else {
+          meta.appendChild(el('span', 'ss-rest-meta', (attachment.kind ? attachment.kind + ' · ' : '') + attachment.size));
+        }
         meta.appendChild(el('span', 'ss-hover-meta', 'Space to Quick Look'));
         text.appendChild(meta);
         chip.appendChild(tile);
@@ -1227,9 +1240,23 @@ public enum ConversationShellAssets {
       function fillAttachments(card) {
         var m = card.message;
         var list = card.atts;
+        var focused = document.activeElement && list.contains(document.activeElement) ? document.activeElement.dataset.attachmentId : null;
         list.replaceChildren();
         for (var i = 0; i < m.attachments.length; i++) { list.appendChild(buildChip(card, m.attachments[i], i)); }
+        if (focused) {
+          var again = list.querySelector('.ss-chip[data-attachment-id="' + CSS.escape(focused) + '"]');
+          if (again) { again.focus(); }
+        }
         refitCard(card);
+      }
+
+      function attachmentFailed(id, attachmentID, failed) {
+        var card = state.byID[id];
+        if (!card) { return; }
+        card.failedAttachments = card.failedAttachments || {};
+        if (!!card.failedAttachments[attachmentID] === !!failed) { return; }
+        if (failed) { card.failedAttachments[attachmentID] = true; } else { delete card.failedAttachments[attachmentID]; }
+        fillAttachments(card);
       }
 
       function footerButton(card, type, label, symbolName, key, title) {
@@ -1956,7 +1983,8 @@ public enum ConversationShellAssets {
         toggle: function (id) { var card = state.byID[id]; if (card) { toggle(card); } },
         select: function (id) { var card = state.byID[id]; if (card) { setTarget(card, true); } },
         selectedMessageID: function () { return state.target ? state.target.message.id : null; },
-        loadImages: function (id) { loadImages(id ? state.byID[id] : targetCard()); }
+        loadImages: function (id) { loadImages(id ? state.byID[id] : targetCard()); },
+        attachmentFailed: attachmentFailed
       };
 
       post('ssReady', { kind: 'ready' });
