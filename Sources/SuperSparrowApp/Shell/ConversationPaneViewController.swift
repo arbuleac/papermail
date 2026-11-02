@@ -1,7 +1,7 @@
 import AppKit
 
-/// Hosts the reader from the window's top edge: the reader header's first row is the title-bar zone, and the
-/// unified toolbar passes clicks through to its buttons (spec §3.2).
+/// Hosts the reader below the transparent title bar. The reader's own header must not slide under the
+/// title bar, where clicks drag the window instead of reaching its buttons.
 @MainActor
 final class ConversationPaneViewController: NSViewController {
     static let minimumWidth: CGFloat = 400
@@ -27,7 +27,6 @@ final class ConversationPaneViewController: NSViewController {
         root.addSubview(content)
         NSLayoutConstraint.activate([
             root.widthAnchor.constraint(greaterThanOrEqualToConstant: Self.minimumWidth),
-            // The reader header is 92 pt from the window's top: its first row is the title-bar zone (spec §5.12).
             content.topAnchor.constraint(equalTo: root.topAnchor),
             content.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             content.trailingAnchor.constraint(equalTo: root.trailingAnchor),

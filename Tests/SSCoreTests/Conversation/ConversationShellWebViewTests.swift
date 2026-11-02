@@ -215,10 +215,12 @@ final class ConversationShellWebViewTests: XCTestCase {
         XCTAssertEqual(banner, "2 remote images hidden to protect your privacy.", "live sources count as blocked images too")
 
         let key = ConversationShellAssets.jsStringLiteral(payload.messages[0].id)
-        _ = try await evaluate("window.ss.loadImages(\(key))", in: webView)
+        // "Loading 2 images…" stands while they load (spec §5.16): read in the same turn as the click.
+        let loadingCopy = try await evaluate("window.ss.loadImages(\(key)); document.querySelector('.ss-banner .ss-btxt').textContent", in: webView) as? String
+        XCTAssertEqual(loadingCopy, "Loading 2 images\u{2026}")
         for _ in 0..<50 where remote.paths.count < 2 { try await Task.sleep(nanoseconds: 100_000_000) }
         XCTAssertEqual(Set(remote.paths), ["/live.png", "/parked.png"])
-        // "Loading 2 images…" stands while they load and then goes (spec §5.16).
+        // Then it goes; the stand-in network answers 404, so both report as failed, warning-coloured.
         var loading: Int? = 1
         for _ in 0..<40 {
             loading = int(try await evaluate("document.querySelectorAll('.ss-banner .ss-spin').length", in: webView))
@@ -228,6 +230,8 @@ final class ConversationShellWebViewTests: XCTestCase {
         XCTAssertEqual(loading, 0)
         let buttons = try await count(".ss-load-images", in: webView)
         XCTAssertEqual(buttons, 0)
+        let failed = try await evaluate("(document.querySelector('.ss-banner .ss-btxt') || {}).textContent", in: webView) as? String
+        XCTAssertEqual(failed, "2 images couldn\u{2019}t load.")
     }
 
     func testLoadImagesRestoresParkedBackgrounds() async throws {
@@ -325,6 +329,17 @@ final class ConversationShellWebViewTests: XCTestCase {
         let ring = try await count(".ss-card.ss-focus", in: webView)
         XCTAssertEqual(ring, 1, "N and P draw the keyboard ring")
         XCTAssertTrue(handler.received.contains { ($0["kind"] as? String) == "select" && ($0["messageID"] as? String) == payload.messages[1].id })
+
+        // A click inside a body runs no listener there; focus moving into its frame makes that message the target.
+        try await waitForFramedCards(in: webView)
+        _ = try await evaluate("document.querySelectorAll('.ss-card iframe')[1].focus(); window.dispatchEvent(new Event('blur'))", in: webView)
+        var clicked: String?
+        for _ in 0..<20 {
+            clicked = try await evaluate("window.ss.selectedMessageID()", in: webView) as? String
+            if clicked == payload.messages[2].id { break }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTAssertEqual(clicked, payload.messages[2].id)
     }
 
     /// Plain and unstyled bodies are set on the Quire reading page; styled ones keep their own design (§8.4).
@@ -349,6 +364,48 @@ final class ConversationShellWebViewTests: XCTestCase {
         _ = try await evaluate("window.ss.preferences({readingSans: true, colorsNoticeDismissed: false})", in: webView)
         let sans = try await evaluate("document.querySelector('.ss-card iframe').contentDocument.body.className", in: webView) as? String
         XCTAssertEqual(sans, "ss-set ss-sans")
+    }
+
+    /// A Gmail reply ends its new text with a <br> before the quote; folded, that break must not leave an empty
+    /// line between the body and the elision mark, and unfolded the reply reads as sent (spec §5.14, §5.15).
+    func testAFoldedQuoteLeavesNoEmptyLine() async throws {
+        let (webView, _) = try await loadedShell()
+        typealias F = ConversationFixtures
+        let message = F.message("m1")
+        let html = "<div dir=\"ltr\"><div>Green for the 14th.</div></div><br><div class=\"ss-quote\"><p>Earlier</p></div>"
+        let without = F.message("m2", date: F.utc(2025, 1, 4, 9, 0))
+        let payload = F.builder.build(
+            messages: [message, without],
+            bodies: [message.id: F.body(html: html), without.id: F.body(html: "<div dir=\"ltr\"><div>Green for the 14th.</div></div>")],
+            accounts: F.accounts
+        )
+        _ = try await evaluate("window.ss.render(\(try payload.jsonString())); window.ss.expandAll()", in: webView)
+        try await waitForFramedCards(in: webView)
+        let heightsScript = "Array.from(document.querySelectorAll('.ss-card iframe')).map(function (f) { return f.contentDocument.body.scrollHeight; })"
+        let folded = numbers(try await evaluate(heightsScript, in: webView))
+        XCTAssertEqual(folded.count, 2)
+        XCTAssertEqual(folded.first, folded.last, "the folded quote adds nothing, not even its <br>")
+        let tooltip = try await evaluate("document.querySelector('.ss-toggle-quote').title", in: webView) as? String
+        XCTAssertEqual(tooltip, "Show Quoted Text  .")
+        _ = try await evaluate("document.querySelector('.ss-toggle-quote').click()", in: webView)
+        let unfolded = numbers(try await evaluate(heightsScript, in: webView))
+        XCTAssertGreaterThan(unfolded.first ?? 0, (folded.first ?? 0) + 20, "the break and the quote come back together")
+        let open = try await evaluate("document.querySelector('.ss-toggle-quote').title", in: webView) as? String
+        XCTAssertEqual(open, "Hide Quoted Text  .")
+    }
+
+    /// A draft is set from the sheet's edge, and so are its chips and footer (spec §5.19); a frame still loading
+    /// under its provisional height holds delayed bars, never bars that flash on every expand (spec §5.14).
+    func testDraftsStartAtTheSheetEdgeAndLoadingFramesHoldDelayedBars() async throws {
+        let (webView, _) = try await loadedShell()
+        typealias F = ConversationFixtures
+        let draft = F.message("d1", roles: [.drafts])
+        let payload = F.builder.build(messages: [draft], bodies: [draft.id: F.body(html: "<p>Unsent</p>")], accounts: F.accounts)
+        // Counted in the same turn as the render: the frame's load, which removes the bars, can land before a second call.
+        let held = int(try await evaluate("window.ss.render(\(try payload.jsonString())); document.querySelectorAll('.ss-card .ss-skels.ss-held').length", in: webView))
+        XCTAssertEqual(held, 1, "the loading frame's bars wait for skeletonDelay")
+        let margins = try await evaluate("Array.from(document.querySelectorAll('.ss-card.ss-draft .ss-ind')).map(function (n) { return getComputedStyle(n).marginLeft; })", in: webView) as? [String]
+        XCTAssertEqual(margins, ["0px", "0px", "0px"])
     }
 
     /// The bottom inset pads the conversation by the quick reply's height + 12, the frame never moves (§8.4).

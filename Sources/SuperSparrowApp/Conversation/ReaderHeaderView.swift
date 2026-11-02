@@ -33,7 +33,7 @@ final class ReaderHeaderView: NSView {
 
     private(set) var content = Content(kicker: nil, headline: nil, placeholder: "No subject", actions: .make(.nothing))
     private let kickerView = ReaderKickerView()
-    private let headline = NSTextField(labelWithString: "")
+    private let headline = ReaderHeadlineView()
     private let hairline = QuireHairline(.horizontal)
     private var buttons: [ReaderActionSet.Action: QuireIconButton] = [:]
 
@@ -56,14 +56,6 @@ final class ReaderHeaderView: NSView {
     private func build() {
         translatesAutoresizingMaskIntoConstraints = false
         addSubview(kickerView)
-        headline.isSelectable = true
-        headline.isEditable = false
-        headline.isBordered = false
-        headline.drawsBackground = false
-        headline.lineBreakMode = .byTruncatingTail
-        headline.maximumNumberOfLines = 1
-        headline.cell?.truncatesLastVisibleLine = true
-        headline.allowsDefaultTighteningForTruncation = false
         addSubview(headline)
         hairline.alignsToMaxEdge = true
         addSubview(hairline)
@@ -101,8 +93,7 @@ final class ReaderHeaderView: NSView {
         let text = trimmed.isEmpty
             ? ReaderFonts.placeholder(content.placeholder, role: .headline)
             : QuireFont.attributedString(trimmed, role: .headline, color: .qInk)
-        // The field is centred on the 30 pt headline line in `layout()`.
-        headline.attributedStringValue = ReaderFonts.fieldString(text)
+        headline.show(text)
         headline.toolTip = trimmed.isEmpty ? nil : trimmed
         headline.setAccessibilityLabel(trimmed.isEmpty ? content.placeholder : trimmed)
         needsLayout = true
@@ -185,9 +176,8 @@ final class ReaderHeaderView: NSView {
         let kickerHeight = QuireFont.Role.runningHead.lineHeight
         let kickerWidth = max(0, firstActionX - metrics.kickerActionGap - column.x)
         kickerView.frame = NSRect(x: column.x, y: metrics.kickerCenterY - kickerHeight / 2, width: kickerWidth, height: kickerHeight)
-        let fieldHeight = ceil(headline.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: column.width + 4, height: 200)).height ?? metrics.headlineHeight)
-        headline.frame = NSRect(x: column.x - 2, y: (metrics.headlineTop + (metrics.headlineHeight - fieldHeight) / 2).rounded(),
-                                width: column.width + 4, height: fieldHeight)
+        // The headline's text view lays the role's 30 pt line out exactly, so its frame is the line itself.
+        headline.frame = NSRect(x: column.x, y: metrics.headlineTop, width: column.width, height: metrics.headlineHeight)
         let hair = QuireHairline.width(for: self)
         hairline.frame = NSRect(x: 0, y: bounds.height - max(hair, 1), width: bounds.width, height: max(hair, 1))
     }
@@ -232,15 +222,18 @@ final class ReaderHeaderView: NSView {
 @MainActor
 final class ReaderKickerView: NSView {
     var kicker: ReaderHeaderView.Kicker? {
-        didSet { if oldValue != kicker { needsDisplay = true } }
+        didSet { if oldValue != kicker { layOutWords() } }
     }
+
+    /// The words as they fit the current width, built when the kicker or the width changes so `draw` only draws.
+    private var words = NSAttributedString()
 
     override var isFlipped: Bool { true }
 
     override func setFrameSize(_ newSize: NSSize) {
         let changed = newSize.width != frame.width
         super.setFrameSize(newSize)
-        if changed { needsDisplay = true }
+        if changed { layOutWords() }
     }
 
     private static let separator = " · "
@@ -274,24 +267,85 @@ final class ReaderKickerView: NSView {
         return (compose(nil), true)
     }
 
+    /// Where the words start: after the dot and its gap, or at 0 with no dot ("Selection").
+    private var wordsX: CGFloat {
+        let metrics = Quire.Layout.ReaderHeader.self
+        return kicker?.inkSlot == nil ? 0 : metrics.kickerDot + metrics.kickerDotGap
+    }
+
+    private func layOutWords() {
+        defer { needsDisplay = true }
+        guard let kicker else {
+            words = NSAttributedString()
+            toolTip = nil
+            setAccessibilityLabel(nil)
+            return
+        }
+        let layout = layoutText(available: max(0, bounds.width - wordsX))
+        words = string(layout.text)
+        // A dropped name stays reachable: the tooltip and VoiceOver still name the account (spec §5.12).
+        toolTip = layout.nameDropped ? kicker.accountName : nil
+        setAccessibilityLabel(layout.nameDropped ? [kicker.lead, kicker.accountName, kicker.trail].compactMap { $0 }.joined(separator: ", ") : layout.text)
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         guard let kicker else { return }
         let metrics = Quire.Layout.ReaderHeader.self
-        var x: CGFloat = 0
         if let slot = kicker.inkSlot {
             let dot = NSRect(x: 0, y: (bounds.height - metrics.kickerDot) / 2, width: metrics.kickerDot, height: metrics.kickerDot)
             NSColor.qAccount(slot).setFill()
             NSBezierPath(ovalIn: dot).fill()
-            x = metrics.kickerDot + metrics.kickerDotGap
         }
-        let layout = layoutText(available: max(0, bounds.width - x))
-        toolTip = layout.nameDropped ? kicker.accountName : nil
-        let text = string(layout.text)
-        text.draw(with: NSRect(x: x, y: 0, width: max(0, bounds.width - x), height: bounds.height),
-                  options: QuireFont.drawingOptions, context: nil)
-        setAccessibilityLabel(layout.nameDropped ? [kicker.lead, kicker.accountName, kicker.trail].compactMap { $0 }.joined(separator: ", ") : layout.text)
+        let x = wordsX
+        words.draw(with: NSRect(x: x, y: 0, width: max(0, bounds.width - x), height: bounds.height),
+                   options: QuireFont.drawingOptions, context: nil)
     }
 
     override func isAccessibilityElement() -> Bool { true }
+    override func accessibilityRole() -> NSAccessibility.Role? { .staticText }
+}
+
+/// The headline (spec §5.12): one selectable, tail-truncated line of New York. A non-editable text view rather
+/// than a selectable label, because a label selects through the window's field editor, and while a field editor
+/// is first responder the single-key shortcuts stand down as if the user were typing: one click on the subject
+/// would silence J, K and E until focus moved. A read-only text view selects and copies without that.
+@MainActor
+private final class ReaderHeadlineView: NSTextView {
+    init() {
+        // TextKit 1, configured like every Quire text stack, so the role's exact 30 pt line holds (§4.4).
+        let storage = NSTextStorage()
+        let layoutManager = NSLayoutManager()
+        QuireFont.configure(layoutManager)
+        storage.addLayoutManager(layoutManager)
+        let container = NSTextContainer(size: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
+        container.lineFragmentPadding = 0
+        container.maximumNumberOfLines = 1
+        container.lineBreakMode = .byTruncatingTail
+        container.widthTracksTextView = true
+        layoutManager.addTextContainer(container)
+        super.init(frame: .zero, textContainer: container)
+        isEditable = false
+        isSelectable = true
+        isRichText = false
+        drawsBackground = false
+        textContainerInset = .zero
+        isVerticallyResizable = false
+        isHorizontallyResizable = false
+        allowsUndo = false
+        usesFindBar = false
+        isAutomaticLinkDetectionEnabled = false
+        focusRingType = .none
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    /// Replaces the line; a selection belonged to the previous subject, so it goes.
+    func show(_ text: NSAttributedString) {
+        textStorage?.setAttributedString(text)
+        setSelectedRange(NSRange(location: 0, length: 0))
+    }
+
     override func accessibilityRole() -> NSAccessibility.Role? { .staticText }
 }

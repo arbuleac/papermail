@@ -514,8 +514,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         case .nothing:
             return .init(kicker: nil, headline: nil, placeholder: "No subject", actions: .make(.nothing))
         case .several(let ids):
-            let summaries = summaries(of: ids)
-            let allStarred = !summaries.isEmpty && summaries.count == ids.count && summaries.allSatisfy(\.isStarred)
+            let allStarred = ids.allSatisfy(isStarred)
             return .init(kicker: .init(inkSlot: nil, lead: "Selection", accountName: nil, trail: nil),
                          headline: "\(ids.count) conversations selected", placeholder: "No subject",
                          actions: .make(.several(count: ids.count, view: mailboxView, allStarred: allStarred)))
@@ -538,12 +537,10 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         }
     }
 
-    private func summaries(of ids: [ConversationID]) -> [ConversationSummary] {
-        // The selection's star state, read once from the store per refresh: several selected is not a hot path.
-        let wanted = Set(ids)
-        let accounts = Array(Set(ids.map(\.accountID)))
-        let query = ConversationQuery(accountIDs: accounts, view: mailboxView)
-        return ((try? client.store.conversations(query)) ?? []).filter { wanted.contains($0.id) }
+    /// A conversation is starred when one of its messages is, as the header reads one conversation. One indexed
+    /// read per selected conversation, never a page of the whole view: ⇧J extends the selection at key repeat.
+    private func isStarred(_ id: ConversationID) -> Bool {
+        visibleMessages(for: id).contains(where: \.isStarred)
     }
 
     /// "Three conversations, one keystroke." (spec §5.19), the count spelled out in the locale.
@@ -812,10 +809,6 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             focusedAttachment = (id, attachment)
         case let .originalColors(id, on):
             if on { originalColorsShown.insert(id) } else { originalColorsShown.remove(id) }
-        case .openLink(let url):
-            if let scheme = url.scheme?.lowercased(), ConversationNavigationPolicy.isOpenableExternally(scheme) {
-                NSWorkspace.shared.open(url)
-            }
         case let .action(type, messageID, attachmentID, on, point):
             guard let messageID else { return }
             selectedMessageID = messageID
@@ -1233,12 +1226,46 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
 }
 
 /// The reader's root view: the `canvas` desk behind the sheets and the empty states (spec §4.1), and the end
-/// of a live resize (window or split divider), when wide HTML is refitted.
+/// of a resize, when wide HTML is refitted: a live one (window or split divider) when it ends, any other (the
+/// rail shown or hidden, zoom, full screen) once the run loop has settled the new width.
 @MainActor
 final class ReaderRootView: NSView {
     var onEndLiveResize: (() -> Void)?
+    private var settleTimer: Timer?
+    /// How long a width must hold before a resize outside a live resize counts as ended: an animated rail
+    /// toggle moves the width every frame, and the fit is recomputed once, not per frame (spec §5.14).
+    private static let settleDelay: TimeInterval = 0.15
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        // Increase Contrast and Graphite change `canvas` without changing the appearance.
+        NotificationCenter.default.addObserver(self, selector: #selector(environmentDidChange(_:)),
+                                               name: QuireEnvironment.didChangeNotification, object: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    @objc private func environmentDidChange(_ note: Notification) {
+        needsDisplay = true
+    }
 
     override var isOpaque: Bool { true }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let widthChanged = newSize.width != frame.width
+        super.setFrameSize(newSize)
+        guard widthChanged, !inLiveResize, window != nil else { return }
+        settleTimer?.invalidate()
+        settleTimer = Timer.scheduledTimer(withTimeInterval: Self.settleDelay, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.settleTimer = nil
+                if !self.inLiveResize { self.onEndLiveResize?() }
+            }
+        }
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         NSColor.qCanvas.setFill()

@@ -232,6 +232,8 @@ public enum ConversationShellAssets {
     .ss-body { margin-top: 18px; }
     .ss-card.ss-typeset .ss-body { margin-left: 48px; max-width: 576px; }
     .ss-card.ss-draft .ss-body { margin-left: 0; margin-top: 10px; }
+    /* A draft's body is set from the sheet's edge, so its elision chip, chips and footer start there too (spec §5.19). */
+    .ss-card.ss-draft .ss-ind { margin-left: 0; }
     .ss-frame { position: relative; }
     .ss-frame iframe { display: block; width: 100%; height: 0; border: 0; background: transparent; color-scheme: light dark; }
     .ss-original { background: var(--q-originalPage); border-radius: var(--q-r-xs); padding: 12px; color-scheme: light; }
@@ -239,7 +241,9 @@ public enum ConversationShellAssets {
     .ss-preview { margin: 0 0 12px; max-width: 576px; font: var(--q-font-reading); color: var(--q-ink2); }
     .ss-preview.ss-sans { font: var(--q-font-readingSans); }
     .ss-skels { display: grid; gap: 14px; padding-top: 2px; }
-    .ss-skels.ss-delayed { opacity: 0; animation: ss-appear 1ms linear var(--q-dur-skeletonDelay) forwards; }
+    /* Bars only after skeletonDelay: while a fetch runs (ss-delayed), and while a frame is loading under its
+       provisional height (ss-held), which almost always lands first, so no bars flash (spec §5.14). */
+    .ss-skels.ss-delayed, .ss-skels.ss-held { opacity: 0; animation: ss-appear 1ms linear var(--q-dur-skeletonDelay) forwards; }
     .ss-frame > .ss-skels:not(:only-child) { position: absolute; left: 0; right: 0; top: 0; }
     .ss-skel { display: block; height: 10px; border-radius: var(--q-r-xs); background: var(--q-fill); }
     .ss-skel:nth-child(2) { width: 92%; }
@@ -413,6 +417,10 @@ public enum ConversationShellAssets {
     pre { white-space: pre-wrap; }
     .ss-quote { display: none; }
     body.ss-show-quotes .ss-quote { display: block; }
+    /* Gmail and others put a <br> between the new text and the quote. With the quote folded that break is an
+       empty line, and the elision mark would sit a line below the 12 pt the spec gives it (§5.14). It is
+       hidden only while the folded quote is the last thing in its block, so no text can join up. */
+    body:not(.ss-show-quotes) br:has(+ .ss-quote:last-child) { display: none; }
     .ss-quote { border-left: 2px solid var(--q-rule); padding-left: 12px; }
     .ss-plain { white-space: pre-wrap; }
     body.ss-set { font: var(--q-font-reading); letter-spacing: var(--q-track-reading); color: var(--q-ink); max-width: 576px; background: transparent; }
@@ -446,8 +454,8 @@ public enum ConversationShellAssets {
     public static let js: String = "var SS_BODY_CSS = " + jsStringLiteral(bodyCSS) + ";\n" + script
 
     /// Message bodies are loaded with `srcdoc` into `sandbox="allow-same-origin"` iframes: no scripts run
-    /// inside them, so the shell measures each document from the parent after load, on every image load
-    /// and on resize, and sizes the frame to its content.
+    /// inside them, not even listeners the shell adds, so the shell measures each document from the parent
+    /// after load, on resize and on a timer, and sizes the frame to its content.
     static let script: String = #"""
     (function () {
       'use strict';
@@ -467,6 +475,8 @@ public enum ConversationShellAssets {
       var MIN_ZOOM = 0.74;
       var SKELETON_HEIGHT = 58;
       var MOVE_MS = 180;
+      var IMAGE_POLL_MS = 250;
+      var IMAGE_LOAD_TIMEOUT = 20000;
       // Bodies whose images are not loaded render under this policy: nothing remote is fetched, whatever
       // the stored HTML holds (a body stored while the preference was on keeps live remote sources).
       var BLOCKING_CSP = "default-src 'none'; img-src ss-cid: data:; style-src 'unsafe-inline'; font-src ss-cid: data:";
@@ -642,25 +652,39 @@ public enum ConversationShellAssets {
       function trackImageLoad(card, doc) {
         if (!card.imageLoad || card.imageLoad.tracking) { return; }
         var remote = [];
+        var failedAlready = 0;
         var images = doc.images;
         for (var i = 0; i < images.length; i++) {
+          // Remote means what the blocking policy holds back: anything not served from this Mac.
           var src = images[i].getAttribute('src') || '';
-          if (/^https?:/i.test(src) && !images[i].complete) { remote.push(images[i]); }
+          if (!src || /^(data|ss-cid):/i.test(src)) { continue; }
+          // Sources live in the stored HTML load with the document, before its load event: count those that broke.
+          if (!images[i].complete) { remote.push(images[i]); } else if (images[i].naturalWidth === 0) { failedAlready++; }
         }
         card.imageLoad.tracking = true;
+        card.imageLoad.failed = (card.imageLoad.failed || 0) + failedAlready;
         card.imageLoad.pending = remote.length;
-        function done(failed) {
-          if (!card.imageLoad) { return; }
-          if (failed) { card.imageLoad.failed++; }
-          card.imageLoad.pending--;
-          if (card.imageLoad.pending <= 0) { settleImageLoad(card); }
+        // WebKit runs no event listener inside a body document, whose scripts the sandbox turns off, even one the
+        // shell adds: `load` and `error` never arrive. The shell polls the images' own state instead.
+        var frame = card.iframe;
+        var started = Date.now();
+        function poll() {
+          if (!card.imageLoad || card.iframe !== frame) { return; }
+          var pending = 0;
+          for (var j = 0; j < remote.length; j++) { if (!remote[j].complete) { pending++; } }
+          card.imageLoad.pending = pending;
+          var timedOut = Date.now() - started >= IMAGE_LOAD_TIMEOUT;
+          if (pending > 0 && !timedOut) {
+            card.imageLoad.timer = setTimeout(poll, IMAGE_POLL_MS);
+            return;
+          }
+          // A broken image is complete with no pixels; one still loading at the timeout counts as failed too.
+          var failed = pending;
+          for (var k = 0; k < remote.length; k++) { if (remote[k].complete && remote[k].naturalWidth === 0) { failed++; } }
+          card.imageLoad.failed += failed;
+          settleImageLoad(card);
         }
-        for (var j = 0; j < remote.length; j++) {
-          remote[j].addEventListener('load', function () { done(false); }, { once: true });
-          remote[j].addEventListener('error', function () { done(true); }, { once: true });
-        }
-        if (remote.length === 0) { settleImageLoad(card); return; }
-        card.imageLoad.timer = setTimeout(function () { settleImageLoad(card); }, 20000);
+        poll();
       }
 
       function settleImageLoad(card) {
@@ -757,6 +781,8 @@ public enum ConversationShellAssets {
       function attachMeasurement(card) {
         var doc = frameDocument(card);
         if (!doc || !doc.body) { return; }
+        // Only the message's own document counts; a transient about:blank says nothing about the body.
+        if (doc.URL && doc.URL !== 'about:srcdoc') { return; }
         if (card.imagesLoaded) {
           restoreRemote(card, doc);
           trackImageLoad(card, doc);
@@ -766,29 +792,16 @@ public enum ConversationShellAssets {
         }
         syncDocumentClasses(card);
         if (card.observer) { try { card.observer.disconnect(); } catch (e) {} card.observer = null; }
-        var images = doc.images;
-        for (var i = 0; i < images.length; i++) {
-          images[i].addEventListener('load', card.remeasure);
-          images[i].addEventListener('error', card.remeasure);
-        }
+        // No listener runs inside a body document (see trackImageLoad), so images that change its size are caught
+        // by a ResizeObserver, which reports to the shell, and by the timed measurements below. Link clicks are
+        // the navigation policy's (ConversationNavigationPolicy), and a click making the message the target
+        // is learnt from focus moving into the frame (`frameFocused`).
         try {
           if (window.ResizeObserver) {
             card.observer = new ResizeObserver(card.remeasure);
             card.observer.observe(doc.body);
           }
         } catch (e) { card.observer = null; }
-        if (!doc.ssLinksHooked) {
-          doc.ssLinksHooked = true;
-          doc.addEventListener('click', function (event) {
-            var target = event.target;
-            var anchor = target && target.closest ? target.closest('a[href]') : null;
-            setTarget(card, true);
-            if (!anchor) { return; }
-            event.preventDefault();
-            post('ss', { kind: 'openLink', url: anchor.href });
-          });
-          doc.addEventListener('mousedown', function () { keyboardNav = false; clearFocusRing(); }, true);
-        }
         fitWidth(card);
         measure(card);
         setTimeout(card.remeasure, 50);
@@ -809,8 +822,9 @@ public enum ConversationShellAssets {
         card.wide = false;
       }
 
-      function skeletons(delayed) {
-        var wrap = el('div', 'ss-skels' + (delayed ? ' ss-delayed' : ''));
+      // `kind` is 'ss-delayed' for a body fetch in flight, 'ss-held' for a frame loading under its provisional height.
+      function skeletons(kind) {
+        var wrap = el('div', 'ss-skels ' + kind);
         wrap.appendChild(el('i', 'ss-skel'));
         wrap.appendChild(el('i', 'ss-skel'));
         wrap.appendChild(el('i', 'ss-skel'));
@@ -840,7 +854,7 @@ public enum ConversationShellAssets {
             notice.appendChild(el('span', 'ss-btxt', 'The full message will load when you’re back online.'));
             wrap.appendChild(notice);
           } else if (m.bodyState === 'loading') {
-            wrap.appendChild(skeletons(true));
+            wrap.appendChild(skeletons('ss-delayed'));
           }
           return;
         }
@@ -851,22 +865,24 @@ public enum ConversationShellAssets {
         iframe.setAttribute('title', 'Message body');
         iframe.addEventListener('load', function () { attachMeasurement(card); });
         card.iframe = iframe;
+        // srcdoc before insertion: an iframe inserted without one loads about:blank and fires `load` at once,
+        // which would measure the blank page into the height cache and settle a Load images that has not run.
+        iframe.srcdoc = bodyDocument(card);
+        // Animate to a provisional height, then snap (spec §4.10): the last measured height at this width, or
+        // the skeleton's 58 pt with the skeleton drawn in it.
+        var cached = heights[heightKey(card)];
         var host = iframe;
         if (showsInset(card)) {
           host = el('div', 'ss-original');
           host.appendChild(iframe);
         }
         wrap.appendChild(host);
-        // Animate to a provisional height, then snap (spec §4.10): the last measured height at this width, or
-        // the skeleton's 58 pt with the skeleton drawn in it.
-        var cached = heights[heightKey(card)];
         if (cached) {
           wrap.style.minHeight = cached + (showsInset(card) ? 24 : 0) + 'px';
         } else {
           wrap.style.minHeight = SKELETON_HEIGHT + 'px';
-          wrap.appendChild(skeletons(false));
+          wrap.appendChild(skeletons('ss-held'));
         }
-        iframe.srcdoc = bodyDocument(card);
       }
 
       function ensureFrame(card) {
@@ -1161,7 +1177,8 @@ public enum ConversationShellAssets {
         card.qrow.replaceChildren();
         card.qrow.style.display = m.hasBody && m.hasQuotedContent ? '' : 'none';
         if (!(m.hasBody && m.hasQuotedContent)) { refitCard(card); return; }
-        var toggle = button('ss-elide ss-toggle-quote' + (card.quotesShown ? ' ss-on' : ''), null, 'Show Quoted Text  .');
+        var toggle = button('ss-elide ss-toggle-quote' + (card.quotesShown ? ' ss-on' : ''), null,
+          card.quotesShown ? 'Hide Quoted Text  .' : 'Show Quoted Text  .');
         toggle.appendChild(glyph(ELIDE_SVG));
         toggle.appendChild(document.createTextNode(card.quotesShown ? 'Hide quoted text' : 'Show quoted text'));
         toggle.setAttribute('aria-pressed', card.quotesShown ? 'true' : 'false');
@@ -1850,6 +1867,20 @@ public enum ConversationShellAssets {
       }
 
       document.addEventListener('keydown', function () { keyboardNav = true; }, true);
+      // A click (or Tab) into a body moves focus into its frame and away from the shell. Listeners inside the
+      // sandboxed body never run, so this is how the click makes that message the target (spec §5.14).
+      function frameFocused() {
+        var active = document.activeElement;
+        if (!active || active.tagName !== 'IFRAME') { return; }
+        for (var i = 0; i < state.cards.length; i++) {
+          if (state.cards[i].iframe === active) {
+            if (!keyboardNav) { clearFocusRing(); }
+            setTarget(state.cards[i], true);
+            return;
+          }
+        }
+      }
+      window.addEventListener('blur', function () { setTimeout(frameFocused, 0); });
       document.addEventListener('mousedown', function () { keyboardNav = false; clearFocusRing(); }, true);
       document.addEventListener('transitionend', function (event) {
         if (event.propertyName === 'height') { settled(event.target); }

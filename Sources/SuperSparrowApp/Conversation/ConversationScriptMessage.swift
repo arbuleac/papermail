@@ -8,7 +8,6 @@ enum ConversationScriptMessage: Equatable {
     /// A button in a sheet. `on` is the state a toggle asks for (star); `point` is where a menu opens (More),
     /// in the web view's coordinates.
     case action(type: String, messageID: MessageID?, attachmentID: String?, on: Bool?, point: CGPoint?)
-    case openLink(URL)
     /// The target message changed: R, A, F and Space act on it.
     case select(MessageID)
     /// An attachment chip took keyboard focus: Space previews from it.
@@ -35,9 +34,6 @@ enum ConversationScriptMessage: Equatable {
                 point = CGPoint(x: x, y: y)
             }
             self = .action(type: type, messageID: messageID, attachmentID: attachmentID, on: dictionary["on"] as? Bool, point: point)
-        case "openLink":
-            guard let string = dictionary["url"] as? String, let url = URL(string: string) else { return nil }
-            self = .openLink(url)
         case "select":
             guard let messageID else { return nil }
             self = .select(messageID)

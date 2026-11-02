@@ -4,28 +4,29 @@ import SSDesign
 /// Text the reader sets natively that Quire's roles do not name directly.
 @MainActor
 enum ReaderFonts {
-    private static var placeholderFonts: [QuireFont.Role: NSFont] = [:]
+    /// The italic face of each role and its baseline offset, resolved once: the headline asks on every selection.
+    private static var placeholderFaces: [QuireFont.Role: (font: NSFont, baselineOffset: CGFloat)] = [:]
 
     /// A placeholder for missing data (spec §4.1): set in the role it replaces, `ink3`, italic and never
     /// Semibold, so "No subject" never reads as content or as unread.
     static func placeholder(_ text: String, role: QuireFont.Role) -> NSAttributedString {
-        let font = placeholderFont(role)
+        let face = placeholderFace(role)
         var attributes = QuireFont.attributes(role, color: .qInk3)
-        attributes[.font] = font
-        let lineHeight = role.lineHeight
-        attributes[.baselineOffset] = (lineHeight - NSLayoutManager().defaultLineHeight(for: font)) / 2
+        attributes[.font] = face.font
+        attributes[.baselineOffset] = face.baselineOffset
         return NSAttributedString(string: text, attributes: attributes)
     }
 
-    private static func placeholderFont(_ role: QuireFont.Role) -> NSFont {
-        if let cached = placeholderFonts[role] { return cached }
+    private static func placeholderFace(_ role: QuireFont.Role) -> (font: NSFont, baselineOffset: CGFloat) {
+        if let cached = placeholderFaces[role] { return cached }
         let base = NSFont.systemFont(ofSize: role.size, weight: .regular)
         var descriptor = base.fontDescriptor
         if role.family == .serif { descriptor = descriptor.withDesign(.serif) ?? descriptor }
         descriptor = descriptor.withSymbolicTraits(descriptor.symbolicTraits.union(.italic))
         let font = NSFont(descriptor: descriptor, size: role.size) ?? base
-        placeholderFonts[role] = font
-        return font
+        let face = (font, (role.lineHeight - NSLayoutManager().defaultLineHeight(for: font)) / 2)
+        placeholderFaces[role] = face
+        return face
     }
 
     /// `string` for a text field, which sets its own line box: a role's exact line height and baseline offset,
