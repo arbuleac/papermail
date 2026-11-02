@@ -20,6 +20,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     var onAddAccount: ((ProviderKind?) -> Void)?
     var onReconnect: ((Account) -> Void)?
     var onOpenSettings: (() -> Void)?
+    /// Settings on its Accounts pane: the sync line and its “Reconnect…” go there (§5.11).
+    var onOpenAccountsSettings: (() -> Void)?
     var onTryDemo: (() -> Void)?
     var onCancelSignIn: (() -> Void)?
     /// “Leave Demo” confirmed (§5.43): wipe the demo store and return to the welcome screen.
@@ -59,8 +61,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     private var unreadAtScopeChange: [AccountID: Int] = [:]
 
     // Undo and toasts
-    private var undoGroups: [UndoGroup] = []
-    private static let undoCapacity = 20
+    private var undoHistory = MailActionUndoHistory(grace: Quire.Motion.undoKeyGrace, coalesceWindow: Quire.Motion.toastCoalesce)
 
     // Sign-in, checks
     private var pendingSignIn: PendingSignIn?
@@ -241,7 +242,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         listPane.onLeaveDemo = { [weak self] in self?.leaveDemo(nil) }
         listPane.titleMenuModel = { [weak self] in self?.titleMenuModel ?? TitleMenu.Model(
             view: .inbox, inboxUnread: 0, scope: .unified, showsAccounts: false, unifiedUnread: 0, accounts: []) }
-        listPane.statusBar.onOpenSettings = { [weak self] in self?.onOpenSettings?() }
+        listPane.statusBar.onOpenSettings = { [weak self] in self?.openAccountsSettings() }
         listPane.statusBar.onAction = { [weak self] action in self?.syncLineAction(action) }
         listPane.toasts.onEnd = { [weak self] id, reason in self?.toastEnded(id, reason: reason) }
 
@@ -415,12 +416,16 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             guard let account = accountsByID[id] else { return }
             requestReconnect(account)
         case .reconnectSeveral:
-            onOpenSettings?()
+            openAccountsSettings()
         case .retry(let ids):
             for id in ids { environment.engine.syncNow(accountID: id) }
         case .cancelSignIn:
             onCancelSignIn?()
         }
+    }
+
+    private func openAccountsSettings() {
+        (onOpenAccountsSettings ?? onOpenSettings)?()
     }
 
     /// First sync with no categories known yet: Focused and Other wait (§5.5).
@@ -767,44 +772,35 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         return true
     }
 
+    /// A toast's Undo reverts the group that toast offers, whatever happened since; Z and ⌘Z follow
+    /// `MailActionUndoHistory.target`.
     private func recordUndo(_ record: MailActionRecord) {
         let now = Date()
         let toasts = listPane.toasts
-        if var last = undoGroups.last, last.change == record.change, let toastID = last.toastID, toasts.visibleID == toastID,
-           now.timeIntervalSince(last.lastActionAt) <= Quire.Motion.toastCoalesce {
-            last.records.append(record)
-            last.lastActionAt = now
-            let count = last.records.count
-            toasts.show(MailActionCopy.toast(for: record.change, count: count), kind: .undoable, symbol: symbol(for: record.change),
-                        actionTitle: "Undo", keycap: "Z", updating: toastID) { [weak self] in self?.undoLastAction() }
-            undoGroups[undoGroups.count - 1] = last
+        if let group = undoHistory.coalesce(record, at: now, visibleToastID: toasts.visibleID) {
+            let id = group.id
+            toasts.show(MailActionCopy.toast(for: record.change, count: group.records.count), kind: .undoable,
+                        symbol: symbol(for: record.change), actionTitle: "Undo", keycap: "Z",
+                        updating: group.toastID) { [weak self] in self?.undo(groupID: id) }
             return
         }
-        var group = UndoGroup(records: [record], change: record.change, lastActionAt: now)
-        if MailActionCopy.wantsToast(for: record.change, in: mailboxView, isSearching: !searchText.isEmpty) {
-            group.toastID = toasts.show(MailActionCopy.toast(for: record.change), kind: .undoable, symbol: symbol(for: record.change),
-                                        actionTitle: "Undo", keycap: "Z") { [weak self] in self?.undoLastAction() }
-        } else {
-            // No toast for a change the row itself shows; Z still reaches it for the grace period.
-            group.expiresAt = now.addingTimeInterval(Quire.Motion.undoKeyGrace)
-        }
-        undoGroups.append(group)
-        if undoGroups.count > Self.undoCapacity { undoGroups.removeFirst(undoGroups.count - Self.undoCapacity) }
+        // No toast for a change the row itself shows; Z still reaches it for the grace period.
+        let toasted = MailActionCopy.wantsToast(for: record.change, in: mailboxView, isSearching: !searchText.isEmpty)
+        let id = undoHistory.add(record, at: now, toasted: toasted)
+        guard toasted else { return }
+        let toastID = toasts.show(MailActionCopy.toast(for: record.change), kind: .undoable, symbol: symbol(for: record.change),
+                                  actionTitle: "Undo", keycap: "Z") { [weak self] in self?.undo(groupID: id) }
+        undoHistory.bindToast(toastID, to: id)
     }
 
     /// A toast stopped being visible: Z and ⌘Z reach its action for 10000 ms more (§6.1).
     private func toastEnded(_ id: Int, reason: ToastPresenter.End) {
-        guard let index = undoGroups.lastIndex(where: { $0.toastID == id }) else { return }
-        undoGroups[index].toastID = nil
-        undoGroups[index].expiresAt = Date().addingTimeInterval(Quire.Motion.undoKeyGrace)
+        undoHistory.toastEnded(id, at: Date())
     }
 
-    /// The group Z and ⌘Z would undo now: the latest one, while its toast is visible or within the grace period.
-    private var undoTarget: UndoGroup? {
-        guard let last = undoGroups.last else { return nil }
-        if let toastID = last.toastID, listPane.toasts.visibleID == toastID { return last }
-        if let expiresAt = last.expiresAt, Date() <= expiresAt { return last }
-        return nil
+    /// The group Z and ⌘Z would undo now.
+    private var undoTarget: MailActionUndoHistory.Group? {
+        undoHistory.target(at: Date(), visibleToastID: listPane.toasts.visibleID)
     }
 
     /// Brings the selected conversation back to the inbox: out of the trash when it is there, else out of the
@@ -816,11 +812,19 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
     @discardableResult
     private func undoLastAction() -> Bool {
-        guard let group = undoTarget else {
+        guard let target = undoTarget else {
             NSSound.beep()
             return true
         }
-        undoGroups.removeLast()
+        return undo(groupID: target.id)
+    }
+
+    @discardableResult
+    private func undo(groupID: Int) -> Bool {
+        guard let group = undoHistory.remove(groupID) else {
+            NSSound.beep()
+            return true
+        }
         do {
             for record in group.records.reversed() {
                 for step in record.inverse {
@@ -1037,17 +1041,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     }
 }
 
-/// One undoable step as the user saw it: a mail action, or several of the same kind coalesced into one toast.
-private struct UndoGroup {
-    var records: [MailActionRecord]
-    var change: MetadataChange
-    var lastActionAt: Date
-    /// The toast offering it, while that toast is visible.
-    var toastID: Int?
-    /// Once its toast has gone (or when it never had one): Z still reaches it until then.
-    var expiresAt: Date?
-}
-
 /// A browser sign-in the window is waiting on (§5.44).
 private enum PendingSignIn: Equatable {
     /// Started from this window's rail or Demo tag, for this provider.
@@ -1061,13 +1054,17 @@ private enum PendingSignIn: Equatable {
 #if DEBUG
 extension MainWindowController {
     /// `--snapshot-state=key,notkey,minimal,narrowed,adding,reconnect,signin,toast,search,focus-rail,focus-action,
-    /// hover-demo,hover-masthead` (debug builds):
+    /// hover-demo,hover-masthead,ic,graphite` (debug builds):
     /// puts the window in the named states before `--snapshot` captures it, so every state of the chrome can be
     /// compared with the specimen without a screen recording.
     fileprivate func applyDebugSnapshotStates() {
         guard let argument = CommandLine.arguments.first(where: { $0.hasPrefix("--snapshot-state=") }) else { return }
         let states = Set(argument.dropFirst("--snapshot-state=".count).split(separator: ",").map(String.init))
         let second = accounts.dropFirst().first
+        if states.contains("ic") || states.contains("graphite") {
+            QuireEnvironment.shared.setOverrides(QuireEnvironment.Overrides(
+                isGraphite: states.contains("graphite") ? true : nil, increaseContrast: states.contains("ic") ? true : nil))
+        }
         if states.contains("narrowed"), let first = accounts.first {
             strip.select(.account(first.id), notify: true)
             // Another account has mail since the scope was chosen.

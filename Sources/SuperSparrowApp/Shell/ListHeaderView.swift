@@ -161,6 +161,8 @@ final class ListHeaderView: NonDraggingView {
     @objc private func environmentDidChange(_ note: Notification) {
         needsDisplay = true
         needsLayout = true
+        // Row 1 draws the new-mail dot (`accent`, which Graphite changes) and the address itself.
+        rowOne.needsDisplay = true
     }
 
     override func viewDidChangeEffectiveAppearance() {

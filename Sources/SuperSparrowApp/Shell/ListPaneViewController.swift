@@ -48,7 +48,7 @@ final class ListPaneViewController: NSViewController {
     }
 
     override func loadView() {
-        let root = ListPaneView()
+        let root = ListPaneView(frame: .zero)
         root.header = header
         root.statusBar = statusBar
         root.toastView = toastView
@@ -307,6 +307,20 @@ private final class ListPaneView: NonDraggingView {
     weak var toastView: NSView?
 
     override var isOpaque: Bool { true }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        // Increase Contrast and Graphite change token values without an appearance change (QuireEnvironment).
+        NotificationCenter.default.addObserver(self, selector: #selector(environmentDidChange(_:)),
+                                               name: QuireEnvironment.didChangeNotification, object: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("built in code") }
+
+    @objc private func environmentDidChange(_ note: Notification) {
+        needsDisplay = true
+    }
 
     /// Frames are set by hand; a new size lays the contents out again.
     override func setFrameSize(_ newSize: NSSize) {

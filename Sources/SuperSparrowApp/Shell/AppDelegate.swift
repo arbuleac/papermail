@@ -322,6 +322,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.onAddAccount = { [weak self] kind in self?.addAccount(kind) }
         window.onReconnect = { [weak self] account in self?.addAccount(account.kind, reconnecting: account) }
         window.onOpenSettings = { [weak self] in self?.openSettings() }
+        window.onOpenAccountsSettings = { [weak self] in self?.openSettings(tab: .accounts) }
         window.onTryDemo = { [weak self] in self?.switchToDemo() }
         window.onCancelSignIn = { [weak self] in self?.cancelSignIn() }
         window.onLeaveDemo = { [weak self] in self?.leaveDemo() }

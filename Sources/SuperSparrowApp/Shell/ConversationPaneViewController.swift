@@ -20,7 +20,7 @@ final class ConversationPaneViewController: NSViewController {
     }
 
     override func loadView() {
-        let root = ReaderDeskView()
+        let root = ReaderDeskView(frame: .zero)
         root.translatesAutoresizingMaskIntoConstraints = false
         addChild(conversation)
         let content = conversation.view
@@ -44,6 +44,20 @@ private final class ReaderDeskView: NSView {
     override var isFlipped: Bool { true }
     /// The desk under the title-bar zone drags the window like the rest of the zone (§3.2).
     override var mouseDownCanMoveWindow: Bool { true }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        // Increase Contrast changes `canvas` without an appearance change (QuireEnvironment).
+        NotificationCenter.default.addObserver(self, selector: #selector(environmentDidChange(_:)),
+                                               name: QuireEnvironment.didChangeNotification, object: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("built in code") }
+
+    @objc private func environmentDidChange(_ note: Notification) {
+        needsDisplay = true
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         NSColor.qCanvas.setFill()
