@@ -1,0 +1,188 @@
+<section class="sh"><span class="n">B · Window states</span><h2>Idle, minimal, several selected</h2><p>The same window when it is not key, with the rail hidden, and with three conversations selected. Feedback slips are shown on their own so nothing covers content.</p></section>
+<div class="grid">
+  <div class="c4">
+    <div class="win" style="height:330px">
+      <div class="lights idle"><i></i><i></i><i></i></div>
+      <div class="list" style="left:0;width:100%">
+        <div class="lh"><div class="mast" style="left:84px">Inbox {{PY: s('chevron.down', 9)}}</div>
+          <div class="tabs"><span class="tab on idle">All</span><span class="tab">Focused</span><span class="tab">Other</span></div></div>
+        {{PY: row('Priya Raman', 'Lisbon in March?', 'Booked the flat near Príncipe Real. Sam wants to come for the weekend too.', '22:10', 'heather', 'PR', acct='G', state='idle', star=True, count=3)}}
+        {{PY: row('Forge', '[sparrow-sync] PR #2657: Coalesce history pages', 'maya-c commented: Looks good, one nit about the retry budget.', '21:48', 'stone', 'F', acct='F', unread=True, tag='Other')}}
+        {{PY: row('Linda Morgan', 'Sunday dinner', 'Ha, noted. I will bring the plum cake from the bakery.', '19:02', 'rose', 'LM', acct='G', failed=True)}}
+      </div>
+    </div>
+    <p class="ann" style="margin-top:10px">Window not key: grey lights, <code>selWashIdle</code> with the always-drawn {{border.marginRule.width}} pt <code>selRuleIdle</code> rule, tab underline in <code>ink3</code>. The third row shows a permanently failed operation.</p>
+  </div>
+  <div class="c4">
+    <div class="win" style="height:330px">
+      <div class="lights"><i></i><i></i><i></i></div>
+      <div class="list" style="left:0;width:100%">
+        <div class="lh"><div class="mast" style="left:{{layout.listHeader.mastheadMinimalX}}px;right:52px">Inbox {{PY: s('chevron.down', 9)}}<span class="dotb" style="margin-left:calc({{layout.listHeader.minimalDotGap}}px - 6px);flex:none" title="New mail in another account"></span><span class="sfx" style="margin-left:0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">· alex@contoso.test</span></div>
+          <div class="ib compose">{{PY: g('ss.nib', 18)}}</div>
+          <div class="tabs"><span class="tab on">All</span><span class="tab">Focused</span><span class="tab">Other</span></div>
+          <div class="search">{{PY: s('magnifyingglass', 12)}}<span class="ph">Search Inbox</span><span class="kbd">/</span></div></div>
+        {{PY: row('Ben Carter, Alex Morgan, Tom Hughes', 'Contoso rollout: go-live checklist', 'Tested with three accounts this afternoon, all good.', '23:39', 'slate', 'BC', state='sel', clip=True, count=4)}}
+        {{PY: row('Rachel Kim, Alex Morgan', 'Q4 roadmap review', 'Great work. One comment: move offline mode ahead of search.', '17:20', 'sea', 'RK', unread=True, clip=True, count=2)}}
+        {{PY: row('Calendar', 'Accepted: Design review @ Thu 15:30', 'Room: Juniper (4th floor) · Video link in the event', '13:05', 'wheat', 'C')}}
+      </div>
+    </div>
+    <p class="ann" style="margin-top:10px">Minimal mode (⌃⌘S), narrowed to one account: the masthead starts at x = {{layout.listHeader.mastheadMinimalX}} past the traffic lights, rings are dropped, an {{layout.listHeader.minimalDotSize}} pt dot {{layout.listHeader.minimalDotGap}} pt after the chevron says another account has new mail, and the address truncates first. Header row 2 is unchanged: the Inbox tabs stay and search rests at {{layout.listHeader.searchWidth}} pt.</p>
+  </div>
+  <div class="c4">
+    <div class="win" style="height:330px;background:var(--q-canvas)">
+      <div class="rh" style="position:absolute;left:0;right:0;top:0;height:92px;background:var(--q-paper);box-shadow:inset 0 -1px 0 var(--q-rule)">
+        <div class="kick" style="left:24px">Selection</div>
+        <div class="hl" style="left:24px;right:24px">3 conversations selected</div>
+        <div class="acts"><span class="ib">{{PY: s('star', 15)}}</span><span class="ib">{{PY: s('archivebox', 15)}}</span><span class="ib">{{PY: s('trash', 15)}}</span></div>
+      </div>
+      <div style="position:absolute;top:92px;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;text-align:center;padding:0 24px">
+        <div style="font:var(--q-font-aside);color:var(--q-ink)">Three conversations, one keystroke.</div>
+        <div style="font:var(--q-font-snippet);color:var(--q-ink2);display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:center"><span class="kbd">E</span> archives them <span class="kbd">#</span> moves them to Trash <span class="kbd">S</span> stars them</div>
+      </div>
+    </div>
+    <p class="ann" style="margin-top:10px">Reader with several selected (⇧J / ⇧K, ⌘-click, ⇧-click). The header names the count in the headline role; actions apply to all.</p>
+  </div>
+
+  <div class="c12 card" style="background:var(--studio-card);box-shadow:0 0 0 1px var(--studio-rule)">
+    <h3 style="color:var(--studio-ink)">Feedback slips <code>slip · e2 / e3 · contrail</code></h3>
+    <p class="cap" style="color:var(--studio-ink2)">The slip is dark in both appearances. The contrail is the one drawn element that means time is moving: it drains along the bottom edge over the undo window and pauses while the pointer rests on the toast. Several actions within {{motion.duration.toastCoalesce}} ms coalesce into one toast; a new toast replaces the old one. A hovered or pressed action draws its keycap legend in <code>onSlip</code>. An undo confirms itself with an action-less toast.</p>
+    <div class="rowline" style="gap:24px;align-items:flex-start">
+      <div style="display:grid;gap:12px;justify-items:start;max-width:300px">
+        <span class="slip">{{PY: s('archivebox', 14)}}Archived<i class="dv"></i><span class="ua">Undo <span class="kbd os">Z</span></span><i class="contrail" style="width:62%"></i></span>
+        <span class="slip">{{PY: s('archivebox', 14)}}Archived 3 conversations<i class="dv"></i><span class="ua hov">Undo <span class="kbd os">Z</span></span><i class="contrail" style="width:40%"></i></span>
+        <span class="slip">{{PY: s('trash', 14)}}Moved to Trash<i class="dv"></i><span class="ua prs">Undo <span class="kbd os">Z</span></span><i class="contrail" style="width:24%"></i></span>
+        <span class="slip na">{{PY: s('arrow.uturn.backward', 14)}}Undid Archive</span>
+        <span class="slip">{{PY: s('exclamationmark.triangle.fill', 14)}}Couldn’t archive. Restored.<i class="dv"></i><span class="ua foc">Details</span></span>
+        <span class="ann" style="color:var(--studio-ink2)">rest · action hover · action pressed · undo confirmation (no action) · error</span>
+      </div>
+      <div style="display:grid;gap:12px;justify-items:start;max-width:290px">
+        <div class="panel">{{PY: s('paperplane.fill', 15)}}<div class="tx"><div class="t1">Sending in 4 s</div><div class="t2">Re: Contoso rollout · to Ben Carter</div></div><span class="ub">Undo <span class="kbd os">⌘Z</span></span><i class="contrail" style="width:78%"></i></div>
+        <div class="panel">{{PY: s('paperplane.fill', 15)}}<div class="tx"><div class="t1">Sending in 3 s</div><div class="t2">Re: Contoso rollout · to Ben Carter</div></div><span class="ub hov">Undo <span class="kbd os">⌘Z</span></span><i class="contrail" style="width:58%"></i></div>
+        <div class="panel"><span class="spin" style="--sz:14px;color:var(--q-onSlip2)"></span><div class="tx"><div class="t1">Sending…</div><div class="t2">Re: Contoso rollout · to Ben Carter</div></div></div>
+        <div class="panel">{{PY: s('checkmark', 15)}}<div class="tx"><div class="t1">Sent</div><div class="t2">Re: Contoso rollout · to Ben Carter</div></div></div>
+        <div class="panel">{{PY: s('exclamationmark.triangle.fill', 15)}}<div class="tx"><div class="t1">Couldn’t send</div><div class="t2">Your draft is kept on this Mac</div></div><span class="ub">Open draft</span></div>
+        <span class="ann" style="color:var(--studio-ink2)">counting (Undo outlined at rest) · Undo hovered · sending · sent · failed</span>
+      </div>
+      <div class="hud">
+        <div class="hd"><span class="kbd os">G</span>Go to…</div>
+        <div class="r"><span class="kbd os">I</span>Inbox</div><div class="r"><span class="kbd os">S</span>Starred</div><div class="r"><span class="kbd os">T</span>Sent</div>
+        <div class="r"><span class="kbd os">D</span>Drafts</div><div class="r"><span class="kbd os">#</span>Trash</div><div class="r"><span class="kbd os">A</span>All Mail</div>
+      </div>
+      <div style="flex:1;min-width:220px;font:12px/17px var(--q-sans);color:var(--studio-ink2)">
+        <b style="display:block;font:600 13px/18px var(--q-serif);color:var(--studio-ink)">Timing</b>
+        Toast: in {{motion.duration.standard}} ms (rise {{layout.toast.rise}} pt + fade, <code>ease.settle</code>), life {{motion.duration.toastLife}} ms, out {{motion.duration.quick}} ms (<code>ease.leave</code>); the undo confirmation lives {{motion.duration.toastConfirm}} ms. Esc dismisses a toast before it returns focus to the list; ⌘Z goes to the most recent of the toast and a live send. Undo panel: in {{motion.duration.slow}} ms, window {{motion.duration.undoSendDefault}} ms by default. HUD: appears only if no second key arrives within {{motion.duration.gHudDelay}} ms; the second key, Esc or {{motion.duration.gSequenceWindow}} ms after G dismisses it. Reduce Motion: fades only, the contrail steps once per second next to the numeric countdown.
+      </div>
+    </div>
+  </div>
+</div>
+
+<section class="sh"><span class="n">C · Windows</span><h2>Composer, welcome, settings</h2><p>The composer keeps the plain system title bar ({{layout.window.composerTitlebar}} pt on macOS 15, as drawn; {{layout.window.composerTitlebar26}} pt from macOS 26), transparent over <code>paper</code>, no toolbar. Welcome fills the main window until the first account exists. Settings is SwiftUI: system window and tabs, Quire-drawn controls.</p></section>
+<div class="grid">
+  <div class="c7">
+    <div class="win" style="height:600px;width:100%;background:var(--q-sheet)">
+      <div class="lights t8"><i></i><i></i><i></i></div>
+      <div class="titlebar">Re: Contoso rollout: go-live checklist</div>
+      <div style="background:var(--q-paper)">
+        <div class="cf"><span class="cl">From</span><span class="pop bare"><span class="swatch" style="--a:var(--q-acct-1);width:7px;height:7px"></span>Alex Morgan &lt;alex@contoso.test&gt; {{PY: s('chevron.up.chevron.down', 11)}}</span></div>
+        <div class="cf"><span class="cl">To</span><span class="cfv foc"><span class="tok">Ben Carter</span><span class="tok">Tom Hughes</span><span class="tok bad">{{PY: s('exclamationmark.triangle.fill', 10)}}it-desk@contoso</span><span class="caret"></span></span><span class="btn sm ghost">Cc</span><span class="btn sm ghost" style="margin-left:{{layout.composer.ccBccGap}}px">Bcc</span></div>
+        <div class="cf subj"><span class="cl">Subject</span><span style="font:var(--q-font-composeSubject)">Re: Contoso rollout: go-live checklist</span></div>
+      </div>
+      <div style="padding:20px 24px 0 84px;font:var(--q-font-writing);color:var(--q-ink);height:300px">
+        <p>Hi Ben,</p><p style="margin-top:10px">Thanks for running the checks. I have forwarded <b style="font-weight:600">the runbook</b> to our IT desk and asked them to confirm the metadata by <a style="color:var(--q-accent);text-decoration:underline;text-decoration-thickness:{{layout.textStyle.linkUnderline}}px;text-underline-offset:{{layout.textStyle.linkUnderlineOffset}}px">Thursday's checklist</a>.</p><p style="margin-top:10px">Alex</p>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:18px"><span class="qt" style="padding:0 6px">{{PY: g('ss.elide', 14)}}</span><span style="font:var(--q-font-snippet);color:var(--q-ink3)">Ben Carter wrote on Yesterday 23:39</span></div>
+      </div>
+      <div class="fmtrow" style="position:absolute;left:0;right:0;bottom:52px">
+        <span class="ib qon" title="Bold  ⌘B">{{PY: s('bold', 14)}}</span><span class="ib">{{PY: s('italic', 14)}}</span><span class="ib">{{PY: s('underline', 14)}}</span><i class="gap"></i>
+        <span class="ib">{{PY: s('list.bullet', 14)}}</span><span class="ib">{{PY: s('list.number', 14)}}</span><span class="ib">{{PY: s('text.quote', 14)}}</span><i class="gap"></i><span class="ib hov">{{PY: s('link', 14)}}</span>
+        <span class="ann" style="margin-left:auto">format row · Bold on at the caret</span></div>
+      <div style="position:absolute;left:0;right:0;bottom:88px;height:48px;background:var(--q-sheet);box-shadow:inset 0 1px 0 var(--q-rule);display:flex;align-items:center;gap:8px;padding:0 16px">
+        <span class="sc">{{PY: s('doc', 14)}}<b>go-live-checklist.pdf</b><i>240 KB</i><span class="rm">{{PY: s('xmark', 9)}}</span></span>
+        <span class="sc" style="position:relative;overflow:hidden">{{PY: s('photo', 14)}}<b>rack-photo.heic</b><i>3.1 of 4.8 MB</i><span class="rm">{{PY: s('xmark', 9)}}</span><i class="contrail" style="top:auto;bottom:0;width:64%"></i></span>
+      </div>
+      <div style="position:absolute;left:0;right:0;bottom:0;height:52px;background:var(--q-paper);box-shadow:inset 0 1px 0 var(--q-rule);display:flex;align-items:center;gap:6px;padding:0 16px">
+        <span class="btn primary">{{PY: s('paperplane', 14)}}Send</span><span class="kbd" style="margin:0 6px 0 2px">⌘↩</span>
+        <span class="ib" style="margin-left:6px">{{PY: s('paperclip', 15)}}</span><span class="ib qon">{{PY: s('textformat', 15)}}</span>
+        <span style="margin-left:auto;font:var(--q-font-meta);color:var(--q-ink3);display:flex;gap:4px;align-items:center">{{PY: s('checkmark', 11)}}Draft saved</span>
+      </div>
+    </div>
+    <p class="ann" style="margin-top:10px">Composer {{layout.composer.width}} × {{layout.composer.height}}: labels in a {{layout.composer.labelColumn}} pt right-aligned column, values from x = {{layout.composer.valueX}}, one text axis for fields and body. The focused To row carries the inset ring (x = {{layout.composer.focusRingX}} to {{layout.composer.focusRingButtonGap}} pt before Cc, {{layout.composer.focusRingInsetY}} pt inside the row, radius {{layout.composer.focusRingRadius}}); the body would show only its caret. Tokens: rest and invalid (glyph + wash + edge). The Format button (shown on) docks the {{layout.composer.formatRow}} pt format row above the strip; links are <code>accent</code> with a {{layout.textStyle.linkUnderline}} pt underline.</p>
+  </div>
+  <div class="c5" style="display:grid;gap:20px;align-content:start">
+    <div class="win" style="height:430px">
+      <div class="lights"><i></i><i></i><i></i></div>
+      <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center">
+        <span style="color:var(--q-accent)">{{PY: g('ss.sparrow', 52)}}</span>
+        <div style="font:var(--q-font-display);letter-spacing:var(--q-track-display);margin-top:{{layout.welcome.titleGap}}px">SuperSparrow</div>
+        <div style="font:var(--q-font-aside);color:var(--q-ink2);margin-top:{{layout.welcome.taglineGap}}px">Your mail, quietly fast.</div>
+        <div style="display:grid;gap:{{layout.welcome.buttonGap}}px;margin-top:22px;width:300px">
+          <span class="btn lg secondary foc" style="justify-content:flex-start">{{PY: s('envelope', 16)}}Add Gmail account<span style="margin-left:auto;font:var(--q-font-snippet);color:var(--q-ink2)">Google</span></span>
+          <span class="btn lg secondary" style="justify-content:flex-start">{{PY: s('envelope', 16)}}Add Microsoft account<span style="margin-left:auto;font:var(--q-font-snippet);color:var(--q-ink2)">365 · Outlook</span></span>
+        </div>
+        <span class="btn ghost" style="margin-top:8px">Try the demo</span>
+        <p style="font:var(--q-font-meta);color:var(--q-ink3);max-width:300px;margin-top:12px">{{PY: s('lock', 10)}} Your mail is stored on this Mac and travels only between this Mac and Google or Microsoft. No analytics, ever.</p>
+        <span class="btn linkb" style="margin-top:4px;font-size:12px">Set up OAuth clients…</span>
+      </div>
+    </div>
+    <p class="ann">Welcome: two equal secondary choices (the first has initial focus), the demo entry, the privacy promise. Trailing notes are <code>ink2</code> so they hold 4.5:1 on hover and press. Waiting: the chosen button returns to its rest face with a spinner and “Finish signing in in your browser…”; “Try the demo” becomes “Preparing the demo…” while the demo store is seeded.</p>
+  </div>
+  <div class="c12">
+    <div class="win" style="width:{{layout.settings.width}}px;height:548px;background:var(--q-canvas);margin:0 auto 0 0;display:inline-block;vertical-align:top">
+      <div class="lights t8" style="top:10px"><i></i><i></i><i></i></div>
+      <div style="height:30px;text-align:center;font:600 13px/30px var(--q-sans);color:var(--q-ink2)">Accounts</div>
+      <div class="stabs"><span class="on">{{PY: s('person.crop.circle', 20)}}<b>Accounts</b></span><span>{{PY: s('key', 20)}}<b>OAuth</b></span><span>{{PY: s('gearshape', 20)}}<b>General</b></span></div>
+      <div style="padding:{{layout.settings.padTop}}px {{layout.settings.padX}}px {{layout.settings.padBottom}}px">
+        <div class="sgroup">
+          <div class="arow sel"><span class="face" style="--a:var(--q-acct-1);--fg:var(--q-selWash)"><span>C</span></span><div class="an"><b><span class="nmx">Contoso</span><span class="tag">Microsoft 365</span></b><i>alex@contoso.test</i></div><span class="ast">{{PY: s('checkmark.circle.fill', 12)}}Up to date</span></div>
+          <div class="arow"><span class="face" style="--a:var(--q-acct-2);--fg:var(--q-sheet)"><span>G</span></span><div class="an"><b><span class="nmx">Personal</span><span class="tag">Gmail</span></b><i>alex.morgan@gmail.com</i></div><span class="ast"><span class="spin" style="--sz:11px;color:var(--q-ink3)"></span>Downloading · 3,412 of 8,120<span class="sbar"><i style="width:42%"></i></span></span></div>
+          <div class="arow"><span class="face" style="--a:var(--q-acct-4);--fg:var(--q-sheet)"><span>N</span></span><div class="an"><b><span class="nmx">Northwind</span><span class="tag">Gmail</span></b><i>alex@northwind.test</i></div><span class="ast">{{PY: s('clock', 12, 'w')}}Retrying in 30 s</span></div>
+          <div class="arow"><span class="face" style="--a:var(--q-acct-3);--fg:var(--q-sheet)"><span>F</span></span><div class="an"><b><span class="nmx">Fabrikam</span><span class="tag">Microsoft 365</span></b><i class="bad">{{PY: s('exclamationmark.triangle.fill', 10)}}Sign in required</i></div><span class="btn sm secondary">Reconnect</span></div>
+        </div>
+        <div class="rowline" style="gap:0;margin-top:{{layout.settings.plusMinusTop}}px"><span class="sq sqf">{{PY: s('plus', 11)}}</span><span class="sq sqf">{{PY: s('minus', 11)}}</span></div>
+        <div class="sform det">
+          <span>Colour</span><span class="pop" style="width:{{layout.settings.colourPopupWidth}}px"><span class="swatch" style="--a:var(--q-acct-1)"></span>Persimmon<span style="flex:1"></span>{{PY: s('chevron.up.chevron.down', 11)}}</span>
+          <span>Monogram</span><span class="field" style="width:{{layout.settings.monogramFieldWidth}}px;height:{{layout.settings.fieldHeight}}px;--fgap:var(--q-canvas)">C</span>
+          <span></span><span class="btn sm secondary">Remove…</span>
+        </div>
+      </div>
+    </div>
+    <div class="win" style="width:{{layout.settings.width}}px;height:548px;background:var(--q-canvas);display:inline-block;vertical-align:top;margin-left:20px">
+      <div class="lights t8" style="top:10px"><i></i><i></i><i></i></div>
+      <div style="height:30px;text-align:center;font:600 13px/30px var(--q-sans);color:var(--q-ink2)">General</div>
+      <div class="stabs"><span>{{PY: s('person.crop.circle', 20)}}<b>Accounts</b></span><span>{{PY: s('key', 20)}}<b>OAuth</b></span><span class="on">{{PY: s('gearshape', 20)}}<b>General</b></span></div>
+      <div style="padding:{{layout.settings.padTop}}px {{layout.settings.padX}}px {{layout.settings.padBottom}}px">
+        <div class="sform">
+          <span>Reading font</span><span class="pop">New York {{PY: s('chevron.up.chevron.down', 11)}}</span>
+          <span>List density</span><span class="rowline" style="gap:16px"><span class="rowline" style="gap:8px"><span class="cb rad on"></span>Standard</span><span class="rowline" style="gap:8px"><span class="cb rad"></span>Compact</span></span>
+          <span>Rows</span><span class="rowline" style="gap:8px"><span class="cb"></span>Show account initials in unified views</span>
+          <span>Undo send</span><span class="pop">5 seconds {{PY: s('chevron.up.chevron.down', 11)}}</span>
+          <i class="hr"></i><i class="hr"></i>
+          <span>Remote images</span><span class="rowline" style="gap:8px"><span class="tg"></span>Load by default</span>
+          <span></span><span class="ann" style="margin-top:-6px">Off: images load only when you ask, per message.</span>
+          <span>Notifications</span><span class="rowline" style="gap:8px"><span class="tg on foc"></span>New mail</span>
+          <span></span><span class="rowline" style="gap:8px"><span class="cb on">{{PY: s('checkmark', 9)}}</span>Show sender and subject</span>
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;gap:20px;align-items:flex-start;margin-top:20px">
+    <div class="win" style="width:{{layout.settings.width}}px;height:476px;background:var(--q-canvas);flex:none">
+      <div class="lights t8" style="top:10px"><i></i><i></i><i></i></div>
+      <div style="height:30px;text-align:center;font:600 13px/30px var(--q-sans);color:var(--q-ink2)">OAuth</div>
+      <div class="stabs"><span>{{PY: s('person.crop.circle', 20)}}<b>Accounts</b></span><span class="on">{{PY: s('key', 20)}}<b>OAuth</b></span><span>{{PY: s('gearshape', 20)}}<b>General</b></span></div>
+      <div style="padding:{{layout.settings.padTop}}px {{layout.settings.padX}}px {{layout.settings.padBottom}}px">
+        <div class="oform">
+          <div class="st">Google</div>
+          <span class="l">Client ID</span><span class="field">1084-ab3f9kq2.apps.googleusercontent.com</span>
+          <span class="l">Client secret</span><span class="field" style="letter-spacing:{{layout.textField.secureTracking}}px">••••••••••••••••••••••</span>
+          <div class="st">Microsoft</div>
+          <span class="l">Client ID</span><span class="field"><span class="ph">00000000-0000-0000-0000-000000000000</span></span>
+          <span class="l">Tenant</span><span class="field"><span class="ph">common</span></span>
+          <div class="cap2">Register a Desktop app client in Google Cloud Console with the Gmail API enabled, and a Mobile and desktop app in Microsoft Entra with http://localhost as its redirect URI. Leave Tenant as common to allow both work and personal Microsoft accounts. <a>How to create these…</a></div>
+          <div class="btns"><span class="btn sm secondary">Show File in Finder</span><span class="saved">{{PY: s('checkmark.circle.fill', 12)}}Saved</span><span class="btn sm primary dis">Save</span></div>
+        </div>
+      </div>
+    </div>
+    <p class="ann" style="max-width:420px;margin-top:4px">OAuth (§5.40), row by row: Google Client ID and Client secret (a secure field), Microsoft Client ID and Tenant (placeholder “common”), all <code>mono</code>, {{layout.settings.fieldHeight}} pt high and {{layout.settings.fieldWidth}} pt wide, filling to the content padding. The caption is <code>meta</code> <code>ink3</code>, at most {{layout.settings.captionMaxWidth}} pt wide. “Saved” is a status {{layout.settings.savedGap}} pt before Save, which goes quiet again until a field changes; it is not a banner. Account rows show every sync phase in the words of the sync line: up to date, downloading with its {{layout.settings.statusBarWidth}} pt bar, retrying, sign in required. Rows take no hover or pressed wash.</p>
+    </div>
+    <p class="ann" style="margin-top:10px">Settings {{layout.settings.width}} pt wide. The toolbar and its tabs are system chrome (drawn here for reference); everything below them is Quire-drawn. Rows {{layout.settings.row}} pt ({{layout.settings.accountRow}} pt for accounts); the selected account carries the {{border.marginRule.width}} pt margin rule on <code>selWash</code>; account hairlines start at the text column (x = {{layout.settings.accountHairlineX}}); labels right-aligned in a {{layout.settings.labelColumn}} pt column; +/− are {{layout.settings.plusMinus}} pt squares. Toggle knobs carry a {{layout.toggle.knobEdge}} pt <code>ruleStrong</code> edge; the focused toggle shows the ring outside a {{border.focusRing.gapOnAccentFill}} pt gap because its track is an accent fill.</p>
+  </div>
+</div>

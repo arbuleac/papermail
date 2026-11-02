@@ -1,0 +1,1428 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1440">
+<meta name="color-scheme" content="light dark">
+<title>Flit · SuperSparrow design language</title>
+<style>
+/* ===== Flit tokens (generated from the single token table in SPEC.md) ===== */
+:root {
+  --bg-rail: #EAEAEE;
+  --bg-list: #FFFFFF;
+  --bg-canvas: #F4F4F7;
+  --bg-card: #FFFFFF;
+  --bg-sunken: #EDEDF1;
+  --bg-elevated: #FFFFFF;
+  --bg-toast: #1D1D22;
+  --bg-hover: rgba(22,22,29,0.045);
+  --bg-pressed: rgba(22,22,29,0.09);
+  --bg-selected: #D2421A;
+  --bg-selected-inactive: #E4E4E9;
+  --bg-accent-tint: rgba(210,66,26,0.1);
+  --fg-primary: #17171B;
+  --fg-secondary: #5C5C66;
+  --fg-disabled: #A3A3AD;
+  --fg-on-accent: #FFFFFF;
+  --fg-on-toast: #F5F5F7;
+  --fg-on-toast-secondary: #B3B3BD;
+  --fg-toast-action: #FF9A73;
+  --fg-accent: #BC3A10;
+  --fg-toast-danger: #FF8597;
+  --fg-toast-success: #5BD98A;
+  --border-hairline: rgba(24,24,31,0.1);
+  --border-control: #85858F;
+  --border-selected-inactive: #7C7C86;
+  --focus-ring: #D2421A;
+  --accent: #D2421A;
+  --accent-hover: #BF3B15;
+  --accent-pressed: #A8330F;
+  --accent-signature: #F25A26;
+  --unread: #D2421A;
+  --star: #D2421A;
+  --success: #17772F;
+  --warning: #8F5B00;
+  --danger: #C01F3D;
+  --danger-fill: #C8213F;
+  --danger-fill-hover: #B01C38;
+  --danger-fill-pressed: #981830;
+  --info: #0B62C4;
+  --success-tint: rgba(26,127,55,0.1);
+  --warning-tint: rgba(184,120,0,0.12);
+  --danger-tint: rgba(192,31,61,0.09);
+  --info-tint: rgba(11,98,196,0.09);
+  --kbd-bg: #FFFFFF;
+  --kbd-border: rgba(24,24,31,0.18);
+  --kbd-on-accent-bg: rgba(0,0,0,0.22);
+  --kbd-on-toast-bg: rgba(255,255,255,0.12);
+  --badge-on-slab-bg: #FFFFFF;
+  --kbd-fg: #45454E;
+  --acct-1: #006CD3; --acct-1-ink: #FFFFFF;
+  --acct-2: #B5761C; --acct-2-ink: #141417;
+  --acct-3: #B8338D; --acct-3-ink: #FFFFFF;
+  --acct-4: #1F8555; --acct-4-ink: #FFFFFF;
+  --acct-5: #393BA4; --acct-5-ink: #FFFFFF;
+  --acct-6: #C7354D; --acct-6-ink: #FFFFFF;
+  --acct-7: #008FA7; --acct-7-ink: #141417;
+  --acct-8: #476201; --acct-8-ink: #FFFFFF;
+  --acct-9: #6D3C26; --acct-9-ink: #FFFFFF;
+  --acct-10: #3B3D45; --acct-10-ink: #FFFFFF;
+  --av-1-bg: #D2EBFF; --av-1-fg: #005E9C;
+  --av-2-bg: #E8E5FF; --av-2-fg: #474E98;
+  --av-3-bg: #FCE0F4; --av-3-fg: #853775;
+  --av-4-bg: #FFDFE2; --av-4-fg: #962F44;
+  --av-5-bg: #FAE5CE; --av-5-fg: #754C02;
+  --av-6-bg: #DFEDD3; --av-6-fg: #325F16;
+  --av-7-bg: #C8F0EC; --av-7-fg: #006660;
+  --av-8-bg: #E4E9F0; --av-8-fg: #4D5661;
+}
+@media (prefers-color-scheme: dark) {
+:root {
+  --bg-rail: #1F1F24;
+  --bg-list: #1A1A1E;
+  --bg-canvas: #121215;
+  --bg-card: #212126;
+  --bg-sunken: #2A2A30;
+  --bg-elevated: #2A2A30;
+  --bg-toast: #38383F;
+  --bg-hover: rgba(255,255,255,0.055);
+  --bg-pressed: rgba(255,255,255,0.1);
+  --bg-selected: #D2421A;
+  --bg-selected-inactive: #34343B;
+  --bg-accent-tint: rgba(255,122,74,0.16);
+  --fg-primary: #F3F3F6;
+  --fg-secondary: #A3A3AE;
+  --fg-disabled: #5E5E68;
+  --fg-on-accent: #FFFFFF;
+  --fg-on-toast: #F5F5F7;
+  --fg-on-toast-secondary: #D0D0D8;
+  --fg-toast-action: #FFA680;
+  --fg-accent: #FF7A4A;
+  --fg-toast-danger: #FF8597;
+  --fg-toast-success: #5BD98A;
+  --border-hairline: rgba(255,255,255,0.1);
+  --border-control: #7A7A86;
+  --border-selected-inactive: #8C8C98;
+  --focus-ring: #FF7A4A;
+  --accent: #D2421A;
+  --accent-hover: #BF3B15;
+  --accent-pressed: #A8330F;
+  --accent-signature: #F25A26;
+  --unread: #FF7A4A;
+  --star: #FF7A4A;
+  --success: #3FCF7A;
+  --warning: #F2B544;
+  --danger: #FF6B80;
+  --danger-fill: #C8213F;
+  --danger-fill-hover: #B01C38;
+  --danger-fill-pressed: #981830;
+  --info: #5EA8FF;
+  --success-tint: rgba(63,207,122,0.14);
+  --warning-tint: rgba(242,181,68,0.14);
+  --danger-tint: rgba(255,107,128,0.14);
+  --info-tint: rgba(94,168,255,0.14);
+  --kbd-bg: #34343B;
+  --kbd-border: rgba(255,255,255,0.14);
+  --kbd-on-accent-bg: rgba(0,0,0,0.22);
+  --kbd-on-toast-bg: rgba(255,255,255,0.12);
+  --badge-on-slab-bg: #FFFFFF;
+  --kbd-fg: #D6D6DE;
+  --acct-1: #669FFF; --acct-1-ink: #141417;
+  --acct-2: #FFBF4B; --acct-2-ink: #141417;
+  --acct-3: #D959AC; --acct-3-ink: #141417;
+  --acct-4: #5CDE9A; --acct-4-ink: #141417;
+  --acct-5: #6F66D3; --acct-5-ink: #FFFFFF;
+  --acct-6: #FF7682; --acct-6-ink: #141417;
+  --acct-7: #00B6D5; --acct-7-ink: #141417;
+  --acct-8: #87A342; --acct-8-ink: #141417;
+  --acct-9: #9B654C; --acct-9-ink: #FFFFFF;
+  --acct-10: #80838E; --acct-10-ink: #141417;
+  --av-1-bg: #1E4158; --av-1-fg: #8BDAFF;
+  --av-2-bg: #3C3B56; --av-2-fg: #CECBFF;
+  --av-3-bg: #513549; --av-3-fg: #FFBCEF;
+  --av-4-bg: #583337; --av-4-fg: #FFB8C1;
+  --av-5-bg: #4D3A23; --av-5-fg: #F8C990;
+  --av-6-bg: #334228; --av-6-fg: #B8DC9D;
+  --av-7-bg: #104542; --av-7-fg: #6DE4DC;
+  --av-8-bg: #3A3E44; --av-8-fg: #CBD2DD;
+}
+}
+@media (prefers-contrast: more) {
+:root {
+  --bg-rail: #E1E1E7;
+  --bg-list: #FFFFFF;
+  --bg-canvas: #EBEBF0;
+  --bg-card: #FFFFFF;
+  --bg-sunken: #E4E4EA;
+  --bg-elevated: #FFFFFF;
+  --bg-toast: #000000;
+  --bg-hover: rgba(22,22,29,0.08);
+  --bg-pressed: rgba(22,22,29,0.14);
+  --bg-selected: #B5370F;
+  --bg-selected-inactive: #DCDCE3;
+  --bg-accent-tint: rgba(181,55,15,0.14);
+  --fg-primary: #000000;
+  --fg-secondary: #3B3B44;
+  --fg-disabled: #85858F;
+  --fg-on-accent: #FFFFFF;
+  --fg-on-toast: #FFFFFF;
+  --fg-on-toast-secondary: #D0D0D8;
+  --fg-toast-action: #FFB08F;
+  --fg-accent: #A2310C;
+  --fg-toast-danger: #FFA3B1;
+  --fg-toast-success: #7AE6A2;
+  --border-hairline: #8C8C96;
+  --border-control: #5C5C66;
+  --border-selected-inactive: #5C5C66;
+  --focus-ring: #A2310C;
+  --accent: #B5370F;
+  --accent-hover: #A2310C;
+  --accent-pressed: #8F2B0C;
+  --accent-signature: #F25A26;
+  --unread: #B5370F;
+  --star: #B5370F;
+  --success: #11652A;
+  --warning: #6E4600;
+  --danger: #9C1430;
+  --danger-fill: #A3162F;
+  --danger-fill-hover: #8C1229;
+  --danger-fill-pressed: #780F23;
+  --info: #084C99;
+  --success-tint: rgba(26,127,55,0.14);
+  --warning-tint: rgba(184,120,0,0.16);
+  --danger-tint: rgba(192,31,61,0.13);
+  --info-tint: rgba(11,98,196,0.13);
+  --kbd-bg: #FFFFFF;
+  --kbd-border: #5C5C66;
+  --kbd-on-accent-bg: rgba(0,0,0,0.3);
+  --kbd-on-toast-bg: rgba(255,255,255,0.16);
+  --badge-on-slab-bg: #FFFFFF;
+  --kbd-fg: #17171B;
+  --acct-1: #005CC0; --acct-1-ink: #FFFFFF;
+  --acct-2: #A16502; --acct-2-ink: #FFFFFF;
+  --acct-3: #A41B7B; --acct-3-ink: #FFFFFF;
+  --acct-4: #007244; --acct-4-ink: #FFFFFF;
+  --acct-5: #202B91; --acct-5-ink: #FFFFFF;
+  --acct-6: #B21D3D; --acct-6-ink: #FFFFFF;
+  --acct-7: #007C95; --acct-7-ink: #FFFFFF;
+  --acct-8: #355100; --acct-8-ink: #FFFFFF;
+  --acct-9: #5B2C17; --acct-9-ink: #FFFFFF;
+  --acct-10: #2C2E35; --acct-10-ink: #FFFFFF;
+  --av-1-bg: #C9E6FF; --av-1-fg: #004782;
+  --av-2-bg: #E2DFFE; --av-2-fg: #2C377E;
+  --av-3-bg: #F9DAF0; --av-3-fg: #6B1D5C;
+  --av-4-bg: #FFD8DB; --av-4-fg: #7A112E;
+  --av-5-bg: #F6DFC5; --av-5-fg: #5B3500;
+  --av-6-bg: #D8E7CB; --av-6-fg: #184700;
+  --av-7-bg: #BDECE7; --av-7-fg: #004D49;
+  --av-8-bg: #DEE3EA; --av-8-fg: #363E49;
+}
+}
+@media (prefers-color-scheme: dark) and (prefers-contrast: more) {
+:root {
+  --bg-rail: #141418;
+  --bg-list: #0F0F12;
+  --bg-canvas: #000000;
+  --bg-card: #1A1A1F;
+  --bg-sunken: #26262C;
+  --bg-elevated: #26262C;
+  --bg-toast: #45454E;
+  --bg-hover: rgba(255,255,255,0.1);
+  --bg-pressed: rgba(255,255,255,0.16);
+  --bg-selected: #C43D14;
+  --bg-selected-inactive: #3A3A42;
+  --bg-accent-tint: rgba(255,162,126,0.2);
+  --fg-primary: #FFFFFF;
+  --fg-secondary: #D0D0DA;
+  --fg-disabled: #7A7A84;
+  --fg-on-accent: #FFFFFF;
+  --fg-on-toast: #FFFFFF;
+  --fg-on-toast-secondary: #E0E0E8;
+  --fg-toast-action: #FFC0A5;
+  --fg-accent: #FFA27E;
+  --fg-toast-danger: #FFB3BE;
+  --fg-toast-success: #8CEBB0;
+  --border-hairline: #8A8A96;
+  --border-control: #A3A3AF;
+  --border-selected-inactive: #B0B0BC;
+  --focus-ring: #FFA27E;
+  --accent: #C43D14;
+  --accent-hover: #B5370F;
+  --accent-pressed: #A2310C;
+  --accent-signature: #F25A26;
+  --unread: #FFA27E;
+  --star: #FFA27E;
+  --success: #7AE6A2;
+  --warning: #FFD27A;
+  --danger: #FF9BA9;
+  --danger-fill: #B81C38;
+  --danger-fill-hover: #A3162F;
+  --danger-fill-pressed: #8C1229;
+  --info: #99C8FF;
+  --success-tint: rgba(63,207,122,0.2);
+  --warning-tint: rgba(242,181,68,0.2);
+  --danger-tint: rgba(255,107,128,0.2);
+  --info-tint: rgba(94,168,255,0.2);
+  --kbd-bg: #3A3A42;
+  --kbd-border: #B0B0BC;
+  --kbd-on-accent-bg: rgba(0,0,0,0.3);
+  --kbd-on-toast-bg: rgba(255,255,255,0.16);
+  --badge-on-slab-bg: #FFFFFF;
+  --kbd-fg: #FFFFFF;
+  --acct-1: #7CB2FF; --acct-1-ink: #141417;
+  --acct-2: #FFD05B; --acct-2-ink: #141417;
+  --acct-3: #EE6DBF; --acct-3-ink: #141417;
+  --acct-4: #71F2AD; --acct-4-ink: #141417;
+  --acct-5: #8377E7; --acct-5-ink: #141417;
+  --acct-6: #FF8994; --acct-6-ink: #141417;
+  --acct-7: #1CCAE9; --acct-7-ink: #141417;
+  --acct-8: #9AB554; --acct-8-ink: #141417;
+  --acct-9: #AF765D; --acct-9-ink: #141417;
+  --acct-10: #9396A0; --acct-10-ink: #141417;
+  --av-1-bg: #13384E; --av-1-fg: #BBEEFF;
+  --av-2-bg: #33324D; --av-2-fg: #E7E3FF;
+  --av-3-bg: #472C40; --av-3-fg: #FFD9FE;
+  --av-4-bg: #4F2A2E; --av-4-fg: #FFD7DC;
+  --av-5-bg: #43321B; --av-5-fg: #FFE2B8;
+  --av-6-bg: #2A3920; --av-6-fg: #D6F0C1;
+  --av-7-bg: #033C39; --av-7-fg: #A7F6F0;
+  --av-8-bg: #31353A; --av-8-fg: #E1E9F3;
+}
+}
+
+:root {
+  /* type families */
+  --font-text: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-round: ui-rounded, -apple-system, system-ui, sans-serif;
+  --font-serif: ui-serif, "New York", Georgia, serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  /* spacing */
+  --s-0_5: 2px; --s-1: 4px; --s-1_5: 6px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 20px; --s-6: 24px; --s-8: 32px; --s-12: 48px;
+  /* radii */
+  --r-xs: 4px; --r-sm: 6px; --r-md: 8px; --r-lg: 12px; --r-xl: 16px; --r-pill: 999px;
+  --wing-lg: 14px 4px 14px 4px; --wing-md: 10px 3px 10px 3px; --wing-sm: 7px 2px 7px 2px; --wing-av: 14px 5px 14px 5px; --wing-xl: 18px 6px 18px 6px;
+  /* elevation */
+  --e1: 0 1px 2px rgba(0,0,0,.06), 0 1px 1px rgba(0,0,0,.04);
+  --e2: 0 6px 16px rgba(0,0,0,.12), 0 1px 3px rgba(0,0,0,.08);
+  --e3: 0 12px 32px rgba(0,0,0,.20), 0 2px 6px rgba(0,0,0,.10);
+  --e-window: 0 24px 64px rgba(0,0,0,.22), 0 2px 8px rgba(0,0,0,.10);
+  --win-edge: rgba(0,0,0,.14);
+  --page: #E4E4EA; --page-fg: #17171B; --page-sub: #5C5C66; --panel: #FFFFFF;
+  /* motion */
+  --t-snap: 90ms; --t-quick: 140ms; --t-move: 200ms; --t-max: 250ms;
+  --ease-out: cubic-bezier(.2,.8,.2,1); --ease-in: cubic-bezier(.4,0,1,1); --ease-pop: cubic-bezier(.34,1.56,.64,1);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --e1: 0 1px 2px rgba(0,0,0,.40), inset 0 0 0 1px rgba(255,255,255,.02);
+    --e2: 0 8px 20px rgba(0,0,0,.45), 0 1px 3px rgba(0,0,0,.35), inset 0 0 0 1px rgba(255,255,255,.06);
+    --e3: 0 14px 36px rgba(0,0,0,.55), 0 2px 6px rgba(0,0,0,.35), inset 0 0 0 1px rgba(255,255,255,.08);
+    --e-window: 0 24px 64px rgba(0,0,0,.6), 0 0 0 1px rgba(0,0,0,.8);
+    --win-edge: rgba(255,255,255,.14);
+    --page: #0B0B0D; --page-fg: #F3F3F6; --page-sub: #A3A3AE; --panel: #17171A;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body { background: var(--page); color: var(--page-fg); font: 13px/18px var(--font-text); -webkit-font-smoothing: antialiased; }
+.page { width: 1440px; padding: 56px 80px 80px; }
+svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; display: block; }
+svg.g { flex: none; fill: currentColor; display: block; }
+.tnum { font-variant-numeric: tabular-nums; }
+.ell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+
+/* ===== page chrome ===== */
+.hero { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 36px; }
+.brand { display: flex; align-items: center; gap: 18px; }
+.brand-mark { width: 64px; height: 64px; border-radius: 18px 6px 18px 6px; background: linear-gradient(160deg, #F86A33, #D2421A); display: flex; align-items: center; justify-content: center; color: #fff; }
+.brand h1 { font: 700 44px/48px var(--font-round); letter-spacing: -1px; margin: 0; }
+.brand p { margin: 2px 0 0; font: 500 15px/20px var(--font-round); color: var(--page-sub); }
+.hero-meta { text-align: right; font: 500 12px/18px var(--font-round); color: var(--page-sub); }
+.hero-meta b { color: var(--page-fg); font-weight: 600; }
+.appearance::after { content: "Light appearance"; }
+@media (prefers-color-scheme: dark) { .appearance::after { content: "Dark appearance"; } }
+.sec { margin-top: 64px; }
+.sec-h { display: flex; align-items: baseline; gap: 14px; margin-bottom: 20px; }
+.sec-h .n { font: 700 13px/16px var(--font-round); color: var(--fg-accent); letter-spacing: .4px; }
+.sec-h h2 { margin: 0; font: 700 24px/30px var(--font-round); letter-spacing: -.4px; }
+.sec-h p { margin: 0; color: var(--page-sub); font-size: 13px; }
+.principles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 40px; }
+.principle { background: var(--panel); border-radius: 12px; padding: 16px 18px; box-shadow: var(--e1); }
+.principle b { display: block; font: 700 15px/20px var(--font-round); margin-bottom: 4px; }
+.principle span { color: var(--page-sub); font-size: 12px; line-height: 17px; display: block; }
+
+/* ===== window ===== */
+.win { position: relative; border-radius: 12px; overflow: hidden; box-shadow: var(--e-window); outline: 1px solid var(--win-edge); outline-offset: -1px; background: var(--bg-list); }
+.win::after { content: ""; position: absolute; inset: 0; border-radius: 12px; box-shadow: inset 0 0 0 1px var(--win-edge); pointer-events: none; z-index: 50; }
+.tl { position: absolute; top: 20px; left: 14px; display: flex; gap: 8px; z-index: 40; }
+.tl i { width: 12px; height: 12px; border-radius: 50%; display: block; box-shadow: inset 0 0 0 .5px rgba(0,0,0,.18); }
+.tl i:nth-child(1) { background: #FF5F57; } .tl i:nth-child(2) { background: #FEBC2E; } .tl i:nth-child(3) { background: #28C840; }
+.win.inactive .tl i { background: var(--bg-sunken); box-shadow: inset 0 0 0 .5px var(--border-control); }
+.main { width: 1280px; height: 800px; display: flex; }
+
+/* ===== rail ===== */
+.rail { width: 72px; flex: none; background: var(--bg-rail); position: relative; border-right: 1px solid var(--border-hairline); }
+.rail-items { position: absolute; top: 52px; left: 0; right: 0; display: flex; flex-direction: column; align-items: center; }
+.ri { position: relative; width: 72px; height: 48px; display: flex; align-items: center; justify-content: center; }
+.ri + .ri { margin-top: 4px; }
+.ri .av36 { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font: 700 16px/1 var(--font-round); letter-spacing: 0; }
+.ri.sel .av36 { border-radius: var(--wing-av); }
+.ri .perch { position: absolute; left: 0; top: 14px; width: 3px; height: 20px; border-radius: 0 2px 2px 0; background: var(--accent); }
+.ri.hover .perch { top: 20px; height: 8px; background: var(--border-control); }
+.ri.hover .av36.uni { background: var(--bg-list); box-shadow: inset 0 0 0 1px var(--border-hairline); }
+.av36.uni { background: transparent; color: var(--fg-secondary); box-shadow: inset 0 0 0 1.5px var(--border-control); }
+.ri.sel .av36.uni { background: var(--accent); color: #fff; box-shadow: none; }
+.rbadge { position: absolute; right: 5px; top: 1px; height: 16px; min-width: 16px; padding: 0 4.5px; border-radius: 8px; background: var(--fg-primary); color: var(--bg-list); font: 700 10px/16px var(--font-round); text-align: center; box-shadow: 0 0 0 2px var(--bg-rail); letter-spacing: .1px; }
+.rbadge.alert { background: var(--danger-fill); padding: 0; width: 16px; }
+.rail-div { width: 24px; height: 1px; background: var(--border-hairline); margin: 8px 0 4px; }
+.rail-foot { position: absolute; bottom: 12px; left: 0; right: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.ib { width: 28px; height: 28px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; color: var(--fg-secondary); flex: none; position: relative; }
+.ib.hover { background: var(--bg-hover); color: var(--fg-primary); }
+.ib.pressed { background: var(--bg-pressed); color: var(--fg-primary); }
+.ib.focus { box-shadow: 0 0 0 2px var(--focus-ring); }
+.ib.on { color: var(--star); }
+.ib.dis { color: var(--fg-disabled); }
+.ib.sm { width: 24px; height: 24px; border-radius: 6px; }
+
+/* ===== list ===== */
+.list { width: 340px; flex: none; background: var(--bg-list); position: relative; border-right: 1px solid var(--border-hairline); display: flex; flex-direction: column; }
+.lh { height: 52px; display: flex; align-items: center; padding: 0 10px 0 12px; gap: 8px; flex: none; }
+.tmenu { display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 6px 0 6px; border-radius: 8px; font: 700 16px/20px var(--font-round); letter-spacing: -.1px; color: var(--fg-primary); }
+.tmenu svg { width: 10px; height: 10px; stroke-width: 2.2; color: var(--fg-secondary); margin-top: 1px; }
+.tmenu.hover { background: var(--bg-hover); }
+.tmenu.open { background: var(--bg-pressed); }
+.tmenu.focus { box-shadow: 0 0 0 2px var(--focus-ring); }
+.tmenu .cnt { font: 600 12px/16px var(--font-round); color: var(--fg-secondary); margin-left: 2px; }
+.spacer { flex: 1; }
+.seg { display: inline-flex; height: 24px; padding: 2px; border-radius: 8px; background: var(--bg-sunken); gap: 0; }
+.seg span { height: 20px; padding: 0 9px; display: inline-flex; align-items: center; font: 500 12px/16px var(--font-round); color: var(--fg-secondary); border-radius: var(--wing-sm); }
+.seg span.on { background: var(--fg-primary); color: var(--bg-list); font-weight: 600; }
+.seg span.hover { background: var(--bg-hover); color: var(--fg-primary); }
+.seg.focus { box-shadow: 0 0 0 2px var(--focus-ring); }
+.search-row { padding: 0 12px 10px; flex: none; }
+.field { height: 28px; border-radius: 8px; background: var(--bg-sunken); box-shadow: inset 0 0 0 1px var(--border-control); display: flex; align-items: center; gap: 6px; padding: 0 6px 0 8px; color: var(--fg-secondary); font-size: 13px; }
+.field .ph { flex: 1; }
+.field .val { flex: 1; color: var(--fg-primary); }
+.field.focus { box-shadow: inset 0 0 0 1px var(--focus-ring), 0 0 0 2px var(--focus-ring); background: var(--bg-list); }
+.field.err { box-shadow: inset 0 0 0 1px var(--danger), 0 0 0 1px var(--danger); }
+.field.dis { color: var(--fg-disabled); box-shadow: inset 0 0 0 1px var(--border-hairline); }
+.field .caret { display: inline-block; width: 1.5px; height: 15px; background: var(--focus-ring); vertical-align: -3px; margin-left: 1px; }
+.rows { flex: 1; overflow: hidden; position: relative; border-top: 1px solid var(--border-hairline); }
+
+/* conversation row: 72pt, laid out absolutely like ConversationCellView */
+.row { position: relative; height: 72px; color: var(--fg-primary); }
+.row .slab { position: absolute; top: 2px; bottom: 2px; left: 6px; right: 6px; border-radius: var(--wing-lg); }
+.row.hover .slab { background: var(--bg-hover); }
+.row.sel .slab { background: var(--bg-selected); }
+.row.seli .slab { background: var(--bg-selected-inactive); }
+.row.seli .slab::before { content: ""; position: absolute; left: 4px; top: 16px; bottom: 16px; width: 3px; border-radius: 2px; background: var(--border-selected-inactive); }
+.row .hl { position: absolute; left: 70px; right: 0; bottom: 0; height: 1px; background: var(--border-hairline); }
+.row.sel .hl, .row.seli .hl, .row:has(+ .row.sel) .hl, .row:has(+ .row.seli) .hl { display: none; }
+.row .dot { position: absolute; left: 11px; top: 15.5px; width: 7px; height: 7px; border-radius: 50%; background: var(--unread); }
+.row .av { position: absolute; left: 22px; top: 12px; }
+.av { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font: 600 13px/1 var(--font-round); letter-spacing: .3px; flex: none; position: relative; }
+.pip { position: absolute; right: -1px; bottom: -1px; width: 10px; height: 10px; border-radius: 50%; box-shadow: 0 0 0 2px var(--bg-list); }
+.row .ln { position: absolute; left: 70px; right: 18px; display: flex; align-items: center; gap: 6px; }
+.row .l1 { top: 10px; height: 18px; }
+.row .l2 { top: 28px; height: 18px; }
+.row .l3 { top: 46px; height: 16px; }
+.row .who { flex: 1; font-size: 13px; font-weight: 400; }
+.row .subj { flex: 1; font-size: 13px; font-weight: 400; }
+.row.unread .who, .row.unread .subj { font-weight: 600; }
+.row .snip { flex: 1; font-size: 12px; line-height: 16px; color: var(--fg-secondary); }
+.row .time { font: 500 11px/14px var(--font-round); color: var(--fg-secondary); font-variant-numeric: tabular-nums; letter-spacing: .1px; }
+.row .gl { color: var(--fg-secondary); }
+.row .gl.star { color: var(--star); }
+.cbadge { height: 16px; min-width: 18px; padding: 0 5px; border-radius: 8px; background: var(--bg-sunken); color: var(--fg-secondary); font: 600 10px/16px var(--font-round); text-align: center; font-variant-numeric: tabular-nums; flex: none; }
+.tag { height: 16px; padding: 0 5px; border-radius: 8px; box-shadow: inset 0 0 0 1px var(--border-control); color: var(--fg-secondary); font: 600 10px/16px var(--font-round); letter-spacing: .2px; flex: none; }
+.row.sel, .row.sel .snip, .row.sel .time, .row.sel .gl, .row.sel .gl.star { color: var(--fg-on-accent); }
+.row.sel .dot { background: #fff; }
+.row.sel .cbadge { background: var(--badge-on-slab-bg); color: var(--bg-selected); }
+.row.sel .tag { box-shadow: inset 0 0 0 1px rgba(255,255,255,.9); color: #fff; }
+.row.pending .time { display: inline-flex; gap: 4px; align-items: center; }
+.row.compact { height: 52px; }
+.row.compact .av { width: 28px; height: 28px; top: 12px; font-size: 11px; }
+.row.compact .l1 { left: 62px; top: 8px; }
+.row.compact .l2 { left: 62px; top: 26px; }
+.row.compact .hl { left: 62px; }
+.row.compact .dot { top: 13.5px; }
+
+/* skeleton */
+.sk { position: relative; height: 72px; }
+.sk i { position: absolute; display: block; background: var(--bg-sunken); border-radius: 4px; }
+
+/* sync line + toast */
+.sync { height: 28px; flex: none; border-top: 1px solid var(--border-hairline); display: flex; align-items: center; gap: 6px; padding: 0 12px; font: 500 11px/14px var(--font-round); color: var(--fg-secondary); position: relative; background: var(--bg-list); letter-spacing: .1px; }
+.sync svg.i { width: 12px; height: 12px; stroke-width: 1.7; }
+.sync .act { margin-left: auto; color: var(--fg-accent); font-weight: 600; }
+.sync.warn { color: var(--warning); }
+.sync.err { color: var(--danger); }
+.contrail { position: absolute; left: 0; height: 2px; border-radius: 1px; background: linear-gradient(90deg, rgba(210,66,26,0), var(--accent) 85%); }
+@media (prefers-color-scheme: dark) { .contrail { background: linear-gradient(90deg, rgba(255,122,74,0), var(--fg-accent) 85%); } }
+.contrail::after { content: ""; position: absolute; right: -1px; top: -1px; width: 4px; height: 4px; border-radius: 50%; background: inherit; background: var(--accent); }
+@media (prefers-color-scheme: dark) { .contrail::after { background: var(--fg-accent); } }
+.toast { position: absolute; height: 36px; display: inline-flex; align-items: center; gap: 8px; padding: 0 6px 0 12px; border-radius: var(--wing-lg); background: var(--bg-toast); color: var(--fg-on-toast); box-shadow: var(--e3); font-size: 13px; font-weight: 500; overflow: hidden; white-space: nowrap; }
+.toast svg.i { color: var(--fg-on-toast-secondary); width: 15px; height: 15px; }
+.toast .sep { color: var(--fg-on-toast-secondary); }
+.toast .undo { color: var(--fg-toast-action); font-weight: 600; display: inline-flex; align-items: center; gap: 6px; padding: 0 4px 0 8px; height: 26px; border-radius: 6px; }
+.toast .undo.hover { background: rgba(255,255,255,.10); }
+.toast .tc { position: absolute; left: 0; bottom: 0; height: 2px; background: linear-gradient(90deg, rgba(255,154,115,0), var(--fg-toast-action)); }
+.toast.err .lead { color: var(--fg-toast-danger); }
+
+/* keycaps */
+.kbd { display: inline-flex; align-items: center; justify-content: center; height: 16px; min-width: 16px; padding: 0 4px; border-radius: 4px; background: var(--kbd-bg); color: var(--kbd-fg); font: 600 10px/1 var(--font-round); letter-spacing: .3px; box-shadow: inset 0 0 0 1px var(--kbd-border), inset 0 -1px 0 1px var(--kbd-border); flex: none; text-transform: uppercase; }
+.kbd.lg { height: 22px; min-width: 22px; padding: 0 6px; font-size: 12px; border-radius: 6px; }
+.toast .kbd, .tip .kbd, .hud .kbd { background: var(--kbd-on-toast-bg); color: var(--fg-on-toast-secondary); box-shadow: inset 0 0 0 1px rgba(255,255,255,.16), inset 0 -1px 0 1px rgba(255,255,255,.16); }
+.btn.primary .kbd { background: var(--kbd-on-accent-bg); color: #fff; box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); }
+.kseq { display: inline-flex; align-items: center; gap: 3px; color: var(--fg-secondary); font: 500 10px/1 var(--font-round); }
+
+/* ===== reader ===== */
+.reader { flex: 1; background: var(--bg-canvas); position: relative; display: flex; flex-direction: column; min-width: 0; }
+.rh { height: 52px; display: flex; align-items: center; padding: 0 12px 0 24px; gap: 12px; flex: none; }
+.rh h3 { margin: 0; font: 600 20px/26px var(--font-round); letter-spacing: -.25px; flex: 1; }
+.rh .acts { display: flex; gap: 2px; }
+.rc { flex: 1; overflow: hidden; padding: 4px 24px 0; }
+.col { max-width: 760px; margin: 0 auto; }
+.meta { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--fg-secondary); margin: 0 0 12px 2px; }
+.achip { display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 7px 0 3px; border-radius: 10px; background: var(--bg-sunken); color: var(--fg-secondary); font: 600 11px/1 var(--font-round); }
+.achip .m { width: 14px; height: 14px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font: 700 8.5px/1 var(--font-round); }
+.card { background: var(--bg-card); border-radius: 12px; box-shadow: inset 0 0 0 1px var(--border-hairline); position: relative; }
+.card + .card { margin-top: 8px; }
+.card.c { height: 48px; display: flex; align-items: center; gap: 10px; padding: 0 16px 0 12px; }
+.card.c .av { width: 24px; height: 24px; font-size: 9.5px; }
+.card.c .nm { font-weight: 500; flex: none; max-width: 160px; }
+.card.c.unread .nm { font-weight: 600; }
+.card.c .sn { flex: 1; color: var(--fg-secondary); }
+.card .dt { font: 500 11px/14px var(--font-round); color: var(--fg-secondary); flex: none; font-variant-numeric: tabular-nums; }
+.card.c .udot { width: 7px; height: 7px; border-radius: 50%; background: var(--unread); flex: none; margin-right: -4px; }
+.card.hover { box-shadow: inset 0 0 0 1px var(--border-control); }
+.card.x { padding: 18px 20px 14px; box-shadow: inset 0 0 0 1px var(--border-hairline), var(--e1); }
+.card.focus { box-shadow: 0 0 0 2px var(--focus-ring), var(--e1); }
+.mh { display: flex; gap: 12px; align-items: flex-start; }
+.mh .who { flex: 1; min-width: 0; }
+.mh .nm { font-weight: 600; font-size: 13px; }
+.mh .addr { color: var(--fg-secondary); font-weight: 400; margin-left: 4px; }
+.mh .to { font-size: 12px; line-height: 16px; color: var(--fg-secondary); margin-top: 1px; }
+.mh .right { display: flex; align-items: center; gap: 2px; }
+.mh .right .dt { margin-right: 4px; }
+.tools { display: flex; gap: 6px; margin-top: 14px; flex-wrap: wrap; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 28px; padding: 0 12px; border-radius: 8px; font: 600 13px/1 var(--font-round); letter-spacing: 0; white-space: nowrap; color: var(--fg-primary); position: relative; flex: none; }
+.btn svg.i { width: 15px; height: 15px; }
+.btn.sm { height: 24px; padding: 0 9px; font-size: 12px; border-radius: 6px; gap: 5px; }
+.btn.sm svg.i { width: 13px; height: 13px; }
+.btn.lg { height: 32px; padding: 0 16px; font-size: 14px; }
+.btn.primary { background: var(--accent); color: #fff; border-radius: var(--wing-md); }
+.btn.primary.sm { border-radius: var(--wing-sm); }
+.btn.primary.hover { background: var(--accent-hover); }
+.btn.primary.pressed { background: var(--accent-pressed); }
+.btn.secondary { background: var(--bg-card); box-shadow: inset 0 0 0 1px var(--border-control); }
+.btn.secondary.hover { background: var(--bg-sunken); }
+.btn.secondary.pressed { background: var(--bg-sunken); box-shadow: inset 0 0 0 1px var(--fg-secondary); }
+.btn.ghost { background: transparent; color: var(--fg-accent); }
+.btn.ghost.neutral { color: var(--fg-primary); }
+.btn.ghost.hover { background: var(--bg-hover); }
+.btn.ghost.pressed { background: var(--bg-pressed); }
+.btn.danger { background: var(--danger-fill); color: #fff; }
+.btn.danger.hover { background: var(--danger-fill-hover); }
+.btn.danger.pressed { background: var(--danger-fill-pressed); }
+.btn.danger-ghost { color: var(--danger); box-shadow: inset 0 0 0 1px var(--border-control); background: var(--bg-card); }
+.btn.focus { box-shadow: 0 0 0 2px var(--bg-card), 0 0 0 4px var(--focus-ring); }
+.btn.secondary.focus { box-shadow: inset 0 0 0 1px var(--border-control), 0 0 0 2px var(--bg-card), 0 0 0 4px var(--focus-ring); }
+.btn.dis { opacity: 1; color: var(--fg-disabled); }
+.btn.primary.dis { background: var(--bg-sunken); color: var(--fg-disabled); }
+.btn.secondary.dis { box-shadow: inset 0 0 0 1px var(--border-hairline); background: transparent; }
+.btn .spin { width: 13px; height: 13px; }
+.btn.on { background: var(--bg-accent-tint); color: var(--fg-accent); }
+.body { margin-top: 14px; font-size: 14px; line-height: 21px; color: var(--fg-primary); }
+.body p { margin: 0 0 10px; }
+.atts { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+.att { display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 12px 0 8px; border-radius: 8px; background: var(--bg-sunken); max-width: 260px; position: relative; overflow: hidden; }
+.att .ft { width: 24px; height: 24px; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: #fff; font: 700 7.5px/1 var(--font-round); letter-spacing: .3px; flex: none; }
+.att .an { font-size: 12px; font-weight: 500; line-height: 15px; }
+.att .as { font: 500 11px/13px var(--font-round); color: var(--fg-secondary); }
+.att.hover { box-shadow: inset 0 0 0 1px var(--border-control); }
+.att.focus { box-shadow: 0 0 0 2px var(--focus-ring); }
+.att.err .as { color: var(--danger); }
+.att .bar { position: absolute; left: 0; bottom: 0; height: 2px; background: var(--accent); }
+.foot { display: flex; gap: 4px; margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--border-hairline); margin-left: -8px; }
+.foot .btn { gap: 7px; }
+.foot .kbd { margin-left: 1px; }
+.qr { flex: none; padding: 10px 24px 12px; background: var(--bg-canvas); }
+.qr-f { max-width: 760px; margin: 0 auto; min-height: 38px; border-radius: 12px; background: var(--bg-card); box-shadow: inset 0 0 0 1px var(--border-control); display: flex; align-items: center; padding: 0 8px 0 12px; gap: 8px; color: var(--fg-secondary); }
+.qr-f .av { width: 22px; height: 22px; font-size: 8.5px; }
+.qr-f.focus { box-shadow: inset 0 0 0 1px var(--focus-ring), 0 0 0 2px var(--focus-ring); align-items: stretch; flex-direction: column; padding: 10px 10px 8px 12px; gap: 8px; }
+.qr-f .txt { color: var(--fg-primary); font-size: 14px; line-height: 21px; }
+.qr-f .qrb { display: flex; align-items: center; gap: 6px; }
+.banner { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 6px 0 10px; border-radius: 8px; font-size: 12px; margin-top: 12px; }
+.banner.info { background: var(--info-tint); color: var(--fg-primary); }
+.banner.info svg.i { color: var(--info); }
+.banner.warn { background: var(--warning-tint); } .banner.warn svg.i { color: var(--warning); }
+.banner.danger { background: var(--danger-tint); } .banner.danger svg.i { color: var(--danger); }
+.banner .grow { flex: 1; }
+
+/* ===== composer ===== */
+.composer { width: 640px; height: 560px; display: flex; flex-direction: column; }
+.ctitle { height: 52px; flex: none; display: flex; align-items: center; justify-content: center; font: 600 13px/16px var(--font-text); color: var(--fg-primary); border-bottom: 1px solid var(--border-hairline); background: var(--bg-list); }
+.cf { height: 40px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 12px 0 0; border-bottom: 1px solid var(--border-hairline); margin-left: 16px; }
+.cf .lab { width: 52px; text-align: right; color: var(--fg-secondary); font-size: 13px; flex: none; }
+.popup { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 6px 0 8px; border-radius: 6px; font-size: 13px; }
+.popup.hover { background: var(--bg-hover); }
+.popup.boxed { background: var(--bg-card); box-shadow: inset 0 0 0 1px var(--border-control); }
+.popup.focus { box-shadow: inset 0 0 0 1px var(--border-control), 0 0 0 2px var(--bg-card), 0 0 0 4px var(--focus-ring); }
+.popup.dis { color: var(--fg-disabled); }
+.popup .ud { width: 12px; height: 12px; color: var(--fg-secondary); stroke-width: 1.8; }
+.tok { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 8px 0 3px; border-radius: 12px; background: var(--bg-sunken); font-size: 13px; color: var(--fg-primary); flex: none; }
+.tok .av { width: 18px; height: 18px; font-size: 7.5px; }
+.tok.sel { background: var(--accent); color: #fff; }
+.tok.hover { box-shadow: inset 0 0 0 1px var(--border-control); }
+.tok.bad { background: var(--danger-tint); color: var(--danger); box-shadow: inset 0 0 0 1px var(--danger); padding-left: 8px; text-decoration: underline wavy; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.tok.plain { padding-left: 8px; }
+.cbody { flex: 1; padding: 16px 20px 0 20px; font-size: 14px; line-height: 21px; position: relative; overflow: hidden; }
+.cbody p { margin: 0 0 10px; }
+.fold { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px 0 6px; border-radius: 12px; background: var(--bg-sunken); color: var(--fg-secondary); font-size: 12px; margin-top: 4px; }
+.fold .dots { display: inline-flex; gap: 2px; padding: 0 4px; } .fold .dots i { width: 3px; height: 3px; border-radius: 50%; background: currentColor; display: block; }
+.strip { display: flex; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--border-hairline); flex: none; }
+.strip .att { height: 36px; background: var(--bg-sunken); }
+.strip .att .x { width: 16px; height: 16px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: var(--fg-secondary); margin-left: 2px; }
+.cbar { height: 56px; flex: none; display: flex; align-items: center; gap: 6px; padding: 0 12px 0 16px; border-top: 1px solid var(--border-hairline); }
+
+/* ===== sheet ===== */
+.sheet { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; align-items: start; }
+.cell { background: var(--panel); border-radius: 14px; padding: 18px 20px 20px; box-shadow: var(--e1); }
+.cell.span2 { grid-column: span 2; }
+.cell.span3 { grid-column: span 3; }
+.cell h4 { margin: 0 0 2px; font: 700 14px/18px var(--font-round); }
+.cell .d { color: var(--page-sub); font-size: 11.5px; line-height: 16px; margin-bottom: 14px; }
+.lbl { font: 600 10px/14px var(--font-round); letter-spacing: .5px; text-transform: uppercase; color: var(--page-sub); }
+.st { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.st + .st { margin-top: 12px; }
+.stc { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.stc .lbl { text-transform: none; letter-spacing: 0; font-size: 10.5px; }
+.surf { background: var(--bg-list); border-radius: 10px; box-shadow: inset 0 0 0 1px var(--border-hairline); overflow: hidden; }
+.surf.canvas { background: var(--bg-canvas); }
+.surf.rail { background: var(--bg-rail); }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.cap { font-size: 11px; color: var(--page-sub); margin-top: 4px; }
+.chk { width: 16px; height: 16px; border-radius: 4px; box-shadow: inset 0 0 0 1px var(--border-control); background: var(--bg-card); display: inline-flex; align-items: center; justify-content: center; color: #fff; flex: none; }
+.chk.on { background: var(--accent); box-shadow: none; }
+.chk.focus { box-shadow: inset 0 0 0 1px var(--border-control), 0 0 0 2px var(--bg-card), 0 0 0 4px var(--focus-ring); }
+.chk.on.focus { box-shadow: 0 0 0 2px var(--bg-card), 0 0 0 4px var(--focus-ring); }
+.chk.dis { box-shadow: inset 0 0 0 1px var(--border-hairline); background: transparent; }
+.tg { width: 32px; height: 18px; border-radius: 9px; background: var(--bg-sunken); box-shadow: inset 0 0 0 1px var(--border-control); position: relative; flex: none; }
+.tg::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.25), 0 0 0 .5px rgba(0,0,0,.08); }
+.tg.on { background: var(--accent); box-shadow: none; }
+.tg.on::after { left: 16px; }
+.tg.focus { box-shadow: inset 0 0 0 1px var(--border-control), 0 0 0 2px var(--bg-card), 0 0 0 4px var(--focus-ring); }
+.tg.dis { opacity: .45; }
+.tip { display: inline-flex; align-items: center; gap: 8px; height: 26px; padding: 0 6px 0 9px; border-radius: 6px; background: var(--bg-toast); color: var(--fg-on-toast); font-size: 12px; box-shadow: var(--e2); }
+.menu { width: 236px; border-radius: 12px; background: var(--bg-elevated); box-shadow: var(--e2), inset 0 0 0 1px var(--border-hairline); padding: 5px; font-size: 13px; }
+.mi { height: 24px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 6px; }
+.mi .k { margin-left: auto; color: var(--fg-secondary); font-size: 12px; letter-spacing: 1px; }
+.mi.hi { background: var(--accent); color: #fff; } .mi.hi .k { color: rgba(255,255,255,.9); }
+.mi.dis { color: var(--fg-disabled); }
+.mi .ck { width: 12px; color: inherit; }
+.msep { height: 1px; background: var(--border-hairline); margin: 5px 8px; }
+.hud { display: inline-flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: var(--wing-lg); background: var(--bg-toast); color: var(--fg-on-toast); box-shadow: var(--e3); font-size: 12px; min-width: 200px; }
+.hud .hrow { display: flex; align-items: center; gap: 8px; }
+.hud .hrow span { color: var(--fg-on-toast-secondary); }
+.empty { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 24px 16px; gap: 6px; }
+.empty .t { font: 700 16px/20px var(--font-round); color: var(--fg-primary); }
+.empty .s { font-size: 12px; line-height: 17px; color: var(--fg-secondary); max-width: 230px; }
+.empty .g { color: var(--fg-secondary); margin-bottom: 6px; }
+.spinner { width: 16px; height: 16px; border-radius: 50%; background: conic-gradient(from 0deg, transparent 0deg, var(--fg-accent) 300deg, transparent 301deg); -webkit-mask: radial-gradient(circle, transparent 5.4px, #000 6px); flex: none; position: relative; }
+.pbar { height: 4px; border-radius: 2px; background: var(--bg-sunken); position: relative; overflow: hidden; width: 100%; box-shadow: inset 0 0 0 1px var(--border-hairline); }
+.pbar i { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 2px; background: linear-gradient(90deg, rgba(210,66,26,.15), var(--accent)); display: block; }
+.alert { width: 280px; border-radius: 14px; background: var(--bg-elevated); box-shadow: var(--e3), inset 0 0 0 1px var(--border-hairline); padding: 20px 16px 16px; text-align: center; }
+.alert .ai { width: 48px; height: 48px; margin: 0 auto 10px; border-radius: 14px 4px 14px 4px; background: linear-gradient(160deg,#F86A33,#D2421A); display: flex; align-items: center; justify-content: center; color: #fff; }
+.alert b { display: block; font: 700 13px/17px var(--font-text); }
+.alert p { margin: 4px 0 14px; font-size: 11.5px; line-height: 15px; color: var(--fg-secondary); }
+.alert .ab { display: flex; flex-direction: column; gap: 6px; }
+.alert .ab .btn { width: 100%; }
+.notif { width: 344px; border-radius: 16px; background: var(--bg-elevated); box-shadow: var(--e2), inset 0 0 0 1px var(--border-hairline); padding: 12px 14px; display: flex; gap: 10px; }
+.notif .ic { width: 32px; height: 32px; border-radius: 10px 3px 10px 3px; background: linear-gradient(160deg,#F86A33,#D2421A); color: #fff; display: flex; align-items: center; justify-content: center; flex: none; }
+.notif .nt { font-size: 13px; font-weight: 600; line-height: 17px; }
+.notif .ns { font-size: 13px; line-height: 17px; }
+.notif .nb { font-size: 12px; line-height: 16px; color: var(--fg-secondary); }
+.notif .when { margin-left: auto; font-size: 11px; color: var(--fg-secondary); }
+.appicon { flex: none; width: 128px; height: 128px; border-radius: 29px; background: radial-gradient(120% 90% at 30% 10%, #FF8A55 0%, #F25A26 45%, #C83A12 100%); position: relative; box-shadow: 0 10px 24px rgba(200,58,18,.35), inset 0 1px 0 rgba(255,255,255,.35), inset 0 -2px 6px rgba(0,0,0,.12); display: flex; align-items: center; justify-content: center; color: #fff; overflow: hidden; }
+.settings { width: 100%; }
+.stabs { display: flex; justify-content: center; gap: 4px; padding: 8px 0 10px; border-bottom: 1px solid var(--border-hairline); background: var(--bg-list); }
+.stab { width: 72px; height: 48px; border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; font-size: 11px; color: var(--fg-secondary); }
+.stab svg.i { width: 18px; height: 18px; }
+.stab.on { background: var(--bg-pressed); color: var(--fg-accent); font-weight: 600; }
+.sgroup { background: var(--bg-card); border-radius: 10px; box-shadow: inset 0 0 0 1px var(--border-hairline); }
+.srow { display: flex; align-items: center; gap: 10px; padding: 10px 12px; min-height: 52px; }
+.srow + .srow { border-top: 1px solid var(--border-hairline); }
+.srow .sn { font-weight: 600; } .srow .ss { font-size: 12px; line-height: 16px; color: var(--fg-secondary); display: flex; align-items: center; gap: 5px; }
+.stat { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+
+/* ===== foundations ===== */
+.sw-row { display: flex; gap: 0; border-radius: 10px; overflow: hidden; box-shadow: inset 0 0 0 1px var(--border-hairline); }
+.sw { flex: 1; height: 76px; display: flex; flex-direction: column; justify-content: flex-end; padding: 6px 7px; font: 600 10px/13px var(--font-round); }
+.sw small { font: 500 9.5px/12px var(--font-mono); opacity: .9; }
+.tokgrid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
+.tk { border-radius: 10px; overflow: hidden; background: var(--bg-card); box-shadow: inset 0 0 0 1px var(--border-hairline); }
+.tk .c { height: 44px; box-shadow: inset 0 -1px 0 var(--border-hairline); }
+.tk .tn { padding: 6px 8px 7px; font: 600 10.5px/14px var(--font-round); color: var(--fg-primary); }
+.tk .tn small { display: block; font: 500 10px/13px var(--font-mono); color: var(--fg-secondary); }
+.typo { display: grid; grid-template-columns: 120px 1fr 260px; align-items: baseline; gap: 16px; padding: 10px 0; border-top: 1px solid var(--border-hairline); }
+.typo .r { font: 600 11px/14px var(--font-round); color: var(--page-sub); }
+.typo .m { font: 500 11px/14px var(--font-mono); color: var(--page-sub); }
+.spc { display: flex; align-items: flex-end; gap: 14px; }
+.spc div { background: var(--accent); opacity: .85; border-radius: 2px; }
+.rad { display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; }
+.rad > div { display: flex; flex-direction: column; align-items: center; gap: 6px; font: 600 10.5px/13px var(--font-round); color: var(--page-sub); }
+.rad i { display: block; width: 64px; height: 48px; background: var(--bg-sunken); box-shadow: inset 0 0 0 1.5px var(--border-control); }
+.elev { display: flex; gap: 20px; }
+.elev > div { height: 84px; border-radius: 12px; background: var(--bg-card); display: flex; flex-direction: column; justify-content: flex-end; padding: 10px 12px; font: 600 11px/14px var(--font-round); }
+.elev small { font: 500 9.5px/12px var(--font-mono); color: var(--fg-secondary); }
+.curve { flex: 1; }
+.curve svg { width: 100%; height: 120px; display: block; background: var(--bg-card); border-radius: 10px; box-shadow: inset 0 0 0 1px var(--border-hairline); }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <!-- custom glyphs (exact paths from SPEC.md) -->
+    <symbol id="g-mark" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M23 8.1L20.6 7.3C20 5.5 17.6 5 16.3 6.6L14.2 9.2C11.6 6.3 8.2 3.6 3.6 2C5.6 5.8 8 9.3 11 11.4C8.2 12.5 5 13.3 1.4 13.6L5 15.6L2.6 18.6C9.4 19.4 15.2 17.6 18.4 14.2C19.8 12.7 20.6 10.9 20.9 9.2Z M17.7 8.1a0.8 0.8 0 1 0 1.6 0a0.8 0.8 0 1 0 -1.6 0Z"/></symbol>
+    <symbol id="g-contrail" viewBox="0 0 16 16"><path d="M1.75 7.25H3.25A0.75 0.75 0 0 1 3.25 8.75H1.75A0.75 0.75 0 0 1 1.75 7.25Z M6.5 7H8.5A1 1 0 0 1 8.5 9H6.5A1 1 0 0 1 6.5 7Z M13 5.5A2.5 2.5 0 1 1 13 10.5A2.5 2.5 0 1 1 13 5.5Z"/></symbol>
+    <symbol id="g-perch" viewBox="0 0 32 24"><path fill-rule="evenodd" d="M1 20.5H31V22H1Z M24.8 8.3L22.5 7.5C21.9 5.6 19.3 5.1 18 6.8C16.6 8.6 14.1 9.7 12.6 12L6.6 17.4L9.3 17.9C10.8 19.4 13.2 20.4 16.2 20.4C19.8 20.4 22.4 17 22.7 11.4C22.8 10.1 23.5 9 24.8 8.3Z M19.6 8.6a0.7 0.7 0 1 0 1.4 0a0.7 0.7 0 1 0 -1.4 0Z M12.6 15.6C15.2 13 18.6 12.6 20.6 14.2C19.2 16.8 16.2 17.8 13.4 16.9Z"/></symbol>
+    <symbol id="g-wing" viewBox="0 0 16 16"><path d="M1.5 14.5C3 8 7.5 3 14.5 1.5C13 8 8.5 13 1.5 14.5Z"/></symbol>
+    <!-- SF Symbol stand-ins (the app uses the real symbols named in SPEC.md) -->
+    <symbol id="i-star" viewBox="0 0 16 16"><path d="M8 1.9l1.8 3.9 4.2.5-3.1 2.9.8 4.2L8 11.3l-3.7 2.1.8-4.2L2 6.3l4.2-.5z"/></symbol>
+    <symbol id="i-starf" viewBox="0 0 16 16"><path fill="currentColor" d="M8 1.9l1.8 3.9 4.2.5-3.1 2.9.8 4.2L8 11.3l-3.7 2.1.8-4.2L2 6.3l4.2-.5z"/></symbol>
+    <symbol id="i-archive" viewBox="0 0 16 16"><rect x="1.75" y="2.5" width="12.5" height="3.25" rx="1"/><path d="M2.9 5.75v6.5a1.25 1.25 0 0 0 1.25 1.25h7.7a1.25 1.25 0 0 0 1.25-1.25v-6.5M6.3 8.5h3.4"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 16 16"><path d="M2.5 4.25h11M6.1 4.25V2.6h3.8v1.65M3.9 4.25l.65 8.65a1.2 1.2 0 0 0 1.2 1.1h4.5a1.2 1.2 0 0 0 1.2-1.1l.65-8.65M6.7 6.9v4.6M9.3 6.9v4.6"/></symbol>
+    <symbol id="i-more" viewBox="0 0 16 16"><circle cx="3.4" cy="8" r="1.15" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r="1.15" fill="currentColor" stroke="none"/><circle cx="12.6" cy="8" r="1.15" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-search" viewBox="0 0 16 16"><circle cx="6.8" cy="6.8" r="4.6"/><path d="M10.2 10.2l3.9 3.9"/></symbol>
+    <symbol id="i-clip" viewBox="0 0 16 16"><path d="M13.2 7.6l-5.1 5.1a3.2 3.2 0 0 1-4.5-4.5l5.6-5.6a2.1 2.1 0 0 1 3 3L6.6 11.2a1 1 0 0 1-1.5-1.5L10 4.8"/></symbol>
+    <symbol id="i-down" viewBox="0 0 16 16"><path d="M3.5 6l4.5 4.5L12.5 6"/></symbol>
+    <symbol id="i-updown" viewBox="0 0 16 16"><path d="M5 6l3-3 3 3M5 10l3 3 3-3"/></symbol>
+    <symbol id="i-right" viewBox="0 0 16 16"><path d="M6 3.5l4.5 4.5L6 12.5"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 16 16"><path d="M8 2.75v10.5M2.75 8h10.5"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.1"/><path d="M8 1.6v1.6M8 12.8v1.6M1.6 8h1.6M12.8 8h1.6M3.5 3.5l1.1 1.1M11.4 11.4l1.1 1.1M3.5 12.5l1.1-1.1M11.4 4.6l1.1-1.1"/><circle cx="8" cy="8" r="4.6"/></symbol>
+    <symbol id="i-sidebar" viewBox="0 0 16 16"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2"/><path d="M6 2.75v10.5"/></symbol>
+    <symbol id="i-reply" viewBox="0 0 16 16"><path d="M6.5 3.5l-4 4 4 4M2.5 7.5H9a4.5 4.5 0 0 1 4.5 4.5v.75"/></symbol>
+    <symbol id="i-replyall" viewBox="0 0 16 16"><path d="M8.2 4.2l-3.3 3.3 3.3 3.3M4.6 4.2L1.3 7.5l3.3 3.3M4.9 7.5h4.6a4.5 4.5 0 0 1 4.5 4.5v.75"/></symbol>
+    <symbol id="i-fwd" viewBox="0 0 16 16"><path d="M9.5 3.5l4 4-4 4M13.5 7.5H7A4.5 4.5 0 0 0 2.5 12v.75"/></symbol>
+    <symbol id="i-send" viewBox="0 0 16 16"><path fill="currentColor" stroke="none" d="M14.6 1.4L1.6 6.6c-.5.2-.5.9 0 1.1l4.6 1.8 1.8 4.6c.2.5.9.5 1.1 0z"/></symbol>
+    <symbol id="i-photo" viewBox="0 0 16 16"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2"/><circle cx="5.6" cy="6.3" r="1.2"/><path d="M2 12l3.6-3.4 2.6 2.4 2.1-1.9 3.7 3.4"/></symbol>
+    <symbol id="i-half" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.75"/><path fill="currentColor" stroke="none" d="M8 2.25a5.75 5.75 0 0 0 0 11.5z"/></symbol>
+    <symbol id="i-doc" viewBox="0 0 16 16"><path d="M4.2 1.75h4.9l3.65 3.65v8a.85.85 0 0 1-.85.85H4.2a.85.85 0 0 1-.85-.85V2.6a.85.85 0 0 1 .85-.85zM9 1.9v3.6h3.6"/></symbol>
+    <symbol id="i-check" viewBox="0 0 16 16"><path d="M3.2 8.4l3 3 6.6-6.8"/></symbol>
+    <symbol id="i-checkc" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.25"/><path d="M5.2 8.2l2 2 3.8-4"/></symbol>
+    <symbol id="i-warn" viewBox="0 0 16 16"><path d="M7.1 2.6a1 1 0 0 1 1.8 0l5.4 9.8a1 1 0 0 1-.9 1.5H2.6a1 1 0 0 1-.9-1.5zM8 6.3v3.1"/><circle cx="8" cy="11.6" r=".55" fill="currentColor"/></symbol>
+    <symbol id="i-wifislash" viewBox="0 0 16 16"><path d="M1.6 6.1a9.5 9.5 0 0 1 12.8 0M3.9 8.6a6.2 6.2 0 0 1 8.2 0M6.2 11a3 3 0 0 1 3.6 0M2.5 2.5l11 11"/></symbol>
+    <symbol id="i-undo" viewBox="0 0 16 16"><path d="M5.2 3.5L2.2 6.5l3 3M2.2 6.5h7.3a4 4 0 0 1 0 8H7"/></symbol>
+    <symbol id="i-compose" viewBox="0 0 16 16"><path d="M7.2 2.6H3.6a1.1 1.1 0 0 0-1.1 1.1v8.7a1.1 1.1 0 0 0 1.1 1.1h8.7a1.1 1.1 0 0 0 1.1-1.1V8.8M12.1 1.9l2 2-5.7 5.7-2.6.6.6-2.6z"/></symbol>
+    <symbol id="i-x" viewBox="0 0 16 16"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7"/></symbol>
+    <symbol id="i-env" viewBox="0 0 16 16"><rect x="1.75" y="3.25" width="12.5" height="9.5" rx="1.75"/><path d="M2.3 4.4L8 8.7l5.7-4.3"/></symbol>
+    <symbol id="i-envdot" viewBox="0 0 16 16"><path d="M10.5 3.25H3.5a1.75 1.75 0 0 0-1.75 1.75v6a1.75 1.75 0 0 0 1.75 1.75h9a1.75 1.75 0 0 0 1.75-1.75V7.5M2.3 4.4L8 8.7l2-1.5"/><circle cx="13.2" cy="3.6" r="1.9" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-person" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.25"/><circle cx="8" cy="6.6" r="2.2"/><path d="M4 12.6c1-1.5 2.4-2.2 4-2.2s3 .7 4 2.2"/></symbol>
+    <symbol id="i-key" viewBox="0 0 16 16"><circle cx="5" cy="8" r="2.9"/><path d="M7.9 8h6.3M12.2 8v2.4M14.2 8v1.8"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 16 16"><path d="M3.8 11.2V7.3a4.2 4.2 0 0 1 8.4 0v3.9l1.1 1.4H2.7zM6.6 14.1h2.8"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 16 16"><path d="M13.2 8a5.2 5.2 0 1 1-1.6-3.8M13.2 2.6v2.9h-2.9"/></symbol>
+    <symbol id="i-format" viewBox="0 0 16 16"><path d="M2.4 12.8L6 3.4l3.6 9.4M3.6 9.8h4.8M11.5 8.2c.4-.6 1-.9 1.7-.9 1 0 1.6.6 1.6 1.6v3.9M14.8 10.2h-1.6c-1 0-1.7.5-1.7 1.3s.6 1.3 1.4 1.3c1 0 1.9-.7 1.9-1.9"/></symbol>
+    <symbol id="i-inbox" viewBox="0 0 16 16"><path d="M1.75 9.25h3.4l1 1.75h3.7l1-1.75h3.4M1.75 9.25L3.6 3.8a1.1 1.1 0 0 1 1-.75h6.8a1.1 1.1 0 0 1 1 .75l1.85 5.45v3.1a1.1 1.1 0 0 1-1.1 1.1H2.85a1.1 1.1 0 0 1-1.1-1.1z"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 16 16"><rect x="3" y="7" width="10" height="7" rx="1.6"/><path d="M5.2 7V5.2a2.8 2.8 0 0 1 5.6 0V7"/></symbol>
+    <symbol id="i-moveup" viewBox="0 0 16 16"><path d="M1.75 9.25h3.4l1 1.75h3.7l1-1.75h3.4v3.1a1.1 1.1 0 0 1-1.1 1.1H2.85a1.1 1.1 0 0 1-1.1-1.1zM8 7.2V1.8M5.6 4.1L8 1.7l2.4 2.4"/></symbol>
+  </defs>
+</svg>
+
+<div class="page">
+  <header class="hero">
+    <div class="brand">
+      <div class="brand-mark"><svg class="g" width="40" height="40"><use href="#g-mark"/></svg></div>
+      <div>
+        <h1>Flit</h1>
+        <p>The design language of SuperSparrow · direction “Kinetic minimal”</p>
+      </div>
+    </div>
+    <div class="hero-meta"><b>Specimen v1</b> · 2 Nov 2026<br><span class="appearance"></span> · one token set for AppKit, SwiftUI and the WKWebView reader</div>
+  </header>
+
+  <div class="principles">
+    <div class="principle"><b>The key beats the pixel</b><span>Every action renders its end state in the same frame as the keystroke. Motion only confirms what already happened.</span></div>
+    <div class="principle"><b>One flare per region</b><span>Flare marks where you are, what fires and what just happened. Each pane shows at most one Flare element at a time.</span></div>
+    <div class="principle"><b>Say it twice</b><span>State always has two carriers: shape, weight, glyph or words, plus color. Never color alone.</span></div>
+    <div class="principle"><b>Quiet until touched</b><span>Hints, counts and chrome stay low until hover or focus raises them. Mail content is the loudest thing on screen.</span></div>
+  </div>
+
+  <section>
+    <div class="sec-h"><span class="n">A</span><h2>Main window</h2><p>1280 × 800 · unified inbox selected, list focused, last action archived</p></div>
+    <div class="win main">
+      <div class="tl"><i></i><i></i><i></i></div>
+      <!-- rail -->
+      <div class="rail">
+        <div class="rail-items">
+          <div class="ri sel"><span class="perch"></span><div class="av36 uni"><svg class="g" width="21" height="21"><use href="#g-mark"/></svg></div><span class="rbadge">21</span></div>
+          <div class="rail-div"></div>
+          <div class="ri"><div class="av36" style="background:var(--acct-1);color:var(--acct-1-ink)">C</div><span class="rbadge">16</span></div>
+          <div class="ri"><div class="av36" style="background:var(--acct-2);color:var(--acct-2-ink)">G</div><span class="rbadge">5</span></div>
+          <div class="ri"><div class="av36" style="background:var(--acct-3);color:var(--acct-3-ink)">F</div></div>
+        </div>
+        <div class="rail-foot">
+          <span class="ib"><svg class="i"><use href="#i-plus"/></svg></span>
+          <span class="ib"><svg class="i"><use href="#i-gear"/></svg></span>
+        </div>
+      </div>
+      <!-- list -->
+      <div class="list">
+        <div class="lh">
+          <span class="tmenu">Inbox<svg class="i"><use href="#i-down"/></svg></span>
+          <span class="spacer"></span>
+          <span class="seg"><span class="on">All</span><span>Focused</span><span>Other</span></span>
+          <span class="ib"><svg class="i"><use href="#i-compose"/></svg></span>
+        </div>
+        <div class="search-row"><div class="field"><svg class="i" style="width:14px;height:14px"><use href="#i-search"/></svg><span class="ph">Search</span><span class="kbd">/</span></div></div>
+        <div class="rows">
+          <div class="row unread"><span class="slab"></span><span class="dot"></span>
+            <div class="av" style="background:var(--av-2-bg);color:var(--av-2-fg)">PR<span class="pip" style="background:var(--acct-2)"></span></div>
+            <div class="ln l1"><span class="who ell">Priya Raman</span><span class="time">09:41</span></div>
+            <div class="ln l2"><span class="subj ell">Lisbon in March?</span><span class="cbadge">5</span><svg class="i gl star" style="width:13px;height:13px"><use href="#i-starf"/></svg></div>
+            <div class="ln l3"><span class="snip ell">Booked the flat near Príncipe Real. Sam wants to come for the weekend too, ok?</span></div><span class="hl"></span></div>
+          <div class="row sel"><span class="slab"></span>
+            <div class="av" style="background:var(--av-1-bg);color:var(--av-1-fg)">BC<span class="pip" style="background:var(--acct-1)"></span></div>
+            <div class="ln l1"><span class="who ell">Ben Carter, Alex Morgan, Tom Hughes</span><span class="time">09:12</span></div>
+            <div class="ln l2"><span class="subj ell">Contoso rollout: go-live checklist</span><span class="cbadge">4</span><svg class="i gl" style="width:13px;height:13px"><use href="#i-clip"/></svg></div>
+            <div class="ln l3"><span class="snip ell">Tested with three accounts this morning. We're green for the 14th.</span></div><span class="hl"></span></div>
+          <div class="row unread"><span class="slab"></span><span class="dot"></span>
+            <div class="av" style="background:var(--av-6-bg);color:var(--av-6-fg)">DA<span class="pip" style="background:var(--acct-3)"></span></div>
+            <div class="ln l1"><span class="who ell">Diego Alvarez</span><span class="time">08:30</span></div>
+            <div class="ln l2"><span class="subj ell">Photos from the offsite</span><span class="cbadge">3</span><svg class="i gl" style="width:13px;height:13px"><use href="#i-clip"/></svg></div>
+            <div class="ln l3"><span class="snip ell">Group shot is coming tomorrow, I need to fix the horizon first.</span></div><span class="hl"></span></div>
+          <div class="row hover"><span class="slab"></span>
+            <div class="av" style="background:var(--av-3-bg);color:var(--av-3-fg)">LM<span class="pip" style="background:var(--acct-2)"></span></div>
+            <div class="ln l1"><span class="who ell">Linda Morgan</span><span class="time">Sun</span></div>
+            <div class="ln l2"><span class="subj ell">Sunday dinner</span><span class="cbadge">2</span></div>
+            <div class="ln l3"><span class="snip ell">Noted. I'll bring the plum cake from the bakery on Rua da Rosa.</span></div><span class="hl"></span></div>
+          <div class="row unread"><span class="slab"></span><span class="dot"></span>
+            <div class="av" style="background:var(--av-8-bg);color:var(--av-8-fg)">F<span class="pip" style="background:var(--acct-3)"></span></div>
+            <div class="ln l1"><span class="who ell">Forge</span><span class="time">Sun</span></div>
+            <div class="ln l2"><span class="subj ell">[sparrow-sync] PR #2657: Coalesce history pages</span><span class="tag">Other</span><span class="cbadge">4</span></div>
+            <div class="ln l3"><span class="snip ell">maya-c commented: Looks good, one nit about the retry ceiling.</span></div><span class="hl"></span></div>
+          <div class="row pending"><span class="slab"></span>
+            <div class="av" style="background:var(--av-7-bg);color:var(--av-7-fg)">RK<span class="pip" style="background:var(--acct-1)"></span></div>
+            <div class="ln l1"><span class="who ell">Rachel Kim, Alex Morgan</span><span class="time"><svg class="g" width="12" height="12" style="color:var(--fg-secondary)"><use href="#g-contrail"/></svg>Sat</span></div>
+            <div class="ln l2"><span class="subj ell">Q4 roadmap review</span><span class="cbadge">5</span><svg class="i gl star" style="width:13px;height:13px"><use href="#i-starf"/></svg></div>
+            <div class="ln l3"><span class="snip ell">Great work. One comment: move the offline mode milestone ahead of search.</span></div><span class="hl"></span></div>
+          <div class="row"><span class="slab"></span>
+            <div class="av" style="background:var(--av-5-bg);color:var(--av-5-fg)">T<span class="pip" style="background:var(--acct-1)"></span></div>
+            <div class="ln l1"><span class="who ell">Trackr</span><span class="time">Sat</span></div>
+            <div class="ln l2"><span class="subj ell">SRCH-2584: Highlight matches in snippets</span><span class="tag">Other</span></div>
+            <div class="ln l3"><span class="snip ell">Tom Hughes assigned this issue to you. Open in Trackr to reply.</span></div><span class="hl"></span></div>
+          <div class="row"><span class="slab"></span>
+            <div class="av" style="background:var(--av-4-bg);color:var(--av-4-fg)">C<span class="pip" style="background:var(--acct-1)"></span></div>
+            <div class="ln l1"><span class="who ell">Calendar</span><span class="time">Fri</span></div>
+            <div class="ln l2"><span class="subj ell">Accepted: Design review @ Thu 15:30</span></div>
+            <div class="ln l3"><span class="snip ell">Room: Juniper (4th floor) · video link in the event</span></div><span class="hl"></span></div>
+          <div class="row unread"><span class="slab"></span><span class="dot"></span>
+            <div class="av" style="background:var(--av-1-bg);color:var(--av-1-fg)">TN<span class="pip" style="background:var(--acct-2)"></span></div>
+            <div class="ln l1"><span class="who ell">Theo Nakamura</span><span class="time">30 Oct</span></div>
+            <div class="ln l2"><span class="subj ell">Heads up</span></div>
+            <div class="ln l3"><span class="snip ell">Do you have ten minutes this afternoon to look at the onboarding copy?</span></div><span class="hl"></span></div>
+          <div class="row"><span class="slab"></span>
+            <div class="av" style="background:var(--av-6-bg);color:var(--av-6-fg)">NW<span class="pip" style="background:var(--acct-2)"></span></div>
+            <div class="ln l1"><span class="who ell">Northwind Weekly</span><span class="time">29 Oct</span></div>
+            <div class="ln l2"><span class="subj ell">Issue #182: Quiet tools</span></div>
+            <div class="ln l3"><span class="snip ell">This week: why the fastest apps feel calm.</span></div><span class="hl"></span></div>
+          <div class="toast" style="left:50%;transform:translateX(-50%);bottom:12px"><svg class="i"><use href="#i-archive"/></svg><span>Archived</span><span class="sep">·</span><span class="undo">Undo<span class="kbd">Z</span></span><span class="tc" style="width:62%"></span></div>
+        </div>
+        <div class="sync"><svg class="i" style="color:var(--success)"><use href="#i-check"/></svg><span>Synced just now</span><span style="margin-left:auto" class="tnum">3 accounts</span></div>
+      </div>
+      <!-- reader -->
+      <div class="reader">
+        <div class="rh">
+          <h3 class="ell">Contoso rollout: go-live checklist</h3>
+          <div class="acts">
+            <span class="ib"><svg class="i"><use href="#i-star"/></svg></span>
+            <span class="ib hover"><svg class="i"><use href="#i-archive"/></svg></span>
+            <span class="ib"><svg class="i"><use href="#i-trash"/></svg></span>
+            <span class="ib"><svg class="i"><use href="#i-more"/></svg></span>
+          </div>
+        </div>
+        <div class="tip" style="position:absolute;top:48px;right:56px;z-index:5">Archive<span class="kbd">E</span></div>
+        <div class="rc">
+          <div class="col">
+            <div class="meta"><span class="achip"><span class="m" style="background:var(--acct-1);color:var(--acct-1-ink)">C</span>alex@contoso.com</span><span>4 messages · Ben Carter, Alex Morgan, Tom Hughes</span></div>
+            <div class="card c"><div class="av" style="background:var(--av-1-bg);color:var(--av-1-fg)">BC</div><span class="nm ell">Ben Carter</span><span class="sn ell">Hi Alex, attaching our go-live checklist for the 14th. Can your team confirm items 4 through 9 by Friday?</span><span class="dt">Fri 30 Oct</span></div>
+            <div class="card c"><div class="av" style="background:var(--av-4-bg);color:var(--av-4-fg)">AM</div><span class="nm ell">Alex Morgan</span><span class="sn ell">Thanks Ben. Items 4–7 are done; 8 and 9 depend on your SSO configuration.</span><span class="dt">Fri 30 Oct</span></div>
+            <div class="card c"><div class="av" style="background:var(--av-5-bg);color:var(--av-5-fg)">TH</div><span class="nm ell">Tom Hughes</span><span class="sn ell">Forwarded to IT, they'll send the metadata today. Really appreciate the quick turnaround.</span><span class="dt">Sun 09:58</span></div>
+            <div class="card x">
+              <div class="mh">
+                <div class="av" style="background:var(--av-1-bg);color:var(--av-1-fg)">BC</div>
+                <div class="who"><div class="nm">Ben Carter <span class="addr">ben@contoso.com</span></div><div class="to">to me · cc Tom Hughes</div></div>
+                <div class="right"><span class="dt">Today 09:12</span><span class="ib sm"><svg class="i" style="width:14px;height:14px"><use href="#i-star"/></svg></span><span class="ib sm"><svg class="i" style="width:14px;height:14px"><use href="#i-more"/></svg></span></div>
+              </div>
+              <div class="tools">
+                <span class="btn sm secondary"><svg class="i"><use href="#i-more"/></svg>Show quoted text</span>
+                <span class="btn sm secondary"><svg class="i"><use href="#i-photo"/></svg>Load images (2)</span>
+                <span class="btn sm secondary"><svg class="i"><use href="#i-half"/></svg>Original colors</span>
+              </div>
+              <div class="body">
+                <p>Hi Alex,</p>
+                <p>Thanks for the quick turnaround. I tested the rollout with three accounts this morning, two on Microsoft and one on Gmail, and everything synced on the first try.</p>
+                <p>We're green for the 14th. I've attached the final checklist and the SSO metadata so your IT team has everything in one place. Two things left on your side:</p>
+                <ul style="margin:0 0 10px;padding-left:20px"><li>Confirm the SSO login on staging (item 8)</li><li>Send the support rota for launch week (item 9)</li></ul>
+                <p style="margin:0">Ben</p>
+              </div>
+              <div class="atts">
+                <span class="att"><span class="ft" style="background:#C8213F">PDF</span><span><div class="an ell">go-live-checklist.pdf</div><div class="as">184 KB</div></span></span>
+                <span class="att"><span class="ft" style="background:#5C5C66">XML</span><span><div class="an ell">sso-metadata.xml</div><div class="as">6 KB</div></span></span>
+              </div>
+              <div class="foot">
+                <span class="btn sm ghost neutral"><svg class="i"><use href="#i-reply"/></svg>Reply<span class="kbd">R</span></span>
+                <span class="btn sm ghost neutral"><svg class="i"><use href="#i-replyall"/></svg>Reply all<span class="kbd">A</span></span>
+                <span class="btn sm ghost neutral"><svg class="i"><use href="#i-fwd"/></svg>Forward<span class="kbd">F</span></span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="qr"><div class="qr-f"><div class="av" style="background:var(--av-1-bg);color:var(--av-1-fg)">BC</div><span style="flex:1">Reply to Ben Carter…</span><span class="kbd">R</span></div></div>
+      </div>
+    </div>
+  </section>
+  <section class="sec">
+    <div class="sec-h"><span class="n">B</span><h2>Composer and welcome</h2><p>Composer 640 × 560 (reply, token selected, recipient field focused) · Welcome 600 × 560</p></div>
+    <div style="display:flex;gap:40px;align-items:flex-start">
+      <div class="win composer">
+        <div class="tl"><i></i><i></i><i></i></div>
+        <div class="ctitle">Re: Contoso rollout: go-live checklist</div>
+        <div class="cf"><span class="lab">From</span><span class="popup hover"><span class="achip" style="background:transparent;padding:0;height:auto"><span class="m" style="background:var(--acct-1);color:var(--acct-1-ink)">C</span></span>Alex Morgan &lt;alex@contoso.com&gt;<svg class="i ud"><use href="#i-updown"/></svg></span></div>
+        <div class="cf" style="gap:6px"><span class="lab" style="margin-right:2px">To</span><span class="tok"><span class="av" style="background:var(--av-1-bg);color:var(--av-1-fg)">BC</span>Ben Carter</span><span class="tok sel"><span class="av" style="background:#fff;color:var(--accent)">TH</span>Tom Hughes</span><span class="tok bad">it-desk@contoso</span><span style="flex:1;display:flex;align-items:center"><span class="caret" style="display:inline-block;width:1.5px;height:16px;background:var(--focus-ring)"></span></span><span class="btn sm ghost neutral" style="color:var(--fg-secondary);font-weight:500">Cc</span><span class="btn sm ghost neutral" style="color:var(--fg-secondary);font-weight:500;margin-left:-6px">Bcc</span></div>
+        <div class="cf"><span class="lab">Subject</span><span style="font-weight:500">Re: Contoso rollout: go-live checklist</span></div>
+        <div class="cbody">
+          <p>Hi Ben,</p>
+          <p>Great news, thank you. I'll confirm the staging login with Tom this afternoon and send the support rota by Thursday.</p>
+          <p>Alex</p>
+          <span class="fold"><span class="dots"><i></i><i></i><i></i></span>Ben Carter wrote on Mon 2 Nov, 09:12<svg class="i" style="width:11px;height:11px;stroke-width:2"><use href="#i-down"/></svg></span>
+        </div>
+        <div class="strip">
+          <span class="att"><span class="ft" style="background:#1F8555">XLS</span><span><div class="an ell">support-rota.xlsx</div><div class="as">48 KB</div></span><span class="x"><svg class="i" style="width:11px;height:11px;stroke-width:2"><use href="#i-x"/></svg></span></span>
+          <span class="att"><span class="ft" style="background:#006CD3">PNG</span><span><div class="an ell">staging-login.png</div><div class="as">Adding… 62%</div></span><span class="x"><svg class="i" style="width:11px;height:11px;stroke-width:2"><use href="#i-x"/></svg></span><span class="bar" style="width:62%"></span></span>
+        </div>
+        <div class="cbar">
+          <span class="btn primary lg"><svg class="i"><use href="#i-send"/></svg>Send<span class="kbd" style="margin-left:2px">⌘↩</span></span>
+          <span class="ib" style="margin-left:6px"><svg class="i"><use href="#i-clip"/></svg></span>
+          <span class="ib"><svg class="i"><use href="#i-format"/></svg></span>
+          <span class="spacer"></span>
+          <span style="font:500 11px/14px var(--font-round);color:var(--fg-secondary);margin-right:6px">Draft saved</span>
+          <span class="ib"><svg class="i"><use href="#i-trash"/></svg></span>
+        </div>
+      </div>
+
+      <div class="win" style="width:600px;height:560px;background:var(--bg-canvas)">
+        <div class="tl"><i></i><i></i><i></i></div>
+        <div style="height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:0 64px">
+          <div style="position:relative;width:180px;height:88px;margin-bottom:22px">
+            <svg viewBox="0 0 180 88" width="180" height="88" style="position:absolute;inset:0;overflow:visible" aria-hidden="true">
+              <defs><linearGradient id="trail" x1="0" x2="1"><stop offset="0" style="stop-color:#F25A26;stop-opacity:0"/><stop offset="1" style="stop-color:#F25A26;stop-opacity:.9"/></linearGradient></defs>
+              <path d="M6 70 C 40 70, 70 62, 96 44" fill="none" stroke="url(#trail)" stroke-width="3" stroke-linecap="round"/>
+            </svg>
+            <div style="position:absolute;right:16px;top:0;width:72px;height:72px;border-radius:18px 6px 18px 6px;background:linear-gradient(160deg,#F86A33,#D2421A);display:flex;align-items:center;justify-content:center;color:#fff;box-shadow:0 8px 20px rgba(210,66,26,.30)"><svg class="g" width="46" height="46"><use href="#g-mark"/></svg></div>
+          </div>
+          <div style="font:700 26px/32px var(--font-round);letter-spacing:-.4px">Welcome to SuperSparrow</div>
+          <div style="font-size:14px;line-height:20px;color:var(--fg-secondary);margin-top:6px;max-width:380px">Gmail and Outlook in one fast inbox. Add an account to start; you can add more later.</div>
+          <div style="display:flex;flex-direction:column;gap:10px;margin-top:26px;width:280px">
+            <span class="btn primary lg" style="width:100%">Add Gmail account</span>
+            <span class="btn secondary lg focus" style="width:100%">Add Microsoft account</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;margin-top:28px;font-size:12px;color:var(--fg-secondary)">
+            <span class="kbd lg">J</span><span class="kbd lg">K</span><span class="kbd lg">E</span><span class="kbd lg">S</span><span class="kbd lg">R</span><span style="margin-left:6px">Five keys run most of your day. Press <span class="kbd">?</span> any time.</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;margin-top:22px;font-size:11.5px;color:var(--fg-secondary)"><svg class="i" style="width:13px;height:13px"><use href="#i-lock"/></svg>Your mail goes only between this Mac, Google and Microsoft.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+  <section class="sec">
+    <div class="sec-h"><span class="n">C</span><h2>Component sheet</h2><p>Every component with its key states. Metrics are in SPEC.md; labels name the state shown.</p></div>
+    <div class="sheet">
+
+      <!-- conversation rows -->
+      <div class="cell span2">
+        <h4>Conversation row</h4>
+        <div class="d">72pt fixed height · wing slab inset 6/2 · unread = dot + semibold · pip = account (unified view only) · glyph order from trailing edge: star, clip, count, tag</div>
+        <div style="display:grid;grid-template-columns:340px 340px;gap:16px 24px;justify-content:start">
+          <div class="stc"><span class="lbl">Unread · starred · count</span><div class="surf" style="width:340px">
+            <div class="row unread"><span class="slab"></span><span class="dot"></span><div class="av" style="background:var(--av-2-bg);color:var(--av-2-fg)">PR<span class="pip" style="background:var(--acct-2)"></span></div><div class="ln l1"><span class="who ell">Priya Raman</span><span class="time">09:41</span></div><div class="ln l2"><span class="subj ell">Lisbon in March?</span><span class="cbadge">5</span><svg class="i gl star" style="width:13px;height:13px"><use href="#i-starf"/></svg></div><div class="ln l3"><span class="snip ell">Booked the flat near Príncipe Real.</span></div></div></div></div>
+          <div class="stc"><span class="lbl">Selected · list focused (wing slab)</span><div class="surf" style="width:340px">
+            <div class="row sel unread"><span class="slab"></span><span class="dot"></span><div class="av" style="background:var(--av-2-bg);color:var(--av-2-fg)">PR<span class="pip" style="background:var(--acct-2)"></span></div><div class="ln l1"><span class="who ell">Priya Raman</span><span class="time">09:41</span></div><div class="ln l2"><span class="subj ell">Lisbon in March?</span><span class="cbadge">5</span><svg class="i gl star" style="width:13px;height:13px"><use href="#i-starf"/></svg></div><div class="ln l3"><span class="snip ell">Booked the flat near Príncipe Real.</span></div></div></div></div>
+          <div class="stc"><span class="lbl">Read · hover</span><div class="surf" style="width:340px">
+            <div class="row hover"><span class="slab"></span><div class="av" style="background:var(--av-3-bg);color:var(--av-3-fg)">LM<span class="pip" style="background:var(--acct-2)"></span></div><div class="ln l1"><span class="who ell">Linda Morgan</span><span class="time">Sun</span></div><div class="ln l2"><span class="subj ell">Sunday dinner</span></div><div class="ln l3"><span class="snip ell">Noted. I'll bring the plum cake.</span></div></div></div></div>
+          <div class="stc"><span class="lbl">Selected · inactive window or reader focused</span><div class="surf" style="width:340px">
+            <div class="row seli"><span class="slab"></span><div class="av" style="background:var(--av-1-bg);color:var(--av-1-fg)">BC<span class="pip" style="background:var(--acct-1)"></span></div><div class="ln l1"><span class="who ell">Ben Carter, Alex Morgan</span><span class="time">09:12</span></div><div class="ln l2"><span class="subj ell">Contoso rollout: go-live checklist</span><span class="cbadge">4</span><svg class="i gl" style="width:13px;height:13px"><use href="#i-clip"/></svg></div><div class="ln l3"><span class="snip ell">Tested with three accounts this morning.</span></div></div></div></div>
+          <div class="stc"><span class="lbl">Pending sync (contrail before time) · Other</span><div class="surf" style="width:340px">
+            <div class="row pending"><span class="slab"></span><div class="av" style="background:var(--av-5-bg);color:var(--av-5-fg)">T<span class="pip" style="background:var(--acct-1)"></span></div><div class="ln l1"><span class="who ell">Trackr</span><span class="time"><svg class="g" width="12" height="12" style="color:var(--fg-secondary)"><use href="#g-contrail"/></svg>Sat</span></div><div class="ln l2"><span class="subj ell">SRCH-2584: Highlight matches</span><span class="tag">Other</span></div><div class="ln l3"><span class="snip ell">Tom Hughes assigned this issue to you.</span></div></div></div></div>
+          <div class="stc"><span class="lbl">Compact density · 52pt · single account (no pip)</span><div class="surf" style="width:340px">
+            <div class="row compact unread"><span class="slab"></span><span class="dot"></span><div class="av" style="background:var(--av-7-bg);color:var(--av-7-fg)">RK</div><div class="ln l1"><span class="who ell">Rachel Kim</span><span class="time">Sat</span></div><div class="ln l2"><span class="subj ell">Q4 roadmap review</span><span class="cbadge">5</span></div><span class="hl"></span></div>
+            <div class="row compact sel"><span class="slab"></span><div class="av" style="background:var(--av-4-bg);color:var(--av-4-fg)">C</div><div class="ln l1"><span class="who ell">Calendar</span><span class="time">Fri</span></div><div class="ln l2"><span class="subj ell">Accepted: Design review @ Thu 15:30</span></div></div></div></div>
+        </div>
+      </div>
+
+      <!-- rail -->
+      <div class="cell">
+        <h4>Account rail</h4>
+        <div class="d">72pt wide · 48pt items · selected = perch bar + wing morph · counts are ink, alerts are danger with a glyph</div>
+        <div style="display:flex;gap:14px">
+          <div class="surf rail" style="width:72px;padding:6px 0;display:flex;flex-direction:column;align-items:center">
+            <div class="ri"><div class="av36 uni"><svg class="g" width="21" height="21"><use href="#g-mark"/></svg></div><span class="rbadge">21</span></div>
+            <div class="ri hover"><span class="perch"></span><div class="av36 uni"><svg class="g" width="21" height="21"><use href="#g-mark"/></svg></div></div>
+            <div class="ri sel"><span class="perch"></span><div class="av36 uni"><svg class="g" width="21" height="21"><use href="#g-mark"/></svg></div><span class="rbadge">21</span></div>
+            <div class="rail-div"></div>
+            <div class="ri"><div class="av36" style="background:var(--acct-1);color:var(--acct-1-ink)">C</div><span class="rbadge">16</span></div>
+            <div class="ri hover"><span class="perch"></span><div class="av36" style="background:var(--acct-2);color:var(--acct-2-ink)">G</div></div>
+            <div class="ri sel"><span class="perch"></span><div class="av36" style="background:var(--acct-3);color:var(--acct-3-ink)">F</div><span class="rbadge">99+</span></div>
+            <div class="ri"><div class="av36" style="background:var(--acct-4);color:var(--acct-4-ink);opacity:.45">O</div><span class="rbadge alert"><svg class="i" style="width:10px;height:10px;stroke-width:2.4;margin:3px"><use href="#i-warn"/></svg></span></div>
+            <div class="ri"><div class="av36" style="background:var(--acct-5);color:var(--acct-5-ink);box-shadow:0 0 0 2px var(--bg-rail),0 0 0 4px var(--focus-ring)">P</div></div>
+          </div>
+          <div style="display:flex;flex-direction:column;font-size:11.5px;color:var(--page-sub);line-height:15px">
+            <div style="height:54px;display:flex;align-items:center">All inboxes · rest, 21 unread</div>
+            <div style="height:52px;display:flex;align-items:center">Hover · 8pt perch nub</div>
+            <div style="height:52px;display:flex;align-items:center">Selected · Flare wing tile</div>
+            <div style="height:17px"></div>
+            <div style="height:52px;display:flex;align-items:center">Account · monogram from domain</div>
+            <div style="height:52px;display:flex;align-items:center">Account · hover</div>
+            <div style="height:52px;display:flex;align-items:center">Selected · wing morph 120 ms</div>
+            <div style="height:52px;display:flex;align-items:center">Needs sign-in · dimmed + alert</div>
+            <div style="height:52px;display:flex;align-items:center">Keyboard focus (Tab into rail)</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- buttons -->
+      <div class="cell span2">
+        <h4>Buttons</h4>
+        <div class="d">Rounded semibold labels · primary is the only wing-cut button · focus = 2pt ring outside a 2pt surface gap · loading keeps width and swaps the leading glyph for the spinner</div>
+        <div style="display:grid;grid-template-columns:96px repeat(6, 1fr);gap:12px 10px;align-items:center">
+          <span></span><span class="lbl">Rest</span><span class="lbl">Hover</span><span class="lbl">Pressed</span><span class="lbl">Focused</span><span class="lbl">Disabled</span><span class="lbl">Loading</span>
+          <span class="lbl">Primary</span>
+          <span><span class="btn primary">Send</span></span><span><span class="btn primary hover">Send</span></span><span><span class="btn primary pressed">Send</span></span><span><span class="btn primary focus">Send</span></span><span><span class="btn primary dis">Send</span></span><span><span class="btn primary"><span class="spinner" style="background:conic-gradient(from 0deg,transparent 0deg,#fff 300deg,transparent 301deg)"></span>Sending</span></span>
+          <span class="lbl">Secondary</span>
+          <span><span class="btn secondary">Reconnect</span></span><span><span class="btn secondary hover">Reconnect</span></span><span><span class="btn secondary pressed">Reconnect</span></span><span><span class="btn secondary focus">Reconnect</span></span><span><span class="btn secondary dis">Reconnect</span></span><span><span class="btn secondary"><span class="spinner"></span>Signing in</span></span>
+          <span class="lbl">Ghost</span>
+          <span><span class="btn ghost neutral"><svg class="i"><use href="#i-reply"/></svg>Reply</span></span><span><span class="btn ghost neutral hover"><svg class="i"><use href="#i-reply"/></svg>Reply</span></span><span><span class="btn ghost neutral pressed"><svg class="i"><use href="#i-reply"/></svg>Reply</span></span><span><span class="btn ghost neutral focus"><svg class="i"><use href="#i-reply"/></svg>Reply</span></span><span><span class="btn ghost neutral dis"><svg class="i"><use href="#i-reply"/></svg>Reply</span></span><span><span class="btn ghost"><span class="spinner"></span>Loading</span></span>
+          <span class="lbl">Destructive</span>
+          <span><span class="btn danger">Discard</span></span><span><span class="btn danger hover">Discard</span></span><span><span class="btn danger pressed">Discard</span></span><span><span class="btn danger focus">Discard</span></span><span><span class="btn primary dis">Discard</span></span><span><span class="btn danger-ghost">Remove…</span></span>
+          <span class="lbl">Icon 28 / 24</span>
+          <span style="display:flex;gap:4px"><span class="ib"><svg class="i"><use href="#i-archive"/></svg></span><span class="ib sm"><svg class="i" style="width:14px;height:14px"><use href="#i-archive"/></svg></span></span>
+          <span><span class="ib hover"><svg class="i"><use href="#i-archive"/></svg></span></span><span><span class="ib pressed"><svg class="i"><use href="#i-archive"/></svg></span></span><span><span class="ib focus"><svg class="i"><use href="#i-archive"/></svg></span></span><span><span class="ib dis"><svg class="i"><use href="#i-archive"/></svg></span></span><span style="display:flex;gap:4px"><span class="ib on"><svg class="i"><use href="#i-starf"/></svg></span><span style="font-size:11px;color:var(--page-sub)">toggle on</span></span>
+        </div>
+        <div class="st" style="margin-top:16px"><span class="lbl" style="width:96px">Sizes</span><span class="btn primary sm">Small 24</span><span class="btn primary">Regular 28</span><span class="btn primary lg">Large 32</span><span class="btn secondary sm">Small 24</span><span class="btn secondary">Regular 28</span><span class="btn secondary lg">Large 32</span></div>
+      </div>
+
+      <!-- keycaps -->
+      <div class="cell">
+        <h4>Keycaps, hints and HUD</h4>
+        <div class="d">Rounded 10 semibold caps · 16pt cap (22pt large) · hints appear on hover after 400 ms, then instantly while the pointer moves between controls</div>
+        <div class="st"><span class="kbd">J</span><span class="kbd">K</span><span class="kbd">E</span><span class="kbd">#</span><span class="kbd">⌘↩</span><span class="kbd">⇧⌘A</span><span class="kseq"><span class="kbd">G</span>then<span class="kbd">I</span></span></div>
+        <div class="st"><span class="kbd lg">J</span><span class="kbd lg">K</span><span class="kbd lg">⌘0</span><span style="font-size:11px;color:var(--page-sub)">Large · onboarding, cheat sheet</span></div>
+        <div class="st" style="margin-top:16px"><span class="tip">Archive<span class="kbd">E</span></span><span class="tip">Mark unread<span class="kbd">U</span></span></div>
+        <div class="st" style="margin-top:16px">
+          <div class="hud">
+            <div class="hrow" style="color:var(--fg-on-toast);font-weight:600"><span class="kbd">G</span>Go to…</div>
+            <div class="hrow"><span class="kbd">I</span><span>Inbox</span></div>
+            <div class="hrow"><span class="kbd">S</span><span>Starred</span></div>
+            <div class="hrow"><span class="kbd">T</span><span>Sent</span></div>
+            <div class="hrow"><span class="kbd">D</span><span>Drafts</span></div>
+            <div class="hrow"><span class="kbd">A</span><span>All Mail</span></div>
+          </div>
+          <span style="font-size:11px;color:var(--page-sub);max-width:120px;line-height:15px">g-sequence HUD: appears 500 ms after G if no second key arrives; Esc or 2 s idle dismisses.</span>
+        </div>
+      </div>
+
+      <!-- list header -->
+      <div class="cell">
+        <h4>List header, title menu, filter, search</h4>
+        <div class="d">Title menu Heading 16 · segmented ink thumb (wing-cut) · filter shown in Inbox only · search 28pt with “/” hint</div>
+        <div class="st"><span class="tmenu">Inbox<svg class="i"><use href="#i-down"/></svg></span><span class="tmenu hover">Starred<svg class="i"><use href="#i-down"/></svg></span><span class="tmenu open">Sent<svg class="i"><use href="#i-down"/></svg></span><span class="tmenu focus">Drafts<svg class="i"><use href="#i-down"/></svg></span></div>
+        <div class="st" style="align-items:flex-start;margin-top:10px">
+          <div class="menu" style="width:200px">
+            <div class="mi hi"><svg class="i ck"><use href="#i-check"/></svg>Inbox<span class="k">G I</span></div>
+            <div class="mi"><span class="ck"></span>Starred<span class="k">G S</span></div>
+            <div class="mi"><span class="ck"></span>Sent<span class="k">G T</span></div>
+            <div class="mi"><span class="ck"></span>Drafts<span class="k">G D</span></div>
+            <div class="mi"><span class="ck"></span>Trash<span class="k">G #</span></div>
+            <div class="mi"><span class="ck"></span>All Mail<span class="k">G A</span></div>
+          </div>
+        </div>
+        <div class="st" style="margin-top:12px"><span class="seg"><span class="on">All</span><span>Focused</span><span>Other</span></span><span class="seg"><span>All</span><span class="on">Focused</span><span class="hover">Other</span></span></div>
+        <div class="st"><span class="seg focus"><span>All</span><span>Focused</span><span class="on">Other</span></span><span style="font-size:11px;color:var(--page-sub)">focused · ←/→ moves</span></div>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-top:12px">
+          <div class="field"><svg class="i" style="width:14px;height:14px"><use href="#i-search"/></svg><span class="ph">Search</span><span class="kbd">/</span></div>
+          <div class="field focus"><svg class="i" style="width:14px;height:14px"><use href="#i-search"/></svg><span class="val">contoso sso<span class="caret"></span></span><span style="font:500 11px/1 var(--font-round);color:var(--fg-secondary)" class="tnum">12</span><svg class="i" style="width:14px;height:14px;color:var(--fg-secondary)"><use href="#i-x"/></svg></div>
+        </div>
+      </div>
+
+      <!-- fields -->
+      <div class="cell">
+        <h4>Text field, checkbox, toggle, popup</h4>
+        <div class="d">Every control has a 1pt boundary at ≥ 3:1 · focus ring 2pt · errors add a glyph and words, not just red</div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div class="field" style="background:var(--bg-card)"><span class="ph">Client ID</span></div>
+          <div class="field focus"><span class="val" style="font-family:var(--font-mono);font-size:12px">4418-sparrow.apps.googleusercontent<span class="caret"></span></span></div>
+          <div class="field err" style="background:var(--bg-card)"><span class="val" style="font-family:var(--font-mono);font-size:12px">GOCSPX-•••</span><svg class="i" style="width:14px;height:14px;color:var(--danger)"><use href="#i-warn"/></svg></div>
+          <div style="font-size:11.5px;color:var(--danger);display:flex;gap:5px;align-items:center;margin-top:-3px">That secret doesn't match this client ID.</div>
+          <div class="field dis"><span class="ph">Disabled</span></div>
+        </div>
+        <div class="st" style="margin-top:14px"><span class="chk"></span><span class="chk on"><svg class="i" style="width:12px;height:12px;stroke-width:2.2"><use href="#i-check"/></svg></span><span class="chk focus"></span><span class="chk on focus"><svg class="i" style="width:12px;height:12px;stroke-width:2.2"><use href="#i-check"/></svg></span><span class="chk dis"></span><span style="font-size:13px">Notify me about new mail</span></div>
+        <div class="st"><span class="tg"></span><span class="tg on"></span><span class="tg focus"></span><span class="tg on dis"></span><span style="font-size:13px">Load remote images</span></div>
+        <div class="st"><span class="popup boxed">Every 30 seconds<svg class="i ud"><use href="#i-updown"/></svg></span><span class="popup boxed focus">Comfortable<svg class="i ud"><use href="#i-updown"/></svg></span><span class="popup boxed dis">Off<svg class="i ud"><use href="#i-updown"/></svg></span></div>
+      </div>
+
+      <!-- badges & avatars -->
+      <div class="cell">
+        <h4>Badges and avatars</h4>
+        <div class="d">Count pill 16pt · dot 7pt · avatars tinted from 8 hues by sender hash · pip 10pt with a 2pt halo in the list surface</div>
+        <div class="st"><span class="cbadge">2</span><span class="cbadge">48</span><span class="rbadge" style="position:static;box-shadow:none">21</span><span class="rbadge" style="position:static;box-shadow:none">99+</span><span style="width:7px;height:7px;border-radius:50%;background:var(--unread)"></span><span class="tag">Other</span><span class="rbadge alert" style="position:static;box-shadow:none"><svg class="i" style="width:10px;height:10px;stroke-width:2.4;margin:3px"><use href="#i-warn"/></svg></span></div>
+        <div class="st" style="margin-top:14px;align-items:flex-end">
+          <div class="av" style="width:16px;height:16px;font-size:6.5px;background:var(--av-1-bg);color:var(--av-1-fg)">BC</div>
+          <div class="av" style="width:24px;height:24px;font-size:9.5px;background:var(--av-2-bg);color:var(--av-2-fg)">PR</div>
+          <div class="av" style="width:28px;height:28px;font-size:11px;background:var(--av-3-bg);color:var(--av-3-fg)">LM</div>
+          <div class="av" style="background:var(--av-6-bg);color:var(--av-6-fg)">DA<span class="pip" style="background:var(--acct-3)"></span></div>
+          <div class="av" style="width:64px;height:64px;font-size:22px;background:var(--av-7-bg);color:var(--av-7-fg)">RK<span class="pip" style="background:var(--acct-1);width:16px;height:16px;right:0;bottom:0;box-shadow:0 0 0 3px var(--panel)"></span></div>
+        </div>
+        <div class="cap">16 · 24 · 28 · 36 (+pip) · 64 (+16pt pip)</div>
+        <div class="st" style="margin-top:12px;gap:6px">
+          <div class="av" style="width:28px;height:28px;font-size:11px;background:var(--av-1-bg);color:var(--av-1-fg)">Aa</div><div class="av" style="width:28px;height:28px;font-size:11px;background:var(--av-2-bg);color:var(--av-2-fg)">Aa</div><div class="av" style="width:28px;height:28px;font-size:11px;background:var(--av-3-bg);color:var(--av-3-fg)">Aa</div><div class="av" style="width:28px;height:28px;font-size:11px;background:var(--av-4-bg);color:var(--av-4-fg)">Aa</div><div class="av" style="width:28px;height:28px;font-size:11px;background:var(--av-5-bg);color:var(--av-5-fg)">Aa</div><div class="av" style="width:28px;height:28px;font-size:11px;background:var(--av-6-bg);color:var(--av-6-fg)">Aa</div><div class="av" style="width:28px;height:28px;font-size:11px;background:var(--av-7-bg);color:var(--av-7-fg)">Aa</div><div class="av" style="width:28px;height:28px;font-size:11px;background:var(--av-8-bg);color:var(--av-8-fg)">Aa</div>
+        </div>
+      </div>
+
+      <!-- message cards -->
+      <div class="cell span2">
+        <h4>Reader: header, message cards, tools</h4>
+        <div class="d">Cards 12pt radius on the canvas · collapsed 48pt · expanded padding 18/20 · focus ring only when the reader is first responder · tools are small secondary buttons</div>
+        <div class="surf canvas" style="padding:0 0 16px">
+          <div class="rh" style="padding-left:20px"><h3 class="ell" style="font-size:20px">Lisbon in March?</h3><div class="acts"><span class="ib on"><svg class="i"><use href="#i-starf"/></svg></span><span class="ib hover"><svg class="i"><use href="#i-archive"/></svg></span><span class="ib pressed"><svg class="i"><use href="#i-trash"/></svg></span><span class="ib focus"><svg class="i"><use href="#i-envdot"/></svg></span><span class="ib"><svg class="i"><use href="#i-more"/></svg></span></div></div>
+          <div style="padding:0 20px;display:grid;grid-template-columns:1fr 1fr;gap:10px 16px">
+            <div class="stc"><span class="lbl">Collapsed · rest</span><div class="card c" style="width:100%"><div class="av" style="background:var(--av-2-bg);color:var(--av-2-fg)">PR</div><span class="nm ell">Priya Raman</span><span class="sn ell">Booked the flat near Príncipe Real.</span><span class="dt">Sun</span></div></div>
+            <div class="stc"><span class="lbl">Collapsed · unread · hover</span><div class="card c unread hover" style="width:100%"><span class="udot"></span><div class="av" style="background:var(--av-4-bg);color:var(--av-4-fg)">SO</div><span class="nm ell">Sam Ortiz</span><span class="sn ell">Count me in for the weekend!</span><span class="dt">09:41</span></div></div>
+          </div>
+          <div style="padding:12px 20px 0">
+            <span class="lbl" style="display:block;margin-bottom:6px">Expanded · focused (reader is first responder) · quoted text shown · original colors on</span>
+            <div class="card x focus">
+              <div class="mh"><div class="av" style="background:var(--av-2-bg);color:var(--av-2-fg)">PR</div><div class="who"><div class="nm">Priya Raman <span class="addr">priya@fabrikam.io</span></div><div class="to">to me, Sam Ortiz</div></div><div class="right"><span class="dt">Today 09:41</span><span class="ib sm on"><svg class="i" style="width:14px;height:14px"><use href="#i-starf"/></svg></span><span class="ib sm"><svg class="i" style="width:14px;height:14px"><use href="#i-more"/></svg></span></div></div>
+              <div class="tools"><span class="btn sm secondary on"><svg class="i"><use href="#i-more"/></svg>Hide quoted text</span><span class="btn sm secondary on"><svg class="i"><use href="#i-half"/></svg>Original colors</span></div>
+              <div class="banner info"><svg class="i"><use href="#i-photo"/></svg><span class="grow">3 remote images hidden. Loading them tells the sender you opened this.</span><span class="btn sm secondary">Load images</span></div>
+              <div class="body" style="margin-top:12px"><p style="margin:0 0 8px">Booked the flat near Príncipe Real. Sam wants to come for the weekend too, ok?</p><div style="border-left:2px solid var(--border-control);padding-left:10px;color:var(--fg-secondary);font-size:13px;line-height:19px">On Sat, Alex Morgan wrote:<br>Let's do the second week of March. I'll book flights tonight.</div></div>
+              <div class="atts"><span class="att"><span class="ft" style="background:#1F8555">JPG</span><span><div class="an ell">flat-photos.jpg</div><div class="as">2.4 MB</div></span></span><span class="att hover"><span class="ft" style="background:#C8213F">PDF</span><span><div class="an ell">booking.pdf</div><div class="as">Hover · Space previews</div></span></span><span class="att focus"><span class="ft" style="background:#5C5C66">ZIP</span><span><div class="an ell">tickets.zip</div><div class="as">Focused</div></span></span><span class="att"><span class="ft" style="background:#006CD3">PNG</span><span><div class="an ell">map.png</div><div class="as">Downloading 40%</div></span><span class="bar" style="width:40%"></span></span><span class="att err"><span class="ft" style="background:#77777F">DOC</span><span><div class="an ell">itinerary.doc</div><div class="as">Couldn't download · Retry</div></span></span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- quick reply -->
+      <div class="cell">
+        <h4>Quick reply bar</h4>
+        <div class="d">Docked under the conversation · 38pt at rest · grows to 6 lines then scrolls · R focuses it, Esc returns to the list</div>
+        <div class="stc"><span class="lbl">Rest</span><div class="surf canvas" style="width:100%;padding:10px 12px"><div class="qr-f"><div class="av" style="background:var(--av-2-bg);color:var(--av-2-fg)">PR</div><span style="flex:1">Reply to Priya Raman…</span><span class="kbd">R</span></div></div></div>
+        <div class="stc" style="margin-top:12px"><span class="lbl">Focused · typing</span><div class="surf canvas" style="width:100%;padding:10px 12px"><div class="qr-f focus"><div class="txt">Yes of course, the more the merrier. I'll look at flights for Sam<span class="caret" style="display:inline-block;width:1.5px;height:16px;background:var(--focus-ring);vertical-align:-3px"></span></div><div class="qrb"><span style="font-size:12px;color:var(--fg-secondary);display:flex;gap:5px;align-items:center;white-space:nowrap"><svg class="i" style="width:13px;height:13px"><use href="#i-reply"/></svg>Priya</span><span class="spacer"></span><span class="ib sm" title="Open in window"><svg class="i" style="width:14px;height:14px"><use href="#i-compose"/></svg></span><span class="btn primary sm"><svg class="i"><use href="#i-send"/></svg>Send<span class="kbd">⌘↩</span></span></div></div></div></div>
+        <div class="stc" style="margin-top:12px"><span class="lbl">Sending (field locks, undo panel takes over)</span><div class="surf canvas" style="width:100%;padding:10px 12px"><div class="qr-f" style="opacity:1"><span class="spinner"></span><span style="flex:1">Sending to Priya Raman…</span></div></div></div>
+      </div>
+
+      <!-- composer parts -->
+      <div class="cell">
+        <h4>Composer parts</h4>
+        <div class="d">Field rows 40pt with 52pt label column · tokens 24pt pills · Tab completes, ⌫ selects then deletes</div>
+        <div class="st"><span class="tok"><span class="av" style="background:var(--av-1-bg);color:var(--av-1-fg)">BC</span>Ben Carter</span><span class="tok hover"><span class="av" style="background:var(--av-6-bg);color:var(--av-6-fg)">DA</span>Diego</span></div>
+        <div class="st"><span class="tok sel"><span class="av" style="background:#fff;color:var(--accent)">TH</span>Tom Hughes</span><span class="tok bad">it-desk@contoso</span><span class="tok plain">new@person.io</span></div>
+        <div class="cap">rest · hover · selected (Flare) · invalid (glyph-free, wavy underline + danger) · unknown address</div>
+        <div class="st" style="margin-top:12px"><span class="popup hover"><span class="m" style="width:14px;height:14px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font:700 8.5px/1 var(--font-round);background:var(--acct-2);color:var(--acct-2-ink)">G</span>alex.morgan@gmail.com<svg class="i ud"><use href="#i-updown"/></svg></span></div>
+        <div class="st" style="margin-top:12px"><span class="btn primary lg"><svg class="i"><use href="#i-send"/></svg>Send<span class="kbd">⌘↩</span></span><span class="btn primary lg dis"><svg class="i"><use href="#i-send"/></svg>Send</span></div>
+        <div class="cap">Send disabled until a valid recipient exists; the reason shows as a tooltip (“Add a recipient”).</div>
+        <div class="st" style="margin-top:12px"><span class="fold"><span class="dots"><i></i><i></i><i></i></span>Ben Carter wrote on Mon 2 Nov<svg class="i" style="width:11px;height:11px;stroke-width:2"><use href="#i-down"/></svg></span></div>
+      </div>
+
+      <!-- toasts -->
+      <div class="cell">
+        <h4>Toast and undo-send panel</h4>
+        <div class="d">36pt · wing-cut · inverse surface · the contrail drains over the undo window (8 s toast, 5 s send) · Z undoes from anywhere</div>
+        <div style="display:flex;flex-direction:column;gap:10px;align-items:flex-start">
+          <div class="toast" style="position:relative"><svg class="i"><use href="#i-archive"/></svg><span>Archived</span><span class="sep">·</span><span class="undo">Undo<span class="kbd">Z</span></span><span class="tc" style="width:80%"></span></div>
+          <div class="toast" style="position:relative"><svg class="i"><use href="#i-starf"/></svg><span>Starred 3 conversations</span><span class="sep">·</span><span class="undo hover">Undo<span class="kbd">Z</span></span><span class="tc" style="width:35%"></span></div>
+          <div class="toast err" style="position:relative;padding-right:12px"><svg class="i lead"><use href="#i-warn"/></svg><span>Couldn't move to Trash. It will retry.</span></div>
+        </div>
+        <span class="lbl" style="display:block;margin:16px 0 8px">Undo-send panel · floating, bottom centre of the main window</span>
+        <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-start">
+          <div class="toast" style="position:relative;height:44px;padding-left:14px;gap:10px"><span style="font:700 13px/1 var(--font-round);color:var(--fg-toast-action);width:14px" class="tnum">4</span><span>Sending to Ben Carter</span><span class="undo">Undo<span class="kbd">⌘Z</span></span><span class="tc" style="width:78%"></span></div>
+          <div class="toast" style="position:relative;height:44px;padding:0 16px 0 14px;gap:10px"><span class="spinner" style="background:conic-gradient(from 0deg,transparent 0deg,var(--fg-toast-action) 300deg,transparent 301deg)"></span><span>Sending…</span></div>
+          <div class="toast" style="position:relative;height:44px;padding:0 16px 0 14px;gap:10px"><svg class="i" style="color:var(--fg-toast-success)"><use href="#i-checkc"/></svg><span>Sent</span></div>
+          <div class="toast err" style="position:relative;height:44px;padding-left:14px;gap:10px"><svg class="i lead"><use href="#i-warn"/></svg><span>Not sent, draft kept</span><span class="undo">Open</span></div>
+        </div>
+      </div>
+
+      <!-- sync & progress -->
+      <div class="cell">
+        <h4>Sync status line and progress</h4>
+        <div class="d">28pt line at the list foot · activity rides the contrail on its top edge · numerals tabular</div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <div class="surf"><div class="sync" style="border-top:0"><span class="contrail" style="top:0;width:38%;left:24%"></span><span>Checking for mail…</span></div></div>
+          <div class="surf"><div class="sync" style="border-top:0"><span class="contrail" style="top:0;width:64%"></span><span class="tnum">Downloading mail · 12,480 of 19,500</span></div></div>
+          <div class="surf"><div class="sync" style="border-top:0"><svg class="i" style="color:var(--success)"><use href="#i-check"/></svg><span>Synced just now</span></div></div>
+          <div class="surf"><div class="sync warn" style="border-top:0"><svg class="i"><use href="#i-wifislash"/></svg><span>Offline · changes sync when you're back</span></div></div>
+          <div class="surf"><div class="sync err" style="border-top:0"><svg class="i"><use href="#i-warn"/></svg><span class="ell">Can't sync alex@gmail.com</span><span class="act">Reconnect</span></div></div>
+        </div>
+        <div class="st" style="margin-top:16px;gap:16px"><span class="spinner"></span><span class="spinner" style="width:24px;height:24px;-webkit-mask:radial-gradient(circle,transparent 9px,#000 9.6px)"></span><div style="flex:1;display:flex;flex-direction:column;gap:10px"><div class="pbar"><i style="width:64%"></i></div><div class="pbar"><i style="left:30%;width:36%;background:linear-gradient(90deg,rgba(210,66,26,0),var(--accent))"></i></div></div></div>
+        <div class="cap">Spinner 16/24 (contrail arc, 800 ms/turn) · determinate bar · indeterminate contrail (1.2 s sweep)</div>
+      </div>
+
+      <!-- empty states -->
+      <div class="cell span2">
+        <h4>Empty states and loading</h4>
+        <div class="d">Title Heading 16 · one sentence that names the next key · skeleton rows are static (no shimmer); the contrail carries the activity</div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+          <div class="surf"><div class="empty"><svg class="g gl" width="64" height="48" style="color:var(--fg-secondary)"><use href="#g-perch"/></svg><div class="t">Inbox zero</div><div class="s">Nothing left. Press <span class="kbd">C</span> to write, or <span class="kbd">G</span> <span class="kbd">A</span> for All Mail.</div></div></div>
+          <div class="surf"><div class="empty"><svg class="i g" style="width:34px;height:34px;stroke-width:1.3;color:var(--fg-secondary)"><use href="#i-search"/></svg><div class="t">No results</div><div class="s">Nothing matches “lisbon flat” in subjects, people or message text.</div></div></div>
+          <div class="surf"><div class="empty"><svg class="i g" style="width:34px;height:34px;stroke-width:1.3;color:var(--fg-secondary)"><use href="#i-star"/></svg><div class="t">Nothing starred</div><div class="s">Press <span class="kbd">S</span> on any conversation to keep it here.</div></div></div>
+          <div class="surf canvas"><div class="empty"><svg class="g" width="34" height="34" style="color:var(--fg-secondary)"><use href="#g-mark"/></svg><div class="t">Nothing selected</div><div class="s">Use <span class="kbd">J</span> <span class="kbd">K</span> to move through your inbox.</div></div></div>
+        </div>
+        <div class="surf" style="margin-top:12px;position:relative">
+          <span class="contrail" style="top:0;width:30%;left:10%"></span>
+          <div style="display:grid;grid-template-columns:repeat(2,1fr)">
+            <div class="sk"><i style="left:22px;top:12px;width:36px;height:36px;border-radius:50%"></i><i style="left:70px;top:14px;width:120px;height:10px"></i><i style="right:18px;top:14px;width:30px;height:10px"></i><i style="left:70px;top:32px;width:190px;height:10px"></i><i style="left:70px;top:50px;width:230px;height:8px"></i></div>
+            <div class="sk"><i style="left:22px;top:12px;width:36px;height:36px;border-radius:50%"></i><i style="left:70px;top:14px;width:90px;height:10px"></i><i style="right:18px;top:14px;width:30px;height:10px"></i><i style="left:70px;top:32px;width:160px;height:10px"></i><i style="left:70px;top:50px;width:210px;height:8px"></i></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- menus, alerts -->
+      <div class="cell">
+        <h4>Menus, alerts, sheets</h4>
+        <div class="d">Native NSMenu and NSAlert, styled by the system; we own the words, the order and the shortcuts</div>
+        <div class="menu">
+          <div class="mi"><svg class="i ck" style="width:14px"><use href="#i-archive"/></svg>Archive<span class="k">E</span></div>
+          <div class="mi hi"><svg class="i ck" style="width:14px"><use href="#i-star"/></svg>Star<span class="k">S</span></div>
+          <div class="mi"><svg class="i ck" style="width:14px"><use href="#i-envdot"/></svg>Mark as Unread<span class="k">U</span></div>
+          <div class="mi"><svg class="i ck" style="width:14px"><use href="#i-trash"/></svg>Move to Trash<span class="k">#</span></div>
+          <div class="msep"></div>
+          <div class="mi dis"><svg class="i ck" style="width:14px"><use href="#i-moveup"/></svg>Move to Inbox<span class="k">⇧I</span></div>
+        </div>
+        <div class="alert" style="margin-top:14px">
+          <div class="ai"><svg class="g" width="30" height="30"><use href="#g-mark"/></svg></div>
+          <b>Discard this message?</b>
+          <p>You'll lose what you wrote to Ben Carter. This can't be undone.</p>
+          <div class="ab"><span class="btn danger">Discard</span><span class="btn secondary focus">Keep Writing</span></div>
+        </div>
+      </div>
+
+      <!-- settings -->
+      <div class="cell span2">
+        <h4>Settings window (SwiftUI)</h4>
+        <div class="d">560pt wide · toolbar tabs · grouped form rows 52pt · status = colored dot + words · account color picker uses the 10-color palette</div>
+        <div class="win inactive" style="width:100%;border-radius:12px">
+          <div class="tl"><i></i><i></i><i></i></div>
+          <div style="text-align:center;font-weight:600;font-size:13px;padding-top:15px;background:var(--bg-list)">Accounts</div>
+          <div class="stabs"><span class="stab on"><svg class="i"><use href="#i-person"/></svg>Accounts</span><span class="stab"><svg class="i"><use href="#i-key"/></svg>OAuth</span><span class="stab"><svg class="i"><use href="#i-gear"/></svg>General</span></div>
+          <div style="padding:16px 20px 18px;background:var(--bg-canvas);display:grid;grid-template-columns:1.25fr 1fr;gap:16px">
+            <div>
+              <div class="sgroup">
+                <div class="srow"><div class="av" style="width:32px;height:32px;font:700 13px/1 var(--font-round);background:var(--acct-1);color:var(--acct-1-ink)">C</div><div style="flex:1;min-width:0"><div class="sn ell">alex@contoso.com</div><div class="ss"><span class="stat" style="background:var(--success)"></span>Microsoft 365 · Up to date</div></div><span class="popup boxed" style="padding:0 4px 0 6px;height:24px"><span style="width:12px;height:12px;border-radius:50%;background:var(--acct-1);display:block"></span><svg class="i ud"><use href="#i-updown"/></svg></span></div>
+                <div class="srow"><div class="av" style="width:32px;height:32px;font:700 13px/1 var(--font-round);background:var(--acct-2);color:var(--acct-2-ink)">G</div><div style="flex:1;min-width:0"><div class="sn ell">alex.morgan@gmail.com</div><div class="ss"><span class="spinner" style="width:10px;height:10px;-webkit-mask:radial-gradient(circle,transparent 3px,#000 3.6px)"></span><span class="tnum">Gmail · Downloading 12,480 messages</span></div></div><span class="popup boxed" style="padding:0 4px 0 6px;height:24px"><span style="width:12px;height:12px;border-radius:50%;background:var(--acct-2);display:block"></span><svg class="i ud"><use href="#i-updown"/></svg></span></div>
+                <div class="srow"><div class="av" style="width:32px;height:32px;font:700 13px/1 var(--font-round);background:var(--acct-3);color:var(--acct-3-ink);opacity:.5">F</div><div style="flex:1;min-width:0"><div class="sn ell">alex@fabrikam.io</div><div class="ss" style="color:var(--danger)"><svg class="i" style="width:12px;height:12px"><use href="#i-warn"/></svg>Gmail · Needs sign-in</div></div><span class="btn sm secondary">Reconnect</span></div>
+              </div>
+              <div class="st" style="margin-top:10px"><span class="btn sm secondary"><svg class="i"><use href="#i-plus"/></svg>Add Account…</span><span class="btn sm danger-ghost">Remove…</span></div>
+            </div>
+            <div>
+              <div class="sgroup">
+                <div class="srow"><div style="flex:1"><div style="font-size:13px">Notify me about new mail</div><div class="ss">Inbox only, Focused when on</div></div><span class="tg on"></span></div>
+                <div class="srow"><div style="flex:1"><div style="font-size:13px">Load remote images</div><div class="ss">Senders can see when you open</div></div><span class="tg"></span></div>
+                <div class="srow"><div style="flex:1;font-size:13px">Row density</div><span class="popup boxed">Comfortable<svg class="i ud"><use href="#i-updown"/></svg></span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- notifications & icon -->
+      <div class="cell">
+        <h4>Notifications and app icon</h4>
+        <div class="d">UNNotification: title = sender, subtitle = subject, body = snippet (≤ 2 lines), thread = conversation · actions Archive, Reply, Mark as Read</div>
+        <div class="notif"><div class="ic"><svg class="g" width="20" height="20"><use href="#g-mark"/></svg></div><div style="min-width:0;flex:1"><div style="display:flex"><span class="nt">Priya Raman</span><span class="when">now</span></div><div class="ns ell">Lisbon in March?</div><div class="nb">Booked the flat near Príncipe Real. Sam wants to come for the weekend too, ok?</div></div></div>
+        <div style="display:flex;gap:6px;margin:8px 0 0 56px"><span class="btn sm secondary">Archive</span><span class="btn sm secondary">Reply</span><span class="btn sm secondary">Mark as Read</span></div>
+        <div style="display:flex;align-items:center;gap:18px;margin-top:20px">
+          <div class="appicon"><svg viewBox="0 0 128 128" width="128" height="128" style="position:absolute;inset:0"><path d="M14 92 C 34 92, 50 86, 62 74" fill="none" stroke="rgba(255,255,255,.55)" stroke-width="4" stroke-linecap="round" stroke-dasharray="6 9"/></svg><svg class="g" width="78" height="78" style="position:relative;left:8px;top:-4px;filter:drop-shadow(0 3px 4px rgba(120,30,0,.30))"><use href="#g-mark"/></svg></div>
+          <div style="font-size:11.5px;line-height:16px;color:var(--page-sub)">Flare squircle, white mark at 61% width, nudged 4% up and right so the flight line has room. Dock badge stays system red.</div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+  <section class="sec">
+    <div class="sec-h"><span class="n">D</span><h2>Foundations</h2><p>Values below are read live from the token custom properties, so this page shows the active appearance.</p></div>
+    <div class="cell" style="margin-bottom:20px">
+      <h4>Neutral ramp · Graphite</h4><div class="d">A cool graphite ramp (hue 280, chroma under 3) so the warm Flare reads as the only temperature in the UI.</div>
+      <div class="sw-row">
+<div class="sw" style="background:#FFFFFF;color:#17171B">0<small>#FFFFFF</small></div>
+<div class="sw" style="background:#FAFAFC;color:#17171B">25<small>#FAFAFC</small></div>
+<div class="sw" style="background:#F4F4F7;color:#17171B">50<small>#F4F4F7</small></div>
+<div class="sw" style="background:#EDEDF1;color:#17171B">100<small>#EDEDF1</small></div>
+<div class="sw" style="background:#E4E4E9;color:#17171B">150<small>#E4E4E9</small></div>
+<div class="sw" style="background:#D6D6DD;color:#17171B">200<small>#D6D6DD</small></div>
+<div class="sw" style="background:#BBBBC4;color:#17171B">300<small>#BBBBC4</small></div>
+<div class="sw" style="background:#96969F;color:#17171B">400<small>#96969F</small></div>
+<div class="sw" style="background:#77777F;color:#FFFFFF">500<small>#77777F</small></div>
+<div class="sw" style="background:#5C5C66;color:#FFFFFF">600<small>#5C5C66</small></div>
+<div class="sw" style="background:#45454E;color:#FFFFFF">700<small>#45454E</small></div>
+<div class="sw" style="background:#34343B;color:#FFFFFF">750<small>#34343B</small></div>
+<div class="sw" style="background:#2A2A30;color:#FFFFFF">800<small>#2A2A30</small></div>
+<div class="sw" style="background:#212126;color:#FFFFFF">850<small>#212126</small></div>
+<div class="sw" style="background:#1A1A1E;color:#FFFFFF">900<small>#1A1A1E</small></div>
+<div class="sw" style="background:#121215;color:#FFFFFF">950<small>#121215</small></div>
+<div class="sw" style="background:#0A0A0C;color:#FFFFFF">1000<small>#0A0A0C</small></div>
+</div>
+      <h4 style="margin-top:18px">Signature ramp · Flare</h4><div class="d">Flare 600 is the working accent (white text 4.63:1). Flare 500 is reserved for the icon and the welcome mark. Flare 400 is the dark-appearance ink.</div>
+      <div class="sw-row">
+<div class="sw" style="background:#FFF1EB;color:#17171B">50<small>#FFF1EB</small></div>
+<div class="sw" style="background:#FFE0D2;color:#17171B">100<small>#FFE0D2</small></div>
+<div class="sw" style="background:#FFC0A5;color:#17171B">200<small>#FFC0A5</small></div>
+<div class="sw" style="background:#FF9A73;color:#17171B">300<small>#FF9A73</small></div>
+<div class="sw" style="background:#FF7A4A;color:#17171B">400<small>#FF7A4A</small></div>
+<div class="sw" style="background:#F25A26;color:#17171B">500<small>#F25A26</small></div>
+<div class="sw" style="background:#D2421A;color:#FFFFFF">600<small>#D2421A</small></div>
+<div class="sw" style="background:#B5370F;color:#FFFFFF">700<small>#B5370F</small></div>
+<div class="sw" style="background:#8F2B0C;color:#FFFFFF">800<small>#8F2B0C</small></div>
+<div class="sw" style="background:#661F09;color:#FFFFFF">900<small>#661F09</small></div>
+</div></div>
+<div class="cell" style="margin-bottom:20px"><h4>Semantic tokens</h4><div class="d">One table drives NSColor dynamic providers, SwiftUI Color assets and the reader CSS. Increased-contrast values switch in with prefers-contrast / accessibilityDisplayShouldIncreaseContrast.</div>
+<div class="lbl" style="margin:10px 0 8px">Surfaces</div><div class="tokgrid">
+<div class="tk"><div class="c" style="background:var(--bg-rail)"></div><div class="tn">bg-rail<small data-tok="bg-rail"></small></div></div>
+<div class="tk"><div class="c" style="background:var(--bg-list)"></div><div class="tn">bg-list<small data-tok="bg-list"></small></div></div>
+<div class="tk"><div class="c" style="background:var(--bg-canvas)"></div><div class="tn">bg-canvas<small data-tok="bg-canvas"></small></div></div>
+<div class="tk"><div class="c" style="background:var(--bg-card)"></div><div class="tn">bg-card<small data-tok="bg-card"></small></div></div>
+<div class="tk"><div class="c" style="background:var(--bg-sunken)"></div><div class="tn">bg-sunken<small data-tok="bg-sunken"></small></div></div>
+<div class="tk"><div class="c" style="background:var(--bg-elevated)"></div><div class="tn">bg-elevated<small data-tok="bg-elevated"></small></div></div>
+<div class="tk"><div class="c" style="background:var(--bg-toast)"></div><div class="tn">bg-toast<small data-tok="bg-toast"></small></div></div>
+<div class="tk"><div class="c" style="background:var(--bg-hover)"></div><div class="tn">bg-hover<small data-tok="bg-hover"></small></div></div>
+<div class="tk"><div class="c" style="background:var(--bg-pressed)"></div><div class="tn">bg-pressed<small data-tok="bg-pressed"></small></div></div>
+<div class="tk"><div class="c" style="background:var(--bg-selected)"></div><div class="tn">bg-selected<small data-tok="bg-selected"></small></div></div>
+<div class="tk"><div class="c" style="background:var(--bg-selected-inactive)"></div><div class="tn">bg-selected-inactive<small data-tok="bg-selected-inactive"></small></div></div>
+<div class="tk"><div class="c" style="background:var(--bg-accent-tint)"></div><div class="tn">bg-accent-tint<small data-tok="bg-accent-tint"></small></div></div>
+</div>
+<div class="lbl" style="margin:10px 0 8px">Text, borders, focus</div><div class="tokgrid">
+<div class="tk"><div class="c" style="background:var(--fg-primary)"></div><div class="tn">fg-primary<small data-tok="fg-primary"></small></div></div>
+<div class="tk"><div class="c" style="background:var(--fg-secondary)"></div><div class="tn">fg-secondary<small data-tok="fg-secondary"></small></div></div>
+<div class="tk"><div class="c" style="background:var(--fg-disabled)"></div><div class="tn">fg-disabled<small data-tok="fg-disabled"></small></div></div>
+<div class="tk"><div class="c" style="background:var(--fg-accent)"></div><div class="tn">fg-accent<small data-tok="fg-accent"></small></div></div>
+<div class="tk"><div class="c" style="background:var(--fg-on-toast)"></div><div class="tn">fg-on-toast<small data-tok="fg-on-toast"></small></div></div>
+<div class="tk"><div class="c" style="background:var(--fg-toast-action)"></div><div class="tn">fg-toast-action<small data-tok="fg-toast-action"></small></div></div>
+<div class="tk"><div class="c" style="background:var(--border-hairline)"></div><div class="tn">border-hairline<small data-tok="border-hairline"></small></div></div>
+<div class="tk"><div class="c" style="background:var(--border-control)"></div><div class="tn">border-control<small data-tok="border-control"></small></div></div>
+<div class="tk"><div class="c" style="background:var(--border-selected-inactive)"></div><div class="tn">border-selected-inactive<small data-tok="border-selected-inactive"></small></div></div>
+<div class="tk"><div class="c" style="background:var(--focus-ring)"></div><div class="tn">focus-ring<small data-tok="focus-ring"></small></div></div>
+<div class="tk"><div class="c" style="background:var(--kbd-bg)"></div><div class="tn">kbd-bg<small data-tok="kbd-bg"></small></div></div>
+<div class="tk"><div class="c" style="background:var(--kbd-fg)"></div><div class="tn">kbd-fg<small data-tok="kbd-fg"></small></div></div>
+</div>
+<div class="lbl" style="margin:10px 0 8px">Accent and semantic</div><div class="tokgrid">
+<div class="tk"><div class="c" style="background:var(--accent)"></div><div class="tn">accent<small data-tok="accent"></small></div></div>
+<div class="tk"><div class="c" style="background:var(--accent-hover)"></div><div class="tn">accent-hover<small data-tok="accent-hover"></small></div></div>
+<div class="tk"><div class="c" style="background:var(--accent-pressed)"></div><div class="tn">accent-pressed<small data-tok="accent-pressed"></small></div></div>
+<div class="tk"><div class="c" style="background:var(--accent-signature)"></div><div class="tn">accent-signature<small data-tok="accent-signature"></small></div></div>
+<div class="tk"><div class="c" style="background:var(--unread)"></div><div class="tn">unread<small data-tok="unread"></small></div></div>
+<div class="tk"><div class="c" style="background:var(--star)"></div><div class="tn">star<small data-tok="star"></small></div></div>
+<div class="tk"><div class="c" style="background:var(--success)"></div><div class="tn">success<small data-tok="success"></small></div></div>
+<div class="tk"><div class="c" style="background:var(--warning)"></div><div class="tn">warning<small data-tok="warning"></small></div></div>
+<div class="tk"><div class="c" style="background:var(--danger)"></div><div class="tn">danger<small data-tok="danger"></small></div></div>
+<div class="tk"><div class="c" style="background:var(--danger-fill)"></div><div class="tn">danger-fill<small data-tok="danger-fill"></small></div></div>
+<div class="tk"><div class="c" style="background:var(--info)"></div><div class="tn">info<small data-tok="info"></small></div></div>
+<div class="tk"><div class="c" style="background:var(--info-tint)"></div><div class="tn">info-tint<small data-tok="info-tint"></small></div></div>
+</div>
+</div>
+<div class="sheet"><div class="cell span2"><h4>Account palette · 10</h4><div class="d">Assigned in this order. Separated by lightness as well as hue, so the minimum CVD-simulated ΔE00 is 6.2 or more across all 45 pairs. Identity is never color alone: the rail shows a domain monogram and the reader shows the address.</div><div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px 8px">
+<div style="display:flex;flex-direction:column;align-items:center;gap:6px"><div class="surf rail" style="width:100%;height:58px;display:flex;align-items:center;justify-content:center;gap:10px"><div class="av36" style="width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:700 15px/1 var(--font-round);background:var(--acct-1);color:var(--acct-1-ink)">C</div><span style="width:10px;height:10px;border-radius:50%;background:var(--acct-1);box-shadow:0 0 0 2px var(--bg-list)"></span></div><div style="font:600 11px/14px var(--font-round)">1 · Cobalt<small data-tok="acct-1" style="display:block;font:500 10px/13px var(--font-mono);color:var(--page-sub);text-align:center"></small></div></div>
+<div style="display:flex;flex-direction:column;align-items:center;gap:6px"><div class="surf rail" style="width:100%;height:58px;display:flex;align-items:center;justify-content:center;gap:10px"><div class="av36" style="width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:700 15px/1 var(--font-round);background:var(--acct-2);color:var(--acct-2-ink)">A</div><span style="width:10px;height:10px;border-radius:50%;background:var(--acct-2);box-shadow:0 0 0 2px var(--bg-list)"></span></div><div style="font:600 11px/14px var(--font-round)">2 · Amber<small data-tok="acct-2" style="display:block;font:500 10px/13px var(--font-mono);color:var(--page-sub);text-align:center"></small></div></div>
+<div style="display:flex;flex-direction:column;align-items:center;gap:6px"><div class="surf rail" style="width:100%;height:58px;display:flex;align-items:center;justify-content:center;gap:10px"><div class="av36" style="width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:700 15px/1 var(--font-round);background:var(--acct-3);color:var(--acct-3-ink)">O</div><span style="width:10px;height:10px;border-radius:50%;background:var(--acct-3);box-shadow:0 0 0 2px var(--bg-list)"></span></div><div style="font:600 11px/14px var(--font-round)">3 · Orchid<small data-tok="acct-3" style="display:block;font:500 10px/13px var(--font-mono);color:var(--page-sub);text-align:center"></small></div></div>
+<div style="display:flex;flex-direction:column;align-items:center;gap:6px"><div class="surf rail" style="width:100%;height:58px;display:flex;align-items:center;justify-content:center;gap:10px"><div class="av36" style="width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:700 15px/1 var(--font-round);background:var(--acct-4);color:var(--acct-4-ink)">E</div><span style="width:10px;height:10px;border-radius:50%;background:var(--acct-4);box-shadow:0 0 0 2px var(--bg-list)"></span></div><div style="font:600 11px/14px var(--font-round)">4 · Emerald<small data-tok="acct-4" style="display:block;font:500 10px/13px var(--font-mono);color:var(--page-sub);text-align:center"></small></div></div>
+<div style="display:flex;flex-direction:column;align-items:center;gap:6px"><div class="surf rail" style="width:100%;height:58px;display:flex;align-items:center;justify-content:center;gap:10px"><div class="av36" style="width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:700 15px/1 var(--font-round);background:var(--acct-5);color:var(--acct-5-ink)">I</div><span style="width:10px;height:10px;border-radius:50%;background:var(--acct-5);box-shadow:0 0 0 2px var(--bg-list)"></span></div><div style="font:600 11px/14px var(--font-round)">5 · Indigo<small data-tok="acct-5" style="display:block;font:500 10px/13px var(--font-mono);color:var(--page-sub);text-align:center"></small></div></div>
+<div style="display:flex;flex-direction:column;align-items:center;gap:6px"><div class="surf rail" style="width:100%;height:58px;display:flex;align-items:center;justify-content:center;gap:10px"><div class="av36" style="width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:700 15px/1 var(--font-round);background:var(--acct-6);color:var(--acct-6-ink)">R</div><span style="width:10px;height:10px;border-radius:50%;background:var(--acct-6);box-shadow:0 0 0 2px var(--bg-list)"></span></div><div style="font:600 11px/14px var(--font-round)">6 · Rose<small data-tok="acct-6" style="display:block;font:500 10px/13px var(--font-mono);color:var(--page-sub);text-align:center"></small></div></div>
+<div style="display:flex;flex-direction:column;align-items:center;gap:6px"><div class="surf rail" style="width:100%;height:58px;display:flex;align-items:center;justify-content:center;gap:10px"><div class="av36" style="width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:700 15px/1 var(--font-round);background:var(--acct-7);color:var(--acct-7-ink)">T</div><span style="width:10px;height:10px;border-radius:50%;background:var(--acct-7);box-shadow:0 0 0 2px var(--bg-list)"></span></div><div style="font:600 11px/14px var(--font-round)">7 · Teal<small data-tok="acct-7" style="display:block;font:500 10px/13px var(--font-mono);color:var(--page-sub);text-align:center"></small></div></div>
+<div style="display:flex;flex-direction:column;align-items:center;gap:6px"><div class="surf rail" style="width:100%;height:58px;display:flex;align-items:center;justify-content:center;gap:10px"><div class="av36" style="width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:700 15px/1 var(--font-round);background:var(--acct-8);color:var(--acct-8-ink)">O</div><span style="width:10px;height:10px;border-radius:50%;background:var(--acct-8);box-shadow:0 0 0 2px var(--bg-list)"></span></div><div style="font:600 11px/14px var(--font-round)">8 · Olive<small data-tok="acct-8" style="display:block;font:500 10px/13px var(--font-mono);color:var(--page-sub);text-align:center"></small></div></div>
+<div style="display:flex;flex-direction:column;align-items:center;gap:6px"><div class="surf rail" style="width:100%;height:58px;display:flex;align-items:center;justify-content:center;gap:10px"><div class="av36" style="width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:700 15px/1 var(--font-round);background:var(--acct-9);color:var(--acct-9-ink)">C</div><span style="width:10px;height:10px;border-radius:50%;background:var(--acct-9);box-shadow:0 0 0 2px var(--bg-list)"></span></div><div style="font:600 11px/14px var(--font-round)">9 · Cocoa<small data-tok="acct-9" style="display:block;font:500 10px/13px var(--font-mono);color:var(--page-sub);text-align:center"></small></div></div>
+<div style="display:flex;flex-direction:column;align-items:center;gap:6px"><div class="surf rail" style="width:100%;height:58px;display:flex;align-items:center;justify-content:center;gap:10px"><div class="av36" style="width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:700 15px/1 var(--font-round);background:var(--acct-10);color:var(--acct-10-ink)">G</div><span style="width:10px;height:10px;border-radius:50%;background:var(--acct-10);box-shadow:0 0 0 2px var(--bg-list)"></span></div><div style="font:600 11px/14px var(--font-round)">10 · Graphite<small data-tok="acct-10" style="display:block;font:500 10px/13px var(--font-mono);color:var(--page-sub);text-align:center"></small></div></div>
+</div></div>
+<div class="cell"><h4>Avatar palette · 8 tinted hues</h4><div class="d">Sender avatars are tinted, never solid, so they stay quieter than account colors and the Flare slab. Hue = stable hash of the address mod 8. Initials Rounded semibold, ≥ 5.5:1 in every appearance.</div><div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px">
+<div style="display:flex;align-items:center;gap:10px"><div class="av" style="background:var(--av-1-bg);color:var(--av-1-fg)">SK</div><div style="font:600 11px/14px var(--font-round)">Sky<small data-tok="av-1-bg" style="display:block;font:500 10px/13px var(--font-mono);color:var(--page-sub)"></small></div></div>
+<div style="display:flex;align-items:center;gap:10px"><div class="av" style="background:var(--av-2-bg);color:var(--av-2-fg)">IR</div><div style="font:600 11px/14px var(--font-round)">Iris<small data-tok="av-2-bg" style="display:block;font:500 10px/13px var(--font-mono);color:var(--page-sub)"></small></div></div>
+<div style="display:flex;align-items:center;gap:10px"><div class="av" style="background:var(--av-3-bg);color:var(--av-3-fg)">OR</div><div style="font:600 11px/14px var(--font-round)">Orchid<small data-tok="av-3-bg" style="display:block;font:500 10px/13px var(--font-mono);color:var(--page-sub)"></small></div></div>
+<div style="display:flex;align-items:center;gap:10px"><div class="av" style="background:var(--av-4-bg);color:var(--av-4-fg)">RO</div><div style="font:600 11px/14px var(--font-round)">Rose<small data-tok="av-4-bg" style="display:block;font:500 10px/13px var(--font-mono);color:var(--page-sub)"></small></div></div>
+<div style="display:flex;align-items:center;gap:10px"><div class="av" style="background:var(--av-5-bg);color:var(--av-5-fg)">AM</div><div style="font:600 11px/14px var(--font-round)">Amber<small data-tok="av-5-bg" style="display:block;font:500 10px/13px var(--font-mono);color:var(--page-sub)"></small></div></div>
+<div style="display:flex;align-items:center;gap:10px"><div class="av" style="background:var(--av-6-bg);color:var(--av-6-fg)">MO</div><div style="font:600 11px/14px var(--font-round)">Moss<small data-tok="av-6-bg" style="display:block;font:500 10px/13px var(--font-mono);color:var(--page-sub)"></small></div></div>
+<div style="display:flex;align-items:center;gap:10px"><div class="av" style="background:var(--av-7-bg);color:var(--av-7-fg)">LA</div><div style="font:600 11px/14px var(--font-round)">Lagoon<small data-tok="av-7-bg" style="display:block;font:500 10px/13px var(--font-mono);color:var(--page-sub)"></small></div></div>
+<div style="display:flex;align-items:center;gap:10px"><div class="av" style="background:var(--av-8-bg);color:var(--av-8-fg)">SL</div><div style="font:600 11px/14px var(--font-round)">Slate<small data-tok="av-8-bg" style="display:block;font:500 10px/13px var(--font-mono);color:var(--page-sub)"></small></div></div>
+</div></div></div>    <div class="sheet" style="margin-top:20px">
+      <div class="cell span2">
+        <h4>Type scale</h4><div class="d">SF Pro for content, SF Pro Rounded for chrome and numerals, SF Mono for credentials and code. New York is reserved and not used in v1.</div>
+        <div class="typo"><span class="r">Display</span><span style="font:700 26px/32px var(--font-round);letter-spacing:-.4px">Welcome to SuperSparrow</span><span class="m">Rounded Bold 26/32 · −0.4</span></div>
+        <div class="typo"><span class="r">Title</span><span style="font:600 20px/26px var(--font-round);letter-spacing:-.25px">Contoso rollout: go-live checklist</span><span class="m">Rounded Semibold 20/26 · −0.25</span></div>
+        <div class="typo"><span class="r">Heading</span><span style="font:700 16px/20px var(--font-round);letter-spacing:-.1px">Inbox</span><span class="m">Rounded Bold 16/20 · −0.1</span></div>
+        <div class="typo"><span class="r">Reading</span><span style="font:400 14px/21px var(--font-text)">Thanks for the quick turnaround. We're green for the 14th.</span><span class="m">Pro Regular 14/21 · 0</span></div>
+        <div class="typo"><span class="r">Body / Strong</span><span style="font:400 13px/18px var(--font-text)">Contoso rollout: go-live checklist <b style="font-weight:600">Ben Carter</b></span><span class="m">Pro Regular · Semibold 13/18 · 0</span></div>
+        <div class="typo"><span class="r">Label</span><span style="font:600 13px/16px var(--font-round)">Send · Reply all · Reconnect</span><span class="m">Rounded Semibold 13/16 · 0 (12/16 small)</span></div>
+        <div class="typo"><span class="r">Small</span><span style="font:400 12px/16px var(--font-text);color:var(--fg-secondary)">Tested with three accounts this morning.</span><span class="m">Pro Regular 12/16 · 0</span></div>
+        <div class="typo"><span class="r">Caption</span><span style="font:500 11px/14px var(--font-round);color:var(--fg-secondary)" class="tnum">09:41 · Synced just now · 184 KB</span><span class="m">Rounded Medium 11/14 · +0.1 · tnum</span></div>
+        <div class="typo"><span class="r">Micro</span><span style="font:600 10px/12px var(--font-round);letter-spacing:.3px">⌘↩ &nbsp; OTHER &nbsp; 21</span><span class="m">Rounded Semibold 10/12 · +0.3</span></div>
+        <div class="typo"><span class="r">Mono</span><span style="font:400 12px/16px var(--font-mono)">4418-sparrow.apps.googleusercontent.com</span><span class="m">SF Mono Regular 12/16 · 0</span></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:20px">
+        <div class="cell"><h4>Spacing · 4pt base</h4><div class="d">2 is for optical nudges only. Rows, cards and fields snap to the 4 grid.</div>
+          <div class="spc"><div style="width:8px;height:2px"></div><div style="width:8px;height:4px"></div><div style="width:8px;height:6px"></div><div style="width:8px;height:8px"></div><div style="width:8px;height:12px"></div><div style="width:8px;height:16px"></div><div style="width:8px;height:20px"></div><div style="width:8px;height:24px"></div><div style="width:8px;height:32px"></div><div style="width:8px;height:48px"></div></div>
+          <div class="cap" style="font-family:var(--font-mono);font-size:10px;word-spacing:3px">2 · 4 · 6 · 8 · 12 · 16 · 20 · 24 · 32 · 48</div></div>
+        <div class="cell"><h4>Radii and the wing cut</h4><div class="d">Symmetric radii for containers. The wing cut (large top-leading and bottom-trailing, small elsewhere) marks the present only.</div>
+          <div class="rad"><div><i style="border-radius:4px;width:40px"></i>4 xs</div><div><i style="border-radius:6px;width:40px"></i>6 sm</div><div><i style="border-radius:8px;width:40px"></i>8 md</div><div><i style="border-radius:12px;width:48px"></i>12 lg</div><div><i style="border-radius:16px;width:48px"></i>16 xl</div></div>
+          <div class="rad" style="margin-top:14px"><div><i style="border-radius:14px 4px 14px 4px;width:96px;background:var(--accent);box-shadow:none"></i>wing-lg 14/4</div><div><i style="border-radius:10px 3px 10px 3px;width:64px;height:32px;background:var(--accent);box-shadow:none"></i>wing-md 10/3</div><div><i style="border-radius:7px 2px 7px 2px;width:44px;height:20px;background:var(--fg-primary);box-shadow:none"></i>wing-sm 7/2</div><div><i style="border-radius:14px 5px 14px 5px;width:36px;height:36px;background:var(--acct-1);box-shadow:none"></i>wing-av 14/5</div></div></div>
+      </div>
+    </div>
+    <div class="sheet" style="margin-top:20px">
+      <div class="cell span2"><h4>Motion</h4><div class="d">Four durations, three curves. Keys complete any running animation at once; nothing longer than 250 ms.</div>
+        <div style="display:flex;gap:14px">
+          <div class="curve"><svg viewBox="0 0 150 110"><path d="M15 95 L135 95 M15 95 L15 15" stroke="var(--border-hairline)" stroke-width="1"/><path d="M15 95 C 39 31, 39 15, 135 15" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round"/><text x="22" y="108" font-size="9" fill="currentColor" style="font:600 9px var(--font-round);fill:var(--fg-secondary)">flit-out (.2,.8,.2,1)</text></svg></div>
+          <div class="curve"><svg viewBox="0 0 150 110"><path d="M15 95 L135 95 M15 95 L15 15" stroke="var(--border-hairline)" stroke-width="1"/><path d="M15 95 C 63 95, 135 15, 135 15" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round"/><text x="26" y="108" style="font:600 9px var(--font-round);fill:var(--fg-secondary)">flit-in (.4,0,1,1)</text></svg></div>
+          <div class="curve"><svg viewBox="0 0 150 110"><path d="M15 95 L135 95 M15 95 L15 15" stroke="var(--border-hairline)" stroke-width="1"/><path d="M15 95 C 56 -10, 92 15, 135 15" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round"/><text x="22" y="108" style="font:600 9px var(--font-round);fill:var(--fg-secondary)">pop (.34,1.56,.64,1)</text></svg></div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px;font:500 11px/15px var(--font-round);color:var(--fg-secondary)">
+          <div><b style="color:var(--fg-primary);font:700 15px/20px var(--font-round);display:block">0 ms</b>selection, focus, hover in</div>
+          <div><b style="color:var(--fg-primary);font:700 15px/20px var(--font-round);display:block">90 ms</b>snap: press, hover out, dot</div>
+          <div><b style="color:var(--fg-primary);font:700 15px/20px var(--font-round);display:block">140 ms</b>quick: toast, wing morph</div>
+          <div><b style="color:var(--fg-primary);font:700 15px/20px var(--font-round);display:block">200 ms</b>move: row fly-out, collapse</div>
+        </div></div>
+      <div class="cell"><h4>Elevation</h4><div class="d">Rows and collapsed cards are flat. Shadows appear only on things that float above the content.</div>
+        <div class="elev" style="display:grid;grid-template-columns:1fr 1fr;gap:16px"><div style="box-shadow:inset 0 0 0 1px var(--border-hairline)">e0 · flat<small>hairline only</small></div><div style="box-shadow:var(--e1)">e1 · expanded card<small>0 1 2 / .06</small></div><div style="box-shadow:var(--e2)">e2 · menu, tooltip<small>0 6 16 / .12</small></div><div style="box-shadow:var(--e3)">e3 · toast, panel<small>0 12 32 / .20</small></div></div></div>
+    </div>
+    <div class="cell" style="margin-top:20px"><h4>Iconography</h4><div class="d">SF Symbols, medium weight, scale medium, 15pt in toolbars, 13pt in rows and small buttons. Three custom glyphs (exact paths in SPEC.md) plus the wing shape. Stand-ins drawn on this page approximate the named symbols.</div>
+      <div style="display:flex;gap:28px;align-items:flex-end;flex-wrap:wrap">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:8px"><div style="display:flex;gap:14px;align-items:flex-end;color:var(--fg-primary)"><svg class="g" width="64" height="64"><use href="#g-mark"/></svg><svg class="g" width="24" height="24"><use href="#g-mark"/></svg><svg class="g" width="16" height="16"><use href="#g-mark"/></svg></div><span class="lbl" style="text-transform:none">flit.mark · 24 grid</span></div>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:8px"><div style="display:flex;gap:14px;align-items:flex-end;color:var(--fg-primary)"><svg class="g" width="48" height="48"><use href="#g-contrail"/></svg><svg class="g" width="16" height="16"><use href="#g-contrail"/></svg><svg class="g" width="12" height="12"><use href="#g-contrail"/></svg></div><span class="lbl" style="text-transform:none">flit.contrail · 16 grid</span></div>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:8px"><div style="display:flex;gap:14px;align-items:flex-end;color:var(--fg-primary)"><svg class="g" width="85" height="64"><use href="#g-perch"/></svg><svg class="g" width="43" height="32"><use href="#g-perch"/></svg></div><span class="lbl" style="text-transform:none">flit.perch · 32×24 grid</span></div>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:8px"><div style="display:flex;gap:14px;align-items:flex-end;color:var(--accent)"><svg class="g" width="48" height="48"><use href="#g-wing"/></svg><svg class="g" width="16" height="16"><use href="#g-wing"/></svg></div><span class="lbl" style="text-transform:none">flit.wing · 16 grid</span></div>
+        <div style="flex:1;min-width:420px;display:grid;grid-template-columns:repeat(6,1fr);gap:10px 6px;font:500 10px/13px var(--font-mono);color:var(--fg-secondary)">
+          <div class="stc" style="align-items:center"><svg class="i" style="color:var(--fg-primary)"><use href="#i-archive"/></svg>archivebox</div>
+          <div class="stc" style="align-items:center"><svg class="i" style="color:var(--fg-primary)"><use href="#i-trash"/></svg>trash</div>
+          <div class="stc" style="align-items:center"><svg class="i" style="color:var(--star)"><use href="#i-starf"/></svg>star.fill</div>
+          <div class="stc" style="align-items:center"><svg class="i" style="color:var(--fg-primary)"><use href="#i-envdot"/></svg>envelope.badge</div>
+          <div class="stc" style="align-items:center"><svg class="i" style="color:var(--fg-primary)"><use href="#i-reply"/></svg>arrowshape.turn…</div>
+          <div class="stc" style="align-items:center"><svg class="i" style="color:var(--fg-primary)"><use href="#i-compose"/></svg>square.and.pencil</div>
+          <div class="stc" style="align-items:center"><svg class="i" style="color:var(--fg-primary)"><use href="#i-search"/></svg>magnifyingglass</div>
+          <div class="stc" style="align-items:center"><svg class="i" style="color:var(--fg-primary)"><use href="#i-clip"/></svg>paperclip</div>
+          <div class="stc" style="align-items:center"><svg class="i" style="color:var(--fg-primary)"><use href="#i-send"/></svg>paperplane.fill</div>
+          <div class="stc" style="align-items:center"><svg class="i" style="color:var(--fg-primary)"><use href="#i-photo"/></svg>photo</div>
+          <div class="stc" style="align-items:center"><svg class="i" style="color:var(--fg-primary)"><use href="#i-undo"/></svg>arrow.uturn.backward</div>
+          <div class="stc" style="align-items:center"><svg class="i" style="color:var(--fg-primary)"><use href="#i-wifislash"/></svg>wifi.slash</div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+<script>
+(function(){
+  var cs = getComputedStyle(document.documentElement);
+  document.querySelectorAll('[data-tok]').forEach(function(el){
+    var v = cs.getPropertyValue('--' + el.getAttribute('data-tok')).trim();
+    el.textContent = v.replace(/rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)/, function(_, r, g, b, a){
+      function h(x){ return ('0' + (+x).toString(16)).slice(-2).toUpperCase(); }
+      return '#' + h(r) + h(g) + h(b) + ' @' + a;
+    });
+  });
+})();
+</script>
+</body>
+</html>

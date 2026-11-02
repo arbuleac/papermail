@@ -1,0 +1,392 @@
+<section class="sh"><span class="n">D · Components</span><h2>Every component, every state</h2><p>Drawn with the same custom properties the reader shell uses. Labels name the state; numbers come from <code>tokens.json</code>.</p></section>
+<div class="grid">
+
+  <div class="c12 card">
+    <h3>Conversation row <code>layout.row · {{layout.row.height}} pt · compact {{layout.rowCompact.height}} pt</code></h3>
+    <p class="cap">Fixed height, drawn by hand, no shadow, blur or animation. Selection never inverts text. Hover is suppressed on selected rows. The account mark is a {{border.accountRing.width}} pt ring with a {{border.accountRing.gap}} pt gap in unified views; the optional account initial tile is a second, non-colour carrier.</p>
+    <div style="display:grid;grid-template-columns:364px 364px 1fr;gap:24px;align-items:start">
+      <div><span class="lbl">Read · unread · hover · selected · selected (window not key) · multi-selection · no subject</span><div class="listbox">
+        {{PY: row('Diego Alvarez', 'Photos from the offsite', 'Of course. Group shot coming tomorrow.', '15:41', 'clay', 'DA', acct='G')}}
+        {{PY: row('Priya Raman', 'Lisbon in March?', 'Booked the flat near Príncipe Real.', '22:10', 'heather', 'PR', acct='G', unread=True)}}
+        {{PY: row('Theo Nakamura', 'Heads up', 'Do you have ten minutes this afternoon?', '11:30', 'fern', 'TN', acct='F', state='hover', cls='pre')}}
+        {{PY: row('Ben Carter, Alex Morgan, Tom Hughes', 'Contoso rollout: go-live checklist', 'Tested with three accounts, all good.', '23:39', 'slate', 'BC', acct='C', state='sel', unread=True, count=4)}}
+        {{PY: row('Ben Carter, Alex Morgan, Tom Hughes', 'Contoso rollout: go-live checklist', 'Tested with three accounts, all good.', '23:39', 'slate', 'BC', acct='C', state='idle', unread=True, count=4, star=True)}}
+        {{PY: row('Rachel Kim', 'Q4 roadmap review', 'Great work. One comment on offline mode.', '17:20', 'sea', 'RK', acct='C', state='sel', clip=True, count=2)}}
+        {{PY: row('Rachel Kim', 'No subject', 'Sending the photos from Friday.', '16:02', 'sea', 'RK', acct='C', unread=True, subject_cls='phi')}}
+      </div></div>
+      <div><span class="lbl">Starred · attachment · count · queued · failed · Other · initials · Drafts · Sent</span><div class="listbox">
+        {{PY: row('Linda Morgan', 'Sunday dinner', 'Ha, noted. I will bring the plum cake.', '19:02', 'rose', 'LM', acct='G', star=True, clip=True, count=4, pending=True)}}
+        {{PY: row('Forge', '[sparrow-sync] PR #2657', 'maya-c commented: one nit about the retry budget.', '21:48', 'stone', 'F', acct='F', failed=True)}}
+        {{PY: row('Northwind Weekly', 'Issue #182: Quiet software', 'This week: the case for fewer notifications.', '08:15', 'slate', 'NW', acct='G', tag='Other')}}
+        {{PY: row('Calendar', 'Accepted: Design review @ Thu 15:30', 'Room: Juniper (4th floor)', '13:05', 'wheat', 'C', acct='C', tag='Other', initial_tile=True)}}
+        {{PY: row('', 'Re: Contoso rollout', 'Thanks for running the checks. I have forwarded…', '23:51', 'slate', 'BC', sender_html='<span class="me">Draft to</span> Ben Carter')}}
+        {{PY: row('', 'Lisbon in March?', 'Count me in for the weekend, I will book the train.', '22:30', 'heather', 'PR', sender_html='<span class="me">To</span> Priya Raman', clip=True)}}
+      </div></div>
+      <div>
+        <span class="lbl">Compact density · square account mark · with initials on, the tile replaces the square</span><div class="listbox" style="width:100%">
+          {{PY: row_compact('Priya Raman', 'Lisbon in March?', 'Booked the flat near Príncipe Real.', '22:10', acct='G', unread=True, star=True, count=3)}}
+          {{PY: row_compact('Ben Carter, Alex Morgan', 'Contoso rollout: go-live checklist', 'Tested with three accounts.', '23:39', acct='C', state='sel', count=4, clip=True)}}
+          {{PY: row_compact('Forge', '[sparrow-sync] PR #2657', 'maya-c commented.', '21:48', acct='F', initial_tile=True)}}
+          <div class="rhead cmp"><span>Last week</span><i></i></div>
+          <div class="skrow"><i style="left:{{layout.rowCompact.skeletonSenderBar.0}}px;top:{{layout.rowCompact.skeletonSenderBar.1}}px;width:{{layout.rowCompact.skeletonSenderBar.2}}px"></i><i style="right:16px;top:{{layout.rowCompact.skeletonSenderBar.1}}px;width:{{layout.rowCompact.skeletonTimeBar.0}}px"></i><i style="left:{{layout.rowCompact.skeletonLine2Bar.0}}px;top:{{layout.rowCompact.skeletonLine2Bar.1}}px;width:{{layout.rowCompact.skeletonLine2Bar.2}}px"></i></div>
+          <div class="lfoot"><span class="spin" style="--sz:12px;color:var(--q-ink3)"></span>Loading older mail…</div>
+        </div>
+        <span class="lbl">Running heads · hidden in search and in views under {{layout.runningHead.minConversations}} conversations</span>
+        <div class="listbox" style="width:100%">{{PY: running_head('Earlier this week')}}{{PY: running_head('October')}}</div>
+        <span class="lbl">Scripts New York lacks fall back to <code>subjectSans</code>; line height stays {{typography.subject.lineHeight}} pt</span>
+        <div class="listbox fallback" style="width:100%">
+          {{PY: row('Kenji Sato', '来週の打ち合わせについて', '資料を添付しました。ご確認ください。', '09:12', 'sea', '佐', subject_cls='sans')}}
+          {{PY: row('Layla Haddad', 'اجتماع الفريق يوم الخميس', 'سأرسل جدول الأعمال قبل الاجتماع.', '08:40', 'clay', 'LH', subject_cls='sans')}}
+          {{PY: row('Somchai P.', 'สรุปการประชุมประจำสัปดาห์', 'รายละเอียดอยู่ในไฟล์แนบ', '08:05', 'wheat', 'SP', subject_cls='sans')}}
+          {{PY: row('Anika Rao', 'साप्ताहिक बैठक का सारांश', 'कृपया संलग्न दस्तावेज़ देखें।', '07:51', 'heather', 'AR', subject_cls='sans')}}
+          {{PY: row('Olga Petrova', 'Встреча в четверг', 'Повестка во вложении.', '07:30', 'slate', 'OP')}}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="c4 card">
+    <h3>Account rail <code>layout.rail</code></h3>
+    <p class="cap">Opaque <code>spine</code>, {{layout.rail.width}} pt ({{layout.rail.width26}} from macOS 26). Tiles {{layout.rail.tile}} pt visual, {{layout.rail.tileHit}} pt hit. Domain monograms. A press darkens only the face, never the ring's surroundings.</p>
+    <div class="railspec">
+      <div><span class="rt2"><span class="face" style="--a:var(--q-acct-1)"><span>C</span></span></span><b>Rest</b></div>
+      <div><span class="rt2 hov"><span class="face" style="--a:var(--q-acct-2)"><span>G</span></span></span><b>Hover</b></div>
+      <div><span class="rt2"><i class="mr2"></i><span class="face" style="--a:var(--q-acct-1)"><span>C</span></span></span><b>Selected</b></div>
+      <div><span class="rt2"><i class="mr2 idle"></i><span class="face" style="--a:var(--q-acct-1)"><span>C</span></span></span><b>Selected, not key</b></div>
+      <div><span class="rt2 foc"><span class="face" style="--a:var(--q-acct-3)"><span>F</span></span></span><b>Focused</b></div>
+      <div><span class="rt2"><span class="face" style="--a:var(--q-acct-2)"><span>G</span></span><span class="badge">128</span></span><b>Unread (99+ cap)</b></div>
+      <div><span class="rt2"><span class="face" style="--a:var(--q-acct-3)"><span>F</span></span><span class="badge attn">{{PY: s('exclamationmark', 9)}}</span></span><b>Needs sign-in</b></div>
+      <div><span class="rt2"><span class="face" style="--a:var(--q-acct-4)"><span>F</span></span><span class="spin" style="position:absolute;top:-4px;right:-6px;--sz:12px;color:var(--q-ink3)"></span></span><b>First sync</b></div>
+      <div><span class="rt2 hov prs"><span class="face" style="--a:var(--q-acct-3)"><span>L</span></span></span><b>Pressed (face only)</b></div>
+      <div><span class="rt2" title="Finish signing in in your browser…"><span class="pface"><span class="spin" style="--sz:{{layout.rail.pendingSpinner}}px;color:var(--q-ink3)"></span></span></span><b>Signing in</b></div>
+      <div><span class="rt2"><span class="face two" style="--a:var(--q-acct-5)"><span>Ga</span></span></span><b>Collision: Ga</b></div>
+      <div><span class="rt2 sel2"><i class="mr2"></i>{{PY: g('ss.quire', 18)}}</span><b>All Inboxes</b></div>
+      <div><span class="rt2 hov">{{PY: s('plus', 15)}}</span><b>Add, hover</b></div>
+      <div><span class="rt2">{{PY: s('gearshape', 15)}}</span><b>Settings</b></div>
+    </div>
+  </div>
+
+  <div class="c4 card">
+    <h3>List header, tabs, search <code>layout.listHeader</code></h3>
+    <p class="cap">Masthead New York {{typography.masthead.size}}/{{typography.masthead.lineHeight}}. Tabs carry state with weight and a {{border.tabUnderline.width}} pt underline (≥ 3:1). Search has a resting {{border.strong.width}} pt <code>ruleStrong</code> edge.</p>
+    <div class="st">
+      <span class="lb">Masthead</span><span class="rowline"><span class="mst">Inbox {{PY: s('chevron.down', 9)}}</span><span class="mst hov">Starred {{PY: s('chevron.down', 9)}}</span><span class="mst foc">Sent {{PY: s('chevron.down', 9)}}</span></span>
+      <span class="lb">Narrowed</span><span class="mst">Inbox {{PY: s('chevron.down', 9)}}<span style="font:var(--q-font-snippet);color:var(--q-ink3)">· alex@contoso.test</span></span>
+      <span class="lb">Tabs</span><span class="tabs2"><span class="tab on">All</span><span class="tab hov">Focused</span><span class="tab foc">Other</span></span>
+      <span class="lb">Not key / first sync</span><span class="tabs2"><span class="tab on idle">All</span><span class="tab dis">Focused</span><span class="tab dis">Other</span></span>
+      <span class="lb">Search rest</span><span class="search s2">{{PY: s('magnifyingglass', 12)}}<span class="ph">Search</span><span class="kbd">/</span></span>
+      <span class="lb">Hover</span><span class="search s2 hov">{{PY: s('magnifyingglass', 12)}}<span class="ph">Search</span><span class="kbd">/</span></span>
+      <span class="lb">Focused, typing</span><span class="search s2 foc" style="width:250px;color:var(--q-ink)">{{PY: s('magnifyingglass', 12)}}<span class="ph" style="color:var(--q-ink)">lisbon flat<span class="caret" style="display:inline-block;vertical-align:-3px;margin-left:1px"></span></span><span class="ann">38 results</span><span class="clr">{{PY: s('xmark', 9)}}</span></span>
+      <span class="lb">Searching</span><span class="search s2 foc" style="width:250px">{{PY: '<span class="spin" style="--sz:12px;color:var(--q-ink3)"></span>'}}<span class="ph" style="color:var(--q-ink)">lisbon</span></span>
+      <span class="lb">Disabled</span><span class="search s2 dis">{{PY: s('magnifyingglass', 12)}}<span class="ph">Search</span></span>
+    </div>
+  </div>
+
+  <div class="c4 card">
+    <h3>Title menu <code>NSMenu</code></h3>
+    <p class="cap">A system menu. Under the Multicolor accent its highlight is Iron Gall because the app ships it as <code>NSAccentColorName</code>; with a chosen system accent it follows the user. G-sequences sit in the shortcut column; the Inbox count is a system <code>NSMenuItemBadge</code>, numerals only.</p>
+    <div class="mst" style="margin-bottom:4px">Inbox {{PY: s('chevron.down', 9)}}</div>
+    <div class="menu">
+      <div class="mi"><span class="ck">{{PY: s('checkmark', 10)}}</span>{{PY: s('tray', 14)}}Inbox<span class="mb">21</span><span class="kc">G I</span></div>
+      <div class="mi hi"><span class="ck"></span>{{PY: s('star', 14)}}Starred<span class="kc">G S</span></div>
+      <div class="mi"><span class="ck"></span>{{PY: s('paperplane', 14)}}Sent<span class="kc">G T</span></div>
+      <div class="mi"><span class="ck"></span>{{PY: s('doc', 14)}}Drafts<span class="kc">G D</span></div>
+      <div class="mi"><span class="ck"></span>{{PY: s('trash', 14)}}Trash<span class="kc">G #</span></div>
+      <div class="msep"></div>
+      <div class="mi"><span class="ck"></span>{{PY: s('archivebox', 14)}}All Mail<span class="kc">G A</span></div>
+    </div>
+  </div>
+
+  <div class="c7 card">
+    <h3>Buttons <code>layout.button</code></h3>
+    <p class="cap">One primary per window. Destructive is never the default. Hit rect ≥ {{layout.button.minHit}} × {{layout.button.minHit}} pt even when the visual is smaller. On accent fills the focus ring sits outside a {{border.focusRing.gapOnAccentFill}} pt gap.</p>
+    <div class="bmx">
+      <span></span><b>Rest</b><b>Hover</b><b>Pressed</b><b>Focused</b><b>Disabled</b><b>Loading</b>
+      <span class="lb">Primary</span><span class="btn primary">Send</span><span class="btn primary hov">Send</span><span class="btn primary prs">Send</span><span class="btn primary foc">Send</span><span class="btn primary dis">Send</span><span class="btn primary"><span class="spin" style="--sz:11px"></span>Sending…</span>
+      <span class="lb">Secondary</span><span class="btn secondary">Reconnect</span><span class="btn secondary hov">Reconnect</span><span class="btn secondary prs">Reconnect</span><span class="btn secondary foc">Reconnect</span><span class="btn secondary dis">Reconnect</span><span class="btn secondary"><span class="spin" style="--sz:11px;color:var(--q-ink3)"></span>Loading…</span>
+      <span class="lb">Ghost</span><span class="btn ghost">Cancel</span><span class="btn ghost hov">Cancel</span><span class="btn ghost prs">Cancel</span><span class="btn ghost foc">Cancel</span><span class="btn ghost dis">Cancel</span><span class="btn ghost"><span class="spin" style="--sz:11px"></span>Cancel</span>
+      <span class="lb">Destructive</span><span class="btn destructive">Discard</span><span class="btn destructive hov">Discard</span><span class="btn destructive prs">Discard</span><span class="btn destructive foc">Discard</span><span class="btn destructive dis">Discard</span><span class="btn destructive"><span class="spin" style="--sz:11px"></span>Removing…</span>
+      <span class="lb">Link</span><span class="btn linkb">Load images</span><span class="btn linkb" style="background:var(--q-hover);border-radius:5px">Load images</span><span class="btn linkb" style="background:var(--q-pressed);border-radius:5px">Load images</span><span class="btn linkb foc" style="border-radius:5px">Load images</span><span class="btn linkb dis" style="color:var(--q-inkDisabled)">Load images</span><span></span>
+      <span class="lb">Icon</span><span><span class="ib">{{PY: s('archivebox', 15)}}</span></span><span><span class="ib hov">{{PY: s('archivebox', 15)}}</span></span><span><span class="ib prs">{{PY: s('archivebox', 15)}}</span></span><span><span class="ib foc">{{PY: s('archivebox', 15)}}</span></span><span><span class="ib dis">{{PY: s('archivebox', 15)}}</span></span><span><span class="ib"><span class="spin" style="--sz:12px;color:var(--q-ink3)"></span></span></span>
+    </div>
+    <span class="lbl">Sizes: small {{layout.button.small.height}} · regular {{layout.button.regular.height}} · large {{layout.button.large.height}} · inactive window (primary draws as secondary)</span>
+    <div class="rowline"><span class="btn sm primary">Send</span><span class="btn primary">{{PY: s('paperplane', 14)}}Send</span><span class="btn lg primary">{{PY: s('paperplane', 16)}}Send</span><span class="btn sm secondary">Reconnect</span><span class="btn lg secondary">Add Gmail account</span><span class="btn inact">Send</span></div>
+  </div>
+
+  <div class="c5 card sheetbg">
+    <h3>Text field, toggles, popup <code>layout.textField · toggle · popup</code></h3>
+    <p class="cap">Every state-bearing edge is <code>ruleStrong</code> (≥ 3:1). Focus is the {{border.focusRing.width}} pt ring ({{border.focusRing.widthHC}} pt in increased contrast), never a 1 pt colour change.</p>
+    <div class="st" style="grid-template-columns:90px 1fr 1fr">
+      <span class="lb">Text field</span><span class="field"><span class="ph">Client ID</span></span><span class="field hov"><span class="ph">Hover</span></span>
+      <span class="lb"></span><span class="field foc" style="--fgap:var(--q-sheet)">alex@contoso<span class="caret"></span></span><span class="field dis">Disabled</span>
+      <span class="lb">Error</span><span><span class="field err">1084-ab3f.apps</span><span class="help">{{PY: s('exclamationmark.triangle.fill', 10)}}That doesn’t look like a Google client ID.</span></span><span class="field mono">1084-ab3f.apps.google…</span>
+      <span class="lb">Checkbox</span><span class="rowline" style="grid-column:span 2"><span class="cb"></span><span class="cb on">{{PY: s('checkmark', 9)}}</span><span class="cb mix on"></span><span class="cb foc"></span><span class="cb on foc">{{PY: s('checkmark', 9)}}</span><span class="cb dis"></span><span class="ann">off · on · mixed · focused · on + focused · disabled</span></span>
+      <span class="lb"></span><span class="rowline" style="grid-column:span 2"><span class="cb hov"></span><span class="cb prs"></span><span class="cb on hov">{{PY: s('checkmark', 9)}}</span><span class="cb on prs">{{PY: s('checkmark', 9)}}</span><span class="cb rad on prs"></span><span class="ann">off hover · off pressed · on hover · on pressed (<code>controlOnPressed</code>) · radio on pressed</span></span>
+      <span class="lb">Radio</span><span class="rowline" style="grid-column:span 2"><span class="cb rad"></span><span class="cb rad on"></span><span class="cb rad foc"></span><span class="cb rad dis"></span><span class="ann">off · on · focused · disabled</span></span>
+      <span class="lb">Toggle</span><span class="rowline" style="grid-column:span 2"><span class="tg"></span><span class="tg on"></span><span class="tg foc"></span><span class="tg on foc"></span><span class="tg dis"></span><span class="ann">off · on · focused · on + focused · disabled</span></span>
+      <span class="lb"></span><span class="rowline" style="grid-column:span 2"><span class="tg prs"></span><span class="tg on prs"></span><span class="ann">off pressed · on pressed: the knob stretches to {{layout.toggle.knobPressedWidth}} pt; no wash on the track or the knob</span></span>
+      <span class="lb">Knob, 2×</span><span class="rowline" style="grid-column:span 2;gap:18px"><span class="zoom3"><span class="tg" style="display:block"></span></span><span class="zoom3" style="background:var(--q-canvas);padding:2px;border-radius:4px"><span class="tg" style="display:block"></span></span><span class="ann" style="max-width:150px">the {{layout.toggle.knobEdge}} pt <code>ruleStrong</code> knob edge marks the position (≥ 3:1 on a group and on the desk)</span></span>
+      <span class="lb">Popup</span><span class="rowline" style="grid-column:span 2"><span class="pop">5 seconds {{PY: s('chevron.up.chevron.down', 11)}}</span><span class="pop hov">Hover {{PY: s('chevron.up.chevron.down', 11)}}</span><span class="pop foc">Focused {{PY: s('chevron.up.chevron.down', 11)}}</span><span class="pop dis">Off {{PY: s('chevron.up.chevron.down', 11)}}</span></span>
+      <span class="lb">Borderless</span><span class="rowline" style="grid-column:span 2"><span class="pop bare"><span class="swatch" style="--a:var(--q-acct-1);width:7px;height:7px"></span>Alex Morgan &lt;alex@contoso.test&gt; {{PY: s('chevron.up.chevron.down', 11)}}</span><span class="ann">composer From: no edge until hover</span></span>
+      <span class="lb">Pressed</span><span class="rowline" style="grid-column:span 2"><span class="pop bare prs"><span class="swatch halo" style="--a:var(--q-acct-1);width:7px;height:7px"></span>Alex Morgan {{PY: s('chevron.up.chevron.down', 11)}}</span><span class="pop prs"><span class="swatch halo" style="--a:var(--q-acct-1)"></span>Persimmon {{PY: s('chevron.up.chevron.down', 11)}}</span><span class="ann">the dot and swatch keep a {{layout.popup.inkHalo}} pt <code>raised</code> halo</span></span>
+    </div>
+  </div>
+
+  <div class="c6 card">
+    <h3>Reader header and actions <code>layout.readerHeader · {{layout.readerHeader.height}} pt</code></h3>
+    <p class="cap">Native view: the subject updates in the same frame as the selection, before the web view renders. One line, tail-truncated, full subject in the tooltip.</p>
+    <div class="rhspec">
+      <div class="kick" style="position:static">  <i class="dot" style="--a:var(--q-acct-2)"></i>Personal · 3 messages</div>
+      <div class="hl" style="position:static;margin-top:8px">Lisbon in March? Flat, trains and the long weekend plan for everyone</div>
+    </div>
+    <div class="st" style="margin-top:16px;grid-template-columns:110px repeat(7,auto);justify-content:start;gap:10px 18px">
+      <span class="lb">Icon button</span><span class="ib">{{PY: s('archivebox', 15)}}</span><span class="ib hov">{{PY: s('archivebox', 15)}}</span><span class="ib prs">{{PY: s('archivebox', 15)}}</span><span class="ib foc">{{PY: s('archivebox', 15)}}</span><span class="ib on">{{PY: s('star.fill', 15)}}</span><span class="ib dis">{{PY: s('arrowshape.turn.up.left.2', 15)}}</span><span class="ib"><span class="spin" style="--sz:12px;color:var(--q-ink3)"></span></span>
+      <span class="lb"></span><span class="ann">rest</span><span class="ann">hover</span><span class="ann">pressed</span><span class="ann">focused</span><span class="ann">on</span><span class="ann">disabled</span><span class="ann">loading</span>
+    </div>
+    <div class="rhspec" style="margin-top:10px">
+      <div class="kick" style="position:static">2 messages</div>
+      <div class="hl" style="position:static;margin-top:8px;font:var(--q-font-headlineSans)">会议纪要：第三季度计划</div>
+    </div>
+    <p class="ann" style="margin-top:6px">Single-account setups drop the account from the kicker. A subject New York cannot set uses <code>headlineSans</code> at the same {{typography.headline.lineHeight}} pt line height. In Trash the Archive action becomes Move to Inbox ({{PY: s('tray.and.arrow.down', 12)}}).</p>
+    <div class="rowline" style="margin-top:14px"><span class="tip">Archive<span>E</span></span><span class="tip">Reply all<span>A</span></span><span class="tip">All Inboxes<span>⌘0</span></span><span class="ann">system tooltips: name, two spaces, shortcut</span></div>
+  </div>
+
+  <div class="c6 card deskbg">
+    <h3>Message stack and sheet <code>layout.reader</code></h3>
+    <p class="cap">Collapsed messages fold into one stack of {{layout.reader.stackRow}} pt rows; more than {{layout.reader.foldAbove}} fold their middle into one row (shown hovered). The open sheet lifts with <code>e1</code>. A starred message shows its filled star at rest.</p>
+    <div class="stack">
+      <div class="sr"><span class="avs" style="--face:var(--q-av-slate-face);--avink:var(--q-av-slate-ink)">BC</span><span class="nm">Ben Carter</span><span class="sn">Hi Alex, attaching our go-live checklist for the 14th. (starred)</span><span class="stm">{{PY: s('star.fill', 12)}}</span><span class="dt">Fri 30 Oct</span></div>
+      <div class="sr fold hov">4 more messages</div>
+      <div class="sr hov"><span class="avs" style="--face:var(--q-av-sea-face);--avink:var(--q-av-sea-ink)">AM</span><span class="nm">Alex Morgan</span><span class="sn">Thanks Ben. Items 4–7 are done. (hover)</span><span class="dt">Fri 30 Oct</span></div>
+      <div class="sr unread"><i class="pp"></i><span class="avs" style="--face:var(--q-av-fern-face);--avink:var(--q-av-fern-ink)">TH</span><span class="nm">Tom Hughes</span><span class="sn">Forwarded to IT. (unread)</span><span class="dt">Yesterday 00:58</span></div>
+      <div class="sr foc"><span class="avs" style="--face:var(--q-av-clay-face);--avink:var(--q-av-clay-ink)">MS</span><span class="nm">Maya Singh</span><span class="sn">Metadata attached. (focused, N / P)</span><span class="dt">Yesterday 09:12</span></div>
+    </div>
+    <div class="sheet foc" style="margin-top:14px">
+      <div class="mh"><span class="avm" style="--face:var(--q-av-slate-face);--avink:var(--q-av-slate-ink)">BC</span>
+        <div class="who"><div class="nl"><i class="dotb" style="width:7px;height:7px;margin-right:6px;vertical-align:1px"></i>Ben Carter<span class="stm">{{PY: s('star.fill', 12)}}</span><span class="ad">ben@contoso.test</span></div><div class="rc">to me · cc Tom Hughes</div></div>
+        <div class="dt"><span class="ib sm on" style="width:{{layout.reader.headerAction}}px;height:{{layout.reader.headerAction}}px">{{PY: s('star.fill', 14)}}</span><span class="ib sm" style="width:{{layout.reader.headerAction}}px;height:{{layout.reader.headerAction}}px">{{PY: s('arrowshape.turn.up.left', 14)}}</span><span class="ib sm" style="width:{{layout.reader.headerAction}}px;height:{{layout.reader.headerAction}}px">{{PY: s('ellipsis', 14)}}</span><span style="margin-left:calc({{layout.reader.headerActionDateGap}}px - {{layout.reader.headerActionGap}}px)">Today 09:12</span></div></div>
+      <div class="ind" style="margin-top:16px;display:grid;gap:14px"><i class="skb" style="width:100%"></i><i class="skb" style="width:92%"></i><i class="skb" style="width:60%"></i></div>
+      <div class="ann ind" style="margin-top:12px">Focused (ring outside a {{border.focusRing.gapAroundSheets}} pt desk gap), unread pip, starred, hover actions and address, body loading.</div>
+    </div>
+    <div class="sheet target" style="margin-top:14px;padding-top:14px">
+      <div class="ft ind" style="border-top:0;padding-top:0;align-items:center"><span class="gb">{{PY: s('arrowshape.turn.up.left', 14)}}Reply</span><span class="kbd">R</span><span class="gb">{{PY: s('arrowshape.turn.up.left.2', 14)}}Reply all</span><span class="kbd">A</span><span class="gb">{{PY: s('arrowshape.turn.up.right', 14)}}Forward</span><span class="kbd">F</span></div>
+      <div class="ann ind" style="margin-top:8px">The target message (what R, A, F and Space act on, after a click too): keycaps in its footer, and a <code>ruleStrong</code> edge while several messages are open.</div>
+    </div>
+  </div>
+
+  <div class="c3 card sheetbg">
+    <h3>Quoted text <code>ss.elide</code></h3>
+    <p class="cap">The editor’s mark for omitted text sits at the fold. The label carries the state.</p>
+    <div style="display:grid;gap:10px;justify-items:start">
+      <span class="qt">{{PY: g('ss.elide', 14)}}Show quoted text</span>
+      <span class="qt hov">{{PY: g('ss.elide', 14)}}Show quoted text</span>
+      <span class="qt prs">{{PY: g('ss.elide', 14)}}Show quoted text</span>
+      <span class="qt on">{{PY: g('ss.elide', 14)}}Hide quoted text</span>
+      <span class="qt on hov">{{PY: g('ss.elide', 14)}}Hide quoted text</span>
+      <span class="qt on prs">{{PY: g('ss.elide', 14)}}Hide quoted text</span>
+      <span class="qt foc">{{PY: g('ss.elide', 14)}}Show quoted text</span>
+      <span class="rowline"><span class="qt" style="padding:0 5px;height:22px">{{PY: g('ss.elide', 14)}}</span><span style="font:var(--q-font-snippet);color:var(--q-ink3)">Ben Carter wrote on Yesterday 23:39</span></span>
+    </div>
+    <span class="lbl" style="margin-top:12px">folded rest · hover · pressed · unfolded rest · hover · pressed · focused · composer chip</span>
+  </div>
+
+  <div class="c5 card sheetbg">
+    <h3>Banners <code>layout.banner</code></h3>
+    <p class="cap">Privacy is not a warning: the remote-images banner is neutral. Semantic banners always pair colour with a glyph and words.</p>
+    <div style="display:grid;gap:8px">
+      <div class="banner">{{PY: s('photo', 14)}}<span class="txt">3 remote images hidden to protect your privacy.</span><span class="btn linkb">Load images</span></div>
+      <div class="banner">{{PY: s('photo', 14)}}<span class="txt">Link hover: underline, no wash</span><span class="btn linkb hov">Load images</span></div>
+      <div class="banner">{{PY: s('photo', 14)}}<span class="txt">Link pressed: <code>ink2</code>, underline, no wash</span><span class="btn linkb prs">Load images</span></div>
+      <div class="banner"><span class="spin" style="--sz:12px;color:var(--q-ink3)"></span><span class="txt">Loading 3 images…</span></div>
+      <div class="banner"><span style="color:var(--q-warning)">{{PY: s('exclamationmark.triangle.fill', 14)}}</span><span class="txt">2 images couldn’t load.</span></div>
+      <div class="banner warn">{{PY: s('circle.lefthalf.filled', 14)}}<span class="txt">This message uses its own colours.</span><span class="btn linkb" style="color:var(--q-ink);font-weight:600">Original colors</span></div>
+      <div class="banner info">{{PY: s('info.circle', 14)}}<span class="txt">Focused mirrors Gmail Primary.</span></div>
+      <div class="banner ok">{{PY: s('checkmark.circle.fill', 14)}}<span class="txt">OAuth clients saved.</span></div>
+      <div class="banner bad">{{PY: s('exclamationmark.triangle.fill', 14)}}<span class="txt">Couldn’t load this message.</span><span class="btn linkb">Retry</span></div>
+    </div>
+  </div>
+
+  <div class="c4 card sheetbg">
+    <h3>Attachment chip <code>layout.attachmentChip</code></h3>
+    <p class="cap">Click opens Quick Look; Space too when focused. Progress is a contrail along the meta line.</p>
+    <div style="display:grid;gap:8px;justify-items:start">
+      <div class="ach"><span class="tl">{{PY: s('doc', 15)}}</span><div><div class="nm">go-live-checklist.pdf</div><div class="mt">PDF · 240 KB</div></div></div>
+      <div class="ach hov"><span class="tl">{{PY: s('doc', 15)}}</span><div><div class="nm">go-live-checklist.pdf</div><div class="mt">Space to Quick Look</div></div></div>
+      <div class="ach foc"><span class="tl">{{PY: s('tablecells', 15)}}</span><div><div class="nm">capacity-plan.numbers</div><div class="mt">Numbers · 1.2 MB</div></div></div>
+      <div class="ach"><span class="tl">{{PY: s('film', 15)}}</span><div><div class="nm">walkthrough.mov</div><div class="prog"><i class="contrail" style="width:46%"></i></div></div></div>
+      <div class="ach err"><span class="tl">{{PY: s('exclamationmark.triangle.fill', 15)}}</span><div><div class="nm">sso-metadata.xml</div><div class="mt">Couldn’t download · <b style="color:var(--q-accent)">Retry</b></div></div></div>
+    </div>
+  </div>
+
+  <div class="c6 card deskbg">
+    <h3>Quick reply <code>layout.quickReply</code></h3>
+    <p class="cap">Docked under the reader, aligned to the reading column. Writing is SF Pro ({{typography.writing.size}}/{{typography.writing.lineHeight}}): what you type is sent without a font.</p>
+    <div style="display:grid;gap:12px">
+      <div class="qrf s" ><span class="mono24" style="--a:var(--q-acct-1)"><span>C</span></span><span class="ph">Reply to Ben Carter…</span><span class="kbd">R</span><span class="ib dis" style="margin-left:{{layout.quickReply.restKeycapGap}}px;color:var(--q-inkDisabled)">{{PY: s('paperplane', 15)}}</span></div>
+      <div class="qrf s foc" style="height:auto;flex-wrap:wrap;padding:10px 6px 6px 12px;align-items:flex-start">
+        <span class="mono24" style="--a:var(--q-acct-1)"><span>C</span></span><span class="ph" style="color:var(--q-ink)">Thanks Ben, forwarding to IT now.<span class="caret" style="display:inline-block;vertical-align:-3px"></span></span>
+        <div style="flex-basis:100%;display:flex;align-items:center;gap:4px;margin-top:8px;padding-left:34px">
+          <span class="mt on">{{PY: s('arrowshape.turn.up.left', 12)}}Reply</span><span class="mt" style="margin-left:{{layout.quickReply.modeGap}}px">{{PY: s('arrowshape.turn.up.left.2', 12)}}Reply all</span><span class="qtool" style="margin-left:{{layout.quickReply.toolGroupGap}}px"><span class="ib sm">{{PY: s('paperclip', 14)}}</span><span class="ib sm" style="margin-left:{{layout.quickReply.toolIconGap}}px">{{PY: s('arrow.up.left.and.arrow.down.right', 14)}}</span></span>
+          <span class="kbd" style="margin-left:auto">⌘↩</span><span class="btn sm primary" style="margin-left:{{layout.quickReply.sendKeycapGap}}px">Send</span></div>
+      </div>
+      <div class="qrf s" style="position:relative;overflow:hidden"><span class="st2">{{PY: s('paperplane.fill', 14)}}<b>Sending in 4 s</b><i>to Ben Carter</i></span><span class="kbd" style="margin-right:{{layout.quickReply.stripKeycapGap}}px">⌘Z</span><span class="btn sm secondary">Undo</span><i class="contrail" style="width:70%"></i></div>
+      <div class="qrf s"><span class="st2">{{PY: s('checkmark', 14)}}<b>Sent</b></span></div>
+      <div class="qrf s"><span class="st2">{{PY: s('arrow.uturn.backward', 14)}}<b>Not sent · draft kept in “Contoso rollout”</b><a>Show</a></span></div>
+      <div class="qrf s" style="height:auto;flex-wrap:wrap;padding:10px 6px 6px 12px;align-items:flex-start;box-shadow:inset 0 0 0 1.5px var(--q-danger)">
+        <span class="mono24" style="--a:var(--q-acct-1)"><span>C</span></span><span class="ph" style="color:var(--q-ink)">Thanks Ben, forwarding to IT now.</span>
+        <div style="flex-basis:100%;display:flex;align-items:center;gap:4px;margin-top:8px;padding-left:34px"><span class="qstat bad">{{PY: s('exclamationmark.triangle.fill', 12)}}Couldn’t send · Open in composer</span><span class="btn sm primary" style="margin-left:auto">Send</span></div>
+      </div>
+      <div class="qrf s" style="background:var(--q-fill);box-shadow:none"><span class="ph">Reply in the composer</span></div>
+    </div>
+    <span class="lbl">rest · focused, Reply mode (underline) · counting (contrail + seconds) · sent · undone after moving on · error (text kept) · disabled (a draft is open)</span>
+  </div>
+
+  <div class="c6 card">
+    <h3>Address tokens, autocomplete, strip, Send <code>layout.token · autocomplete · composer</code></h3>
+    <p class="cap">A selected token is an accent fill; while it is selected the field's focus ring moves onto it, outside a {{border.focusRing.gapOnAccentFill}} pt gap. An invalid token carries a glyph, a wash and an edge. The autocomplete highlight is a selection, not a fill: <code>selWash</code> plus the {{layout.autocomplete.highlightRule}} pt margin rule, inks unchanged, a normal keycap.</p>
+    <div class="rowline"><span class="tok">Ben Carter</span><span class="tok hov">Hover</span><span class="tok sel">Selected, idle</span><span class="tok sel foc">Selected</span><span class="tok bad">{{PY: s('exclamationmark.triangle.fill', 10)}}it-desk@contoso</span><span class="tok dis">Sending</span></div>
+    <div class="ac" style="margin-top:12px">
+      <div class="acr"><span class="mono24" style="--a:transparent;box-shadow:none;background:var(--q-av-sea-face);color:var(--q-av-sea-ink)"><span>TH</span></span><div><div><b>Tom</b> Hughes</div><div class="ad2">tom.hughes@contoso.test</div></div></div>
+      <div class="acr hi"><span class="mono24" style="--a:transparent;box-shadow:none;background:var(--q-av-clay-face);color:var(--q-av-clay-ink)"><span>TO</span></span><div><div><b>Tom</b>ás Ortega</div><div class="ad2">tomas@fabrikam.test</div></div><span class="kbd">↩</span></div>
+      <div class="acr"><span class="mono24" style="--a:transparent;box-shadow:none;background:var(--q-av-heather-face);color:var(--q-av-heather-ink)"><span>TM</span></span><div><div><b>Tom</b>my Marsh</div><div class="ad2">tmarsh@northwind.test</div></div></div>
+    </div>
+    <span class="lbl">Attachment strip chips: rest · uploading · error · remove hit {{layout.button.minHit}} pt</span>
+    <div class="rowline"><span class="sc">{{PY: s('doc', 14)}}<b>runbook.docx</b><i>88 KB</i><span class="rm">{{PY: s('xmark', 9)}}</span></span><span class="sc" style="position:relative;overflow:hidden">{{PY: s('photo', 14)}}<b>rack.heic</b><i>3.1 of 4.8 MB</i><span class="rm">{{PY: s('xmark', 9)}}</span><i class="contrail" style="top:auto;bottom:0;width:64%"></i></span><span class="sc" title="Too large for Microsoft 365: 150 MB limit">{{PY: '<span style="color:var(--q-danger)">' + s('exclamationmark.triangle.fill', 13) + '</span>'}}<b style="color:var(--q-danger)">capture.mov</b><i>Too large</i><span class="rm">{{PY: s('xmark', 9)}}</span></span></div>
+    <span class="lbl">Send: rest · hover · focused · disabled (no recipient) · sending · inactive window</span>
+    <div class="rowline"><span class="btn primary">{{PY: s('paperplane', 14)}}Send</span><span class="btn primary hov">{{PY: s('paperplane', 14)}}Send</span><span class="btn primary foc">{{PY: s('paperplane', 14)}}Send</span><span class="btn primary dis">{{PY: s('paperplane', 14)}}Send</span><span class="btn primary"><span class="spin" style="--sz:11px"></span>Sending…</span><span class="btn inact">{{PY: s('paperplane', 14)}}Send</span></div>
+  </div>
+
+  <div class="c4 card">
+    <h3>Badges and tags <code>layout.badge · tag</code></h3>
+    <p class="cap">Counts are SF Pro Rounded {{typography.badge.size}} Semibold, tabular, capped at 99+. Tags are {{typography.tag.size}} pt sentence case.</p>
+    <div class="st" style="grid-template-columns:120px 1fr">
+      <span class="lb">Unread count</span><span class="rowline"><span class="cntb acc">3</span><span class="cntb acc">21</span><span class="cntb acc">99+</span></span>
+      <span class="lb">Message count</span><span class="rowline"><span class="cntb neu">2</span><span class="cntb neu">14</span><span class="cntb neu" style="background:linear-gradient(var(--q-fill),var(--q-fill)),var(--q-selWash)">4</span><span class="ann">on selection</span></span>
+      <span class="lb">Dot · attention</span><span class="rowline"><span class="dotb"></span><span class="attn">{{PY: s('exclamationmark', 9)}}</span></span>
+      <span class="lb">Tags</span><span class="rowline"><span class="tag">Other</span><span class="tag">Gmail</span><span class="tag">Microsoft 365</span><span class="tag" style="background:var(--q-selWash)">Other</span></span>
+      <span class="lb">Dock</span><span class="ann">System red badge, unified Inbox unread count (system-drawn).</span>
+    </div>
+  </div>
+
+  <div class="c4 card">
+    <h3>Avatars <code>layout.avatar</code></h3>
+    <p class="cap">New York monograms on eight soft tints, by address hash. Faces never take account colour; the account shows as a ring.</p>
+    <div class="rowline" style="align-items:flex-end;gap:14px">
+      <span class="avz" style="--d:24px;--face:var(--q-av-sea-face);--avink:var(--q-av-sea-ink)">AM</span>
+      <span class="avz" style="--d:30px;--face:var(--q-av-heather-face);--avink:var(--q-av-heather-ink)">PR</span>
+      <span class="avz" style="--d:36px;--face:var(--q-av-slate-face);--avink:var(--q-av-slate-ink)">BC</span>
+    </div>
+    <span class="lbl">{{layout.avatar.sizes}}; initials 0.42 × d, never below {{typography.monogram.minSize}} pt; initials only, no photos</span>
+    <div class="rowline" style="gap:18px">
+      <span style="position:relative;width:38px;height:38px;display:inline-flex;align-items:center;justify-content:center"><span class="avz" style="--d:30px;--face:var(--q-av-heather-face);--avink:var(--q-av-heather-ink);box-shadow:0 0 0 2px var(--q-paper),0 0 0 4px var(--q-acct-2)">PR</span></span>
+      <span style="position:relative;width:38px;height:38px;display:inline-flex;align-items:center;justify-content:center;background:var(--q-spine);border-radius:8px"><span class="face" style="--a:var(--q-acct-1)"><span>C</span></span></span>
+      <span class="ann">row avatar: cached face, ring drawn per row, gap = row fill · rail account face</span>
+    </div>
+  </div>
+
+  <div class="c4 card">
+    <h3>Keycaps, HUD, cheat sheet <code>layout.kbd</code></h3>
+    <p class="cap">Every single-key command shows its keycap once in its natural place. ? or ⌘/ opens the cheat sheet, an in-window overlay on a scrim (shown full size in section D2).</p>
+    <div class="rowline"><span class="kbd">E</span><span class="kbd">#</span><span class="kbd">⌘↩</span><span class="kbd">⇧⌘R</span><span class="kbd">esc</span><span class="kbd">G</span><span class="then">then</span><span class="kbd">I</span><span class="kbd lg">J</span><span class="kbd lg">K</span></div>
+    <div class="sheetmini">
+      <b>Keyboard Shortcuts</b>
+      <div class="cols">
+        <div><i>Move</i><p><span class="kbd">J</span><span class="kbd">K</span>Next · previous</p><p><span class="kbd">↩</span>Open</p><p><span class="kbd">N</span><span class="kbd">P</span>Message</p></div>
+        <div><i>Act</i><p><span class="kbd">E</span>Archive</p><p><span class="kbd">#</span>Trash</p><p><span class="kbd">S</span>Star</p><p><span class="kbd">U</span>Unread</p></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="c4 card">
+    <h3>Empty states <code>layout.emptyState</code></h3>
+    <p class="cap">One serif sentence and one hint. Only inbox zero shows the sparrow.</p>
+    <div class="empty"><span style="color:var(--q-ink3)">{{PY: g('ss.sparrow', 30)}}</span><b>Nothing left to read.</b><i>New mail will land here.</i></div>
+    <div class="empty" style="margin-top:14px"><b>No results for “lisbon flat”</b><i>Search looks at subjects, people and message text.</i></div>
+    <div class="empty" style="margin-top:14px"><b>Nothing in Focused</b><i>Mail from people lands here; newsletters and notifications go to Other.</i></div>
+    <div class="empty" style="margin-top:14px;background:var(--q-canvas);border-radius:8px;padding:14px"><b>No conversation selected</b><i><span class="kbd">J</span> <span class="kbd">K</span> to move · <span class="kbd">↩</span> to open</i></div>
+    <div class="empty" style="margin-top:10px;background:var(--q-canvas);border-radius:8px;padding:14px"><b>No messages to show</b><i>They were deleted or moved on another device.</i></div>
+  </div>
+
+  <div class="c4 card">
+    <h3>Skeleton, progress, contrail <code>layout.skeleton · progress</code></h3>
+    <p class="cap">Skeletons appear only on a first sync, after {{motion.duration.skeletonDelay}} ms, and never shimmer. Spinners appear after {{motion.duration.spinnerDelay}} ms and never in rows.</p>
+    <div class="listbox" style="width:100%">
+      <div class="row"><span class="skc"></span><i class="skb" style="position:absolute;left:68px;top:14px;width:120px;height:9px"></i><i class="skb" style="position:absolute;right:16px;top:14px;width:28px;height:9px"></i><i class="skb" style="position:absolute;left:68px;top:32px;width:190px;height:10px"></i><i class="skb" style="position:absolute;left:68px;top:50px;width:200px;height:8px"></i></div>
+      <div class="row"><span class="skc"></span><i class="skb" style="position:absolute;left:68px;top:14px;width:90px;height:9px"></i><i class="skb" style="position:absolute;right:16px;top:14px;width:28px;height:9px"></i><i class="skb" style="position:absolute;left:68px;top:32px;width:150px;height:10px"></i><i class="skb" style="position:absolute;left:68px;top:50px;width:236px;height:8px"></i></div>
+    </div>
+    <div class="rowline" style="margin-top:14px;gap:16px"><span class="spin" style="--sz:12px;color:var(--q-ink3)"></span><span class="spin" style="--sz:16px;color:var(--q-ink3)"></span><span class="spin" style="--sz:32px;--sw:3px;color:var(--q-ink3)"></span>
+      <span style="flex:1;display:grid;gap:10px"><span class="bar"><i style="width:58%"></i></span><span style="position:relative;height:2px;display:block"><i class="contrail" style="width:58%"></i></span><span style="position:relative;height:2px;display:block"><i class="contrail" style="left:30%;width:36%"></i></span></span></div>
+    <span class="lbl">spinner 12 · 16 · 32 · determinate bar · determinate contrail · indeterminate contrail</span>
+  </div>
+
+  <div class="c4 card">
+    <h3>Sync status line <code>layout.syncLine · {{layout.syncLine.height}} pt</code></h3>
+    <p class="cap">Always present, so the list never changes height. Clicking it opens Settings › Accounts. A line with an action joins the Tab order (Retry shown focused). Background polls never show “Checking…”.</p>
+    <div style="display:grid;gap:6px">
+      <div class="syncx">{{PY: s('checkmark', 11)}}<b>Up to date</b> · 3 accounts · checked 23:41</div>
+      <div class="syncx" style="position:relative"><i class="contrail" style="width:42%"></i><span class="spin" style="--sz:10px"></span><b>Downloading mail</b> · Contoso · 3,412 of 8,120</div>
+      <div class="syncx"><span class="spin" style="--sz:10px"></span><b>Sending 1 message</b></div>
+      <div class="syncx">{{PY: s('wifi.slash', 11)}}<b>Offline</b> · changes will sync when you’re back</div>
+      <div class="syncx"><span style="color:var(--q-warning);display:inline-flex">{{PY: s('clock', 11)}}</span><b>Gmail is slow to respond</b> · retrying in 30 s</div>
+      <div class="syncx err">{{PY: s('exclamationmark.triangle.fill', 11)}}<b>Sign in required</b> · Fabrikam<span class="act">Reconnect</span></div>
+      <div class="syncx err">{{PY: s('exclamationmark.triangle.fill', 11)}}<b>Couldn’t sync Contoso</b> · details<span class="act" style="border-radius:5px;box-shadow:0 0 0 2px var(--q-focus);padding:0 3px">Retry</span></div>
+      <div class="syncx"><span class="spin" style="--sz:10px"></span><b>Finish signing in in your browser</b> · Gmail<span class="act">Cancel</span></div>
+      <div class="syncx">{{PY: s('info.circle', 11)}}<b>Demo</b> · made-up mail, nothing syncs</div>
+    </div>
+  </div>
+
+  <div class="c4 card">
+    <h3>Menus <code>NSMenu</code></h3>
+    <p class="cap">Row and card context menu: symbol, title case, single-key shortcut text. Disabled items stay visible.</p>
+    <div class="menu">
+      <div class="mi">{{PY: s('arrowshape.turn.up.left', 14)}}Reply<span class="kc">R</span></div>
+      <div class="mi">{{PY: s('arrowshape.turn.up.left.2', 14)}}Reply All<span class="kc">A</span></div>
+      <div class="mi">{{PY: s('arrowshape.turn.up.right', 14)}}Forward<span class="kc">F</span></div>
+      <div class="msep"></div>
+      <div class="mi hi">{{PY: s('archivebox', 14)}}Archive<span class="kc">E</span></div>
+      <div class="mi">{{PY: s('star', 14)}}Star<span class="kc">S</span></div>
+      <div class="mi">{{PY: s('envelope.badge', 14)}}Mark as Unread<span class="kc">U</span></div>
+      <div class="mi dis">{{PY: s('tray.and.arrow.down', 14)}}Move to Inbox<span class="kc">⇧I</span></div>
+      <div class="msep"></div>
+      <div class="mi">{{PY: s('trash', 14)}}Move to Trash<span class="kc">#</span></div>
+    </div>
+  </div>
+
+  <div class="c4 card">
+    <h3>Alerts <code>NSAlert sheet</code></h3>
+    <p class="cap">System alert, app icon, Quire words. The safe choice is the default; the destructive button sets <code>hasDestructiveAction</code>.</p>
+    <div class="alert">
+      <div class="ic">{{PY: '<span class="appicon" style="--s:52px">' + g('ss.sparrow', 31) + '</span>'}}</div>
+      <h4>Discard this draft?</h4>
+      <p>The message to Ben Carter hasn’t been sent. Discarding removes it from this Mac.</p>
+      <div class="bs"><span class="ab def">Keep Writing</span><span class="ab des">Discard</span></div>
+    </div>
+  </div>
+
+  <div class="c4 card">
+    <h3>Notifications and app icon</h3>
+    <p class="cap">System-drawn; Quire supplies content only. No actions in v1. Private mode hides sender and subject.</p>
+    <div style="display:grid;gap:10px">
+      <div class="notif"><span class="ni appicon" style="--s:36px">{{PY: g('ss.sparrow', 22)}}</span><div class="nt"><b>Ben Carter<span>now</span></b><i>Contoso rollout: go-live checklist</i><em>Tested with three accounts this afternoon, all good.</em></div></div>
+      <div class="notif"><span class="ni appicon" style="--s:36px">{{PY: g('ss.sparrow', 22)}}</span><div class="nt"><b>New message<span>2 min ago</span></b><i>Contoso</i></div></div>
+    </div>
+    <div class="rowline" style="margin-top:14px;gap:14px"><span class="appicon" style="--s:64px">{{PY: g('ss.sparrow', 38)}}</span><span class="appicon dk" style="--s:64px">{{PY: g('ss.sparrow', 38)}}</span><span class="appicon tn" style="--s:64px">{{PY: g('ss.sparrow', 38)}}</span><span class="ann">default · dark · tinted</span></div>
+  </div>
+
+  <div class="c12 card ic ic-panel">
+    <h3>Increased contrast <code>lightHC / darkHC</code></h3>
+    <p class="cap">The same components with every token at its increased-contrast value: hairlines become {{border.hairline.widthHC}} pt <code>rule</code> at higher contrast; sheets, the stack, the quick-reply field and popovers gain a {{border.icOutline.width}} pt <code>ruleStrong</code> edge; slips keep their own, stronger <code>slipEdge</code>; focus rings grow to {{border.focusRing.widthHC}} pt.</p>
+    <div style="display:grid;grid-template-columns:364px 1fr;gap:24px;align-items:start">
+      <div class="listbox" style="box-shadow:0 0 0 1px var(--q-ruleStrong)">
+        {{PY: row('Ben Carter, Alex Morgan, Tom Hughes', 'Contoso rollout: go-live checklist', 'Tested with three accounts, all good.', '23:39', 'slate', 'BC', acct='C', state='sel', count=4, clip=True)}}
+        {{PY: row('Priya Raman', 'Lisbon in March?', 'Booked the flat near Príncipe Real.', '22:10', 'heather', 'PR', acct='G', unread=True, star=True, count=3)}}
+        {{PY: row('Forge', '[sparrow-sync] PR #2657', 'maya-c commented.', '21:48', 'stone', 'F', acct='F', tag='Other', pending=True)}}
+      </div>
+      <div style="display:grid;gap:12px;align-content:start">
+        <div class="rowline"><span class="btn primary">Send</span><span class="btn secondary">Reconnect</span><span class="btn ghost">Cancel</span><span class="btn destructive">Discard</span><span class="btn secondary foc ichc">Focused</span><span class="tok sel">Selected</span><span class="tok bad">{{PY: s('exclamationmark.triangle.fill', 10)}}it-desk@contoso</span></div>
+        <div class="rowline"><span class="field"><span class="ph">Client ID</span></span><span class="field foc ichc">alex@contoso<span class="caret"></span></span><span class="cb on">{{PY: s('checkmark', 9)}}</span><span class="cb"></span><span class="tg on"></span><span class="tg"></span><span class="tabs2"><span class="tab on">All</span><span class="tab">Focused</span></span></div>
+        <div class="rowline"><span class="slip" style="box-shadow:inset 0 0 0 1px var(--q-ruleStrong),var(--q-e2)">{{PY: s('archivebox', 14)}}Archived<i class="dv"></i><span class="ua">Undo <span class="kbd os">Z</span></span><i class="contrail" style="width:62%"></i></span><span class="qt">{{PY: g('ss.elide', 14)}}Show quoted text</span><span class="ach" style="min-width:0;box-shadow:inset 0 0 0 1px var(--q-ruleStrong)"><span class="tl">{{PY: s('doc', 15)}}</span><div><div class="nm">checklist.pdf</div><div class="mt">PDF · 240 KB</div></div></span></div>
+      </div>
+    </div>
+  </div>
+</div>

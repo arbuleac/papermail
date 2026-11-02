@@ -1,0 +1,239 @@
+<section class="sh"><span class="n">D2 · Flows and states</span><h2>Demo, sign-in, drafts, outcomes</h2><p>Surfaces and states specified in 1.1 to 1.3: the demo marker, adding accounts from the main window, Settings account states, the composer's link popover and statuses, drafts, Original colors, list paging, the cheat-sheet overlay and the key precedence.</p></section>
+<div class="grid">
+  <div class="c6">
+    <div class="win" style="height:330px">
+      <div class="rail">
+        <div class="lights"><i></i><i></i><i></i></div>
+        <span class="rt sel" style="top:{{layout.rail.unifiedTop}}px"><i class="mr"></i>{{PY: g('ss.quire', 18)}}<span class="badge" style="--cut:var(--q-spine)">9</span></span>
+        <i class="rdiv" style="top:{{layout.rail.dividerY}}px"></i>
+        <span class="rt" style="top:{{layout.rail.accountTop}}px"><span class="face" style="--a:var(--q-acct-1)"><span>N</span></span></span>
+        <span class="rt" style="top:180px"><span class="face" style="--a:var(--q-acct-2)"><span>W</span></span></span>
+        <span class="rutil" style="bottom:64px">{{PY: s('plus', 15)}}</span>
+        <span class="rutil" style="bottom:24px">{{PY: s('gearshape', 15)}}</span>
+      </div>
+      <div class="list" style="width:auto;right:0">
+        <div class="lh"><div class="mast">Inbox {{PY: s('chevron.down', 9)}}<span class="dtag hov">Demo {{PY: s('chevron.down', 7)}}</span></div>
+          <div class="ib compose">{{PY: g('ss.nib', 18)}}</div>
+          <div class="tabs"><span class="tab on">All</span><span class="tab">Focused</span><span class="tab">Other</span></div>
+          <div class="search" style="left:auto">{{PY: s('magnifyingglass', 12)}}<span class="ph">Search</span><span class="kbd">/</span></div></div>
+        {{PY: row('Northwind Traders', 'Your order has shipped', 'Track it any time from your account page.', '09:41', 'wheat', 'NT', acct='C', unread=True)}}
+        {{PY: row('Wingtip Toys', 'Spring catalogue', 'Twelve new kites and a very serious frisbee.', '08:15', 'rose', 'WT', acct='G', tag='Other')}}
+        <div class="sync">{{PY: s('info.circle', 11)}}<b>Demo</b> · made-up mail, nothing syncs</div>
+      </div>
+      <div class="menu" style="position:absolute;left:220px;top:40px;width:226px;z-index:20">
+        <div class="mi">{{PY: s('envelope', 14)}}Add a Real Account…<span class="kc">{{PY: s('chevron.right', 9)}}</span></div>
+        <div class="msep"></div>
+        <div class="mi hi">{{PY: s('arrow.uturn.backward', 14)}}Leave Demo…</div>
+      </div>
+    </div>
+    <p class="ann" style="margin-top:10px">Demo mode (§5.43): a “Demo” tag after the masthead (hovered, its menu open), the window title “SuperSparrow — Demo”, a sync line that says nothing syncs, and a Settings banner. Leave Demo asks once, then returns to the welcome screen.</p>
+  </div>
+  <div class="c6">
+    <div class="win" style="height:330px">
+      <div class="rail">
+        <div class="lights"><i></i><i></i><i></i></div>
+        <span class="rt sel" style="top:{{layout.rail.unifiedTop}}px"><i class="mr"></i>{{PY: g('ss.quire', 18)}}</span>
+        <i class="rdiv" style="top:{{layout.rail.dividerY}}px"></i>
+        <span class="rt" style="top:{{layout.rail.accountTop}}px"><span class="face" style="--a:var(--q-acct-1)"><span>C</span></span></span>
+        <span class="rt" style="top:180px" title="Finish signing in in your browser…"><span class="pface"><span class="spin" style="--sz:{{layout.rail.pendingSpinner}}px;color:var(--q-ink3)"></span></span></span>
+        <span class="rutil" style="bottom:64px;background:var(--q-pressed);color:var(--q-ink)">{{PY: s('plus', 15)}}</span>
+        <span class="rutil" style="bottom:24px">{{PY: s('gearshape', 15)}}</span>
+      </div>
+      <div class="list" style="width:auto;right:0">
+        <div class="lh"><div class="mast">Inbox {{PY: s('chevron.down', 9)}}</div><div class="ib compose">{{PY: g('ss.nib', 18)}}</div>
+          <div class="tabs"><span class="tab on">All</span><span class="tab">Focused</span><span class="tab">Other</span></div>
+          <div class="search" style="left:auto">{{PY: s('magnifyingglass', 12)}}<span class="ph">Search</span><span class="kbd">/</span></div></div>
+        {{PY: row('Ben Carter', 'Contoso rollout: go-live checklist', 'Tested with three accounts this afternoon, all good.', '23:39', 'slate', 'BC', acct='C')}}
+        {{PY: row('Rachel Kim', 'Q4 roadmap review', 'Great work. One comment on offline mode.', '17:20', 'sea', 'RK', acct='C', clip=True, count=2)}}
+        <div class="sync"><span class="spin" style="--sz:11px;color:var(--q-ink3)"></span><b>Finish signing in in your browser</b> · Gmail<span class="act" style="border-radius:5px;box-shadow:0 0 0 2px var(--q-focus);padding:0 3px">Cancel</span></div>
+      </div>
+      <div class="menu" style="position:absolute;left:24px;top:270px;width:236px;z-index:20">
+        <div class="mi hi">{{PY: s('envelope', 14)}}Add Gmail Account…</div>
+        <div class="mi">{{PY: s('envelope', 14)}}Add Microsoft Account…</div>
+      </div>
+    </div>
+    <p class="ann" style="margin-top:10px">Adding an account (§5.44): rail + opens a provider menu (no alert); while the browser is open the rail shows a dashed pending tile with a spinner and the sync line offers Cancel, which joins the Tab order (shown focused). Failures arrive as an alert sheet with “Try Again”.</p>
+  </div>
+
+  <div class="c12 card deskbg">
+    <h3>Settings › Accounts states <code>layout.settings</code></h3>
+    <p class="cap">The selected account carries the {{border.marginRule.width}} pt margin rule on the wash, so selection never rests on a faint colour; it turns idle when Settings is not key. The group is a focusable stack, not a system list, so no accent block replaces it.</p>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:24px;align-items:start">
+      <div style="display:grid;gap:12px">
+        <span class="lbl">Demo banner · selected, Settings key</span>
+        <div class="banner info ml">{{PY: s('info.circle', 14)}}<span class="txt">Demo mode: these mailboxes are made up and live only on this Mac.</span><span class="btn linkb" style="height:16px">Leave demo…</span></div>
+        <div class="sgroup">
+          <div class="arow sel"><span class="face" style="--a:var(--q-acct-1);--fg:var(--q-selWash)"><span>N</span></span><div class="an"><b><span class="nmx">Northwind</span><span class="tag">Demo</span></b><i>alex@northwind.test</i></div><span class="ast" style="color:var(--q-ink3)">{{PY: s('info.circle', 12, 'q')}}Made up, nothing syncs</span></div>
+          <div class="arow"><span class="face" style="--a:var(--q-acct-2);--fg:var(--q-sheet)"><span>W</span></span><div class="an"><b><span class="nmx">Wingtip</span><span class="tag">Demo</span></b><i>alex@wingtip.test</i></div><span class="ast" style="color:var(--q-ink3)">{{PY: s('info.circle', 12, 'q')}}Made up, nothing syncs</span></div>
+        </div>
+      </div>
+      <div style="display:grid;gap:12px">
+        <span class="lbl">Selected, Settings not key · adding (waiting for the browser)</span>
+        <div class="sgroup">
+          <div class="arow sel idle"><span class="face" style="--a:var(--q-acct-1);--fg:var(--q-selWashIdle)"><span>C</span></span><div class="an"><b>Contoso</b><i>alex@contoso.test</i></div><span class="ast">{{PY: s('checkmark.circle.fill', 12)}}Up to date</span></div>
+          <div class="arow"><span class="pface"><span class="spin" style="--sz:{{layout.progress.spinner.1}}px;color:var(--q-ink3)"></span></span><div class="an"><b style="font-weight:400">Finish signing in in your browser…</b><i>Gmail</i></div><span class="btn sm secondary">Cancel</span></div>
+        </div>
+        <div class="rowline" style="gap:0"><span class="sq sqf" style="color:var(--q-inkDisabled)">{{PY: s('plus', 11)}}</span><span class="sq sqf">{{PY: s('minus', 11)}}</span><span class="ann" style="margin-left:10px">+ disabled while a sign-in runs</span></div>
+      </div>
+      <div style="display:grid;gap:12px">
+        <span class="lbl">No accounts · OAuth notice (info, multi-line) · add failed · seven accounts</span>
+        <div class="sgroup"><div class="arow" style="justify-content:center;flex-direction:column;gap:0;padding:0"><b style="font:var(--q-font-body);color:var(--q-ink2)">No accounts yet</b><i style="font-style:normal;font:var(--q-font-snippet);color:var(--q-ink3)">Add one to start syncing.</i></div></div>
+        <div class="banner info ml">{{PY: s('info.circle', 14)}}<span class="txt">To add a Gmail account, SuperSparrow needs your own Google OAuth client ID. Enter it below and click Save, then try again. <span style="color:var(--q-accent);font:var(--q-font-label)">How to create one…</span></span></div>
+        <div class="banner bad ml">{{PY: s('exclamationmark.triangle.fill', 14)}}<span class="txt">Couldn’t add the account. Google refused the sign-in; check the client ID. <span style="color:var(--q-accent);font:var(--q-font-label)">Try again</span></span></div>
+        <div class="banner info ml">{{PY: s('info.circle', 14)}}<span class="txt">Rows now show each account’s initial. With seven or more accounts, colours alone can look alike. <span style="color:var(--q-accent);font:var(--q-font-label)">Change in General…</span></span><span class="bx">{{PY: s('xmark', 9)}}</span></div>
+      </div>
+    </div>
+    <div style="display:grid;gap:12px;margin-top:20px;width:{{PY: T.LAYOUT['settings']['width'] - 2 * T.LAYOUT['settings']['padX']}}px">
+        <span class="lbl" style="margin-top:0">Reconnecting (waiting for the browser), at the real group width: Cancel replaces Reconnect, “Sign in required” stays</span>
+        <div class="sgroup">
+          <div class="arow"><span class="face" style="--a:var(--q-acct-3);--fg:var(--q-sheet)"><span>F</span></span><div class="an"><b><span class="nmx">Fabrikam</span><span class="tag">Microsoft 365</span></b><i class="bad">{{PY: s('exclamationmark.triangle.fill', 10)}}Sign in required</i></div><span class="ast" style="gap:{{layout.settings.statusGlyphGap}}px"><span class="spin" style="--sz:{{layout.progress.spinner.0}}px;color:var(--q-ink3)"></span>Waiting for your browser<span class="btn sm secondary" style="margin-left:{{layout.settings.statusButtonGap}}px">Cancel</span></span></div>
+        </div>
+    </div>
+  </div>
+
+  <div class="c6 card sheetbg">
+    <h3>Composer: link popover, styles, status <code>layout.composer · textStyle</code></h3>
+    <p class="cap">⌘K opens an app-drawn popover at the selection. Quotes, links and lists use the reader's text styles, so a reply looks the same before and after it is sent.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start">
+      <div style="display:grid;gap:12px">
+        <div style="font:var(--q-font-writing);color:var(--q-ink)">
+          <p>Notes from <a style="color:var(--q-accent);text-decoration:underline;text-decoration-thickness:{{layout.textStyle.linkUnderline}}px;text-underline-offset:{{layout.textStyle.linkUnderlineOffset}}px">the runbook</a>:</p>
+          <div style="display:grid;grid-template-columns:{{layout.textStyle.listIndent}}px 1fr;margin-top:4px"><span style="color:var(--q-ink2)">•</span><span>Metadata by Thursday</span><span style="color:var(--q-ink2)">•</span><span>Cut-over on the 14th</span></div>
+          <div style="margin-top:8px;padding-left:{{layout.textStyle.quoteIndent}}px;box-shadow:inset {{layout.textStyle.quoteBar}}px 0 0 var(--q-rule);color:var(--q-ink2)">We are green for the 14th.</div>
+        </div>
+        <div class="linkpop">
+          <div class="lr"><span>Link</span><span class="field foc">https://contoso.test/runbook<span class="caret"></span></span></div>
+          <div class="lb2"><span class="btn sm ghost">Remove Link</span><span class="btn sm ghost" style="margin-left:auto">Cancel</span><span class="btn sm primary">Save</span></div>
+        </div>
+      </div>
+      <div style="display:grid;gap:2px;align-content:start">
+        <span class="lbl">bottom-bar status</span>
+        <span class="cstat"><span class="spin" style="--sz:11px;color:var(--q-ink3)"></span>Loading original message…</span>
+        <span class="cstat">{{PY: s('info.circle', 11)}}<span style="color:var(--q-ink2)">The original message is no longer available.</span></span>
+        <span class="cstat w">{{PY: s('exclamationmark.triangle.fill', 11)}}Couldn’t load the original message; it won’t be quoted.</span>
+        <span class="cstat w">{{PY: s('exclamationmark.triangle.fill', 11)}}One attachment couldn’t be loaded.</span>
+        <span class="cstat">{{PY: s('checkmark', 11)}}Draft saved</span>
+        <span class="cstat">{{PY: s('wifi.slash', 11)}}Will send when you’re back online</span>
+        <span class="lbl">format toggles: off · hover · on · on hover</span>
+        <span class="rowline" style="gap:2px"><span class="ib">{{PY: s('italic', 14)}}</span><span class="ib hov">{{PY: s('underline', 14)}}</span><span class="ib qon">{{PY: s('bold', 14)}}</span><span class="ib qon hov">{{PY: s('list.bullet', 14)}}</span></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="c6 card deskbg">
+    <h3>Drafts and Original colors <code>§5.16 · §5.19</code></h3>
+    <p class="cap">A draft opens read-only, so j / k stays fast; ↩ continues editing. In dark appearances a message that declares its own colours is adapted (Quire inks, the sender's backgrounds removed) and gets a notice; Original colors shows it as sent on the white <code>originalPage</code> inset ({{layout.reader.originalInsetPad}} pt padding, radius {{layout.reader.originalInsetRadius}}). Light appearances show it as sent, with neither.</p>
+    <div class="rhspec" style="padding:12px 16px">
+      <div style="display:flex;align-items:center;gap:8px"><span class="kick" style="position:static"><i class="dot" style="--a:var(--q-acct-1)"></i>Draft · Contoso</span><span class="acts" style="position:static;margin-left:auto"><span class="ib">{{PY: g('ss.nib', 15)}}</span><span class="ib">{{PY: s('trash', 15)}}</span></span></div>
+      <div style="font:var(--q-font-headline);letter-spacing:var(--q-track-headline);margin-top:6px">Re: Contoso rollout</div>
+    </div>
+    <div class="sheet" style="margin-top:12px;padding:16px 20px 12px">
+      <div style="display:flex;justify-content:space-between;font:var(--q-font-snippet)"><span style="color:var(--q-ink2)">To Ben Carter · cc Tom Hughes</span><span style="color:var(--q-ink3)">Edited 23:51</span></div>
+      <p style="font:var(--q-font-writing);margin:10px 0 12px">Thanks for running the checks. I have forwarded the runbook to our IT desk.</p>
+      <div class="ft" style="gap:8px;align-items:center"><span class="btn secondary">{{PY: g('ss.nib', 14)}}Continue editing</span><span class="kbd">↩</span><span class="btn ghost">Discard draft…</span></div>
+    </div>
+    <div style="display:grid;gap:8px;margin-top:14px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div style="display:grid;gap:8px;align-content:start">
+          <div class="notice">{{PY: s('circle.lefthalf.filled', 14)}}<span class="txt">This message uses its own colours.</span><span class="na hov">Original colors</span><span class="x">{{PY: s('xmark', 9)}}</span></div>
+          <div class="adapt"><div class="nlh">Northwind Weekly · Issue 112</div><p>Three new trails open this weekend, and the ridge loop is finally clear of snow.</p><span class="nlb">Read the trail report</span></div>
+          <span class="ann">Adapted (default): declared colours become <code>ink</code> and <code>accent</code>, backgrounds removed.</span>
+        </div>
+        <div style="display:grid;gap:8px;align-content:start">
+          <div class="notice">{{PY: s('circle.lefthalf.filled', 14)}}<span class="txt">Showing the sender’s colours.</span><span class="na">Adaptive colors</span><span class="x">{{PY: s('xmark', 9)}}</span></div>
+          <div class="adapt" style="padding:0;box-shadow:none;background:none"><div class="oinset"><div class="nlh">Northwind Weekly · Issue 112</div><p>Three new trails open this weekend, and the ridge loop is finally clear of snow.</p><span class="nlb">Read the trail report</span></div></div>
+          <span class="ann">Original colors: the body as sent, on the <code>originalPage</code> inset inside the sheet.</span>
+        </div>
+      </div>
+      <div class="rowline" style="gap:6px"><span class="ib sm">{{PY: s('circle.lefthalf.filled', 13)}}</span><span class="ib sm qon">{{PY: s('circle.lefthalf.filled', 13)}}</span><span class="ib sm qon hov">{{PY: s('circle.lefthalf.filled', 13)}}</span><span class="ann">header action: off · on · on, hover</span></div>
+    </div>
+  </div>
+
+  <div class="c6 card">
+    <h3>List paging and row times <code>layout.listFooter · runningHead</code></h3>
+    <p class="cap">Each running head sets the row time below it: the time under Today and Yesterday, the weekday this week, day and month under older heads. The tail footer appears only when the next page takes longer than {{motion.duration.spinnerDelay}} ms.</p>
+    <div class="listbox" style="width:100%">
+      {{PY: running_head('Yesterday')}}
+      {{PY: row('Tom Hughes', 'Metadata for SSO', 'Attached the XML; the certificate rolls over in March.', '23:12', 'fern', 'TH', acct='C')}}
+      {{PY: running_head('Earlier this week')}}
+      {{PY: row('Maya Singh', 'Lunch on Thursday?', 'The new place on Rua da Rosa has a terrace.', 'Tue', 'clay', 'MS', acct='G')}}
+      {{PY: running_head('October')}}
+      {{PY: row('Diego Alvarez', 'Offsite photos', 'Group shot attached, the rest are in the shared album.', '30 Oct', 'heather', 'DA', acct='G', clip=True)}}
+      <div class="lfoot"><span class="spin" style="--sz:{{layout.listFooter.spinner}}px;color:var(--q-ink3)"></span>Loading older mail…</div>
+      <div class="lfoot bad" style="box-shadow:inset 0 1px 0 var(--q-rule)">{{PY: s('exclamationmark.triangle.fill', 11)}}Couldn’t load older mail<span class="act">Retry</span></div>
+    </div>
+  </div>
+
+  <div class="c6 card">
+    <h3>Key precedence <code>§6.1</code></h3>
+    <p class="cap">The first surface that applies takes the key. In the reader with a toast up, the first Esc dismisses the toast and the second returns to the list.</p>
+    <span class="lbl">Esc</span>
+    <div class="rowline" style="gap:4px;row-gap:8px">{{PY: chain(['Autocomplete', 'Link popover', 'Cheat sheet · HUD', 'Clear search', 'Leave empty search', 'Dismiss toast', 'Focus to list'])}}</div>
+    <span class="lbl" style="margin-top:16px">⌘Z</span>
+    <div class="rowline" style="gap:4px;row-gap:8px">{{PY: chain(['Text undo while editing', 'Newest of: send countdown, undo panel, toast', 'Toast action within 10 s'])}}</div>
+    <span class="lbl" style="margin-top:16px">Z (single key)</span>
+    <div class="rowline" style="gap:4px">{{PY: chain(['Latest toast action only, never a send'])}}</div>
+    <div class="rowline" style="margin-top:18px;gap:16px;align-items:center">
+      <div class="panel" style="width:260px">{{PY: s('paperplane.fill', 15)}}<div class="tx"><div class="t1">Sending in 7 s</div><div class="t2">Re: Contoso rollout · to Ben Carter</div></div><span class="ub">Undo</span><i class="contrail" style="width:70%"></i></div>
+      <span class="ann" style="max-width:200px">A newer toast took ⌘Z, so the panel hides its keycap; its Undo still works by click.</span>
+    </div>
+  </div>
+
+  <div class="c12 card" style="background:var(--studio-card);box-shadow:0 0 0 1px var(--studio-rule)">
+    <h3 style="color:var(--studio-ink)">Cheat sheet overlay <code>layout.cheatSheet · cheatSheetContent · scrim</code></h3>
+    <p class="cap" style="color:var(--studio-ink2);max-width:none">An in-window overlay, not a system sheet: <code>scrim</code> over the window (<code>scrimSolid</code>, opaque, under Reduce Transparency), focus trapped in the panel, single keys swallowed. Esc, ?, ⌘/, ⌘W, the close button or a click on the scrim dismisses it. The content is the whole key map in two bands of three sections, sentence case, drawn from <code>cheatSheetContent</code>; {{layout.cheatSheet.width}} × 604 pt, so it fits the default window whole.</p>
+    <div class="scrimbox" style="height:652px;background:var(--q-paper)">
+      <div style="position:absolute;inset:0;width:364px">{{PY: row('Priya Raman', 'Lisbon in March?', 'Booked the flat near Príncipe Real.', '22:10', 'heather', 'PR', acct='G', unread=True)}}{{PY: row('Ben Carter', 'Contoso rollout: go-live checklist', 'Tested with three accounts, all good.', '23:39', 'slate', 'BC', acct='C', state='sel')}}{{PY: row('Forge', '[sparrow-sync] PR #2657', 'maya-c commented.', '21:48', 'stone', 'F', acct='F')}}{{PY: row('Maya Singh', 'Lunch on Thursday?', 'The new place on Rua da Rosa has a terrace.', 'Tue', 'clay', 'MS', acct='G')}}{{PY: row('Tom Hughes', 'Metadata for SSO', 'Attached the XML; the certificate rolls over in March.', 'Mon', 'fern', 'TH', acct='C')}}</div>
+      <div class="scr"></div>
+      <div style="position:absolute;left:50%;top:24px;transform:translateX(-50%)">{{PY: cheat_sheet()}}</div>
+    </div>
+  </div>
+
+  <div class="c12 card">
+    <h3>Narrow reader and wide HTML <code>window.readerNarrow · reader.htmlMinZoom · readerHeader.kickerActionGap</code></h3>
+    <p class="cap" style="max-width:none">Drawn on macOS 26 and later (rail {{layout.rail.width26}} pt). At the minimum window with the default list the reader is {{layout.window.minWidth}} − {{layout.rail.width26}} − {{layout.list.defaultWidth}} = 512 pt (520 with the macOS 15 rail): margins and sheet padding drop to {{layout.reader.narrowColumnMargin}}, the reader's keycaps hide (below {{layout.window.readerKeycapsMin}} pt), and a 600 px newsletter is zoomed to 0.747 (0.760 on macOS 15) to fit, both above <code>htmlMinZoom</code> {{layout.reader.htmlMinZoom}}. At the {{layout.window.readerMinWidth}} pt minimum reader it stays at {{layout.reader.htmlMinZoom}} and scrolls inside its iframe, and the kicker, which ends {{layout.readerHeader.kickerActionGap}} pt before the actions, truncates the account name but never the count. In dark appearances the newsletter is Adapted (Quire inks, the sender's backgrounds removed) under the Original colors notice; in light it renders as sent.</p>
+    <div style="display:flex;gap:28px;align-items:flex-start">
+      <div>
+        <span class="lbl">Minimum window · reader 512 pt · zoom 0.747</span>
+        <div class="win" style="width:512px;height:470px;background:var(--q-canvas);box-shadow:0 0 0 1px var(--q-rule)">
+          <div class="rh" style="position:absolute"><div class="kick" style="left:16px;width:274px"><i class="dot" style="--a:var(--q-acct-2);flex:none"></i><span style="display:flex;min-width:0;gap:.35em"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Personal</span><span style="flex:none">· 2 messages</span></span></div><div class="hl" style="left:16px;right:16px">Northwind Weekly #182: Quiet software</div><div class="acts"><span class="ib">{{PY: s('star', 15)}}</span><span class="ib">{{PY: s('archivebox', 15)}}</span><span class="ib">{{PY: s('trash', 15)}}</span><span class="sp"></span><span class="ib">{{PY: s('arrowshape.turn.up.left', 15)}}</span><span class="ib">{{PY: s('arrowshape.turn.up.left.2', 15)}}</span><span class="ib">{{PY: s('arrowshape.turn.up.right', 15)}}</span></div></div>
+          <div style="position:absolute;top:104px;left:16px;right:16px">
+            <div class="sheet target" style="margin:0;padding:14px 16px 10px">
+              <div class="mh"><span class="avm" style="--face:var(--q-av-slate-face);--avink:var(--q-av-slate-ink)">NW</span><div class="who"><div class="nl">Northwind Weekly</div><div class="rc">to me</div></div><div class="dt">08:15</div></div>
+              <div class="notice nlnote">{{PY: s('circle.lefthalf.filled', 14)}}<span class="txt">This message uses its own colours.</span><span class="na">Original colors</span><span class="x">{{PY: s('xmark', 9)}}</span></div>
+              <div style="margin-top:12px;overflow:hidden;position:relative;padding-bottom:0px">
+                <div class="nlx" style="zoom:0.747">
+                  <div class="nlxh">NORTHWIND WEEKLY · No. 182</div>
+                  <div class="nlxb">The case for fewer notifications, and a sync engine in 400 lines. This 600 px layout needs 0.747 here.</div>
+                </div>
+              </div>
+              <div class="ft" style="margin-top:10px;align-items:center"><span class="gb">{{PY: s('arrowshape.turn.up.left', 14)}}Reply</span><span class="gb">{{PY: s('arrowshape.turn.up.left.2', 14)}}Reply all</span><span class="gb">{{PY: s('arrowshape.turn.up.right', 14)}}Forward</span></div>
+            </div>
+          </div>
+          <div class="qr"><div class="qrf" style="left:16px;right:16px"><span class="mono24" style="--a:var(--q-acct-2)"><span>G</span></span><span class="ph">Reply to Northwind Weekly…</span><span class="ib sm dis">{{PY: s('paperplane', 14)}}</span></div></div>
+        </div>
+      </div>
+      <div>
+        <span class="lbl">Minimum reader · 400 pt · stays at 0.74, scrolls</span>
+        <div class="win" style="width:400px;height:470px;background:var(--q-canvas);box-shadow:0 0 0 1px var(--q-rule)">
+          <div class="rh" style="position:absolute"><div class="kick" style="left:16px;width:162px"><i class="dot" style="--a:var(--q-acct-2);flex:none"></i><span style="display:flex;min-width:0;gap:.35em"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Northwind Traders</span><span style="flex:none">· 2 messages</span></span></div><div class="hl" style="left:16px;right:16px">Northwind Weekly #182: Quiet software</div><div class="acts"><span class="ib">{{PY: s('star', 15)}}</span><span class="ib">{{PY: s('archivebox', 15)}}</span><span class="ib">{{PY: s('trash', 15)}}</span><span class="sp"></span><span class="ib">{{PY: s('arrowshape.turn.up.left', 15)}}</span><span class="ib">{{PY: s('arrowshape.turn.up.left.2', 15)}}</span><span class="ib">{{PY: s('arrowshape.turn.up.right', 15)}}</span></div></div>
+          <div style="position:absolute;top:104px;left:16px;right:16px">
+            <div class="sheet target" style="margin:0;padding:14px 16px 10px">
+              <div class="mh"><span class="avm" style="--face:var(--q-av-slate-face);--avink:var(--q-av-slate-ink)">NW</span><div class="who"><div class="nl">Northwind Weekly</div><div class="rc">to me</div></div><div class="dt">08:15</div></div>
+              <div class="notice nlnote">{{PY: s('circle.lefthalf.filled', 14)}}<span class="txt">This message uses its own colours.</span><span class="na">Original colors</span><span class="x">{{PY: s('xmark', 9)}}</span></div>
+              <div style="margin-top:12px;overflow:hidden;position:relative;padding-bottom:8px">
+                <div class="nlx" style="zoom:0.74">
+                  <div class="nlxh">NORTHWIND WEEKLY · No. 182</div>
+                  <div class="nlxb">The case for fewer notifications, and a sync engine in 400 lines. This 600 px layout needs 0.560 here.</div>
+                </div><div class="hscroll"><i style="width:76%"></i></div>
+              </div>
+              <div class="ft" style="margin-top:10px;align-items:center"><span class="gb">{{PY: s('arrowshape.turn.up.left', 14)}}Reply</span><span class="gb">{{PY: s('arrowshape.turn.up.left.2', 14)}}Reply all</span><span class="gb">{{PY: s('arrowshape.turn.up.right', 14)}}Forward</span></div>
+            </div>
+          </div>
+          <div class="qr"><div class="qrf" style="left:16px;right:16px"><span class="mono24" style="--a:var(--q-acct-2)"><span>G</span></span><span class="ph">Reply to Northwind Weekly…</span><span class="ib sm dis">{{PY: s('paperplane', 14)}}</span></div></div>
+        </div>
+      </div>
+      <p class="ann" style="max-width:250px;margin-top:22px">Keycaps hidden: the target keeps its <code>ruleStrong</code> edge instead; tooltips still name R, A, F and ⌘↩. The scroller shows only while scrolling (drawn here as if scrolling).</p>
+    </div>
+  </div>
+</div>

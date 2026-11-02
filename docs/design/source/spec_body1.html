@@ -1,0 +1,92 @@
+<body>
+<div class="page">
+
+<header class="cover">
+  <div>
+    <div class="k">{{PY: g('ss.sparrow', 16)}} SuperSparrow design language · Quire {{version}} · 2 November 2026</div>
+    <h1>Quire <em>— mail, set like a page.</em></h1>
+    <p>Each conversation is a gathering of folded messages and one open sheet, set in New York on warm paper and marked in a single ink, Iron Gall. The list is a still index; the reader gets the room of a page. Every colour, size and duration on this sheet is a custom property generated from <code>docs/design/tokens.json</code>.</p>
+  </div>
+  <ol>
+    <li><b>Reading is the product.</b>Serif where people read, sans where they scan or write.</li>
+    <li><b>One ink, used like a pen.</b>Iron Gall marks unread, selection, focus and the one primary action.</li>
+    <li><b>A still list, a generous page.</b>Rows never move or blur; motion is short, rare and interruptible.</li>
+    <li><b>Shape before colour.</b>Every state has a shape, a weight or a word.</li>
+    <li><b>Native first, then ours.</b>Traffic lights, menus, alerts and notifications stay macOS.</li>
+  </ol>
+</header>
+
+<section class="sh"><span class="n">A · Main window</span><h2>Unified inbox, list driving</h2><p>{{layout.window.defaultWidth}} × {{layout.window.defaultHeight}} pt, window key. Three accounts. The selection keeps its Iron Gall wash and margin rule while the main window is key, wherever the first responder is.</p></section>
+
+<div class="win" style="width:1280px;height:800px">
+  <div class="lights"><i></i><i></i><i></i></div>
+  <!-- rail -->
+  <div class="rail">
+    <div class="rt sel" style="top:62px"><i class="mr"></i>{{PY: g('ss.quire', 18)}}<span class="badge">21</span></div>
+    <div class="rdiv" style="top:116px"></div>
+    <div class="rt" style="top:130px"><span class="face" style="--a:var(--q-acct-1)"><span>C</span></span><span class="badge">14</span></div>
+    <div class="rt" style="top:180px"><span class="face" style="--a:var(--q-acct-2)"><span>G</span></span><span class="badge">5</span></div>
+    <div class="rt" style="top:230px"><span class="face" style="--a:var(--q-acct-3)"><span>F</span></span><span class="badge">2</span></div>
+    <div class="rutil" style="bottom:64px">{{PY: s('plus', 15)}}</div>
+    <div class="rutil" style="bottom:24px">{{PY: s('gearshape', 15)}}</div>
+  </div>
+  <!-- list -->
+  <div class="list">
+    <div class="lh">
+      <div class="mast">Inbox {{PY: s('chevron.down', 9)}}</div>
+      <div class="ib compose">{{PY: g('ss.nib', 18)}}</div>
+      <div class="tabs"><span class="tab on">All</span><span class="tab">Focused</span><span class="tab">Other</span></div>
+      <div class="search">{{PY: s('magnifyingglass', 12)}}<span class="ph">Search</span><span class="kbd">/</span></div>
+    </div>
+    {{PY: running_head('Today')}}
+    {{PY: row('Ben Carter, Alex Morgan, Tom Hughes', 'Contoso rollout: go-live checklist', 'Tested with three accounts this afternoon, all good. We are green for the 14th.', '23:39', 'slate', 'BC', acct='C', state='sel', clip=True, count=4)}}
+    {{PY: row('Priya Raman', 'Lisbon in March?', 'Booked the flat near Príncipe Real. Sam wants to come for the weekend too.', '22:10', 'heather', 'PR', acct='G', unread=True, star=True, count=3)}}
+    {{PY: row('Forge', '[sparrow-sync] PR #2657: Coalesce history pages', 'maya-c commented: Looks good, one nit about the retry budget.', '21:48', 'stone', 'F', acct='F', unread=True, tag='Other')}}
+    {{PY: row('Linda Morgan', 'Sunday dinner', 'Ha, noted. I will bring the plum cake from the bakery on Rua Augusta.', '19:02', 'rose', 'LM', acct='G', pending=True, star=True, count=4, cls='pre')}}
+    {{PY: running_head('Yesterday')}}
+    {{PY: row('Rachel Kim, Alex Morgan', 'Q4 roadmap review', 'Great work. One comment: move offline mode ahead of the search rewrite.', '17:20', 'sea', 'RK', acct='C', unread=True, clip=True, count=2)}}
+    {{PY: row('Diego Alvarez', 'Photos from the offsite', 'Of course. Group shot coming tomorrow, I need to sort the rest first.', '15:41', 'clay', 'DA', acct='G', clip=True, count=3)}}
+    {{PY: row('Calendar', 'Accepted: Design review @ Thu 15:30', 'Room: Juniper (4th floor) · Video link in the event', '13:05', 'wheat', 'C', acct='C', tag='Other')}}
+    {{PY: row('Theo Nakamura', 'Heads up', 'Do you have ten minutes this afternoon to look at the migration plan?', '11:30', 'fern', 'TN', acct='F', unread=True)}}
+    {{PY: row('Northwind Weekly', 'Northwind Weekly #182: Quiet software', 'This week: the case for fewer notifications, and a sync engine in 400 lines.', '08:15', 'slate', 'NW', acct='G', tag='Other')}}
+    <div class="sync">{{PY: s('checkmark', 11)}}<b>Up to date</b> · 3 accounts · checked 23:41</div>
+  </div>
+  <!-- reader -->
+  <div class="reader">
+    <div class="rh">
+      <div class="kick"><i class="dot" style="--a:var(--q-acct-1)"></i>Contoso · 4 messages</div>
+      <div class="hl">Contoso rollout: go-live checklist</div>
+      <div class="acts">
+        <span class="ib">{{PY: s('star', 15)}}</span><span class="ib">{{PY: s('archivebox', 15)}}</span><span class="ib">{{PY: s('trash', 15)}}</span><span class="sp"></span>
+        <span class="ib">{{PY: s('arrowshape.turn.up.left', 15)}}</span><span class="ib">{{PY: s('arrowshape.turn.up.left.2', 15)}}</span><span class="ib">{{PY: s('arrowshape.turn.up.right', 15)}}</span>
+      </div>
+    </div>
+    <div class="desk"><div class="col">
+      <div class="parts">Ben Carter, Alex Morgan, Tom Hughes</div>
+      <div class="stack">
+        <div class="sr"><span class="avs" style="--face:var(--q-av-slate-face);--avink:var(--q-av-slate-ink)">BC</span><span class="nm">Ben Carter</span><span class="sn">Hi Alex, attaching our go-live checklist for the 14th. Can your team confirm items 4 through 9?</span><span class="dt">Fri 30 Oct</span></div>
+        <div class="sr"><span class="avs" style="--face:var(--q-av-sea-face);--avink:var(--q-av-sea-ink)">AM</span><span class="nm">Alex Morgan</span><span class="sn">Thanks Ben. Items 4–7 are done; 8 and 9 depend on your SSO configuration.</span><span class="dt">Fri 30 Oct</span></div>
+        <div class="sr"><span class="avs" style="--face:var(--q-av-fern-face);--avink:var(--q-av-fern-ink)">TH</span><span class="nm">Tom Hughes</span><span class="sn">Forwarded to IT, they will send the metadata today. Really appreciate the quick turnaround.</span><span class="dt">Yesterday 00:58</span></div>
+      </div>
+      <div class="sheet">
+        <div class="mh"><span class="avm" style="--face:var(--q-av-slate-face);--avink:var(--q-av-slate-ink)">BC</span>
+          <div class="who"><div class="nl">Ben Carter<span class="ad">ben@contoso.test</span></div><div class="rc">to me · cc Tom Hughes</div></div>
+          <div class="dt">Yesterday 23:39</div></div>
+        <div class="bd"><p>Hi Alex,</p><p>Tested with three accounts this afternoon, all good. SSO signs in cleanly on staging and Tom’s metadata matches production, so we’re green for the 14th.</p><p>The final checklist and the cut-over runbook are attached.</p><p>Ben</p></div>
+        <div class="ind" style="margin-top:12px"><span class="qt">{{PY: g('ss.elide', 14)}}Show quoted text</span></div>
+        <div class="ind atts" style="margin-top:16px">
+          <div class="ach"><span class="tl">{{PY: s('doc', 15)}}</span><div><div class="nm">go-live-checklist.pdf</div><div class="mt">PDF · 240 KB</div></div></div>
+          <div class="ach"><span class="tl">{{PY: s('doc.richtext', 15)}}</span><div><div class="nm">cutover-runbook.docx</div><div class="mt">Word · 88 KB</div></div></div>
+        </div>
+        <div class="ind ft" style="margin-top:16px"><span class="gb">{{PY: s('arrowshape.turn.up.left', 14)}}Reply</span><span class="gb">{{PY: s('arrowshape.turn.up.left.2', 14)}}Reply all</span><span class="gb">{{PY: s('arrowshape.turn.up.right', 14)}}Forward</span></div>
+      </div>
+    </div></div>
+    <div class="qr"><div class="qrf"><span class="mono24" style="--a:var(--q-acct-1)"><span>C</span></span><span class="ph">Reply to Ben Carter…</span><span class="kbd">R</span><span class="ib dis" style="margin-left:{{layout.quickReply.restKeycapGap}}px;color:var(--q-inkDisabled)">{{PY: s('paperplane', 15)}}</span></div></div>
+  </div>
+</div>
+<div class="notes">
+  <div><b><i>1</i>The horizon</b>List header and reader header are both {{layout.listHeader.height}} pt; their hairlines meet at one y. The masthead, the kicker and the traffic lights share the centre line y = {{layout.listHeader.mastheadCenterY}}.</div>
+  <div><b><i>2</i>The margin rule</b>Selection is the <code>selWash</code> plus a {{border.marginRule.width}} pt Iron Gall rule. Text never inverts, so cached row strings stay valid on j/k. Hover never draws on the selected row.</div>
+  <div><b><i>3</i>Accounts</b>A {{border.accountRing.width}} pt ring in the account ink (unified views), the kicker names the account in words, the rail carries domain monograms. Distinct colours are promised for six accounts.</div>
+  <div><b><i>4</i>Unread, three ways</b>The pip, Semibold sender and subject, and the time in Iron Gall Semibold. The queued glyph before 19:02 says the star is applied here and on its way.</div>
+</div>

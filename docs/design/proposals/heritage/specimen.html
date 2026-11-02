@@ -1,0 +1,1744 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Wingbar Specimen</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --wb-acct-1-ink: #2f8ef0; --wb-acct-1-glow: #2386e8;
+  --wb-acct-2-ink: #aa7319; --wb-acct-2-glow: #f8a340;
+  --wb-acct-3-ink: #821525; --wb-acct-3-glow: #df4e68;
+  --wb-acct-4-ink: #1c6555; --wb-acct-4-glow: #7de5c0;
+  --wb-acct-5-ink: #58199c; --wb-acct-5-glow: #d0bff9;
+  --wb-acct-6-ink: #717a86; --wb-acct-6-glow: #858f96;
+  --wb-acct-7-ink: #508848; --wb-acct-7-glow: #7ccb5c;
+  --wb-acct-8-ink: #705843; --wb-acct-8-glow: #efc7b7;
+  --wb-acct-9-ink: #02628d; --wb-acct-9-glow: #27b2df;
+  --wb-acct-10-ink: #944184; --wb-acct-10-glow: #e391b9;
+  --wb-font-ui: -apple-system, system-ui, sans-serif;
+  --wb-font-rounded: ui-rounded, -apple-system, system-ui, sans-serif;
+  --wb-font-serif: ui-serif, serif;
+  --wb-font-mono: ui-monospace, monospace;
+  --wb-type-display: 700 28px/34px var(--wb-font-ui); --wb-track-display: -0.6px;
+  --wb-type-title-1: 600 20px/25px var(--wb-font-ui); --wb-track-title-1: -0.2px;
+  --wb-type-title-2: 600 15px/20px var(--wb-font-ui); --wb-track-title-2: 0;
+  --wb-type-headline: 600 13px/17px var(--wb-font-ui); --wb-track-headline: 0;
+  --wb-type-body: 400 13px/18px var(--wb-font-ui); --wb-track-body: 0;
+  --wb-type-body-medium: 500 13px/18px var(--wb-font-ui); --wb-track-body-medium: 0;
+  --wb-type-reading: 400 14px/21px var(--wb-font-ui); --wb-track-reading: 0;
+  --wb-type-reading-serif: 400 15px/23px var(--wb-font-serif); --wb-track-reading-serif: 0;
+  --wb-type-callout: 400 12px/16px var(--wb-font-ui); --wb-track-callout: 0;
+  --wb-type-callout-medium: 500 12px/16px var(--wb-font-ui); --wb-track-callout-medium: 0;
+  --wb-type-caption: 400 11px/14px var(--wb-font-ui); --wb-track-caption: 0;
+  --wb-type-overline: 600 11px/14px var(--wb-font-ui); --wb-track-overline: 0.6px;
+  --wb-type-badge: 700 11px/14px var(--wb-font-rounded); --wb-track-badge: 0;
+  --wb-type-monogram: 600 15px/20px var(--wb-font-rounded); --wb-track-monogram: 0;
+  --wb-type-kbd: 500 11px/14px var(--wb-font-mono); --wb-track-kbd: 0;
+  --wb-type-mono: 400 12px/18px var(--wb-font-mono); --wb-track-mono: 0;
+  --wb-space-2: 2px;
+  --wb-space-4: 4px;
+  --wb-space-6: 6px;
+  --wb-space-8: 8px;
+  --wb-space-12: 12px;
+  --wb-space-16: 16px;
+  --wb-space-20: 20px;
+  --wb-space-24: 24px;
+  --wb-space-32: 32px;
+  --wb-space-48: 48px;
+  --wb-radius-xs: 3px;
+  --wb-radius-sm: 5px;
+  --wb-radius-md: 8px;
+  --wb-radius-lg: 10px;
+  --wb-radius-xl: 14px;
+  --wb-radius-pill: 999px;
+  --wb-dur-instant: 0ms;
+  --wb-dur-fast: 100ms;
+  --wb-ease-fast: cubic-bezier(0.2, 0, 0, 1);
+  --wb-dur-base: 160ms;
+  --wb-ease-base: cubic-bezier(0.2, 0, 0, 1);
+  --wb-dur-emphasized: 220ms;
+  --wb-ease-emphasized: cubic-bezier(0.05, 0.7, 0.1, 1);
+  --wb-dur-exit: 120ms;
+  --wb-ease-exit: cubic-bezier(0.3, 0, 0.8, 0.15);
+  --wb-bg-rail: #2b3036;
+  --wb-bg-list: #ffffff;
+  --wb-bg-reader: #f2f4f6;
+  --wb-bg-card: #ffffff;
+  --wb-bg-raised: #ffffff;
+  --wb-bg-field: #edf0f3;
+  --wb-bg-hover: #f4f6f8;
+  --wb-bg-pressed: #e9edf0;
+  --wb-bg-slate: #2b3036;
+  --wb-fill-subtle: #e9ecf0;
+  --wb-fill-strong: #d8dde3;
+  --wb-fill-selected: #1f69e0;
+  --wb-fill-selected-inactive: #e1e6ec;
+  --wb-fill-accent: #1f69e0;
+  --wb-fill-accent-hover: #1a5fcf;
+  --wb-fill-accent-pressed: #164fb0;
+  --wb-accent-subtle: #e5eefc;
+  --wb-text-primary: #16191d;
+  --wb-text-secondary: #4a525b;
+  --wb-text-tertiary: #5e666f;
+  --wb-text-disabled: #a5acb4;
+  --wb-text-accent: #1a63d6;
+  --wb-text-on-accent: #ffffff;
+  --wb-text-on-accent-2: rgba(255, 255, 255, 0.92);
+  --wb-text-on-slate: #f2f4f6;
+  --wb-text-on-slate-2: #a9b1ba;
+  --wb-text-accent-on-slate: #8dbbff;
+  --wb-text-success: #1b7a3a;
+  --wb-text-warning: #8a5300;
+  --wb-text-danger: #c0262e;
+  --wb-line-hairline: rgba(22, 25, 29, 0.1);
+  --wb-line-pane: #dce0e5;
+  --wb-line-control: #8c949e;
+  --wb-line-rail: rgba(255, 255, 255, 0.12);
+  --wb-focus-ring: #1f69e0;
+  --wb-focus-ring-on-slate: #8dbbff;
+  --wb-success: #2b8a4b;
+  --wb-warning: #b26f00;
+  --wb-danger: #c9282f;
+  --wb-success-subtle: #e3f3e8;
+  --wb-warning-subtle: #fff1d6;
+  --wb-danger-subtle: #fde7e8;
+  --wb-star: #c27c00;
+  --wb-star-on-selected: #ffd566;
+  --wb-unread: #1f69e0;
+  --wb-rail-well: rgba(255, 255, 255, 0.1);
+  --wb-rail-well-hover: rgba(255, 255, 255, 0.05);
+  --wb-rail-badge: #ffffff;
+  --wb-rail-badge-text: #2b3036;
+  --wb-line-selected-inactive: rgba(0, 0, 0, 0);
+  --wb-kbd-bg: #ffffff;
+  --wb-kbd-border: rgba(22, 25, 29, 0.18);
+  --wb-kbd-text: #4a525b;
+  --wb-shadow-1: 0 1px 2px rgba(16,22,30,0.06);
+  --wb-shadow-2: 0 4px 14px rgba(16,22,30,0.12), 0 1px 3px rgba(16,22,30,0.08);
+  --wb-shadow-3: 0 12px 32px rgba(16,22,30,0.22), 0 2px 8px rgba(16,22,30,0.12);
+  --wb-line-float: rgba(16,22,30,0.08);
+  --wb-line-rail-edge: rgba(255,255,255,0.06);
+  --wb-acct-1: #2f8ef0;
+  --wb-acct-2: #aa7319;
+  --wb-acct-3: #821525;
+  --wb-acct-4: #1c6555;
+  --wb-acct-5: #58199c;
+  --wb-acct-6: #717a86;
+  --wb-acct-7: #508848;
+  --wb-acct-8: #705843;
+  --wb-acct-9: #02628d;
+  --wb-acct-10: #944184;
+  --wb-av-1-bg: #e0ebfc; --wb-av-1-fg: #1d4f9e;
+  --wb-av-2-bg: #d8f0ec; --wb-av-2-fg: #0e5f57;
+  --wb-av-3-bg: #e1f1de; --wb-av-3-fg: #2b6526;
+  --wb-av-4-bg: #faedcf; --wb-av-4-fg: #774c00;
+  --wb-av-5-bg: #fce5d8; --wb-av-5-fg: #8f3e0e;
+  --wb-av-6-bg: #fbe1e4; --wb-av-6-fg: #9a2433;
+  --wb-av-7-bg: #ece3fa; --wb-av-7-fg: #5a3492;
+  --wb-av-8-bg: #e4e8ec; --wb-av-8-fg: #3e4650;
+}
+@media (prefers-color-scheme: dark) {
+:root:not([data-theme="light"]) {
+  --wb-bg-rail: #0f1114;
+  --wb-bg-list: #1a1d21;
+  --wb-bg-reader: #131518;
+  --wb-bg-card: #1f2226;
+  --wb-bg-raised: #272b30;
+  --wb-bg-field: #2a2e33;
+  --wb-bg-hover: #212428;
+  --wb-bg-pressed: #2a2e33;
+  --wb-bg-slate: #363c43;
+  --wb-fill-subtle: #2e3338;
+  --wb-fill-strong: #3a4047;
+  --wb-fill-selected: #2667d6;
+  --wb-fill-selected-inactive: #2e333a;
+  --wb-fill-accent: #2667d6;
+  --wb-fill-accent-hover: #2e70de;
+  --wb-fill-accent-pressed: #1f5bc4;
+  --wb-accent-subtle: #1e2d45;
+  --wb-text-primary: #eceef1;
+  --wb-text-secondary: #b0b7c0;
+  --wb-text-tertiary: #989fa9;
+  --wb-text-disabled: #596069;
+  --wb-text-accent: #6ca6ff;
+  --wb-text-on-accent: #ffffff;
+  --wb-text-on-accent-2: rgba(255, 255, 255, 0.94);
+  --wb-text-on-slate: #f2f4f6;
+  --wb-text-on-slate-2: #a9b1ba;
+  --wb-text-accent-on-slate: #9cc4ff;
+  --wb-text-success: #5ccb82;
+  --wb-text-warning: #f0b44c;
+  --wb-text-danger: #ff7b80;
+  --wb-line-hairline: rgba(255, 255, 255, 0.08);
+  --wb-line-pane: #08090b;
+  --wb-line-control: #79818b;
+  --wb-line-rail: rgba(255, 255, 255, 0.1);
+  --wb-focus-ring: #6ca6ff;
+  --wb-focus-ring-on-slate: #8dbbff;
+  --wb-success: #4cc277;
+  --wb-warning: #f0b44c;
+  --wb-danger: #d2343b;
+  --wb-success-subtle: #173022;
+  --wb-warning-subtle: #342812;
+  --wb-danger-subtle: #3b1c1f;
+  --wb-star: #ffc23d;
+  --wb-star-on-selected: #ffd566;
+  --wb-unread: #4f94ff;
+  --wb-rail-well: rgba(255, 255, 255, 0.08);
+  --wb-rail-well-hover: rgba(255, 255, 255, 0.045);
+  --wb-rail-badge: #ffffff;
+  --wb-rail-badge-text: #0f1114;
+  --wb-line-selected-inactive: rgba(0, 0, 0, 0);
+  --wb-kbd-bg: #2e3338;
+  --wb-kbd-border: rgba(255, 255, 255, 0.14);
+  --wb-kbd-text: #b0b7c0;
+  --wb-shadow-1: none;
+  --wb-shadow-2: 0 8px 24px rgba(0,0,0,0.50), 0 1px 3px rgba(0,0,0,0.40);
+  --wb-shadow-3: 0 16px 40px rgba(0,0,0,0.60), 0 2px 8px rgba(0,0,0,0.45);
+  --wb-line-float: rgba(255,255,255,0.10);
+  --wb-line-rail-edge: rgba(255,255,255,0.05);
+  --wb-acct-1: #2386e8;
+  --wb-acct-2: #f8a340;
+  --wb-acct-3: #df4e68;
+  --wb-acct-4: #7de5c0;
+  --wb-acct-5: #d0bff9;
+  --wb-acct-6: #858f96;
+  --wb-acct-7: #7ccb5c;
+  --wb-acct-8: #efc7b7;
+  --wb-acct-9: #27b2df;
+  --wb-acct-10: #e391b9;
+  --wb-av-1-bg: #1f3352; --wb-av-1-fg: #a8c9ff;
+  --wb-av-2-bg: #173b38; --wb-av-2-fg: #8fdcd1;
+  --wb-av-3-bg: #1f3920; --wb-av-3-fg: #a2d99b;
+  --wb-av-4-bg: #3b2f14; --wb-av-4-fg: #f0cb7c;
+  --wb-av-5-bg: #41271a; --wb-av-5-fg: #ffb68e;
+  --wb-av-6-bg: #422027; --wb-av-6-fg: #ffa9b3;
+  --wb-av-7-bg: #32264a; --wb-av-7-fg: #cdb4ff;
+  --wb-av-8-bg: #2e333a; --wb-av-8-fg: #c3cad3;
+}
+}
+@media (prefers-contrast: more) {
+:root {
+  --wb-bg-rail: #1c1f23;
+  --wb-bg-list: #ffffff;
+  --wb-bg-reader: #e8ebee;
+  --wb-bg-card: #ffffff;
+  --wb-bg-raised: #ffffff;
+  --wb-bg-field: #ffffff;
+  --wb-bg-hover: #ebeef1;
+  --wb-bg-pressed: #dde2e7;
+  --wb-bg-slate: #1c1f23;
+  --wb-fill-subtle: #dce1e6;
+  --wb-fill-strong: #c5ccd4;
+  --wb-fill-selected: #0f55c8;
+  --wb-fill-selected-inactive: #d3d9df;
+  --wb-fill-accent: #0f55c8;
+  --wb-fill-accent-hover: #0c4ab0;
+  --wb-fill-accent-pressed: #093e96;
+  --wb-accent-subtle: #d3e2fb;
+  --wb-text-primary: #000000;
+  --wb-text-secondary: #30363d;
+  --wb-text-tertiary: #454c54;
+  --wb-text-disabled: #7c848e;
+  --wb-text-accent: #0b4fbf;
+  --wb-text-on-accent: #ffffff;
+  --wb-text-on-accent-2: rgba(255, 255, 255, 1);
+  --wb-text-on-slate: #ffffff;
+  --wb-text-on-slate-2: #d0d5db;
+  --wb-text-accent-on-slate: #b5d2ff;
+  --wb-text-success: #0f5f2a;
+  --wb-text-warning: #6b4000;
+  --wb-text-danger: #9c1a21;
+  --wb-line-hairline: rgba(22, 25, 29, 0.38);
+  --wb-line-pane: #8c949e;
+  --wb-line-control: #555d67;
+  --wb-line-rail: rgba(255, 255, 255, 0.4);
+  --wb-focus-ring: #0b4fbf;
+  --wb-focus-ring-on-slate: #b5d2ff;
+  --wb-success: #1b6e37;
+  --wb-warning: #8a5300;
+  --wb-danger: #a81e25;
+  --wb-success-subtle: #d0ebd9;
+  --wb-warning-subtle: #fce4b3;
+  --wb-danger-subtle: #fad3d5;
+  --wb-star: #9a6200;
+  --wb-star-on-selected: #ffe08a;
+  --wb-unread: #0f55c8;
+  --wb-rail-well: rgba(255, 255, 255, 0.2);
+  --wb-rail-well-hover: rgba(255, 255, 255, 0.12);
+  --wb-rail-badge: #ffffff;
+  --wb-rail-badge-text: #000000;
+  --wb-line-selected-inactive: #555d67;
+  --wb-kbd-bg: #ffffff;
+  --wb-kbd-border: rgba(22, 25, 29, 0.6);
+  --wb-kbd-text: #30363d;
+  --wb-shadow-1: 0 1px 2px rgba(16,22,30,0.10);
+  --wb-shadow-2: 0 4px 14px rgba(16,22,30,0.16), 0 1px 3px rgba(16,22,30,0.12);
+  --wb-shadow-3: 0 12px 32px rgba(16,22,30,0.26), 0 2px 8px rgba(16,22,30,0.16);
+  --wb-line-float: rgba(16,22,30,0.55);
+  --wb-line-rail-edge: rgba(255,255,255,0.30);
+  --wb-acct-1: #2f8ef0;
+  --wb-acct-2: #aa7319;
+  --wb-acct-3: #821525;
+  --wb-acct-4: #1c6555;
+  --wb-acct-5: #58199c;
+  --wb-acct-6: #717a86;
+  --wb-acct-7: #508848;
+  --wb-acct-8: #705843;
+  --wb-acct-9: #02628d;
+  --wb-acct-10: #944184;
+  --wb-av-1-bg: #e0ebfc; --wb-av-1-fg: #1d4f9e;
+  --wb-av-2-bg: #d8f0ec; --wb-av-2-fg: #0e5f57;
+  --wb-av-3-bg: #e1f1de; --wb-av-3-fg: #2b6526;
+  --wb-av-4-bg: #faedcf; --wb-av-4-fg: #774c00;
+  --wb-av-5-bg: #fce5d8; --wb-av-5-fg: #8f3e0e;
+  --wb-av-6-bg: #fbe1e4; --wb-av-6-fg: #9a2433;
+  --wb-av-7-bg: #ece3fa; --wb-av-7-fg: #5a3492;
+  --wb-av-8-bg: #e4e8ec; --wb-av-8-fg: #3e4650;
+}
+}
+@media (prefers-color-scheme: dark) and (prefers-contrast: more) {
+:root:not([data-theme="light"]) {
+  --wb-bg-rail: #000000;
+  --wb-bg-list: #0e1012;
+  --wb-bg-reader: #000000;
+  --wb-bg-card: #16181b;
+  --wb-bg-raised: #1c1f23;
+  --wb-bg-field: #000000;
+  --wb-bg-hover: #22262b;
+  --wb-bg-pressed: #30353b;
+  --wb-bg-slate: #3a4048;
+  --wb-fill-subtle: #3a4047;
+  --wb-fill-strong: #4a515a;
+  --wb-fill-selected: #2463d6;
+  --wb-fill-selected-inactive: #3a414a;
+  --wb-fill-accent: #2463d6;
+  --wb-fill-accent-hover: #2a69db;
+  --wb-fill-accent-pressed: #1c55be;
+  --wb-accent-subtle: #17284a;
+  --wb-text-primary: #ffffff;
+  --wb-text-secondary: #d5dae0;
+  --wb-text-tertiary: #bac1c9;
+  --wb-text-disabled: #7c848e;
+  --wb-text-accent: #a3c7ff;
+  --wb-text-on-accent: #ffffff;
+  --wb-text-on-accent-2: rgba(255, 255, 255, 1);
+  --wb-text-on-slate: #ffffff;
+  --wb-text-on-slate-2: #c3cad2;
+  --wb-text-accent-on-slate: #b5d2ff;
+  --wb-text-success: #8be3a8;
+  --wb-text-warning: #ffd07a;
+  --wb-text-danger: #ffa4a8;
+  --wb-line-hairline: rgba(255, 255, 255, 0.4);
+  --wb-line-pane: #6e7681;
+  --wb-line-control: #b6bdc5;
+  --wb-line-rail: rgba(255, 255, 255, 0.45);
+  --wb-focus-ring: #a3c7ff;
+  --wb-focus-ring-on-slate: #b5d2ff;
+  --wb-success: #7fdda0;
+  --wb-warning: #ffd07a;
+  --wb-danger: #c8333a;
+  --wb-success-subtle: #123222;
+  --wb-warning-subtle: #3a2a0b;
+  --wb-danger-subtle: #43161a;
+  --wb-star: #ffd36e;
+  --wb-star-on-selected: #ffe08a;
+  --wb-unread: #80b2ff;
+  --wb-rail-well: rgba(255, 255, 255, 0.22);
+  --wb-rail-well-hover: rgba(255, 255, 255, 0.14);
+  --wb-rail-badge: #ffffff;
+  --wb-rail-badge-text: #000000;
+  --wb-line-selected-inactive: #b6bdc5;
+  --wb-kbd-bg: #000000;
+  --wb-kbd-border: rgba(255, 255, 255, 0.6);
+  --wb-kbd-text: #d5dae0;
+  --wb-shadow-1: none;
+  --wb-shadow-2: 0 8px 24px rgba(0,0,0,0.60), 0 1px 3px rgba(0,0,0,0.50);
+  --wb-shadow-3: 0 16px 40px rgba(0,0,0,0.70), 0 2px 8px rgba(0,0,0,0.55);
+  --wb-line-float: rgba(255,255,255,0.55);
+  --wb-line-rail-edge: rgba(255,255,255,0.35);
+  --wb-acct-1: #2386e8;
+  --wb-acct-2: #f8a340;
+  --wb-acct-3: #df4e68;
+  --wb-acct-4: #7de5c0;
+  --wb-acct-5: #d0bff9;
+  --wb-acct-6: #858f96;
+  --wb-acct-7: #7ccb5c;
+  --wb-acct-8: #efc7b7;
+  --wb-acct-9: #27b2df;
+  --wb-acct-10: #e391b9;
+  --wb-av-1-bg: #1f3352; --wb-av-1-fg: #a8c9ff;
+  --wb-av-2-bg: #173b38; --wb-av-2-fg: #8fdcd1;
+  --wb-av-3-bg: #1f3920; --wb-av-3-fg: #a2d99b;
+  --wb-av-4-bg: #3b2f14; --wb-av-4-fg: #f0cb7c;
+  --wb-av-5-bg: #41271a; --wb-av-5-fg: #ffb68e;
+  --wb-av-6-bg: #422027; --wb-av-6-fg: #ffa9b3;
+  --wb-av-7-bg: #32264a; --wb-av-7-fg: #cdb4ff;
+  --wb-av-8-bg: #2e333a; --wb-av-8-fg: #c3cad3;
+}
+}
+
+/* ---------- page scaffolding (not part of the language) ---------- */
+:root { --pg-bg: #E6E9ED; --pg-card: #FFFFFF; --pg-line: rgba(16,22,30,0.08); --pg-ink: #16191D; --pg-mute: #5E666F; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --pg-bg: #0A0B0D; --pg-card: #141619; --pg-line: rgba(255,255,255,0.07); --pg-ink: #ECEEF1; --pg-mute: #989FA9; } }
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--pg-bg); }
+body { background: var(--pg-bg); color: var(--wb-text-primary); font: var(--wb-type-body); -webkit-font-smoothing: antialiased; font-kerning: normal; }
+button { font: inherit; color: inherit; border: 0; background: none; padding: 0; margin: 0; cursor: default; }
+h1, h2, h3, h4, p { margin: 0; }
+.page { width: 1440px; padding: 64px 80px 96px; }
+.ic { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; display: block; }
+.ic.s11 { width: 11px; height: 11px; stroke-width: 1.7; }
+.ic.s12 { width: 12px; height: 12px; stroke-width: 1.6; }
+.ic.s13 { width: 13px; height: 13px; stroke-width: 1.5; }
+.ic.s14 { width: 14px; height: 14px; stroke-width: 1.45; }
+.ic.s20 { width: 20px; height: 20px; stroke-width: 1.3; }
+.mono { font-family: var(--wb-font-mono); }
+.tnum { font-variant-numeric: tabular-nums; }
+
+/* masthead */
+.mast { display: grid; grid-template-columns: 1fr 520px; gap: 48px; align-items: end; margin-bottom: 56px; }
+.mast .ov { font: var(--wb-type-overline); letter-spacing: 0.6px; text-transform: uppercase; color: var(--wb-text-accent); display: flex; gap: 10px; align-items: center; }
+.mast h1 { font: 700 56px/60px var(--wb-font-ui); letter-spacing: -1.6px; margin: 14px 0 14px; color: var(--pg-ink); display: flex; align-items: center; gap: 18px; }
+.mast h1 .tile { width: 60px; height: 60px; border-radius: 15px; background: linear-gradient(180deg, #3A4048, #22262B); display: grid; place-items: center; color: #F2F4F6; box-shadow: inset 0 0.5px 0 rgba(255,255,255,0.18), 0 6px 16px rgba(16,22,30,0.18); }
+.mast .lede { font: 400 17px/25px var(--wb-font-ui); color: var(--wb-text-secondary); max-width: 640px; }
+.principles { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.principles div { background: var(--pg-card); border-radius: 12px; padding: 14px 16px; box-shadow: 0 0 0 0.5px var(--pg-line); }
+.principles b { display: block; font: 600 13px/17px var(--wb-font-ui); margin-bottom: 3px; }
+.principles span { font: var(--wb-type-callout); color: var(--wb-text-secondary); }
+.blk { margin-top: 72px; }
+.sec-h { display: flex; align-items: baseline; gap: 14px; margin-bottom: 20px; }
+.sec-h .n { font: 700 11px/14px var(--wb-font-rounded); width: 22px; height: 22px; border-radius: 6px; display: inline-grid; place-items: center; background: var(--pg-ink); color: var(--pg-bg); transform: translateY(-3px); }
+.sec-h h2 { font: 700 24px/30px var(--wb-font-ui); letter-spacing: -0.4px; color: var(--pg-ink); }
+.sec-h p { font: var(--wb-type-callout); color: var(--pg-mute); }
+
+/* ---------- window chrome ---------- */
+.win { position: relative; border-radius: 12px; overflow: hidden; display: flex; background: var(--wb-bg-list); box-shadow: 0 0 0 0.5px rgba(16,22,30,0.30), 0 28px 70px rgba(16,22,30,0.26), 0 8px 20px rgba(16,22,30,0.10); }
+@media (prefers-color-scheme: dark) { .win { box-shadow: 0 0 0 1px rgba(255,255,255,0.13), 0 0 0 1.5px rgba(0,0,0,0.8), 0 28px 70px rgba(0,0,0,0.6); } }
+.tl { position: absolute; display: flex; gap: 8px; z-index: 5; }
+.tl i { width: 12px; height: 12px; border-radius: 50%; box-shadow: inset 0 0 0 0.5px rgba(0,0,0,0.20); }
+.tl i:nth-child(1) { background: #FF5F57; } .tl i:nth-child(2) { background: #FEBC2E; } .tl i:nth-child(3) { background: #28C840; }
+.tl.off i { background: #D5D9DE !important; }
+@media (prefers-color-scheme: dark) { .tl.off i { background: #4A5058 !important; } }
+
+/* ---------- rail ---------- */
+.rail { flex: none; width: 72px; position: relative; background: var(--wb-bg-rail); box-shadow: inset -1px 0 0 var(--wb-line-rail-edge); color: var(--wb-text-on-slate); }
+.rail .tl { top: 20px; left: 10px; }
+.ri { position: absolute; left: 12px; width: 48px; height: 48px; border-radius: 13px; display: grid; place-items: center; --ring: var(--wb-bg-rail); }
+.ri.sel { background: var(--wb-rail-well); --ring: color-mix(in srgb, #FFFFFF 10%, var(--wb-bg-rail)); }
+.ri.hov { background: var(--wb-rail-well-hover); --ring: color-mix(in srgb, #FFFFFF 5%, var(--wb-bg-rail)); }
+.ri.prs { background: var(--wb-rail-well); --ring: color-mix(in srgb, #FFFFFF 10%, var(--wb-bg-rail)); }
+.ri.prs .rav { transform: scale(0.94); }
+.ri.sel::before { content: ""; position: absolute; left: -12px; top: 14px; width: 3px; height: 20px; border-radius: 0 2px 2px 0; background: var(--wb-text-on-slate); }
+.ri.foc { box-shadow: 0 0 0 2px var(--wb-focus-ring-on-slate); }
+.rav { width: 36px; height: 36px; border-radius: 11px; background: var(--a); color: #0F1114; font: 600 16px/36px var(--wb-font-rounded); text-align: center; box-shadow: inset 0 0 0 0.5px rgba(0,0,0,0.12); }
+.rav.dim { filter: saturate(0.35) brightness(0.8); }
+.rb { position: absolute; top: -1px; right: -4px; min-width: 18px; height: 16px; padding: 0 5px; border-radius: 8px; background: var(--wb-rail-badge); color: var(--wb-rail-badge-text); font: 700 11px/16px var(--wb-font-rounded); text-align: center; box-shadow: 0 0 0 2px var(--ring); font-variant-numeric: tabular-nums; }
+.rb.warn { background: var(--wb-warning); color: #1C1F23; min-width: 16px; padding: 0; width: 16px; }
+@media (prefers-color-scheme: dark) { .rb.warn { color: #0F1114; } }
+.rspin { position: absolute; inset: 4px; border-radius: 15px; }
+.rsep { position: absolute; left: 26px; width: 20px; height: 1px; background: var(--wb-line-rail); }
+.rutil { position: absolute; left: 20px; width: 32px; height: 28px; border-radius: 7px; display: grid; place-items: center; color: var(--wb-text-on-slate-2); }
+.gl { width: 20px; height: 20px; color: var(--wb-text-on-slate); display: block; }
+
+/* ---------- list ---------- */
+.list { flex: none; width: 372px; position: relative; background: var(--wb-bg-list); display: flex; flex-direction: column; }
+.lh { height: 88px; flex: none; position: relative; border-bottom: 0.5px solid var(--wb-line-hairline); background: var(--wb-bg-list); }
+.tmenu { position: absolute; left: 10px; top: 13px; height: 26px; padding: 0 6px; display: flex; align-items: center; gap: 5px; border-radius: 5px; font: var(--wb-type-title-2); color: var(--wb-text-primary); }
+.tmenu .ic { color: var(--wb-text-secondary); }
+.tmenu.hov { background: var(--wb-bg-hover); } .tmenu.open { background: var(--wb-bg-pressed); }
+.lh .seg { position: absolute; right: 46px; top: 14px; }
+.lh .compose { position: absolute; right: 10px; top: 12px; }
+.search { position: absolute; left: 16px; right: 16px; top: 54px; height: 28px; border-radius: 14px; background: var(--wb-bg-field); display: flex; align-items: center; padding: 0 6px 0 10px; gap: 6px; color: var(--wb-text-tertiary); font: var(--wb-type-body); }
+.search .q { flex: 1; color: var(--wb-text-tertiary); white-space: nowrap; overflow: hidden; }
+.search .q.filled { color: var(--wb-text-primary); }
+.search.foc { background: var(--wb-bg-raised); box-shadow: 0 0 0 2px var(--wb-focus-ring); }
+.search .clr { width: 16px; height: 16px; border-radius: 50%; background: var(--wb-text-tertiary); color: var(--wb-bg-list); display: grid; place-items: center; }
+.search .cnt2 { font: var(--wb-type-caption); color: var(--wb-text-tertiary); }
+.rows { flex: 1; overflow: hidden; position: relative; }
+.dv { height: 24px; padding: 8px 0 0 68px; font: var(--wb-type-overline); letter-spacing: 0.6px; text-transform: uppercase; color: var(--wb-text-tertiary); position: relative; background: var(--wb-bg-list); }
+.row { height: 68px; position: relative; background: var(--wb-bg-list); color: var(--wb-text-primary); --a: transparent; }
+.row::after { content: ""; position: absolute; left: 68px; right: 0; bottom: 0; height: 0.5px; background: var(--wb-line-hairline); }
+.row.nosep::after, .row.sel::after, .row.seli::after { display: none; }
+.row.hov { background: var(--wb-bg-hover); }
+.row.sel { background: var(--wb-fill-selected); color: var(--wb-text-on-accent); }
+.row.seli { background: var(--wb-fill-selected-inactive); box-shadow: inset 0 0 0 2px var(--wb-line-selected-inactive); }
+.row.kf { box-shadow: inset 0 0 0 2px var(--wb-focus-ring); }
+.wbar { position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--a); }
+.row.sel .wbar { box-shadow: 1px 0 0 rgba(255,255,255,0.92); }
+.dot { position: absolute; left: 7px; top: 14px; width: 8px; height: 8px; border-radius: 50%; background: var(--wb-unread); }
+.row.sel .dot { background: #FFFFFF; }
+.av { width: 36px; height: 36px; border-radius: 11px; background: var(--bg); color: var(--fg); font: 600 14px/36px var(--wb-font-rounded); text-align: center; flex: none; box-shadow: inset 0 0 0 0.5px rgba(16,22,30,0.06); letter-spacing: 0.2px; }
+@media (prefers-color-scheme: dark) { .av { box-shadow: inset 0 0 0 0.5px rgba(255,255,255,0.06); } }
+.row > .av { position: absolute; left: 20px; top: 16px; }
+.l1, .l2, .l3 { position: absolute; left: 68px; right: 14px; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.l1 { top: 10px; height: 16px; line-height: 16px; }
+.l2 { top: 28px; height: 16px; line-height: 16px; }
+.l3 { top: 45px; height: 15px; display: block; font: var(--wb-type-callout); line-height: 15px; color: var(--wb-text-secondary); overflow: hidden; text-overflow: ellipsis; }
+.snd { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.snd em { font-style: normal; color: var(--wb-text-secondary); }
+.row.unread .snd { font-weight: 600; }
+.tm { flex: none; font: 500 11px/16px var(--wb-font-ui); color: var(--wb-text-tertiary); font-variant-numeric: tabular-nums; }
+.row.unread .tm { color: var(--wb-text-accent); font-weight: 600; }
+.sub { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.row.unread .sub { font-weight: 500; }
+.cl { display: flex; align-items: center; gap: 5px; flex: none; color: var(--wb-text-tertiary); }
+.cnt { height: 16px; min-width: 20px; padding: 0 5px; border-radius: 8px; background: var(--wb-fill-subtle); color: var(--wb-text-secondary); font: 700 11px/16px var(--wb-font-rounded); text-align: center; font-variant-numeric: tabular-nums; }
+.star { color: var(--wb-star); }
+.tag { height: 16px; padding: 0 5px; border-radius: 4px; box-shadow: inset 0 0 0 1px var(--wb-line-hairline); font: 500 11px/16px var(--wb-font-ui); color: var(--wb-text-tertiary); }
+.pend { color: var(--wb-text-tertiary); }
+.row.sel .l3, .row.sel .tm, .row.sel .snd em { color: var(--wb-text-on-accent-2); }
+.row.sel .cl, .row.sel .pend { color: rgba(255,255,255,0.92); }
+.row.sel .cnt { background: rgba(255,255,255,0.22); color: #FFFFFF; }
+.row.sel .star { color: var(--wb-star-on-selected); }
+.row.sel .tag { box-shadow: inset 0 0 0 1px rgba(255,255,255,0.55); color: #FFFFFF; }
+.row.compact { height: 52px; }
+.row.compact > .av { width: 28px; height: 28px; border-radius: 8px; font-size: 11px; line-height: 28px; top: 12px; left: 22px; }
+.row.compact .l1 { top: 9px; left: 62px; } .row.compact .l2 { top: 27px; left: 62px; } .row.compact .dot { top: 13px; }
+.row.compact::after { left: 62px; }
+.row.skel .sk { position: absolute; border-radius: 4px; background: var(--wb-fill-subtle); }
+.sync { height: 24px; flex: none; border-top: 0.5px solid var(--wb-line-hairline); display: flex; align-items: center; gap: 6px; padding: 0 12px 0 16px; font: var(--wb-type-caption); color: var(--wb-text-tertiary); background: var(--wb-bg-list); white-space: nowrap; }
+.sync .sp { flex: 1; }
+.sync .lnk { color: var(--wb-text-accent); font-weight: 600; }
+.sync.warn .ic { color: var(--wb-warning); } .sync.err .ic { color: var(--wb-danger); } .sync.err, .sync.warn { color: var(--wb-text-secondary); }
+.sync .bar { width: 64px; }
+
+/* ---------- reader ---------- */
+.reader { flex: 1; min-width: 0; position: relative; background: var(--wb-bg-reader); box-shadow: inset 1px 0 0 var(--wb-line-pane); display: flex; flex-direction: column; }
+.rh { height: 88px; flex: none; background: var(--wb-bg-list); border-bottom: 0.5px solid var(--wb-line-hairline); position: relative; margin-left: 1px; }
+.subj { position: absolute; left: 24px; right: 170px; top: 13px; font: var(--wb-type-title-1); letter-spacing: -0.2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--wb-text-primary); }
+.acts { position: absolute; right: 14px; top: 12px; display: flex; gap: 2px; align-items: center; }
+.acts .vr { width: 1px; height: 16px; background: var(--wb-line-hairline); margin: 0 4px; }
+.rh2 { position: absolute; left: 24px; right: 24px; top: 58px; display: flex; gap: 10px; align-items: center; }
+.achip { height: 20px; padding: 0 7px 0 5px; border-radius: 5px; background: var(--wb-fill-subtle); display: inline-flex; align-items: center; gap: 6px; font: 500 11px/14px var(--wb-font-ui); color: var(--wb-text-secondary); white-space: nowrap; }
+.achip i { width: 10px; height: 10px; border-radius: 3px; background: var(--a); }
+.meta { font: var(--wb-type-caption); color: var(--wb-text-tertiary); white-space: nowrap; }
+.canvas { flex: 1; overflow: hidden; padding: 16px 24px 0; margin-left: 1px; }
+.col { max-width: 760px; margin: 0 auto; }
+.deck, .mx { background: var(--wb-bg-card); border-radius: 10px; box-shadow: 0 0 0 0.5px var(--wb-line-hairline), var(--wb-shadow-1); }
+.deck { overflow: hidden; }
+.mc { height: 48px; display: flex; align-items: center; gap: 10px; padding: 0 16px 0 14px; position: relative; color: var(--wb-text-primary); }
+.mc + .mc { box-shadow: inset 0 0.5px 0 var(--wb-line-hairline); }
+.mc .av, .av.a28 { width: 28px; height: 28px; border-radius: 8px; font-size: 11px; line-height: 28px; }
+.mc .nm { font: 500 13px/16px var(--wb-font-ui); width: 128px; flex: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mc .sn { flex: 1; min-width: 0; color: var(--wb-text-secondary); font: var(--wb-type-body); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mc .dt, .mx .dt { font: 500 11px/14px var(--wb-font-ui); color: var(--wb-text-tertiary); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.mc.unread .nm { font-weight: 600; }
+.mc.unread .nm::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--wb-unread); margin-right: 6px; vertical-align: 1px; }
+.mc.hov { background: var(--wb-bg-hover); }
+.mc.foc, .mx.foc { box-shadow: 0 0 0 2px var(--wb-focus-ring); border-radius: 10px; z-index: 1; }
+.mx { margin-top: 12px; padding: 16px 20px 12px; }
+.mh { display: flex; gap: 12px; align-items: flex-start; }
+.mh .who { flex: 1; min-width: 0; padding-top: 1px; }
+.mh .nm2 { font: var(--wb-type-headline); white-space: nowrap; }
+.mh .nm2 .addr { font-weight: 400; color: var(--wb-text-tertiary); margin-left: 4px; }
+.mh .rcp { font: var(--wb-type-callout); color: var(--wb-text-secondary); margin-top: 2px; }
+.mh .side { display: flex; align-items: center; gap: 4px; margin-top: -2px; }
+.banner { margin-top: 14px; min-height: 36px; border-radius: 8px; background: var(--wb-bg-field); display: flex; align-items: center; gap: 8px; padding: 4px 4px 4px 10px; font: var(--wb-type-callout); color: var(--wb-text-secondary); }
+.banner .t { flex: 1; }
+.banner .ic { color: var(--wb-text-secondary); }
+.tools { margin-top: 12px; display: flex; gap: 6px; flex-wrap: wrap; }
+.pill { height: 22px; padding: 0 8px 0 7px; border-radius: 5px; background: var(--wb-fill-subtle); font: 500 12px/16px var(--wb-font-ui); color: var(--wb-text-secondary); display: inline-flex; gap: 5px; align-items: center; white-space: nowrap; }
+.pill.hov { background: var(--wb-fill-strong); color: var(--wb-text-primary); }
+.pill.on { background: var(--wb-accent-subtle); color: var(--wb-text-accent); }
+.pill.foc { box-shadow: 0 0 0 1px var(--wb-bg-card), 0 0 0 3px var(--wb-focus-ring); }
+.only-dark { display: none !important; }
+@media (prefers-color-scheme: dark) { .only-dark { display: inline-flex !important; } }
+.body { margin-top: 14px; font: var(--wb-type-reading); color: var(--wb-text-primary); }
+.body p { margin: 0 0 10px; }
+.body ol { margin: 0 0 10px; padding-left: 22px; } .body li { margin: 0 0 2px; }
+.quote { margin: 10px 0 0; padding: 2px 0 2px 12px; box-shadow: inset 2px 0 0 var(--wb-fill-strong); color: var(--wb-text-secondary); font: var(--wb-type-callout); line-height: 18px; }
+.atts { margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap; }
+.chip { height: 40px; padding: 0 12px 0 6px; border-radius: 8px; background: var(--wb-bg-field); display: inline-flex; align-items: center; gap: 8px; color: var(--wb-text-primary); position: relative; max-width: 260px; }
+.chip .ti { width: 28px; height: 28px; border-radius: 6px; background: var(--wb-bg-card); display: grid; place-items: center; color: var(--wb-text-secondary); flex: none; box-shadow: 0 0 0 0.5px var(--wb-line-hairline); }
+.chip .ti.pdf { color: var(--wb-text-danger); } .chip .ti.img { color: var(--wb-text-accent); } .chip .ti.xml { color: var(--wb-text-success); }
+.chip .nm { font: 500 12px/15px var(--wb-font-ui); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+.chip .sz { font: var(--wb-type-caption); color: var(--wb-text-tertiary); display: block; white-space: nowrap; }
+.chip .tx { min-width: 0; }
+.chip.hov { background: var(--wb-fill-subtle); box-shadow: inset 0 0 0 0.5px var(--wb-line-hairline); }
+.chip.prs { background: var(--wb-fill-strong); }
+.chip.foc { box-shadow: 0 0 0 2px var(--wb-focus-ring); }
+.chip.err .sz { color: var(--wb-text-danger); }
+.chip .x { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; color: var(--wb-text-tertiary); margin-right: -4px; }
+.chip .pb { position: absolute; left: 42px; right: 12px; bottom: 6px; }
+.mfoot { margin-top: 16px; padding-top: 8px; box-shadow: inset 0 0.5px 0 var(--wb-line-hairline); display: flex; gap: 2px; margin-left: -8px; }
+.qr { height: 52px; flex: none; background: var(--wb-bg-list); border-top: 0.5px solid var(--wb-line-hairline); padding: 8px 24px; margin-left: 1px; }
+.qrf { max-width: 760px; margin: 0 auto; min-height: 36px; border-radius: 8px; background: var(--wb-bg-field); display: flex; align-items: center; padding: 0 8px 0 12px; gap: 8px; color: var(--wb-text-tertiary); font: var(--wb-type-reading); }
+.qrf .ph { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.qrf.foc { background: var(--wb-bg-raised); box-shadow: 0 0 0 2px var(--wb-focus-ring); }
+.qrf.big { align-items: flex-start; flex-direction: column; padding: 10px 10px 8px 12px; gap: 10px; }
+.qrf.big .txt { color: var(--wb-text-primary); }
+.qrf .bar2 { display: flex; align-items: center; gap: 6px; width: 100%; }
+
+/* ---------- controls ---------- */
+.btn { height: 28px; padding: 0 12px; border-radius: 5px; font: 500 13px/16px var(--wb-font-ui); display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; flex: none; }
+.btn.sm { height: 22px; padding: 0 8px; font-size: 12px; gap: 5px; }
+.btn.lg { height: 32px; padding: 0 16px; border-radius: 8px; }
+.btn.pri { background: var(--wb-fill-accent); color: var(--wb-text-on-accent); }
+.btn.pri.hov { background: var(--wb-fill-accent-hover); } .btn.pri.prs { background: var(--wb-fill-accent-pressed); }
+.btn.sec { background: var(--wb-fill-subtle); color: var(--wb-text-primary); }
+.btn.sec.hov { background: var(--wb-fill-strong); } .btn.sec.prs { background: color-mix(in srgb, var(--wb-fill-strong) 70%, var(--wb-text-tertiary)); }
+.btn.gho { color: var(--wb-text-accent); padding: 0 8px; }
+.btn.gho.hov { background: var(--wb-bg-hover); } .btn.gho.prs { background: var(--wb-bg-pressed); }
+.btn.neu { color: var(--wb-text-secondary); padding: 0 8px; }
+.btn.des { background: var(--wb-danger); color: #FFFFFF; }
+.btn.des.hov { background: color-mix(in srgb, var(--wb-danger) 88%, #000); } .btn.des.prs { background: color-mix(in srgb, var(--wb-danger) 76%, #000); }
+.btn.desg { color: var(--wb-text-danger); padding: 0 8px; }
+.btn.desg.hov { background: var(--wb-danger-subtle); }
+.btn.foc { box-shadow: 0 0 0 1px var(--wb-bg-card), 0 0 0 3px var(--wb-focus-ring); }
+.btn.dis { background: var(--wb-fill-subtle); color: var(--wb-text-disabled); }
+.btn.gho.dis, .btn.desg.dis { background: none; }
+.btn .k { margin-left: 2px; }
+.ib { width: 28px; height: 28px; border-radius: 6px; display: grid; place-items: center; color: var(--wb-text-secondary); flex: none; }
+.ib.sm { width: 24px; height: 24px; border-radius: 5px; }
+.ib.hov { background: var(--wb-bg-hover); color: var(--wb-text-primary); }
+.ib.prs { background: var(--wb-bg-pressed); color: var(--wb-text-primary); }
+.ib.foc { box-shadow: 0 0 0 2px var(--wb-focus-ring); }
+.ib.on { color: var(--wb-star); }
+.ib.dis { color: var(--wb-text-disabled); }
+.seg { height: 24px; padding: 2px; background: var(--wb-fill-subtle); border-radius: 6px; display: inline-flex; gap: 0; }
+.seg span { height: 20px; padding: 0 9px; font: 500 12px/20px var(--wb-font-ui); color: var(--wb-text-secondary); border-radius: 4px; white-space: nowrap; position: relative; }
+.seg span.on { background: var(--wb-bg-raised); color: var(--wb-text-primary); box-shadow: 0 0 0 0.5px var(--wb-line-float), 0 1px 2px rgba(16,22,30,0.10); font-weight: 600; }
+@media (prefers-color-scheme: dark) { .seg span.on { background: #474D55; box-shadow: none; } }
+.seg span.hov { color: var(--wb-text-primary); }
+.seg span.foc { box-shadow: 0 0 0 2px var(--wb-focus-ring); }
+.seg.dis span { color: var(--wb-text-disabled); }
+.seg span + span:not(.on)::before { content: ""; position: absolute; left: 0; top: 5px; height: 10px; width: 1px; background: var(--wb-line-hairline); }
+.seg span.on + span::before { display: none; }
+kbd, .kbd { display: inline-flex; align-items: center; justify-content: center; height: 18px; min-width: 18px; padding: 0 4px; border-radius: 3px; background: var(--wb-kbd-bg); box-shadow: inset 0 0 0 0.5px var(--wb-kbd-border), inset 0 -1px 0 var(--wb-kbd-border); font: 500 11px/14px var(--wb-font-mono); color: var(--wb-kbd-text); white-space: nowrap; flex: none; }
+.kbd.on-acc { background: rgba(255,255,255,0.18); box-shadow: none; color: #FFFFFF; }
+.kbd.on-slate { background: rgba(255,255,255,0.10); box-shadow: inset 0 0 0 0.5px rgba(255,255,255,0.20); color: var(--wb-text-on-slate-2); }
+.then { font: var(--wb-type-caption); color: var(--wb-text-tertiary); margin: 0 4px; }
+.fld { height: 28px; border-radius: 5px; background: var(--wb-bg-field); display: flex; align-items: center; padding: 0 8px; font: var(--wb-type-body); color: var(--wb-text-tertiary); width: 100%; }
+.fld.filled { color: var(--wb-text-primary); }
+.fld.foc { background: var(--wb-bg-raised); box-shadow: 0 0 0 2px var(--wb-focus-ring); color: var(--wb-text-primary); }
+.fld.err { background: var(--wb-bg-raised); box-shadow: 0 0 0 1.5px var(--wb-danger); color: var(--wb-text-primary); }
+.fld.dis { color: var(--wb-text-disabled); opacity: 0.7; }
+.caret { display: inline-block; width: 1.5px; height: 16px; background: var(--wb-text-accent); vertical-align: middle; margin-left: 1px; }
+.help { font: var(--wb-type-caption); color: var(--wb-text-tertiary); margin-top: 5px; display: flex; gap: 5px; align-items: center; }
+.help.err { color: var(--wb-text-danger); }
+.cb { width: 14px; height: 14px; border-radius: 4px; background: var(--wb-bg-list); box-shadow: inset 0 0 0 1px var(--wb-line-control); display: grid; place-items: center; color: #FFFFFF; flex: none; }
+.cb.on { background: var(--wb-fill-accent); box-shadow: none; }
+.cb.foc { box-shadow: inset 0 0 0 1px var(--wb-line-control), 0 0 0 1px var(--wb-bg-card), 0 0 0 3px var(--wb-focus-ring); }
+.cb.on.foc { box-shadow: 0 0 0 1px var(--wb-bg-card), 0 0 0 3px var(--wb-focus-ring); }
+.cb.dis { opacity: 0.4; }
+.tg { width: 30px; height: 18px; border-radius: 9px; background: var(--wb-fill-strong); box-shadow: inset 0 0 0 1px var(--wb-line-control); position: relative; flex: none; }
+.tg::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #FFFFFF; box-shadow: 0 1px 2px rgba(0,0,0,0.25), 0 0 0 0.5px rgba(0,0,0,0.06); }
+.tg.on { background: var(--wb-fill-accent); box-shadow: none; } .tg.on::after { left: 14px; }
+.tg.foc { box-shadow: inset 0 0 0 1px var(--wb-line-control), 0 0 0 1px var(--wb-bg-card), 0 0 0 3px var(--wb-focus-ring); }
+.tg.on.foc { box-shadow: 0 0 0 1px var(--wb-bg-card), 0 0 0 3px var(--wb-focus-ring); }
+.tg.dis { opacity: 0.4; }
+.pop { height: 24px; border-radius: 5px; background: var(--wb-fill-subtle); padding: 0 6px 0 9px; display: inline-flex; align-items: center; gap: 8px; font: var(--wb-type-body); color: var(--wb-text-primary); white-space: nowrap; }
+.pop .ic { color: var(--wb-text-secondary); }
+.pop.hov { background: var(--wb-fill-strong); }
+.pop.foc { box-shadow: 0 0 0 1px var(--wb-bg-card), 0 0 0 3px var(--wb-focus-ring); }
+.pop.dis { color: var(--wb-text-disabled); } .pop.dis .ic { color: var(--wb-text-disabled); }
+.badge { height: 16px; min-width: 18px; padding: 0 5px; border-radius: 8px; font: 700 11px/16px var(--wb-font-rounded); text-align: center; display: inline-block; font-variant-numeric: tabular-nums; }
+.badge.neu { background: var(--wb-fill-subtle); color: var(--wb-text-secondary); }
+.badge.acc { background: var(--wb-fill-accent); color: #FFFFFF; }
+.udot { width: 8px; height: 8px; border-radius: 50%; background: var(--wb-unread); display: inline-block; }
+.tok { height: 20px; padding: 0 7px; border-radius: 5px; background: var(--wb-accent-subtle); color: var(--wb-text-accent); font: 500 12px/20px var(--wb-font-ui); display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; flex: none; }
+.tok.hov { background: color-mix(in srgb, var(--wb-accent-subtle) 80%, var(--wb-text-accent)); }
+.tok.sel { background: var(--wb-fill-accent); color: #FFFFFF; }
+.tok.bad { background: var(--wb-danger-subtle); color: var(--wb-text-danger); padding-left: 5px; }
+.tok.bad u { text-decoration: underline wavy; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.pbar { height: 4px; border-radius: 2px; background: var(--wb-fill-subtle); overflow: hidden; position: relative; }
+.pbar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 2px; background: var(--wb-fill-accent); }
+.spin { display: block; flex: none; }
+.spin .tr { stroke: var(--wb-fill-strong); } .spin .hd { stroke: var(--wb-text-secondary); }
+.on-slate .spin .tr { stroke: rgba(255,255,255,0.18); } .on-slate .spin .hd { stroke: var(--wb-text-on-slate); }
+
+/* floating surfaces */
+.toast { height: 36px; padding: 0 6px 0 14px; border-radius: 10px; background: var(--wb-bg-slate); color: var(--wb-text-on-slate); display: inline-flex; align-items: center; gap: 10px; font: 500 13px/16px var(--wb-font-ui); box-shadow: 0 0 0 0.5px var(--wb-line-float), var(--wb-shadow-3); white-space: nowrap; }
+.toast .ic { color: var(--wb-text-on-slate-2); }
+.toast .act { height: 26px; padding: 0 6px 0 8px; border-radius: 6px; color: var(--wb-text-accent-on-slate); font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
+.toast .act.hov { background: rgba(255,255,255,0.10); }
+.toast .act.foc { box-shadow: 0 0 0 2px var(--wb-focus-ring-on-slate); }
+.toast .sepv { width: 1px; height: 16px; background: rgba(255,255,255,0.16); }
+.undo { width: 312px; height: 56px; border-radius: 14px; background: var(--wb-bg-slate); color: var(--wb-text-on-slate); display: flex; align-items: center; gap: 12px; padding: 0 8px 0 16px; box-shadow: 0 0 0 0.5px var(--wb-line-float), var(--wb-shadow-3); }
+.undo .tx { flex: 1; min-width: 0; }
+.undo .tx b { display: block; font: 500 13px/16px var(--wb-font-ui); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.undo .tx span { display: block; font: var(--wb-type-caption); color: var(--wb-text-on-slate-2); }
+.menu { width: 240px; padding: 5px; border-radius: 10px; background: var(--wb-bg-raised); box-shadow: 0 0 0 0.5px var(--wb-line-float), var(--wb-shadow-2); font: var(--wb-type-body); color: var(--wb-text-primary); }
+.mi { height: 24px; border-radius: 5px; padding: 0 8px 0 6px; display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.mi .ic { color: var(--wb-text-secondary); }
+.mi .chk { width: 12px; color: var(--wb-text-primary); }
+.mi .lbl { flex: 1; }
+.mi .key { font: var(--wb-type-body); color: var(--wb-text-tertiary); letter-spacing: 1px; }
+.mi.hl { background: var(--wb-fill-selected); color: #FFFFFF; } .mi.hl .ic, .mi.hl .key, .mi.hl .chk { color: rgba(255,255,255,0.92); }
+.mi.dis { color: var(--wb-text-disabled); }
+.msep { height: 1px; margin: 5px 8px; background: var(--wb-line-hairline); }
+.mhd { font: 600 11px/14px var(--wb-font-ui); color: var(--wb-text-tertiary); padding: 6px 8px 3px; }
+.tip { display: inline-flex; align-items: center; gap: 8px; height: 22px; padding: 0 6px 0 8px; border-radius: 5px; background: var(--wb-bg-raised); box-shadow: 0 0 0 0.5px var(--wb-line-float), var(--wb-shadow-2); font: var(--wb-type-caption); color: var(--wb-text-primary); white-space: nowrap; }
+.tip .kbd { height: 16px; min-width: 16px; }
+
+
+/* composer rows, notification, alert */
+.crow { height: 36px; flex: none; display: flex; align-items: center; position: relative; padding: 0 12px 0 0; gap: 8px; }
+.crow::after { content: ""; position: absolute; left: 16px; right: 0; bottom: 0; height: 0.5px; background: var(--wb-line-hairline); }
+.crow .lb { width: 64px; flex: none; text-align: right; color: var(--wb-text-tertiary); font: var(--wb-type-body); }
+.ntf { width: 344px; border-radius: 16px; padding: 12px 14px 12px 12px; display: flex; gap: 10px; background: rgba(246,247,248,0.94); box-shadow: 0 0 0 0.5px rgba(16,22,30,0.12), 0 8px 24px rgba(16,22,30,0.14); color: #16191D; }
+@media (prefers-color-scheme: dark) { .ntf { background: rgba(44,47,52,0.94); color: #ECEEF1; box-shadow: 0 0 0 0.5px rgba(255,255,255,0.14), 0 8px 24px rgba(0,0,0,0.5); } }
+.nicon { width: 32px; height: 32px; border-radius: 8px; flex: none; display: grid; place-items: center; color: #F2F4F6; background: linear-gradient(180deg, #3A4048, #22262B); box-shadow: inset 0 0.5px 0 rgba(255,255,255,0.18); }
+.ntx { flex: 1; min-width: 0; font: 400 13px/17px var(--wb-font-ui); }
+.nt1 { display: flex; justify-content: space-between; } .nt1 span { font: var(--wb-type-caption); opacity: 0.6; }
+.nt2 { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nt3 { opacity: 0.75; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.alert { width: 260px; border-radius: 14px; padding: 20px 16px 16px; background: var(--wb-bg-raised); box-shadow: 0 0 0 0.5px var(--wb-line-float), var(--wb-shadow-3); text-align: center; }
+.alert b { display: block; font: var(--wb-type-headline); color: var(--wb-text-primary); }
+.alert p { font: var(--wb-type-caption); color: var(--wb-text-secondary); margin: 6px 0 16px; }
+
+.rcell { display: flex; flex-direction: column; align-items: center; gap: 6px; font: var(--wb-type-caption); color: var(--wb-text-on-slate-2); }
+.rcell .ri { position: relative; left: auto; }
+.empty { height: 230px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 0 20px 24px; color: var(--wb-text-tertiary); font: var(--wb-type-callout); }
+.empty .etile { width: 56px; height: 56px; border-radius: 16px; background: var(--wb-fill-subtle); display: grid; place-items: center; color: var(--wb-text-secondary); margin-bottom: 14px; }
+.empty b { font: var(--wb-type-title-2); color: var(--wb-text-primary); margin-bottom: 4px; }
+.ehint { margin-top: 14px; display: inline-flex; gap: 4px; align-items: center; font: var(--wb-type-caption); color: var(--wb-text-tertiary); }
+
+.bgrid { display: grid; grid-template-columns: 110px repeat(6, minmax(0, 1fr)); gap: 12px 16px; align-items: center; }
+.bgrid > .st { margin: 0; }
+.cgrid { display: grid; grid-template-columns: 70px repeat(5, minmax(0, 1fr)); gap: 12px 8px; align-items: center; }
+.cgrid > .st { margin: 0; }
+.cgrid > span { display: flex; align-items: center; color: var(--wb-text-tertiary); }
+.kmap { display: grid; grid-template-columns: 82px 1fr; gap: 6px 10px; align-items: center; font: var(--wb-type-callout); color: var(--wb-text-secondary); padding-top: 12px; box-shadow: inset 0 0.5px 0 var(--wb-line-hairline); }
+.kmap > span:nth-child(odd) { display: flex; gap: 3px; }
+.av.ph { background: radial-gradient(circle at 50% 38%, #E9C9A8 0 22%, transparent 23%), radial-gradient(ellipse at 50% 100%, #5A6E8C 0 45%, transparent 46%), linear-gradient(160deg, #CFE0EE, #A9C2D8); }
+.appi { display: grid; place-items: center; color: #F5F7F9; background: linear-gradient(180deg, #3D434B 0%, #2B3036 55%, #22262B 100%); box-shadow: inset 0 0.5px 0 rgba(255,255,255,0.22), inset 0 -0.5px 0 rgba(0,0,0,0.3), 0 4px 12px rgba(16,22,30,0.20); flex: none; }
+.band { position: relative; height: 120px; margin-top: 20px; border-radius: 8px; overflow: hidden; display: flex; box-shadow: 0 0 0 0.5px var(--wb-line-hairline); }
+.band .b-rail { width: 44px; background: var(--wb-bg-rail); position: relative; }
+.band .b-list { width: 120px; background: var(--wb-bg-list); padding: 9px 0 0 10px; font: 600 10px/12px var(--wb-font-ui); }
+.band .b-read { flex: 1; background: var(--wb-bg-list); box-shadow: inset 1px 0 0 var(--wb-line-pane); padding: 9px 0 0 12px; font: 600 12px/14px var(--wb-font-ui); }
+.band > i { position: absolute; left: 44px; right: 0; height: 0; border-top: 1px dashed var(--wb-text-accent); opacity: 0.7; }
+.band .b-l52 { top: 30px; } .band .b-l88 { top: 52px; border-top: 1px solid var(--wb-line-control); opacity: 1; }
+.band > b { position: absolute; right: 6px; font: 600 9px/10px var(--wb-font-mono); color: var(--wb-text-accent); }
+.band .b-t52 { top: 19px; } .band .b-t88 { top: 41px; color: var(--wb-text-secondary); }
+
+.welcome { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding-bottom: 28px; background: var(--wb-bg-list); position: relative; }
+.welcome h4 { font: var(--wb-type-display); letter-spacing: -0.6px; color: var(--wb-text-primary); margin: 18px 0 6px; }
+.welcome p { font: 400 15px/20px var(--wb-font-ui); color: var(--wb-text-secondary); margin: 0 0 22px; max-width: 420px; text-align: center; }
+.wfoot { position: absolute; bottom: 18px; left: 0; right: 0; display: flex; gap: 6px; justify-content: center; align-items: center; font: var(--wb-type-caption); color: var(--wb-text-tertiary); }
+.wstate { position: absolute; right: 16px; top: 14px; }
+.voice { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.voice > div { display: flex; flex-direction: column; gap: 6px; font: var(--wb-type-callout); }
+.voice b { font: var(--wb-type-overline); letter-spacing: 0.6px; text-transform: uppercase; margin-bottom: 2px; }
+.voice .do b { color: var(--wb-text-success); } .voice .dont b { color: var(--wb-text-danger); }
+.voice span { padding: 5px 8px; border-radius: 5px; background: var(--wb-bg-field); color: var(--wb-text-primary); }
+.voice .dont span { color: var(--wb-text-secondary); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--wb-text-danger) 60%, transparent); }
+.setw { width: 100%; height: 452px; flex-direction: column; background: var(--wb-bg-reader); }
+.stb { height: 76px; flex: none; background: var(--wb-bg-list); border-bottom: 0.5px solid var(--wb-line-hairline); position: relative; }
+.stt { position: absolute; top: 9px; left: 0; right: 0; text-align: center; font: 600 13px/16px var(--wb-font-ui); color: var(--wb-text-primary); }
+.tabs { position: absolute; bottom: 6px; left: 0; right: 0; display: flex; justify-content: center; gap: 4px; }
+.tab { width: 70px; height: 44px; border-radius: 7px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; font: 500 11px/13px var(--wb-font-ui); color: var(--wb-text-secondary); }
+.tab.on { background: var(--wb-fill-subtle); color: var(--wb-text-accent); }
+.sbody { padding: 16px 20px; flex: 1; }
+.sgh { font: 600 11px/14px var(--wb-font-ui); color: var(--wb-text-secondary); margin: 2px 0 6px 10px; }
+.sgh ~ .sgh { margin-top: 14px; }
+.sgrp { background: var(--wb-bg-card); border-radius: 10px; box-shadow: 0 0 0 0.5px var(--wb-line-hairline); }
+.srow { min-height: 40px; display: flex; align-items: center; gap: 10px; padding: 0 12px; position: relative; font: var(--wb-type-body); color: var(--wb-text-primary); }
+.srow + .srow::before { content: ""; position: absolute; left: 12px; right: 0; top: 0; height: 0.5px; background: var(--wb-line-hairline); }
+.srow.acc { min-height: 56px; }
+.srow.acc + .srow::before { left: 54px; }
+.srow.tall { min-height: 52px; }
+.srow .sl { flex: 1; } .srow .sl small { display: block; font: var(--wb-type-caption); color: var(--wb-text-tertiary); margin-top: 1px; }
+.stx { flex: 1; min-width: 0; }
+.stx b { display: block; font: 500 13px/17px var(--wb-font-ui); }
+.stx > span { display: flex; align-items: center; gap: 5px; font: var(--wb-type-caption); color: var(--wb-text-secondary); margin-top: 2px; white-space: nowrap; overflow: hidden; }
+.stx b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stx .warnt { color: var(--wb-text-warning); }
+
+.ramp { display: grid; grid-template-columns: repeat(18, 1fr); border-radius: 8px; overflow: hidden; box-shadow: 0 0 0 0.5px var(--wb-line-hairline); }
+.ramp div { height: 76px; padding: 8px 6px; display: flex; flex-direction: column; justify-content: space-between; }
+.ramp b { font: 600 11px/14px var(--wb-font-ui); } .ramp span { font: 500 9px/11px var(--wb-font-mono); opacity: 0.8; }
+.sw { display: grid; grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 10px 14px; }
+.swi { display: grid; grid-template-columns: 36px 1fr; grid-template-rows: auto auto; column-gap: 10px; align-items: center; }
+.swi i { grid-row: 1 / span 2; width: 36px; height: 36px; border-radius: 8px; box-shadow: inset 0 0 0 0.5px rgba(127,127,127,0.35); background-clip: padding-box; position: relative; }
+.swi b { font: 500 12px/15px var(--wb-font-ui); color: var(--pg-ink); white-space: nowrap; }
+.swi .hx { font: 400 11px/14px var(--wb-font-mono); color: var(--pg-mute); white-space: nowrap; }
+.accp { display: grid; grid-template-columns: repeat(10, 1fr); gap: 12px; }
+.acci { display: flex; flex-direction: column; gap: 3px; font: 400 10px/13px var(--wb-font-mono); color: var(--pg-mute); }
+.acci b { font: 600 12px/15px var(--wb-font-ui); color: var(--pg-ink); margin-top: 6px; }
+.accs { height: 56px; border-radius: 8px; background: var(--wb-bg-rail); display: flex; align-items: center; gap: 12px; padding-left: 12px; position: relative; overflow: hidden; }
+.accs .wb { position: absolute; right: 0; top: 0; bottom: 0; width: 34px; background: var(--wb-bg-list); }
+.accs .wb::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: inherit; }
+.avp { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px 8px; }
+.avp div { display: flex; flex-direction: column; align-items: center; gap: 6px; font: var(--wb-type-caption); color: var(--pg-mute); }
+.avp b { font-weight: 500; }
+.ty { display: flex; flex-direction: column; }
+.tyr { display: grid; grid-template-columns: 1fr 300px; align-items: baseline; gap: 16px; padding: 7px 0; box-shadow: inset 0 -0.5px 0 var(--wb-line-hairline); }
+.tys { color: var(--pg-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tym { font: 400 11px/14px var(--wb-font-mono); color: var(--pg-mute); text-align: right; }
+.tym b { color: var(--pg-ink); font-weight: 600; margin-right: 8px; font-family: var(--wb-font-ui); }
+.spc { display: flex; flex-direction: column; gap: 4px; }
+.spc div { display: flex; align-items: center; gap: 10px; font: 400 11px/14px var(--wb-font-mono); color: var(--pg-mute); }
+.spc i { height: 10px; background: var(--wb-fill-accent); border-radius: 1px; opacity: 0.85; }
+.rad { display: flex; gap: 12px; margin-top: 18px; flex-wrap: wrap; }
+.rad div { display: flex; flex-direction: column; align-items: center; gap: 6px; font: 400 10px/12px var(--wb-font-mono); color: var(--pg-mute); }
+.rad i { width: 40px; height: 40px; background: var(--wb-accent-subtle); box-shadow: inset 0 0 0 1px var(--wb-text-accent); }
+.hln { display: flex; flex-direction: column; gap: 10px; }
+.hln div { display: grid; grid-template-columns: 64px 1fr; align-items: center; gap: 10px; font: var(--wb-type-caption); color: var(--pg-mute); }
+.hln i { display: block; width: 64px; }
+.elev { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 18px; }
+.elev div { height: 60px; border-radius: 10px; background: var(--wb-bg-raised); display: flex; flex-direction: column; justify-content: center; align-items: center; font: var(--wb-type-caption); color: var(--wb-text-secondary); }
+.elev b { font: 600 13px/16px var(--wb-font-ui); color: var(--wb-text-primary); }
+.mat { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 14px; }
+.mat div { height: 56px; border-radius: 8px; padding: 8px 10px; font: var(--wb-type-caption); display: flex; flex-direction: column; justify-content: flex-end; }
+.mat b { font: 600 12px/15px var(--wb-font-ui); }
+.mat .glass { background: linear-gradient(120deg, rgba(31,105,224,0.35), rgba(170,115,25,0.30)); position: relative; overflow: hidden; color: var(--wb-text-primary); }
+.mat .glass::after { content: ""; position: absolute; inset: 0 0 62% 0; background: color-mix(in srgb, var(--wb-bg-list) 80%, transparent); -webkit-backdrop-filter: blur(12px); box-shadow: inset 0 -0.5px 0 var(--wb-line-hairline); }
+.mat .glass b, .mat .glass span { position: relative; z-index: 1; }
+.mot { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px 12px; }
+.mot div { display: flex; flex-direction: column; gap: 2px; font: var(--wb-type-caption); color: var(--pg-mute); }
+.mot svg { width: 52px; height: 52px; margin-bottom: 4px; }
+.mot b { font: 600 12px/15px var(--wb-font-ui); color: var(--pg-ink); }
+.mot .gr { stroke: var(--wb-line-hairline); stroke-width: 1; fill: none; }
+.mot .cv { stroke: var(--wb-fill-accent); stroke-width: 2; fill: none; stroke-linecap: round; }
+.mot .ax { stroke: var(--wb-fill-accent); stroke-width: 2; fill: none; stroke-dasharray: 0 0; opacity: 0; }
+.icg { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.icg div { display: grid; grid-template-columns: 16px 1fr auto; gap: 10px; align-items: center; padding: 8px 10px; border-radius: 8px; background: var(--wb-bg-field); color: var(--wb-text-primary); font: 400 11px/14px var(--wb-font-mono); }
+.icg span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--wb-text-secondary); }
+.icg b { font: 500 10px/14px var(--wb-font-mono); color: var(--wb-text-tertiary); }
+.cust { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 18px; }
+.cust div { display: grid; grid-template-columns: 88px 1fr; grid-template-rows: auto 1fr; column-gap: 14px; align-items: start; }
+.cust .cg { grid-row: 1 / span 2; width: 88px; height: 88px; border-radius: 14px; display: grid; place-items: center; color: var(--wb-text-primary); background: var(--wb-bg-field); background-image: linear-gradient(var(--wb-line-hairline) 0.5px, transparent 0.5px), linear-gradient(90deg, var(--wb-line-hairline) 0.5px, transparent 0.5px); background-size: 11px 11px; background-position: 6px 6px; }
+.cust b { font: 600 13px/16px var(--wb-font-mono); color: var(--pg-ink); margin-top: 18px; }
+.cust span { font: var(--wb-type-callout); color: var(--pg-mute); }
+.dens { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.dens div { display: flex; flex-direction: column; gap: 4px; font: var(--wb-type-caption); color: var(--pg-mute); }
+.dens b { font: 600 12px/15px var(--wb-font-ui); color: var(--pg-ink); }
+.dens span { min-height: 28px; }
+.dens i { display: block; border-radius: 4px; background: var(--wb-bg-field); margin-left: 0; position: relative; }
+.dens i::before { content: ""; position: absolute; left: 6px; top: 50%; transform: translateY(-50%); width: 14px; height: 14px; border-radius: 4px; background: var(--wb-fill-strong); }
+/* ---------- sheet ---------- */
+.sheet { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; align-items: start; }
+.card { background: var(--pg-card); border-radius: 14px; padding: 20px 20px 22px; box-shadow: 0 0 0 0.5px var(--pg-line); min-width: 0; }
+.card.s2 { grid-column: span 2; } .card.s3 { grid-column: 1 / -1; }
+.card > h3 { font: 600 15px/20px var(--wb-font-ui); color: var(--pg-ink); }
+.card > .spec { margin: 4px 0 18px; font: 400 11px/16px var(--wb-font-mono); color: var(--pg-mute); }
+.st { font: 600 10px/12px var(--wb-font-ui); text-transform: uppercase; letter-spacing: 0.6px; color: var(--pg-mute); margin: 0 0 7px; white-space: nowrap; }
+.grid { display: grid; gap: 16px 20px; }
+.g2 { grid-template-columns: repeat(2, minmax(0, 1fr)); } .g3 { grid-template-columns: repeat(3, minmax(0, 1fr)); } .g4 { grid-template-columns: repeat(4, minmax(0, 1fr)); } .g5 { grid-template-columns: repeat(5, minmax(0, 1fr)); } .g6 { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.hstack { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.vstack { display: flex; flex-direction: column; gap: 10px; }
+.surf { background: var(--wb-bg-list); border-radius: 8px; box-shadow: 0 0 0 0.5px var(--wb-line-hairline); overflow: hidden; position: relative; }
+.surf.rd { background: var(--wb-bg-reader); }
+.surf.slate { background: var(--wb-bg-rail); box-shadow: none; }
+.surf.card2 { background: var(--wb-bg-card); }
+.surf.pad { padding: 14px; }
+.cell { min-width: 0; }
+.note { font: var(--wb-type-caption); color: var(--pg-mute); margin-top: 10px; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+<defs>
+<!-- Custom Wingbar glyphs (exact paths, see SPEC §Iconography) -->
+<symbol id="g-wing" viewBox="0 0 16 16"><path fill="currentColor" stroke="none" d="M1.25 13.25C2.6 8 6.9 3.6 14.75 2.75C14.2 4.6 13 6 11.4 6.9H13.6C12.4 8.9 10.4 10.1 8.1 10.6H9.9C7.9 12.9 4.9 13.9 1.25 13.25Z"/></symbol>
+<symbol id="g-unified" viewBox="0 0 16 16"><path fill="currentColor" stroke="none" d="M3.25 1.5h2.25a1.75 1.75 0 0 1 1.75 1.75v2.25a1.75 1.75 0 0 1-1.75 1.75H3.25A1.75 1.75 0 0 1 1.5 5.5V3.25A1.75 1.75 0 0 1 3.25 1.5ZM10.5 1.5h2.25a1.75 1.75 0 0 1 1.75 1.75v2.25a1.75 1.75 0 0 1-1.75 1.75H10.5A1.75 1.75 0 0 1 8.75 5.5V3.25A1.75 1.75 0 0 1 10.5 1.5ZM3.25 8.75h2.25a1.75 1.75 0 0 1 1.75 1.75v2.25a1.75 1.75 0 0 1-1.75 1.75H3.25a1.75 1.75 0 0 1-1.75-1.75V10.5a1.75 1.75 0 0 1 1.75-1.75ZM10.5 8.75h2.25a1.75 1.75 0 0 1 1.75 1.75v2.25a1.75 1.75 0 0 1-1.75 1.75H10.5a1.75 1.75 0 0 1-1.75-1.75V10.5a1.75 1.75 0 0 1 1.75-1.75Z"/></symbol>
+<symbol id="g-pending" viewBox="0 0 12 12"><path d="M10.25 6A4.25 4.25 0 1 1 6 1.75" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="9.1" cy="2.9" r="1.05" fill="currentColor" stroke="none"/></symbol>
+<!-- SVG stand-ins for SF Symbols (the app uses the named symbol) -->
+<symbol id="i-star" viewBox="0 0 16 16"><path d="M8 1.9l1.85 3.8 4.15.6-3 2.9.72 4.1L8 11.35l-3.72 1.95.72-4.1-3-2.9 4.15-.6z"/></symbol>
+<symbol id="i-star-fill" viewBox="0 0 16 16"><path fill="currentColor" d="M8 1.9l1.85 3.8 4.15.6-3 2.9.72 4.1L8 11.35l-3.72 1.95.72-4.1-3-2.9 4.15-.6z"/></symbol>
+<symbol id="i-archive" viewBox="0 0 16 16"><rect x="1.75" y="2.5" width="12.5" height="3.75" rx="1"/><path d="M3 6.25v6.5a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-6.5M6.25 9.1h3.5"/></symbol>
+<symbol id="i-trash" viewBox="0 0 16 16"><path d="M2.5 4.25h11M6 4.25V2.75h4v1.5M3.9 4.25l.75 8.8a1 1 0 0 0 1 .9h4.7a1 1 0 0 0 1-.9l.75-8.8M6.6 6.75v4.75M9.4 6.75v4.75"/></symbol>
+<symbol id="i-ellipsis" viewBox="0 0 16 16"><g fill="currentColor" stroke="none"><circle cx="3.5" cy="8" r="1.2"/><circle cx="8" cy="8" r="1.2"/><circle cx="12.5" cy="8" r="1.2"/></g></symbol>
+<symbol id="i-ellipsis-rect" viewBox="0 0 16 16"><rect x="1.5" y="4" width="13" height="8" rx="2.5"/><g fill="currentColor" stroke="none"><circle cx="5.2" cy="8" r=".95"/><circle cx="8" cy="8" r=".95"/><circle cx="10.8" cy="8" r=".95"/></g></symbol>
+<symbol id="i-clip" viewBox="0 0 16 16"><path d="M10.6 4.6 5.4 9.8a1.55 1.55 0 0 0 2.2 2.2l5.5-5.5a2.9 2.9 0 0 0-4.1-4.1L3.4 8a4.2 4.2 0 0 0 5.95 5.95l4.1-4.1"/></symbol>
+<symbol id="i-search" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.6"/><path d="M10.4 10.4 14 14"/></symbol>
+<symbol id="i-chev-down" viewBox="0 0 16 16"><path d="M4.5 6.25 8 9.75l3.5-3.5"/></symbol>
+<symbol id="i-chev-right" viewBox="0 0 16 16"><path d="M6.25 4.5 9.75 8l-3.5 3.5"/></symbol>
+<symbol id="i-updown" viewBox="0 0 16 16"><path d="M5.25 6.25 8 3.5l2.75 2.75M5.25 9.75 8 12.5l2.75-2.75"/></symbol>
+<symbol id="i-compose" viewBox="0 0 16 16"><path d="M13.25 8.75v3.75a1 1 0 0 1-1 1h-8.5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h3.75"/><path d="M12.1 2.15a1.2 1.2 0 0 1 1.7 1.7L8.2 9.45l-2.35.65.65-2.35z"/></symbol>
+<symbol id="i-gear" viewBox="0 0 16 16"><path stroke-width="1.15" d="M13.19 6.95 14.85 7.17 14.85 8.83 13.19 9.05 12.42 10.93 13.43 12.26 12.26 13.43 10.93 12.42 9.05 13.19 8.83 14.85 7.17 14.85 6.95 13.19 5.07 12.42 3.74 13.43 2.57 12.26 3.58 10.93 2.81 9.05 1.15 8.83 1.15 7.17 2.81 6.95 3.58 5.07 2.57 3.74 3.74 2.57 5.07 3.58 6.95 2.81 7.17 1.15 8.83 1.15 9.05 2.81 10.93 3.58 12.26 2.57 13.43 3.74 12.42 5.07Z"/><circle cx="8" cy="8" r="2.3"/></symbol>
+<symbol id="i-plus" viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"/></symbol>
+<symbol id="i-minus" viewBox="0 0 16 16"><path d="M4 8h8"/></symbol>
+<symbol id="i-check" viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6-7"/></symbol>
+<symbol id="i-x" viewBox="0 0 16 16"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7"/></symbol>
+<symbol id="i-reply" viewBox="0 0 16 16"><path d="M6.25 3.5 2.5 7.25 6.25 11M2.9 7.25h6.35a4.25 4.25 0 0 1 4.25 4.25v1"/></symbol>
+<symbol id="i-replyall" viewBox="0 0 16 16"><path d="M5.5 3.5 1.75 7.25 5.5 11M8.75 3.5 5 7.25 8.75 11M5.4 7.25h4.1a4.25 4.25 0 0 1 4.25 4.25v1"/></symbol>
+<symbol id="i-forward" viewBox="0 0 16 16"><path d="M9.75 3.5l3.75 3.75L9.75 11M13.1 7.25H6.75A4.25 4.25 0 0 0 2.5 11.5v1"/></symbol>
+<symbol id="i-photo" viewBox="0 0 16 16"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2"/><path d="m2.4 12 3.7-3.7 2.4 2.4 1.6-1.6 3.5 3.5"/><circle cx="10.75" cy="6" r="1.1"/></symbol>
+<symbol id="i-contrast" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.75"/><path d="M8 2.25a5.75 5.75 0 0 0 0 11.5z" fill="currentColor" stroke="none"/></symbol>
+<symbol id="i-doc" viewBox="0 0 16 16"><path d="M4 1.75h4.9l3.6 3.6v8.4a.5.5 0 0 1-.5.5H4a.5.5 0 0 1-.5-.5V2.25a.5.5 0 0 1 .5-.5z"/><path d="M8.75 1.9v3.6h3.6"/></symbol>
+<symbol id="i-doc-text" viewBox="0 0 16 16"><path d="M4 1.75h4.9l3.6 3.6v8.4a.5.5 0 0 1-.5.5H4a.5.5 0 0 1-.5-.5V2.25a.5.5 0 0 1 .5-.5z"/><path d="M8.75 1.9v3.6h3.6M5.75 8.5h4.5M5.75 11h4.5"/></symbol>
+<symbol id="i-wifi-slash" viewBox="0 0 16 16"><path d="M1.9 6.3a8.6 8.6 0 0 1 12.2 0M4.1 8.7a5.5 5.5 0 0 1 7.8 0M6.3 11.1a2.4 2.4 0 0 1 3.4 0M2.5 2.5l11 11"/></symbol>
+<symbol id="i-warn" viewBox="0 0 16 16"><path fill="currentColor" stroke="none" fill-rule="evenodd" d="M7.13 2.2a1 1 0 0 1 1.74 0l5.9 10.3a1 1 0 0 1-.87 1.5H2.1a1 1 0 0 1-.87-1.5zM7.25 5.9h1.5l-.22 4.1H7.47zM8 11.1a.88.88 0 1 1 0 1.76.88.88 0 0 1 0-1.76z"/></symbol>
+<symbol id="i-exclam-circle" viewBox="0 0 16 16"><path fill="currentColor" stroke="none" fill-rule="evenodd" d="M8 1.75a6.25 6.25 0 1 1 0 12.5 6.25 6.25 0 0 1 0-12.5zM7.3 4.4h1.4l-.2 4.9h-1zM8 10.3a.85.85 0 1 1 0 1.7.85.85 0 0 1 0-1.7z"/></symbol>
+<symbol id="i-check-circle" viewBox="0 0 16 16"><path fill="currentColor" stroke="none" fill-rule="evenodd" d="M8 1.75a6.25 6.25 0 1 1 0 12.5 6.25 6.25 0 0 1 0-12.5zm3.1 4.05-.95-.8-3.1 3.8-1.55-1.5-.85.85 2.45 2.35z"/></symbol>
+<symbol id="i-sync" viewBox="0 0 16 16"><path d="M13 6.4A5.25 5.25 0 0 0 3.7 5M3 9.6a5.25 5.25 0 0 0 9.3 1.4"/><path d="M3.4 2.4v2.9h2.9M12.6 13.6v-2.9H9.7"/></symbol>
+<symbol id="i-person-badge" viewBox="0 0 16 16"><path d="M10.5 2.4A6 6 0 1 0 13.6 7"/><circle cx="7.5" cy="6.6" r="2"/><path d="M3.8 12.5a4.6 4.6 0 0 1 7.4 0"/><circle cx="13" cy="3" r="2.6" fill="currentColor" stroke="none"/></symbol>
+<symbol id="i-envelope" viewBox="0 0 16 16"><rect x="1.75" y="3.25" width="12.5" height="9.5" rx="1.75"/><path d="m2.4 4.2 5.6 4.5 5.6-4.5"/></symbol>
+<symbol id="i-sidebar" viewBox="0 0 16 16"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2"/><path d="M6 2.75v10.5"/></symbol>
+<symbol id="i-send" viewBox="0 0 16 16"><path fill="currentColor" stroke="none" fill-rule="evenodd" d="M8 1.5a6.5 6.5 0 1 1 0 13 6.5 6.5 0 0 1 0-13zm-.6 3.5L4.7 7.7l.85.85L7.4 6.7V11h1.2V6.7l1.85 1.85.85-.85L8.6 5 8 4.4z"/></symbol>
+<symbol id="i-expand" viewBox="0 0 16 16"><path d="M9.5 2.5h4v4M13.5 2.5 9.25 6.75M6.5 13.5h-4v-4M2.5 13.5l4.25-4.25"/></symbol>
+<symbol id="i-tray" viewBox="0 0 16 16"><path d="M1.75 9.25 3.6 3.5a1 1 0 0 1 .95-.75h6.9a1 1 0 0 1 .95.75l1.85 5.75v3a1 1 0 0 1-1 1H2.75a1 1 0 0 1-1-1z"/><path d="M1.9 9.25h3.35l1 1.5h3.5l1-1.5h3.35"/></symbol>
+<symbol id="i-sent" viewBox="0 0 16 16"><path d="M14.25 1.75 7 9M14.25 1.75l-4.5 12.5L7 9 1.75 6.25z"/></symbol>
+<symbol id="i-key" viewBox="0 0 16 16"><circle cx="5.25" cy="10.75" r="3"/><path d="m7.4 8.6 6.1-6.1M11.5 4.5l1.75 1.75M9.75 6.25 11 7.5"/></symbol>
+<symbol id="i-person" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.25"/><circle cx="8" cy="6.5" r="2.1"/><path d="M4 12.6a5 5 0 0 1 8 0"/></symbol>
+<symbol id="i-gearshape" viewBox="0 0 16 16"><path stroke-width="1.15" d="M13.19 6.95 14.85 7.17 14.85 8.83 13.19 9.05 12.42 10.93 13.43 12.26 12.26 13.43 10.93 12.42 9.05 13.19 8.83 14.85 7.17 14.85 6.95 13.19 5.07 12.42 3.74 13.43 2.57 12.26 3.58 10.93 2.81 9.05 1.15 8.83 1.15 7.17 2.81 6.95 3.58 5.07 2.57 3.74 3.74 2.57 5.07 3.58 6.95 2.81 7.17 1.15 8.83 1.15 9.05 2.81 10.93 3.58 12.26 2.57 13.43 3.74 12.42 5.07Z"/><circle cx="8" cy="8" r="2.3"/></symbol>
+<symbol id="i-lock" viewBox="0 0 16 16"><rect x="3" y="7" width="10" height="7" rx="1.75"/><path d="M5.25 7V5.1a2.75 2.75 0 0 1 5.5 0V7"/></symbol>
+<symbol id="i-undo" viewBox="0 0 16 16"><path d="M5.5 3.25 2.5 6.25l3 3M2.9 6.25H10a3.5 3.5 0 0 1 0 7H7.5"/></symbol>
+<symbol id="i-unread" viewBox="0 0 16 16"><circle cx="8" cy="8" r="4" fill="currentColor" stroke="none"/></symbol>
+<symbol id="i-info" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.25"/><path d="M8 7.2v4.1"/><circle cx="8" cy="4.9" r=".8" fill="currentColor" stroke="none"/></symbol>
+<symbol id="i-bell" viewBox="0 0 16 16"><path d="M4 11.5V7.25a4 4 0 0 1 8 0v4.25l1.25 1.25H2.75zM6.5 14h3"/></symbol>
+<symbol id="i-text" viewBox="0 0 16 16"><path d="M2 12.5 5.25 3.5h.5l3.25 9M3.2 9.5h4.6M10.5 8.4a2.1 2.1 0 0 1 3.5 1.5v2.6M14 10.6c-2.6-.2-3.9.5-3.9 1.4 0 .7.6 1.1 1.4 1.1 1.4 0 2.5-1 2.5-2.5"/></symbol>
+</defs>
+</svg>
+<div class="page">
+<header class="mast">
+  <div>
+    <div class="ov">SuperSparrow design language · Heritage, rebuilt · v1.0</div>
+    <h1><span class="tile"><svg class="ic" style="width:34px;height:34px"><use href="#g-wing"/></svg></span>Wingbar</h1>
+    <p class="lede">Sparrow’s 2011 shape — a dark slate account rail, a crisp bright list, one confident blue, compact avatar-forward rows — rebuilt with 2026 craft: device-pixel hairlines, a two-tier type hierarchy, rounded-square avatars and a dark mode tuned as carefully as the light one. The account rail is the wing; every row carries its account’s wingbar.</p>
+  </div>
+  <div class="principles">
+    <div><b>The list is the product</b><span>Fixed 68 pt rows, painted once, never animated. Speed is a visual property.</span></div>
+    <div><b>Slate frames, paper holds</b><span>Dark chrome is identity and navigation; bright surfaces carry mail.</span></div>
+    <div><b>One blue, one meaning</b><span>Blue means selected, unread or the primary action. Nothing else is blue.</span></div>
+    <div><b>Every state has a shape</b><span>Dots, weights, wells and glyphs carry state; color only confirms it.</span></div>
+  </div>
+</header>
+
+<section class="blk">
+  <div class="sec-h"><span class="n">A</span><h2>Main window</h2><p>1280 × 800 · unified inbox · three accounts (Work, Personal, Studio) · key window</p></div>
+  <div class="win" style="width:1280px;height:800px">
+    <aside class="rail" aria-label="Accounts">
+      <div class="tl"><i></i><i></i><i></i></div>
+      <div class="ri sel" style="top:60px" title="All Inboxes ⌘0"><svg class="gl"><use href="#g-unified"/></svg><b class="rb">21</b></div>
+      <div class="rsep" style="top:116px"></div>
+      <div class="ri" style="top:124px"><span class="rav" style="--a:var(--wb-acct-1-glow)">W</span><b class="rb">12</b></div>
+      <div class="ri" style="top:176px"><span class="rav" style="--a:var(--wb-acct-2-glow)">P</span><b class="rb">7</b></div>
+      <div class="ri" style="top:228px"><span class="rav" style="--a:var(--wb-acct-3-glow)">S</span><b class="rb">2</b></div>
+      <div class="rutil" style="top:716px"><svg class="ic"><use href="#i-plus"/></svg></div>
+      <div class="rutil" style="top:752px"><svg class="ic"><use href="#i-gear"/></svg></div>
+    </aside>
+
+    <section class="list">
+      <div class="lh">
+        <div class="tmenu">Inbox<svg class="ic s11"><use href="#i-chev-down"/></svg></div>
+        <div class="seg"><span class="on">All</span><span>Focused</span><span>Other</span></div>
+        <button class="ib compose"><svg class="ic"><use href="#i-compose"/></svg></button>
+        <div class="search"><svg class="ic s13"><use href="#i-search"/></svg><span class="q">Search</span><span class="kbd">/</span></div>
+      </div>
+      <div class="rows">
+        <div class="dv">Today</div>
+        <div class="row sel" style="--a:var(--wb-acct-1)"><i class="wbar"></i>
+          <span class="av" style="--bg:var(--wb-av-1-bg);--fg:var(--wb-av-1-fg)">BC</span>
+          <div class="l1"><span class="snd">Ben Carter, Alex Morgan, Tom Hughes</span><span class="tm">10:42</span></div>
+          <div class="l2"><span class="sub">Contoso rollout: go-live checklist</span><span class="cl"><span class="cnt">4</span><svg class="ic s12"><use href="#i-clip"/></svg></span></div>
+          <div class="l3">Tested with three accounts, all good. We’re green for the 14th!</div>
+        </div>
+        <div class="row unread" style="--a:var(--wb-acct-2)"><i class="wbar"></i><i class="dot"></i>
+          <span class="av" style="--bg:var(--wb-av-3-bg);--fg:var(--wb-av-3-fg)">DA</span>
+          <div class="l1"><span class="snd">Diego Alvarez</span><span class="tm">10:15</span></div>
+          <div class="l2"><span class="sub">Photos from the offsite</span><span class="cl"><span class="cnt">3</span><svg class="ic s12"><use href="#i-clip"/></svg></span></div>
+          <div class="l3">Of course. Group shot is coming tomorrow, I need to sort the raw files first.</div>
+        </div>
+        <div class="row unread" style="--a:var(--wb-acct-1)"><i class="wbar"></i><i class="dot"></i>
+          <span class="av" style="--bg:var(--wb-av-2-bg);--fg:var(--wb-av-2-fg)">RK</span>
+          <div class="l1"><span class="snd">Rachel Kim, <em>Alex Morgan</em></span><span class="tm">09:58</span></div>
+          <div class="l2"><span class="sub">Q4 roadmap review</span><span class="cl"><span class="cnt">5</span><svg class="ic s12 star" style="fill:currentColor;stroke:currentColor;stroke-width:1"><use href="#i-star-fill"/></svg></span></div>
+          <div class="l3">Great work. One comment: move offline mode ahead of the search rewrite.</div>
+        </div>
+        <div class="row" style="--a:var(--wb-acct-2)"><i class="wbar"></i>
+          <span class="av" style="--bg:var(--wb-av-6-bg);--fg:var(--wb-av-6-fg)">LM</span>
+          <div class="l1"><span class="snd">Linda Morgan</span><span class="tm">09:30</span></div>
+          <div class="l2"><span class="sub">Sunday dinner</span><span class="cl"><span class="cnt">2</span></span></div>
+          <div class="l3">Ha, noted. I’ll bring the plum cake from the bakery on Elm Street.</div>
+        </div>
+        <div class="row nosep" style="--a:var(--wb-acct-3)"><i class="wbar"></i>
+          <span class="av" style="--bg:var(--wb-av-8-bg);--fg:var(--wb-av-8-fg)">F</span>
+          <div class="l1"><span class="snd">Forge</span><svg class="pend" width="11" height="11" aria-label="Waiting to sync"><use href="#g-pending"/></svg><span class="tm">08:47</span></div>
+          <div class="l2"><span class="sub">[sparrow-sync] PR #2657: Coalesce delta pages</span><span class="cl"><svg class="ic s12 star" style="fill:currentColor;stroke:currentColor;stroke-width:1"><use href="#i-star-fill"/></svg></span></div>
+          <div class="l3">maya-c commented: Looks good, one nit about the retry budget in OperationRunner.</div>
+        </div>
+        <div class="dv">Yesterday</div>
+        <div class="row unread" style="--a:var(--wb-acct-2)"><i class="wbar"></i><i class="dot"></i>
+          <span class="av" style="--bg:var(--wb-av-7-bg);--fg:var(--wb-av-7-fg)">PR</span>
+          <div class="l1"><span class="snd">Priya Raman</span><span class="tm">18:20</span></div>
+          <div class="l2"><span class="sub">Lisbon in March?</span><span class="cl"><span class="cnt">5</span><svg class="ic s12 star" style="fill:currentColor;stroke:currentColor;stroke-width:1"><use href="#i-star-fill"/></svg></span></div>
+          <div class="l3">Booked! Also Sam wants to come for the weekend, is the flat big enough?</div>
+        </div>
+        <div class="row" style="--a:var(--wb-acct-1)"><i class="wbar"></i>
+          <span class="av" style="--bg:var(--wb-av-4-bg);--fg:var(--wb-av-4-fg)">T</span>
+          <div class="l1"><span class="snd">Trackr</span><span class="tm">16:05</span></div>
+          <div class="l2"><span class="sub">SRCH-2584: Highlight matches in snippets</span><span class="cl"><span class="tag">Other</span></span></div>
+          <div class="l3">Tom Hughes assigned this issue to you. Priority: normal · Sprint 44</div>
+        </div>
+        <div class="row" style="--a:var(--wb-acct-3)"><i class="wbar"></i>
+          <span class="av" style="--bg:var(--wb-av-5-bg);--fg:var(--wb-av-5-fg)">NW</span>
+          <div class="l1"><span class="snd">Northwind Weekly</span><span class="tm">11:30</span></div>
+          <div class="l2"><span class="sub">Issue #128: Local-first, for real</span><span class="cl"><span class="tag">Other</span><svg class="ic s12"><use href="#i-clip"/></svg></span></div>
+          <div class="l3">This week: CRDTs in production, a sync engine in 400 lines, and the case against spinners.</div>
+        </div>
+        <div class="row" style="--a:var(--wb-acct-1)"><i class="wbar"></i>
+          <span class="av" style="--bg:var(--wb-av-1-bg);--fg:var(--wb-av-1-fg)">TN</span>
+          <div class="l1"><span class="snd">Theo Nakamura</span><span class="tm">09:12</span></div>
+          <div class="l2"><span class="sub">Heads up</span></div>
+          <div class="l3">Do you have ten minutes this afternoon to look at the SSO error logs with me?</div>
+        </div>
+        <div class="row" style="--a:var(--wb-acct-2)"><i class="wbar"></i>
+          <span class="av" style="--bg:var(--wb-av-3-bg);--fg:var(--wb-av-3-fg)">GH</span>
+          <div class="l1"><span class="snd">Greenhouse Market</span><span class="tm">08:02</span></div>
+        </div>
+        <div style="position:absolute;left:0;right:0;bottom:12px;display:flex;justify-content:center">
+          <div class="toast"><svg class="ic s14"><use href="#i-archive"/></svg>Archived<span class="sepv"></span><span class="act">Undo<span class="kbd on-slate">Z</span></span></div>
+        </div>
+      </div>
+      <div class="sync"><svg class="ic s11" style="color:var(--wb-text-tertiary)"><use href="#i-check"/></svg><span>Up to date · 10:42</span></div>
+    </section>
+
+    <section class="reader">
+      <div class="rh">
+        <h1 class="subj">Contoso rollout: go-live checklist</h1>
+        <div class="acts">
+          <button class="ib" title="Star  S"><svg class="ic"><use href="#i-star"/></svg></button>
+          <button class="ib" title="Archive  E"><svg class="ic"><use href="#i-archive"/></svg></button>
+          <button class="ib" title="Trash  #"><svg class="ic"><use href="#i-trash"/></svg></button>
+          <span class="vr"></span>
+          <button class="ib" title="More"><svg class="ic"><use href="#i-ellipsis"/></svg></button>
+        </div>
+        <div class="rh2"><span class="achip" style="--a:var(--wb-acct-1)"><i></i>Work · alex@contoso.com</span><span class="meta">4 messages · Ben Carter, Alex Morgan, Tom Hughes</span></div>
+      </div>
+      <div class="canvas"><div class="col">
+        <div class="deck">
+          <div class="mc"><span class="av" style="--bg:var(--wb-av-1-bg);--fg:var(--wb-av-1-fg)">BC</span><span class="nm">Ben Carter</span><span class="sn">Hi Alex, attaching our go-live checklist for the 14th. Can your team confirm items 4 through 9 by Friday?</span><span class="dt">Fri 30 Oct</span></div>
+          <div class="mc"><span class="av" style="--bg:var(--wb-av-6-bg);--fg:var(--wb-av-6-fg)">AM</span><span class="nm">Alex Morgan</span><span class="sn">Thanks Ben. Items 4–7 are done; 8 and 9 depend on your SSO configuration.</span><span class="dt">Fri 30 Oct</span></div>
+          <div class="mc"><span class="av" style="--bg:var(--wb-av-4-bg);--fg:var(--wb-av-4-fg)">TH</span><span class="nm">Tom Hughes</span><span class="sn">Forwarded to IT, they’ll send the metadata today. Really appreciate the quick turnaround.</span><span class="dt">Yesterday 18:58</span></div>
+        </div>
+        <article class="mx">
+          <div class="mh">
+            <span class="av" style="--bg:var(--wb-av-1-bg);--fg:var(--wb-av-1-fg)">BC</span>
+            <div class="who"><div class="nm2">Ben Carter</div><div class="rcp">to me · cc Tom Hughes</div></div>
+            <div class="side"><span class="dt">10:42</span><button class="ib sm"><svg class="ic s14"><use href="#i-star"/></svg></button></div>
+          </div>
+          <div class="banner"><svg class="ic s14"><use href="#i-photo"/></svg><span class="t">Remote images are blocked to protect your privacy.</span><button class="btn sm sec">Load images (3)</button></div>
+          <div class="tools"><span class="pill"><svg class="ic s13"><use href="#i-ellipsis-rect"/></svg>Show quoted text</span><span class="pill only-dark"><svg class="ic s12"><use href="#i-contrast"/></svg>Original colors</span></div>
+          <div class="body">
+            <p>Tested with three accounts, all good. We’re green for the 14th!</p>
+            <p>Two notes for the runbook before we sign off:</p>
+            <ol><li>Keep the old SSO metadata around until Monday in case we need to roll back.</li><li>Tom will be on call from 07:00; ping him directly rather than the shared alias.</li></ol>
+            <p style="margin:0">Thanks again, Ben</p>
+          </div>
+          <div class="atts">
+            <span class="chip"><span class="ti pdf"><svg class="ic s14"><use href="#i-doc"/></svg></span><span class="tx"><span class="nm">go-live-checklist.pdf</span><span class="sz">248 KB</span></span></span>
+            <span class="chip"><span class="ti xml"><svg class="ic s14"><use href="#i-doc-text"/></svg></span><span class="tx"><span class="nm">sso-metadata.xml</span><span class="sz">6 KB</span></span></span>
+          </div>
+          <div class="mfoot">
+            <button class="btn gho"><svg class="ic s14"><use href="#i-reply"/></svg>Reply<span class="kbd k">R</span></button>
+            <button class="btn gho"><svg class="ic s14"><use href="#i-replyall"/></svg>Reply all<span class="kbd k">A</span></button>
+            <button class="btn gho"><svg class="ic s14"><use href="#i-forward"/></svg>Forward<span class="kbd k">F</span></button>
+          </div>
+        </article>
+      </div></div>
+      <div class="qr"><div class="qrf"><svg class="ic s14"><use href="#i-reply"/></svg><span class="ph">Reply to Ben Carter…</span><span class="kbd">R</span></div></div>
+    </section>
+  </div>
+</section>
+<section class="blk">
+  <div class="sec-h"><span class="n">B</span><h2>Composer and floating surfaces</h2><p>620 × 560 composer · undo send · toasts · notification · alert · tooltip</p></div>
+  <div style="display:grid;grid-template-columns:620px 1fr;gap:40px;align-items:start">
+    <div class="vstack" style="gap:36px">
+    <div class="win" style="width:620px;height:560px;flex-direction:column;background:var(--wb-bg-card)">
+      <div class="ctb" style="height:38px;flex:none;position:relative;display:flex;align-items:center;justify-content:center;font:600 13px/16px var(--wb-font-ui);color:var(--wb-text-secondary);border-bottom:0.5px solid var(--wb-line-hairline)">
+        <div class="tl" style="top:13px;left:14px"><i></i><i></i><i></i></div>Re: Contoso rollout: go-live checklist
+      </div>
+      <div class="crow"><span class="lb">From</span><span class="pop" style="background:none;padding-left:0;gap:7px"><i style="width:10px;height:10px;border-radius:3px;background:var(--wb-acct-1)"></i>Alex Morgan <span style="color:var(--wb-text-tertiary)">alex@contoso.com</span><svg class="ic s12"><use href="#i-updown"/></svg></span></div>
+      <div class="crow"><span class="lb">To</span><div class="hstack" style="gap:4px;flex:1"><span class="tok">Ben Carter</span><span class="tok sel">Tom Hughes<svg class="ic s11"><use href="#i-chev-down"/></svg></span></div><button class="btn sm neu">Bcc</button></div>
+      <div class="crow"><span class="lb">Cc</span><div class="hstack" style="gap:4px;flex:1"><span class="tok bad"><svg class="ic s12" style="stroke:none;fill:currentColor"><use href="#i-exclam-circle"/></svg><u>maya@fabrikam</u></span><span style="font:var(--wb-type-body)">pri<span class="caret"></span></span></div></div>
+      <div class="crow" style="height:44px"><span class="lb">Subject</span><span style="font:var(--wb-type-title-2);color:var(--wb-text-primary)">Re: Contoso rollout: go-live checklist</span></div>
+      <div class="cbody" style="flex:1;padding:16px 24px 0 72px;font:var(--wb-type-reading);color:var(--wb-text-primary);position:relative">
+        <p>Thanks Ben — confirmed on our side. Items 4–9 are done and SSO is live on staging.</p>
+        <p style="margin-top:10px">I’ll send the final sign-off on Thursday morning.</p>
+        <p style="margin-top:10px">Alex</p>
+        <span class="pill" style="margin-top:14px"><svg class="ic s13"><use href="#i-ellipsis-rect"/></svg>Show quoted original</span>
+      </div>
+      <div style="display:flex;gap:8px;padding:10px 16px 10px 72px;border-top:0.5px solid var(--wb-line-hairline);flex:none">
+        <span class="chip" style="height:36px"><span class="ti pdf" style="width:24px;height:24px"><svg class="ic s13"><use href="#i-doc"/></svg></span><span class="tx"><span class="nm">runbook-v3.pdf</span><span class="sz">1.2 MB</span></span><span class="x"><svg class="ic s11"><use href="#i-x"/></svg></span></span>
+        <span class="chip" style="height:36px"><span class="ti img" style="width:24px;height:24px"><svg class="ic s13"><use href="#i-photo"/></svg></span><span class="tx"><span class="nm">staging-sso.png</span><span class="sz">340 KB</span></span><span class="x"><svg class="ic s11"><use href="#i-x"/></svg></span></span>
+        <span class="chip err" style="height:36px"><span class="ti" style="width:24px;height:24px;color:var(--wb-text-danger)"><svg class="ic s13" style="stroke:none;fill:currentColor"><use href="#i-warn"/></svg></span><span class="tx"><span class="nm">export.zip</span><span class="sz">Over 25 MB</span></span><span class="x"><svg class="ic s11"><use href="#i-x"/></svg></span></span>
+      </div>
+      <div style="height:52px;flex:none;display:flex;align-items:center;gap:6px;padding:0 12px 0 16px;border-top:0.5px solid var(--wb-line-hairline)">
+        <button class="btn pri">Send<span class="kbd on-acc">⌘↩</span></button>
+        <button class="ib" style="margin-left:6px"><svg class="ic"><use href="#i-clip"/></svg></button>
+        <button class="ib"><svg class="ic"><use href="#i-text"/></svg></button>
+        <span style="flex:1"></span>
+        <span style="font:var(--wb-type-caption);color:var(--wb-text-tertiary);margin-right:4px">Draft saved</span>
+        <button class="ib"><svg class="ic"><use href="#i-trash"/></svg></button>
+      </div>
+    </div>
+
+          <div class="hstack" style="gap:36px;align-items:flex-start">
+        <div>
+          <div class="st">Alert · destructive confirmation</div>
+          <div class="alert">
+            <span class="nicon" style="width:48px;height:48px;border-radius:12px;margin:0 auto 12px"><svg class="ic" style="width:28px;height:28px"><use href="#g-wing"/></svg></span>
+            <b>Remove alex@contoso.com?</b>
+            <p>Mail from this account will be deleted from this Mac. Nothing changes on the server.</p>
+            <button class="btn pri" style="width:100%">Cancel</button>
+            <button class="btn sec" style="width:100%;margin-top:8px;color:var(--wb-text-danger)">Remove</button>
+          </div>
+        </div>
+        <div class="vstack" style="gap:20px">
+          <div><div class="st">Context menu · row</div>
+            <div class="menu" style="width:220px">
+              <div class="mi"><svg class="ic s14"><use href="#i-reply"/></svg><span class="lbl">Reply</span><span class="key">R</span></div>
+              <div class="mi"><svg class="ic s14"><use href="#i-forward"/></svg><span class="lbl">Forward</span><span class="key">F</span></div>
+              <div class="msep"></div>
+              <div class="mi hl"><svg class="ic s14"><use href="#i-archive"/></svg><span class="lbl">Archive</span><span class="key">E</span></div>
+              <div class="mi"><svg class="ic s14"><use href="#i-star"/></svg><span class="lbl">Star</span><span class="key">S</span></div>
+              <div class="mi"><svg class="ic s14"><use href="#i-unread"/></svg><span class="lbl">Mark as Unread</span><span class="key">U</span></div>
+              <div class="msep"></div>
+              <div class="mi"><svg class="ic s14" style="color:var(--wb-text-danger)"><use href="#i-trash"/></svg><span class="lbl">Move to Trash</span><span class="key">#</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="vstack" style="gap:28px">
+      <div>
+        <div class="st">Undo-send panel · counting down</div>
+        <div class="hstack" style="gap:20px">
+          <div class="undo on-slate">
+            <svg width="22" height="22" viewBox="0 0 22 22" style="flex:none"><circle cx="11" cy="11" r="9" fill="none" stroke="rgba(255,255,255,0.18)" stroke-width="2.5"/><circle cx="11" cy="11" r="9" fill="none" stroke="currentColor" stroke-width="2.5" stroke-dasharray="45.2 56.5" stroke-linecap="round" transform="rotate(-90 11 11)"/></svg>
+            <div class="tx"><b>Sending to Ben Carter</b><span class="tnum">4 s · Work</span></div>
+            <span class="toast" style="box-shadow:none;background:none;padding:0"><span class="act">Undo<span class="kbd on-slate">⌘Z</span></span></span>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="st">Undo-send panel · sending / failed</div>
+        <div class="vstack" style="gap:12px">
+          <div class="undo on-slate"><svg class="spin" width="20" height="20" viewBox="0 0 16 16"><circle class="tr" cx="8" cy="8" r="6" fill="none" stroke-width="2"/><path class="hd" d="M8 2a6 6 0 0 1 6 6" fill="none" stroke-width="2" stroke-linecap="round"/></svg><div class="tx"><b>Sending…</b><span>Work · alex@contoso.com</span></div></div>
+          <div class="undo"><svg class="ic s20" style="color:#FFB4B7;stroke:none;fill:currentColor"><use href="#i-warn"/></svg><div class="tx"><b>Couldn’t send to Ben Carter</b><span>Saved to Drafts</span></div><span class="toast" style="box-shadow:none;background:none;padding:0"><span class="act">Open</span></span></div>
+        </div>
+      </div>
+      <div>
+        <div class="st">Toasts · rest / action hover / action focused / no action</div>
+        <div class="hstack" style="gap:12px">
+          <div class="toast"><svg class="ic s14"><use href="#i-archive"/></svg>Archived<span class="sepv"></span><span class="act">Undo<span class="kbd on-slate">Z</span></span></div>
+          <div class="toast"><svg class="ic s14"><use href="#i-trash"/></svg>Moved to Trash<span class="sepv"></span><span class="act hov">Undo<span class="kbd on-slate">Z</span></span></div>
+          <div class="toast"><svg class="ic s14"><use href="#i-unread"/></svg>Marked unread<span class="sepv"></span><span class="act foc">Undo<span class="kbd on-slate">Z</span></span></div>
+          <div class="toast" style="padding-right:14px"><svg class="ic s14"><use href="#i-star"/></svg>Starred 3 conversations</div>
+        </div>
+      </div>
+      <div class="hstack" style="gap:28px;align-items:flex-start">
+        <div>
+          <div class="st">Notification · preview on</div>
+          <div class="ntf"><span class="nicon"><svg class="ic" style="width:20px;height:20px"><use href="#g-wing"/></svg></span><div class="ntx"><div class="nt1"><b>Ben Carter</b><span>now</span></div><div class="nt2">Contoso rollout: go-live checklist</div><div class="nt3">Tested with three accounts, all good. We’re green for the 14th!</div></div></div>
+        </div>
+        <div>
+          <div class="st">Notification · preview off</div>
+          <div class="ntf"><span class="nicon"><svg class="ic" style="width:20px;height:20px"><use href="#g-wing"/></svg></span><div class="ntx"><div class="nt1"><b>SuperSparrow</b><span>now</span></div><div class="nt2">New message in Work</div><div class="nt3">3 new messages in All Inboxes</div></div></div>
+        </div>
+      </div>
+      <div class="hstack" style="gap:28px;align-items:flex-start">
+        <div><div class="st">Tooltip</div><span class="tip">Archive<span class="kbd">E</span></span></div>
+        <div><div class="st">Tooltip · sequence</div><span class="tip">Go to Starred<span class="kbd">G</span><span class="kbd" style="margin-left:-4px">S</span></span></div>
+        <div><div class="st">Tooltip · disabled reason</div><span class="tip">Nothing to undo</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+<section class="blk">
+  <div class="sec-h"><span class="n">C</span><h2>Component sheet</h2><p>Every component with its key states · metrics in pt · tokens shown resolve per appearance</p></div>
+  <div class="sheet">
+
+    <div class="card s3">
+      <h3>Conversation row</h3>
+      <p class="spec">68 pt fixed · wingbar 3 pt (unified only) · unread dot 8 pt at x 7 · avatar 36 pt r 11 at x 20 · text x 68 · trailing 14 · lines at y 10 / 28 / 45 · separator 0.5 pt from x 68 · no shadows, no blur, no animation</p>
+      <div class="grid g3">
+        <div class="cell"><div class="st">Unread</div><div class="surf"><div class="row unread nosep" style="--a:var(--wb-acct-1)"><i class="wbar"></i><i class="dot"></i><span class="av" style="--bg:var(--wb-av-2-bg);--fg:var(--wb-av-2-fg)">RK</span><div class="l1"><span class="snd">Rachel Kim</span><span class="tm">09:58</span></div><div class="l2"><span class="sub">Q4 roadmap review</span></div><div class="l3">Great work. One comment: move offline mode ahead.</div></div></div></div>
+        <div class="cell"><div class="st">Read</div><div class="surf"><div class="row nosep" style="--a:var(--wb-acct-2)"><i class="wbar"></i><span class="av" style="--bg:var(--wb-av-6-bg);--fg:var(--wb-av-6-fg)">LM</span><div class="l1"><span class="snd">Linda Morgan</span><span class="tm">09:30</span></div><div class="l2"><span class="sub">Sunday dinner</span></div><div class="l3">Ha, noted. I’ll bring the plum cake from the bakery.</div></div></div></div>
+        <div class="cell"><div class="st">Hover (pointer only)</div><div class="surf"><div class="row hov nosep" style="--a:var(--wb-acct-2)"><i class="wbar"></i><span class="av" style="--bg:var(--wb-av-6-bg);--fg:var(--wb-av-6-fg)">LM</span><div class="l1"><span class="snd">Linda Morgan</span><span class="tm">09:30</span></div><div class="l2"><span class="sub">Sunday dinner</span></div><div class="l3">Ha, noted. I’ll bring the plum cake from the bakery.</div></div></div></div>
+        <div class="cell"><div class="st">Selected · key window</div><div class="surf"><div class="row sel unread" style="--a:var(--wb-acct-1)"><i class="wbar"></i><i class="dot"></i><span class="av" style="--bg:var(--wb-av-1-bg);--fg:var(--wb-av-1-fg)">BC</span><div class="l1"><span class="snd">Ben Carter, <em>Tom Hughes</em></span><span class="tm">10:42</span></div><div class="l2"><span class="sub">Contoso rollout: go-live checklist</span><span class="cl"><span class="cnt">4</span><svg class="ic s12"><use href="#i-clip"/></svg><svg class="ic s12 star" style="fill:currentColor;stroke:currentColor;stroke-width:1"><use href="#i-star-fill"/></svg></span></div><div class="l3">Tested with three accounts, all good.</div></div></div></div>
+        <div class="cell"><div class="st">Selected · inactive window</div><div class="surf"><div class="row seli" style="--a:var(--wb-acct-1)"><i class="wbar"></i><span class="av" style="--bg:var(--wb-av-1-bg);--fg:var(--wb-av-1-fg)">BC</span><div class="l1"><span class="snd">Ben Carter, <em>Tom Hughes</em></span><span class="tm">10:42</span></div><div class="l2"><span class="sub">Contoso rollout: go-live checklist</span><span class="cl"><span class="cnt">4</span><svg class="ic s12"><use href="#i-clip"/></svg></span></div><div class="l3">Tested with three accounts, all good.</div></div></div></div>
+        <div class="cell"><div class="st">Keyboard focus · nothing selected</div><div class="surf"><div class="row kf nosep" style="--a:var(--wb-acct-3)"><i class="wbar"></i><span class="av" style="--bg:var(--wb-av-5-bg);--fg:var(--wb-av-5-fg)">NW</span><div class="l1"><span class="snd">Northwind Weekly</span><span class="tm">11:30</span></div><div class="l2"><span class="sub">Issue #128: Local-first, for real</span></div><div class="l3">This week: CRDTs in production.</div></div></div></div>
+        <div class="cell"><div class="st">Starred · attachment · count</div><div class="surf"><div class="row unread nosep" style="--a:var(--wb-acct-2)"><i class="wbar"></i><i class="dot"></i><span class="av" style="--bg:var(--wb-av-7-bg);--fg:var(--wb-av-7-fg)">PR</span><div class="l1"><span class="snd">Priya Raman</span><span class="tm">18:20</span></div><div class="l2"><span class="sub">Lisbon in March?</span><span class="cl"><span class="cnt">12</span><svg class="ic s12"><use href="#i-clip"/></svg><svg class="ic s12 star" style="fill:currentColor;stroke:currentColor;stroke-width:1"><use href="#i-star-fill"/></svg></span></div><div class="l3">Booked! Also Sam wants to come for the weekend.</div></div></div></div>
+        <div class="cell"><div class="st">Pending sync (queued locally)</div><div class="surf"><div class="row nosep" style="--a:var(--wb-acct-3)"><i class="wbar"></i><span class="av" style="--bg:var(--wb-av-8-bg);--fg:var(--wb-av-8-fg)">F</span><div class="l1"><span class="snd">Forge</span><svg class="pend" width="11" height="11"><use href="#g-pending"/></svg><span class="tm">08:47</span></div><div class="l2"><span class="sub">[sparrow-sync] PR #2657: Coalesce delta pages</span></div><div class="l3">maya-c commented: Looks good, one nit.</div></div></div></div>
+        <div class="cell"><div class="st">Other category (All filter only)</div><div class="surf"><div class="row nosep" style="--a:var(--wb-acct-1)"><i class="wbar"></i><span class="av" style="--bg:var(--wb-av-4-bg);--fg:var(--wb-av-4-fg)">T</span><div class="l1"><span class="snd">Trackr</span><span class="tm">16:05</span></div><div class="l2"><span class="sub">SRCH-2584: Highlight matches</span><span class="cl"><span class="tag">Other</span></span></div><div class="l3">Tom Hughes assigned this issue to you.</div></div></div></div>
+        <div class="cell"><div class="st">Compact density · 52 pt</div><div class="surf"><div class="row compact unread" style="--a:var(--wb-acct-2)"><i class="wbar"></i><i class="dot"></i><span class="av" style="--bg:var(--wb-av-3-bg);--fg:var(--wb-av-3-fg)">DA</span><div class="l1"><span class="snd">Diego Alvarez</span><span class="tm">10:15</span></div><div class="l2"><span class="sub">Photos from the offsite</span><span class="cl"><span class="cnt">3</span></span></div></div><div class="row compact nosep" style="--a:var(--wb-acct-1)"><i class="wbar"></i><span class="av" style="--bg:var(--wb-av-1-bg);--fg:var(--wb-av-1-fg)">TN</span><div class="l1"><span class="snd">Theo Nakamura</span><span class="tm">09:12</span></div><div class="l2"><span class="sub">Heads up</span></div></div></div></div>
+        <div class="cell"><div class="st">Date divider · 24 pt, sticky</div><div class="surf"><div class="dv" style="box-shadow:inset 0 -0.5px 0 var(--wb-line-hairline)">Earlier this week</div><div class="row nosep" style="--a:var(--wb-acct-2)"><i class="wbar"></i><span class="av" style="--bg:var(--wb-av-3-bg);--fg:var(--wb-av-3-fg)">GH</span><div class="l1"><span class="snd">Greenhouse Market</span><span class="tm">Mon</span></div><div class="l2"><span class="sub">Your veg box is on its way</span></div><div class="l3">Delivery between 08:00 and 10:00.</div></div></div></div>
+        <div class="cell"><div class="st">Skeleton · first launch only, static</div><div class="surf"><div class="row skel"><span class="sk" style="left:20px;top:16px;width:36px;height:36px;border-radius:11px"></span><span class="sk" style="left:68px;top:13px;width:120px;height:10px"></span><span class="sk" style="right:14px;top:13px;width:30px;height:10px"></span><span class="sk" style="left:68px;top:31px;width:190px;height:10px"></span><span class="sk" style="left:68px;top:48px;width:240px;height:9px;opacity:.7"></span></div><div class="row skel nosep"><span class="sk" style="left:20px;top:16px;width:36px;height:36px;border-radius:11px"></span><span class="sk" style="left:68px;top:13px;width:90px;height:10px"></span><span class="sk" style="right:14px;top:13px;width:30px;height:10px"></span><span class="sk" style="left:68px;top:31px;width:150px;height:10px"></span><span class="sk" style="left:68px;top:48px;width:210px;height:9px;opacity:.7"></span></div></div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Account rail</h3>
+      <p class="spec">72 pt wide · item well 48 pt r 13 · avatar 36 pt r 11 · pitch 52 · perch 3 × 20 · badge 16 pt, 2 pt cut-out ring</p>
+      <div class="surf slate" style="padding:18px 8px 6px">
+        <div class="grid g4" style="gap:6px 0">
+          <div class="rcell"><div class="ri sel"><svg class="gl"><use href="#g-unified"/></svg><b class="rb">21</b></div><span>All Inboxes</span></div>
+          <div class="rcell"><div class="ri"><span class="rav" style="--a:var(--wb-acct-1-glow)">W</span><b class="rb">12</b></div><span>Rest</span></div>
+          <div class="rcell"><div class="ri hov"><span class="rav" style="--a:var(--wb-acct-2-glow)">P</span><b class="rb">7</b></div><span>Hover</span></div>
+          <div class="rcell"><div class="ri prs"><span class="rav" style="--a:var(--wb-acct-3-glow)">S</span></div><span>Pressed</span></div>
+          <div class="rcell"><div class="ri sel"><span class="rav" style="--a:var(--wb-acct-4-glow)">L</span><b class="rb">99+</b></div><span>Selected</span></div>
+          <div class="rcell"><div class="ri foc"><span class="rav" style="--a:var(--wb-acct-5-glow)">K</span></div><span>Focused</span></div>
+          <div class="rcell"><div class="ri"><span class="rav dim" style="--a:var(--wb-acct-6-glow)">D</span><b class="rb warn"><svg class="ic s11" style="stroke:none;fill:currentColor;margin:2.5px"><use href="#i-exclam-circle"/></svg></b></div><span>Sign in again</span></div>
+          <div class="rcell"><div class="ri"><span class="rav" style="--a:var(--wb-acct-7-glow)">N</span><svg class="rspin" viewBox="0 0 40 40"><rect x="1" y="1" width="38" height="38" rx="13" fill="none" stroke="var(--wb-text-on-slate)" stroke-width="1.5" stroke-dasharray="30 120" stroke-linecap="round"/></svg></div><span>First sync</span></div>
+        </div>
+      </div>
+      <p class="note">Minimal mode (View ▸ Hide Accounts, ⌃⌘S): the rail collapses to 0; the list header insets 78 pt for the traffic lights and the title menu gains an Accounts section. ⌘0–⌘9 always switch.</p>
+    </div>
+
+    <div class="card s2">
+      <h3>List header · title menu · filter · search</h3>
+      <p class="spec">88 pt: title band 52 (title 15/20 semibold, centered on y 26 with the traffic lights) + search row · segmented 24 pt r 6 · search 28 pt pill · hairline at y 88 aligns with the reader’s</p>
+      <div class="grid g2">
+        <div class="cell"><div class="st">Inbox · Focused filter · title hover</div><div class="surf" style="height:88px"><div class="lh" style="border:0"><div class="tmenu hov">Inbox<svg class="ic s11"><use href="#i-chev-down"/></svg></div><div class="seg"><span>All</span><span class="on">Focused</span><span>Other</span></div><button class="ib compose"><svg class="ic"><use href="#i-compose"/></svg></button><div class="search"><svg class="ic s13"><use href="#i-search"/></svg><span class="q">Search</span><span class="kbd">/</span></div></div></div></div>
+        <div class="cell"><div class="st">Starred · no filter · search focused with query</div><div class="surf" style="height:88px"><div class="lh" style="border:0"><div class="tmenu">Starred<svg class="ic s11"><use href="#i-chev-down"/></svg></div><button class="ib compose"><svg class="ic"><use href="#i-compose"/></svg></button><div class="search foc"><svg class="ic s13" style="color:var(--wb-text-secondary)"><use href="#i-search"/></svg><span class="q filled">sso metadata<span class="caret"></span></span><span class="cnt2 tnum">14 results</span><span class="clr"><svg class="ic" style="width:8px;height:8px;stroke-width:2.4"><use href="#i-x"/></svg></span></div></div></div></div>
+      </div>
+      <div class="grid" style="grid-template-columns: 250px 1fr;margin-top:20px;gap:20px">
+        <div class="cell"><div class="st">Title menu · open</div>
+          <div class="menu">
+            <div class="mi hl"><span class="chk"><svg class="ic s12" style="stroke-width:2"><use href="#i-check"/></svg></span><svg class="ic s14"><use href="#i-tray"/></svg><span class="lbl">Inbox</span><span class="badge acc" style="background:rgba(255,255,255,0.24)">21</span><span class="key">G I</span></div>
+            <div class="mi"><span class="chk"></span><svg class="ic s14"><use href="#i-star"/></svg><span class="lbl">Starred</span><span class="key">G S</span></div>
+            <div class="mi"><span class="chk"></span><svg class="ic s14"><use href="#i-sent"/></svg><span class="lbl">Sent</span><span class="key">G T</span></div>
+            <div class="mi"><span class="chk"></span><svg class="ic s14"><use href="#i-doc-text"/></svg><span class="lbl">Drafts</span><span class="key">G D</span></div>
+            <div class="mi"><span class="chk"></span><svg class="ic s14"><use href="#i-trash"/></svg><span class="lbl">Trash</span><span class="key">G #</span></div>
+            <div class="mi"><span class="chk"></span><svg class="ic s14"><use href="#i-archive"/></svg><span class="lbl">All Mail</span><span class="key">G A</span></div>
+          </div>
+        </div>
+        <div class="cell vstack" style="gap:16px">
+          <div><div class="st">Segmented · rest / hover / focused / disabled</div><div class="hstack" style="gap:14px"><div class="seg"><span class="on">All</span><span>Focused</span><span>Other</span></div><div class="seg"><span class="on">All</span><span class="hov">Focused</span><span>Other</span></div><div class="seg"><span>All</span><span class="on foc">Focused</span><span>Other</span></div><div class="seg dis"><span class="on">All</span><span>Focused</span><span>Other</span></div></div></div>
+          <div><div class="st">Search · rest / focused empty / no results</div><div class="grid g3" style="gap:12px">
+            <div class="search" style="position:static"><svg class="ic s13"><use href="#i-search"/></svg><span class="q">Search</span><span class="kbd">/</span></div>
+            <div class="search foc" style="position:static"><svg class="ic s13" style="color:var(--wb-text-secondary)"><use href="#i-search"/></svg><span class="q"><span class="caret" style="margin:0 2px 0 0"></span>Search all accounts</span></div>
+            <div class="search" style="position:static"><svg class="ic s13"><use href="#i-search"/></svg><span class="q filled">ssso</span><span class="cnt2">No results</span><span class="clr"><svg class="ic" style="width:8px;height:8px;stroke-width:2.4"><use href="#i-x"/></svg></span></div>
+          </div></div>
+          <div><div class="st">Compose button · rest / hover / pressed / focused</div><div class="hstack" style="gap:8px"><button class="ib"><svg class="ic"><use href="#i-compose"/></svg></button><button class="ib hov"><svg class="ic"><use href="#i-compose"/></svg></button><button class="ib prs"><svg class="ic"><use href="#i-compose"/></svg></button><button class="ib foc"><svg class="ic"><use href="#i-compose"/></svg></button></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Sync status line</h3>
+      <p class="spec">24 pt, always present (no layout jump) · caption 11/14 · glyph 11 pt · action is a text button</p>
+      <div class="vstack" style="gap:8px">
+        <div class="surf"><div class="sync" style="border:0"><svg class="ic s11"><use href="#i-check"/></svg><span>Up to date · 10:42</span></div></div>
+        <div class="surf"><div class="sync" style="border:0"><svg class="spin" width="11" height="11" viewBox="0 0 16 16"><circle class="tr" cx="8" cy="8" r="6" fill="none" stroke-width="2.4"/><path class="hd" d="M8 2a6 6 0 0 1 6 6" fill="none" stroke-width="2.4" stroke-linecap="round"/></svg><span>Checking for mail…</span></div></div>
+        <div class="surf"><div class="sync" style="border:0"><span class="tnum">Downloading mail · 12,480 messages</span><span class="sp"></span><div class="pbar bar"><i style="width:38%"></i></div></div></div>
+        <div class="surf"><div class="sync warn" style="border:0"><svg class="ic s11" style="color:var(--wb-text-secondary)"><use href="#i-wifi-slash"/></svg><span>Offline · changes will sync later</span></div></div>
+        <div class="surf"><div class="sync err" style="border:0"><svg class="ic s11" style="stroke:none;fill:currentColor"><use href="#i-warn"/></svg><span>Can’t sync maya@fabrikam.com</span><span class="sp"></span><span class="lnk">Retry</span></div></div>
+        <div class="surf"><div class="sync warn" style="border:0"><svg class="ic s11" style="stroke:none;fill:currentColor"><use href="#i-exclam-circle"/></svg><span>Sign in again to alex@contoso.com</span><span class="sp"></span><span class="lnk">Reconnect</span></div></div>
+      </div>
+    </div>
+
+    <div class="card s2">
+      <h3>Empty states</h3>
+      <p class="spec">Glyph tile 56 pt r 16 fill-subtle · title-2 · callout tertiary, max 240 pt · one optional action · centered in the pane, 40 pt above optical center</p>
+      <div class="grid g3">
+        <div class="cell"><div class="st">Inbox zero</div><div class="surf empty"><span class="etile"><svg class="ic" style="width:26px;height:26px"><use href="#g-wing"/></svg></span><b>You’re all caught up</b><span>Nothing new in Inbox.</span><span class="ehint"><span class="kbd">C</span> to write a message</span></div></div>
+        <div class="cell"><div class="st">No search results</div><div class="surf empty"><span class="etile"><svg class="ic" style="width:24px;height:24px"><use href="#i-search"/></svg></span><b>No results for “ssso”</b><span>Check the spelling, or search every view.</span><button class="btn sm sec" style="margin-top:12px">Search All Mail</button></div></div>
+        <div class="cell"><div class="st">Reader · nothing selected</div><div class="surf rd empty"><span class="etile" style="background:var(--wb-bg-card);box-shadow:0 0 0 0.5px var(--wb-line-hairline)"><svg class="ic" style="width:24px;height:24px"><use href="#i-envelope"/></svg></span><b>No conversation selected</b><span class="ehint" style="margin-top:6px"><span class="kbd">J</span><span class="kbd">K</span> to move · <span class="kbd">↩</span> to open</span></div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Attachment chip</h3>
+      <p class="spec">40 pt (36 in composer) r 8 · type tile 28 r 6 · name 12/15 medium · size 11/14 · max 260 pt, middle-truncate names</p>
+      <div class="grid g2" style="gap:14px 12px">
+        <div class="cell"><div class="st">Rest</div><span class="chip"><span class="ti pdf"><svg class="ic s14"><use href="#i-doc"/></svg></span><span class="tx"><span class="nm">checklist.pdf</span><span class="sz">248 KB</span></span></span></div>
+        <div class="cell"><div class="st">Hover</div><span class="chip hov"><span class="ti pdf"><svg class="ic s14"><use href="#i-doc"/></svg></span><span class="tx"><span class="nm">checklist.pdf</span><span class="sz">248 KB</span></span></span></div>
+        <div class="cell"><div class="st">Pressed</div><span class="chip prs"><span class="ti pdf"><svg class="ic s14"><use href="#i-doc"/></svg></span><span class="tx"><span class="nm">checklist.pdf</span><span class="sz">248 KB</span></span></span></div>
+        <div class="cell"><div class="st">Focused</div><span class="chip foc"><span class="ti pdf"><svg class="ic s14"><use href="#i-doc"/></svg></span><span class="tx"><span class="nm">checklist.pdf</span><span class="sz">248 KB</span></span></span></div>
+        <div class="cell"><div class="st">Downloading</div><span class="chip" style="width:150px"><span class="ti"><svg class="spin" width="14" height="14" viewBox="0 0 16 16"><circle class="tr" cx="8" cy="8" r="6" fill="none" stroke-width="2"/><path class="hd" d="M8 2a6 6 0 0 1 6 6" fill="none" stroke-width="2" stroke-linecap="round"/></svg></span><span class="tx" style="flex:1"><span class="nm">offsite-raw.zip</span><span class="sz tnum">61 of 140 MB</span></span></span></div>
+        <div class="cell"><div class="st">Error</div><span class="chip err"><span class="ti" style="color:var(--wb-text-danger)"><svg class="ic s14" style="stroke:none;fill:currentColor"><use href="#i-warn"/></svg></span><span class="tx"><span class="nm">offsite-raw.zip</span><span class="sz">Couldn’t download · Retry</span></span></span></div>
+      </div>
+    </div>
+    <div class="card s2">
+      <h3>Reader header · action buttons</h3>
+      <p class="spec">88 pt, bg-list: subject title-1 20/25 on y 26 · actions 28 pt icon buttons, glyph 16 pt, 2 pt gap, right 14 · meta row at y 58: account chip 20 pt + caption · header material only while content scrolls beneath</p>
+      <div class="surf" style="height:88px"><div class="rh" style="margin:0;border:0"><h1 class="subj">Lisbon in March?</h1><div class="acts"><button class="ib on"><svg class="ic" style="fill:currentColor;stroke:currentColor;stroke-width:1"><use href="#i-star-fill"/></svg></button><button class="ib"><svg class="ic"><use href="#i-archive"/></svg></button><button class="ib"><svg class="ic"><use href="#i-trash"/></svg></button><span class="vr"></span><button class="ib"><svg class="ic"><use href="#i-ellipsis"/></svg></button></div><div class="rh2"><span class="achip" style="--a:var(--wb-acct-2)"><i></i>Personal · alex.morgan@gmail.com</span><span class="meta">5 messages · Priya Raman, Sam Ortiz</span></div></div></div>
+      <div class="grid g6" style="margin-top:18px;gap:12px">
+        <div class="cell"><div class="st">Rest</div><button class="ib"><svg class="ic"><use href="#i-archive"/></svg></button></div>
+        <div class="cell"><div class="st">Hover</div><div class="hstack" style="gap:6px;flex-wrap:nowrap"><button class="ib hov"><svg class="ic"><use href="#i-archive"/></svg></button><span class="tip">Archive<span class="kbd">E</span></span></div></div>
+        <div class="cell"><div class="st">Pressed</div><button class="ib prs"><svg class="ic"><use href="#i-archive"/></svg></button></div>
+        <div class="cell"><div class="st">Focused</div><button class="ib foc"><svg class="ic"><use href="#i-archive"/></svg></button></div>
+        <div class="cell"><div class="st">On (starred)</div><button class="ib on"><svg class="ic" style="fill:currentColor;stroke:currentColor;stroke-width:1"><use href="#i-star-fill"/></svg></button></div>
+        <div class="cell"><div class="st">Disabled</div><button class="ib dis"><svg class="ic"><use href="#i-trash"/></svg></button></div>
+      </div>
+    </div>
+
+    <div class="card s3">
+      <h3>Message cards · header · quoted text · remote images · original colors</h3>
+      <p class="spec">Column max 760 pt · collapsed messages form one “deck” (rows 48 pt, avatar 28 r 8, hairline between) · expanded card r 10, padding 16/20/12, 12 pt from the deck · focus ring 2 pt · body reading 14/21 · footer actions ghost buttons with kbd hints</p>
+      <div class="grid" style="grid-template-columns: 1fr 1fr 1fr; gap:24px">
+        <div class="cell"><div class="st">Deck · read / unread / hover / focused</div>
+          <div class="surf rd" style="padding:12px">
+            <div class="deck">
+              <div class="mc"><span class="av" style="--bg:var(--wb-av-1-bg);--fg:var(--wb-av-1-fg)">BC</span><span class="nm" style="width:96px">Ben Carter</span><span class="sn">Hi Alex, attaching our checklist</span><span class="dt">Fri</span></div>
+              <div class="mc unread"><span class="av" style="--bg:var(--wb-av-6-bg);--fg:var(--wb-av-6-fg)">AM</span><span class="nm" style="width:96px">Alex Morgan</span><span class="sn">Items 4–7 are done</span><span class="dt">Fri</span></div>
+              <div class="mc hov"><span class="av" style="--bg:var(--wb-av-4-bg);--fg:var(--wb-av-4-fg)">TH</span><span class="nm" style="width:96px">Tom Hughes</span><span class="sn">Forwarded to IT</span><span class="dt">18:58</span></div>
+            </div>
+            <div class="deck" style="margin-top:12px;overflow:visible;box-shadow:none;background:none"><div class="mc foc" style="background:var(--wb-bg-card)"><span class="av" style="--bg:var(--wb-av-1-bg);--fg:var(--wb-av-1-fg)">BC</span><span class="nm" style="width:96px">Ben Carter</span><span class="sn">Tested with three accounts</span><span class="dt">10:42</span></div></div>
+          </div>
+        </div>
+        <div class="cell"><div class="st">Expanded header · hover reveals address · images blocked</div>
+          <div class="surf rd" style="padding:12px">
+            <div class="mx" style="margin:0;padding:14px 16px 14px">
+              <div class="mh"><span class="av" style="--bg:var(--wb-av-1-bg);--fg:var(--wb-av-1-fg)">BC</span><div class="who"><div class="nm2">Ben Carter<span class="addr">ben@contoso.com</span></div><div class="rcp">to me · cc Tom Hughes</div></div><div class="side"><span class="dt">10:42</span></div></div>
+              <div class="banner"><svg class="ic s14"><use href="#i-photo"/></svg><span class="t">3 remote images blocked.</span><button class="btn sm sec">Load images (3)</button></div>
+              <div class="banner" style="margin-top:8px;background:var(--wb-accent-subtle);color:var(--wb-text-primary)"><svg class="ic s14" style="color:var(--wb-text-accent)"><use href="#i-check-circle"/></svg><span class="t">Images loaded.</span><button class="btn sm gho">Always for this sender</button></div>
+            </div>
+          </div>
+        </div>
+        <div class="cell"><div class="st">Quoted text · folded / shown · original colors</div>
+          <div class="surf rd" style="padding:12px">
+            <div class="mx" style="margin:0;padding:14px 16px 14px">
+              <div class="tools" style="margin:0"><span class="pill"><svg class="ic s13"><use href="#i-ellipsis-rect"/></svg>Show quoted text</span><span class="pill hov"><svg class="ic s13"><use href="#i-ellipsis-rect"/></svg>Show quoted text</span><span class="pill foc"><svg class="ic s13"><use href="#i-ellipsis-rect"/></svg>Focused</span></div>
+              <div class="tools"><span class="pill on"><svg class="ic s13"><use href="#i-ellipsis-rect"/></svg>Hide quoted text</span><span class="pill"><svg class="ic s12"><use href="#i-contrast"/></svg>Original colors</span><span class="pill on"><svg class="ic s12"><use href="#i-contrast"/></svg>Original colors</span></div>
+              <div class="quote">On Fri 30 Oct, Alex Morgan wrote:<br>Thanks Ben. Items 4–7 are done; 8 and 9 depend on your SSO configuration.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card s2">
+      <h3>Quick reply bar</h3>
+      <p class="spec">Docked, 52 pt collapsed (field 36 pt r 8, reading 14/21) · grows to 112–280 pt · ⌘↩ sends · ⌘⇧O opens the full composer with the text</p>
+      <div class="grid g2" style="gap:16px 20px">
+        <div class="cell"><div class="st">Collapsed</div><div class="surf"><div class="qr" style="margin:0;border:0"><div class="qrf"><svg class="ic s14"><use href="#i-reply"/></svg><span class="ph">Reply to Ben Carter…</span><span class="kbd">R</span></div></div></div></div>
+        <div class="cell"><div class="st">Focused · empty</div><div class="surf"><div class="qr" style="margin:0;border:0"><div class="qrf foc"><svg class="ic s14"><use href="#i-reply"/></svg><span class="ph"><span class="caret" style="margin:0 3px 0 0"></span>Reply to Ben Carter…</span><span class="kbd">esc</span></div></div></div></div>
+        <div class="cell"><div class="st">Expanded · with text</div><div class="surf" style="padding:8px 24px"><div class="qrf foc big"><span class="txt">Perfect, thanks Ben. I’ll keep the old metadata until Monday and loop Tom in for the 07:00 window.<span class="caret"></span></span><div class="bar2"><span style="font:var(--wb-type-caption);color:var(--wb-text-tertiary)">Reply all · Work</span><span style="flex:1"></span><button class="ib sm"><svg class="ic s14"><use href="#i-expand"/></svg></button><button class="btn sm pri">Send<span class="kbd on-acc" style="height:16px">⌘↩</span></button></div></div></div></div>
+        <div class="cell"><div class="st">Sending (undo window)</div><div class="surf" style="padding:8px 24px"><div class="qrf big" style="opacity:1"><span class="txt" style="color:var(--wb-text-secondary)">Perfect, thanks Ben. I’ll keep the old metadata until Monday and loop Tom in for the 07:00 window.</span><div class="bar2"><span style="font:var(--wb-type-caption);color:var(--wb-text-tertiary)">Sending in 4 s</span><span style="flex:1"></span><button class="btn sm sec">Undo<span class="kbd" style="height:16px">⌘Z</span></button></div></div></div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Address token · autocomplete</h3>
+      <p class="spec">20 pt r 5 · callout-medium 12 · accent-subtle · selected = accent fill · invalid adds a glyph and wavy underline · menu rows 40 pt</p>
+      <div class="grid g2" style="gap:14px 12px">
+        <div class="cell"><div class="st">Rest</div><span class="tok">Ben Carter</span></div>
+        <div class="cell"><div class="st">Hover (menu chevron)</div><span class="tok hov">Ben Carter<svg class="ic s11"><use href="#i-chev-down"/></svg></span></div>
+        <div class="cell"><div class="st">Selected</div><span class="tok sel">Tom Hughes</span></div>
+        <div class="cell"><div class="st">Invalid</div><span class="tok bad"><svg class="ic s12" style="stroke:none;fill:currentColor"><use href="#i-exclam-circle"/></svg><u>maya@fabrikam</u></span></div>
+      </div>
+      <div class="st" style="margin-top:16px">Autocomplete</div>
+      <div class="menu" style="width:100%">
+        <div class="mi hl" style="height:40px"><span class="av" style="--bg:var(--wb-av-7-bg);--fg:var(--wb-av-7-fg);width:24px;height:24px;line-height:24px;font-size:10px;border-radius:7px">PR</span><span class="lbl" style="line-height:15px"><b style="font-weight:600">Pri</b>ya Raman<br><span style="font:var(--wb-type-caption);opacity:.88">priya.raman@gmail.com</span></span><span class="kbd on-acc">↩</span></div>
+        <div class="mi" style="height:40px"><span class="av" style="--bg:var(--wb-av-2-bg);--fg:var(--wb-av-2-fg);width:24px;height:24px;line-height:24px;font-size:10px;border-radius:7px">PO</span><span class="lbl" style="line-height:15px"><b style="font-weight:600">Pri</b>ce Ops<br><span style="font:var(--wb-type-caption);color:var(--wb-text-tertiary)">pricing@contoso.com</span></span></div>
+      </div>
+    </div>
+
+    <div class="card s3">
+      <h3>Buttons</h3>
+      <p class="spec">Small 22 pt (12 medium, pad 8) · regular 28 pt (13 medium, pad 12) · large 32 pt (13 medium, pad 16, r 8) · r 5 · focus ring 2 pt + 1 pt gap · pressed is a darker fill, never a scale on text buttons</p>
+      <div class="bgrid">
+        <span></span><span class="st">Rest</span><span class="st">Hover</span><span class="st">Pressed</span><span class="st">Focused</span><span class="st">Disabled</span><span class="st">Loading</span>
+        <span class="st">Primary</span><span><button class="btn pri">Send</button></span><span><button class="btn pri hov">Send</button></span><span><button class="btn pri prs">Send</button></span><span><button class="btn pri foc">Send</button></span><span><button class="btn pri dis">Send</button></span><span><button class="btn pri"><svg class="spin" width="12" height="12" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="rgba(255,255,255,.35)" stroke-width="2.2"/><path d="M8 2a6 6 0 0 1 6 6" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/></svg>Sending…</button></span>
+        <span class="st">Secondary</span><span><button class="btn sec">Load images</button></span><span><button class="btn sec hov">Load images</button></span><span><button class="btn sec prs">Load images</button></span><span><button class="btn sec foc">Load images</button></span><span><button class="btn sec dis">Load images</button></span><span><button class="btn sec"><svg class="spin" width="12" height="12" viewBox="0 0 16 16"><circle class="tr" cx="8" cy="8" r="6" fill="none" stroke-width="2.2"/><path class="hd" d="M8 2a6 6 0 0 1 6 6" fill="none" stroke-width="2.2" stroke-linecap="round"/></svg>Loading…</button></span>
+        <span class="st">Ghost</span><span><button class="btn gho"><svg class="ic s14"><use href="#i-reply"/></svg>Reply</button></span><span><button class="btn gho hov"><svg class="ic s14"><use href="#i-reply"/></svg>Reply</button></span><span><button class="btn gho prs"><svg class="ic s14"><use href="#i-reply"/></svg>Reply</button></span><span><button class="btn gho foc"><svg class="ic s14"><use href="#i-reply"/></svg>Reply</button></span><span><button class="btn gho dis"><svg class="ic s14"><use href="#i-reply"/></svg>Reply</button></span><span><button class="btn gho"><svg class="spin" width="12" height="12" viewBox="0 0 16 16"><circle class="tr" cx="8" cy="8" r="6" fill="none" stroke-width="2.2"/><path class="hd" d="M8 2a6 6 0 0 1 6 6" fill="none" stroke-width="2.2" stroke-linecap="round"/></svg>Reply</button></span>
+        <span class="st">Destructive</span><span><button class="btn des">Remove</button></span><span><button class="btn des hov">Remove</button></span><span><button class="btn des prs">Remove</button></span><span><button class="btn des foc">Remove</button></span><span><button class="btn des dis">Remove</button></span><span><button class="btn desg">Remove…</button></span>
+        <span class="st">Icon</span><span><button class="ib"><svg class="ic"><use href="#i-trash"/></svg></button></span><span><button class="ib hov"><svg class="ic"><use href="#i-trash"/></svg></button></span><span><button class="ib prs"><svg class="ic"><use href="#i-trash"/></svg></button></span><span><button class="ib foc"><svg class="ic"><use href="#i-trash"/></svg></button></span><span><button class="ib dis"><svg class="ic"><use href="#i-trash"/></svg></button></span><span><button class="ib"><svg class="spin" width="16" height="16" viewBox="0 0 16 16"><circle class="tr" cx="8" cy="8" r="6" fill="none" stroke-width="1.8"/><path class="hd" d="M8 2a6 6 0 0 1 6 6" fill="none" stroke-width="1.8" stroke-linecap="round"/></svg></button></span>
+      </div>
+      <div class="hstack" style="margin-top:18px;gap:24px;padding-top:16px;box-shadow:inset 0 0.5px 0 var(--wb-line-hairline)">
+        <span class="st" style="margin:0">Sizes</span>
+        <button class="btn pri sm">Small 22</button><button class="btn pri">Regular 28</button><button class="btn pri lg">Large 32</button>
+        <button class="btn sec sm">Small</button><button class="btn sec">Regular</button><button class="btn sec lg">Large</button>
+        <button class="ib sm"><svg class="ic s14"><use href="#i-star"/></svg></button><button class="ib"><svg class="ic"><use href="#i-star"/></svg></button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Text field</h3>
+      <p class="spec">28 pt r 5 · body 13 · fill bg-field, no resting border (1 pt line-control in increased contrast) · focus ring 2 pt · error 1.5 pt danger + glyph and message</p>
+      <div class="vstack" style="gap:12px">
+        <div><div class="st">Rest · placeholder</div><div class="fld">Client ID</div></div>
+        <div><div class="st">Focused</div><div class="fld foc">1234-ab<span class="caret"></span></div></div>
+        <div><div class="st">Filled</div><div class="fld filled mono" style="font-size:12px">1234-abcd.apps.googleusercontent.com</div></div>
+        <div><div class="st">Error</div><div class="fld err">common/</div><div class="help err"><svg class="ic s12" style="stroke:none;fill:currentColor"><use href="#i-exclam-circle"/></svg>Tenant can’t end with “/”.</div></div>
+        <div><div class="st">Disabled</div><div class="fld dis">Managed by your organization</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Checkbox · toggle · popup button</h3>
+      <p class="spec">Checkbox 14 pt r 4 · toggle 30 × 18, knob 14 · popup 24 pt r 5 with chevron.up.chevron.down 12 pt · off states outlined in line-control (≥ 3:1)</p>
+      <div class="cgrid">
+        <span></span><span class="st">Off</span><span class="st">On</span><span class="st">Mixed</span><span class="st">Focused</span><span class="st">Disabled</span>
+        <span class="st">Checkbox</span><span><i class="cb"></i></span><span><i class="cb on"><svg class="ic" style="width:10px;height:10px;stroke-width:2.4"><use href="#i-check"/></svg></i></span><span><i class="cb on"><svg class="ic" style="width:10px;height:10px;stroke-width:2.4"><use href="#i-minus"/></svg></i></span><span><i class="cb on foc"><svg class="ic" style="width:10px;height:10px;stroke-width:2.4"><use href="#i-check"/></svg></i></span><span><i class="cb on dis"><svg class="ic" style="width:10px;height:10px;stroke-width:2.4"><use href="#i-check"/></svg></i></span>
+        <span class="st">Toggle</span><span><i class="tg"></i></span><span><i class="tg on"></i></span><span>—</span><span><i class="tg on foc"></i></span><span><i class="tg dis"></i></span>
+      </div>
+      <div class="vstack" style="gap:10px;margin-top:16px">
+        <div class="hstack"><span class="pop">5 seconds<svg class="ic s12"><use href="#i-updown"/></svg></span><span class="pop hov">Standard<svg class="ic s12"><use href="#i-updown"/></svg></span></div>
+        <div class="hstack"><span class="pop foc">SF Pro<svg class="ic s12"><use href="#i-updown"/></svg></span><span class="pop dis">New York<svg class="ic s12"><use href="#i-updown"/></svg></span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Badges · keyboard hints</h3>
+      <p class="spec">Badge 16 pt pill, SF Pro Rounded 11 bold, tabular · dot 8 pt · kbd 18 pt r 3, SF Mono 11 medium, 0.5 pt border + 1 pt bottom edge</p>
+      <div class="vstack" style="gap:14px">
+        <div class="hstack"><span class="badge neu">4</span><span class="badge neu">12</span><span class="badge acc">21</span><span class="badge acc">99+</span><span class="surf slate" style="padding:6px 8px;border-radius:6px;display:inline-flex;gap:8px"><b class="rb" style="position:static;box-shadow:none">7</b><b class="rb" style="position:static;box-shadow:none">128</b></span><span class="udot"></span><span style="font:var(--wb-type-caption);color:var(--wb-text-tertiary)">count · unread · rail · dot</span></div>
+        <div class="hstack"><span class="kbd">E</span><span class="kbd">#</span><span class="kbd">⌘↩</span><span class="kbd">⌘⇧O</span><span class="kbd">esc</span><span><span class="kbd">G</span><span class="then">then</span><span class="kbd">I</span></span></div>
+        <div class="kmap">
+          <span><span class="kbd">J</span><span class="kbd">K</span></span><span>Next / previous</span>
+          <span><span class="kbd">E</span></span><span>Archive</span>
+          <span><span class="kbd">S</span></span><span>Star</span>
+          <span><span class="kbd">U</span></span><span>Mark unread</span>
+          <span><span class="kbd">#</span></span><span>Trash</span>
+          <span><span class="kbd">R</span><span class="kbd">A</span><span class="kbd">F</span></span><span>Reply · all · forward</span>
+          <span><span class="kbd">C</span></span><span>Compose</span>
+          <span><span class="kbd">Z</span></span><span>Undo last action</span>
+          <span><span class="kbd">/</span></span><span>Search</span>
+          <span><span class="kbd">⌘0</span><span class="kbd">⌘9</span></span><span>Unified · account</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Avatars</h3>
+      <p class="spec">Rounded square, r = round(0.3 × d), continuous corners · initials SF Pro Rounded semibold at 0.39 × d · photo replaces tint · account ring 2 pt + 2 pt gap</p>
+      <div class="hstack" style="gap:14px;align-items:flex-end">
+        <span class="av" style="--bg:var(--wb-av-1-bg);--fg:var(--wb-av-1-fg);width:16px;height:16px;border-radius:5px;font-size:7px;line-height:16px">B</span>
+        <span class="av" style="--bg:var(--wb-av-2-bg);--fg:var(--wb-av-2-fg);width:20px;height:20px;border-radius:6px;font-size:8px;line-height:20px">RK</span>
+        <span class="av a28" style="--bg:var(--wb-av-3-bg);--fg:var(--wb-av-3-fg)">DA</span>
+        <span class="av" style="--bg:var(--wb-av-4-bg);--fg:var(--wb-av-4-fg);width:32px;height:32px;border-radius:10px;font-size:12px;line-height:32px">TH</span>
+        <span class="av" style="--bg:var(--wb-av-7-bg);--fg:var(--wb-av-7-fg)">PR</span>
+        <span class="av" style="--bg:var(--wb-av-6-bg);--fg:var(--wb-av-6-fg);width:40px;height:40px;border-radius:12px;font-size:16px;line-height:40px">LM</span>
+        <span class="av ph" style="width:40px;height:40px;border-radius:12px"></span>
+      </div>
+      <div class="hstack" style="gap:6px;margin-top:8px;font:var(--wb-type-caption);color:var(--wb-text-tertiary)"><span style="width:16px">16</span><span style="width:24px;margin-left:8px">20</span><span style="width:32px;margin-left:4px">28</span><span style="width:40px">32</span><span style="width:44px">36</span><span style="width:48px">40</span><span>photo</span></div>
+      <div class="st" style="margin-top:16px">Account avatar · ring (Settings, From popup)</div>
+      <div class="hstack" style="gap:18px">
+        <span class="rav" style="--a:var(--wb-acct-1-glow);width:32px;height:32px;line-height:32px;border-radius:10px;font-size:14px">W</span>
+        <span class="av" style="--bg:var(--wb-av-6-bg);--fg:var(--wb-av-6-fg);width:32px;height:32px;border-radius:10px;font-size:12px;line-height:32px;box-shadow:0 0 0 2px var(--pg-card),0 0 0 4px var(--wb-acct-2)">AM</span>
+        <span class="av" style="--bg:var(--wb-av-6-bg);--fg:var(--wb-av-6-fg);width:32px;height:32px;border-radius:10px;font-size:12px;line-height:32px;box-shadow:0 0 0 2px var(--pg-card),0 0 0 4px var(--wb-acct-3)">AM</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Progress</h3>
+      <p class="spec">Spinner = NSProgressIndicator (12 / 16 / 20 / 32) · bar 4 pt r 2, accent on fill-subtle · indeterminate bar slides a 30 % segment, 1.2 s linear; reduced motion: static 30 % pulse-free segment + text</p>
+      <div class="hstack" style="gap:18px">
+        <svg class="spin" width="12" height="12" viewBox="0 0 16 16"><circle class="tr" cx="8" cy="8" r="6" fill="none" stroke-width="2.2"/><path class="hd" d="M8 2a6 6 0 0 1 6 6" fill="none" stroke-width="2.2" stroke-linecap="round"/></svg>
+        <svg class="spin" width="16" height="16" viewBox="0 0 16 16"><circle class="tr" cx="8" cy="8" r="6" fill="none" stroke-width="1.9"/><path class="hd" d="M8 2a6 6 0 0 1 6 6" fill="none" stroke-width="1.9" stroke-linecap="round"/></svg>
+        <svg class="spin" width="20" height="20" viewBox="0 0 16 16"><circle class="tr" cx="8" cy="8" r="6" fill="none" stroke-width="1.6"/><path class="hd" d="M8 2a6 6 0 0 1 6 6" fill="none" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <svg class="spin" width="32" height="32" viewBox="0 0 16 16"><circle class="tr" cx="8" cy="8" r="6.5" fill="none" stroke-width="1.1"/><path class="hd" d="M8 1.5a6.5 6.5 0 0 1 6.5 6.5" fill="none" stroke-width="1.1" stroke-linecap="round"/></svg>
+        <span class="surf slate on-slate" style="padding:8px;border-radius:8px;display:inline-flex"><svg class="spin" width="16" height="16" viewBox="0 0 16 16"><circle class="tr" cx="8" cy="8" r="6" fill="none" stroke-width="1.9"/><path class="hd" d="M8 2a6 6 0 0 1 6 6" fill="none" stroke-width="1.9" stroke-linecap="round"/></svg></span>
+      </div>
+      <div class="vstack" style="gap:12px;margin-top:18px">
+        <div><div class="st">Determinate · 38 %</div><div class="pbar"><i style="width:38%"></i></div></div>
+        <div><div class="st">Indeterminate</div><div class="pbar"><i style="left:34%;width:30%"></i></div></div>
+        <div><div class="st">Undo-send countdown ring</div><div class="hstack" style="gap:14px"><svg width="22" height="22" viewBox="0 0 22 22"><circle cx="11" cy="11" r="9" fill="none" stroke="var(--wb-fill-subtle)" stroke-width="2.5"/><circle cx="11" cy="11" r="9" fill="none" stroke="var(--wb-fill-accent)" stroke-width="2.5" stroke-dasharray="33.9 56.5" stroke-linecap="round" transform="rotate(-90 11 11)"/></svg><span style="font:var(--wb-type-caption);color:var(--wb-text-tertiary)">ring empties linearly over the undo window; reduced motion shows “4 s” only</span></div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>App icon · title band</h3>
+      <p class="spec">Slate squircle on the macOS icon grid · white wing at 56 % · same slate as the rail · title band 52 pt, horizon hairline at 88 pt across list and reader</p>
+      <div class="hstack" style="gap:18px;align-items:flex-end">
+        <span class="appi" style="width:96px;height:96px;border-radius:22px"><svg class="ic" style="width:54px;height:54px"><use href="#g-wing"/></svg></span>
+        <span class="appi" style="width:48px;height:48px;border-radius:11px"><svg class="ic" style="width:27px;height:27px"><use href="#g-wing"/></svg></span>
+        <span class="appi" style="width:32px;height:32px;border-radius:7.5px"><svg class="ic" style="width:18px;height:18px"><use href="#g-wing"/></svg></span>
+        <span class="appi" style="width:16px;height:16px;border-radius:4px"><svg class="ic" style="width:10px;height:10px"><use href="#g-wing"/></svg></span>
+      </div>
+      <div class="band">
+        <div class="b-rail"><div class="tl" style="top:14px;left:6px;gap:5px"><i style="width:8px;height:8px"></i><i style="width:8px;height:8px"></i><i style="width:8px;height:8px"></i></div></div>
+        <div class="b-list"><span>Inbox ⌄</span></div><div class="b-read"><span>Subject</span></div>
+        <i class="b-l52"></i><i class="b-l88"></i><b class="b-t52">52</b><b class="b-t88">88</b>
+      </div>
+    </div>
+    <div class="card s2">
+      <h3>Welcome screen</h3>
+      <p class="spec">Shown in the main window with an empty rail · app tile 64 pt r 15 · display 28/34 bold −0.6 · lede 15/20 secondary, max 420 pt · actions large 32 pt, 260 pt wide, 8 pt apart · privacy line caption</p>
+      <div class="win" style="width:100%;height:440px;box-shadow:0 0 0 0.5px var(--wb-line-hairline)">
+        <aside class="rail" style="width:72px"><div class="tl"><i></i><i></i><i></i></div><div class="ri hov" style="top:60px"><svg class="ic" style="color:var(--wb-text-on-slate-2)"><use href="#i-plus"/></svg></div></aside>
+        <div class="welcome">
+          <span class="appi" style="width:64px;height:64px;border-radius:15px"><svg class="ic" style="width:36px;height:36px"><use href="#g-wing"/></svg></span>
+          <h4>Welcome to SuperSparrow</h4>
+          <p>A fast, simple home for your Gmail and Microsoft mail.</p>
+          <button class="btn pri lg" style="width:260px"><svg class="ic s14"><use href="#i-envelope"/></svg>Add Gmail account</button>
+          <button class="btn sec lg" style="width:260px;margin-top:8px"><svg class="ic s14"><use href="#i-envelope"/></svg>Add Microsoft account</button>
+          <button class="btn gho" style="margin-top:10px">Try the demo</button>
+          <div class="wfoot"><svg class="ic s12"><use href="#i-lock"/></svg>Your mail stays on this Mac. Sign-in happens in your browser.</div>
+        </div>
+      </div>
+      <div class="hstack" style="margin-top:14px;gap:14px"><span class="st" style="margin:0">Waiting state</span><div class="hstack" style="gap:8px;font:var(--wb-type-callout);color:var(--wb-text-secondary)"><svg class="spin" width="12" height="12" viewBox="0 0 16 16"><circle class="tr" cx="8" cy="8" r="6" fill="none" stroke-width="2.2"/><path class="hd" d="M8 2a6 6 0 0 1 6 6" fill="none" stroke-width="2.2" stroke-linecap="round"/></svg>Finish signing in in your browser…<button class="btn sm sec">Cancel</button></div><span class="st" style="margin:0 0 0 18px">Error</span><span class="help err" style="margin:0"><svg class="ic s12" style="stroke:none;fill:currentColor"><use href="#i-exclam-circle"/></svg>Sign-in was cancelled in the browser. Try again.</span></div>
+    </div>
+
+    <div class="card">
+      <h3>Voice · microcopy</h3>
+      <p class="spec">Sentence case · verb first · say what happened, then what to do · “·” separates facts · “…” only for work in progress or a menu that asks more</p>
+      <div class="voice">
+        <div class="do"><b>Do</b><span>Archived · Undo</span><span>Can’t sync maya@fabrikam.com · Retry</span><span>Sign in again to alex@contoso.com</span><span>Offline · changes will sync later</span><span>You’re all caught up</span><span>Remove alex@contoso.com?</span></div>
+        <div class="dont"><b>Don’t</b><span>Conversation successfully archived!</span><span>Error 401: token expired</span><span>Re-authentication required</span><span>Network failure. Please try again.</span><span>Inbox Zero achieved 🎉</span><span>Are you sure?</span></div>
+      </div>
+      <p class="note">Numbers are tabular and use the system locale (12,480). Times: today “10:42”, this week “Mon”, older “30 Oct”, other years “30 Oct 2025”. Never blame the user; never say “please”.</p>
+    </div>
+
+    <div class="card s3">
+      <h3>Settings window (SwiftUI)</h3>
+      <p class="spec">Toolbar tabs Accounts · OAuth · General · 600 pt wide (drawn at 400 here) · Form(.grouped) on bg-reader, groups bg-card r 10 · rows 44 pt (account rows 56) with hairlines inset 16 · account avatar 32 pt monogram · status = glyph + text, never color alone</p>
+      <div class="grid g3" style="gap:20px">
+        <div class="win setw">
+          <div class="stb"><div class="tl off" style="top:12px;left:12px"><i></i><i></i><i></i></div><span class="stt">Accounts</span><div class="tabs"><span class="tab on"><svg class="ic s20"><use href="#i-person"/></svg>Accounts</span><span class="tab"><svg class="ic s20"><use href="#i-key"/></svg>OAuth</span><span class="tab"><svg class="ic s20"><use href="#i-gearshape"/></svg>General</span></div></div>
+          <div class="sbody">
+            <div class="sgrp">
+              <div class="srow acc"><span class="rav" style="--a:var(--wb-acct-1-glow);width:32px;height:32px;line-height:32px;border-radius:10px;font-size:14px">W</span><div class="stx"><b>alex@contoso.com</b><span><svg class="ic s11" style="stroke:none;color:var(--wb-success)"><use href="#i-check-circle"/></svg>Microsoft · Up to date · 10:42</span></div><button class="btn sm desg">Remove…</button></div>
+              <div class="srow acc"><span class="rav" style="--a:var(--wb-acct-2-glow);width:32px;height:32px;line-height:32px;border-radius:10px;font-size:14px">P</span><div class="stx"><b>alex.morgan@gmail.com</b><span><svg class="spin" width="11" height="11" viewBox="0 0 16 16"><circle class="tr" cx="8" cy="8" r="6" fill="none" stroke-width="2.4"/><path class="hd" d="M8 2a6 6 0 0 1 6 6" fill="none" stroke-width="2.4" stroke-linecap="round"/></svg><span class="tnum">Gmail · Downloading · 12,480</span></span></div><button class="btn sm desg">Remove…</button></div>
+              <div class="srow acc"><span class="rav dim" style="--a:var(--wb-acct-3-glow);width:32px;height:32px;line-height:32px;border-radius:10px;font-size:14px">S</span><div class="stx"><b>alex@fabrikam.studio</b><span class="warnt"><svg class="ic s11" style="stroke:none;fill:currentColor"><use href="#i-warn"/></svg>Signed out · reconnect to sync</span></div><button class="btn sm sec">Reconnect</button><button class="btn sm desg">Remove…</button></div>
+            </div>
+            <div class="hstack" style="justify-content:flex-end;gap:8px;margin-top:12px"><button class="btn sm sec">Add Gmail Account…</button><button class="btn sm sec">Add Microsoft Account…</button></div>
+            <div class="sgh" style="margin-top:18px">Demo</div><div class="sgrp"><div class="srow tall"><span class="sl">Demo mailboxes<small>Made up, and live only on this Mac.</small></span><i class="tg"></i></div></div>
+          </div>
+        </div>
+        <div class="win setw">
+          <div class="stb"><div class="tl off" style="top:12px;left:12px"><i></i><i></i><i></i></div><span class="stt">OAuth</span><div class="tabs"><span class="tab"><svg class="ic s20"><use href="#i-person"/></svg>Accounts</span><span class="tab on"><svg class="ic s20"><use href="#i-key"/></svg>OAuth</span><span class="tab"><svg class="ic s20"><use href="#i-gearshape"/></svg>General</span></div></div>
+          <div class="sbody">
+            <div class="sgh">Google (Gmail)</div>
+            <div class="sgrp">
+              <div class="srow"><span class="sl">Client ID</span><div class="fld filled mono" style="width:190px;height:24px;font-size:11px">1234-abcd.apps.goog…</div></div>
+              <div class="srow"><span class="sl">Client secret</span><div class="fld filled" style="width:190px;height:24px;letter-spacing:2px">••••••••••••</div></div>
+            </div>
+            <div class="sgh">Microsoft</div>
+            <div class="sgrp">
+              <div class="srow"><span class="sl">Client ID</span><div class="fld foc mono" style="width:190px;height:24px;font-size:11px">0b1f9c2e-77a4<span class="caret" style="height:13px"></span></div></div>
+              <div class="srow"><span class="sl">Tenant</span><div class="fld" style="width:190px;height:24px">common</div></div>
+            </div>
+            <p class="help" style="margin:10px 4px 0;display:block;line-height:15px">Register a Desktop app client in Google Cloud and a Mobile and desktop app in Microsoft Entra. Steps: docs/OAUTH-SETUP.md.</p>
+            <div class="hstack" style="justify-content:flex-end;gap:8px;margin-top:12px"><span class="help" style="margin:0 auto 0 4px;color:var(--wb-text-success)"><svg class="ic s12" style="stroke:none;color:var(--wb-success)"><use href="#i-check-circle"/></svg>Saved</span><button class="btn sm sec">Show File in Finder</button><button class="btn sm pri">Save</button></div>
+          </div>
+        </div>
+        <div class="win setw">
+          <div class="stb"><div class="tl off" style="top:12px;left:12px"><i></i><i></i><i></i></div><span class="stt">General</span><div class="tabs"><span class="tab"><svg class="ic s20"><use href="#i-person"/></svg>Accounts</span><span class="tab"><svg class="ic s20"><use href="#i-key"/></svg>OAuth</span><span class="tab on"><svg class="ic s20"><use href="#i-gearshape"/></svg>General</span></div></div>
+          <div class="sbody">
+            <div class="sgh">Notifications</div>
+            <div class="sgrp">
+              <div class="srow"><span class="sl">Notify me about new mail</span><i class="tg on"></i></div>
+              <div class="srow"><span class="sl">Show sender and subject</span><i class="tg"></i></div>
+            </div>
+            <div class="sgh">Reading</div>
+            <div class="sgrp">
+              <div class="srow tall"><span class="sl">Load remote images by default<small>Remote images can tell senders when you open a message.</small></span><i class="tg foc"></i></div>
+              <div class="srow"><span class="sl">Reading font</span><span class="pop">SF Pro<svg class="ic s12"><use href="#i-updown"/></svg></span></div>
+              <div class="srow"><span class="sl">List density</span><span class="pop">Standard<svg class="ic s12"><use href="#i-updown"/></svg></span></div>
+            </div>
+            <div class="sgh">Sending</div>
+            <div class="sgrp"><div class="srow"><span class="sl">Undo send</span><span class="pop">5 seconds<svg class="ic s12"><use href="#i-updown"/></svg></span></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+<section class="blk">
+  <div class="sec-h"><span class="n">D</span><h2>Foundations</h2><p>One token set → NSColor dynamic providers, SwiftUI Color, CSS custom properties · values below resolve for this appearance</p></div>
+  <div class="sheet">
+    <div class="card s3">
+      <h3>Slate ramp (reference palette)</h3>
+      <p class="spec">Cool neutral, hue ≈ 215° · semantic tokens map onto it; components never use the ramp directly</p>
+      <div class="ramp">
+<div style="background:#FFFFFF;color:#16191D"><b>0</b><span>#FFFFFF</span></div>
+<div style="background:#F9FAFB;color:#16191D"><b>25</b><span>#F9FAFB</span></div>
+<div style="background:#F3F5F7;color:#16191D"><b>50</b><span>#F3F5F7</span></div>
+<div style="background:#EBEEF1;color:#16191D"><b>100</b><span>#EBEEF1</span></div>
+<div style="background:#E1E5E9;color:#16191D"><b>150</b><span>#E1E5E9</span></div>
+<div style="background:#D3D8DE;color:#16191D"><b>200</b><span>#D3D8DE</span></div>
+<div style="background:#B6BDC5;color:#16191D"><b>300</b><span>#B6BDC5</span></div>
+<div style="background:#8F97A1;color:#16191D"><b>400</b><span>#8F97A1</span></div>
+<div style="background:#6E7681;color:#F2F4F6"><b>500</b><span>#6E7681</span></div>
+<div style="background:#555D67;color:#F2F4F6"><b>600</b><span>#555D67</span></div>
+<div style="background:#3F454D;color:#F2F4F6"><b>700</b><span>#3F454D</span></div>
+<div style="background:#343A41;color:#F2F4F6"><b>750</b><span>#343A41</span></div>
+<div style="background:#2B3036;color:#F2F4F6"><b>800</b><span>#2B3036</span></div>
+<div style="background:#23272C;color:#F2F4F6"><b>850</b><span>#23272C</span></div>
+<div style="background:#1C1F23;color:#F2F4F6"><b>900</b><span>#1C1F23</span></div>
+<div style="background:#17191D;color:#F2F4F6"><b>925</b><span>#17191D</span></div>
+<div style="background:#121417;color:#F2F4F6"><b>950</b><span>#121417</span></div>
+<div style="background:#0D0F11;color:#F2F4F6"><b>1000</b><span>#0D0F11</span></div>
+</div></div>
+<div class="card s3"><h3>Surfaces</h3><p class="spec">11 tokens · light / dark / increased-contrast values in SPEC.md</p><div class="sw">
+<div class="swi" data-t="bg-rail"><i style="background:var(--wb-bg-rail)"></i><b>bg-rail</b><span class="hx"></span></div>
+<div class="swi" data-t="bg-list"><i style="background:var(--wb-bg-list)"></i><b>bg-list</b><span class="hx"></span></div>
+<div class="swi" data-t="bg-reader"><i style="background:var(--wb-bg-reader)"></i><b>bg-reader</b><span class="hx"></span></div>
+<div class="swi" data-t="bg-card"><i style="background:var(--wb-bg-card)"></i><b>bg-card</b><span class="hx"></span></div>
+<div class="swi" data-t="bg-raised"><i style="background:var(--wb-bg-raised)"></i><b>bg-raised</b><span class="hx"></span></div>
+<div class="swi" data-t="bg-field"><i style="background:var(--wb-bg-field)"></i><b>bg-field</b><span class="hx"></span></div>
+<div class="swi" data-t="bg-hover"><i style="background:var(--wb-bg-hover)"></i><b>bg-hover</b><span class="hx"></span></div>
+<div class="swi" data-t="bg-pressed"><i style="background:var(--wb-bg-pressed)"></i><b>bg-pressed</b><span class="hx"></span></div>
+<div class="swi" data-t="bg-slate"><i style="background:var(--wb-bg-slate)"></i><b>bg-slate</b><span class="hx"></span></div>
+<div class="swi" data-t="fill-subtle"><i style="background:var(--wb-fill-subtle)"></i><b>fill-subtle</b><span class="hx"></span></div>
+<div class="swi" data-t="fill-strong"><i style="background:var(--wb-fill-strong)"></i><b>fill-strong</b><span class="hx"></span></div>
+</div></div>
+<div class="card s2"><h3>Text</h3><p class="spec">8 tokens · light / dark / increased-contrast values in SPEC.md</p><div class="sw">
+<div class="swi" data-t="text-primary"><i style="background:var(--wb-text-primary)"></i><b>text-primary</b><span class="hx"></span></div>
+<div class="swi" data-t="text-secondary"><i style="background:var(--wb-text-secondary)"></i><b>text-secondary</b><span class="hx"></span></div>
+<div class="swi" data-t="text-tertiary"><i style="background:var(--wb-text-tertiary)"></i><b>text-tertiary</b><span class="hx"></span></div>
+<div class="swi" data-t="text-disabled"><i style="background:var(--wb-text-disabled)"></i><b>text-disabled</b><span class="hx"></span></div>
+<div class="swi" data-t="text-accent"><i style="background:var(--wb-text-accent)"></i><b>text-accent</b><span class="hx"></span></div>
+<div class="swi" data-t="text-on-slate"><i style="background:var(--wb-text-on-slate)"></i><b>text-on-slate</b><span class="hx"></span></div>
+<div class="swi" data-t="text-on-slate-2"><i style="background:var(--wb-text-on-slate-2)"></i><b>text-on-slate-2</b><span class="hx"></span></div>
+<div class="swi" data-t="text-accent-on-slate"><i style="background:var(--wb-text-accent-on-slate)"></i><b>text-accent-on-slate</b><span class="hx"></span></div>
+</div></div>
+<div class="card "><h3>Lines</h3><p class="spec">5 tokens · light / dark / increased-contrast values in SPEC.md</p><div class="sw">
+<div class="swi" data-t="line-hairline"><i style="background:linear-gradient(var(--wb-line-hairline),var(--wb-line-hairline)),var(--wb-bg-list)"></i><b>line-hairline</b><span class="hx"></span></div>
+<div class="swi" data-t="line-pane"><i style="background:var(--wb-line-pane)"></i><b>line-pane</b><span class="hx"></span></div>
+<div class="swi" data-t="line-control"><i style="background:var(--wb-line-control)"></i><b>line-control</b><span class="hx"></span></div>
+<div class="swi" data-t="line-rail"><i style="background:linear-gradient(var(--wb-line-rail),var(--wb-line-rail)),var(--wb-bg-rail)"></i><b>line-rail</b><span class="hx"></span></div>
+<div class="swi" data-t="kbd-border"><i style="background:linear-gradient(var(--wb-kbd-border),var(--wb-kbd-border)),var(--wb-bg-list)"></i><b>kbd-border</b><span class="hx"></span></div>
+</div></div>
+<div class="card s3"><h3>Accent · selection · focus</h3><p class="spec">9 tokens · light / dark / increased-contrast values in SPEC.md</p><div class="sw">
+<div class="swi" data-t="fill-accent"><i style="background:var(--wb-fill-accent)"></i><b>fill-accent</b><span class="hx"></span></div>
+<div class="swi" data-t="fill-accent-hover"><i style="background:var(--wb-fill-accent-hover)"></i><b>fill-accent-hover</b><span class="hx"></span></div>
+<div class="swi" data-t="fill-accent-pressed"><i style="background:var(--wb-fill-accent-pressed)"></i><b>fill-accent-pressed</b><span class="hx"></span></div>
+<div class="swi" data-t="fill-selected"><i style="background:var(--wb-fill-selected)"></i><b>fill-selected</b><span class="hx"></span></div>
+<div class="swi" data-t="fill-selected-inactive"><i style="background:var(--wb-fill-selected-inactive)"></i><b>fill-selected-inactive</b><span class="hx"></span></div>
+<div class="swi" data-t="accent-subtle"><i style="background:var(--wb-accent-subtle)"></i><b>accent-subtle</b><span class="hx"></span></div>
+<div class="swi" data-t="unread"><i style="background:var(--wb-unread)"></i><b>unread</b><span class="hx"></span></div>
+<div class="swi" data-t="focus-ring"><i style="background:var(--wb-focus-ring)"></i><b>focus-ring</b><span class="hx"></span></div>
+<div class="swi" data-t="focus-ring-on-slate"><i style="background:var(--wb-focus-ring-on-slate)"></i><b>focus-ring-on-slate</b><span class="hx"></span></div>
+</div></div>
+<div class="card s3"><h3>Status</h3><p class="spec">11 tokens · light / dark / increased-contrast values in SPEC.md</p><div class="sw">
+<div class="swi" data-t="success"><i style="background:var(--wb-success)"></i><b>success</b><span class="hx"></span></div>
+<div class="swi" data-t="text-success"><i style="background:var(--wb-text-success)"></i><b>text-success</b><span class="hx"></span></div>
+<div class="swi" data-t="success-subtle"><i style="background:var(--wb-success-subtle)"></i><b>success-subtle</b><span class="hx"></span></div>
+<div class="swi" data-t="warning"><i style="background:var(--wb-warning)"></i><b>warning</b><span class="hx"></span></div>
+<div class="swi" data-t="text-warning"><i style="background:var(--wb-text-warning)"></i><b>text-warning</b><span class="hx"></span></div>
+<div class="swi" data-t="warning-subtle"><i style="background:var(--wb-warning-subtle)"></i><b>warning-subtle</b><span class="hx"></span></div>
+<div class="swi" data-t="danger"><i style="background:var(--wb-danger)"></i><b>danger</b><span class="hx"></span></div>
+<div class="swi" data-t="text-danger"><i style="background:var(--wb-text-danger)"></i><b>text-danger</b><span class="hx"></span></div>
+<div class="swi" data-t="danger-subtle"><i style="background:var(--wb-danger-subtle)"></i><b>danger-subtle</b><span class="hx"></span></div>
+<div class="swi" data-t="star"><i style="background:var(--wb-star)"></i><b>star</b><span class="hx"></span></div>
+<div class="swi" data-t="star-on-selected"><i style="background:var(--wb-star-on-selected)"></i><b>star-on-selected</b><span class="hx"></span></div>
+</div></div>
+<div class="card s3"><h3>Account palette · 10</h3><p class="spec">Ink tone on light surfaces (≥ 3:1 on bg-list), glow tone on dark surfaces and on the rail (≥ 3:1 on bg-list dark, bg-rail both) · order chosen so the first six stay ≥ 14 ΔE2000 apart under simulated protanopia, deuteranopia and tritanopia, and all ten ≥ 11 under anomalous trichromacy</p><div class="accp">
+<div class="acci"><div class="accs"><span class="rav" style="--a:#2386E8;width:32px;height:32px;line-height:32px;border-radius:10px;font-size:14px">1</span><i class="wb" style="background:var(--wb-acct-1)"></i></div><b>1 · Blue</b><span>ink #2F8EF0</span><span>glow #2386E8</span></div>
+<div class="acci"><div class="accs"><span class="rav" style="--a:#F8A340;width:32px;height:32px;line-height:32px;border-radius:10px;font-size:14px">2</span><i class="wb" style="background:var(--wb-acct-2)"></i></div><b>2 · Amber</b><span>ink #AA7319</span><span>glow #F8A340</span></div>
+<div class="acci"><div class="accs"><span class="rav" style="--a:#DF4E68;width:32px;height:32px;line-height:32px;border-radius:10px;font-size:14px">3</span><i class="wb" style="background:var(--wb-acct-3)"></i></div><b>3 · Rose</b><span>ink #821525</span><span>glow #DF4E68</span></div>
+<div class="acci"><div class="accs"><span class="rav" style="--a:#7DE5C0;width:32px;height:32px;line-height:32px;border-radius:10px;font-size:14px">4</span><i class="wb" style="background:var(--wb-acct-4)"></i></div><b>4 · Teal</b><span>ink #1C6555</span><span>glow #7DE5C0</span></div>
+<div class="acci"><div class="accs"><span class="rav" style="--a:#D0BFF9;width:32px;height:32px;line-height:32px;border-radius:10px;font-size:14px">5</span><i class="wb" style="background:var(--wb-acct-5)"></i></div><b>5 · Violet</b><span>ink #58199C</span><span>glow #D0BFF9</span></div>
+<div class="acci"><div class="accs"><span class="rav" style="--a:#858F96;width:32px;height:32px;line-height:32px;border-radius:10px;font-size:14px">6</span><i class="wb" style="background:var(--wb-acct-6)"></i></div><b>6 · Graphite</b><span>ink #717A86</span><span>glow #858F96</span></div>
+<div class="acci"><div class="accs"><span class="rav" style="--a:#7CCB5C;width:32px;height:32px;line-height:32px;border-radius:10px;font-size:14px">7</span><i class="wb" style="background:var(--wb-acct-7)"></i></div><b>7 · Green</b><span>ink #508848</span><span>glow #7CCB5C</span></div>
+<div class="acci"><div class="accs"><span class="rav" style="--a:#EFC7B7;width:32px;height:32px;line-height:32px;border-radius:10px;font-size:14px">8</span><i class="wb" style="background:var(--wb-acct-8)"></i></div><b>8 · Brown</b><span>ink #705843</span><span>glow #EFC7B7</span></div>
+<div class="acci"><div class="accs"><span class="rav" style="--a:#27B2DF;width:32px;height:32px;line-height:32px;border-radius:10px;font-size:14px">9</span><i class="wb" style="background:var(--wb-acct-9)"></i></div><b>9 · Cyan</b><span>ink #02628D</span><span>glow #27B2DF</span></div>
+<div class="acci"><div class="accs"><span class="rav" style="--a:#E391B9;width:32px;height:32px;line-height:32px;border-radius:10px;font-size:14px">10</span><i class="wb" style="background:var(--wb-acct-10)"></i></div><b>10 · Plum</b><span>ink #944184</span><span>glow #E391B9</span></div>
+</div></div>
+
+<div class="vstack" style="gap:24px"><div class="card"><h3>Avatar palette · 8 tints</h3><p class="spec">Index = stable hash of the lowercased address mod 8 · tint bg, deep initials (≥ 5.9:1 both appearances)</p><div class="avp">
+<div><span class="av" style="--bg:var(--wb-av-1-bg);--fg:var(--wb-av-1-fg)">BL</span><b>Blue</b></div>
+<div><span class="av" style="--bg:var(--wb-av-2-bg);--fg:var(--wb-av-2-fg)">TE</span><b>Teal</b></div>
+<div><span class="av" style="--bg:var(--wb-av-3-bg);--fg:var(--wb-av-3-fg)">GR</span><b>Green</b></div>
+<div><span class="av" style="--bg:var(--wb-av-4-bg);--fg:var(--wb-av-4-fg)">AM</span><b>Amber</b></div>
+<div><span class="av" style="--bg:var(--wb-av-5-bg);--fg:var(--wb-av-5-fg)">OR</span><b>Orange</b></div>
+<div><span class="av" style="--bg:var(--wb-av-6-bg);--fg:var(--wb-av-6-fg)">RO</span><b>Rose</b></div>
+<div><span class="av" style="--bg:var(--wb-av-7-bg);--fg:var(--wb-av-7-fg)">VI</span><b>Violet</b></div>
+<div><span class="av" style="--bg:var(--wb-av-8-bg);--fg:var(--wb-av-8-fg)">SL</span><b>Slate</b></div>
+</div></div>
+<div class="card"><h3>Spacing · radii</h3><p class="spec">4 pt grid with 2 and 6 for optical fixes · radii in pt, continuous corners in AppKit</p>
+  <div class="spc">
+    <div><i style="width:2px"></i><span>2</span></div><div><i style="width:4px"></i><span>4</span></div><div><i style="width:6px"></i><span>6</span></div><div><i style="width:8px"></i><span>8</span></div><div><i style="width:12px"></i><span>12</span></div><div><i style="width:16px"></i><span>16</span></div><div><i style="width:20px"></i><span>20</span></div><div><i style="width:24px"></i><span>24</span></div><div><i style="width:32px"></i><span>32</span></div><div><i style="width:48px"></i><span>48</span></div>
+  </div>
+  <div class="rad">
+    <div><i style="border-radius:3px"></i><span>xs 3</span></div><div><i style="border-radius:5px"></i><span>sm 5</span></div><div><i style="border-radius:8px"></i><span>md 8</span></div><div><i style="border-radius:10px"></i><span>lg 10</span></div><div><i style="border-radius:14px"></i><span>xl 14</span></div><div><i style="border-radius:20px;width:56px"></i><span>pill</span></div>
+  </div>
+</div>
+</div>
+<div class="card s2"><h3>Type scale</h3><p class="spec">macOS system families only · AppKit/SwiftUI take tracking from the font; the three overrides are listed</p><div class="ty">
+<div class="tyr"><span class="tys" style="font:700 28px/34px var(--wb-font-ui);letter-spacing:-0.6px;">Welcome to SuperSparrow</span><span class="tym"><b>display</b>SF Pro (Display) · 28/34 · 700 · -0.6pt</span></div>
+<div class="tyr"><span class="tys" style="font:600 20px/25px var(--wb-font-ui);letter-spacing:-0.2px;">Contoso rollout: go-live checklist</span><span class="tym"><b>title-1</b>SF Pro (Display) · 20/25 · 600 · -0.2pt</span></div>
+<div class="tyr"><span class="tys" style="font:600 15px/20px var(--wb-font-ui);letter-spacing:0px;">Inbox</span><span class="tym"><b>title-2</b>SF Pro · 15/20 · 600</span></div>
+<div class="tyr"><span class="tys" style="font:600 13px/17px var(--wb-font-ui);letter-spacing:0px;">Ben Carter</span><span class="tym"><b>headline</b>SF Pro · 13/17 · 600</span></div>
+<div class="tyr"><span class="tys" style="font:400 13px/18px var(--wb-font-ui);letter-spacing:0px;">Contoso rollout: go-live checklist</span><span class="tym"><b>body</b>SF Pro · 13/18 · 400</span></div>
+<div class="tyr"><span class="tys" style="font:500 13px/18px var(--wb-font-ui);letter-spacing:0px;">Archived · Undo</span><span class="tym"><b>body-medium</b>SF Pro · 13/18 · 500</span></div>
+<div class="tyr"><span class="tys" style="font:400 14px/21px var(--wb-font-ui);letter-spacing:0px;">Tested with three accounts, all good.</span><span class="tym"><b>reading</b>SF Pro · 14/21 · 400</span></div>
+<div class="tyr"><span class="tys" style="font:400 15px/23px var(--wb-font-serif);letter-spacing:0px;">Tested with three accounts, all good.</span><span class="tym"><b>reading-serif</b>New York · 15/23 · 400</span></div>
+<div class="tyr"><span class="tys" style="font:400 12px/16px var(--wb-font-ui);letter-spacing:0px;">Tested with three accounts, all good.</span><span class="tym"><b>callout</b>SF Pro · 12/16 · 400</span></div>
+<div class="tyr"><span class="tys" style="font:500 12px/16px var(--wb-font-ui);letter-spacing:0px;">Show quoted text</span><span class="tym"><b>callout-medium</b>SF Pro · 12/16 · 500</span></div>
+<div class="tyr"><span class="tys" style="font:400 11px/14px var(--wb-font-ui);letter-spacing:0px;">Up to date · 10:42</span><span class="tym"><b>caption</b>SF Pro · 11/14 · 400</span></div>
+<div class="tyr"><span class="tys" style="font:600 11px/14px var(--wb-font-ui);letter-spacing:0.6px;text-transform:uppercase;">Yesterday</span><span class="tym"><b>overline</b>SF Pro · 11/14 · 600 · +0.6pt</span></div>
+<div class="tyr"><span class="tys" style="font:700 11px/14px var(--wb-font-rounded);letter-spacing:0px;">21 128</span><span class="tym"><b>badge</b>SF Pro Rounded · 11/14 · 700</span></div>
+<div class="tyr"><span class="tys" style="font:600 15px/20px var(--wb-font-rounded);letter-spacing:0px;">W P S</span><span class="tym"><b>monogram</b>SF Pro Rounded · 15/20 · 600</span></div>
+<div class="tyr"><span class="tys" style="font:500 11px/14px var(--wb-font-mono);letter-spacing:0px;">⌘↩ G I</span><span class="tym"><b>kbd</b>SF Mono · 11/14 · 500</span></div>
+<div class="tyr"><span class="tys" style="font:400 12px/18px var(--wb-font-mono);letter-spacing:0px;">0b1f9c2e-77a4</span><span class="tym"><b>mono</b>SF Mono · 12/18 · 400</span></div>
+</div></div><div class="card"><h3>Hairlines · elevation · materials</h3><p class="spec">Hairline = 1 device pixel · shadows only on floating surfaces, never on rows</p>
+  <div class="hln">
+    <div><i style="height:0.5px;background:var(--wb-line-hairline)"></i><span>hairline 0.5 pt · rows, cards, headers</span></div>
+    <div><i style="height:1px;background:var(--wb-line-pane)"></i><span>pane 1 pt · list | reader</span></div>
+    <div><i style="height:1px;background:var(--wb-line-control)"></i><span>control 1 pt · checkbox, toggle off (≥ 3:1)</span></div>
+    <div><i style="height:2px;background:var(--wb-focus-ring)"></i><span>focus 2 pt + 1 pt gap</span></div>
+  </div>
+  <div class="elev">
+    <div style="box-shadow:0 0 0 0.5px var(--wb-line-hairline), var(--wb-shadow-1)"><b>e1</b>cards</div>
+    <div style="box-shadow:0 0 0 0.5px var(--wb-line-float), var(--wb-shadow-2)"><b>e2</b>menus</div>
+    <div style="box-shadow:0 0 0 0.5px var(--wb-line-float), var(--wb-shadow-3)"><b>e3</b>toasts</div>
+  </div>
+  <div class="mat">
+    <div style="background:var(--wb-bg-rail);color:var(--wb-text-on-slate)"><b>Rail</b>opaque slate</div>
+    <div class="glass"><b>Header</b><span>.headerView on scroll-under</span></div>
+    <div style="background:var(--wb-bg-slate);color:var(--wb-text-on-slate)"><b>Toast</b>opaque slate</div>
+  </div>
+</div>
+<div class="card"><h3>Motion</h3><p class="spec">≤ 250 ms, interruptible, begins from current state · reduced motion: movement → 100 ms fade or none</p>
+  <div class="mot">
+    <div><svg viewBox="0 0 40 40"><path d="M2 38 L38 38" class="gr"/><path d="M2 38 L2 2" class="gr"/><path d="M2 38 L2 2 L38 2" class="cv"/></svg><b>instant · 0</b><span>selection, hover, list, badges</span></div>
+    <div><svg viewBox="0 0 40 40"><path d="M2 38 L2 2" class="gr"/><path d="M2 38 L38 38" class="gr"/><path d="M2 38 C9.2 38 2 2 38 2" class="cv"/></svg><b>fast · 100</b><span>button fills, chevrons</span></div>
+    <div><svg viewBox="0 0 40 40"><path d="M2 38 L2 2" class="gr"/><path d="M2 38 L38 38" class="gr"/><path d="M2 38 C9.2 38 2 2 38 2" class="cv"/></svg><b>base · 160</b><span>cards, quoted text, segmented</span></div>
+    <div><svg viewBox="0 0 40 40"><path d="M2 38 L2 2" class="gr"/><path d="M2 38 L38 38" class="gr"/><path d="M2 38 C3.8 12.8 5.6 2 38 2" class="cv"/></svg><b>emphasized · 220</b><span>toast &amp; panel in, rail</span></div>
+    <div><svg viewBox="0 0 40 40"><path d="M2 38 L2 2" class="gr"/><path d="M2 38 L38 38" class="gr"/><path d="M2 38 C12.8 38 30.8 32.6 38 2" class="cv"/></svg><b>exit · 120</b><span>toast &amp; panel out, menus</span></div>
+    <div><svg viewBox="0 0 40 40"><path d="M2 38 L2 2" class="gr"/><path d="M2 38 L38 38" class="gr"/><path d="M2 38 L38 2" class="cv"/></svg><b>linear</b><span>countdown, progress</span></div>
+  </div>
+</div>
+<div class="card"><h3>Density</h3><p class="spec">One list setting · rows stay fixed-height in each · minimal mode is independent of density</p>
+  <div class="dens">
+    <div><b>Standard</b><span>68 pt · avatar 36 · 3 lines</span><i style="height:34px"></i><i style="height:34px"></i></div>
+    <div><b>Compact</b><span>52 pt · avatar 28 · 2 lines, no snippet</span><i style="height:26px"></i><i style="height:26px"></i><i style="height:26px"></i></div>
+    <div><b>Minimal mode</b><span>rail hidden · ⌃⌘S</span><i style="height:34px;margin-left:0"></i><i style="height:34px;margin-left:0"></i></div>
+  </div>
+  <p class="note">Reader density never changes: reading 14/21 in a 760 pt column. Rail items keep 48 pt targets in every mode.</p>
+</div>
+<div class="card s3"><h3>Iconography</h3><p class="spec">SF Symbols, monochrome rendering · 16 pt regular in 28 pt buttons · 12 pt semibold in rows · 14 pt in menus and text buttons · status glyphs .fill in their semantic color · plus three custom glyphs (exact paths in SPEC.md)</p>
+  <div class="icg">
+    <div><svg class="ic"><use href="#i-archive"/></svg><span>archivebox</span><b>E</b></div>
+    <div><svg class="ic"><use href="#i-trash"/></svg><span>trash</span><b>#</b></div>
+    <div><svg class="ic"><use href="#i-star"/></svg><span>star / star.fill</span><b>S</b></div>
+    <div><svg class="ic"><use href="#i-envelope"/></svg><span>envelope.badge</span><b>U</b></div>
+    <div><svg class="ic"><use href="#i-reply"/></svg><span>arrowshape.turn.up.left</span><b>R</b></div>
+    <div><svg class="ic"><use href="#i-replyall"/></svg><span>arrowshape.turn.up.left.2</span><b>A</b></div>
+    <div><svg class="ic"><use href="#i-forward"/></svg><span>arrowshape.turn.up.right</span><b>F</b></div>
+    <div><svg class="ic"><use href="#i-compose"/></svg><span>square.and.pencil</span><b>C</b></div>
+    <div><svg class="ic"><use href="#i-undo"/></svg><span>arrow.uturn.backward</span><b>Z</b></div>
+    <div><svg class="ic"><use href="#i-search"/></svg><span>magnifyingglass</span><b>/</b></div>
+    <div><svg class="ic"><use href="#i-clip"/></svg><span>paperclip</span><b></b></div>
+    <div><svg class="ic"><use href="#i-photo"/></svg><span>photo</span><b></b></div>
+    <div><svg class="ic"><use href="#i-contrast"/></svg><span>circle.lefthalf.filled</span><b></b></div>
+    <div><svg class="ic"><use href="#i-ellipsis-rect"/></svg><span>ellipsis.rectangle</span><b></b></div>
+    <div><svg class="ic"><use href="#i-wifi-slash"/></svg><span>wifi.slash</span><b></b></div>
+    <div><svg class="ic" style="stroke:none;color:var(--wb-warning)"><use href="#i-warn"/></svg><span>exclamationmark.triangle.fill</span><b></b></div>
+    <div><svg class="ic" style="stroke:none;color:var(--wb-success)"><use href="#i-check-circle"/></svg><span>checkmark.circle.fill</span><b></b></div>
+    <div><svg class="ic"><use href="#i-gear"/></svg><span>gearshape</span><b>⌘,</b></div>
+  </div>
+  <div class="cust">
+    <div><span class="cg"><svg viewBox="0 0 16 16" width="64" height="64"><use href="#g-wing"/></svg></span><b>wb.wing</b><span>Brand mark · welcome, empty states, app icon, notifications</span></div>
+    <div><span class="cg"><svg viewBox="0 0 16 16" width="64" height="64"><use href="#g-unified"/></svg></span><b>wb.unified</b><span>All Inboxes · four rail squircles · 20 pt in the rail</span></div>
+    <div><span class="cg"><svg viewBox="0 0 12 12" width="64" height="64"><use href="#g-pending"/></svg></span><b>wb.pending</b><span>Queued locally, not yet confirmed · 11 pt before the row time</span></div>
+  </div>
+</div>
+  </div>
+</section>
+</div>
+<script>
+// Print each swatch's resolved token value for the current appearance.
+(function () {
+  var cs = getComputedStyle(document.documentElement);
+  function hex(v) {
+    v = v.trim();
+    var m = v.match(/^rgba?\(([^)]+)\)$/);
+    if (!m) return v.toUpperCase();
+    var p = m[1].split(',').map(function (s) { return parseFloat(s); });
+    var h = '#' + p.slice(0, 3).map(function (n) { return ('0' + Math.round(n).toString(16)).slice(-2); }).join('').toUpperCase();
+    return p.length > 3 && p[3] < 1 ? h + ' · ' + Math.round(p[3] * 100) + '%' : h;
+  }
+  document.querySelectorAll('[data-t]').forEach(function (el) {
+    var out = el.querySelector('.hx');
+    if (out) out.textContent = hex(cs.getPropertyValue('--wb-' + el.getAttribute('data-t')));
+  });
+})();
+</script>
+</body>
+</html>

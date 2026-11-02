@@ -1,0 +1,21 @@
+<section class="sh"><span class="n">E · Foundations</span><h2>Tokens, type and marks</h2><p>Four values per colour token: light, dark, light increased contrast, dark increased contrast. {{NPAIRS}} foreground-on-surface pairs, {{NCHECKS}} checks, all passing.</p></section>
+<div class="grid">
+  <div class="c12 fcard">{{PART:SWATCHES}}</div>
+  <div class="c12 fcard">
+    <h3>Account inks, as seen with normal vision and the three dichromacies (Machado 2009, full severity)</h3>
+    {{PART:ACCOUNT_STRIPS}}
+    <p class="ann" style="margin-top:10px;color:var(--studio-ink2)">The first six inks stay ≥ {{CVD:light:six}} (light) and ≥ {{CVD:dark:six}} (dark) ΔE2000 apart for every vision type, ≥ {{CVD:lightHC:six}} / {{CVD:darkHC:six}} in increased contrast; the first two are {{CVD:light:two}} apart. All ten stay ≥ {{CVD:light:ten}} (light) and ≥ {{CVD:dark:ten}} (dark) apart for normal vision. No ink is red; every ink is ≥ 15 ΔE from Iron Gall and ≥ 10 ΔE from danger under every simulation. The grey tick marks the end of the six promised colours.</p>
+  </div>
+  <div class="c4 fcard"><h3>Avatar tints</h3><div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">{{PART:AVATAR_TINTS}}</div>
+  <h3 style="margin-top:28px">Spacing</h3><div style="display:grid;gap:6px">{{PY: ''.join('<div style="display:flex;align-items:center;gap:10px;font:11px/14px var(--q-sans);color:var(--studio-ink2)"><code style="width:34px">%s</code><i style="display:block;height:10px;width:%dpx;background:var(--q-accent);border-radius:2px"></i>%d</div>' % (k, v * 3, v) for k, v in __import__('tokens_def').SPACE.items())}}</div></div>
+  <div class="c8 fcard"><h3>Type roles</h3>{{PART:TYPE_SCALE}}</div>
+  <div class="c6 fcard"><h3>Radii and elevation</h3>
+    <div class="rowline" style="gap:14px">{{PY: ''.join('<div style="text-align:center;font:11px/14px var(--q-sans);color:var(--studio-ink2)"><i style="display:block;width:44px;height:44px;background:var(--q-sheet);box-shadow:0 0 0 1px var(--q-ruleStrong);border-radius:%dpx;margin-bottom:4px"></i>%s · %s</div>' % (min(v, 22), k, v if k != 'pill' else 'h/2') for k, v in __import__('tokens_def').RADIUS.items())}}</div>
+    <div class="rowline" style="gap:18px;margin-top:18px;padding:14px;background:var(--q-canvas);border-radius:8px">{{PY: ''.join('<div style="text-align:center;font:11px/14px var(--q-sans);color:var(--q-ink3)"><i style="display:block;width:64px;height:44px;background:var(--q-sheet);border-radius:8px;box-shadow:%s;margin-bottom:6px"></i>%s</div>' % ('0 0 0 1px var(--q-rule)' if k == 'e0' else 'var(--q-%s)' % k, k) for k in ('e0', 'e1', 'e2', 'e3'))}}</div>
+  </div>
+  <div class="c6 fcard"><h3>Motion curves</h3><div class="rowline" style="gap:14px">{{PART:MOTION_CURVES}}</div>
+    <p class="ann" style="color:var(--studio-ink2);margin-top:8px">quick {{motion.duration.quick}} ms · standard {{motion.duration.standard}} ms · slow {{motion.duration.slow}} ms (the ceiling). Every key press first finishes running animations (finishAll). The list never animates.</p></div>
+  <div class="c12 fcard"><h3>Iconography: SF Symbols (Regular) and the five custom glyphs</h3><div class="icons">{{PART:ICON_GRID}}</div></div>
+  <div class="c12 fcard"><h3>Custom glyphs at 12, 16 and 32 pt (exact path data in tokens.json)</h3><div style="display:grid;grid-template-columns:repeat(5,1fr);gap:20px">{{PART:GLYPHS}}</div></div>
+</div>
+<p class="ann" style="margin-top:40px;color:var(--studio-ink2)">Quire {{version}} · SuperSparrow · generated from docs/design/tokens.json. Specimen glyphs are real SF Symbols rasterised to template masks, the same pipeline the reader shell uses.</p>

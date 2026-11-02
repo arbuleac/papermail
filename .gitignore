@@ -8,3 +8,10 @@ dist/
 *.app
 .DS_Store
 .claude/
+
+# Quire doc build outputs
+docs/design/source/__pycache__/
+docs/design/source/specimen.template.html
+docs/design/source/palette2.json
+# proposal renders; regenerate with scripts/tools/html-snapshot.swift
+docs/design/proposals/*/*.png
