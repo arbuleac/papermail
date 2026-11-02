@@ -56,7 +56,7 @@ enum ConversationTable {
         INSERT OR REPLACE INTO conversations (
             account_id, provider_id, subject, snippet, participants_json, latest_date_ms, latest_provider_id,
             message_count, unread_count, is_starred, has_attachments, in_inbox, in_sent, in_drafts, in_trash,
-            inbox_section, has_pending_ops
+            inbox_section, has_pending_ops, failed_op_kind
         )
         SELECT b.account_id, b.cid,
             COALESCE((SELECT s.subject FROM msgs s
@@ -88,7 +88,10 @@ enum ConversationTable {
                     CROSS JOIN operation_targets ot ON ot.account_id = mm.account_id AND ot.provider_id = mm.provider_id
                     CROSS JOIN operations o ON o.id = ot.operation_id
                     WHERE mm.account_id = b.account_id AND mm.conversation_provider_id = b.cid
-                      AND o.status IN \(OperationTable.liveStatusList))
+                      AND o.status IN \(OperationTable.liveStatusList)),
+            -- The failed mark is not derived from the messages; it is kept by the operation writes
+            -- (FailedOperationMarks), and REPLACE would otherwise reset it on every refresh.
+            (SELECT c.failed_op_kind FROM conversations c WHERE c.account_id = b.account_id AND c.provider_id = b.cid)
         FROM basis b
         JOIN latest l ON l.account_id = b.account_id AND l.cid = b.cid
         GROUP BY b.account_id, b.cid
@@ -109,7 +112,7 @@ enum ConversationTable {
     private static let summaryColumns = """
         c.account_id, c.provider_id, c.subject, c.snippet, c.participants_json, c.latest_date_ms, \
         c.latest_provider_id, c.message_count, c.unread_count, c.is_starred, c.has_attachments, c.in_inbox, \
-        c.inbox_section, c.has_pending_ops
+        c.inbox_section, c.has_pending_ops, c.failed_op_kind
         """
 
     static func fetch(_ query: ConversationQuery, in db: Database) throws -> [ConversationSummary] {
@@ -188,6 +191,7 @@ enum ConversationTable {
     /// Expects the column order of `summaryColumns`.
     private static func summary(from row: Row) throws -> ConversationSummary {
         let accountID = AccountID(row[0])
+        let failedKind: String? = row[14]
         return ConversationSummary(
             id: ConversationID(accountID: accountID, providerID: row[1]),
             subject: row[2],
@@ -201,7 +205,8 @@ enum ConversationTable {
             inInbox: row[11],
             inboxSection: InboxSection(rawValue: row[12]) ?? .unknown,
             latestMessageID: MessageID(accountID: accountID, providerID: row[6]),
-            hasPendingOperations: row[13]
+            hasPendingOperations: row[13],
+            failedOperation: failedKind.flatMap(OperationKind.init(rawValue:))
         )
     }
 }

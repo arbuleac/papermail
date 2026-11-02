@@ -20,6 +20,8 @@ struct SyncTuning: Sendable {
     var maxOperationAttempts: Int = 25
     /// Uncertain operations older than this are dropped once a poll has observed their targets.
     var uncertainSettleAge: TimeInterval = 600
+    /// How long a failed operation stays, keeping its conversation's failed mark, before it is pruned.
+    var failedOperationRetention: TimeInterval = 24 * 60 * 60
     var pendingOperationsFetchLimit: Int = 500
 
     init() {}

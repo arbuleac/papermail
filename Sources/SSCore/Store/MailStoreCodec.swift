@@ -62,6 +62,28 @@ enum MailStoreCodec {
         return roles
     }
 
+    // MARK: Typesetting
+
+    /// `bodies.typesetting` values. Fixed numbers rather than the enum's order, so adding a case can never
+    /// reinterpret stored rows.
+    static func typesettingCode(_ typesetting: BodyTypesetting) -> Int {
+        switch typesetting {
+        case .plain: return 0
+        case .unstyled: return 1
+        case .styled: return 2
+        }
+    }
+
+    /// An unknown code reads as styled, the same as NULL: the sender's design is the safe rendering.
+    static func typesetting(_ code: Int?) -> BodyTypesetting? {
+        guard let code else { return nil }
+        switch code {
+        case 0: return .plain
+        case 1: return .unstyled
+        default: return .styled
+        }
+    }
+
     // MARK: Bodies
 
     /// Bodies are compressed because a mailbox of 100k HTML messages is several gigabytes raw, and zlib makes

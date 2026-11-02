@@ -60,6 +60,11 @@ public struct ConversationSummary: Hashable, Sendable, Identifiable {
     public var inboxSection: InboxSection
     public var latestMessageID: MessageID
     public var hasPendingOperations: Bool
+    /// The kind of the newest failed operation on this conversation the user has not seen yet, for the row's
+    /// failed glyph and its “Couldn't archive” copy. Set in the transaction that marks an operation failed;
+    /// cleared by `MailStoring.acknowledgeFailedOperation(conversationID:)`, by a later operation on the
+    /// conversation being confirmed, or by the failed row being pruned (docs/DATA-MODEL.md, `failed_op_kind`).
+    public var failedOperation: OperationKind?
 
     public init(
         id: ConversationID,
@@ -74,7 +79,8 @@ public struct ConversationSummary: Hashable, Sendable, Identifiable {
         inInbox: Bool,
         inboxSection: InboxSection,
         latestMessageID: MessageID,
-        hasPendingOperations: Bool
+        hasPendingOperations: Bool,
+        failedOperation: OperationKind? = nil
     ) {
         self.id = id
         self.subject = subject
@@ -89,5 +95,6 @@ public struct ConversationSummary: Hashable, Sendable, Identifiable {
         self.inboxSection = inboxSection
         self.latestMessageID = latestMessageID
         self.hasPendingOperations = hasPendingOperations
+        self.failedOperation = failedOperation
     }
 }

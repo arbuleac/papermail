@@ -79,9 +79,7 @@ enum MessageTable {
         for incoming in messages {
             var metadata = incoming
             if accountsWithOperations.contains(incoming.id.accountID.rawValue) {
-                for change in try OperationTable.liveChanges(for: incoming.id, in: db) {
-                    metadata = applying(change, to: metadata)
-                }
+                metadata = try OperationTable.replayLive(on: incoming, in: db)
             }
             let accountID = incoming.id.accountID.rawValue
             let indexed = try IndexedFields(metadata)
@@ -185,12 +183,15 @@ enum MessageTable {
         ) else { return false }
         try FullTextIndex.remove(rowid: rowid, in: db)
         try db.cachedStatement(sql: """
-            INSERT INTO bodies (account_id, provider_id, html, text, rendered_html, plain_text, attachments_json, has_quoted, blocked_images)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO bodies (account_id, provider_id, html, text, rendered_html, plain_text, attachments_json,
+                                has_quoted, blocked_images, typesetting, declares_colors, covered_by_new_york)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(account_id, provider_id) DO UPDATE SET
                 html = excluded.html, text = excluded.text, rendered_html = excluded.rendered_html,
                 plain_text = excluded.plain_text, attachments_json = excluded.attachments_json,
-                has_quoted = excluded.has_quoted, blocked_images = excluded.blocked_images
+                has_quoted = excluded.has_quoted, blocked_images = excluded.blocked_images,
+                typesetting = excluded.typesetting, declares_colors = excluded.declares_colors,
+                covered_by_new_york = excluded.covered_by_new_york
             """).execute(arguments: [
                 id.accountID.rawValue, id.providerID,
                 try body.body.html.map(MailStoreCodec.compress),
@@ -200,6 +201,9 @@ enum MessageTable {
                 try MailStoreCodec.json(body.body.attachments),
                 body.hasQuotedContent,
                 body.blockedRemoteImageCount,
+                body.typesetting.map(MailStoreCodec.typesettingCode),
+                body.declaresColors,
+                body.coveredByNewYork,
             ])
         try db.cachedStatement(sql: "UPDATE messages SET has_body = 1 WHERE rowid = ?").execute(arguments: [rowid])
         try FullTextIndex.insert(rowid: rowid, in: db)
@@ -208,7 +212,8 @@ enum MessageTable {
 
     static func body(for id: MessageID, in db: Database) throws -> StoredBody? {
         let statement = try db.cachedStatement(sql: """
-            SELECT html, text, rendered_html, plain_text, attachments_json, has_quoted, blocked_images FROM bodies
+            SELECT html, text, rendered_html, plain_text, attachments_json, has_quoted, blocked_images,
+                   typesetting, declares_colors, covered_by_new_york FROM bodies
             WHERE account_id = ? AND provider_id = ?
             """)
         guard let row = try Row.fetchOne(statement, arguments: [id.accountID.rawValue, id.providerID]) else { return nil }
@@ -225,7 +230,10 @@ enum MessageTable {
             renderedHTML: try MailStoreCodec.decompress(rendered),
             plainText: row[3],
             hasQuotedContent: row[5],
-            blockedRemoteImageCount: row[6]
+            blockedRemoteImageCount: row[6],
+            typesetting: MailStoreCodec.typesetting(row[7]),
+            declaresColors: row[8],
+            coveredByNewYork: row[9]
         )
     }
 

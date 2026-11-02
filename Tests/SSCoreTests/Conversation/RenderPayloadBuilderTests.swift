@@ -236,4 +236,99 @@ final class RenderPayloadBuilderTests: XCTestCase {
         XCTAssertEqual(legacy.messages[0].blockedRemoteImageCount, 1)
         XCTAssertFalse(legacy.loadRemoteImages)
     }
+
+    // MARK: Design facts
+
+    func testStoredDesignFactsPassThrough() {
+        let plain = F.message("m1", date: F.utc(2025, 1, 1))
+        let unstyled = F.message("m2", date: F.utc(2025, 1, 2))
+        let styled = F.message("m3", date: F.utc(2025, 1, 3))
+        func body(_ typesetting: BodyTypesetting, colors: Bool, covered: Bool) -> StoredBody {
+            var body = F.body(html: "<div class=\"ss-body\">x</div>")
+            body.typesetting = typesetting
+            body.declaresColors = colors
+            body.coveredByNewYork = covered
+            return body
+        }
+        let payload = builder.build(
+            messages: [styled, plain, unstyled],
+            bodies: [
+                plain.id: body(.plain, colors: false, covered: true),
+                unstyled.id: body(.unstyled, colors: false, covered: false),
+                styled.id: body(.styled, colors: true, covered: true),
+            ],
+            accounts: F.accounts,
+            now: now
+        )
+        XCTAssertEqual(payload.messages.map(\.typesetting), [.plain, .unstyled, .styled])
+        XCTAssertEqual(payload.messages.map(\.declaresColors), [false, false, true])
+        XCTAssertEqual(payload.messages.map(\.coveredByNewYork), [true, false, true])
+        XCTAssertEqual(payload.messages.map(\.hasBody), [true, true, true])
+    }
+
+    func testBodiesStoredBeforeTheFactsRenderStyledWithColours() {
+        let message = F.message("m1")
+        // A styled body that declares nothing keeps that answer; only unknown facts fall back.
+        var known = F.body(html: "<p>x</p>")
+        known.typesetting = .styled
+        known.declaresColors = false
+        known.coveredByNewYork = true
+        let legacy = F.body(html: "<p>x</p>")
+        let payloads = [known, legacy].map { builder.build(messages: [message], bodies: [message.id: $0], accounts: F.accounts, now: now) }
+        XCTAssertEqual(payloads.map { $0.messages[0].typesetting }, [.styled, .styled])
+        XCTAssertEqual(payloads.map { $0.messages[0].declaresColors }, [false, true], "NULL counts as declaring colours for a styled body")
+        XCTAssertEqual(payloads.map { $0.messages[0].coveredByNewYork }, [true, false])
+    }
+
+    func testFallbacksArePlainAndCheckTheirOwnCoverage() {
+        let pending = F.message("m1", snippet: "Привет, как дела?", date: F.utc(2025, 1, 1))
+        let pendingCJK = F.message("m2", snippet: "会議の件", date: F.utc(2025, 1, 2))
+        let textOnly = F.message("m3", date: F.utc(2025, 1, 3))
+        var styledButEmpty = F.body(html: "", text: "مرحبا")
+        // Facts stored for HTML that came out empty describe that HTML, not the text shown instead.
+        styledButEmpty.typesetting = .styled
+        styledButEmpty.declaresColors = true
+        styledButEmpty.coveredByNewYork = true
+        let payload = builder.build(
+            messages: [pending, pendingCJK, textOnly],
+            bodies: [textOnly.id: styledButEmpty],
+            accounts: F.accounts,
+            now: now
+        )
+        XCTAssertEqual(payload.messages.map(\.hasBody), [false, false, true])
+        XCTAssertEqual(payload.messages.map(\.typesetting), [.plain, .plain, .plain])
+        XCTAssertEqual(payload.messages.map(\.declaresColors), [false, false, false])
+        XCTAssertEqual(payload.messages.map(\.coveredByNewYork), [true, false, false])
+    }
+
+    func testPayloadCarriesTheAccountsInkSlot() {
+        var account = F.account
+        account.inkSlot = 6
+        let message = F.message("m1")
+        let payload = builder.build(messages: [message], bodies: [:], accounts: [F.accountID: account], now: now)
+        XCTAssertEqual(payload.inkSlot, 6)
+        XCTAssertEqual(builder.build(messages: [message], bodies: [:], accounts: [:], now: now).inkSlot, 0, "unknown account")
+        XCTAssertEqual(builder.build(messages: [], bodies: [:], accounts: [F.accountID: account], now: now).inkSlot, 0)
+    }
+
+    /// The sanitizer's facts survive the trip through the store into the payload unchanged.
+    func testSanitizedFactsReachThePayloadThroughTheStore() throws {
+        let store = InMemoryMailStore()
+        try store.upsertAccount(F.account)
+        let message = F.message("m1")
+        try store.upsertMessages([message])
+        let source = MessageBody(html: MailShapeFixtures.newsletter, text: nil)
+        let sanitized = HTMLSanitizer().sanitize(source, messageID: message.id)
+        try store.saveBody(StoredBody(
+            body: source, renderedHTML: sanitized.html, plainText: sanitized.plainText,
+            hasQuotedContent: sanitized.hasQuotedContent, blockedRemoteImageCount: sanitized.blockedRemoteImageCount,
+            typesetting: sanitized.typesetting, declaresColors: sanitized.declaresColors,
+            coveredByNewYork: sanitized.coveredByNewYork
+        ), for: message.id)
+        let body = try XCTUnwrap(try store.body(for: message.id))
+        let rendered = builder.build(messages: [message], bodies: [message.id: body], accounts: F.accounts, now: now).messages[0]
+        XCTAssertEqual(rendered.typesetting, .styled)
+        XCTAssertTrue(rendered.declaresColors)
+        XCTAssertTrue(rendered.coveredByNewYork)
+    }
 }

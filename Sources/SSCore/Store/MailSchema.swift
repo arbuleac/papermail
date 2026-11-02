@@ -18,6 +18,42 @@ enum MailSchema {
                 ALTER TABLE bodies ADD COLUMN blocked_images INTEGER;
                 """)
         }
+        migrator.registerMigration("v3-body-typesetting") { db in
+            // Nullable: these cannot be derived without parsing the stored HTML, which opening a message must
+            // never do, so earlier bodies stay NULL and render as styled until they are fetched again.
+            try db.execute(sql: """
+                ALTER TABLE bodies ADD COLUMN typesetting INTEGER;
+                ALTER TABLE bodies ADD COLUMN declares_colors INTEGER;
+                ALTER TABLE bodies ADD COLUMN covered_by_new_york INTEGER;
+                """)
+        }
+        migrator.registerMigration("v4-account-ink") { db in
+            // Existing accounts take slots in creation order. Handing out the lowest unused slot to each in
+            // turn, starting from none taken, is the creation index modulo the palette size, so the backfill
+            // is that number; it is spelled out here rather than calling AccountInkSlot so a later change to
+            // the engine's rule cannot change what this migration did.
+            try db.execute(sql: """
+                ALTER TABLE accounts ADD COLUMN ink_slot INTEGER NOT NULL DEFAULT 0;
+                ALTER TABLE accounts ADD COLUMN monogram TEXT;
+                UPDATE accounts SET ink_slot = (
+                    SELECT COUNT(*) FROM accounts earlier
+                    WHERE earlier.added_at < accounts.added_at
+                       OR (earlier.added_at = accounts.added_at AND earlier.id < accounts.id)
+                ) % 10;
+                """)
+        }
+        migrator.registerMigration("v5-failed-operation-mark") { db in
+            try db.execute(sql: "ALTER TABLE conversations ADD COLUMN failed_op_kind TEXT")
+        }
+        migrator.registerMigration("v6-operation-priors") { db in
+            // Nullable: what an operation already queued replaced was never recorded. Its target rows fill in
+            // when a poll next reports the message; until then a give-up leaves that message as it is.
+            try db.execute(sql: """
+                ALTER TABLE operation_targets ADD COLUMN prior_roles INTEGER;
+                ALTER TABLE operation_targets ADD COLUMN prior_is_read INTEGER;
+                ALTER TABLE operation_targets ADD COLUMN prior_is_starred INTEGER;
+                """)
+        }
         return migrator
     }
 
@@ -34,8 +70,8 @@ enum MailSchema {
     }
 
     // Plain DDL rather than GRDB's table builder: the document is the contract and reading the two side by side
-    // should need no translation.
-    private static let v1 = """
+    // should need no translation. Internal so the migration tests can build a v1 file without the migrator.
+    static let v1 = """
     CREATE TABLE accounts (
         id TEXT PRIMARY KEY NOT NULL,
         kind TEXT NOT NULL,

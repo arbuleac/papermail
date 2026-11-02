@@ -30,6 +30,13 @@ struct OperationRunner: Sendable {
     /// Applies every due operation in order and stops at the first failure, leaving the rest for later.
     func drain() async -> Outcome {
         var outcome = Outcome()
+        // Expired failures go first: pruning is what clears a conversation's failed mark after a day, and the
+        // outbox is drained on every cycle, so the mark never outlives its expiry by more than a poll.
+        do {
+            try store.pruneFailedOperations(accountID: accountID, now: Date())
+        } catch {
+            SyncLog.logger.error("outbox: could not prune failed operations: \(String(describing: error), privacy: .private)")
+        }
         let operations: [Operation]
         do {
             operations = try store.pendingOperations(accountID: accountID, limit: tuning.pendingOperationsFetchLimit)
@@ -127,7 +134,7 @@ struct OperationRunner: Sendable {
             }
             for operation in marked {
                 do {
-                    try store.deleteOperation(id: operation.id)
+                    try store.confirmOperation(id: operation.id)
                 } catch {
                     // The provider has the change; an uncertain row lets the next poll settle the local copy.
                     var settled = operation
@@ -169,8 +176,10 @@ struct OperationRunner: Sendable {
                 // applied the change. The row stays so local state keeps winning until a poll settles it, and
                 // is retried later because `apply` is idempotent; after too many attempts it is given up.
                 if operation.attempts >= tuning.maxOperationAttempts {
+                    // A failed row is never tried again; its next_attempt_at is when it is pruned instead.
+                    // Writing it failed also puts its targets back the way they were (`updateOperation`).
                     operation.status = .failed
-                    operation.nextAttemptAt = nil
+                    operation.nextAttemptAt = now.addingTimeInterval(tuning.failedOperationRetention)
                     givenUp += 1
                 } else {
                     operation.status = .uncertain
@@ -178,7 +187,7 @@ struct OperationRunner: Sendable {
                 }
             }
             operation.lastError = description
-            if let next = operation.nextAttemptAt { earliest = Self.earlier(earliest, next) }
+            if operation.status != .failed, let next = operation.nextAttemptAt { earliest = Self.earlier(earliest, next) }
             do {
                 try store.updateOperation(operation)
             } catch {

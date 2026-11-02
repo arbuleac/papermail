@@ -12,6 +12,11 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
     private var messagesByID: [MessageID: MessageMetadata] = [:]
     private var bodies: [MessageID: StoredBody] = [:]
     private var operations: [String: Operation] = [:]
+    /// `operation_targets.prior_*`: per operation and target, the flags its change replaced, which a give-up
+    /// puts back. Recorded at enqueue and refreshed by every upsert that replays the operation.
+    private var priors: [String: [MessageID: Prior]] = [:]
+    /// `conversations.failed_op_kind`: kept by operation writes, never derived (see `FailedOperationMarks`).
+    private var failedMarks: [ConversationID: OperationKind] = [:]
     private var sends: [String: PendingSend] = [:]
     private var contactCounts: [AccountID: [String: (name: String?, count: Int, lastSeen: Date)]] = [:]
     private var conversationObservers: [UUID: (ConversationQuery, ([ConversationSummary]) -> Void)] = [:]
@@ -28,7 +33,10 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
 
     public func upsertAccount(_ account: Account) throws {
         lock.lock(); defer { lock.unlock() }
-        accountRows[account.id] = account
+        try AccountTable.validate(inkSlot: account.inkSlot)
+        var stored = account
+        stored.monogram = Account.normalizedMonogram(account.monogram)
+        accountRows[account.id] = stored
         notifyAll()
     }
 
@@ -36,8 +44,24 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         accountRows[id] = nil
         wipeLocked(id)
+        for operation in operations.values where operation.accountID == id { priors[operation.id] = nil }
         operations = operations.filter { $0.value.accountID != id }
         sends = sends.filter { $0.value.message.accountID != id }
+        notifyAll()
+    }
+
+    public func setInkSlot(_ slot: Int, for accountID: AccountID) throws {
+        lock.lock(); defer { lock.unlock() }
+        try AccountTable.validate(inkSlot: slot)
+        guard accountRows[accountID] != nil else { throw StoreError.notFound }
+        accountRows[accountID]?.inkSlot = slot
+        notifyAll()
+    }
+
+    public func setMonogram(_ monogram: String?, for accountID: AccountID) throws {
+        lock.lock(); defer { lock.unlock() }
+        guard accountRows[accountID] != nil else { throw StoreError.notFound }
+        accountRows[accountID]?.monogram = Account.normalizedMonogram(monogram)
         notifyAll()
     }
 
@@ -75,6 +99,15 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         cursors[accountID] = nil
         bootstraps[accountID] = nil
         contactCounts[accountID] = nil
+        dropOrphanedMarksLocked()
+    }
+
+    /// The SQLite store keeps the mark on the summary row, which goes when a conversation has no non-spam
+    /// message left; a conversation that comes back later starts unmarked there, so it must here too.
+    private func dropOrphanedMarksLocked() {
+        guard !failedMarks.isEmpty else { return }
+        let summarized = Set(messagesByID.values.lazy.filter { !$0.roles.contains(.spam) }.map(\.conversationID))
+        failedMarks = failedMarks.filter { summarized.contains($0.key) }
     }
 
     // MARK: Messages
@@ -83,14 +116,16 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         for incoming in messages {
             var metadata = incoming
-            // Pending operations win: provider state older than a queued intent must not undo it.
-            let pending = operations.values
-                .filter { $0.targets.contains(incoming.id) && $0.status != .confirmed && $0.status != .failed }
-                .sorted { $0.createdAt < $1.createdAt }
-            for op in pending { metadata = applying(op.change, to: metadata) }
+            // Pending operations win: provider state older than a queued intent must not undo it. Each one's
+            // prior follows the report, so a give-up puts back what the provider last said.
+            for op in liveOperationsLocked(on: incoming.id) {
+                priors[op.id, default: [:]][incoming.id] = Prior(metadata)
+                metadata = applying(op.change, to: metadata)
+            }
             messagesByID[incoming.id] = metadata
             recordContacts(of: metadata)
         }
+        dropOrphanedMarksLocked()
         notifyAll()
     }
 
@@ -100,6 +135,7 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
             messagesByID[id] = nil
             bodies[id] = nil
         }
+        dropOrphanedMarksLocked()
         notifyAll()
     }
 
@@ -210,7 +246,7 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         let section: InboxSection = inboxMessages.contains { $0.inboxSection == .focused } ? .focused
             : inboxMessages.contains { $0.inboxSection == .other } ? .other : .unknown
         let pending = operations.values.contains { op in
-            op.status != .confirmed && op.status != .failed && op.targets.contains { messagesByID[$0]?.conversationID == id }
+            op.status.isLive && op.targets.contains { messagesByID[$0]?.conversationID == id }
         }
         summaryFlags[id] = Flags(
             inSent: basis.contains { $0.roles.contains(.sent) },
@@ -230,7 +266,8 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
             inInbox: !inboxMessages.isEmpty,
             inboxSection: section,
             latestMessageID: latest.id,
-            hasPendingOperations: pending
+            hasPendingOperations: pending,
+            failedOperation: failedMarks[id]
         )
     }
 
@@ -272,10 +309,13 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         for target in operation.targets {
             if let current = messagesByID[target] {
+                priors[operation.id, default: [:]][target] = Prior(current)
                 messagesByID[target] = applying(operation.change, to: current)
             }
         }
+        let previous = operations[operation.id]?.status
         operations[operation.id] = operation
+        operationWrittenLocked(operation, previousStatus: previous)
         notifyAll()
     }
 
@@ -290,14 +330,155 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
 
     public func updateOperation(_ operation: Operation) throws {
         lock.lock(); defer { lock.unlock() }
+        let previous = operations[operation.id]?.status
         operations[operation.id] = operation
+        if operation.status == .failed, let previous, previous.isLive { giveBackLocked(operation) }
+        operationWrittenLocked(operation, previousStatus: previous)
+        notifyAll()
+    }
+
+    public func confirmOperation(id: String) throws {
+        lock.lock(); defer { lock.unlock() }
+        guard let confirmed = removeOperationLocked(id: id) else { return }
+        settleLocked(confirmed, .confirmed)
         notifyAll()
     }
 
     public func deleteOperation(id: String) throws {
         lock.lock(); defer { lock.unlock() }
-        operations[id] = nil
+        deleteOperationLocked(id: id)
         notifyAll()
+    }
+
+    public func acknowledgeFailedOperation(conversationID: ConversationID) throws {
+        lock.lock(); defer { lock.unlock() }
+        guard failedMarks.removeValue(forKey: conversationID) != nil else { return }
+        notifyAll()
+    }
+
+    @discardableResult
+    public func pruneFailedOperations(accountID: AccountID, now: Date) throws -> Int {
+        lock.lock(); defer { lock.unlock() }
+        let cutoff = MailStoreCodec.milliseconds(now)
+        let due = operations.values
+            .filter { op in
+                op.accountID == accountID && op.status == .failed
+                    && (op.nextAttemptAt.map { MailStoreCodec.milliseconds($0) <= cutoff } ?? true)
+            }
+            .sorted { Self.isOlder($0, than: $1) }
+        for operation in due { deleteOperationLocked(id: operation.id) }
+        if !due.isEmpty { notifyAll() }
+        return due.count
+    }
+
+    private func deleteOperationLocked(id: String) {
+        guard let deleted = removeOperationLocked(id: id), deleted.status == .failed else { return }
+        settleLocked(deleted, .failureEnded)
+    }
+
+    private func removeOperationLocked(id: String) -> Operation? {
+        priors[id] = nil
+        return operations.removeValue(forKey: id)
+    }
+
+    // MARK: Giving up (the rules are written out on `OperationTable.giveBack`)
+
+    /// Live operations targeting the message, oldest first as the SQLite store orders them.
+    private func liveOperationsLocked(on id: MessageID) -> [Operation] {
+        operations.values
+            .filter { $0.status.isLive && $0.targets.contains(id) }
+            .sorted { Self.isOlder($0, than: $1) }
+    }
+
+    private func giveBackLocked(_ operation: Operation) {
+        guard let recorded = priors[operation.id] else { return }
+        for (target, prior) in recorded {
+            guard let current = messagesByID[target] else { continue }
+            var state = current
+            prior.apply(to: &state)
+            for newer in liveOperationsLocked(on: target) where Self.isOlder(operation, than: newer) {
+                priors[newer.id, default: [:]][target] = Prior(state)
+                state = applying(newer.change, to: state)
+            }
+            messagesByID[target] = state
+        }
+    }
+
+    /// The fields `applying(_:to:)` can change, as they were before an operation changed them.
+    private struct Prior {
+        var roles: Set<MailboxRole>
+        var isRead: Bool
+        var isStarred: Bool
+
+        init(_ metadata: MessageMetadata) {
+            roles = metadata.roles
+            isRead = metadata.isRead
+            isStarred = metadata.isStarred
+        }
+
+        func apply(to metadata: inout MessageMetadata) {
+            metadata.roles = roles
+            metadata.isRead = isRead
+            metadata.isStarred = isStarred
+        }
+    }
+
+    // MARK: Failed-operation marks (the rules are written out on `FailedOperationMarks`)
+
+    private enum Settlement { case confirmed, failureEnded }
+
+    private func operationWrittenLocked(_ operation: Operation, previousStatus: OperationStatus?) {
+        if operation.status == .failed {
+            guard previousStatus != .failed else { return }
+            for conversation in conversationsLocked(targetedBy: operation) where hasSummaryLocked(conversation) {
+                if failedMarks[conversation] != nil, newerFailureExistsLocked(in: conversation, than: operation) { continue }
+                failedMarks[conversation] = operation.change.kind
+            }
+        } else if operation.status == .confirmed, previousStatus != .confirmed {
+            settleLocked(operation, .confirmed)
+        } else if previousStatus == .failed {
+            settleLocked(operation, .failureEnded)
+        }
+    }
+
+    private func settleLocked(_ operation: Operation, _ settlement: Settlement) {
+        for conversation in conversationsLocked(targetedBy: operation) where failedMarks[conversation] != nil {
+            let standing = switch settlement {
+            case .confirmed: newerFailureExistsLocked(in: conversation, than: operation)
+            case .failureEnded: otherFailureExistsLocked(in: conversation, than: operation)
+            }
+            guard !standing else { continue }
+            failedMarks[conversation] = nil
+        }
+    }
+
+    private func otherFailureExistsLocked(in conversation: ConversationID, than operation: Operation) -> Bool {
+        operations.values.contains { other in
+            other.status == .failed && other.id != operation.id
+                && other.targets.contains { messagesByID[$0]?.conversationID == conversation }
+        }
+    }
+
+    private func conversationsLocked(targetedBy operation: Operation) -> Set<ConversationID> {
+        Set(operation.targets.compactMap { messagesByID[$0]?.conversationID })
+    }
+
+    private func hasSummaryLocked(_ conversation: ConversationID) -> Bool {
+        messagesByID.values.contains { $0.conversationID == conversation && !$0.roles.contains(.spam) }
+    }
+
+    private func newerFailureExistsLocked(in conversation: ConversationID, than operation: Operation) -> Bool {
+        operations.values.contains { other in
+            other.status == .failed && other.id != operation.id && Self.isOlder(operation, than: other)
+                && other.targets.contains { messagesByID[$0]?.conversationID == conversation }
+        }
+    }
+
+    /// Creation order as the SQLite store sees it: epoch milliseconds, then id.
+    private static func isOlder(_ lhs: Operation, than rhs: Operation) -> Bool {
+        let left = MailStoreCodec.milliseconds(lhs.createdAt)
+        let right = MailStoreCodec.milliseconds(rhs.createdAt)
+        return left != right ? left < right : lhs.id < rhs.id
     }
 
     public func enqueueSend(_ send: PendingSend) throws {

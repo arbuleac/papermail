@@ -157,17 +157,30 @@ public struct StoredBody: Hashable, Codable, Sendable {
     public var hasQuotedContent: Bool?
     /// Remote images parked in `data-ss-src`, which the reader can load on request.
     public var blockedRemoteImageCount: Int?
+    /// The design facts from `SanitizedBody`, nil for bodies stored before they were kept. Unlike the facts
+    /// above they cannot be derived at render time without parsing, so nil renders as `.styled`, colours
+    /// assumed and coverage unknown.
+    public var typesetting: BodyTypesetting?
+    public var declaresColors: Bool?
+    public var coveredByNewYork: Bool?
+
     public init(
         body: MessageBody,
         renderedHTML: String,
         plainText: String,
         hasQuotedContent: Bool? = nil,
-        blockedRemoteImageCount: Int? = nil
+        blockedRemoteImageCount: Int? = nil,
+        typesetting: BodyTypesetting? = nil,
+        declaresColors: Bool? = nil,
+        coveredByNewYork: Bool? = nil
     ) {
         self.body = body
         self.renderedHTML = renderedHTML
         self.plainText = plainText
         self.hasQuotedContent = hasQuotedContent
         self.blockedRemoteImageCount = blockedRemoteImageCount
+        self.typesetting = typesetting
+        self.declaresColors = declaresColors
+        self.coveredByNewYork = coveredByNewYork
     }
 }

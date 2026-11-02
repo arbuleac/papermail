@@ -62,6 +62,7 @@ final class DemoMailboxEndToEndTests: XCTestCase {
         XCTAssertEqual(Set(accounts.map(\.email)), ["alex@demo-gmail.test", "alex@demo-outlook.test"])
         XCTAssertEqual(Set(accounts.map(\.kind)), [.gmail, .microsoft])
         XCTAssertNotEqual(accounts[0].colorHex, accounts[1].colorHex)
+        XCTAssertEqual(Set(accounts.map(\.inkSlot)), [0, 1])
 
         let inbox = try store.conversations(ConversationQuery(view: .inbox, limit: .max))
         XCTAssertGreaterThan(inbox.count, 40)

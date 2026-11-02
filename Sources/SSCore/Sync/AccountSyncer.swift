@@ -315,7 +315,8 @@ actor AccountSyncer {
 
     /// An uncertain operation is kept so local state wins until the provider's view of its targets is known.
     /// Once a poll has reported those targets and the operation is old enough for any in-flight request to
-    /// have landed, the provider's state is the truth: the row goes before that state is written.
+    /// have landed, the provider's state is the truth: the row goes before that state is written. It is
+    /// deleted, not confirmed, because it may never have landed, so it settles no failure mark.
     private func settleUncertainOperations(observed: Set<MessageID>) {
         guard !observed.isEmpty else { return }
         let cutoff = Date().addingTimeInterval(-tuning.uncertainSettleAge)

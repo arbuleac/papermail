@@ -20,6 +20,19 @@ struct CSSFilter: Sendable {
         var blockedRemoteImages: Int
         /// False when nothing was dropped or rewritten; `css` is then the input itself.
         var changed: Bool
+        var facts = Facts()
+    }
+
+    /// What the declarations a call kept say about the body's design, gathered in the same pass so the
+    /// sanitizer can classify a body (`BodyTypesetting`, `SanitizedBody.declaresColors`) without a second scan.
+    struct Facts: Sendable {
+        /// A `color`, `-webkit-text-fill-color` or `background` family declaration whose value sets something.
+        var declaresColors = false
+        /// A declaration outside the neutral text-flow and spacing properties.
+        var styles = false
+        /// The same, also leaving out box sizing (`width`, `height`, `max-width`, `max-height`), which is
+        /// neutral on an image: a resized picture in a personal note is not a designed layout.
+        var stylesBeyondSizing = false
     }
 
     let allowRemoteImages: Bool
@@ -28,17 +41,20 @@ struct CSSFilter: Sendable {
     func filter(_ css: String, mode: Mode) -> Result {
         let result = filter(bytes: Array(css.utf8), mode: mode)
         guard let rewritten = result.css else {
-            return Result(css: css, blockedRemoteImages: result.blockedRemoteImages, changed: false)
+            return Result(css: css, blockedRemoteImages: result.blockedRemoteImages, changed: false, facts: result.facts)
         }
-        return Result(css: String(decoding: rewritten, as: UTF8.self), blockedRemoteImages: result.blockedRemoteImages, changed: true)
+        return Result(
+            css: String(decoding: rewritten, as: UTF8.self), blockedRemoteImages: result.blockedRemoteImages,
+            changed: true, facts: result.facts
+        )
     }
 
     /// The DOM hands out attribute values as bytes; going through String for every style attribute would cost
     /// two allocations per element. `css` is nil when nothing needed changing.
-    func filter(bytes: [UInt8], mode: Mode) -> (css: [UInt8]?, blockedRemoteImages: Int) {
+    func filter(bytes: [UInt8], mode: Mode) -> (css: [UInt8]?, blockedRemoteImages: Int, facts: Facts) {
         var scanner = Scanner(filter: self, mode: mode, bytes: bytes)
         scanner.run()
-        return (scanner.altered ? scanner.output : nil, scanner.blocked)
+        return (scanner.altered ? scanner.output : nil, scanner.blocked, scanner.facts)
     }
 
     /// An SVG presentation attribute (`fill`, `mask`, `filter`...) is a CSS value in all but name: its url()
@@ -90,6 +106,7 @@ private struct Scanner {
     var blocked = 0
     /// Set the moment anything is dropped or rewritten. Formatting differences alone never set it.
     var altered = false
+    private(set) var facts = CSSFilter.Facts()
 
     private var segment: [UInt8] = []
     /// Depth inside a block whose prelude was dropped (everything in it is discarded).
@@ -256,11 +273,26 @@ private struct Scanner {
         let lowerName = Scanner.decodedLowercase(name) ?? Scanner.lowercased(name)
         if Scanner.droppedProperties.contains(lowerName) { altered = true; return }
         guard let finalValue = filteredValue(lowerName: lowerName, value: value) else { altered = true; return }
+        // The value as written, not as filtered: a blocked background became `none` here but is still part of
+        // the design, and loading images brings it back.
+        noteFacts(lowerName: lowerName, value: value)
         output.append(contentsOf: name)
         output.append(ASCII.colon)
         output.append(ASCII.space)
         output.append(contentsOf: finalValue)
         output.append(ASCII.semicolon)
+    }
+
+    private mutating func noteFacts(lowerName: [UInt8], value: ArraySlice<UInt8>) {
+        // Once both are known nothing more can change, and a newsletter has thousands of declarations.
+        if facts.declaresColors, facts.stylesBeyondSizing { return }
+        if !Scanner.isNeutral(lowerName) {
+            facts.styles = true
+            if !Scanner.sizingProperties.contains(lowerName) { facts.stylesBeyondSizing = true }
+        }
+        if !facts.declaresColors, Scanner.colorProperties.contains(lowerName), !Scanner.setsNoColor(value) {
+            facts.declaresColors = true
+        }
     }
 
     /// The value with its url() references rewritten, or nil when the whole declaration has to go.
@@ -572,6 +604,38 @@ private struct Scanner {
     static let cdo = Array("<!--".utf8)
     static let cdc = Array("-->".utf8)
 
+    /// Properties ordinary personal mail carries without being designed: Apple Mail's wrapping on `<body>`,
+    /// Gmail's quote bar (margin, border, padding), direction and alignment. Anything else is author styling.
+    static func isNeutral(_ lowerName: [UInt8]) -> Bool {
+        neutralProperties.contains(lowerName)
+            || hasPrefix(lowerName, marginPrefix) || hasPrefix(lowerName, paddingPrefix) || hasPrefix(lowerName, borderPrefix)
+    }
+
+    private static let neutralProperties: Set<[UInt8]> = Set([
+        "margin", "padding", "border", "direction", "unicode-bidi", "text-align", "word-wrap", "overflow-wrap",
+        "word-break", "white-space", "line-break", "-webkit-line-break", "-webkit-nbsp-mode", "caret-color",
+        "-webkit-text-size-adjust", "-ms-text-size-adjust", "text-size-adjust",
+    ].map { Array($0.utf8) })
+    private static let marginPrefix = Array("margin-".utf8)
+    private static let paddingPrefix = Array("padding-".utf8)
+    private static let borderPrefix = Array("border-".utf8)
+    static let sizingProperties: Set<[UInt8]> = Set(["width", "height", "max-width", "max-height"].map { Array($0.utf8) })
+    /// `-webkit-text-fill-color` is what WebKit paints text with when it is set, over `color`.
+    static let colorProperties: Set<[UInt8]> = Set([
+        "color", "background", "background-color", "background-image", "-webkit-text-fill-color",
+    ].map { Array($0.utf8) })
+
+    /// A colour declaration whose whole value (before any `!important`) is one of these paints nothing of its own.
+    static func setsNoColor(_ value: ArraySlice<UInt8>) -> Bool {
+        var keyword = trim(value)
+        if let bang = keyword.firstIndex(of: ASCII.bang) { keyword = trim(keyword[keyword.startIndex..<bang]) }
+        return keyword.isEmpty || noColorValues.contains(lowercased(keyword))
+    }
+
+    private static let noColorValues: Set<[UInt8]> = Set([
+        "inherit", "initial", "unset", "revert", "revert-layer", "currentcolor", "transparent", "none",
+    ].map { Array($0.utf8) })
+
     static let droppedProperties: Set<[UInt8]> = [
         Array("behavior".utf8), Array("-ms-behavior".utf8), Array("-moz-binding".utf8),
     ]
@@ -605,6 +669,7 @@ private enum ASCII {
     static let semicolon = UInt8(ascii: ";")
     static let colon = UInt8(ascii: ":")
     static let at = UInt8(ascii: "@")
+    static let bang = UInt8(ascii: "!")
     static let hash = UInt8(ascii: "#")
     static let lessThan = UInt8(ascii: "<")
     static let lowerF = UInt8(ascii: "f")

@@ -52,6 +52,10 @@ public struct HTMLSanitizer: BodySanitizing, Sendable {
         // The body element is not part of the output: its paint attributes are read before the scrub so they can
         // move to the wrapper, and only its children are scrubbed like any other content.
         let bodyStyle = try Self.inlineStyle(ofBody: body)
+        // `text` and `link` never reach the output (only paint that can move to the wrapper does), but they
+        // still say the sender chose colours; `bgcolor` and `background` count as written, whatever the filter
+        // later makes of them.
+        let bodyDeclaresColors = try Self.bodyColorAttributes.contains { !(try body.attr($0)).allSatisfy(\.isWhitespace) }
         var pass = Pass(messageID: messageID, allowRemoteImages: allowRemoteImages)
         try pass.scrubContents(of: body)
         let hasQuotes = try QuoteDetector.wrapQuotes(in: body, candidates: pass.quoteCandidates)
@@ -62,13 +66,22 @@ public struct HTMLSanitizer: BodySanitizing, Sendable {
         // text node and re-quotes every attribute, so markup our parser read one way and WebKit might read
         // another cannot reach the stored body. It costs about a millisecond on a 200 KB newsletter.
         let inner = try body.htmlUTF8WithoutSourceReuse()
+        let plainText = TextExtractor.plainText(from: body)
+        let declaresColors = bodyDeclaresColors || pass.declaresColors
         return SanitizedBody(
             html: Self.wrapped(String(decoding: inner, as: UTF8.self), style: wrapperStyle),
-            plainText: TextExtractor.plainText(from: body),
+            plainText: plainText,
             blockedRemoteImageCount: pass.blockedRemoteImages,
-            hasQuotedContent: hasQuotes
+            hasQuotedContent: hasQuotes,
+            // A colour is author styling too, so an unstyled body never needs adapting in a dark appearance.
+            typesetting: declaresColors || pass.styled ? .styled : .unstyled,
+            declaresColors: declaresColors,
+            coveredByNewYork: NewYorkCoverage.covers(plainText)
         )
     }
+
+    /// Attributes on `<body>` that set its colours (`SanitizedBody.declaresColors`).
+    private static let bodyColorAttributes = ["text", "link", "bgcolor", "background"]
 
     private func renderText(_ text: String) -> SanitizedBody {
         let rendered = PlainTextRenderer.render(text)
@@ -76,11 +89,15 @@ public struct HTMLSanitizer: BodySanitizing, Sendable {
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        let plainText = TextExtractor.limited(normalized)
         return SanitizedBody(
             html: "<div class=\"\(Self.bodyClass) \(Self.plainBodyClass)\">" + rendered.html + "</div>",
-            plainText: TextExtractor.limited(normalized),
+            plainText: plainText,
             blockedRemoteImageCount: 0,
-            hasQuotedContent: rendered.hasQuotedContent
+            hasQuotedContent: rendered.hasQuotedContent,
+            typesetting: .plain,
+            declaresColors: false,
+            coveredByNewYork: NewYorkCoverage.covers(plainText)
         )
     }
 
@@ -158,6 +175,12 @@ private struct Pass {
     let allowRemoteImages: Bool
     private let css: CSSFilter
     private(set) var blockedRemoteImages = 0
+    /// The body sets a colour (`SanitizedBody.declaresColors`); noticed while scrubbing, like everything here.
+    private(set) var declaresColors = false
+    /// The body carries author styling other than colour (`BodyTypesetting.unstyled` lists what counts).
+    private(set) var styled = false
+    /// Tables currently open around the element being scrubbed: a table inside a table is a layout grid.
+    private var tableDepth = 0
     /// Quote starts noticed while scrubbing, so quote detection needs no traversal of its own.
     private(set) var quoteCandidates = QuoteCandidates()
     /// Elements whose id or name gets the `ss-` prefix, collected here so no second traversal is needed.
@@ -176,7 +199,13 @@ private struct Pass {
     mutating func filterStyle(_ style: String) -> String {
         let result = css.filter(style, mode: .attribute)
         blockedRemoteImages += result.blockedRemoteImages
+        note(result.facts, onImage: false)
         return result.css
+    }
+
+    private mutating func note(_ facts: CSSFilter.Facts, onImage: Bool) {
+        if facts.declaresColors { declaresColors = true }
+        if onImage ? facts.stylesBeyondSizing : facts.styles { styled = true }
     }
 
     mutating func scrubContents(of body: Element) throws {
@@ -226,7 +255,14 @@ private struct Pass {
         }
         let facts = try scrubAttributes(of: element, role: role)
         quoteCandidates.consider(element, tag: tag, facts: facts)
-        try scrubChildren(of: element, depth: depth, inForeign: inForeign || role == .svg)
+        guard role == .table else {
+            try scrubChildren(of: element, depth: depth, inForeign: inForeign || role == .svg)
+            return
+        }
+        if tableDepth > 0 { styled = true }
+        tableDepth += 1
+        defer { tableDepth -= 1 }
+        try scrubChildren(of: element, depth: depth, inForeign: inForeign)
     }
 
     private mutating func scrubChildren(of element: Element, depth: Int, inForeign: Bool) throws {
@@ -255,6 +291,8 @@ private struct Pass {
         let isSVGImage = role == .svgImage
         let isLink = role == .anchor
         let isDiv = role == .div
+        let isFont = role == .font
+        let isTable = role == .table
         // Set when a remote image source was blocked; added after the pass because the pass can only keep,
         // drop or rewrite what is already there (and an incoming data-ss-src is dropped by it first).
         var blockedSource: String?
@@ -263,6 +301,13 @@ private struct Pass {
             let key = Pass.lowercased(attribute.getKeyUTF8())
             if Pass.hasPrefix(key, Pass.eventPrefix) || Pass.hasPrefix(key, Pass.reservedAttributePrefix) {
                 return Pass.drop
+            }
+            if isTable, !styled, let hint = Pass.layoutTableAttributes[key] {
+                // The table's own grid markup; colours and backgrounds are caught by their roles below.
+                let value = attribute.getValueUTF8()
+                if hint == .anyValue ? !Pass.isBlank(value) : Pass.lowercased(Pass.trimmed(value)) == Pass.presentationValue {
+                    styled = true
+                }
             }
             guard let role = Pass.attributeRoles[key] else { return Pass.keep }
             switch role {
@@ -273,6 +318,7 @@ private struct Pass {
                 if isDiv, QuoteCandidates.mentionsBorderTop(value) { facts.styleMentionsBorderTop = true }
                 let result = css.filter(bytes: value, mode: .attribute)
                 blockedRemoteImages += result.blockedRemoteImages
+                note(result.facts, onImage: isImage)
                 guard let rewritten = result.css else { return Pass.keep }
                 return rewritten.isEmpty ? Pass.drop : AttributeMutation(keep: true, newValue: rewritten)
             case .class:
@@ -308,7 +354,18 @@ private struct Pass {
                 if isSVGImage { return imagePolicy(attribute.getValue(), isImageSource: false, blockedSource: &blockedSource) }
                 return Pass.drop
             case .background:
+                // Counted before the image policy: a blocked background is still part of the design.
+                if !Pass.isBlank(attribute.getValueUTF8()) { declaresColors = true }
                 return imagePolicy(attribute.getValue(), isImageSource: false, parks: true, blockedSource: &blockedBackground)
+            case .backgroundColor:
+                if !Pass.isBlank(attribute.getValueUTF8()) { declaresColors = true }
+                return Pass.keep
+            case .fontColor:
+                if isFont, !Pass.isBlank(attribute.getValueUTF8()) { declaresColors = true }
+                return Pass.keep
+            case .fontFace:
+                if isFont, !Pass.isBlank(attribute.getValueUTF8()) { styled = true }
+                return Pass.keep
             case .href:
                 if isSVGImage { return imagePolicy(attribute.getValue(), isImageSource: false, blockedSource: &blockedSource) }
                 if isLink { return linkPolicy(attribute.getValue()) }
@@ -371,17 +428,23 @@ private struct Pass {
 
     private mutating func filterStyleElement(_ element: Element) throws {
         for node in element.getChildNodes() {
+            let result: CSSFilter.Result
             if let data = node as? DataNode {
-                let result = css.filter(data.getWholeData(), mode: .sheet)
-                blockedRemoteImages += result.blockedRemoteImages
+                result = css.filter(data.getWholeData(), mode: .sheet)
                 if result.changed { _ = data.setWholeData(result.css) }
             } else if let text = node as? TextNode {
-                let result = css.filter(text.getWholeText(), mode: .sheet)
-                blockedRemoteImages += result.blockedRemoteImages
+                result = css.filter(text.getWholeText(), mode: .sheet)
                 try text.replaceWith(DataNode(Array(result.css.utf8), []))
             } else {
                 try node.remove()
+                continue
             }
+            blockedRemoteImages += result.blockedRemoteImages
+            if result.facts.declaresColors { declaresColors = true }
+            // A stylesheet is held to the same neutral-property rule as a style attribute: Fastmail puts
+            // `p.MsoNormal{margin:0}` in every message and Outlook on the web `P {margin-top:0}`, which are
+            // no more a design than `<p style="margin:0">`. One left empty by the filter is not styling either.
+            if result.facts.styles { styled = true }
         }
     }
 
@@ -425,6 +488,17 @@ private struct Pass {
         byte == 0x20 || byte == 0x09 || byte == 0x0A || byte == 0x0D || byte == 0x0C
     }
 
+    private static func isBlank(_ value: [UInt8]) -> Bool {
+        value.allSatisfy(isSpace)
+    }
+
+    private static func trimmed(_ value: [UInt8]) -> [UInt8] {
+        guard let first = value.firstIndex(where: { !isSpace($0) }), let last = value.lastIndex(where: { !isSpace($0) }) else {
+            return []
+        }
+        return Array(value[first...last])
+    }
+
     private static let keep = AttributeMutation(keep: true)
     private static let drop = AttributeMutation(keep: false)
     private static func replacing(_ value: String) -> AttributeMutation {
@@ -436,7 +510,24 @@ private struct Pass {
 
     private enum AttributeRole {
         case removed, style, `class`, id, name, type, src, background, href, link, usemap, paint
+        /// Design facts only; the attribute itself is kept as it is.
+        case backgroundColor, fontColor, fontFace
     }
+
+    private enum LayoutHint {
+        case anyValue, presentation
+    }
+
+    /// `<table>` attributes that make it a layout grid rather than a table of data (`BodyTypesetting.unstyled`).
+    private static let layoutTableAttributes: [[UInt8]: LayoutHint] = {
+        var map: [[UInt8]: LayoutHint] = [:]
+        for key in ["width", "height", "align", "cellpadding", "cellspacing"] {
+            map[Array(key.utf8)] = .anyValue
+        }
+        map[Array("role".utf8)] = .presentation
+        return map
+    }()
+    private static let presentationValue = Array("presentation".utf8)
 
     /// One lookup per attribute decides everything about it.
     private static let attributeRoles: [[UInt8]: AttributeRole] = {
@@ -461,6 +552,10 @@ private struct Pass {
             map[Array(key.utf8)] = .link
         }
         map[Array("usemap".utf8)] = .usemap
+        map[Array("bgcolor".utf8)] = .backgroundColor
+        map[Array("color".utf8)] = .fontColor
+        map[Array("face".utf8)] = .fontFace
+        map[Array("size".utf8)] = .fontFace
         for key in ["fill", "stroke", "filter", "mask", "clip-path", "marker", "marker-start", "marker-mid",
                     "marker-end", "cursor"] {
             map[Array(key.utf8)] = .paint
@@ -475,7 +570,7 @@ private struct Pass {
     private static let reservedAttributePrefix = Array("data-ss-".utf8)
 
     private enum TagRole {
-        case removed, unwrapped, rawText, style, img, svgImage, anchor, div, svg
+        case removed, unwrapped, rawText, style, img, svgImage, anchor, div, svg, font, table
     }
 
     /// One lookup per element decides everything about it.
@@ -498,6 +593,8 @@ private struct Pass {
         map[Array("image".utf8)] = .svgImage
         map[Array("a".utf8)] = .anchor
         map[Array("div".utf8)] = .div
+        map[Array("font".utf8)] = .font
+        map[Array("table".utf8)] = .table
         return map
     }()
 }

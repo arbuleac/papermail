@@ -49,6 +49,12 @@ public enum OperationStatus: String, Codable, Sendable {
     case uncertain
 }
 
+extension OperationStatus {
+    /// Pending, in flight or uncertain: the operation's change still wins over provider state
+    /// (docs/DATA-MODEL.md, "Pending operations win").
+    var isLive: Bool { self == .pending || self == .inFlight || self == .uncertain }
+}
+
 /// A queued metadata change (the outbox). One operation targets messages of exactly one account.
 public struct Operation: Hashable, Codable, Sendable, Identifiable {
     public var id: String
@@ -59,6 +65,9 @@ public struct Operation: Hashable, Codable, Sendable, Identifiable {
     public var status: OperationStatus
     public var attempts: Int
     public var lastError: String?
+    /// When the engine next acts on the row: the next try of a pending or uncertain operation, or, for a
+    /// failed one, when it is pruned (`MailStoring.pruneFailedOperations`). A failed row is never tried again,
+    /// so the column carries its expiry instead of needing one of its own.
     public var nextAttemptAt: Date?
 
     public init(

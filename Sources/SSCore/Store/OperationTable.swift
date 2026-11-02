@@ -16,44 +16,176 @@ enum OperationTable {
         Set(try String.fetchAll(db, sql: "SELECT DISTINCT account_id FROM operations WHERE status IN \(liveStatusList)"))
     }
 
-    /// Changes queued for a message, oldest first, so replaying them on top of provider state is deterministic.
-    static func liveChanges(for id: MessageID, in db: Database) throws -> [MetadataChange] {
-        let statement = try db.cachedStatement(sql: """
-            SELECT o.change_json FROM operation_targets t
-            JOIN operations o ON o.id = t.operation_id
-            WHERE t.account_id = ? AND t.provider_id = ? AND o.status IN \(liveStatusList)
-            ORDER BY o.created_at, o.id
-            """)
-        return try String.fetchAll(statement, arguments: [id.accountID.rawValue, id.providerID])
-            .map { try MailStoreCodec.decode(MetadataChange.self, from: $0) }
+    /// Replays the live operations queued for the message on top of `metadata` (provider state), oldest first
+    /// so the result is deterministic, and records on each target row the state its operation now replaces.
+    /// That record is what a give-up puts back (see `update`), so it follows the provider's latest report.
+    static func replayLive(on metadata: MessageMetadata, in db: Database) throws -> MessageMetadata {
+        var state = metadata
+        for (operationID, change) in try liveOperations(on: metadata.id, newerThan: nil, in: db) {
+            try recordPrior(state, operationID: operationID, in: db)
+            state = applying(change, to: state)
+        }
+        return state
+    }
+
+    /// Live operations targeting the message, oldest first; with `newerThan`, only those created after it.
+    private static func liveOperations(
+        on id: MessageID,
+        newerThan operation: Operation?,
+        in db: Database
+    ) throws -> [(id: String, change: MetadataChange)] {
+        let rows: [Row]
+        if let operation {
+            let createdAt = MailStoreCodec.milliseconds(operation.createdAt)
+            rows = try Row.fetchAll(db.cachedStatement(sql: """
+                SELECT o.id, o.change_json FROM operation_targets t
+                JOIN operations o ON o.id = t.operation_id
+                WHERE t.account_id = ? AND t.provider_id = ? AND o.status IN \(liveStatusList)
+                  AND (o.created_at > ? OR (o.created_at = ? AND o.id > ?))
+                ORDER BY o.created_at, o.id
+                """), arguments: [id.accountID.rawValue, id.providerID, createdAt, createdAt, operation.id])
+        } else {
+            rows = try Row.fetchAll(db.cachedStatement(sql: """
+                SELECT o.id, o.change_json FROM operation_targets t
+                JOIN operations o ON o.id = t.operation_id
+                WHERE t.account_id = ? AND t.provider_id = ? AND o.status IN \(liveStatusList)
+                ORDER BY o.created_at, o.id
+                """), arguments: [id.accountID.rawValue, id.providerID])
+        }
+        return try rows.map { (id: $0[0], change: try MailStoreCodec.decode(MetadataChange.self, from: $0[1])) }
+    }
+
+    /// Stores the flags `state` has as what the operation replaces on that target (`operation_targets.prior_*`).
+    private static func recordPrior(_ state: MessageMetadata, operationID: String, in db: Database) throws {
+        try db.cachedStatement(sql: """
+            UPDATE operation_targets SET prior_roles = ?, prior_is_read = ?, prior_is_starred = ?
+            WHERE operation_id = ? AND account_id = ? AND provider_id = ?
+            """).execute(arguments: [
+                MailStoreCodec.roleBits(state.roles), state.isRead, state.isStarred,
+                operationID, state.id.accountID.rawValue, state.id.providerID,
+            ])
+    }
+
+    /// Puts back what a just-failed operation changed on each target it recorded a prior for, with the live
+    /// operations queued after it replayed on top (their priors move to the restored state). Live operations
+    /// queued before it are already part of its prior. Targets without a prior (queued by an older build and
+    /// never reported by a poll since) and targets that are gone are left as they are.
+    private static func giveBack(_ operation: Operation, in db: Database) throws {
+        let priors = try Row.fetchAll(db.cachedStatement(sql: """
+            SELECT provider_id, prior_roles, prior_is_read, prior_is_starred FROM operation_targets
+            WHERE operation_id = ? AND prior_roles IS NOT NULL
+            """), arguments: [operation.id])
+        for prior in priors {
+            let id = MessageID(accountID: operation.accountID, providerID: prior[0])
+            guard let current = try MessageTable.fetch(id, in: db) else { continue }
+            var state = current
+            state.roles = MailStoreCodec.roles(prior[1])
+            state.isRead = prior[2]
+            state.isStarred = prior[3]
+            for (newerID, change) in try liveOperations(on: id, newerThan: operation, in: db) {
+                try recordPrior(state, operationID: newerID, in: db)
+                state = applying(change, to: state)
+            }
+            guard state != current else { continue }
+            try MessageTable.updateFlags(state, in: db)
+            try ConversationTable.touch(current.conversationID, in: db)
+        }
     }
 
     // MARK: Writes
 
     static func enqueue(_ operation: Operation, in db: Database) throws {
         try MailSchema.ensureTouchedTable(db)
+        var replaced: [MessageMetadata] = []
         for target in operation.targets {
             guard let current = try MessageTable.fetch(target, in: db) else { continue }
+            replaced.append(current)
             try MessageTable.updateFlags(applying(operation.change, to: current), in: db)
             try ConversationTable.touch(current.conversationID, in: db)
         }
+        let previous = try savedState(of: operation.id, in: db)?.status
         try save(operation, in: db)
+        // After the save, which creates the target rows the priors live on.
+        for current in replaced { try recordPrior(current, operationID: operation.id, in: db) }
         try ConversationTable.refreshTouched(db)
+        try FailedOperationMarks.operationWritten(operation, previousStatus: previous, in: db)
     }
 
     static func update(_ operation: Operation, in db: Database) throws {
         try MailSchema.ensureTouchedTable(db)
+        let previous = try savedState(of: operation.id, in: db)?.status
         try touchTargets(of: operation.id, in: db)
         try save(operation, in: db)
+        // A live operation written as failed has been given up: it stops winning, and the provider never took
+        // the change (or a poll has already reported it, which its prior then holds), so it is put back here,
+        // in the transaction that marks the conversation, rather than waiting for a poll that will not come.
+        if operation.status == .failed, let previous, previous.isLive {
+            try giveBack(operation, in: db)
+        }
         try touchTargets(of: operation.id, in: db)
         try ConversationTable.refreshTouched(db)
+        // After the refresh, so the summary rows the mark lands on exist and are current.
+        try FailedOperationMarks.operationWritten(operation, previousStatus: previous, in: db)
     }
 
+    /// Removes an operation without saying whether it landed: its local change stays, and the failed mark
+    /// changes only when the row itself was failed (pruning), never for a live row a poll settled.
     static func delete(id: String, in db: Database) throws {
+        guard let removed = try remove(id: id, in: db), removed.status == .failed else { return }
+        try FailedOperationMarks.settle(.failureEnded, operationID: id, conversations: removed.conversations, in: db)
+    }
+
+    /// Removes an operation the provider applied, which settles failures created before it.
+    static func confirm(id: String, in db: Database) throws {
+        guard let removed = try remove(id: id, in: db) else { return }
+        try FailedOperationMarks.settle(
+            .confirmed(createdAt: removed.createdAt), operationID: id, conversations: removed.conversations, in: db
+        )
+    }
+
+    /// What the mark rules need from a deleted row, read before the delete because the targets cascade with it.
+    private struct Removed {
+        var status: OperationStatus
+        var createdAt: Int64
+        var conversations: [FailedOperationMarks.ConversationKey]
+    }
+
+    /// Deletes the row and refreshes its conversations. Nil when there was no such row.
+    private static func remove(id: String, in db: Database) throws -> Removed? {
         try MailSchema.ensureTouchedTable(db)
+        guard let state = try savedState(of: id, in: db) else { return nil }
+        let conversations = try FailedOperationMarks.conversations(ofOperation: id, in: db)
         try touchTargets(of: id, in: db)
         try db.execute(sql: "DELETE FROM operations WHERE id = ?", arguments: [id])
         try ConversationTable.refreshTouched(db)
+        return Removed(status: state.status, createdAt: state.createdAt, conversations: conversations)
+    }
+
+    /// Failed rows whose expiry (`next_attempt_at`, see `Operation.nextAttemptAt`) has passed, oldest first,
+    /// each deleted through `delete` so its conversations' marks settle in the same transaction.
+    static func pruneFailed(accountID: AccountID, now: Date, in db: Database) throws -> Int {
+        let ids = try String.fetchAll(db.cachedStatement(sql: """
+            SELECT id FROM operations WHERE \(expiredFailure) ORDER BY created_at, id
+            """), arguments: [accountID.rawValue, MailStoreCodec.milliseconds(now)])
+        for id in ids { try delete(id: id, in: db) }
+        return ids.count
+    }
+
+    /// Whether `pruneFailed` would find anything, so the common case can stay off the writer.
+    static func hasExpiredFailures(accountID: AccountID, now: Date, in db: Database) throws -> Bool {
+        try Bool.fetchOne(db.cachedStatement(sql: "SELECT EXISTS (SELECT 1 FROM operations WHERE \(expiredFailure))"),
+                          arguments: [accountID.rawValue, MailStoreCodec.milliseconds(now)]) ?? false
+    }
+
+    /// Takes the account id and the cutoff in milliseconds; served by `operations_by_account_status`.
+    private static let expiredFailure = """
+        account_id = ? AND status = 'failed' AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
+        """
+
+    private static func savedState(of id: String, in db: Database) throws -> (status: OperationStatus, createdAt: Int64)? {
+        guard let row = try Row.fetchOne(db.cachedStatement(sql: "SELECT status, created_at FROM operations WHERE id = ?"),
+                                         arguments: [id]) else { return nil }
+        return (OperationStatus(rawValue: row[0]) ?? .pending, row[1])
     }
 
     private static func save(_ operation: Operation, in db: Database) throws {
@@ -74,11 +206,23 @@ enum OperationTable {
                 operation.lastError,
                 operation.nextAttemptAt.map(MailStoreCodec.milliseconds),
             ])
-        try db.cachedStatement(sql: "DELETE FROM operation_targets WHERE operation_id = ?").execute(arguments: [operation.id])
+        // Target rows are kept across updates rather than rebuilt: they carry the priors a give-up puts back.
+        let existing = Set(try String.fetchAll(
+            db.cachedStatement(sql: "SELECT provider_id FROM operation_targets WHERE operation_id = ?"),
+            arguments: [operation.id]
+        ))
+        let wanted = Set(operation.targets.map(\.providerID))
+        guard existing != wanted else { return }
+        let removeTarget = try db.cachedStatement(sql: """
+            DELETE FROM operation_targets WHERE operation_id = ? AND provider_id = ?
+            """)
+        for providerID in existing.subtracting(wanted) {
+            try removeTarget.execute(arguments: [operation.id, providerID])
+        }
         let insertTarget = try db.cachedStatement(sql: """
             INSERT OR IGNORE INTO operation_targets (operation_id, account_id, provider_id) VALUES (?, ?, ?)
             """)
-        for target in operation.targets {
+        for target in operation.targets where !existing.contains(target.providerID) {
             try insertTarget.execute(arguments: [operation.id, target.accountID.rawValue, target.providerID])
         }
     }

@@ -1,7 +1,13 @@
 import Foundation
 
-/// Fixed colors for account dots, so an account looks the same on every launch and the first two accounts
-/// always get clearly different hues.
+/// TEMPORARY(quire): the pre-Quire account dot colours, kept only so `Account.colorHex` stays filled while
+/// the app still draws it. SSCore carries the palette slot (`Account.inkSlot`, assigned by `AccountInkSlot`);
+/// the colours come from SSDesign (`NSColor.qAccount(slot)`). Delete this file, `Account.colorHex` and the
+/// `accounts.color_hex` writes once the list, the account strip and Settings draw from the slot.
+///
+/// It keeps choosing by colour rather than by slot on purpose: existing accounts' slots were backfilled in
+/// creation order, which need not match the colours they already wear, and the dots must not change or
+/// collide before the app switches over.
 enum AccountColorPalette {
     static let hexColors: [String] = [
         "#4A90E2", "#50B86C", "#F5A623", "#D0453B", "#9B59B6",
