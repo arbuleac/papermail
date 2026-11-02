@@ -290,6 +290,28 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         conversation.prerender(wanted)
     }
 
+    // MARK: Snapshot support
+
+    /// Debug aid for `--snapshot`: selects the first row as a click would.
+    @discardableResult
+    func selectFirstConversation() -> ConversationID? {
+        guard let first = list.conversations.first?.id else { return nil }
+        list.selectedConversationID = first
+        selectionChanged(first)
+        return first
+    }
+
+    var hasConversations: Bool { !list.conversations.isEmpty }
+
+    func whenReaderSettles(timeout: TimeInterval, _ completion: @escaping (WKWebView?) -> Void) {
+        conversation.whenShownRenderLands(timeout: timeout, completion)
+    }
+
+    /// Debug aid for `--snapshot-compose`.
+    func openReplyComposer() -> Bool {
+        composeReply(all: false)
+    }
+
     /// Brings a conversation on screen from outside the list (a notification click).
     func reveal(_ id: ConversationID) {
         showWindow(nil)

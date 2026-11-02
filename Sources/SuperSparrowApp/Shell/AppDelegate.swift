@@ -1,5 +1,6 @@
 import AppKit
 import SSCore
+import WebKit
 import os
 
 /// Application lifecycle: builds the environment for the launch mode, owns the main and settings windows,
@@ -31,17 +32,103 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if options.resetDemo { AppEnvironment.wipeDemoData() }
         start(mode: options.demo ? .demo : .real)
         NSApp.activate()
-        if let path = options.snapshotPath {
+        if options.snapshotPath != nil || options.composeSnapshotPath != nil {
+            runSnapshots(main: options.snapshotPath, compose: options.composeSnapshotPath)
+        }
+    }
+
+    // MARK: Snapshots (debug aid)
+
+    /// In demo mode: waits for the inbox, opens its first conversation, waits for the reader's render to
+    /// land, then writes the window (reader composited in) and, when asked, a reply composer. Outside demo
+    /// mode the window is written as it is after a few seconds.
+    private func runSnapshots(main: String?, compose: String?) {
+        guard options.demo else {
             DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in
-                MainActor.assumeIsolated { self?.writeSnapshot(to: path) }
+                MainActor.assumeIsolated {
+                    guard let self, let main else { return }
+                    self.writeWindowSnapshot(to: main, reader: nil)
+                }
+            }
+            return
+        }
+        waitForInbox(deadline: Date().addingTimeInterval(20)) { [weak self] in
+            guard let self, let window = self.mainWindow else { return }
+            window.selectFirstConversation()
+            window.whenReaderSettles(timeout: 10) { webView in
+                // Frames size themselves and inline images load after the render lands.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    MainActor.assumeIsolated {
+                        self.captureReader(webView) { image in
+                            if let main { self.writeWindowSnapshot(to: main, reader: image.map { ($0, webView) }) }
+                            if let compose { self.writeComposeSnapshot(to: compose) }
+                        }
+                    }
+                }
             }
         }
     }
 
-    private func writeSnapshot(to path: String) {
+    private func waitForInbox(deadline: Date, then: @escaping () -> Void) {
+        if mainWindow?.hasConversations == true || Date() > deadline {
+            then()
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            MainActor.assumeIsolated { self?.waitForInbox(deadline: deadline, then: then) }
+        }
+    }
+
+    private func captureReader(_ webView: WKWebView?, completion: @escaping (NSImage?) -> Void) {
+        guard let webView else {
+            Self.log.error("snapshot: the reader never rendered; writing the window without it")
+            completion(nil)
+            return
+        }
+        webView.takeSnapshot(with: nil) { image, error in
+            if let error { Self.log.error("snapshot: web view capture failed: \(error.localizedDescription, privacy: .public)") }
+            completion(image)
+        }
+    }
+
+    /// `cacheDisplay` cannot draw WKWebView content, so the reader's own snapshot is drawn over its frame.
+    private func writeWindowSnapshot(to path: String, reader: (image: NSImage, webView: WKWebView?)?) {
         guard let view = mainWindow?.window?.contentView?.superview ?? mainWindow?.window?.contentView,
               let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
         view.cacheDisplay(in: view.bounds, to: bitmap)
+        if let reader, let webView = reader.webView, webView.window === view.window,
+           let context = NSGraphicsContext(bitmapImageRep: bitmap) {
+            var frame = webView.convert(webView.bounds, to: view)
+            if view.isFlipped { frame.origin.y = view.bounds.height - frame.maxY }
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = context
+            reader.image.draw(in: frame, from: .zero, operation: .sourceOver, fraction: 1)
+            NSGraphicsContext.restoreGraphicsState()
+        }
+        writePNG(bitmap, to: path)
+    }
+
+    private func writeComposeSnapshot(to path: String) {
+        guard mainWindow?.openReplyComposer() == true else {
+            Self.log.error("snapshot: no conversation to reply to")
+            return
+        }
+        // Let the composer lay out and load the quoted original.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            MainActor.assumeIsolated {
+                guard let window = ComposeWindowRegistry.shared.openControllers.first?.window,
+                      let view = window.contentView?.superview ?? window.contentView,
+                      let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
+                    Self.log.error("snapshot: no composer window")
+                    return
+                }
+                view.cacheDisplay(in: view.bounds, to: bitmap)
+                self.writePNG(bitmap, to: path)
+            }
+        }
+    }
+
+    private func writePNG(_ bitmap: NSBitmapImageRep, to path: String) {
         guard let data = bitmap.representation(using: .png, properties: [:]) else { return }
         do {
             try data.write(to: URL(fileURLWithPath: path))

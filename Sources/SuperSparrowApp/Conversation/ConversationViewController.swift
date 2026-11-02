@@ -49,6 +49,8 @@ final class ConversationViewController: NSViewController {
     private var drafts = QuickReplyDrafts()
     private var keyMonitor: Any?
     private var showSignpost: OSSignpostIntervalState?
+    /// Called each time a show's render has landed and its web view is on screen.
+    private var showLandedWaiters: [(WKWebView?) -> Void] = []
 
     init(client: MailClient) {
         self.client = client
@@ -339,6 +341,28 @@ final class ConversationViewController: NSViewController {
             ConversationSignposts.end(ConversationSignposts.show, state)
             showSignpost = nil
         }
+        if slot.renderedID == currentConversationID, !slot.renderInFlight {
+            let waiters = showLandedWaiters
+            showLandedWaiters = []
+            for waiter in waiters { waiter(slot.webView) }
+        }
+    }
+
+    /// Debug aid for `--snapshot`: runs `completion` with the reader's web view once the shown
+    /// conversation's render has landed, or with nil after `timeout`.
+    func whenShownRenderLands(timeout: TimeInterval, _ completion: @escaping (WKWebView?) -> Void) {
+        if let current = pool.current, current.renderedID != nil, current.renderedID == currentConversationID, !current.renderInFlight {
+            completion(current.webView)
+            return
+        }
+        var finished = false
+        let once: (WKWebView?) -> Void = { webView in
+            guard !finished else { return }
+            finished = true
+            completion(webView)
+        }
+        showLandedWaiters.append(once)
+        DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { once(nil) }
     }
 
     private func slotWasRecreated(_ slot: PooledConversationView) {
