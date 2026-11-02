@@ -282,12 +282,6 @@ final class AccountStripViewController: NSViewController {
     /// The rail's key views in order: the selected tile, Add, Settings.
     var keyViews: [NSView] { [selectedTile, addButton, settingsButton] }
 
-    /// An account's monogram on its own, without the collision rules that need the other accounts. Settings'
-    /// account row asks for it.
-    static func initials(for account: Account) -> String {
-        Account.normalizedMonogram(account.monogram) ?? AccountMonogram.letter(for: account.email)
-    }
-
     // MARK: Actions
 
     @objc private func tileClicked(_ sender: AccountStripButton) {

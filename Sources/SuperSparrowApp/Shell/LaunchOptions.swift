@@ -24,6 +24,18 @@ struct LaunchOptions: Equatable {
     var welcomeSnapshotPath: String?
     /// Debug aid (demo mode): render every Settings tab, stacked top to bottom, into this PNG, then quit.
     var settingsSnapshotPath: String?
+    /// Debug aid: every welcome-screen state of spec §5.39 (rest, waiting, preparing the demo, demo failed,
+    /// sign-in error, no OAuth client), stacked, over a throwaway store, then quit.
+    var welcomeStatesSnapshotPath: String?
+    /// Debug aid (demo mode): the Settings states of spec §5.40 (adding, add failed, reconnecting, empty, the
+    /// OAuth notices and Saved), stacked, then quit.
+    var settingsStatesSnapshotPath: String?
+    /// Debug aid (demo mode): the main window with the keyboard cheat sheet open, then quit.
+    var cheatSheetSnapshotPath: String?
+    /// Debug aid (demo mode): the main window with the g-sequence HUD showing, then quit.
+    var hudSnapshotPath: String?
+    /// Debug aid: the app's alert inventory (spec §5.33) as the system draws it, then quit.
+    var alertsSnapshotPath: String?
 
     init(arguments: [String] = CommandLine.arguments) {
         for argument in arguments.dropFirst() {
@@ -48,6 +60,19 @@ struct LaunchOptions: Equatable {
             case let value where value.hasPrefix("--snapshot-settings="):
                 settingsSnapshotPath = Self.value(of: value, after: "--snapshot-settings=")
                 demo = true
+            case let value where value.hasPrefix("--snapshot-welcome-states="):
+                welcomeStatesSnapshotPath = Self.value(of: value, after: "--snapshot-welcome-states=")
+            case let value where value.hasPrefix("--snapshot-settings-states="):
+                settingsStatesSnapshotPath = Self.value(of: value, after: "--snapshot-settings-states=")
+                demo = true
+            case let value where value.hasPrefix("--snapshot-cheatsheet="):
+                cheatSheetSnapshotPath = Self.value(of: value, after: "--snapshot-cheatsheet=")
+                demo = true
+            case let value where value.hasPrefix("--snapshot-hud="):
+                hudSnapshotPath = Self.value(of: value, after: "--snapshot-hud=")
+                demo = true
+            case let value where value.hasPrefix("--snapshot-alerts="):
+                alertsSnapshotPath = Self.value(of: value, after: "--snapshot-alerts=")
             default:
                 // LaunchServices adds -NSDocumentRevisionsDebugMode and friends; ignore anything unknown.
                 break
@@ -58,13 +83,15 @@ struct LaunchOptions: Equatable {
     /// The snapshots that quit the app once written. `--snapshot` and `--snapshot-compose` leave it running,
     /// as they always have.
     var hasQuittingSnapshots: Bool {
-        gallerySnapshotPath != nil || welcomeSnapshotPath != nil || settingsSnapshotPath != nil
+        gallerySnapshotPath != nil || welcomeSnapshotPath != nil || settingsSnapshotPath != nil || welcomeStatesSnapshotPath != nil
+            || settingsStatesSnapshotPath != nil || cheatSheetSnapshotPath != nil || hudSnapshotPath != nil || alertsSnapshotPath != nil
     }
 
-    /// The gallery and welcome snapshots need no mail store of the user's (or the demo's); with nothing else
-    /// asked for, launch skips opening one.
+    /// The gallery, welcome and alert snapshots need no mail store of the user's (or the demo's); with nothing
+    /// else asked for, launch skips opening one.
     var needsMailEnvironment: Bool {
-        snapshotPath != nil || composeSnapshotPath != nil || settingsSnapshotPath != nil || !hasQuittingSnapshots
+        snapshotPath != nil || composeSnapshotPath != nil || settingsSnapshotPath != nil || settingsStatesSnapshotPath != nil
+            || cheatSheetSnapshotPath != nil || hudSnapshotPath != nil || !hasQuittingSnapshots
     }
 
     /// An empty value (`--snapshot-gallery=`) asks for nothing.

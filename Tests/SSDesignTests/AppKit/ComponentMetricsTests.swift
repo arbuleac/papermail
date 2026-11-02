@@ -73,6 +73,25 @@ final class ComponentMetricsTests: XCTestCase {
         XCTAssertEqual(loading.intrinsicContentSize.width, kept, "width kept while loading")
     }
 
+    /// The welcome screen's large buttons (spec §5.39): a trailing note widens the face by the note and its
+    /// gap, and the 16 pt loading spinner takes a wider lead than the 12 pt default.
+    func testTrailingNoteAndLoadingSpinnerSizeWidths() {
+        let plain = QuireButton(title: "Add Gmail account", variant: .secondary, size: .large, symbolName: Quire.Icon.addAccountProvider)
+        let noted = QuireButton(title: "Add Gmail account", variant: .secondary, size: .large, symbolName: Quire.Icon.addAccountProvider)
+        noted.trailingNote = "Google"
+        let note = QuireDraw.width(QuireDraw.line("Google", .snippet, .black))
+        XCTAssertEqual(noted.intrinsicContentSize.width, plain.intrinsicContentSize.width + 2 * Quire.Layout.Button.glyphGap + note,
+                       accuracy: 1)
+
+        let small = QuireButton(title: "Try", variant: .ghost)
+        small.loadingTitle = "Preparing the demo…"
+        let medium = QuireButton(title: "Try", variant: .ghost)
+        medium.loadingTitle = "Preparing the demo…"
+        medium.loadingSpinnerSize = .medium
+        let grown = QuireSpinnerView.Size.medium.diameter - QuireSpinnerView.Size.small.diameter
+        XCTAssertEqual(medium.intrinsicContentSize.width - small.intrinsicContentSize.width, grown, accuracy: 1)
+    }
+
     func testControlsKeepRoomForTheRingAndReportTheVisualRectForLayout() {
         let button = QuireButton(title: "Send", variant: .primary)
         let m = QuireFocusRing.margin

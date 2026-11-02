@@ -24,7 +24,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     var onOpenAccountsSettings: (() -> Void)?
     var onTryDemo: (() -> Void)?
     var onCancelSignIn: (() -> Void)?
-    /// “Leave Demo” confirmed (§5.43): wipe the demo store and return to the welcome screen.
+    /// The demo tag's Leave Demo… (§5.43): the app delegate asks, as File › Leave Demo… does, then wipes the
+    /// demo store and returns to the welcome screen.
     var onLeaveDemo: (() -> Void)?
 
     private let splitController = MainSplitViewController()
@@ -249,7 +250,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         listPane.onCompose = { [weak self] in self?.composeNew() }
         listPane.onSelectAccountShortcut = { [weak self] number in self?.strip.selectShortcut(number) }
         listPane.onAddAccount = { [weak self] kind in self?.requestAddAccount(kind) }
-        listPane.onLeaveDemo = { [weak self] in self?.leaveDemo(nil) }
+        listPane.onLeaveDemo = { [weak self] in self?.onLeaveDemo?() }
         listPane.titleMenuModel = { [weak self] in self?.titleMenuModel ?? TitleMenu.Model(
             view: .inbox, inboxUnread: 0, scope: .unified, showsAccounts: false, unifiedUnread: 0, accounts: []) }
         listPane.statusBar.onOpenSettings = { [weak self] in self?.openAccountsSettings() }
@@ -378,6 +379,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         applySignInState()
     }
 
+    /// A reconnect succeeded, wherever it started (§5.44): the line checks that account for mail and VoiceOver
+    /// hears “… reconnected.” once its badge has left. One started from this window is already being checked.
+    func reconnectDidSucceed(_ id: AccountID) {
+        guard reconnectedAccount != id else { return }
+        reconnectedAccount = id
+        startCheck(onlyFor: id)
+    }
+
     private func applySignInState() {
         switch pendingSignIn {
         case .adding?: strip.setSignIn(active: true, adding: true, reconnecting: nil)
@@ -448,8 +457,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
     // MARK: Checking for mail
 
-    /// View › Check for New Mail (⇧⌘N): the one check that shows on the line, once it has run 150 ms (§5.11).
-    @objc func checkForNewMail(_ sender: Any?) {
+    /// View › Check for New Mail (⇧⌘N), by way of the app delegate: the one check that shows on the line, once
+    /// it has run 150 ms (§5.11).
+    func checkForNewMail() {
         environment.engine.syncNow(accountID: nil)
         startCheck()
     }
@@ -572,6 +582,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             listPane.listRowsDidChange()
         }
         listPane.display(view: mailboxView, section: mailboxView == .inbox ? section : nil)
+        // No notification for Other mail while the Inbox filter is Focused (spec §5.41).
+        notifier.hidesOtherMail = mailboxView == .inbox && section == .focused
     }
 
     // MARK: Selection
@@ -676,6 +688,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     // MARK: KeyboardRouterTarget
 
     var keyboardWindow: NSWindow? { showingWelcome ? nil : window }
+
+    /// The g-sequence HUD sits where the toast does, at the bottom centre of the list pane, and replaces it.
+    var sequenceHUDHost: NSView? { listPane.view }
+    /// Dismissed, not cut short silently: Z keeps reaching the toast's action for the grace period (§6.1).
+    func sequenceHUDWillAppear() { listPane.toasts.dismiss() }
 
     var isReaderFocused: Bool {
         guard let responder = window?.firstResponder as? NSView else { return false }
@@ -946,22 +963,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         ComposeWindowController.present(client: environment.engine, account: account, accounts: accounts, mode: mode)
     }
 
-    // MARK: Demo
-
-    /// Leave Demo… (§5.43): asks once with a sheet; nothing real is lost, so there is no destructive button.
-    @objc func leaveDemo(_ sender: Any?) {
-        guard environment.isDemo, let window else { return }
-        let alert = NSAlert()
-        alert.messageText = "Leave the demo?"
-        alert.informativeText = "The made-up mailboxes are removed from this Mac. You'll return to the welcome screen."
-        alert.addButton(withTitle: "Leave Demo")
-        alert.addButton(withTitle: "Cancel")
-        alert.beginSheetModal(for: window) { [weak self] response in
-            guard response == .alertFirstButtonReturn else { return }
-            self?.onLeaveDemo?()
-        }
-    }
-
     // MARK: Menu actions (first responder)
 
     @objc func archiveSelection(_ sender: Any?) { mailAction(.archive) }
@@ -988,14 +989,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         setView(MailboxView.allCases[item.tag])
     }
 
-    @objc func toggleFocusedInbox(_ sender: Any?) {
-        if mailboxView != .inbox { mailboxView = .inbox }
-        section = section == .focused ? nil : .focused
-        endSearch()
-        applyQuery()
-    }
-
-    /// ⌥1 / ⌥2 / ⌥3 (§5.5): All, Focused, Other. The menu item's tag is the tab's index.
+    /// View › All / Focused / Other and ⌥1 / ⌥2 / ⌥3 (§5.5, §5.35). The menu item's tag is the tab's index.
     @objc func selectInboxSection(_ sender: Any?) {
         guard let item = sender as? NSMenuItem, ListPaneViewController.sections.indices.contains(item.tag) else { return }
         if mailboxView != .inbox { mailboxView = .inbox }
@@ -1037,9 +1031,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             return !showingWelcome && !typing && target != nil
         case #selector(selectAccountShortcut(_:)):
             return !showingWelcome && (menuItem.tag == 0 || menuItem.tag <= accounts.count)
-        case #selector(toggleFocusedInbox(_:)):
-            menuItem.state = section == .focused && mailboxView == .inbox ? .on : .off
-            return !showingWelcome
         case #selector(selectInboxSection(_:)):
             let current = ListPaneViewController.sections.firstIndex { $0.section == section } ?? 0
             menuItem.state = mailboxView == .inbox && menuItem.tag == current ? .on : .off
@@ -1050,11 +1041,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         case #selector(toggleAccountStrip(_:)):
             menuItem.title = stripItem.isCollapsed ? "Show Account Rail" : "Hide Account Rail"
             return !showingWelcome
-        case #selector(focusSearchField(_:)), #selector(checkForNewMail(_:)):
+        case #selector(focusSearchField(_:)):
             return !showingWelcome
-        case #selector(leaveDemo(_:)):
-            menuItem.isHidden = !environment.isDemo
-            return environment.isDemo
         default:
             return true
         }

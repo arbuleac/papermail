@@ -58,6 +58,28 @@ public final class QuireButton: QuireControl {
         didSet { if oldValue != loadingTitle { contentDidChange() } }
     }
 
+    /// A note at the face's trailing padding in `snippet` `ink2` (the welcome screen's “Google” and
+    /// “365 · Outlook”, §5.39). With a note the glyph and label start at the leading padding instead of
+    /// centring, so two stacked buttons line up; the note hides while loading.
+    public var trailingNote: String? {
+        didSet { if oldValue != trailingNote { contentDidChange() } }
+    }
+
+    /// The spinner that replaces the glyph while loading: 12 pt by default, 16 pt on the welcome screen's
+    /// large buttons (§5.39).
+    public var loadingSpinnerSize: QuireSpinnerView.Size = .small {
+        didSet {
+            guard oldValue != loadingSpinnerSize else { return }
+            spinner?.size = loadingSpinnerSize
+            contentDidChange()
+        }
+    }
+
+    /// The loading spinner's colour; nil uses the variant's (§5.37). The welcome screen asks for `ink2`.
+    public var loadingSpinnerColor: NSColor? {
+        didSet { stateDidChange() }
+    }
+
     /// A key equivalent such as "\r"; with `keyEquivalentModifierMask` it activates the button from anywhere in
     /// the window, as `NSButton`'s does.
     public var keyEquivalent = ""
@@ -96,11 +118,17 @@ public final class QuireButton: QuireControl {
 
     /// The face's own width for its content: padding, the glyph or spinner slot, the label.
     private var faceWidth: CGFloat {
-        let normal = contentWidth(title: title, role: widestRole, lead: symbolName.map { glyphWidth($0) })
+        let normal = contentWidth(title: title, role: widestRole, lead: symbolName.map { glyphWidth($0) }) + noteWidth
         guard let loadingTitle else { return 2 * padX + normal }
-        let loadingLead = max(symbolName.map { glyphWidth($0) } ?? 0, QuireSpinnerView.Size.small.diameter)
+        let loadingLead = max(symbolName.map { glyphWidth($0) } ?? 0, loadingSpinnerSize.diameter)
         let loading = contentWidth(title: loadingTitle, role: widestRole, lead: loadingLead)
         return 2 * padX + max(normal, loading)
+    }
+
+    /// The trailing note and the gap before it, or 0.
+    private var noteWidth: CGFloat {
+        guard let trailingNote, !trailingNote.isEmpty else { return 0 }
+        return 2 * Quire.Layout.Button.glyphGap + QuireDraw.width(QuireDraw.line(trailingNote, .snippet, .black))
     }
 
     private func contentWidth(title: String, role: QuireFont.Role, lead: CGFloat?) -> CGFloat {
@@ -195,6 +223,7 @@ public final class QuireButton: QuireControl {
 
     private var spinnerColor: NSColor {
         guard isEnabled else { return .qInkDisabled }
+        if let loadingSpinnerColor { return loadingSpinnerColor }
         switch drawnVariant {
         case .primary: return .qOnAccent
         case .destructive: return .qOnDanger
@@ -226,6 +255,10 @@ public final class QuireButton: QuireControl {
                 NSRect(x: label.minX, y: y.rounded(), width: width, height: Quire.Layout.TextStyle.linkUnderline).fill()
             }
         }
+        if let note = content.note, let trailingNote {
+            let string = QuireDraw.line(trailingNote, .snippet, isEnabled ? .qInk2 : .qInkDisabled)
+            QuireDraw.draw(string, x: note.minX, top: note.minY, maxWidth: note.width, lineHeight: QuireFont.Role.snippet.lineHeight)
+        }
         if let keycap, let rect = keycapRect {
             QuireKeycap.draw(keycap, style: .standard, in: rect)
         }
@@ -237,30 +270,41 @@ public final class QuireButton: QuireControl {
     private struct ContentLayout {
         var lead: NSRect?
         var label: NSRect?
+        var note: NSRect?
         var title: String
     }
 
-    /// The glyph (or spinner) slot and the label box, centred together in the face.
+    /// The glyph (or spinner) slot and the label box, centred together in the face; with a trailing note they
+    /// start at the leading padding instead, and the note ends at the trailing one.
     private func contentLayout(in face: NSRect) -> ContentLayout {
         let role = drawnRole
         let text = isLoading ? (loadingTitle ?? title) : title
         var leadWidth: CGFloat?
         if let symbolName { leadWidth = glyphWidth(symbolName) }
-        if isLoading { leadWidth = max(leadWidth ?? 0, QuireSpinnerView.Size.small.diameter) }
+        if isLoading { leadWidth = max(leadWidth ?? 0, loadingSpinnerSize.diameter) }
         let labelWidth = text.isEmpty ? 0 : QuireDraw.width(QuireDraw.line(text, role, .black))
         let gap = leadWidth != nil && labelWidth > 0 ? Quire.Layout.Button.glyphGap : 0
         let total = (leadWidth ?? 0) + gap + labelWidth
         let available = face.width - 2 * padX
-        var x = (face.midX - min(total, available) / 2).rounded()
+        var x = trailingNote != nil ? face.minX + padX : (face.midX - min(total, available) / 2).rounded()
         var result = ContentLayout(title: text)
+        var labelEnd = face.maxX - padX
+        if let trailingNote, !trailingNote.isEmpty, !isLoading {
+            let width = ceil(QuireDraw.width(QuireDraw.line(trailingNote, .snippet, .black)))
+            let lineHeight = QuireFont.Role.snippet.lineHeight
+            let note = NSRect(x: (face.maxX - padX - width).rounded(), y: (face.midY - lineHeight / 2).rounded(), width: width,
+                              height: lineHeight)
+            result.note = note
+            labelEnd = note.minX - 2 * Quire.Layout.Button.glyphGap
+        }
         if let leadWidth {
-            let h = max(size.glyph, QuireSpinnerView.Size.small.diameter)
+            let h = max(size.glyph, loadingSpinnerSize.diameter)
             result.lead = NSRect(x: x, y: face.midY - h / 2, width: leadWidth, height: h)
             x += leadWidth + gap
         }
         if labelWidth > 0 {
             let lineHeight = role.lineHeight
-            result.label = NSRect(x: x, y: (face.midY - lineHeight / 2).rounded(), width: max(0, face.maxX - padX - x), height: lineHeight)
+            result.label = NSRect(x: x, y: (face.midY - lineHeight / 2).rounded(), width: max(0, labelEnd - x), height: lineHeight)
         }
         return result
     }
@@ -269,7 +313,7 @@ public final class QuireButton: QuireControl {
         super.layout()
         guard let spinner else { return }
         let lead = contentLayout(in: faceRect).lead ?? .zero
-        let d = QuireSpinnerView.Size.small.diameter
+        let d = loadingSpinnerSize.diameter
         spinner.frame = NSRect(x: (lead.midX - d / 2).rounded(), y: (lead.midY - d / 2).rounded(), width: d, height: d)
     }
 
@@ -283,7 +327,7 @@ public final class QuireButton: QuireControl {
 
     private func loadingDidChange() {
         if isLoading {
-            let spinner = self.spinner ?? QuireSpinnerView(size: .small, color: spinnerColor)
+            let spinner = self.spinner ?? QuireSpinnerView(size: loadingSpinnerSize, color: spinnerColor)
             if self.spinner == nil {
                 addSubview(spinner)
                 self.spinner = spinner

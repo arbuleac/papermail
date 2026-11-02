@@ -383,6 +383,15 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         window?.makeFirstResponder(bccField.keyView)
     }
 
+    /// Message › Add Cc Field / Add Bcc Field (spec §5.35): the same as the To row's Cc and Bcc buttons.
+    @objc func addCcField(_ sender: Any?) {
+        revealCc(sender)
+    }
+
+    @objc func addBccField(_ sender: Any?) {
+        revealBcc(sender)
+    }
+
     private func showRow(_ row: ComposeFieldRow, button: QuireButton) {
         row.isHidden = false
         button.isHidden = true
@@ -904,22 +913,12 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
 
     // MARK: Discarding
 
-    /// Message › Discard Draft… (§5.20): the “Discard this draft?” alert, composer form.
+    /// Message › Discard Draft… (§5.20): the one way to throw a draft away, since closing keeps it. The alert
+    /// is AppAlert's composer form (§5.33: “Keep Writing” default and Esc, “Discard” destructive).
     @objc func discardDraft(_ sender: Any?) {
         guard let window, !isSending else { return }
-        let alert = NSAlert()
-        alert.messageText = "Discard this draft?"
-        if let name = currentDraft().firstRecipientName {
-            alert.informativeText = "The message to \(name) hasn't been sent. Discarding removes it from this Mac."
-        } else {
-            alert.informativeText = "This message hasn't been sent. Discarding removes it from this Mac."
-        }
-        alert.addButton(withTitle: "Keep Writing")
-        let discard = alert.addButton(withTitle: "Discard")
-        discard.hasDestructiveAction = true
-        // Esc cancels (§5.33): it keeps writing.
-        Self.beginSheet(alert, escapeAnswers: .alertFirstButtonReturn, on: window) { [weak self] response in
-            guard response == .alertSecondButtonReturn, let self else { return }
+        AppAlert.discardDraft(recipient: currentDraft().firstRecipientName).present(on: window) { [weak self] choice in
+            guard choice == 1, let self else { return }
             self.confirmDiscard()
         }
     }
