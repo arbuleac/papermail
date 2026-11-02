@@ -5,10 +5,11 @@ import XCTest
 /// The JSON keys are the contract between `RenderPayload` and the shell script. These snapshots make a
 /// rename on either side fail here rather than render blank cards.
 final class RenderPayloadJSONTests: XCTestCase {
-    static let expectedTopLevelKeys = ["loadRemoteImages", "messages", "subject"]
+    static let expectedTopLevelKeys = ["inkSlot", "loadRemoteImages", "messages", "subject"]
     static let expectedMessageKeys = [
-        "attachments", "blockedRemoteImageCount", "cc", "dateDisplay", "dateISO", "from", "hasBody",
-        "hasQuotedContent", "html", "id", "isStarred", "isUnread", "snippet", "to",
+        "attachments", "blockedRemoteImageCount", "cc", "coveredByNewYork", "dateDisplay", "dateISO",
+        "declaresColors", "from", "hasBody", "hasQuotedContent", "html", "id", "isStarred", "isUnread", "snippet",
+        "to", "typesetting",
     ]
     static let expectedSenderKeys = ["address", "color", "initials", "name"]
     static let expectedAttachmentKeys = ["id", "mime", "name", "size"]
@@ -31,10 +32,26 @@ final class RenderPayloadJSONTests: XCTestCase {
                     html: html,
                     hasQuotedContent: false,
                     blockedRemoteImageCount: 0,
-                    attachments: [RenderPayload.Attachment(id: "att-1", name: "plan.pdf", size: "1.2 MB", mime: "application/pdf")]
+                    attachments: [RenderPayload.Attachment(id: "att-1", name: "plan.pdf", size: "1.2 MB", mime: "application/pdf")],
+                    typesetting: .unstyled,
+                    declaresColors: false,
+                    coveredByNewYork: true
                 ),
-            ]
+            ],
+            inkSlot: 3
         )
+    }
+
+    func testDesignFactsEncodeAsTheShellReadsThem() throws {
+        let data = try JSONEncoder().encode(samplePayload())
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(object["inkSlot"] as? Int, 3)
+        let message = try XCTUnwrap((object["messages"] as? [[String: Any]])?.first)
+        // The shell compares names, so the typesetting must travel as its name rather than a number.
+        XCTAssertEqual(message["typesetting"] as? String, "unstyled")
+        XCTAssertEqual(message["declaresColors"] as? Bool, false)
+        XCTAssertEqual(message["coveredByNewYork"] as? Bool, true)
+        XCTAssertEqual(message["hasBody"] as? Bool, true)
     }
 
     func testEncodedKeysMatchSnapshot() throws {

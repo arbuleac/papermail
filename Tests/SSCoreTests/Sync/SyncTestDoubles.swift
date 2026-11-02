@@ -99,7 +99,11 @@ final class RecordingSanitizer: BodySanitizing, @unchecked Sendable {
         lock.lock()
         count += 1
         lock.unlock()
-        return SanitizedBody(html: body.html ?? "", plainText: body.text ?? "", blockedRemoteImageCount: 0, hasQuotedContent: false)
+        // Design facts that differ from SanitizedBody's "unknown" defaults, so a test can see them stored.
+        return SanitizedBody(
+            html: body.html ?? "", plainText: body.text ?? "", blockedRemoteImageCount: 0, hasQuotedContent: false,
+            typesetting: body.html == nil ? .plain : .unstyled, declaresColors: false, coveredByNewYork: true
+        )
     }
 }
 

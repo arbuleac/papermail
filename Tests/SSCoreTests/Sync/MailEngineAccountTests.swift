@@ -24,6 +24,9 @@ final class MailEngineAccountTests: XCTestCase {
         XCTAssertEqual(try harness.store.body(for: id), a)
         XCTAssertEqual(a.hasQuotedContent, false, "render facts are worked out once, at sync time")
         XCTAssertEqual(a.blockedRemoteImageCount, 0)
+        XCTAssertEqual(a.typesetting, .unstyled, "and so are the design facts")
+        XCTAssertEqual(a.declaresColors, false)
+        XCTAssertEqual(a.coveredByNewYork, true)
 
         let third = try await harness.engine.ensureBody(for: id)
         XCTAssertEqual(third, a)
@@ -64,6 +67,8 @@ final class MailEngineAccountTests: XCTestCase {
         XCTAssertEqual(account.displayName, "Me")
         XCTAssertEqual(account.kind, .gmail)
         XCTAssertEqual(account.colorHex, AccountColorPalette.color(at: 0))
+        XCTAssertEqual(account.inkSlot, 0)
+        XCTAssertNil(account.monogram)
         XCTAssertNotNil(UUID(uuidString: account.id.rawValue))
         XCTAssertEqual(harness.authenticator.signIns, [.gmail])
         XCTAssertEqual(try harness.tokenStore.tokens(for: account.id)?.accessToken, "access")
@@ -74,6 +79,7 @@ final class MailEngineAccountTests: XCTestCase {
         let second = try await harness.engine.addAccount(kind: .microsoft)
         XCTAssertNotEqual(second.id, account.id)
         XCTAssertEqual(second.colorHex, AccountColorPalette.color(at: 1))
+        XCTAssertEqual(second.inkSlot, 1)
         XCTAssertEqual(try harness.store.accounts().count, 2)
 
         try await harness.engine.removeAccount(account.id)
@@ -86,6 +92,9 @@ final class MailEngineAccountTests: XCTestCase {
         XCTAssertNotEqual(third.id, second.id)
         XCTAssertNotEqual(third.colorHex, second.colorHex)
         XCTAssertEqual(third.colorHex, AccountColorPalette.color(at: 0))
+        // Likewise the palette slot: the lowest one no remaining account wears.
+        XCTAssertEqual(third.inkSlot, 0)
+        XCTAssertEqual(try harness.store.accounts().map(\.inkSlot).sorted(), [0, 1])
         await harness.shutdown()
     }
 

@@ -145,7 +145,8 @@ public final class MailEngine: MailClient, @unchecked Sendable {
             email: profile.email,
             displayName: profile.displayName,
             colorHex: AccountColorPalette.color(avoiding: existing.map(\.colorHex)),
-            addedAt: Date()
+            addedAt: Date(),
+            inkSlot: AccountInkSlot.next(taken: existing.map(\.inkSlot))
         )
         try store.upsertAccount(account)
         let context = context(for: account)

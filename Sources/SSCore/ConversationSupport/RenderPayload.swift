@@ -57,6 +57,13 @@ public struct RenderPayload: Hashable, Codable, Sendable {
         public var hasQuotedContent: Bool
         public var blockedRemoteImageCount: Int
         public var attachments: [Attachment]
+        /// The stored `BodyTypesetting` (encoded as its name): `plain` and `unstyled` bodies are set on the Quire
+        /// reading page, `styled` ones keep the sender's design. Bodies stored before it was kept are `styled`.
+        public var typesetting: BodyTypesetting
+        /// The stored `SanitizedBody.declaresColors`; true when unknown for a styled body, as §8.5 asks.
+        public var declaresColors: Bool
+        /// The stored `SanitizedBody.coveredByNewYork`; false when unknown.
+        public var coveredByNewYork: Bool
 
         public init(
             id: String,
@@ -72,7 +79,10 @@ public struct RenderPayload: Hashable, Codable, Sendable {
             html: String,
             hasQuotedContent: Bool,
             blockedRemoteImageCount: Int,
-            attachments: [Attachment]
+            attachments: [Attachment],
+            typesetting: BodyTypesetting = .styled,
+            declaresColors: Bool = true,
+            coveredByNewYork: Bool = false
         ) {
             self.id = id
             self.from = from
@@ -88,6 +98,9 @@ public struct RenderPayload: Hashable, Codable, Sendable {
             self.hasQuotedContent = hasQuotedContent
             self.blockedRemoteImageCount = blockedRemoteImageCount
             self.attachments = attachments
+            self.typesetting = typesetting
+            self.declaresColors = declaresColors
+            self.coveredByNewYork = coveredByNewYork
         }
     }
 
@@ -110,11 +123,14 @@ public struct RenderPayload: Hashable, Codable, Sendable {
     /// The "Load remote images" preference: when false, bodies render under a policy that blocks every
     /// remote fetch until the user loads images for a message, whatever the stored HTML holds.
     public var loadRemoteImages: Bool
+    /// The conversation's account palette slot (`Account.inkSlot`); a conversation never spans accounts.
+    public var inkSlot: Int
 
-    public init(subject: String, messages: [Message], loadRemoteImages: Bool = false) {
+    public init(subject: String, messages: [Message], loadRemoteImages: Bool = false, inkSlot: Int = 0) {
         self.subject = subject
         self.messages = messages
         self.loadRemoteImages = loadRemoteImages
+        self.inkSlot = inkSlot
     }
 
     // MARK: Message keys

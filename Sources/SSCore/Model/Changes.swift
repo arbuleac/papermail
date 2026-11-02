@@ -59,6 +59,9 @@ public struct Operation: Hashable, Codable, Sendable, Identifiable {
     public var status: OperationStatus
     public var attempts: Int
     public var lastError: String?
+    /// When the engine next acts on the row: the next try of a pending or uncertain operation, or, for a
+    /// failed one, when it is pruned (`MailStoring.pruneFailedOperations`). A failed row is never tried again,
+    /// so the column carries its expiry instead of needing one of its own.
     public var nextAttemptAt: Date?
 
     public init(

@@ -5,7 +5,8 @@ import GRDB
 enum AccountTable {
     static func all(_ db: Database) throws -> [Account] {
         try Row.fetchAll(db, sql: """
-            SELECT id, kind, email, display_name, color_hex, added_at FROM accounts ORDER BY added_at, id
+            SELECT id, kind, email, display_name, color_hex, added_at, ink_slot, monogram FROM accounts
+            ORDER BY added_at, id
             """).map { row in
             Account(
                 id: AccountID(row[0]),
@@ -13,7 +14,9 @@ enum AccountTable {
                 email: row[2],
                 displayName: row[3],
                 colorHex: row[4],
-                addedAt: MailStoreCodec.date(row[5])
+                addedAt: MailStoreCodec.date(row[5]),
+                inkSlot: row[6],
+                monogram: row[7]
             )
         }
     }
@@ -21,15 +24,39 @@ enum AccountTable {
     /// Sync columns are deliberately left alone: re-saving an account after a profile refresh must not drop
     /// its cursor.
     static func upsert(_ account: Account, in db: Database) throws {
+        try validate(inkSlot: account.inkSlot)
         try db.execute(sql: """
-            INSERT INTO accounts (id, kind, email, display_name, color_hex, added_at) VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO accounts (id, kind, email, display_name, color_hex, added_at, ink_slot, monogram)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 kind = excluded.kind, email = excluded.email, display_name = excluded.display_name,
-                color_hex = excluded.color_hex, added_at = excluded.added_at
+                color_hex = excluded.color_hex, added_at = excluded.added_at, ink_slot = excluded.ink_slot,
+                monogram = excluded.monogram
             """, arguments: [
                 account.id.rawValue, account.kind.rawValue, account.email, account.displayName, account.colorHex,
-                MailStoreCodec.milliseconds(account.addedAt),
+                MailStoreCodec.milliseconds(account.addedAt), account.inkSlot,
+                Account.normalizedMonogram(account.monogram),
             ])
+    }
+
+    static func setInkSlot(_ slot: Int, for id: AccountID, in db: Database) throws {
+        try validate(inkSlot: slot)
+        try db.execute(sql: "UPDATE accounts SET ink_slot = ? WHERE id = ?", arguments: [slot, id.rawValue])
+        guard db.changesCount == 1 else { throw StoreError.notFound }
+    }
+
+    static func setMonogram(_ monogram: String?, for id: AccountID, in db: Database) throws {
+        try db.execute(sql: "UPDATE accounts SET monogram = ? WHERE id = ?", arguments: [
+            Account.normalizedMonogram(monogram), id.rawValue,
+        ])
+        guard db.changesCount == 1 else { throw StoreError.notFound }
+    }
+
+    /// Shared with `InMemoryMailStore` so both stores refuse the same slots.
+    static func validate(inkSlot: Int) throws {
+        guard AccountInkSlot.isValid(inkSlot) else {
+            throw StoreError.conflict("ink slot \(inkSlot) is outside 0..<\(AccountInkSlot.count)")
+        }
     }
 
     static func delete(_ id: AccountID, in db: Database) throws {

@@ -37,23 +37,60 @@ enum OperationTable {
             try MessageTable.updateFlags(applying(operation.change, to: current), in: db)
             try ConversationTable.touch(current.conversationID, in: db)
         }
+        let previous = try savedState(of: operation.id, in: db)?.status
         try save(operation, in: db)
         try ConversationTable.refreshTouched(db)
+        try FailedOperationMarks.operationWritten(operation, previousStatus: previous, in: db)
     }
 
     static func update(_ operation: Operation, in db: Database) throws {
         try MailSchema.ensureTouchedTable(db)
+        let previous = try savedState(of: operation.id, in: db)?.status
         try touchTargets(of: operation.id, in: db)
         try save(operation, in: db)
         try touchTargets(of: operation.id, in: db)
         try ConversationTable.refreshTouched(db)
+        // After the refresh, so the summary rows the mark lands on exist and are current.
+        try FailedOperationMarks.operationWritten(operation, previousStatus: previous, in: db)
     }
 
     static func delete(id: String, in db: Database) throws {
         try MailSchema.ensureTouchedTable(db)
+        let deleted = try savedState(of: id, in: db)
+        let conversations = try FailedOperationMarks.conversations(ofOperation: id, in: db)
         try touchTargets(of: id, in: db)
         try db.execute(sql: "DELETE FROM operations WHERE id = ?", arguments: [id])
         try ConversationTable.refreshTouched(db)
+        if let deleted {
+            try FailedOperationMarks.settle(operationID: id, createdAt: deleted.createdAt, conversations: conversations, in: db)
+        }
+    }
+
+    /// Failed rows whose expiry (`next_attempt_at`, see `Operation.nextAttemptAt`) has passed, oldest first,
+    /// each deleted like any other so its conversations' marks settle in the same transaction.
+    static func pruneFailed(accountID: AccountID, now: Date, in db: Database) throws -> Int {
+        let ids = try String.fetchAll(db.cachedStatement(sql: """
+            SELECT id FROM operations WHERE \(expiredFailure) ORDER BY created_at, id
+            """), arguments: [accountID.rawValue, MailStoreCodec.milliseconds(now)])
+        for id in ids { try delete(id: id, in: db) }
+        return ids.count
+    }
+
+    /// Whether `pruneFailed` would find anything, so the common case can stay off the writer.
+    static func hasExpiredFailures(accountID: AccountID, now: Date, in db: Database) throws -> Bool {
+        try Bool.fetchOne(db.cachedStatement(sql: "SELECT EXISTS (SELECT 1 FROM operations WHERE \(expiredFailure))"),
+                          arguments: [accountID.rawValue, MailStoreCodec.milliseconds(now)]) ?? false
+    }
+
+    /// Takes the account id and the cutoff in milliseconds; served by `operations_by_account_status`.
+    private static let expiredFailure = """
+        account_id = ? AND status = 'failed' AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
+        """
+
+    private static func savedState(of id: String, in db: Database) throws -> (status: OperationStatus, createdAt: Int64)? {
+        guard let row = try Row.fetchOne(db.cachedStatement(sql: "SELECT status, created_at FROM operations WHERE id = ?"),
+                                         arguments: [id]) else { return nil }
+        return (OperationStatus(rawValue: row[0]) ?? .pending, row[1])
     }
 
     private static func save(_ operation: Operation, in db: Database) throws {

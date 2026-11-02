@@ -20,6 +20,33 @@ final class MailEngineOperationTests: XCTestCase {
         try harness.store.pendingOperations(accountID: Fixtures.accountID, limit: 10)
     }
 
+    private func failedMark(_ harness: EngineHarness, _ conversation: ConversationID) throws -> OperationKind? {
+        let summaries = try harness.store.conversations(ConversationQuery(view: .all, limit: 100))
+        return try XCTUnwrap(summaries.first { $0.id == conversation }).failedOperation
+    }
+
+    func testGivenUpOperationMarksItsConversationUntilItIsPruned() async throws {
+        let harness = try await bootstrappedHarness(
+            applyResults: [.failure(ProviderError.server(status: 500, message: "boom"))]
+        ) { tuning in
+            tuning.maxOperationAttempts = 1
+            tuning.failedOperationRetention = 0.6
+        }
+        let conversation = ConversationID(accountID: Fixtures.accountID, providerID: "t1")
+        let target = MessageID(accountID: Fixtures.accountID, providerID: "2")
+        let queuedAt = Date()
+        try harness.engine.perform(.setStarred(true), on: [target])
+        try await waitUntil("failure marked") { try self.failedMark(harness, conversation) == .star }
+        XCTAssertTrue(try pendingOperations(harness).isEmpty, "a failed operation is not replayed")
+        XCTAssertFalse(try XCTUnwrap(try harness.store.conversations(ConversationQuery(view: .all)).first).hasPendingOperations)
+
+        // The outbox prunes it once its retention has passed, which clears the mark, and not before.
+        try await waitUntil("expired failure pruned", timeout: 5) { try self.failedMark(harness, conversation) == nil }
+        XCTAssertGreaterThanOrEqual(Date().timeIntervalSince(queuedAt), 0.6)
+        XCTAssertEqual(harness.provider.applyCalls.count, 1)
+        await harness.shutdown()
+    }
+
     func testArchiveConversationUpdatesLocallyAndAppliesOnce() async throws {
         let harness = try await bootstrappedHarness()
         let conversation = ConversationID(accountID: Fixtures.accountID, providerID: "t1")

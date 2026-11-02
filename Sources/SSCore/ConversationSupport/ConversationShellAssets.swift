@@ -428,11 +428,21 @@ public enum ConversationShellAssets {
         card.quotesShown = false;
         card.original = false;
         card.bodyElement.classList.toggle('ss-pending-body', !card.message.hasBody);
+        markDesign(card);
         fillTools(card);
         if (card.expanded) {
           ensureFrame(card);
           scheduleMeasure(card);
         }
+      }
+
+      // The body's stored design facts ride on the card as data attributes, so styles can key on them
+      // without the shell ever looking inside the body. They change only with the body.
+      function markDesign(card) {
+        var m = card.message;
+        card.element.dataset.typesetting = m.typesetting || 'styled';
+        card.element.dataset.declaresColors = m.declaresColors === false ? 'false' : 'true';
+        card.element.dataset.coveredByNewYork = m.coveredByNewYork ? 'true' : 'false';
       }
 
       function patch(card, m) {
@@ -476,6 +486,7 @@ public enum ConversationShellAssets {
         article.addEventListener('click', function () { select(card); });
 
         card.element = article;
+        markDesign(card);
         card.headerElement = header;
         card.toolsElement = tools;
         card.bodyElement = body;
@@ -525,6 +536,7 @@ public enum ConversationShellAssets {
         teardown();
         state.payload = payload;
         loadRemote = !!payload.loadRemoteImages;
+        root.dataset.inkSlot = String(payload.inkSlot || 0);
         document.title = payload.subject || '';
         var messages = payload.messages || [];
         var fragment = document.createDocumentFragment();
@@ -568,6 +580,7 @@ public enum ConversationShellAssets {
         var messages = payload.messages || [];
         if (!state.payload || state.cards.length === 0 || messages.length === 0) { return render(payload); }
         if (!!payload.loadRemoteImages !== loadRemote) { return render(payload); }
+        root.dataset.inkSlot = String(payload.inkSlot || 0);
         var incoming = {};
         for (var i = 0; i < messages.length; i++) { incoming[messages[i].id] = messages[i]; }
         var surviving = [];

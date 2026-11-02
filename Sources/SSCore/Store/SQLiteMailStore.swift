@@ -99,6 +99,14 @@ public final class SQLiteMailStore: MailStoring, Sendable {
         try write { try AccountTable.delete(id, in: $0) }
     }
 
+    public func setInkSlot(_ slot: Int, for accountID: AccountID) throws {
+        try write { try AccountTable.setInkSlot(slot, for: accountID, in: $0) }
+    }
+
+    public func setMonogram(_ monogram: String?, for accountID: AccountID) throws {
+        try write { try AccountTable.setMonogram(monogram, for: accountID, in: $0) }
+    }
+
     // MARK: Sync state
 
     public func syncCursor(for accountID: AccountID) throws -> String? {
@@ -224,6 +232,21 @@ public final class SQLiteMailStore: MailStoring, Sendable {
 
     public func deleteOperation(id: String) throws {
         try write { try OperationTable.delete(id: id, in: $0) }
+    }
+
+    public func acknowledgeFailedOperation(conversationID: ConversationID) throws {
+        // The app calls this for nearly every conversation it opens and nearly none carry a mark. A WAL read
+        // never waits behind a sync batch, so only a real mark takes the writer.
+        guard try read({ try FailedOperationMarks.hasMark(conversationID, in: $0) }) else { return }
+        try write { try FailedOperationMarks.acknowledge(conversationID, in: $0) }
+    }
+
+    @discardableResult
+    public func pruneFailedOperations(accountID: AccountID, now: Date) throws -> Int {
+        // Runs at the start of every outbox drain and nearly always finds nothing; the read keeps that case
+        // from queueing behind a hydration batch for the writer.
+        guard try read({ try OperationTable.hasExpiredFailures(accountID: accountID, now: now, in: $0) }) else { return 0 }
+        return try write { try OperationTable.pruneFailed(accountID: accountID, now: now, in: $0) }
     }
 
     public func enqueueSend(_ send: PendingSend) throws {

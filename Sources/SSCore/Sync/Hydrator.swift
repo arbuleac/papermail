@@ -117,7 +117,10 @@ actor Hydrator {
                 plainText: sanitized.plainText,
                 hasQuotedContent: sanitized.hasQuotedContent,
                 // What the reader's "Load images" restores: parked <img> sources, not dropped backgrounds.
-                blockedRemoteImageCount: RenderPayloadBuilder.blockedRemoteImageCount(in: sanitized.html)
+                blockedRemoteImageCount: RenderPayloadBuilder.blockedRemoteImageCount(in: sanitized.html),
+                typesetting: sanitized.typesetting,
+                declaresColors: sanitized.declaresColors,
+                coveredByNewYork: sanitized.coveredByNewYork
             )
             try store.saveBody(stored, for: id)
             return stored

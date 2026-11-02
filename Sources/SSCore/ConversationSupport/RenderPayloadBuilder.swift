@@ -38,6 +38,7 @@ public struct RenderPayloadBuilder: Sendable {
             let html = Self.html(for: message, body: body)
             // Stored facts describe renderedHTML; a fallback body (snippet or text) is small enough to scan.
             let stored = body.flatMap { $0.renderedHTML == html ? $0 : nil }
+            let design = Self.design(for: message, body: body, stored: stored)
             return RenderPayload.Message(
                 id: RenderPayload.messageKey(for: message.id),
                 from: Self.sender(for: message.from),
@@ -61,11 +62,40 @@ public struct RenderPayloadBuilder: Sendable {
                             size: Self.sizeString(bytes: attachment.sizeBytes),
                             mime: attachment.mimeType
                         )
-                    }
+                    },
+                typesetting: design.typesetting,
+                declaresColors: design.declaresColors,
+                coveredByNewYork: design.coveredByNewYork
             )
         }
         let resolvedSubject = subject ?? Self.subject(of: visible)
-        return RenderPayload(subject: resolvedSubject, messages: rendered, loadRemoteImages: loadRemoteImages)
+        let inkSlot = visible.first.flatMap { accounts[$0.id.accountID]?.inkSlot } ?? 0
+        return RenderPayload(subject: resolvedSubject, messages: rendered, loadRemoteImages: loadRemoteImages, inkSlot: inkSlot)
+    }
+
+    /// The design facts the shell sets a body by. A stored body carries them from sync time (nil, for one
+    /// stored before they were kept, reads as styled with colours, the sender's design untouched). A fallback
+    /// (the snippet while the body hydrates, or the text when rendered HTML is empty) is plain text the shell
+    /// wraps itself; its coverage is checked here because a snippet is short and an empty rendering is rare,
+    /// and the check is a scan of scalars, not a parse.
+    static func design(
+        for message: MessageMetadata,
+        body: StoredBody?,
+        stored: StoredBody?
+    ) -> (typesetting: BodyTypesetting, declaresColors: Bool, coveredByNewYork: Bool) {
+        if let stored {
+            let typesetting = stored.typesetting ?? .styled
+            return (typesetting, stored.declaresColors ?? (typesetting == .styled), stored.coveredByNewYork ?? false)
+        }
+        return (.plain, false, NewYorkCoverage.covers(fallbackText(for: message, body: body)))
+    }
+
+    /// The text `html(for:body:)` falls back to, in the same order.
+    private static func fallbackText(for message: MessageMetadata, body: StoredBody?) -> String {
+        guard let body else { return message.snippet }
+        if let text = body.body.text, !text.isEmpty { return text }
+        if !body.plainText.isEmpty { return body.plainText }
+        return message.snippet
     }
 
     /// Same rule as the conversation summary: spam never shows; trashed messages show only when the whole
