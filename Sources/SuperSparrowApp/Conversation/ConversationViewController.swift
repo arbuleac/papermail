@@ -100,6 +100,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         let subject: String
         let startedAt: Date
         let endsAt: Date
+        /// The reply as a composer would hold it, for an undo-send panel the countdown may move to (§5.18).
+        let draft: ComposeDraft
     }
 
     /// Called whenever a quick reply's undo window opens or closes, so the main window can re-rank ⌘Z (§6.1).
@@ -524,7 +526,26 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         } else if wasVisible, quickReply.isFocused {
             view.window?.makeFirstResponder(nil)
         }
+        if !showsReply, let send = quickSend { moveQuickSendToPanel(send) }
         if wasVisible != showsReply { applyBottomInset() }
+    }
+
+    /// The bar hides mid-countdown (Trash, Drafts, nothing or several selected): the countdown moves to an
+    /// undo-send panel for its remaining seconds, so Undo is never lost (§5.18). The panel's Undo reopens the
+    /// reply in a composer, as a composer send's does (§5.31).
+    private func moveQuickSendToPanel(_ send: QuickSend) {
+        quickSendTimer?.invalidate()
+        quickSendTimer = nil
+        quickSend = nil
+        quickReply.hideStrip()
+        quickReply.status = .none
+        let remaining = send.endsAt.timeIntervalSinceNow
+        if remaining > 0 {
+            let accounts = accountsByID.values.sorted { $0.addedAt < $1.addedAt }
+            UndoSendPanel.show(client: client, accounts: accounts, sendID: send.sendID, draft: send.draft, undoWindow: Self.undoWindow,
+                               remaining: remaining, startedAt: send.startedAt)
+        }
+        onQuickSendChange?()
     }
 
     private func headerContent(_ state: ReaderState, messages: [MessageMetadata]) -> ReaderHeaderView.Content {
@@ -1172,13 +1193,18 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         onAction?(mode == .replyAll ? .replyAll(target) : .reply(target))
     }
 
-    private func sendQuickReply(_ text: String, mode: QuickReplyView.Mode) {
-        guard let conversation = currentConversationID, let latest = currentMessages.last else { return }
+    /// ⌘↩ in the quick reply; internal so the app's tests can send one.
+    func sendQuickReply(_ text: String, mode: QuickReplyView.Mode) {
+        guard let conversation = currentConversationID, let latest = currentMessages.last,
+              let account = accountsByID[latest.id.accountID] else { return }
         let message = QuickReplyComposer.outgoingMessage(text: text, replyingTo: latest, accounts: accountsByID, all: mode == .replyAll)
         guard !message.to.isEmpty else {
             quickReply.status = .noRecipients
             return
         }
+        let draft = ComposeDraft(id: UUID(), mode: .reply(latest.id, all: mode == .replyAll), account: account, to: message.to,
+                                 cc: message.cc, bcc: message.bcc, subject: message.subject, body: NSAttributedString(string: text),
+                                 attachments: [], quoted: nil, threading: ReplyThreading(original: latest, isReply: true))
         do {
             let sendID = try client.send(message, undoWindow: Self.undoWindow)
             let startedAt = Date()
@@ -1186,7 +1212,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             let names = (message.to + message.cc).map(\.shortDisplay)
             let recipient = names.count > 2 ? names[0] + " and \(names.count - 1) others" : names.joined(separator: " and ")
             quickSend = QuickSend(sendID: sendID, text: text, conversation: conversation,
-                                  subject: RenderPayloadBuilder.subject(of: currentMessages), startedAt: startedAt, endsAt: endsAt)
+                                  subject: RenderPayloadBuilder.subject(of: currentMessages), startedAt: startedAt, endsAt: endsAt,
+                                  draft: draft)
             onQuickSendChange?()
             quickReply.clear()
             quickReply.showStrip(.counting(endsAt: endsAt, duration: Self.undoWindow, recipient: recipient))
