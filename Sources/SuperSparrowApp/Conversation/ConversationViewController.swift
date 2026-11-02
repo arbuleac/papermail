@@ -1315,8 +1315,60 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         evaluate("window.ss.toggleOriginal()", in: current)
     }
 
+    /// File › Save Attachments… (spec §5.35): the target message's attachments, copied into a folder the user
+    /// picks (Downloads to start with), then shown in the Finder. A file that cannot be fetched marks its chip
+    /// “Couldn't download · Retry”, as a failed Quick Look does.
+    @objc func saveAttachments(_ sender: Any?) {
+        guard let messageID = attachmentTarget, let window = view.window else { return }
+        let infos = attachments(of: messageID)
+        guard !infos.isEmpty else {
+            NSSound.beep()
+            return
+        }
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Save"
+        panel.message = infos.count == 1 ? "Choose a folder for the attachment." : "Choose a folder for the \(infos.count) attachments."
+        panel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+        panel.beginSheetModal(for: window) { [weak self] response in
+            MainActor.assumeIsolated {
+                guard response == .OK, let folder = panel.url, let self else { return }
+                self.save(infos, of: messageID, into: folder)
+            }
+        }
+    }
+
+    private func save(_ infos: [AttachmentInfo], of messageID: MessageID, into folder: URL) {
+        Task { [weak self] in
+            guard let self else { return }
+            var saved: [URL] = []
+            for info in infos {
+                guard let file = await self.preview.file(for: info, of: messageID) else {
+                    self.setAttachmentFailed(true, info.id, of: messageID)
+                    continue
+                }
+                if let copy = Self.copy(file, into: folder) { saved.append(copy) }
+            }
+            if saved.isEmpty {
+                NSSound.beep()
+            } else {
+                NSWorkspace.shared.activateFileViewerSelecting(saved)
+            }
+        }
+    }
+
+    /// The message Save Attachments… acts on: the target message (spec §5.14).
+    private var attachmentTarget: MessageID? {
+        guard case .one = selection else { return nil }
+        return selectedMessageID ?? currentMessages.last?.id
+    }
+
     /// The reader's commands apply to one shown conversation; Original Colors carries a checkmark while the
-    /// target message shows the sender's colours (spec §5.16).
+    /// target message shows the sender's colours (spec §5.16); Save Attachments… needs files to save. Disabled
+    /// items stay in their menus (§5.35).
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         let showsOne: Bool
         if case .one = selection { showsOne = pool.current != nil && !webContainer.isHidden } else { showsOne = false }
@@ -1326,6 +1378,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             return showsOne
         case #selector(nextMessage(_:)), #selector(previousMessage(_:)), #selector(toggleQuotedText(_:)), #selector(loadImages(_:)):
             return showsOne
+        case #selector(saveAttachments(_:)):
+            return attachmentTarget.map { !attachments(of: $0).isEmpty } ?? false
         default:
             return true
         }

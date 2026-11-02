@@ -119,7 +119,7 @@ enum MainMenu {
                           target: delegate))
         menu.addItem(.separator())
         // The reader saves the target message's attachments (spec §5.17).
-        menu.addItem(item("Save Attachments…", NSSelectorFromString("saveAttachments:"), symbol: Quire.Icon.attach))
+        menu.addItem(item("Save Attachments…", #selector(MainWindowController.saveAttachments(_:)), symbol: Quire.Icon.attach))
         // Shown only in demo mode: the app delegate reveals it when it installs a demo environment.
         let leaveDemo = item("Leave Demo…", #selector(AppDelegate.leaveDemo(_:)), symbol: Quire.Icon.undo, target: delegate)
         leaveDemo.isHidden = true
@@ -176,10 +176,10 @@ enum MainMenu {
                           symbol: Quire.Icon.toggleRail))
         menu.addItem(item("Compact Rows", #selector(AppDelegate.toggleCompactRows(_:)), "c", [.command, .option], target: delegate))
         menu.addItem(.separator())
-        menu.addItem(item("Load Images", NSSelectorFromString("loadImages:"), "i", [.command, .shift], symbol: Quire.Icon.loadImages))
-        menu.addItem(item("Original Colors", NSSelectorFromString("toggleOriginalColors:"), "o", [.command, .shift],
+        menu.addItem(item("Load Images", #selector(MainWindowController.loadImages(_:)), "i", [.command, .shift], symbol: Quire.Icon.loadImages))
+        menu.addItem(item("Original Colors", #selector(MainWindowController.toggleOriginalColors(_:)), "o", [.command, .shift],
                           symbol: Quire.Icon.originalColors))
-        menu.addItem(item("Show Quoted Text", NSSelectorFromString("toggleQuotedText:"), ".", [], symbol: Quire.Icon.quotedText))
+        menu.addItem(item("Show Quoted Text", #selector(MainWindowController.toggleQuotedText(_:)), ".", [], symbol: Quire.Icon.quotedText))
         menu.addItem(.separator())
         menu.addItem(item("Enter Full Screen", #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control]))
         return menu
@@ -200,16 +200,16 @@ enum MainMenu {
             item("Mark as Unread", #selector(MainWindowController.markSelectionUnread(_:)), "u", [], symbol: Quire.Icon.markUnread),
             item("Undo", #selector(MainWindowController.undoMailAction(_:)), "z", [], symbol: Quire.Icon.undo),
             .separator(),
-            item("Next Message", NSSelectorFromString("nextMessage:"), "n", []),
-            item("Previous Message", NSSelectorFromString("previousMessage:"), "p", []),
+            item("Next Message", #selector(MainWindowController.nextMessage(_:)), "n", []),
+            item("Previous Message", #selector(MainWindowController.previousMessage(_:)), "p", []),
         ]
         let composer: [NSMenuItem] = [
-            item("Send", NSSelectorFromString("send:"), "\r", symbol: Quire.Icon.send),
-            item("Attach Files…", NSSelectorFromString("attachFile:"), "a", [.command, .shift], symbol: Quire.Icon.attach),
-            item("Add Cc Field", NSSelectorFromString("addCcField:"), "c", [.command, .shift]),
-            item("Add Bcc Field", NSSelectorFromString("addBccField:"), "b", [.command, .shift]),
+            item("Send", #selector(ComposeWindowController.send(_:)), "\r", symbol: Quire.Icon.send),
+            item("Attach Files…", #selector(ComposeWindowController.attachFile(_:)), "a", [.command, .shift], symbol: Quire.Icon.attach),
+            item("Add Cc Field", #selector(ComposeWindowController.addCcField(_:)), "c", [.command, .shift]),
+            item("Add Bcc Field", #selector(ComposeWindowController.addBccField(_:)), "b", [.command, .shift]),
             .separator(),
-            item("Discard Draft…", NSSelectorFromString("discardDraft:"), symbol: Quire.Icon.discardDraft),
+            item("Discard Draft…", #selector(ComposeWindowController.discardDraft(_:)), symbol: Quire.Icon.discardDraft),
         ]
         for entry in main + composer { menu.addItem(entry) }
         return (menu, main, composer)
@@ -218,18 +218,20 @@ enum MainMenu {
     /// Composer windows only (§5.35); the items act on the composer's text view.
     private static func formatMenu() -> NSMenu {
         let menu = menu("Format")
-        menu.addItem(item("Show Format Row", NSSelectorFromString("toggleFormatRow:"), "t", [.command, .shift], symbol: Quire.Icon.format))
+        menu.addItem(item("Show Format Row", #selector(ComposeWindowController.toggleFormatRow(_:)), "t", [.command, .shift],
+                          symbol: Quire.Icon.format))
         menu.addItem(.separator())
-        menu.addItem(item("Bold", NSSelectorFromString("toggleBold:"), "b", symbol: Quire.Icon.bold))
-        menu.addItem(item("Italic", NSSelectorFromString("toggleItalic:"), "i", symbol: Quire.Icon.italic))
-        menu.addItem(item("Underline", #selector(NSText.underline(_:)), "u", symbol: Quire.Icon.underline))
+        menu.addItem(item("Bold", #selector(ComposeWindowController.toggleBold(_:)), "b", symbol: Quire.Icon.bold))
+        menu.addItem(item("Italic", #selector(ComposeWindowController.toggleItalic(_:)), "i", symbol: Quire.Icon.italic))
+        menu.addItem(item("Underline", #selector(ComposeWindowController.toggleUnderline(_:)), "u", symbol: Quire.Icon.underline))
         menu.addItem(.separator())
-        menu.addItem(item("Bulleted List", NSSelectorFromString("toggleBulletList:"), "8", [.command, .shift], symbol: Quire.Icon.bulletedList))
-        menu.addItem(item("Numbered List", NSSelectorFromString("toggleNumberedList:"), "7", [.command, .shift],
+        menu.addItem(item("Bulleted List", #selector(ComposeWindowController.toggleBulletList(_:)), "8", [.command, .shift],
+                          symbol: Quire.Icon.bulletedList))
+        menu.addItem(item("Numbered List", #selector(ComposeWindowController.toggleNumberedList(_:)), "7", [.command, .shift],
                           symbol: Quire.Icon.numberedList))
-        menu.addItem(item("Quote", NSSelectorFromString("toggleBlockQuote:"), "'", symbol: Quire.Icon.blockQuote))
+        menu.addItem(item("Quote", #selector(ComposeWindowController.toggleBlockQuote(_:)), "'", symbol: Quire.Icon.blockQuote))
         menu.addItem(.separator())
-        menu.addItem(item("Add Link…", NSSelectorFromString("insertLink:"), "k", symbol: Quire.Icon.link))
+        menu.addItem(item("Add Link…", #selector(ComposeWindowController.insertLink(_:)), "k", symbol: Quire.Icon.link))
         return menu
     }
 

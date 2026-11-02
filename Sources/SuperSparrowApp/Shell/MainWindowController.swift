@@ -1142,6 +1142,20 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     @objc func undoMailAction(_ sender: Any?) { performUndo(zTarget) }
     @objc func focusSearchField(_ sender: Any?) { listPane.focusSearch() }
 
+    // The reader's menu commands (§5.35) answer from anywhere in the main window, not only while focus is in
+    // the reader, whose controller is in the responder chain only then. Validation is the reader's.
+    @objc func nextMessage(_ sender: Any?) { conversation.nextMessage(sender) }
+    @objc func previousMessage(_ sender: Any?) { conversation.previousMessage(sender) }
+    @objc func toggleQuotedText(_ sender: Any?) { conversation.toggleQuotedText(sender) }
+    @objc func loadImages(_ sender: Any?) { conversation.loadImages(sender) }
+    @objc func toggleOriginalColors(_ sender: Any?) { conversation.toggleOriginalColors(sender) }
+    @objc func saveAttachments(_ sender: Any?) { conversation.saveAttachments(sender) }
+
+    private static let readerCommands: Set<Selector> = [
+        #selector(nextMessage(_:)), #selector(previousMessage(_:)), #selector(toggleQuotedText(_:)), #selector(loadImages(_:)),
+        #selector(toggleOriginalColors(_:)), #selector(saveAttachments(_:)),
+    ]
+
     @objc func selectAccountShortcut(_ sender: Any?) {
         guard let item = sender as? NSMenuItem else { return }
         strip.selectShortcut(item.tag)
@@ -1175,6 +1189,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         let typing = KeyboardRouter.isTextInput(window?.firstResponder)
+        if let action = menuItem.action, Self.readerCommands.contains(action) {
+            return !showingWelcome && conversation.validateMenuItem(menuItem)
+        }
         switch menuItem.action {
         case #selector(archiveSelection(_:)), #selector(toggleStarSelection(_:)), #selector(trashSelection(_:)),
              #selector(moveSelectionToInbox(_:)):

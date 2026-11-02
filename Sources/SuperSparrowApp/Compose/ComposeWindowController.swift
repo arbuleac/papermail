@@ -468,7 +468,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
 
     // MARK: Format row
 
-    @objc private func toggleFormatRow(_ sender: Any?) {
+    @objc func toggleFormatRow(_ sender: Any?) {
         content.showsFormatRow.toggle()
         bar.formatButton.isOn = content.showsFormatRow
         bar.formatButton.toolTip = content.showsFormatRow ? "Hide Format Row  ⇧⌘T" : "Show Format Row  ⇧⌘T"
@@ -495,6 +495,24 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         guard content.showsFormatRow else { return }
         content.formatRow.setState(textView.formatState)
     }
+
+    // MARK: Format menu (§5.35)
+
+    // The body answers these itself while it has focus. From elsewhere in the window (Send, a chip, a format
+    // toggle) they act on the body as the format row does; while another field is being typed in they stay
+    // disabled, so ⌘B in Subject never bolds the body.
+    @objc func toggleBold(_ sender: Any?) { applyFormat(.bold) }
+    @objc func toggleItalic(_ sender: Any?) { applyFormat(.italic) }
+    @objc func toggleUnderline(_ sender: Any?) { applyFormat(.underline) }
+    @objc func toggleBulletList(_ sender: Any?) { applyFormat(.bulletList) }
+    @objc func toggleNumberedList(_ sender: Any?) { applyFormat(.numberedList) }
+    @objc func toggleBlockQuote(_ sender: Any?) { applyFormat(.quote) }
+    @objc func insertLink(_ sender: Any?) { applyFormat(.link) }
+
+    private static let formatCommands: Set<Selector> = [
+        #selector(toggleBold(_:)), #selector(toggleItalic(_:)), #selector(toggleUnderline(_:)), #selector(toggleBulletList(_:)),
+        #selector(toggleNumberedList(_:)), #selector(toggleBlockQuote(_:)), #selector(insertLink(_:)),
+    ]
 
     // MARK: Link popover
 
@@ -755,7 +773,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
 
     // MARK: Attachments
 
-    @objc private func attachFile(_ sender: Any?) {
+    @objc func attachFile(_ sender: Any?) {
         guard let window, !isSending else { return }
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
@@ -801,7 +819,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
 
     // MARK: Sending
 
-    @objc private func send(_ sender: Any?) {
+    @objc func send(_ sender: Any?) {
         guard !isSending, !isPrefilling, validateRecipients() else {
             NSSound.beep()
             return
@@ -964,9 +982,23 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
 
     // MARK: Menu validation
 
+    /// The composer's Message and Format items (§5.35): what does not apply now is disabled, never hidden.
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        if menuItem.action == #selector(discardDraft(_:)) { return !isSending }
-        return true
+        guard let action = menuItem.action else { return true }
+        if Self.formatCommands.contains(action) {
+            return !isSending && !KeyboardRouter.isTextInput(window?.firstResponder)
+        }
+        switch action {
+        case #selector(discardDraft(_:)), #selector(attachFile(_:)), #selector(addCcField(_:)), #selector(addBccField(_:)):
+            return !isSending
+        case #selector(send(_:)):
+            return !isSending && bar.sendButton.isEnabled
+        case #selector(toggleFormatRow(_:)):
+            menuItem.title = content.showsFormatRow ? "Hide Format Row" : "Show Format Row"
+            return true
+        default:
+            return true
+        }
     }
 
     // MARK: NSWindowDelegate

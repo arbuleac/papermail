@@ -300,6 +300,12 @@ final class ComposeTextView: NSTextView {
         toggleTrait(.italicFontMask)
     }
 
+    /// Format › Underline. A selector of its own rather than NSText's `underline:`, which a field editor would
+    /// answer and underline the Subject with.
+    @objc func toggleUnderline(_ sender: Any?) {
+        underline(sender)
+    }
+
     /// The Font menu and panel may only change bold and italic; family and size stay the composer's.
     override func changeFont(_ sender: Any?) {
         let manager = NSFontManager.shared
