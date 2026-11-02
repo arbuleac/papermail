@@ -122,7 +122,9 @@ public struct SyncLineSummary: Equatable, Sendable {
     public static func make(_ input: Input, checkedFormatter: (Date) -> String = SyncLineSummary.timeOfDay,
                             numberFormatter: (Int) -> String = SyncLineSummary.grouped) -> SyncLineSummary {
         let byID = Dictionary(input.accounts.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let statuses = input.statuses.filter { byID[$0.accountID] != nil || input.accounts.isEmpty }
+        // A status can outlive its account by a moment (removal, a store swapped underneath); only accounts the
+        // shell shows take part.
+        let statuses = input.statuses.filter { byID[$0.accountID] != nil }
         let tooltip = tooltipText(statuses: statuses, accounts: byID, signIn: input.signIn, numberFormatter: numberFormatter)
         func name(_ id: AccountID) -> String {
             byID[id].map(AccountMonogram.name(for:)) ?? "an account"

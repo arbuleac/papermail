@@ -144,6 +144,14 @@ final class SyncLineSummaryTests: XCTestCase {
         XCTAssertEqual(make([status(gmail, .idle)], isDemo: true, checking: true).state, .checking)
     }
 
+    func testStatusesOfAccountsTheShellDoesNotShowAreIgnored() {
+        let ghost = Account(id: AccountID("x"), kind: .gmail, email: "x@gone.test", displayName: "X", colorHex: "#000000",
+                            addedAt: Date(timeIntervalSince1970: 3))
+        let s = make([status(ghost, .error, message: "server 500: gone"), status(contoso, .idle, checked: Date())], accounts: [contoso])
+        XCTAssertEqual(s.state, .upToDate)
+        XCTAssertEqual(make([status(ghost, .needsReauth)], accounts: []).state, .upToDate)
+    }
+
     func testTooltipListsEveryAccountInSettingsWords() {
         let s = make([status(contoso, .bootstrapping, progress: 3412), status(fabrikam, .needsReauth),
                       status(gmail, .error, message: "network: x")])
