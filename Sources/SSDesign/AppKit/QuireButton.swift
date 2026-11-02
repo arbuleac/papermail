@@ -52,10 +52,17 @@ public final class QuireButton: QuireControl {
         didSet { if oldValue != isLoading { loadingDidChange() } }
     }
 
-    /// The gerund shown while loading (“Sending…”). The button keeps the wider of its two widths so nothing
-    /// moves when loading starts.
+    /// The gerund shown while loading (“Sending…”). By default the button keeps the wider of its two widths so
+    /// nothing moves when loading starts.
     public var loadingTitle: String? {
         didSet { if oldValue != loadingTitle { contentDidChange() } }
+    }
+
+    /// False sizes the face to what it shows now: its own label at rest, growing once to the gerund when work
+    /// starts. For a button whose loading state is brief and whose rest width the layout is drawn to, such as
+    /// the composer's Send (§5.23), where a reserved “Sending…” left the label floating in a wide face.
+    public var reservesLoadingWidth = true {
+        didSet { if oldValue != reservesLoadingWidth { contentDidChange() } }
     }
 
     /// A note at the face's trailing padding in `snippet` `ink2` (the welcome screen's “Google” and
@@ -119,10 +126,10 @@ public final class QuireButton: QuireControl {
     /// The face's own width for its content: padding, the glyph or spinner slot, the label.
     private var faceWidth: CGFloat {
         let normal = contentWidth(title: title, role: widestRole, lead: symbolName.map { glyphWidth($0) }) + noteWidth
-        guard let loadingTitle else { return 2 * padX + normal }
+        guard let loadingTitle, reservesLoadingWidth || isLoading else { return 2 * padX + normal }
         let loadingLead = max(symbolName.map { glyphWidth($0) } ?? 0, loadingSpinnerSize.diameter)
         let loading = contentWidth(title: loadingTitle, role: widestRole, lead: loadingLead)
-        return 2 * padX + max(normal, loading)
+        return 2 * padX + (reservesLoadingWidth ? max(normal, loading) : loading)
     }
 
     /// The trailing note and the gap before it, or 0.

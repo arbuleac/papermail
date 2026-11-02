@@ -18,6 +18,8 @@ final class ComposeBottomBar: NSView {
         sendButton.keycap = "⌘↩"
         sendButton.keycapGap = Quire.Layout.Composer.barKeycapGap
         sendButton.loadingTitle = "Sending…"
+        // At rest Send is as wide as its own label, 80 pt as the specimen draws it; it grows once when it sends.
+        sendButton.reservesLoadingWidth = false
         attachButton.toolTip = "Attach Files…  ⇧⌘A"
         formatButton.onStyle = .quiet
         formatButton.toolTip = "Show Format Row  ⇧⌘T"

@@ -1403,7 +1403,7 @@ A primary button (§5.24) with `paperplane` 14 pt and the label “Send”: regu
 | Hover / pressed | `accentFillHover` / `accentFillPressed` |
 | Focused | ring outside a 2 pt gap |
 | Disabled (no valid recipient) | `fill`, `inkDisabled`; tooltip “Add a recipient” or “Fix the address it-desk@contoso” |
-| Sending | spinner + “Sending…”, width kept |
+| Sending | spinner + “Sending…”; at rest the button is as wide as “Send” and it grows once to fit the gerund when sending starts (the window closes as soon as the message is queued) |
 | Window not key | secondary look |
 
 ### 5.24 Buttons

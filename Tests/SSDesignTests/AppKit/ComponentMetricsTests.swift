@@ -303,6 +303,20 @@ final class ComponentMetricsTests: XCTestCase {
         XCTAssertEqual(breakable.map { $0 + 1 }, Array(attachments.dropFirst()), "breaks only right before the second and third keycaps")
     }
 
+    /// §5.23: Send is as wide as its own label at rest (80 pt in the specimen) and grows to the gerund only
+    /// while sending; other buttons keep the wider of the two widths.
+    func testALoadingTitleReservesWidthOnlyWhenAsked() {
+        let send = QuireButton(title: "Send", variant: .primary, size: .regular, symbolName: Quire.Icon.send)
+        let rest = send.intrinsicContentSize.width
+        send.loadingTitle = "Sending…"
+        XCTAssertGreaterThan(send.intrinsicContentSize.width, rest, "reserved by default")
+        send.reservesLoadingWidth = false
+        XCTAssertEqual(send.intrinsicContentSize.width, rest, "at rest, its own label")
+        XCTAssertEqual(rest, 80, accuracy: 1, "12 + 14 + 6 + “Send” + 12")
+        send.isLoading = true
+        XCTAssertGreaterThan(send.intrinsicContentSize.width, rest, "the gerund fits while sending")
+    }
+
     func testHairlineWidth() {
         XCTAssertEqual(QuireHairline.width(backingScale: 2, increasedContrast: false), 0.5)
         XCTAssertEqual(QuireHairline.width(backingScale: 1, increasedContrast: false), 1)
