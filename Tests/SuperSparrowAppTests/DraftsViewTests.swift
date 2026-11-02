@@ -128,6 +128,32 @@ final class DraftsViewTests: XCTestCase {
         XCTAssertEqual(ComposeWindowRegistry.shared.openControllers.first?.draftID, kept.id)
     }
 
+    /// m6: sending a continued provider draft trashes that draft only once the message has left, so an Undo
+    /// inside the window leaves it in Drafts.
+    func testUndoSendLeavesTheContinuedDraftInDrafts() throws {
+        let harness = try MainWindowHarness()
+        defer {
+            for panel in ComposeWindowRegistry.shared.livePanels { panel.orderOut(nil); ComposeWindowRegistry.shared.unregister(panel) }
+            harness.close()
+        }
+        let account = ListTestSupport.accountA
+        let thread = ConversationID(accountID: account.id, providerID: "server-draft-thread")
+        let serverDraft = MessageMetadata(id: MessageID(accountID: account.id, providerID: "server-draft"), conversationID: thread,
+                                          subject: "From Gmail", snippet: "Started on the web", from: EmailAddress(address: account.email),
+                                          to: [ben], date: Date(), roles: [.drafts], isRead: true, isStarred: false, hasAttachments: false)
+        let store = harness.environment.store
+        try store.upsertMessages([serverDraft])
+        let draft = keep("From Gmail", body: "Finished here", continues: serverDraft.id)
+        let composer = ComposeWindowController.present(client: harness.environment.engine, accounts: harness.controller.accounts, draft: draft)
+        composer.send(nil)
+        harness.spin { !ComposeWindowRegistry.shared.livePanels.isEmpty }
+        let panel = try XCTUnwrap(ComposeWindowRegistry.shared.livePanels.first)
+        XCTAssertTrue(try XCTUnwrap(try store.message(serverDraft.id)).roles.contains(.drafts), "still in Drafts while Undo can reach it")
+        panel.undo()
+        XCTAssertTrue(try XCTUnwrap(try store.message(serverDraft.id)).roles.contains(.drafts), "Undo leaves the provider's draft as it was")
+        XCTAssertFalse(try XCTUnwrap(try store.message(serverDraft.id)).roles.contains(.trash))
+    }
+
     func testRemovingAnAccountTakesItsDrafts() throws {
         let draft = keep("Lisbon plans")
         let composer = ComposeWindowController.present(client: try MainWindowHarness.scratchClient(in: folder), accounts: [draft.account],

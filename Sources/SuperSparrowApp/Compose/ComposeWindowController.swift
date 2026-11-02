@@ -923,23 +923,30 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
                 let sendID = try self.client.send(message, undoWindow: Self.undoWindow)
                 // The outbox holds the message now; the panel keeps the draft for Undo and for a failure.
                 ComposeDraftStore.shared.remove(id: self.draftID)
-                if let original = self.continuesDraft {
-                    // The provider's draft this one continued goes to Trash, as the reader's Discard sends it.
-                    do {
-                        try self.client.perform(.trash, on: [original])
-                    } catch {
-                        Self.logger.error("Discarding the continued draft failed: \(String(describing: error), privacy: .public)")
-                    }
-                }
+                // The provider's draft this one continued goes to Trash, as the reader's Discard sends it, but only
+                // once the message has left: an Undo inside the window must find it still in Drafts (§5.19, §5.31).
+                let client = self.client
+                let continued = self.continuesDraft
                 self.closesWithoutSaving = true
                 self.close()
-                UndoSendPanel.show(client: self.client, accounts: self.accounts, sendID: sendID, draft: sent,
-                                   undoWindow: Self.undoWindow)
+                UndoSendPanel.show(client: client, accounts: self.accounts, sendID: sendID, draft: sent,
+                                   undoWindow: Self.undoWindow, onSent: continued.map { original in
+                    { Self.discardContinuedDraft(original, client: client) }
+                })
             } catch {
                 Self.logger.error("Queueing a send failed: \(String(describing: error))")
                 self.setSending(false)
                 self.sendFailure = "Couldn't send: the message couldn't be added to the outbox."
             }
+        }
+    }
+
+    private static func discardContinuedDraft(_ original: MessageID, client: MailClient) {
+        do {
+            try client.perform(.trash, on: [original])
+        } catch {
+            let failure = error as NSError
+            logger.error("Discarding the continued draft failed: \(failure.domain, privacy: .public) \(failure.code, privacy: .public)")
         }
     }
 

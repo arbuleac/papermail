@@ -25,6 +25,8 @@ final class UndoSendPanel: NSPanel {
     private let shownAt: Date
     /// Runs instead of reopening the composer when Undo cancels the send in time.
     private var onUndone: (() -> Void)?
+    /// Runs once the message has left: work that Undo must be able to take back waits for it.
+    private var onSent: (() -> Void)?
     private var pollTimer: Timer?
     private var isFinished = false
     private var failureReason: String?
@@ -35,10 +37,12 @@ final class UndoSendPanel: NSPanel {
     /// §5.18); `startedAt` when it began, so ⌘Z still ranks it by its own send.
     @discardableResult
     static func show(client: MailClient, accounts: [Account], sendID: String, draft: ComposeDraft, undoWindow: TimeInterval,
-                     remaining: TimeInterval? = nil, startedAt: Date = Date(), onUndone: (() -> Void)? = nil) -> UndoSendPanel {
+                     remaining: TimeInterval? = nil, startedAt: Date = Date(), onUndone: (() -> Void)? = nil,
+                     onSent: (() -> Void)? = nil) -> UndoSendPanel {
         let left = max(0, min(undoWindow, remaining ?? undoWindow))
         let panel = UndoSendPanel(client: client, accounts: accounts, sendID: sendID, draft: draft, undoWindow: left, startedAt: startedAt)
         panel.onUndone = onUndone
+        panel.onSent = onSent
         ComposeWindowRegistry.shared.register(panel)
         panel.slip.startCountdown(left)
         panel.presentRising()
@@ -187,6 +191,8 @@ final class UndoSendPanel: NSPanel {
     }
 
     private func showSent() {
+        onSent?()
+        onSent = nil
         slip.state = .sent
         finish(after: Quire.Motion.sentConfirm)
     }

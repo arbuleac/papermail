@@ -121,4 +121,16 @@ final class KeyboardRouterExtendTests: XCTestCase {
         XCTAssertEqual(command("j", keyCode: 38, []), .next)
         XCTAssertEqual(command("I", keyCode: 34, .shift), .moveToInbox)
     }
+
+    /// § 6: → opens the selected conversation from the list; ← returns from the reader by Esc's path.
+    func testRightOpensAndLeftGoesBack() {
+        func reader(_ keyCode: UInt16) -> KeyCommand? {
+            KeyboardRouter.command(characters: "", keyCode: keyCode, modifiers: [], pendingG: false, readerFocused: true).command
+        }
+        XCTAssertEqual(command("", keyCode: 124, []), .open)
+        XCTAssertNil(command("", keyCode: 123, []), "← on the list does nothing")
+        XCTAssertNil(reader(124), "→ in the reader stays the web view's")
+        XCTAssertEqual(reader(123), .clearSearch, "← in the reader goes back to the list")
+        XCTAssertNil(command("", keyCode: 124, .shift))
+    }
 }

@@ -187,6 +187,10 @@ final class KeyboardRouter {
         case 125: return (readerFocused ? nil : modifiers.contains(.shift) ? .extendNext : .next, false) // ↓
         case 126: return (readerFocused ? nil : modifiers.contains(.shift) ? .extendPrevious : .previous, false) // ↑
         case 36, 76: return (modifiers.isEmpty ? .open : nil, false) // Return, keypad Enter
+        // → opens like ↩ from the list (§6); in the reader it is the web view's (horizontal scroll).
+        case 124: return (!readerFocused && modifiers.isEmpty ? .open : nil, false)
+        // ← goes back to the list from the reader along Esc's path, so a visible toast still goes first (§6.1).
+        case 123: return (readerFocused && modifiers.isEmpty ? .clearSearch : nil, false)
         default: break
         }
 
