@@ -54,14 +54,25 @@ final class GraphApplyTests: GraphTestCase {
 
     func testApplyTreatsMissingMessageAsDone() async throws {
         route { request in
-            self.batchReply(request) { id, url in
+            self.wellKnownFolderReply(request) ?? self.batchReply(request) { id, url in
                 url.contains("gone")
                     ? Fixtures.BatchItem(id: id, status: 404, body: Fixtures.notFoundError)
                     : Fixtures.BatchItem(id: id, status: 201, body: #"{"id":"kept"}"#)
             }
         }
         try await makeProvider().apply(.archive, to: ["gone", "kept"])
-        XCTAssertEqual(requests.count, 1)
+        XCTAssertEqual(requests(to: "/v1.0/$batch").count, 1)
+    }
+
+    func testArchiveIntoAMailboxWithoutArchiveFolderIsNotTreatedAsDone() async throws {
+        // Outlook creates Archive lazily. A move to a folder that does not exist answers 404 too, and must not
+        // be mistaken for "the message is gone": the message would stay in the server inbox for good.
+        route { request in
+            self.wellKnownFolderReply(request, missing: ["archive"]) ?? self.batchReply(request) { id, _ in
+                Fixtures.BatchItem(id: id, status: 404, body: Fixtures.notFoundError)
+            }
+        }
+        await expectProviderError({ try await self.makeProvider().apply(.archive, to: ["a"]) }) { $0.serverStatus == 404 }
     }
 
     func testApplySurfacesPerItemThrottleWithRetryAfter() async throws {
