@@ -13,6 +13,9 @@ enum ConversationAction {
     case trash(ConversationID)
     /// Out of the Trash (the Trash view's Archive slot, spec §5.12).
     case moveToInbox(ConversationID)
+    /// A header action with several conversations selected (spec §5.19): one change on all of them, so one
+    /// toast (“Archived 3 conversations”) and one undo.
+    case applyToSelection(MetadataChange, [ConversationID])
     /// Informational: the reader has already opened Quick Look for it.
     case openAttachment(MessageID, AttachmentInfo)
     /// Continue Editing on a read-only draft (spec §5.19).

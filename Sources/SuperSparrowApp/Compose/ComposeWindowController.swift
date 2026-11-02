@@ -1042,13 +1042,43 @@ final class ComposeDraftUndo: NSObject {
     }
 }
 
-/// The composer's window: Esc never closes it (§6.1), and it reports focus changes to its controller.
+/// The composer's window: Esc never closes it (§6.1), it reports focus changes to its controller, and Edit ›
+/// Undo undoes typing when the focused text can, else cancels the newest counting undo-send panel (“Undo
+/// Send”, §6.1 rows 1–2; the main window's toasts are not reachable from here).
 @MainActor
 final class ComposeWindow: NSWindow {
     /// Every focus change goes through here (clicks, Tab, code), so the rows can redraw their rings.
     var onFirstResponderChange: (() -> Void)?
 
     private var responderChangeDepth = 0
+
+    private var undoTarget: UndoPrecedence.Target {
+        let textCanUndo = KeyboardRouter.isTextInput(firstResponder) && undoManager?.canUndo == true
+        return UndoPrecedence.commandZ(textCanUndo: textCanUndo, sends: UndoSendPanel.liveSends, toast: nil, graceGroup: nil)
+    }
+
+    @objc func undo(_ sender: Any?) {
+        switch undoTarget {
+        case .typing: undoManager?.undo()
+        case .send(let id): UndoSendPanel.panel(sendID: id)?.undo()
+        case .group, .nothing: NSSound.beep()
+        }
+    }
+
+    override func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        guard menuItem.action == #selector(undo(_:)) else { return super.validateMenuItem(menuItem) }
+        switch undoTarget {
+        case .typing:
+            menuItem.title = undoManager?.undoMenuItemTitle ?? "Undo"
+            return true
+        case .send:
+            menuItem.title = "Undo Send"
+            return true
+        case .group, .nothing:
+            menuItem.title = "Can't Undo"
+            return false
+        }
+    }
 
     override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
         responderChangeDepth += 1

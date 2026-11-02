@@ -6,6 +6,9 @@ import SSDesign
 enum KeyCommand: Equatable {
     case next
     case previous
+    /// ⇧J / ⇧K (and ⇧↓ / ⇧↑): grow or shrink the selection (spec §6, §5.19).
+    case extendNext
+    case extendPrevious
     case open
     case archive
     case toggleStar
@@ -181,14 +184,21 @@ final class KeyboardRouter {
 
         switch keyCode {
         case 53: return (modifiers.isEmpty ? .clearSearch : nil, false) // Esc
-        case 125: return (readerFocused ? nil : .next, false) // ↓
-        case 126: return (readerFocused ? nil : .previous, false) // ↑
+        case 125: return (readerFocused ? nil : modifiers.contains(.shift) ? .extendNext : .next, false) // ↓
+        case 126: return (readerFocused ? nil : modifiers.contains(.shift) ? .extendPrevious : .previous, false) // ↑
         case 36, 76: return (modifiers.isEmpty ? .open : nil, false) // Return, keypad Enter
         default: break
         }
 
         if characters == "#" { return (.trash, false) }
-        if modifiers == .shift, key == "i" { return (.moveToInbox, false) }
+        if modifiers == .shift {
+            switch key {
+            case "i": return (.moveToInbox, false)
+            case "j": return (.extendNext, false)
+            case "k": return (.extendPrevious, false)
+            default: break
+            }
+        }
         guard modifiers.isEmpty else { return (nil, false) }
         switch key {
         case "j": return (.next, false)

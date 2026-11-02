@@ -101,3 +101,53 @@ final class MailActionUndoHistoryTests: XCTestCase {
         XCTAssertNotEqual(history.groups.first?.id, 1)
     }
 }
+
+/// Several selected conversations make one group (spec §5.19), and steps that are not mail actions share the
+/// history (§5.20).
+final class MailActionUndoHistoryGroupTests: XCTestCase {
+    private let account = AccountID("acct")
+    private let t0 = Date(timeIntervalSince1970: 1_790_000_000)
+
+    private func record(_ change: MetadataChange, _ n: Int) -> MailActionRecord {
+        let message = MessageMetadata(
+            id: MessageID(accountID: account, providerID: "m\(n)"),
+            conversationID: ConversationID(accountID: account, providerID: "t\(n)"),
+            subject: "Subject", snippet: "", from: nil, to: [], date: t0,
+            roles: [.inbox], isRead: true, isStarred: false, hasAttachments: false
+        )
+        return MailActionRecord.make(change, on: [message], conversation: message.conversationID)!
+    }
+
+    func testSeveralRecordsStartOneGroupAndOneUndo() {
+        var history = MailActionUndoHistory()
+        let id = history.add([record(.archive, 1), record(.archive, 2), record(.archive, 3)], at: t0, toasted: true)
+        history.bindToast(4, to: id)
+        XCTAssertEqual(history.groups.count, 1)
+        XCTAssertEqual(history.groups.first?.records.count, 3)
+        XCTAssertEqual(history.target(at: t0, visibleToastID: 4)?.id, id)
+        // One more E within the window grows the same toast: “Archived 4 conversations”.
+        XCTAssertEqual(history.coalesce([record(.archive, 4)], at: t0.addingTimeInterval(0.5), visibleToastID: 4)?.records.count, 4)
+        XCTAssertNil(history.coalesce([record(.archive, 5), record(.trash, 6)], at: t0.addingTimeInterval(0.6), visibleToastID: 4),
+                     "a mixed batch never coalesces")
+        XCTAssertEqual(history.remove(id)?.records.count, 4)
+        XCTAssertTrue(history.groups.isEmpty)
+    }
+
+    func testAnExternalStepIsReachableAndNeverCoalesces() {
+        var history = MailActionUndoHistory()
+        let archive = history.add(record(.archive, 1), at: t0, toasted: true)
+        history.bindToast(1, to: archive)
+        let discard = history.addExternal(command: "Discard Draft", at: t0.addingTimeInterval(0.2), toasted: true)
+        history.bindToast(2, to: discard)
+        XCTAssertNil(history.coalesce(record(.archive, 2), at: t0.addingTimeInterval(0.3), visibleToastID: 2))
+        let group = history.target(at: t0.addingTimeInterval(0.4), visibleToastID: 2)
+        XCTAssertEqual(group?.id, discard)
+        XCTAssertNil(group?.change)
+        XCTAssertEqual(group?.externalCommand, "Discard Draft")
+        XCTAssertEqual(history.toastGroup(visibleToastID: 2)?.id, discard)
+        history.toastEnded(2, at: t0.addingTimeInterval(1))
+        XCTAssertNil(history.toastGroup(visibleToastID: nil))
+        XCTAssertEqual(history.graceGroup(at: t0.addingTimeInterval(10.9))?.id, discard)
+        XCTAssertNil(history.graceGroup(at: t0.addingTimeInterval(11.1)))
+    }
+}

@@ -92,7 +92,16 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         let text: String
         let conversation: ConversationID
         let subject: String
+        let startedAt: Date
         let endsAt: Date
+    }
+
+    /// Called whenever a quick reply's undo window opens or closes, so the main window can re-rank ⌘Z (§6.1).
+    var onQuickSendChange: (() -> Void)?
+
+    /// The quick reply's send while ⌘Z can still cancel it.
+    var liveQuickSend: UndoPrecedence.LiveSend? {
+        quickSend.map { UndoPrecedence.LiveSend(id: $0.sendID, startedAt: $0.startedAt) }
     }
 
     init(client: MailClient) {
@@ -916,12 +925,10 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             return
         case .several(let ids):
             switch action {
-            case .star:
-                let on = !header.content.actions.starOn
-                for id in ids { onAction?(.star(id, on)) }
-            case .archive: for id in ids { onAction?(.archive(id)) }
-            case .trash: for id in ids { onAction?(.trash(id)) }
-            case .moveToInbox: for id in ids { onAction?(.moveToInbox(id)) }
+            case .star: onAction?(.applyToSelection(.setStarred(!header.content.actions.starOn), ids))
+            case .archive: onAction?(.applyToSelection(.archive, ids))
+            case .trash: onAction?(.applyToSelection(.trash, ids))
+            case .moveToInbox: onAction?(.applyToSelection(.moveToInbox, ids))
             default: break
             }
         case .one(let id):
@@ -1145,11 +1152,13 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         }
         do {
             let sendID = try client.send(message, undoWindow: Self.undoWindow)
-            let endsAt = Date().addingTimeInterval(Self.undoWindow)
+            let startedAt = Date()
+            let endsAt = startedAt.addingTimeInterval(Self.undoWindow)
             let names = (message.to + message.cc).map(\.shortDisplay)
             let recipient = names.count > 2 ? names[0] + " and \(names.count - 1) others" : names.joined(separator: " and ")
             quickSend = QuickSend(sendID: sendID, text: text, conversation: conversation,
-                                  subject: RenderPayloadBuilder.subject(of: currentMessages), endsAt: endsAt)
+                                  subject: RenderPayloadBuilder.subject(of: currentMessages), startedAt: startedAt, endsAt: endsAt)
+            onQuickSendChange?()
             quickReply.clear()
             quickReply.showStrip(.counting(endsAt: endsAt, duration: Self.undoWindow, recipient: recipient))
             quickSendTimer?.invalidate()
@@ -1169,6 +1178,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         quickSendTimer = nil
         guard let send = quickSend else { return }
         quickSend = nil
+        onQuickSendChange?()
         let offline = offlineAccounts.contains(send.conversation.accountID)
         if quickReply.stripState != nil {
             quickReply.showStrip(offline ? .queuedOffline : .sent)
@@ -1191,6 +1201,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         quickSendTimer?.invalidate()
         quickSendTimer = nil
         quickSend = nil
+        onQuickSendChange?()
         let cancelled = (try? client.cancelSend(id: send.sendID)) ?? false
         guard cancelled else {
             quickReply.showStrip(.alreadySent)

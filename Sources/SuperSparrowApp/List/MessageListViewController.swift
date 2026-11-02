@@ -44,9 +44,9 @@ final class MessageListViewController: NSViewController {
         return ids.isEmpty ? (selectedID.map { [$0] } ?? []) : ids
     }
 
-    /// Called with the whole selection whenever it changes. Multi-selection (⇧-click, ⌘-click, ⇧J / ⇧K) is
-    /// off until the host turns `allowsMultipleSelection` on: it must then act on every selected conversation,
-    /// which today's single-selection actions do not.
+    /// Called with the whole selection whenever it changes, including when a refresh takes some of several
+    /// selected conversations away. Multi-selection (⇧-click, ⌘-click, ⇧J / ⇧K) is off until the host turns
+    /// `allowsMultipleSelection` on, because the host must then act on every selected conversation.
     var onSelectionSetChange: (([ConversationID]) -> Void)?
 
     var allowsMultipleSelection = false {
@@ -111,7 +111,13 @@ final class MessageListViewController: NSViewController {
 
     // MARK: State
 
+    /// The lead conversation: the reader follows it, j/k move from it.
     private var selectedID: ConversationID?
+    /// Every selected conversation, the lead included, by id: refreshes, paging and row moves keep the whole
+    /// selection, and a selection made ahead of the data (an undo bringing rows back) lands as they arrive.
+    private var selectedIDs: Set<ConversationID> = []
+    /// Where ⇧J / ⇧K started: moving back toward it gives rows back, as ⇧↑ after ⇧↓ does in the Finder.
+    private var selectionAnchor: ConversationID?
     private var indexByID: [ConversationID: Int] = [:]
     private(set) var layout = ListLayout.empty
     private var itemIDs: [ListLayout.ItemID] = []
@@ -249,26 +255,43 @@ final class MessageListViewController: NSViewController {
         moveSelection(by: -1)
     }
 
-    /// ⇧J / ⇧K: grows the selection by one conversation and moves the lead there. Does nothing until the host
-    /// turns on `allowsMultipleSelection`.
+    /// ⇧J / ⇧K: moves the lead one conversation and takes the row it reaches into the selection, or, moving back
+    /// toward where the extension started, gives back the row it leaves. Without `allowsMultipleSelection` it
+    /// is a plain move.
     func extendSelection(by delta: Int) {
         guard allowsMultipleSelection, !conversations.isEmpty else { return moveSelection(by: delta) }
-        let current = selectedID.flatMap { indexByID[$0] } ?? 0
-        let target = min(max(current + delta, 0), conversations.count - 1)
-        guard let row = layout.row(ofConversation: target) else { return }
+        guard let lead = selectedID, let leadIndex = indexByID[lead] else { return moveSelection(by: delta) }
+        let state = signposter.beginInterval("list.select")
+        defer { signposter.endInterval("list.select", state) }
+        let target = min(max(leadIndex + delta, 0), conversations.count - 1)
+        guard target != leadIndex else { return }
+        let anchor = selectionAnchor.flatMap { selectedIDs.contains($0) ? indexByID[$0] : nil } ?? leadIndex
+        if (leadIndex - anchor) * delta < 0 { selectedIDs.remove(lead) }
         let id = conversations[target].id
-        let wasSuppressed = suppressSelectionCallbacks
-        suppressSelectionCallbacks = true
-        withoutAnimation {
-            tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: true)
-            scrollToRow(row)
-        }
-        suppressSelectionCallbacks = wasSuppressed
-        onSelectionSetChange?(selectedConversationIDs)
-        guard id != selectedID else { return }
+        selectedIDs.insert(id)
+        selectionAnchor = conversations[anchor].id
         selectedID = id
+        syncTableSelection(scroll: true)
         selectionDidSettle()
         onSelectionChange?(id)
+        onSelectionSetChange?(selectedConversationIDs)
+        if delta > 0, let row = layout.row(ofConversation: target), isWithinLoadMoreDistance(ofRow: row) {
+            loadMore()
+        }
+    }
+
+    /// Puts the selection on `ids` (an undo bringing several conversations back) without reporting it, as
+    /// setting `selectedConversationID` does. Rows not listed yet are selected when they arrive.
+    func selectConversations(_ ids: [ConversationID], lead: ConversationID?) {
+        guard allowsMultipleSelection, ids.count > 1 else {
+            select(lead ?? ids.first, notify: false, scroll: true)
+            return
+        }
+        selectedID = lead ?? ids.last
+        selectedIDs = Set(ids)
+        selectionAnchor = ids.first
+        syncTableSelection(scroll: true)
+        selectionDidSettle()
     }
 
     /// The rows the conversation view should pre-render around `id`.
@@ -336,6 +359,8 @@ final class MessageListViewController: NSViewController {
 
     private func select(_ id: ConversationID?, notify: Bool, scroll: Bool) {
         selectedID = id
+        selectedIDs = id.map { [$0] } ?? []
+        selectionAnchor = id
         syncTableSelection(scroll: scroll)
         selectionDidSettle()
         if notify {
@@ -344,14 +369,24 @@ final class MessageListViewController: NSViewController {
         }
     }
 
-    /// Drives the table's selection from `selectedID` without the delegate reporting it as a user change.
-    /// Only the fill and the margin rule of the two rows involved redraw, in one frame (spec §5.7).
+    /// Drives the table's selection from `selectedID` and `selectedIDs` without the delegate reporting it as a
+    /// user change. Only the fill and the margin rule of the rows involved redraw, in one frame (spec §5.7).
     private func syncTableSelection(scroll: Bool) {
         let wasSuppressed = suppressSelectionCallbacks
         suppressSelectionCallbacks = true
         defer { suppressSelectionCallbacks = wasSuppressed }
         withoutAnimation {
-            if let id = selectedID, let index = indexByID[id], let row = layout.row(ofConversation: index) {
+            if selectedIDs.count > 1 {
+                let rows = IndexSet(selectedIDs.compactMap { id in indexByID[id].flatMap { layout.row(ofConversation: $0) } })
+                if rows.isEmpty {
+                    if !tableView.selectedRowIndexes.isEmpty { tableView.deselectAll(nil) }
+                } else if tableView.selectedRowIndexes != rows {
+                    tableView.selectRowIndexes(rows, byExtendingSelection: false)
+                }
+                if scroll, let id = selectedID, let index = indexByID[id], let row = layout.row(ofConversation: index) {
+                    scrollToRow(row)
+                }
+            } else if let id = selectedID, let index = indexByID[id], let row = layout.row(ofConversation: index) {
                 if tableView.selectedRowIndexes != IndexSet(integer: row) {
                     tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
                 }
@@ -551,15 +586,20 @@ final class MessageListViewController: NSViewController {
         }
         signposter.endInterval("list.diff", diffState)
 
+        let presentBefore = selectedIDs.count > 1 ? selectedIDs.filter { oldIndexByID[$0] != nil }.count : 0
         let selectionMoved = reconcileSelection(previous: previousSelection, oldIndexByID: oldIndexByID, old: old)
+        // Several selected: some may have left (an archive lands one account at a time) or arrived (an undo's
+        // rows), and the host's reader counts them.
+        let setChanged = !selectionMoved && presentBefore > 0 && selectedIDs.filter { indexByID[$0] != nil }.count != presentBefore
         suppressSelectionCallbacks = false
         updateEmptyState()
         if selectionMoved {
             selectionDidSettle()
             onSelectionChange?(selectedID)
             onSelectionSetChange?(selectedConversationIDs)
-        } else if selectionRestedID != nil {
-            acknowledgeFailedOperationIfNeeded()
+        } else {
+            if setChanged { onSelectionSetChange?(selectedConversationIDs) }
+            if selectionRestedID != nil { acknowledgeFailedOperationIfNeeded() }
         }
         onRowsChange?()
     }
@@ -571,20 +611,33 @@ final class MessageListViewController: NSViewController {
         indexByID = index
     }
 
-    /// Returns true when the selection had to move to another conversation.
+    /// Returns true when the lead had to move to another conversation.
     private func reconcileSelection(
         previous: ConversationID?,
         oldIndexByID: [ConversationID: Int],
         old: [ConversationSummary]
     ) -> Bool {
+        if selectedIDs.count > 1 {
+            // Selected rows that left the view leave the selection; rows never listed yet stay, so a selection
+            // made ahead of the data lands as its rows arrive.
+            selectedIDs = selectedIDs.filter { indexByID[$0] != nil || oldIndexByID[$0] == nil }
+        }
         guard let previous, indexByID[previous] == nil, oldIndexByID[previous] != nil else {
             // Still listed, never listed yet (a selection made ahead of the data), or nothing selected.
             syncTableSelection(scroll: false)
             return false
         }
-        // The selected conversation left this view (archived, trashed, read in an unread-only view). Hand the
-        // selection to the row that took its place so the next j or k keeps moving through the list.
-        selectedID = ListDiff.successor(ofRemoved: previous, in: old.map(\.id), new: conversations.map(\.id))
+        if let next = conversations.first(where: { selectedIDs.contains($0.id) && $0.id != previous }) {
+            // The lead left but other selected conversations remain: the lead moves to the first of them.
+            selectedID = next.id
+            selectedIDs.remove(previous)
+        } else {
+            // The selected conversation left this view (archived, trashed, read in an unread-only view). Hand
+            // the selection to the row that took its place so the next j or k keeps moving through the list.
+            selectedID = ListDiff.successor(ofRemoved: previous, in: old.map(\.id), new: conversations.map(\.id))
+            selectedIDs = selectedID.map { [$0] } ?? []
+            selectionAnchor = selectedID
+        }
         syncTableSelection(scroll: true)
         return true
     }
@@ -941,10 +994,15 @@ extension MessageListViewController: NSTableViewDelegate {
         } else {
             lead = selectedID.flatMap { selected.contains($0) ? $0 : nil } ?? selected.last
         }
-        onSelectionSetChange?(selected)
-        guard lead != selectedID else { return }
+        selectedIDs = Set(selected)
+        if selected.count <= 1 || !(selectionAnchor.map(selectedIDs.contains) ?? false) { selectionAnchor = lead }
+        guard lead != selectedID else {
+            onSelectionSetChange?(selected)
+            return
+        }
         selectedID = lead
         selectionDidSettle()
         onSelectionChange?(lead)
+        onSelectionSetChange?(selected)
     }
 }

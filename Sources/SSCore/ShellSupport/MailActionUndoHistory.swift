@@ -3,7 +3,8 @@ import Foundation
 /// What Z and ⌘Z can still revert in the main window (spec §5.30, §6.1), and which toast offers it.
 ///
 /// Each group is one step as the user saw it: a mail action, or several of the same kind within 1000 ms that
-/// coalesced into one toast (“Archived 3 conversations”). A group with a toast is reachable while the toast is
+/// coalesced into one toast (“Archived 3 conversations”), or a step that is not a mail action at all (a
+/// composer's discarded draft, §5.20), which the caller reverts itself. A group with a toast is reachable while the toast is
 /// visible and for the grace period after it leaves; a group the row shows by itself (a star, one mark as
 /// unread, §4.13) never gets a toast and is reachable for the grace period from when it happened.
 ///
@@ -13,8 +14,13 @@ import Foundation
 public struct MailActionUndoHistory: Sendable {
     public struct Group: Sendable {
         public let id: Int
+        /// Empty for an external step.
         public fileprivate(set) var records: [MailActionRecord]
-        public let change: MetadataChange
+        /// The mail action; nil for an external step (`addExternal`).
+        public let change: MetadataChange?
+        /// The command's menu name for an external step (“Discard Draft”), which Edit › Undo and the undo
+        /// confirmation repeat; nil for a mail action.
+        public let externalCommand: String?
         public fileprivate(set) var lastActionAt: Date
         /// The toast offering the group, while that toast is visible.
         public fileprivate(set) var toastID: Int?
@@ -43,9 +49,16 @@ public struct MailActionUndoHistory: Sendable {
     /// visible one and the last action was within the coalescing window. Returns the grown group, or nil when
     /// `record` must start a group of its own.
     public mutating func coalesce(_ record: MailActionRecord, at now: Date, visibleToastID: Int?) -> Group? {
-        guard var last = groups.last, last.change == record.change, let toastID = last.toastID, toastID == visibleToastID,
+        coalesce([record], at: now, visibleToastID: visibleToastID)
+    }
+
+    /// `records` are one action on several selected conversations (spec §5.19): they join the latest group on
+    /// the same terms as a single record, so “Archived 3 conversations” can grow to 4 with one more E.
+    public mutating func coalesce(_ records: [MailActionRecord], at now: Date, visibleToastID: Int?) -> Group? {
+        guard let change = records.first?.change, records.allSatisfy({ $0.change == change }),
+              var last = groups.last, last.change == .some(change), let toastID = last.toastID, toastID == visibleToastID,
               now.timeIntervalSince(last.lastActionAt) <= coalesceWindow else { return nil }
-        last.records.append(record)
+        last.records.append(contentsOf: records)
         last.lastActionAt = now
         groups[groups.count - 1] = last
         return last
@@ -55,9 +68,30 @@ public struct MailActionUndoHistory: Sendable {
     /// `bindToast(_:to:)`; one that does not starts its grace now.
     @discardableResult
     public mutating func add(_ record: MailActionRecord, at now: Date, toasted: Bool) -> Int {
+        add([record], at: now, toasted: toasted)
+    }
+
+    /// Starts one group for an action on several conversations at once: one toast, one undo (spec §5.19).
+    /// `records` must be non-empty and of one kind of action.
+    @discardableResult
+    public mutating func add(_ records: [MailActionRecord], at now: Date, toasted: Bool) -> Int {
+        precondition(!records.isEmpty, "a group holds at least one action")
+        return append(records: records, change: records[0].change, externalCommand: nil, at: now, toasted: toasted)
+    }
+
+    /// Starts a group for a step the caller reverts itself (the composer's “Draft discarded”), named by its
+    /// command (“Discard Draft”). It sits in the same history as the mail actions, so Z and ⌘Z reach
+    /// whichever came last, and it never coalesces.
+    @discardableResult
+    public mutating func addExternal(command: String, at now: Date, toasted: Bool) -> Int {
+        append(records: [], change: nil, externalCommand: command, at: now, toasted: toasted)
+    }
+
+    private mutating func append(records: [MailActionRecord], change: MetadataChange?, externalCommand: String?, at now: Date,
+                                 toasted: Bool) -> Int {
         let id = nextID
         nextID += 1
-        groups.append(Group(id: id, records: [record], change: record.change, lastActionAt: now,
+        groups.append(Group(id: id, records: records, change: change, externalCommand: externalCommand, lastActionAt: now,
                             toastID: nil, expiresAt: toasted ? nil : now.addingTimeInterval(grace)))
         if groups.count > Self.capacity { groups.removeFirst(groups.count - Self.capacity) }
         return id
@@ -80,7 +114,18 @@ public struct MailActionUndoHistory: Sendable {
 
     /// The group Z and ⌘Z revert now, if any.
     public func target(at now: Date, visibleToastID: Int?) -> Group? {
-        if let visibleToastID, let shown = groups.last(where: { $0.toastID == visibleToastID }) { return shown }
+        if let shown = toastGroup(visibleToastID: visibleToastID) { return shown }
+        return graceGroup(at: now)
+    }
+
+    /// The group the visible toast offers (§6.1 ⌘Z row 2), if a toast is up and offers one.
+    public func toastGroup(visibleToastID: Int?) -> Group? {
+        guard let visibleToastID else { return nil }
+        return groups.last { $0.toastID == visibleToastID }
+    }
+
+    /// The latest group whose toast has gone (or that never had one) and is still within its grace (row 3).
+    public func graceGroup(at now: Date) -> Group? {
         guard let last = groups.last, let expiresAt = last.expiresAt, now <= expiresAt else { return nil }
         return last
     }

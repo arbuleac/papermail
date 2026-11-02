@@ -1,7 +1,9 @@
 import AppKit
 
-/// The main window. Its only behaviour of its own is the Tab order of spec §3.4: rail → list header controls →
-/// list → sync line (while it carries an action) → the reader, in that order, whatever the panes' geometry.
+/// The main window. Its behaviour of its own is the Tab order of spec §3.4: rail → list header controls →
+/// list → sync line (while it carries an action) → the reader, in that order, whatever the panes' geometry;
+/// and Edit › Undo, which NSWindow would give to its undo manager alone, follows the window's undo order
+/// (§6.1: typing, then sends and toasts) through its controller.
 ///
 /// The shell's part of the loop is given by `shellKeyViews`; inside the reader the reader's own chain (or,
 /// where it set none, top-to-bottom order) applies, and leaving the reader at either end comes back to the
@@ -12,6 +14,23 @@ final class MainWindow: NSWindow {
     var shellKeyViews: (() -> [NSView])?
     /// The reader's root view.
     weak var readerRoot: NSView?
+
+    /// Edit › Undo and ⌘Z inside text fields. NSWindow implements `undo:` for its undo manager only; here the
+    /// controller ranks typing against the undo-send panels, the quick reply's countdown and the toasts.
+    @objc func undo(_ sender: Any?) {
+        if let controller = windowController as? MainWindowController {
+            controller.performEditUndo()
+        } else {
+            undoManager?.undo()
+        }
+    }
+
+    override func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(undo(_:)), let controller = windowController as? MainWindowController {
+            return controller.validateEditUndo(menuItem)
+        }
+        return super.validateMenuItem(menuItem)
+    }
 
     override func selectNextKeyView(_ sender: Any?) {
         if !route(forward: true, from: currentKeyView) { super.selectNextKeyView(sender) }

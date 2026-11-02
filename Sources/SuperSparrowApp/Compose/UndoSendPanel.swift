@@ -11,28 +11,36 @@ import SSDesign
 /// Counting (“Sending in 4 s”, the outlined Undo with “⌘Z”, the contrail draining) → Sending → Sent for 1500 ms,
 /// or Failed with “Open draft”. Undo closes the panel at once and reopens the composer; an Undo that comes
 /// after the message left shows “Already sent” for 3000 ms. Hover never pauses the countdown: the send time
-/// is a promise. ⌘Z cancels the newest counting panel unless a text view can undo typing or a newer toast
-/// took ⌘Z (§6.1).
+/// is a promise. ⌘Z cancels the newest counting panel unless a text view can undo typing or, in the main
+/// window, a newer toast or quick-reply countdown holds ⌘Z (§6.1, `UndoPrecedence`).
 @MainActor
 final class UndoSendPanel: NSPanel {
     private let client: MailClient
     private let accounts: [Account]
-    private let sendID: String
+    let sendID: String
     private let draft: ComposeDraft
     private let undoWindow: TimeInterval
     private let slip: QuireUndoPanelView
-    private let shownAt = Date()
+    /// When the send began counting: a quick reply moved here keeps its own start (§5.18).
+    private let shownAt: Date
+    /// Runs instead of reopening the composer when Undo cancels the send in time.
+    private var onUndone: (() -> Void)?
     private var pollTimer: Timer?
     private var isFinished = false
     private var failureReason: String?
 
     // MARK: Showing
 
+    /// `remaining` is the part of `undoWindow` still to run (a quick reply's countdown moving here mid-way,
+    /// §5.18); `startedAt` when it began, so ⌘Z still ranks it by its own send.
     @discardableResult
-    static func show(client: MailClient, accounts: [Account], sendID: String, draft: ComposeDraft, undoWindow: TimeInterval) -> UndoSendPanel {
-        let panel = UndoSendPanel(client: client, accounts: accounts, sendID: sendID, draft: draft, undoWindow: undoWindow)
+    static func show(client: MailClient, accounts: [Account], sendID: String, draft: ComposeDraft, undoWindow: TimeInterval,
+                     remaining: TimeInterval? = nil, startedAt: Date = Date(), onUndone: (() -> Void)? = nil) -> UndoSendPanel {
+        let left = max(0, min(undoWindow, remaining ?? undoWindow))
+        let panel = UndoSendPanel(client: client, accounts: accounts, sendID: sendID, draft: draft, undoWindow: left, startedAt: startedAt)
+        panel.onUndone = onUndone
         ComposeWindowRegistry.shared.register(panel)
-        panel.slip.startCountdown(undoWindow)
+        panel.slip.startCountdown(left)
         panel.presentRising()
         Self.updateUndoKeyOwner()
         UndoKeyMonitor.shared.install()
@@ -40,12 +48,13 @@ final class UndoSendPanel: NSPanel {
         return panel
     }
 
-    init(client: MailClient, accounts: [Account], sendID: String, draft: ComposeDraft, undoWindow: TimeInterval) {
+    init(client: MailClient, accounts: [Account], sendID: String, draft: ComposeDraft, undoWindow: TimeInterval, startedAt: Date = Date()) {
         self.client = client
         self.accounts = accounts
         self.sendID = sendID
         self.draft = draft
         self.undoWindow = undoWindow
+        self.shownAt = startedAt
         slip = QuireUndoPanelView(state: .counting(secondsLeft: Int(undoWindow.rounded(.up))), summary: Self.summary(for: draft))
         let margins = QuireUndoPanelView.shadowMargins
         let size = NSSize(width: QuireUndoPanelView.size.width + margins.left + margins.right,
@@ -83,6 +92,12 @@ final class UndoSendPanel: NSPanel {
     }
 
     var isLive: Bool { !isFinished }
+
+    /// Still counting down: ⌘Z can cancel it.
+    var isCounting: Bool {
+        if case .counting = slip.state, !isFinished { return true }
+        return false
+    }
 
     // MARK: Placement
 
@@ -206,7 +221,11 @@ final class UndoSendPanel: NSPanel {
             return
         }
         dismissNow()
-        ComposeWindowController.present(client: client, accounts: accounts, draft: draft)
+        if let onUndone {
+            onUndone()
+        } else {
+            ComposeWindowController.present(client: client, accounts: accounts, draft: draft)
+        }
     }
 
     private func openDraft() {
@@ -243,34 +262,29 @@ final class UndoSendPanel: NSPanel {
 
     // MARK: ⌘Z
 
-    /// When the latest toast with Undo appeared; panels shown before it give ⌘Z up while it is up (§6.1).
-    private static var toastShownAt: Date?
-    private static var toastExpiry: Timer?
+    /// The main window, which ranks the panels against its toasts and the quick reply's countdown (§6.1).
+    /// Without one, the newest counting panel holds ⌘Z.
+    static weak var undoKeyArbiter: UndoKeyArbiter?
 
-    /// The main window calls this when an undoable toast takes ⌘Z. When the toast's life is over, an older
-    /// panel that is still counting takes ⌘Z (and its keycap) back.
-    static func yieldUndoKey() {
-        toastShownAt = Date()
-        updateUndoKeyOwner()
-        toastExpiry?.invalidate()
-        let timer = Timer(timeInterval: Quire.Motion.toastLife, repeats: false) { _ in
-            MainActor.assumeIsolated { updateUndoKeyOwner() }
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        toastExpiry = timer
+    /// Every counting panel as a send ⌘Z can still cancel.
+    static var liveSends: [UndoPrecedence.LiveSend] {
+        ComposeWindowRegistry.shared.livePanels.filter(\.isCounting).map { UndoPrecedence.LiveSend(id: $0.sendID, startedAt: $0.shownAt) }
     }
 
-    /// The panel ⌘Z cancels now: the newest one still counting, unless a newer toast is up.
+    static func panel(sendID: String) -> UndoSendPanel? {
+        ComposeWindowRegistry.shared.livePanels.first { $0.sendID == sendID }
+    }
+
+    /// The panel ⌘Z cancels now, and the one showing the “⌘Z” keycap.
     static var undoKeyOwner: UndoSendPanel? {
-        let panels = ComposeWindowRegistry.shared.livePanels
-        let candidates = panels.map { panel -> UndoKeyPrecedence.Panel in
-            if case .counting = panel.slip.state, !panel.isFinished {
-                return UndoKeyPrecedence.Panel(shownAt: panel.shownAt, isCounting: true)
-            }
-            return UndoKeyPrecedence.Panel(shownAt: panel.shownAt, isCounting: false)
-        }
-        let index = UndoKeyPrecedence.owner(of: candidates, toastShownAt: toastShownAt, toastLife: Quire.Motion.toastLife, now: Date())
-        return index.map { panels[$0] }
+        let id = undoKeyArbiter.map { $0.sendOwningCommandZ() }
+            ?? UndoPrecedence.sendOwningCommandZ(sends: liveSends, toast: nil)
+        return id.flatMap(panel(sendID:))
+    }
+
+    /// Re-ranks ⌘Z after anything that could change its owner: a panel's state, a toast, a quick send.
+    static func refreshUndoKeyOwner() {
+        updateUndoKeyOwner()
     }
 
     private static func updateUndoKeyOwner() {
@@ -326,8 +340,16 @@ private final class PanelAnchorObserver {
     }
 }
 
-/// Claims ⌘Z app-wide while an undo-send panel can take it, before the key window and the menus see it.
-/// A text view that can undo typing keeps its ⌘Z (§6.1, row 1).
+/// Ranks ⌘Z for the panels: the main window, which also knows its toasts and the quick reply's countdown.
+@MainActor
+protocol UndoKeyArbiter: AnyObject {
+    /// The send ⌘Z would cancel with no text in the way, if any.
+    func sendOwningCommandZ() -> String?
+}
+
+/// Claims ⌘Z while an undo-send panel can take it and the key window has no undo order of its own (Settings,
+/// or no window at all). The main window and composers rank ⌘Z themselves through Edit › Undo, so the menu
+/// item and the key always agree. A text view that can undo typing keeps its ⌘Z (§6.1, row 1).
 @MainActor
 private final class UndoKeyMonitor {
     static let shared = UndoKeyMonitor()
@@ -349,6 +371,7 @@ private final class UndoKeyMonitor {
     private static func handle(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.capsLock, .numericPad, .function])
         guard flags == [.command], event.charactersIgnoringModifiers?.lowercased() == "z",
+              !(NSApp.keyWindow is MainWindow), !(NSApp.keyWindow is ComposeWindow),
               let owner = UndoSendPanel.undoKeyOwner else { return false }
         if let text = NSApp.keyWindow?.firstResponder as? NSTextView, text.isEditable, text.undoManager?.canUndo == true {
             return false
