@@ -173,3 +173,60 @@ final class SyncLineSummaryTests: XCTestCase {
         XCTAssertEqual(demo.tooltip, "Contoso: Made up, nothing syncs · Fabrikam: Downloading 12 messages")
     }
 }
+
+/// The provider's total during a first download and the engine's retry time, in the line and in Settings'
+/// words (spec §5.11, §5.40).
+final class SyncLineProgressTests: XCTestCase {
+    private let contoso = Account(id: AccountID("c"), kind: .microsoft, email: "alex@contoso.test", displayName: "Alex",
+                                  colorHex: "#000000", addedAt: Date(timeIntervalSince1970: 0))
+    private let fabrikam = Account(id: AccountID("f"), kind: .microsoft, email: "alex@fabrikam.test", displayName: "Alex",
+                                   colorHex: "#000000", addedAt: Date(timeIntervalSince1970: 1))
+    private let now = Date(timeIntervalSince1970: 1_790_000_000)
+
+    private func make(_ statuses: [AccountSyncStatus], accounts: [Account]) -> SyncLineSummary {
+        SyncLineSummary.make(SyncLineSummary.Input(statuses: statuses, accounts: accounts, now: now), numberFormatter: { "\($0)" })
+    }
+
+    func testAKnownTotalCountsBothAndFillsTheContrail() {
+        let s = make([AccountSyncStatus(accountID: contoso.id, phase: .bootstrapping, bootstrapProgress: 3_412, bootstrapTotal: 8_120)],
+                     accounts: [contoso])
+        XCTAssertEqual(s.detail, "Contoso · 3412 of 8120")
+        XCTAssertEqual(s.progress ?? 0, 3_412.0 / 8_120.0, accuracy: 0.0001)
+        XCTAssertEqual(SyncLineSummary.accountWords(AccountSyncStatus(accountID: contoso.id, phase: .bootstrapping, bootstrapProgress: 3,
+                                                                      bootstrapTotal: 9), numberFormatter: { "\($0)" }),
+                       "Downloading 3 of 9")
+    }
+
+    func testTotalsSumOnlyWhileEveryDownloadHasOne() {
+        let both = make([
+            AccountSyncStatus(accountID: contoso.id, phase: .bootstrapping, bootstrapProgress: 10, bootstrapTotal: 100),
+            AccountSyncStatus(accountID: fabrikam.id, phase: .bootstrapping, bootstrapProgress: 5, bootstrapTotal: 50),
+        ], accounts: [contoso, fabrikam])
+        XCTAssertEqual(both.detail, "2 accounts · 15 of 150")
+        let mixed = make([
+            AccountSyncStatus(accountID: contoso.id, phase: .bootstrapping, bootstrapProgress: 10, bootstrapTotal: 100),
+            AccountSyncStatus(accountID: fabrikam.id, phase: .bootstrapping, bootstrapProgress: 5),
+        ], accounts: [contoso, fabrikam])
+        XCTAssertEqual(mixed.detail, "2 accounts · 15 messages")
+        XCTAssertNil(mixed.progress)
+        // An estimate that runs short never reads “9 of 8”.
+        let short = make([AccountSyncStatus(accountID: contoso.id, phase: .bootstrapping, bootstrapProgress: 9, bootstrapTotal: 8)],
+                         accounts: [contoso])
+        XCTAssertEqual(short.detail, "Contoso · 9 of 9")
+    }
+
+    func testARetryTimeCountsDown() {
+        let network = AccountSyncStatus(accountID: contoso.id, phase: .error, message: "network: offline", retryAt: now.addingTimeInterval(29.2))
+        // Another account is busy and reaching its server, so this one is slow, not offline.
+        let syncing = AccountSyncStatus(accountID: fabrikam.id, phase: .syncing)
+        let s = make([network, syncing], accounts: [contoso, fabrikam])
+        XCTAssertEqual(s.state, .slow)
+        XCTAssertEqual(s.detail, "retrying in 30 s")
+        XCTAssertEqual(SyncLineSummary.accountWords(network, now: now), "Retrying in 30 s")
+        XCTAssertEqual(SyncLineSummary.accountWords(network, now: now.addingTimeInterval(40)), "Retrying shortly", "past it")
+        let throttled = AccountSyncStatus(accountID: contoso.id, phase: .paused, message: "Rate limited; retrying shortly")
+        XCTAssertEqual(SyncLineSummary.accountWords(throttled, now: now), "Retrying shortly", "no time given")
+        XCTAssertEqual(SyncLineSummary.retrySeconds(until: now.addingTimeInterval(0.2), now: now), 1)
+        XCTAssertNil(SyncLineSummary.retrySeconds(until: nil, now: now))
+    }
+}

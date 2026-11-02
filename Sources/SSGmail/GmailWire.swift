@@ -6,6 +6,8 @@ import Foundation
 struct GmailProfile: Decodable, Sendable {
     var emailAddress: String
     var historyId: String
+    /// Every message in the mailbox, spam and trash included: an upper estimate of what the bootstrap lists.
+    var messagesTotal: Int?
 }
 
 struct GmailMessageRef: Decodable, Sendable {

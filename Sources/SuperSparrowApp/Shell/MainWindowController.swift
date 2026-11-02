@@ -81,6 +81,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     private var checkScope: AccountID?
     private var checkTimer: Timer?
     private var acknowledgeTimer: Timer?
+    private var retryLineTimer: Timer?
 
     #if DEBUG
     /// `--snapshot-state=…` (debug builds): states to put the window in before a snapshot.
@@ -189,6 +190,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         activity.stop()
         checkTimer?.invalidate()
         acknowledgeTimer?.invalidate()
+        retryLineTimer?.invalidate()
         listPane.toasts.dismiss()
         if UndoSendPanel.undoKeyArbiter === self { UndoSendPanel.undoKeyArbiter = nil }
         crossFadeOverlay?.orderOut(nil)
@@ -499,12 +501,25 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         case .reconnecting(let id)?: signIn = .reconnecting(id)
         case nil: signIn = nil
         }
+        let now = Date()
         let summary = SyncLineSummary.make(SyncLineSummary.Input(
             statuses: effective, accounts: accounts, isDemo: environment.isDemo, isNetworkReachable: activity.isNetworkReachable,
-            signIn: signIn, sendingCount: activity.sendingCount, isChecking: isCheckRunning
+            signIn: signIn, sendingCount: activity.sendingCount, isChecking: isCheckRunning, now: now
         ))
         listPane.statusBar.apply(summary)
         updateCategoriesKnown()
+        // “retrying in 30 s” counts down: the line is chosen again each second while a retry is ahead.
+        let retryAhead = effective.contains { ($0.retryAt ?? .distantPast) > now }
+        if retryAhead, retryLineTimer == nil {
+            let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.refreshSyncLine() }
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            retryLineTimer = timer
+        } else if !retryAhead {
+            retryLineTimer?.invalidate()
+            retryLineTimer = nil
+        }
     }
 
     private func syncLineAction(_ action: SyncLineSummary.Action) {

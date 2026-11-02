@@ -109,9 +109,11 @@ actor AccountSyncer {
                 timeout = schedulePoll(after: Backoff.throttleDelay(
                     retryAfter: retryAfter, attempt: consecutiveFailures, base: tuning.backoffBase, cap: tuning.backoffCap
                 ))
+                reportRetry(after: timeout)
             case .failed:
                 consecutiveFailures += 1
                 timeout = schedulePoll(after: backoffDelay(consecutiveFailures))
+                reportRetry(after: timeout)
             case .needsReauth:
                 nextPollAt = nil
                 timeout = nil
@@ -220,7 +222,7 @@ actor AccountSyncer {
             state = BootstrapState(startedAt: Date())
             checkpoint = BootstrapCheckpoint()
         }
-        setPhase(.bootstrapping, progress: state.messagesSeen)
+        setPhase(.bootstrapping, progress: state.messagesSeen, total: state.estimatedTotal)
         let id = accountID.rawValue
         let resuming = checkpoint.providerPage != nil
         // The stored page token, until it has been accepted once.
@@ -248,6 +250,7 @@ actor AccountSyncer {
                     throw ProviderError.decoding("bootstrap returned no change cursor")
                 }
                 checkpoint.changeCursor = cursor
+                if let total = page.estimatedTotal { state.estimatedTotal = total }
             }
             try store.upsertMessages(page.messages)
             state.pagesDone += 1
@@ -260,13 +263,13 @@ actor AccountSyncer {
                 state.isComplete = true
                 state.checkpoint = BootstrapCheckpoint()
                 try store.setBootstrapState(state, for: accountID)
-                setPhase(.bootstrapping, progress: state.messagesSeen)
+                setPhase(.bootstrapping, progress: state.messagesSeen, total: state.estimatedTotal)
                 SyncLog.logger.info("bootstrap complete for \(id, privacy: .public): \(state.messagesSeen, privacy: .public) messages in \(state.pagesDone, privacy: .public) pages")
                 break
             }
             state.checkpoint = checkpoint
             try store.setBootstrapState(state, for: accountID)
-            setPhase(.bootstrapping, progress: state.messagesSeen)
+            setPhase(.bootstrapping, progress: state.messagesSeen, total: state.estimatedTotal)
             // User actions and the newest bodies do not wait for a 100,000-message enumeration to finish.
             _ = try await drainOutbox()
             try await hydrate(phase: .bootstrapping)
@@ -337,10 +340,19 @@ actor AccountSyncer {
         Backoff.delay(attempt: attempt, base: tuning.backoffBase, cap: tuning.backoffCap)
     }
 
+    /// The failed or throttled account says when it tries again (“Retrying in 30 s”, §5.40); the next cycle's
+    /// first phase change clears it.
+    private func reportRetry(after delay: TimeInterval?) {
+        guard let delay, !Task.isCancelled else { return }
+        let at = Date().addingTimeInterval(delay)
+        statusCenter.update(accountID) { $0.retryAt = at }
+    }
+
     private func setPhase(
         _ newPhase: AccountSyncPhase,
         message: String? = nil,
         progress: Int? = nil,
+        total: Int? = nil,
         markSuccess: Bool = false,
         force: Bool = false
     ) {
@@ -350,10 +362,16 @@ actor AccountSyncer {
         statusCenter.update(accountID) { status in
             status.phase = newPhase
             status.message = message
+            status.retryAt = nil
             if let progress {
                 status.bootstrapProgress = progress
             } else if newPhase != .bootstrapping {
                 status.bootstrapProgress = nil
+            }
+            if let total {
+                status.bootstrapTotal = total
+            } else if newPhase != .bootstrapping {
+                status.bootstrapTotal = nil
             }
             if markSuccess { status.lastSuccessfulSyncAt = Date() }
         }

@@ -43,6 +43,7 @@ final class GmailProviderTests: XCTestCase {
         let page = try await provider.bootstrap(page: nil, limit: 100)
 
         XCTAssertEqual(page.changeCursor, "8675309")
+        XCTAssertEqual(page.estimatedTotal, 1234, "the profile's messagesTotal, read with the cursor")
         XCTAssertEqual(page.nextPage, "page-2")
         XCTAssertEqual(page.messages.map(\.id.providerID), ["m1", "m2"])
         XCTAssertEqual(page.messages[0].subject, "Analytical Engine \u{2014} notes")
@@ -70,6 +71,7 @@ final class GmailProviderTests: XCTestCase {
         let page = try await provider.bootstrap(page: "page-2", limit: 50)
 
         XCTAssertNil(page.changeCursor)
+        XCTAssertNil(page.estimatedTotal)
         XCTAssertNil(page.nextPage)
         XCTAssertEqual(page.messages.map(\.id.providerID), ["m2"])
         XCTAssertTrue(server.requests(to: "/users/me/profile").isEmpty, "later pages must not re-read the profile")

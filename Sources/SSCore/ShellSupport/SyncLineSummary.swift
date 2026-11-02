@@ -71,9 +71,11 @@ public struct SyncLineSummary: Equatable, Sendable {
         public var sendingCount: Int
         /// A check the user asked for has run at least 150 ms.
         public var isChecking: Bool
+        /// The moment “retrying in 30 s” counts from.
+        public var now: Date
 
         public init(statuses: [AccountSyncStatus], accounts: [Account], isDemo: Bool = false, isNetworkReachable: Bool = true,
-                    signIn: SignIn? = nil, sendingCount: Int = 0, isChecking: Bool = false) {
+                    signIn: SignIn? = nil, sendingCount: Int = 0, isChecking: Bool = false, now: Date = Date()) {
             self.statuses = statuses
             self.accounts = accounts
             self.isDemo = isDemo
@@ -81,6 +83,7 @@ public struct SyncLineSummary: Equatable, Sendable {
             self.signIn = signIn
             self.sendingCount = sendingCount
             self.isChecking = isChecking
+            self.now = now
         }
     }
 
@@ -129,7 +132,7 @@ public struct SyncLineSummary: Equatable, Sendable {
         let busy = statuses.filter { isActive($0) }
         let isOffline = !input.isNetworkReachable || (!busy.isEmpty && busy.allSatisfy { $0.phase == .error && isNetworkFailure($0) })
         let tooltip = tooltipText(statuses: statuses, accounts: byID, signIn: input.signIn, isOffline: isOffline, isDemo: input.isDemo,
-                                  numberFormatter: numberFormatter)
+                                  now: input.now, numberFormatter: numberFormatter)
         func name(_ id: AccountID) -> String {
             byID[id].map(AccountMonogram.name(for:)) ?? "an account"
         }
@@ -173,7 +176,10 @@ public struct SyncLineSummary: Equatable, Sendable {
         if !slow.isEmpty {
             let ids = slow.map(\.accountID)
             let lead = ids.count == 1 ? "\(name(ids[0])) is slow to respond" : "\(ids.count) accounts are slow to respond"
-            return SyncLineSummary(state: .slow, glyph: .retrying, lead: lead, detail: "retrying shortly", tooltip: tooltip)
+            // The soonest retry, counted down; “shortly” while the engine has not said when.
+            let soonest = slow.compactMap { retrySeconds(until: $0.retryAt, now: input.now) }.min()
+            let detail = soonest.map { "retrying in \($0) s" } ?? "retrying shortly"
+            return SyncLineSummary(state: .slow, glyph: .retrying, lead: lead, detail: detail, tooltip: tooltip)
         }
         // 6. Sending after the undo window.
         if input.sendingCount > 0 {
@@ -185,8 +191,19 @@ public struct SyncLineSummary: Equatable, Sendable {
         if !downloading.isEmpty {
             let ids = downloading.map(\.accountID)
             let count = downloading.compactMap(\.bootstrapProgress).reduce(0, +)
-            let detail = count > 0 ? "\(named(ids)) · \(numberFormatter(count)) messages" : "\(named(ids))…"
-            return SyncLineSummary(state: .downloading, glyph: .spinner, lead: "Downloading mail", detail: detail, tooltip: tooltip)
+            // “3,412 of 8,120” summed over the downloading accounts, only while every one of them has a total.
+            let totals = downloading.compactMap { status in status.bootstrapTotal.map { max($0, status.bootstrapProgress ?? 0) } }
+            let total = totals.count == downloading.count ? totals.reduce(0, +) : nil
+            let detail: String
+            var progress: Double?
+            if let total, total > 0 {
+                detail = "\(named(ids)) · \(numberFormatter(count)) of \(numberFormatter(total))"
+                progress = min(1, Double(count) / Double(total))
+            } else {
+                detail = count > 0 ? "\(named(ids)) · \(numberFormatter(count)) messages" : "\(named(ids))…"
+            }
+            return SyncLineSummary(state: .downloading, glyph: .spinner, lead: "Downloading mail", detail: detail, progress: progress,
+                                   tooltip: tooltip)
         }
         // 8. A check the user asked for.
         if input.isChecking {
@@ -248,7 +265,7 @@ public struct SyncLineSummary: Equatable, Sendable {
     /// Offline, every account that has not failed for another reason says so too; demo accounts that are not
     /// doing anything read as Settings shows them, “Made up, nothing syncs”.
     static func tooltipText(statuses: [AccountSyncStatus], accounts: [AccountID: Account], signIn: SignIn?, isOffline: Bool,
-                            isDemo: Bool, numberFormatter: (Int) -> String) -> String? {
+                            isDemo: Bool, now: Date = Date(), numberFormatter: (Int) -> String) -> String? {
         let parts = statuses.compactMap { status -> String? in
             guard let account = accounts[status.accountID] else { return nil }
             let words: String
@@ -259,7 +276,7 @@ public struct SyncLineSummary: Equatable, Sendable {
             } else if isDemo, status.phase == .idle || (status.phase == .paused && !isRateLimited(status)) {
                 words = "Made up, nothing syncs"
             } else {
-                words = accountWords(status, numberFormatter: numberFormatter)
+                words = accountWords(status, now: now, numberFormatter: numberFormatter)
             }
             return "\(AccountMonogram.name(for: account)): \(words)"
         }
@@ -267,18 +284,30 @@ public struct SyncLineSummary: Equatable, Sendable {
     }
 
     /// The per-account words Settings › Accounts uses (§5.40).
-    public static func accountWords(_ status: AccountSyncStatus, numberFormatter: (Int) -> String = grouped) -> String {
+    public static func accountWords(_ status: AccountSyncStatus, now: Date = Date(), numberFormatter: (Int) -> String = grouped) -> String {
+        let retrying = retrySeconds(until: status.retryAt, now: now).map { "Retrying in \($0) s" } ?? "Retrying shortly"
         switch status.phase {
         case .idle: return "Up to date"
         case .bootstrapping:
             let count = status.bootstrapProgress ?? 0
+            if let total = status.bootstrapTotal, total > 0 {
+                return "Downloading \(numberFormatter(count)) of \(numberFormatter(max(total, count)))"
+            }
             return count > 0 ? "Downloading \(numberFormatter(count)) messages" : "Downloading"
         case .hydrating: return "Downloading messages…"
         case .syncing: return "Checking for mail…"
-        case .paused: return isRateLimited(status) ? "Retrying shortly" : "Up to date"
+        case .paused: return isRateLimited(status) ? retrying : "Up to date"
         case .needsReauth: return "Sign in required"
-        case .error: return isNetworkFailure(status) ? "Retrying shortly" : "Couldn't sync"
+        case .error: return isNetworkFailure(status) ? retrying : "Couldn't sync"
         }
+    }
+
+    /// Whole seconds until `retryAt`, at least 1 while it is ahead; nil when unknown or past (“Retrying shortly”).
+    public static func retrySeconds(until retryAt: Date?, now: Date) -> Int? {
+        guard let retryAt else { return nil }
+        let interval = retryAt.timeIntervalSince(now)
+        guard interval > 0 else { return nil }
+        return max(1, Int(interval.rounded(.up)))
     }
 
     // MARK: Formatting

@@ -47,8 +47,10 @@ public final class GmailProvider: MailProvider, Sendable {
     // MARK: Bootstrap
 
     public func bootstrap(page: String?, limit: Int) async throws -> BootstrapPage {
-        // The cursor must predate enumeration so changes made while paging are replayed, never lost.
-        let changeCursor: String? = page == nil ? try await fetchProfile().historyId : nil
+        // The cursor must predate enumeration so changes made while paging are replayed, never lost. The same
+        // read gives the mailbox's size, an estimate for “Downloading · 3,412 of 8,120” at no extra request.
+        let profile: GmailProfile? = page == nil ? try await fetchProfile() : nil
+        let changeCursor = profile?.historyId
         var query = [
             URLQueryItem(name: "q", value: Self.bootstrapQuery),
             URLQueryItem(name: "maxResults", value: String(Self.clampedLimit(limit))),
@@ -60,7 +62,8 @@ public final class GmailProvider: MailProvider, Sendable {
         let ids = (list.messages ?? []).map(\.id)
         let messages = try await fetchMetadata(ids: ids)
         log.debug("bootstrap page: \(ids.count, privacy: .public) listed, \(messages.count, privacy: .public) hydrated")
-        return BootstrapPage(messages: messages, nextPage: list.nextPageToken, changeCursor: changeCursor)
+        return BootstrapPage(messages: messages, nextPage: list.nextPageToken, changeCursor: changeCursor,
+                             estimatedTotal: profile?.messagesTotal)
     }
 
     // MARK: Changes

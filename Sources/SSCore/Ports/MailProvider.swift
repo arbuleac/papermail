@@ -8,10 +8,14 @@ public struct BootstrapPage: Sendable {
     /// Returned on the first page only: the cursor from which `changes(since:)` continues without gaps.
     /// Providers must capture it before enumerating.
     public var changeCursor: String?
-    public init(messages: [MessageMetadata], nextPage: String?, changeCursor: String?) {
+    /// Returned on the first page when the provider can say it cheaply: about how many messages the
+    /// enumeration covers, for “Downloading · 3,412 of 8,120”. An estimate, never a promise.
+    public var estimatedTotal: Int?
+    public init(messages: [MessageMetadata], nextPage: String?, changeCursor: String?, estimatedTotal: Int? = nil) {
         self.messages = messages
         self.nextPage = nextPage
         self.changeCursor = changeCursor
+        self.estimatedTotal = estimatedTotal
     }
 }
 
