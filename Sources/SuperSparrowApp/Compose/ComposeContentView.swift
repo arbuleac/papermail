@@ -58,10 +58,11 @@ final class ComposeContentView: NSView {
 
     override var isFlipped: Bool { true }
 
-    /// The system title bar's height, measured: 28 pt on macOS 15, 32 pt from macOS 26 (§3.2).
+    /// The system title bar's height as AppKit laid it out: 28 pt on macOS 15, 32 pt from macOS 26 (§3.2). The
+    /// token is only the guess before the view is in a window.
     var titlebarHeight: CGFloat {
         guard let window else { return Quire.Layout.Window.composerTitlebar }
-        return max(0, bounds.height - window.contentLayoutRect.height)
+        return QuireWindowChrome.titlebarHeight(of: window)
     }
 
     /// Where the body (and the drop outline) sits.

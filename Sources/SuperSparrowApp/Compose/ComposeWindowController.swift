@@ -155,7 +155,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
 
         let window = ComposeWindow(
             contentRect: NSRect(origin: .zero, size: Self.savedSize() ?? Self.defaultSize),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            styleMask: QuireWindowChrome.mainStyleMask,
             backing: .buffered,
             defer: false
         )
@@ -188,15 +188,15 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
 
     // MARK: Building the window
 
-    /// §3.2: a transparent system title bar over `paper`, the title visible, no toolbar.
+    /// §3.2: a transparent system title bar over `paper`, the title visible, no toolbar. The chrome is the
+    /// design layer's, so the composer and `WindowChromeTests` configure the same window.
     private func configureWindow(_ window: NSWindow) {
+        QuireWindowChrome.configureComposerWindow(window)
         window.delegate = self
         window.minSize = Self.minimumSize
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
         window.collectionBehavior = [.fullScreenAuxiliary]
-        window.titlebarAppearsTransparent = true
-        window.titleVisibility = .visible
         window.backgroundColor = .qPaper
     }
 
