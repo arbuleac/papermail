@@ -172,6 +172,27 @@ enum MessageTable {
         return ids.map { MessageID(accountID: accountID, providerID: $0) }
     }
 
+    /// Bodies whose `typesetting` is NULL, through the partial index of v7, so an upgraded file costs a lookup
+    /// and a finished backfill costs nothing.
+    static func missingDesignFacts(accountID: AccountID, limit: Int, in db: Database) throws -> [MessageID] {
+        guard limit > 0 else { return [] }
+        let ids = try String.fetchAll(db, sql: """
+            SELECT provider_id FROM bodies INDEXED BY bodies_missing_design_facts
+            WHERE account_id = ? AND typesetting IS NULL LIMIT ?
+            """, arguments: [accountID.rawValue, limit])
+        return ids.map { MessageID(accountID: accountID, providerID: $0) }
+    }
+
+    static func saveDesignFacts(_ facts: BodyDesignFacts, for id: MessageID, in db: Database) throws {
+        try db.cachedStatement(sql: """
+            UPDATE bodies SET typesetting = ?, declares_colors = ?, covered_by_new_york = ?
+            WHERE account_id = ? AND provider_id = ?
+            """).execute(arguments: [
+                MailStoreCodec.typesettingCode(facts.typesetting), facts.declaresColors, facts.coveredByNewYork,
+                id.accountID.rawValue, id.providerID,
+            ])
+    }
+
     // MARK: Bodies
 
     /// Returns false when the message is unknown, which happens when a poll deleted it while its body was in flight.

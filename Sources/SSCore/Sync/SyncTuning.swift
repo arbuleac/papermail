@@ -15,6 +15,9 @@ struct SyncTuning: Sendable {
     var hydrationConcurrency: Int = 4
     /// A body whose fetch failed for a non-transient reason is left alone for this long.
     var hydrationRetryDelay: TimeInterval = 600
+    /// Bodies stored before v3 whose design facts are worked out again per cycle, from the stored source: one
+    /// transaction each, on a background task, so an upgraded mailbox catches up within a few polls.
+    var designFactsBatchSize: Int = 200
     var maxApplyTargets: Int = 50
     /// After this many failed attempts an operation is marked `failed` instead of staying in the outbox forever.
     var maxOperationAttempts: Int = 25

@@ -98,8 +98,9 @@ public struct RenderPayloadBuilder: Sendable {
         )
     }
 
-    /// The design facts the shell sets a body by. A stored body carries them from sync time (nil, for one
-    /// stored before they were kept, reads as styled with colours, the sender's design untouched). A fallback
+    /// The design facts the shell sets a body by. A stored body carries them from sync time; one stored before
+    /// they were kept, until the engine backfills it, reads as plain when its wrapper says it came from
+    /// text/plain and otherwise as styled with colours, the sender's design untouched. A fallback
     /// (the snippet while the body hydrates, or the text when rendered HTML is empty) is plain text the shell
     /// wraps itself; its coverage is checked here because a snippet is short and an empty rendering is rare,
     /// and the check is a scan of scalars, not a parse.
@@ -109,11 +110,19 @@ public struct RenderPayloadBuilder: Sendable {
         stored: StoredBody?
     ) -> (typesetting: BodyTypesetting, declaresColors: Bool, coveredByNewYork: Bool) {
         if let stored {
+            // A body stored before the facts were kept, and not yet backfilled by the engine: a text/plain one is
+            // recognisable by the wrapper the sanitizer has always written, a prefix check rather than a parse.
+            if stored.typesetting == nil, stored.renderedHTML.hasPrefix(Self.plainBodyPrefix) {
+                return (.plain, false, stored.coveredByNewYork ?? NewYorkCoverage.covers(stored.plainText))
+            }
             let typesetting = stored.typesetting ?? .styled
             return (typesetting, stored.declaresColors ?? (typesetting == .styled), stored.coveredByNewYork ?? false)
         }
         return (.plain, false, NewYorkCoverage.covers(fallbackText(for: message, body: body)))
     }
+
+    /// How every sanitized text/plain body begins (`HTMLSanitizer.renderText`, unchanged since the first build).
+    static let plainBodyPrefix = "<div class=\"\(HTMLSanitizer.bodyClass) \(HTMLSanitizer.plainBodyClass)\">"
 
     /// The text `html(for:body:)` falls back to, in the same order.
     private static func fallbackText(for message: MessageMetadata, body: StoredBody?) -> String {

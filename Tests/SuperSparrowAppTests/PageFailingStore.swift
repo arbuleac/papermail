@@ -43,6 +43,10 @@ final class PageFailingStore: MailStoring, @unchecked Sendable {
     func messageIDsMissingBodies(accountID: AccountID, limit: Int) throws -> [MessageID] {
         try base.messageIDsMissingBodies(accountID: accountID, limit: limit)
     }
+    func messageIDsMissingDesignFacts(accountID: AccountID, limit: Int) throws -> [MessageID] {
+        try base.messageIDsMissingDesignFacts(accountID: accountID, limit: limit)
+    }
+    func saveDesignFacts(_ facts: [MessageID: BodyDesignFacts]) throws { try base.saveDesignFacts(facts) }
     func observeConversations(_ query: ConversationQuery, onChange: @escaping @Sendable ([ConversationSummary]) -> Void) -> StoreObservation {
         base.observeConversations(query, onChange: onChange)
     }

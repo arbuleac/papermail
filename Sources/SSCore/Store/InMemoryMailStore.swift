@@ -178,6 +178,27 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
             .map(\.id)
     }
 
+    public func messageIDsMissingDesignFacts(accountID: AccountID, limit: Int) throws -> [MessageID] {
+        lock.lock(); defer { lock.unlock() }
+        return bodies
+            .filter { $0.key.accountID == accountID && $0.value.typesetting == nil }
+            .map(\.key)
+            .sorted { ($0.accountID.rawValue, $0.providerID) < ($1.accountID.rawValue, $1.providerID) }
+            .prefix(max(0, limit))
+            .map { $0 }
+    }
+
+    public func saveDesignFacts(_ facts: [MessageID: BodyDesignFacts]) throws {
+        lock.lock(); defer { lock.unlock() }
+        for (id, fact) in facts {
+            guard var body = bodies[id] else { continue }
+            body.typesetting = fact.typesetting
+            body.declaresColors = fact.declaresColors
+            body.coveredByNewYork = fact.coveredByNewYork
+            bodies[id] = body
+        }
+    }
+
     // MARK: Conversations
 
     public func conversations(_ query: ConversationQuery) throws -> [ConversationSummary] {

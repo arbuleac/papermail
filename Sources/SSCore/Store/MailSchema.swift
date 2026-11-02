@@ -54,6 +54,13 @@ enum MailSchema {
                 ALTER TABLE operation_targets ADD COLUMN prior_is_starred INTEGER;
                 """)
         }
+        migrator.registerMigration("v7-body-design-facts-backfill") { db in
+            // The bodies v3 left without facts, for the engine to fill in from the stored source. Partial, so it
+            // holds only the rows still waiting and is empty once they are done.
+            try db.execute(sql: """
+                CREATE INDEX bodies_missing_design_facts ON bodies(account_id) WHERE typesetting IS NULL;
+                """)
+        }
         return migrator
     }
 

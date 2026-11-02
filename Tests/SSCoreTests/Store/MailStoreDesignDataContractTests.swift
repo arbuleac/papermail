@@ -125,6 +125,39 @@ extension MailStoreContractTests {
         XCTAssertNil(reread.coveredByNewYork)
     }
 
+    /// The engine's backfill (M1): bodies without facts are listed per account, and writing facts changes
+    /// only the facts.
+    func testBodiesWithoutFactsAreListedUntilTheirFactsAreWritten() throws {
+        try store.upsertMessages([
+            message("m1", in: "c", date: date(100)),
+            message("m2", in: "c", date: date(200)),
+        ])
+        let legacy = MessageID(accountID: accountA, providerID: "m1")
+        let current = MessageID(accountID: accountA, providerID: "m2")
+        try store.saveBody(body("legacy"), for: legacy)
+        var known = body("current")
+        known.typesetting = .unstyled
+        known.declaresColors = false
+        known.coveredByNewYork = true
+        try store.saveBody(known, for: current)
+        XCTAssertEqual(try store.messageIDsMissingDesignFacts(accountID: accountA, limit: 10), [legacy])
+        XCTAssertEqual(try store.messageIDsMissingDesignFacts(accountID: accountB, limit: 10), [])
+        XCTAssertEqual(try store.messageIDsMissingDesignFacts(accountID: accountA, limit: 0), [])
+
+        let nowhere = MessageID(accountID: accountA, providerID: "gone")
+        try store.saveDesignFacts([
+            legacy: BodyDesignFacts(typesetting: .plain, declaresColors: false, coveredByNewYork: true),
+            nowhere: .unknown,
+        ])
+        let reread = try XCTUnwrap(try store.body(for: legacy))
+        XCTAssertEqual(reread.typesetting, .plain)
+        XCTAssertEqual(reread.declaresColors, false)
+        XCTAssertEqual(reread.coveredByNewYork, true)
+        XCTAssertEqual(reread.renderedHTML, body("legacy").renderedHTML, "the rest of the body is untouched")
+        XCTAssertNil(try store.body(for: nowhere), "facts never create a body")
+        XCTAssertEqual(try store.messageIDsMissingDesignFacts(accountID: accountA, limit: 10), [])
+    }
+
     // MARK: Failed-operation mark
 
     func testFailedOperationMarkLifecycle() throws {

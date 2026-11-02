@@ -22,6 +22,8 @@ actor Hydrator {
     /// Bodies whose fetch failed for a reason a retry will not fix soon (decoding, not found, server errors)
     /// wait here so they do not occupy the whole batch on every poll.
     private var retryAfter: [MessageID: Date] = [:]
+    /// Set once no stored body of this account lacks design facts; new bodies always carry them.
+    private var designFactsComplete = false
 
     init(accountID: AccountID, store: MailStoring, provider: MailProvider, sanitizer: BodySanitizing, tuning: SyncTuning) {
         self.accountID = accountID
@@ -76,6 +78,52 @@ actor Hydrator {
         let failed = outcome.failed
         SyncLog.logger.debug("hydration: fetched \(fetched, privacy: .public), failed \(failed, privacy: .public)")
         return outcome
+    }
+
+    /// Works out the design facts (§8.5) of up to one batch of bodies stored before v3 kept them, from the
+    /// source the store still holds, and writes them in one transaction. Without them the reader treats every
+    /// such body as styled with its own colours, so in Dark mode even plain mail took the colours notice and
+    /// never the reading page. Sanitizing again here keeps the rule that bodies are parsed at sync time, never
+    /// when opened, and needs no network. Returns how many were written.
+    @discardableResult
+    func backfillDesignFacts() async -> Int {
+        guard !designFactsComplete else { return 0 }
+        let ids: [MessageID]
+        do {
+            ids = try store.messageIDsMissingDesignFacts(accountID: accountID, limit: tuning.designFactsBatchSize)
+        } catch {
+            SyncLog.logger.error("design facts: store read failed: \(String(describing: error), privacy: .private)")
+            return 0
+        }
+        guard !ids.isEmpty else {
+            designFactsComplete = true
+            return 0
+        }
+        let store = store
+        let sanitizer = sanitizer
+        let written = await Task.detached(priority: .background) { () -> Int in
+            var facts: [MessageID: BodyDesignFacts] = [:]
+            for id in ids {
+                if Task.isCancelled { break }
+                guard let stored = try? store.body(for: id) else {
+                    // Unreadable: the reader's own assumption, written down so the row leaves the queue.
+                    facts[id] = .unknown
+                    continue
+                }
+                let sanitized = sanitizer.sanitize(stored.body, messageID: id)
+                facts[id] = BodyDesignFacts(typesetting: sanitized.typesetting, declaresColors: sanitized.declaresColors,
+                                            coveredByNewYork: sanitized.coveredByNewYork)
+            }
+            do {
+                try store.saveDesignFacts(facts)
+            } catch {
+                SyncLog.logger.error("design facts: store write failed: \(String(describing: error), privacy: .private)")
+                return 0
+            }
+            return facts.count
+        }.value
+        SyncLog.logger.debug("design facts: wrote \(written, privacy: .public)")
+        return written
     }
 
     /// The stored body, fetched and sanitized first when missing. Concurrent callers share one fetch.

@@ -173,6 +173,17 @@ public final class SQLiteMailStore: MailStoring, Sendable {
         try read { try MessageTable.missingBodies(accountID: accountID, limit: limit, in: $0) }
     }
 
+    public func messageIDsMissingDesignFacts(accountID: AccountID, limit: Int) throws -> [MessageID] {
+        try read { try MessageTable.missingDesignFacts(accountID: accountID, limit: limit, in: $0) }
+    }
+
+    public func saveDesignFacts(_ facts: [MessageID: BodyDesignFacts]) throws {
+        guard !facts.isEmpty else { return }
+        try write { db in
+            for (id, fact) in facts { try MessageTable.saveDesignFacts(fact, for: id, in: db) }
+        }
+    }
+
     // MARK: Conversations
 
     public func conversations(_ query: ConversationQuery) throws -> [ConversationSummary] {

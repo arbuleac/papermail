@@ -334,6 +334,7 @@ actor AccountSyncer {
         setPhase(phase)
         let outcome = await hydrator.hydrateBatch()
         if let blocking = outcome.blocking { throw blocking }
+        await hydrator.backfillDesignFacts()
     }
 
     private func backoffDelay(_ attempt: Int) -> TimeInterval {

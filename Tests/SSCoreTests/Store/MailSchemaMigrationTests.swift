@@ -143,6 +143,59 @@ final class MailSchemaMigrationTests: XCTestCase {
                        "the give-up put the conversation back, through the v6 prior columns")
     }
 
+    /// M1: v3 left the design facts of earlier bodies NULL, which read as styled with colours, so in Dark mode
+    /// every old message, plain ones included, took the colours notice. A plain body is recognised by its
+    /// wrapper at once, and the engine backfills the facts from the stored source.
+    func testBodiesStoredBeforeV3RenderPlainAndGetTheirFactsBackfilled() async throws {
+        let path = try XCTUnwrap(directory).appendingPathComponent("mail.sqlite").path
+        let plain = try MailStoreCodec.compress("<div class=\"ss-body ss-plain\"><p>Lunch at noon?</p></div>")
+            .map { String(format: "%02X", $0) }.joined()
+        let text = try MailStoreCodec.compress("Lunch at noon?").map { String(format: "%02X", $0) }.joined()
+        let source = "<html><body style=\"background:#fde\"><p>Big sale</p></body></html>"
+        let styledHTML = try MailStoreCodec.compress(source).map { String(format: "%02X", $0) }.joined()
+        let styled = try MailStoreCodec.compress("<div class=\"ss-body\"><p>Big sale</p></div>").map { String(format: "%02X", $0) }.joined()
+        try writeVersion1Database(at: path, then: """
+            INSERT INTO messages (account_id, provider_id, conversation_provider_id, references_json, subject, snippet,
+                                  from_json, to_json, cc_json, bcc_json, reply_to_json, date_ms, roles, is_read,
+                                  is_starred, inbox_section, has_attachments, label_ids_json, has_body)
+            VALUES ('acct-a', 'm2', 'c2', '[]', 'Lunch', 'Lunch at noon?', '{"address":"bob@example.com","name":"Bob"}',
+                    '[]', '[]', '[]', '[]', \(base + 70_000), 1, 0, 0, 'unknown', 0, '[]', 1),
+                   ('acct-a', 'm3', 'c3', '[]', 'Sale', 'Big sale', '{"address":"shop@example.com","name":"Shop"}',
+                    '[]', '[]', '[]', '[]', \(base + 80_000), 1, 0, 0, 'unknown', 0, '[]', 1);
+            INSERT INTO bodies (account_id, provider_id, html, text, rendered_html, plain_text, attachments_json)
+            VALUES ('acct-a', 'm2', NULL, X'\(text)', X'\(plain)', 'Lunch at noon?', '[]'),
+                   ('acct-a', 'm3', X'\(styledHTML)', NULL, X'\(styled)', 'Big sale', '[]');
+            """)
+        let store = try SQLiteMailStore(path: path)
+        defer { try? store.close() }
+        let account = AccountID("acct-a")
+        let plainID = MessageID(accountID: account, providerID: "m2")
+        let styledID = MessageID(accountID: account, providerID: "m3")
+        let accounts = Dictionary(uniqueKeysWithValues: try store.accounts().map { ($0.id, $0) })
+
+        // Before any backfill: the plain body reads as plain from its wrapper, with no parse.
+        let plainBody = try XCTUnwrap(try store.body(for: plainID))
+        XCTAssertNil(plainBody.typesetting)
+        let payload = RenderPayloadBuilder().build(messages: [try XCTUnwrap(try store.message(plainID))], bodies: [plainID: plainBody],
+                                                   accounts: accounts)
+        XCTAssertEqual(payload.messages.first?.typesetting, .plain)
+        XCTAssertEqual(payload.messages.first?.declaresColors, false)
+
+        // The engine's backfill: every body v3 left NULL, worked out again from the stored source.
+        XCTAssertEqual(Set(try store.messageIDsMissingDesignFacts(accountID: account, limit: 10)), [MessageID(accountID: account, providerID: "m1"), plainID, styledID])
+        let hydrator = Hydrator(accountID: account, store: store, provider: ScriptedProvider(accountID: account, kind: .gmail),
+                                sanitizer: HTMLSanitizer(), tuning: SyncTuning())
+        let written = await hydrator.backfillDesignFacts()
+        XCTAssertEqual(written, 3)
+        XCTAssertEqual(try store.body(for: plainID)?.typesetting, .plain)
+        XCTAssertEqual(try store.body(for: plainID)?.declaresColors, false)
+        XCTAssertEqual(try store.body(for: styledID)?.declaresColors, true, "the sender's background is a declared colour")
+        XCTAssertEqual(try store.body(for: plainID)?.plainText, "Lunch at noon?", "the rest of the body is untouched")
+        XCTAssertTrue(try store.messageIDsMissingDesignFacts(accountID: account, limit: 10).isEmpty)
+        let again = await hydrator.backfillDesignFacts()
+        XCTAssertEqual(again, 0, "done once, the backfill stops looking")
+    }
+
     func testOperationsQueuedBeforeV6GiveBackOnceAPollReportsTheirTargets() throws {
         let path = try XCTUnwrap(directory).appendingPathComponent("mail.sqlite").path
         let star = try MailStoreCodec.json(MetadataChange.setStarred(true))

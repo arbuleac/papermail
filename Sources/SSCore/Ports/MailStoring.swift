@@ -54,6 +54,12 @@ public protocol MailStoring: AnyObject, Sendable {
     func body(for id: MessageID) throws -> StoredBody?
     /// Messages without a stored body, inbox and newest first, so hydration follows what the user will open.
     func messageIDsMissingBodies(accountID: AccountID, limit: Int) throws -> [MessageID]
+    /// Stored bodies without design facts (saved before v3 kept them), newest first: the engine works them out
+    /// again from the stored source, off the main thread, and writes them with `saveDesignFacts`.
+    func messageIDsMissingDesignFacts(accountID: AccountID, limit: Int) throws -> [MessageID]
+    /// Writes the design facts of stored bodies in one transaction, leaving the rest of each body as it is.
+    /// Messages without a stored body are skipped.
+    func saveDesignFacts(_ facts: [MessageID: BodyDesignFacts]) throws
 
     // MARK: Conversations
     func conversations(_ query: ConversationQuery) throws -> [ConversationSummary]
