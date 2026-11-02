@@ -81,7 +81,7 @@ final class QuickReplyStripView: NSView {
         switch state {
         case let .counting(endsAt, duration, recipient):
             setGlyph(Quire.Icon.sendPanel)
-            detail.attributedStringValue = QuireFont.attributedString("to " + recipient, role: .snippet, color: .qInk3)
+            detail.attributedStringValue = ReaderFonts.fieldString(QuireFont.attributedString("to " + recipient, role: .snippet, color: .qInk3))
             undo.isHidden = false
             contrail.isHidden = false
             contrail.mode = .countdown(duration: duration, remaining: max(0, endsAt.timeIntervalSinceNow))
@@ -98,7 +98,7 @@ final class QuickReplyStripView: NSView {
         case .alreadySent:
             setGlyph(Quire.Icon.upToDate)
             setLead("Already sent")
-            detail.attributedStringValue = QuireFont.attributedString("Undo came after the message left.", role: .snippet, color: .qInk3)
+            detail.attributedStringValue = ReaderFonts.fieldString(QuireFont.attributedString("Undo came after the message left.", role: .snippet, color: .qInk3))
         case .notSent(let subject):
             setGlyph(Quire.Icon.undone)
             let title = subject.isEmpty ? "Not sent \u{00b7} draft kept" : "Not sent \u{00b7} draft kept in \u{201c}\(subject)\u{201d}"
@@ -118,7 +118,7 @@ final class QuickReplyStripView: NSView {
         var attributes = QuireFont.attributes(.body, color: .qInk)
         attributes[.font] = NSFont.monospacedDigitSystemFont(ofSize: QuireFont.Role.body.size, weight: .regular)
         let changed = lead.stringValue != text
-        lead.attributedStringValue = NSAttributedString(string: text, attributes: attributes)
+        lead.attributedStringValue = ReaderFonts.fieldString(NSAttributedString(string: text, attributes: attributes))
         if changed { needsLayout = true }
     }
 
@@ -145,8 +145,8 @@ final class QuickReplyStripView: NSView {
             trailing -= size.width + gap
         }
         let leadWidth = ceil(lead.attributedStringValue.size().width) + 4
-        let lineHeight: CGFloat = 18
-        lead.frame = NSRect(x: x, y: mid - lineHeight / 2, width: min(leadWidth, max(0, trailing - x)), height: lineHeight)
+        let leadHeight = ReaderFonts.fieldHeight(lead)
+        lead.frame = NSRect(x: x, y: (mid - leadHeight / 2).rounded(), width: min(leadWidth, max(0, trailing - x)), height: leadHeight)
         x = lead.frame.maxX + gap - 4
         if !show.isHidden {
             show.sizeToFit()
@@ -154,7 +154,8 @@ final class QuickReplyStripView: NSView {
             show.frame = show.frame(forVisualRect: NSRect(x: x, y: mid - size.height / 2, width: size.width, height: size.height))
             x += size.width + gap
         }
-        detail.frame = NSRect(x: x, y: mid - 15 / 2 - 1, width: max(0, trailing - x), height: 17)
+        let detailHeight = ReaderFonts.fieldHeight(detail)
+        detail.frame = NSRect(x: x, y: (mid - detailHeight / 2).rounded(), width: max(0, trailing - x), height: detailHeight)
         let head = Quire.Layout.Progress.contrailHead
         contrail.frame = NSRect(x: 0, y: bounds.height - 1 - head / 2 - 1, width: bounds.width, height: head)
     }

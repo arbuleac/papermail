@@ -28,6 +28,25 @@ enum ReaderFonts {
         return font
     }
 
+    /// `string` for a text field, which sets its own line box: a role's exact line height and baseline offset,
+    /// meant for string drawing, push the glyphs off the field's line. Callers centre the field on the role's line.
+    static func fieldString(_ string: NSAttributedString) -> NSAttributedString {
+        let result = NSMutableAttributedString(attributedString: string)
+        let range = NSRange(location: 0, length: result.length)
+        result.removeAttribute(.baselineOffset, range: range)
+        let style = NSMutableParagraphStyle()
+        style.lineBreakMode = .byTruncatingTail
+        style.allowsDefaultTighteningForTruncation = false
+        style.baseWritingDirection = .natural
+        result.addAttribute(.paragraphStyle, value: style, range: range)
+        return result
+    }
+
+    /// A text field's height for one line of `string`.
+    static func fieldHeight(_ field: NSTextField) -> CGFloat {
+        ceil(field.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: 10_000, height: 200)).height ?? 16)
+    }
+
     /// One line in `role`, measured the way it draws.
     static func width(_ string: NSAttributedString) -> CGFloat {
         ceil(string.boundingRect(with: NSSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude),

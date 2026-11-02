@@ -1214,11 +1214,23 @@ final class ConversationViewController: NSViewController {
     }
 }
 
-/// The reader's root view: it reports the end of a live resize (window or split divider), when wide HTML
-/// is refitted.
+/// The reader's root view: the `canvas` desk behind the sheets and the empty states (spec §4.1), and the end
+/// of a live resize (window or split divider), when wide HTML is refitted.
 @MainActor
 final class ReaderRootView: NSView {
     var onEndLiveResize: (() -> Void)?
+
+    override var isOpaque: Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.qCanvas.setFill()
+        bounds.intersection(dirtyRect).fill()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
 
     override func viewDidEndLiveResize() {
         super.viewDidEndLiveResize()

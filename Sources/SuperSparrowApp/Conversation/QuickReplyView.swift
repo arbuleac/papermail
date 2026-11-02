@@ -201,6 +201,7 @@ final class QuickReplyView: NSView {
         addSubview(statusGlyph)
         statusLabel.lineBreakMode = .byTruncatingTail
         statusLabel.maximumNumberOfLines = 1
+        statusLabel.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(statusLabelClicked)))
         addSubview(statusLabel)
         statusAction.target = self
         statusAction.action = #selector(statusActionPressed)
@@ -215,8 +216,17 @@ final class QuickReplyView: NSView {
 
         heightConstraint = heightAnchor.constraint(equalToConstant: Quire.Layout.QuickReply.rest)
         heightConstraint.isActive = true
+        NotificationCenter.default.addObserver(self, selector: #selector(environmentDidChange(_:)),
+                                               name: QuireEnvironment.didChangeNotification, object: nil)
         updatePlaceholder()
         statusDidChange()
+    }
+
+    /// Graphite and Increase Contrast change token values (the ring, the edges) without changing the appearance.
+    @objc private func environmentDidChange(_ note: Notification) {
+        updatePlaceholder()
+        statusDidChange()
+        needsDisplay = true
     }
 
     // MARK: Public controls
@@ -374,7 +384,9 @@ final class QuickReplyView: NSView {
         scrollView.frame = NSRect(x: field.minX + m.textX, y: field.minY + m.fieldPadTop, width: textWidth, height: CGFloat(lines) * Self.lineHeight)
         textView.frame.size.width = scrollView.contentSize.width
         scrollView.hasVerticalScroller = isFocused && lineCount >= Int(m.maxLines)
-        placeholder.frame = NSRect(x: field.minX + m.textX - 2, y: field.minY + m.fieldPadTop, width: textWidth + 4, height: Self.lineHeight)
+        let placeholderHeight = ReaderFonts.fieldHeight(placeholder)
+        placeholder.frame = NSRect(x: field.minX + m.textX - 2, y: (field.minY + m.fieldPadTop + (Self.lineHeight - placeholderHeight) / 2).rounded(),
+                                   width: textWidth + 4, height: placeholderHeight)
         // Unfocused with text, the field shows its first line tail-truncated so the reader does not jump.
         let showsPreview = !isFocused && !text.isEmpty && strip.isHidden
         scrollView.isHidden = !strip.isHidden || showsPreview
@@ -424,7 +436,9 @@ final class QuickReplyView: NSView {
                 sx += 12 + 6
             }
             let labelWidth = ceil(statusLabel.attributedStringValue.size().width) + 4
-            statusLabel.frame = NSRect(x: sx, y: rowY + (m.toolRow - 16) / 2, width: min(labelWidth, max(0, sendVisual.minX - sx - 8)), height: 16)
+            let labelHeight = ReaderFonts.fieldHeight(statusLabel)
+            statusLabel.frame = NSRect(x: sx, y: (rowY + (m.toolRow - labelHeight) / 2).rounded(),
+                                       width: min(labelWidth, max(0, sendVisual.minX - sx - 8)), height: labelHeight)
             sx = statusLabel.frame.maxX + 2
             statusAction.sizeToFit()
             let actionSize = statusAction.alignmentRect(forFrame: statusAction.frame).size
@@ -449,8 +463,9 @@ final class QuickReplyView: NSView {
     // MARK: Drawing
 
     override func draw(_ dirtyRect: NSRect) {
+        // Views no longer clip to their bounds, and the dirty rect can reach past them.
         NSColor.qPaper.setFill()
-        dirtyRect.fill()
+        bounds.intersection(dirtyRect).fill()
         QuireHairline.fill(along: NSRect(x: 0, y: 0, width: bounds.width, height: 1), orientation: .horizontal,
                            width: QuireHairline.width(for: self), color: .qRule, atMaxEdge: false)
         let m = Quire.Layout.QuickReply.self
@@ -541,6 +556,10 @@ final class QuickReplyView: NSView {
         onOpenInComposer?(text, mode)
     }
 
+    @objc private func statusLabelClicked() {
+        if status == .error { onOpenInComposer?(text, mode) }
+    }
+
     @objc private func statusActionPressed() {
         switch status {
         case .counting: onUndo?()
@@ -567,14 +586,14 @@ final class QuickReplyView: NSView {
             words = "Reply in the composer"
         } else if !isFocused, !text.isEmpty {
             let first = text.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: true).first.map(String.init) ?? text
-            placeholder.attributedStringValue = QuireFont.attributedString(first, role: .writing, color: .qInk)
+            placeholder.attributedStringValue = ReaderFonts.fieldString(QuireFont.attributedString(first, role: .writing, color: .qInk))
             return
         } else if mode == .replyAll {
             words = replyAllName.isEmpty ? "Reply all…" : "Reply all to \(replyAllName)…"
         } else {
             words = replyName.isEmpty ? "Reply…" : "Reply to \(replyName)…"
         }
-        placeholder.attributedStringValue = QuireFont.attributedString(words, role: .writing, color: .qInk3)
+        placeholder.attributedStringValue = ReaderFonts.fieldString(QuireFont.attributedString(words, role: .writing, color: .qInk3))
     }
 
     private func statusDidChange() {
@@ -585,11 +604,13 @@ final class QuickReplyView: NSView {
             statusLabel.stringValue = ""
         case .error:
             setStatusGlyph(Quire.Icon.failed, color: .qDanger)
-            statusLabel.attributedStringValue = QuireFont.attributedString("Couldn\u{2019}t send", role: .snippet, color: .qDanger)
-            statusAction.title = "Open in composer"
+            // One danger phrase (spec §5.18); a click on it opens the composer with the text.
+            statusLabel.attributedStringValue = ReaderFonts.fieldString(QuireFont.attributedString(
+                "Couldn\u{2019}t send \u{00b7} Open in composer", role: .snippet, color: .qDanger))
+            statusAction.title = ""
         case .noRecipients:
             setStatusGlyph(Quire.Icon.warning, color: .qWarning)
-            statusLabel.attributedStringValue = QuireFont.attributedString("No one to reply to", role: .snippet, color: .qInk2)
+            statusLabel.attributedStringValue = ReaderFonts.fieldString(QuireFont.attributedString("No one to reply to", role: .snippet, color: .qInk2))
             statusAction.title = ""
         case .counting(let endsAt):
             statusAction.title = "Undo"
@@ -606,7 +627,7 @@ final class QuickReplyView: NSView {
 
     private func updateCountdownStatus(_ endsAt: Date) {
         let left = max(0, Int(ceil(endsAt.timeIntervalSinceNow)))
-        statusLabel.attributedStringValue = QuireFont.attributedString("Sending in \(left) s \u{00b7}", role: .snippet, color: .qInk2)
+        statusLabel.attributedStringValue = ReaderFonts.fieldString(QuireFont.attributedString("Sending in \(left) s \u{00b7}", role: .snippet, color: .qInk2))
         if left == 0 {
             statusTicker?.invalidate()
             statusTicker = nil

@@ -63,13 +63,21 @@ final class ReaderHeaderView: NSView {
         headline.lineBreakMode = .byTruncatingTail
         headline.maximumNumberOfLines = 1
         headline.cell?.truncatesLastVisibleLine = true
-        headline.cell?.usesSingleLineMode = true
         headline.allowsDefaultTighteningForTruncation = false
         addSubview(headline)
         hairline.alignsToMaxEdge = true
         addSubview(hairline)
         heightAnchor.constraint(equalToConstant: Quire.Layout.ReaderHeader.height).isActive = true
+        NotificationCenter.default.addObserver(self, selector: #selector(environmentDidChange(_:)),
+                                               name: QuireEnvironment.didChangeNotification, object: nil)
         apply(content)
+    }
+
+    /// Graphite and Increase Contrast change token values without changing the appearance.
+    @objc private func environmentDidChange(_ note: Notification) {
+        applyHeadline()
+        kickerView.needsDisplay = true
+        needsDisplay = true
     }
 
     // MARK: Content
@@ -90,15 +98,14 @@ final class ReaderHeaderView: NSView {
         }
         headline.isHidden = false
         let trimmed = subject.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
-            headline.attributedStringValue = ReaderFonts.placeholder(content.placeholder, role: .headline)
-            headline.toolTip = nil
-            headline.setAccessibilityLabel(content.placeholder)
-        } else {
-            headline.attributedStringValue = QuireFont.attributedString(trimmed, role: .headline, color: .qInk)
-            headline.toolTip = trimmed
-            headline.setAccessibilityLabel(trimmed)
-        }
+        let text = trimmed.isEmpty
+            ? ReaderFonts.placeholder(content.placeholder, role: .headline)
+            : QuireFont.attributedString(trimmed, role: .headline, color: .qInk)
+        // The field is centred on the 30 pt headline line in `layout()`.
+        headline.attributedStringValue = ReaderFonts.fieldString(text)
+        headline.toolTip = trimmed.isEmpty ? nil : trimmed
+        headline.setAccessibilityLabel(trimmed.isEmpty ? content.placeholder : trimmed)
+        needsLayout = true
     }
 
     private func applyActions() {
@@ -178,14 +185,17 @@ final class ReaderHeaderView: NSView {
         let kickerHeight = QuireFont.Role.runningHead.lineHeight
         let kickerWidth = max(0, firstActionX - metrics.kickerActionGap - column.x)
         kickerView.frame = NSRect(x: column.x, y: metrics.kickerCenterY - kickerHeight / 2, width: kickerWidth, height: kickerHeight)
-        headline.frame = NSRect(x: column.x - 2, y: metrics.headlineTop, width: column.width + 4, height: metrics.headlineHeight)
+        let fieldHeight = ceil(headline.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: column.width + 4, height: 200)).height ?? metrics.headlineHeight)
+        headline.frame = NSRect(x: column.x - 2, y: (metrics.headlineTop + (metrics.headlineHeight - fieldHeight) / 2).rounded(),
+                                width: column.width + 4, height: fieldHeight)
         let hair = QuireHairline.width(for: self)
         hairline.frame = NSRect(x: 0, y: bounds.height - max(hair, 1), width: bounds.width, height: max(hair, 1))
     }
 
     override func draw(_ dirtyRect: NSRect) {
+        // Views no longer clip to their bounds, and the dirty rect can reach past them.
         NSColor.qPaper.setFill()
-        dirtyRect.fill()
+        bounds.intersection(dirtyRect).fill()
     }
 
     override func viewDidChangeEffectiveAppearance() {

@@ -376,7 +376,7 @@ final class ConversationShellWebViewTests: XCTestCase {
         let (webView, _) = try await loadedShell()
         typealias F = ConversationFixtures
         let message = F.message("m1")
-        var body = F.body(html: "<table width=\"900\" style=\"width:900px\"><tr><td>Wide</td></tr></table>")
+        var body = F.body(html: "<table width=\"900\" style=\"width:900px\"><tr><td style=\"height:600px\">Wide</td></tr></table>")
         body.typesetting = .styled
         let payload = F.builder.build(messages: [message], bodies: [message.id: body], accounts: F.accounts)
         _ = try await evaluate("window.ss.render(\(try payload.jsonString()))", in: webView)
@@ -391,6 +391,50 @@ final class ConversationShellWebViewTests: XCTestCase {
         }
         XCTAssertLessThan(value, 1)
         XCTAssertGreaterThanOrEqual(value, 0.74)
+        // The frame is as tall as the zoomed content: nothing clipped, no gap.
+        _ = try await evaluate("window.ss.measureAll()", in: webView)
+        let sizes = numbers(try await evaluate("""
+            (function () { var f = document.querySelector('.ss-card iframe'); var d = f.contentDocument;
+              return [f.clientHeight, d.body.getBoundingClientRect().height * \(value), d.documentElement.scrollHeight]; })()
+            """, in: webView))
+        XCTAssertEqual(sizes.count, 3)
+        if sizes.count == 3 {
+            XCTAssertGreaterThanOrEqual(sizes[0] + 1, sizes[2], "frame \(sizes[0]) vs document \(sizes[2])")
+            XCTAssertLessThanOrEqual(sizes[0], sizes[2] + 2, "frame \(sizes[0]) vs document \(sizes[2])")
+        }
+    }
+
+    /// Dark appearances adapt styled mail that declares colours and offer Original colors, which puts the body
+    /// as sent on the white inset (spec §5.14, §5.16). Light appearances show it as sent with neither.
+    func testDarkAdaptationAndOriginalColors() async throws {
+        let (webView, handler) = try await loadedShell(dark: true)
+        typealias F = ConversationFixtures
+        let message = F.message("m1")
+        var body = F.body(html: "<table bgcolor=\"#B91C1C\"><tr><td style=\"color:#ffffff\">Northwind</td></tr></table>")
+        body.typesetting = .styled
+        body.declaresColors = true
+        let payload = F.builder.build(messages: [message], bodies: [message.id: body], accounts: F.accounts)
+        _ = try await evaluate("window.ss.render(\(try payload.jsonString()))", in: webView)
+        try await waitForFramedCards(in: webView)
+        var root = try await evaluate("document.querySelector('.ss-card iframe').contentDocument.documentElement.className", in: webView) as? String
+        XCTAssertEqual(root, "ss-adapt", "adapted by default")
+        let notice = try await evaluate("document.querySelector('.ss-banner.ss-warn .ss-btxt').textContent", in: webView) as? String
+        XCTAssertEqual(notice, "This message uses its own colours.")
+        let key = ConversationShellAssets.jsStringLiteral(payload.messages[0].id)
+        _ = try await evaluate("window.ss.originalColors(\(key), true)", in: webView)
+        try await waitForFramedCards(in: webView)
+        root = try await evaluate("document.querySelector('.ss-card iframe').contentDocument.documentElement.className", in: webView) as? String
+        XCTAssertEqual(root, "ss-original")
+        let inset = try await count(".ss-original iframe", in: webView)
+        XCTAssertEqual(inset, 1, "the body sits on the originalPage inset")
+        let shown = try await evaluate("document.querySelector('.ss-banner.ss-warn .ss-btxt').textContent", in: webView) as? String
+        XCTAssertEqual(shown, "Showing the sender\u{2019}s colours.")
+        XCTAssertTrue(handler.received.contains { ($0["kind"] as? String) == "originalColors" && ($0["on"] as? Bool) == true })
+        _ = try await evaluate("window.ss.preferences({readingSans: false, colorsNoticeDismissed: true})", in: webView)
+        let notices = try await count(".ss-banner.ss-warn", in: webView)
+        XCTAssertEqual(notices, 0, "dismissed everywhere")
+        let action = try await count(".ss-hact.ss-qon", in: webView)
+        XCTAssertEqual(action, 1, "the hover action stays one step away, on")
     }
 
     // MARK: Helpers
@@ -407,7 +451,7 @@ final class ConversationShellWebViewTests: XCTestCase {
     }
 
     /// The shell in a web view, once it has signalled ready. Skips unless `SS_UI_TESTS=1`.
-    private func loadedShell() async throws -> (WKWebView, ShellMessages) {
+    private func loadedShell(dark: Bool = false) async throws -> (WKWebView, ShellMessages) {
         guard ProcessInfo.processInfo.environment["SS_UI_TESTS"] == "1" else {
             throw XCTSkip("Set SS_UI_TESTS=1 to drive WebKit")
         }
@@ -420,6 +464,7 @@ final class ConversationShellWebViewTests: XCTestCase {
         self.configuration = configuration
 
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 800, height: 600), configuration: configuration)
+        webView.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         webView.navigationDelegate = handler
         webView.loadHTMLString(ConversationShellAssets.html, baseURL: ConversationShellAssets.baseURL)
         // Sleeping on the main actor keeps the run loop turning, which is what delivers WebKit's callbacks.

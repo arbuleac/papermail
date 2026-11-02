@@ -1396,16 +1396,20 @@ public enum ConversationShellAssets {
         if (card.expanded) { return; }
         if (card.folded) { unfoldAll(); }
         if (card.collapseTimer) { clearTimeout(card.collapseTimer); card.collapseTimer = null; }
-        var start = card.element.getBoundingClientRect().height || 44;
+        // Only an animated expand needs where it starts from; reading it forces a layout, which a render of
+        // several open messages should not pay once per message.
+        var start = animate ? (card.element.getBoundingClientRect().height || 44) : 0;
         card.expanded = true;
         card.element.classList.remove('ss-collapsed', 'ss-strow', 'ss-run-start', 'ss-run-end');
         card.element.classList.add('ss-sheet');
         ensureFrame(card);
         restack();
-        card.element.style.transition = 'none';
-        card.element.style.height = start + 'px';
-        void card.element.offsetHeight;
-        card.element.style.transition = '';
+        if (animate) {
+          card.element.style.transition = 'none';
+          card.element.style.height = start + 'px';
+          void card.element.offsetHeight;
+          card.element.style.transition = '';
+        }
         fit(card, animate);
       }
 
