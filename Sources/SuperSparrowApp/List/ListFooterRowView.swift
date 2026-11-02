@@ -147,8 +147,9 @@ final class ListFooterRowView: NSTableRowView {
 
         override var isFlipped: Bool { true }
         override var acceptsFirstResponder: Bool { true }
-        override var canBecomeKeyView: Bool { NSApp.isFullKeyboardAccessEnabled || !isHidden }
-        override var focusRingMaskBounds: NSRect { labelRect }
+        /// A retry the user can act on joins the Tab order whether or not Full Keyboard Access is on, as the
+        /// sync line's actions do (spec §5.11).
+        override var canBecomeKeyView: Bool { !isHiddenOrHasHiddenAncestor }
 
         private var labelRect: NSRect {
             let height = QuireFont.Role.metaStrong.lineHeight

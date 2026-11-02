@@ -134,7 +134,8 @@ final class MessageListViewController: NSViewController {
     private var suppressSelectionCallbacks = false
     private var acknowledgeTimer: Timer?
     private var selectionRestedID: ConversationID?
-    private var acknowledged: Set<String> = []
+    /// Conversations whose failed mark is being cleared, so a refresh that lands meanwhile does not write again.
+    private var acknowledging: Set<ConversationID> = []
     private var keyObservers: [NSObjectProtocol] = []
 
     // MARK: View lifecycle
@@ -397,16 +398,17 @@ final class MessageListViewController: NSViewController {
     /// goes off the main thread; the observation brings the cleared row back.
     private func acknowledgeFailedOperationIfNeeded() {
         guard let id = selectionRestedID, id == selectedID, let index = indexByID[id],
-              let kind = conversations[index].failedOperation else { return }
-        let token = "\(id.accountID.rawValue)|\(id.providerID)|\(kind.rawValue)|\(conversations[index].latestDate.timeIntervalSince1970)"
-        guard acknowledged.insert(token).inserted else { return }
+              conversations[index].failedOperation != nil, acknowledging.insert(id).inserted else { return }
         let store = self.store
         let log = self.log
-        DispatchQueue.global(qos: .userInitiated).async {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             do {
                 try store.acknowledgeFailedOperation(conversationID: id)
             } catch {
                 log.debug("acknowledge failed: \(String(describing: error), privacy: .public)")
+            }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { _ = self?.acknowledging.remove(id) }
             }
         }
     }
