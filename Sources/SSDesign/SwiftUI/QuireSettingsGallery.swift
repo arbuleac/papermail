@@ -288,7 +288,7 @@ enum QuireGallerySamples {
     static let accounts: [QuireAccountRowContent] = [
         QuireAccountRowContent(id: "contoso", name: "Contoso", tag: "Microsoft 365", address: "alex@contoso.test", monogram: "C",
                                inkSlot: 0, status: .upToDate(checked: "23:41")),
-        QuireAccountRowContent(id: "personal", name: "Personal", tag: "Gmail", address: "alex.morgan@gmail.com", monogram: "G",
+        QuireAccountRowContent(id: "personal", name: "Gmail", tag: "Gmail", address: "alex.morgan@gmail.com", monogram: "G",
                                inkSlot: 1, status: .downloading(done: 3412, total: 8120, locale: Locale(identifier: "en_US"))),
         QuireAccountRowContent(id: "northwind", name: "Northwind", tag: "Gmail", address: "alex@northwind.test", monogram: "N",
                                inkSlot: 3, status: .retrying(inSeconds: 30)),

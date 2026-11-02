@@ -239,9 +239,9 @@ final class ConversationRowTextTests: XCTestCase {
         let priya = EmailAddress(name: "Priya Raman", address: "priya@example.com")
         let row = text(summary(subject: "Lisbon in March?", snippet: "Booked the flat", participants: [priya],
                                messageCount: 3, unreadCount: 1, isStarred: true, hasPendingOperations: true),
-                       .init(accountName: "Personal"))
+                       .init(accountName: "Gmail"))
         XCTAssertEqual(row.accessibilityLabel,
-                       "Unread. Starred. Priya Raman. Lisbon in March? Booked the flat. 13:55. 3 messages. Waiting to sync. Personal account.")
+                       "Unread. Starred. Priya Raman. Lisbon in March? Booked the flat. 13:55. 3 messages. Waiting to sync. Gmail account.")
         let failed = text(summary(failedOperation: .archive))
         XCTAssertTrue(failed.accessibilityLabel.contains("Couldn't archive."))
     }
@@ -293,7 +293,7 @@ final class ConversationRowTextTests: XCTestCase {
             .init(timeStyle: .timeOfDay),
             .init(showsOtherTag: true),
             .init(ownAddresses: ["ada@example.com"]),
-            .init(accountName: "Personal"),
+            .init(accountName: "Gmail"),
         ]
         for context in contexts {
             XCTAssertNotEqual(ConversationRowText.cacheKey(for: summary(), dayStamp: 1, context: context, environment: environment),
