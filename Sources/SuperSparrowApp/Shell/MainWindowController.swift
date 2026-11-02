@@ -182,6 +182,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         acknowledgeTimer?.invalidate()
         listPane.toasts.dismiss()
         if UndoSendPanel.undoKeyArbiter === self { UndoSendPanel.undoKeyArbiter = nil }
+        crossFadeOverlay?.orderOut(nil)
+        crossFadeOverlay = nil
         window?.orderOut(nil)
     }
 
@@ -334,6 +336,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         guard wantsWelcome != showingWelcome else { return }
         showingWelcome = wantsWelcome
         guard let window, window.contentViewController != nil else { return }
+        // The welcome as it last looked, for the cross-fade to the inbox after a successful add (§5.39).
+        let outgoing = wantsWelcome || !window.isVisible || isSnapshot ? nil : Self.snapshot(of: window)
         // Swapping the content controller resizes the window to the new view; keep the user's frame.
         let frame = window.frame
         window.contentViewController = wantsWelcome ? welcome : splitController
@@ -341,7 +345,49 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         if !wantsWelcome {
             placeDividersIfNeeded()
             focusList()
+            if let outgoing { crossFade(from: outgoing, over: window) }
         }
+    }
+
+    /// The window as drawn now, title-bar zone and traffic lights included.
+    private static func snapshot(of window: NSWindow) -> NSImage? {
+        guard let view = window.contentView?.superview ?? window.contentView,
+              let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return nil }
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        let image = NSImage(size: view.bounds.size)
+        image.addRepresentation(bitmap)
+        return image
+    }
+
+    /// The overlay a cross-fade is drawing, while it runs.
+    private(set) var crossFadeOverlay: NSWindow?
+
+    /// Success on the welcome screen: the inbox, already laid out with its skeleton, shows through as the
+    /// welcome's last frame fades out over `dur.slow` (`ease.settle`; a short fade under Reduce Motion). The
+    /// old frame sits in a borderless child window that takes no clicks, so the split view is live from the
+    /// first frame, and a key press (`Quire.Motion.finishAll()`) ends the fade at once.
+    private func crossFade(from image: NSImage, over window: NSWindow) {
+        crossFadeOverlay?.orderOut(nil)
+        let overlay = NSWindow(contentRect: window.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        overlay.isReleasedWhenClosed = false
+        overlay.isOpaque = false
+        overlay.backgroundColor = .clear
+        overlay.hasShadow = false
+        overlay.ignoresMouseEvents = true
+        overlay.animationBehavior = .none
+        let imageView = NSImageView(frame: NSRect(origin: .zero, size: window.frame.size))
+        imageView.image = image
+        imageView.imageScaling = .scaleAxesIndependently
+        overlay.contentView = imageView
+        window.addChildWindow(overlay, ordered: .above)
+        crossFadeOverlay = overlay
+        Quire.Motion.run(Quire.Motion.slow, .settle, reduced: .fade, animations: { _ in
+            overlay.animator().alphaValue = 0
+        }, completion: { [weak self, weak window] in
+            window?.removeChildWindow(overlay)
+            overlay.orderOut(nil)
+            if self?.crossFadeOverlay === overlay { self?.crossFadeOverlay = nil }
+        })
     }
 
     private func statusesChanged(_ statuses: [AccountSyncStatus]) {

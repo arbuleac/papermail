@@ -12,16 +12,21 @@ final class MainWindowHarness {
     let environment: AppEnvironment
     let controller: MainWindowController
 
-    init(threads: Int = 8, spacing: TimeInterval = 600) throws {
+    /// With `accounts` false the store starts empty and the window shows the welcome screen.
+    init(threads: Int = 8, spacing: TimeInterval = 600, accounts: Bool = true) throws {
         directory = FileManager.default.temporaryDirectory.appendingPathComponent("SuperSparrowAppTests-\(UUID().uuidString)")
         environment = try AppEnvironment.makeScratch(in: directory)
-        try environment.store.upsertAccount(ListTestSupport.accountA)
-        try environment.store.upsertAccount(ListTestSupport.accountB)
-        try environment.store.upsertMessages(ListTestSupport.messages(threads: threads, spacing: spacing))
+        if accounts { try Self.seed(environment.store, threads: threads, spacing: spacing) }
         controller = MainWindowController(environment: environment, settings: ListTestSupport.settings())
         controller.window?.setFrameAutosaveName("")
         controller.window?.setFrameOrigin(NSPoint(x: -20_000, y: -20_000))
-        ListTestSupport.spin(until: { !self.list.conversations.isEmpty }, timeout: 5)
+        if accounts { ListTestSupport.spin(until: { !self.list.conversations.isEmpty }, timeout: 5) }
+    }
+
+    static func seed(_ store: MailStoring, threads: Int = 8, spacing: TimeInterval = 600) throws {
+        try store.upsertAccount(ListTestSupport.accountA)
+        try store.upsertAccount(ListTestSupport.accountB)
+        try store.upsertMessages(ListTestSupport.messages(threads: threads, spacing: spacing))
     }
 
     var list: MessageListViewController { controller.list }
