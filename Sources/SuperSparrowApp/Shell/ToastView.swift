@@ -1,88 +1,98 @@
 import AppKit
+import SSDesign
 
-/// "Archived · Undo": a small pill at the bottom of the list that fades out after a few seconds.
+/// Where toasts appear (spec §5.30): a transparent overlay over the list, between the header and the sync
+/// line, that holds at most one `QuireSlipView` at its bottom centre, 16 pt above the sync line and never wider
+/// than the list less 16 pt a side (the message truncates). Only the slip takes clicks; the list under the rest
+/// of the overlay works as if it were not there.
+///
+/// The slip rises 8 pt and fades in over `dur.standard` (`ease.settle`) and fades out over `dur.quick`
+/// (`ease.leave`); under Reduce Motion both are fades only. `ToastPresenter` decides what to show and when.
 @MainActor
-final class ToastView: NSVisualEffectView {
-    static let duration: TimeInterval = 4
+final class ToastView: NonDraggingView {
+    private(set) var slip: QuireSlipView?
+    private var leaving: QuireSlipView?
 
-    private let label = NSTextField(labelWithString: "")
-    private let button = NSButton(title: "Undo", target: nil, action: nil)
-    private var hideTimer: Timer?
-    private var action: (() -> Void)?
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        material = .hudWindow
-        blendingMode = .withinWindow
-        state = .active
-        wantsLayer = true
-        layer?.cornerRadius = 16
-        layer?.masksToBounds = true
-        isHidden = true
-        alphaValue = 0
-
-        label.font = .systemFont(ofSize: 13, weight: .medium)
-        label.textColor = .labelColor
-        label.translatesAutoresizingMaskIntoConstraints = false
-        button.isBordered = false
-        button.font = .systemFont(ofSize: 13, weight: .semibold)
-        button.contentTintColor = .controlAccentColor
-        button.target = self
-        button.action = #selector(undoClicked)
-        button.translatesAutoresizingMaskIntoConstraints = false
-        let separator = NSTextField(labelWithString: "·")
-        separator.textColor = .tertiaryLabelColor
-        separator.translatesAutoresizingMaskIntoConstraints = false
-        let stack = NSStackView(views: [label, separator, button])
-        stack.spacing = 8
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
-            stack.centerYAnchor.constraint(equalTo: centerYAnchor),
-            heightAnchor.constraint(equalToConstant: 32),
-        ])
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard let slip, !slip.isHidden, slip.alphaValue > 0 else { return nil }
+        let local = convert(point, from: superview)
+        guard slip.frame.contains(local) else { return nil }
+        return slip.hitTest(convert(local, to: slip.superview)) ?? slip
     }
 
-    required init?(coder: NSCoder) {
-        nil
+    override func isAccessibilityElement() -> Bool { false }
+
+    // MARK: Layout
+
+    private func frame(for slip: QuireSlipView) -> NSRect {
+        let t = Quire.Layout.Toast.self
+        let width = min(slip.intrinsicContentSize.width, max(0, bounds.width - 2 * t.sideMargin))
+        return NSRect(x: ((bounds.width - width) / 2).rounded(), y: bounds.height - t.aboveSyncLine - t.height,
+                      width: width, height: t.height)
     }
 
-    func show(_ text: String, buttonTitle: String? = "Undo", action: (() -> Void)? = nil) {
-        label.stringValue = text
-        button.title = buttonTitle ?? ""
-        button.isHidden = buttonTitle == nil || action == nil
-        self.action = action
-        hideTimer?.invalidate()
-        isHidden = false
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.15
-            animator().alphaValue = 1
+    /// Frames are set by hand; a new size lays the contents out again.
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        needsLayout = true
+    }
+
+    override func layout() {
+        super.layout()
+        if let slip { slip.frame = frame(for: slip) }
+    }
+
+    // MARK: Showing
+
+    /// Puts `slip` up. A slip already showing is replaced at once, without stacking; only a toast arriving on
+    /// an empty overlay rises in.
+    func show(_ slip: QuireSlipView) {
+        let replacing = self.slip != nil
+        if let old = self.slip, old !== slip { old.removeFromSuperview() }
+        if let leaving, leaving !== slip { leaving.removeFromSuperview() }
+        leaving = nil
+        self.slip = slip
+        slip.wantsLayer = true
+        if slip.superview !== self { addSubview(slip) }
+        let target = frame(for: slip)
+        guard !replacing, window != nil else {
+            slip.frame = target
+            slip.alphaValue = 1
+            return
         }
-        hideTimer = Timer.scheduledTimer(withTimeInterval: Self.duration, repeats: false) { [weak self] _ in
-            MainActor.assumeIsolated { self?.hide() }
-        }
-    }
-
-    func hide() {
-        hideTimer?.invalidate()
-        hideTimer = nil
-        action = nil
-        NSAnimationContext.runAnimationGroup({ context in
-            context.duration = 0.2
-            animator().alphaValue = 0
-        }, completionHandler: { [weak self] in
-            MainActor.assumeIsolated {
-                guard let self, self.alphaValue == 0 else { return }
-                self.isHidden = true
+        slip.frame = target.offsetBy(dx: 0, dy: Quire.Layout.Toast.rise)
+        slip.alphaValue = 0
+        Quire.Motion.run(Quire.Motion.standard, .settle, reduced: .fade, participants: [slip]) { plan in
+            if plan.isReduced {
+                slip.frame = target
+            } else {
+                slip.animator().frame = target
             }
-        })
+            slip.animator().alphaValue = 1
+        }
     }
 
-    @objc private func undoClicked() {
-        let action = self.action
-        hide()
-        action?()
+    /// Re-fits the slip after its message or action changed (a coalesced count).
+    func refit() {
+        guard let slip else { return }
+        slip.frame = frame(for: slip)
+    }
+
+    /// Fades the slip out and removes it.
+    func hide(animated: Bool) {
+        guard let slip else { return }
+        self.slip = nil
+        guard animated, window != nil else {
+            slip.removeFromSuperview()
+            return
+        }
+        leaving = slip
+        Quire.Motion.run(Quire.Motion.quick, .leave, reduced: .fade, participants: [slip], animations: { _ in
+            slip.animator().alphaValue = 0
+        }, completion: { [weak self, weak slip] in
+            guard let slip else { return }
+            if self?.slip !== slip { slip.removeFromSuperview() }
+            if self?.leaving === slip { self?.leaving = nil }
+        })
     }
 }

@@ -1,20 +1,29 @@
 import AppKit
 import SSCore
 
-/// Watches the unified inbox: keeps the Dock badge and the strip's unread badges current and feeds new rows
-/// to the notifier. One observation serves all three, since each fires on the same store transactions.
+/// Watches the unified inbox: keeps the Dock badge and the rail's unread badges current, feeds new rows to the
+/// notifier, and reports operations the provider gave up on (the store has already put the row back, so the
+/// shell says so in a toast, §5.7). One observation serves all of them, since each fires on the same store
+/// transactions. It also prunes failed operations once they are 24 hours old.
 @MainActor
 final class InboxMonitor {
     static let observedLimit = 300
+    /// How often expired failed operations are pruned while the app runs.
+    static let pruneInterval: TimeInterval = 60 * 60
 
     var onCounts: ((_ unified: Int, _ perAccount: [AccountID: Int]) -> Void)?
     var onRows: (([ConversationSummary]) -> Void)?
+    /// Conversations that newly carry a failed operation, with its kind.
+    var onFailures: (([(ConversationID, OperationKind)]) -> Void)?
 
     private let store: MailStoring
     private var observation: StoreObservation?
     private var accountIDs: [AccountID] = []
     private var isCounting = false
     private var countsDirty = false
+    /// Failures already seen; nil until the first delivery, whose marks predate this launch and stay quiet.
+    private var knownFailures: Set<ConversationID>?
+    private var pruneTimer: Timer?
     private static let countQueue = DispatchQueue(label: "io.supersparrow.mac.inbox-counts", qos: .userInitiated)
 
     init(store: MailStoring) {
@@ -27,6 +36,10 @@ final class InboxMonitor {
         observation = store.observeConversations(ConversationQuery(view: .inbox, limit: Self.observedLimit)) { [weak self] rows in
             MainActor.assumeIsolated { self?.inboxChanged(rows) }
         }
+        pruneFailedOperations()
+        pruneTimer = Timer.scheduledTimer(withTimeInterval: Self.pruneInterval, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.pruneFailedOperations() }
+        }
     }
 
     func updateAccounts(_ accounts: [AccountID]) {
@@ -38,12 +51,33 @@ final class InboxMonitor {
     func stop() {
         observation?.cancel()
         observation = nil
+        pruneTimer?.invalidate()
+        pruneTimer = nil
         NSApp.dockTile.badgeLabel = nil
     }
 
     private func inboxChanged(_ rows: [ConversationSummary]) {
         refreshCounts()
         onRows?(rows)
+        reportFailures(in: rows)
+    }
+
+    private func reportFailures(in rows: [ConversationSummary]) {
+        let failed = rows.filter { $0.failedOperation != nil }
+        let ids = Set(failed.map(\.id))
+        defer { knownFailures = ids }
+        guard let known = knownFailures else { return }
+        let fresh = failed.compactMap { row in row.failedOperation.flatMap { known.contains(row.id) ? nil : (row.id, $0) } }
+        if !fresh.isEmpty { onFailures?(fresh) }
+    }
+
+    /// Off the main thread: one delete per account, each in its own transaction.
+    private func pruneFailedOperations() {
+        let store = self.store
+        let ids = accountIDs
+        Self.countQueue.async {
+            for id in ids { _ = try? store.pruneFailedOperations(accountID: id, now: Date()) }
+        }
     }
 
     /// Counts run off the main thread: with a large inbox they cost several milliseconds per account, and the

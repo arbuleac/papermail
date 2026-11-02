@@ -33,6 +33,8 @@ final class MessageListViewController: NSViewController {
 
     var onSelectionChange: ((ConversationID?) -> Void)?
     var onOpen: ((ConversationID) -> Void)?
+    /// After every refresh of the rows (the search field's result count and spinner follow it).
+    var onRowsChange: (() -> Void)?
 
     /// Every selected conversation, in list order, when the host has turned on `allowsMultipleSelection`;
     /// otherwise the single selection. `selectedConversationID` stays the lead row.
@@ -559,6 +561,7 @@ final class MessageListViewController: NSViewController {
         } else if selectionRestedID != nil {
             acknowledgeFailedOperationIfNeeded()
         }
+        onRowsChange?()
     }
 
     private func rebuildIndex() {
