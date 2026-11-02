@@ -29,6 +29,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = MainMenu.build(appDelegate: self)
+        switch options.appearance {
+        case "light": NSApp.appearance = NSAppearance(named: .aqua)
+        case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
+        default: break
+        }
         if options.resetDemo { AppEnvironment.wipeDemoData() }
         start(mode: options.demo ? .demo : .real)
         NSApp.activate()

@@ -11,6 +11,9 @@ struct LaunchOptions: Equatable {
     var snapshotPath: String?
     /// Debug aid (demo mode): open a reply to the first inbox conversation and render its composer here.
     var composeSnapshotPath: String?
+    /// Debug aid: force the app's appearance ("light" or "dark") regardless of the system setting, so
+    /// snapshots can verify both appearances from one machine.
+    var appearance: String?
 
     init(arguments: [String] = CommandLine.arguments) {
         for argument in arguments.dropFirst() {
@@ -22,6 +25,8 @@ struct LaunchOptions: Equatable {
                 resetDemo = true
             case let value where value.hasPrefix("--snapshot="):
                 snapshotPath = String(value.dropFirst("--snapshot=".count))
+            case let value where value.hasPrefix("--appearance="):
+                appearance = String(value.dropFirst("--appearance=".count))
             case let value where value.hasPrefix("--snapshot-compose="):
                 composeSnapshotPath = String(value.dropFirst("--snapshot-compose=".count))
             default:
