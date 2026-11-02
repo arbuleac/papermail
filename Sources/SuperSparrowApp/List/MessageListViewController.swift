@@ -33,6 +33,8 @@ final class MessageListViewController: NSViewController {
 
     var onSelectionChange: ((ConversationID?) -> Void)?
     var onOpen: ((ConversationID) -> Void)?
+    /// A dragged row's conversation, JSON-encoded, for drops inside the app.
+    static let conversationPasteboardType = NSPasteboard.PasteboardType("io.supersparrow.mac.conversation")
     /// The host's context menu for conversation rows (spec §5.35). It acts on the selection, so a right-click
     /// on a row outside the selection selects that row first; heads and the list tail have none.
     var rowMenu: (() -> NSMenu?)?
@@ -202,6 +204,8 @@ final class MessageListViewController: NSViewController {
         tableView.doubleAction = #selector(didDoubleClick(_:))
         tableView.onReturn = { [weak self] in self?.openSelection() }
         tableView.menuForRow = { [weak self] row in self?.contextMenu(forRow: row) }
+        tableView.setDraggingSourceOperationMask(.copy, forLocal: false)
+        tableView.setDraggingSourceOperationMask([.copy, .move], forLocal: true)
         tableView.isHoverableRow = { [weak self] row in
             guard let self else { return false }
             return self.layout.conversationIndex(atRow: row) != nil
@@ -969,9 +973,18 @@ extension MessageListViewController: NSTableViewDataSource {
     func numberOfRows(in tableView: NSTableView) -> Int {
         layout.rowCount
     }
-}
 
-// MARK: - NSTableViewDelegate
+    /// A conversation row drags out as its subject (text) and, for a drop inside the app, its id (§5.7
+    /// Dragging): AppKit draws the drag image and the row itself stays as it is. Heads and the tail do not drag.
+    func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
+        guard let index = layout.conversationIndex(atRow: row), conversations.indices.contains(index) else { return nil }
+        let summary = conversations[index]
+        let item = NSPasteboardItem()
+        item.setString(summary.subject.isEmpty ? "No subject" : summary.subject, forType: .string)
+        if let data = try? JSONEncoder().encode(summary.id) { item.setData(data, forType: Self.conversationPasteboardType) }
+        return item
+    }
+}
 
 extension MessageListViewController: NSTableViewDelegate {
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {

@@ -275,8 +275,13 @@ final class MessageListBehaviourTests: XCTestCase {
         let face = NSRect(x: Quire.Layout.Row.avatarBoxX, y: Quire.Layout.Row.avatarBoxY, width: Quire.Layout.Row.avatarBox,
                           height: Quire.Layout.Row.avatarBox)
         let regions = cell.toolTipRegions()
-        XCTAssertEqual(regions.map(\.text), [account.email], "the ringed face names its account (spec §4.2)")
-        XCTAssertEqual(regions.first?.rect, face)
+        let marks = regions.filter { $0.text == account.email }
+        XCTAssertEqual(marks.map(\.rect), [face], "the ringed face names its account (spec §4.2)")
+        // The long subject is cut in a 380 pt list: its tooltip says it whole, over its own words (§5.34).
+        let subject = try XCTUnwrap(regions.first { $0.text.hasPrefix("Project update 0") })
+        XCTAssertEqual(subject.text, "Project update 0 and the quarterly planning document")
+        XCTAssertFalse(subject.rect.intersects(face), "never over the account's face")
+        XCTAssertEqual(regions.count, 2, "the sender fits, so it has none")
     }
 
     func testAUnifiedViewOfOneAccountDropsTheAccountMarks() throws {
@@ -285,7 +290,8 @@ final class MessageListBehaviourTests: XCTestCase {
         list.accountsByID = [Support.accountA.id: Support.accountA]
         window.displayIfNeeded()
         let cell = try XCTUnwrap(cell(of: list, conversation: 0))
-        XCTAssertTrue(cell.toolTipRegions().isEmpty, "with one account the unified view is a single-account view: no ring, no tile")
+        XCTAssertTrue(cell.toolTipRegions().filter { $0.text.contains("@") }.isEmpty,
+                      "with one account the unified view is a single-account view: no ring, no tile")
     }
 
     func testTheFailedGlyphSaysWhatFailedWithoutCoveringTheAccount() throws {
@@ -303,10 +309,24 @@ final class MessageListBehaviourTests: XCTestCase {
         let cell = try XCTUnwrap(cell(of: list, conversation: index))
         let regions = cell.toolTipRegions()
         let failure = try XCTUnwrap(regions.first { $0.text == "Couldn't archive" }, "the triangle's tooltip (spec §5.7)")
-        let account = regions.filter { $0.text != failure.text }
+        let account = regions.filter { $0.text.contains("@") }
         XCTAssertEqual(account.count, 2, "the face and the initial tile both name the account")
         for region in account {
             XCTAssertFalse(region.rect.intersects(failure.rect), "tooltip rects never overlap, so each shows its own words")
+        }
+    }
+
+    /// §5.7 Dragging: a conversation row drags out as its subject and its id; heads do not drag.
+    func testConversationRowsDragAsTheirSubject() throws {
+        let store = try Support.store(threads: 10)
+        let (list, _) = Support.host(store: store, settings: Support.settings())
+        let row = try XCTUnwrap(list.layout.row(ofConversation: 1))
+        let item = try XCTUnwrap(list.tableView(list.tableView, pasteboardWriterForRow: row) as? NSPasteboardItem)
+        XCTAssertEqual(item.string(forType: .string), list.conversations[1].subject)
+        let data = try XCTUnwrap(item.data(forType: MessageListViewController.conversationPasteboardType))
+        XCTAssertEqual(try JSONDecoder().decode(ConversationID.self, from: data), list.conversations[1].id)
+        if let head = list.layout.items.firstIndex(where: { if case .head = $0 { return true } else { return false } }) {
+            XCTAssertNil(list.tableView(list.tableView, pasteboardWriterForRow: head))
         }
     }
 

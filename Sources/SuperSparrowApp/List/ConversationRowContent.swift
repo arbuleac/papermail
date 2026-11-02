@@ -15,8 +15,11 @@ final class ConversationRowContent {
     let timeWidth: CGFloat
     let subject: NSAttributedString
     let snippet: NSAttributedString
-    /// The subject's natural width, for compact density, where it gives way to the snippet past 60 % of the line.
+    /// The subject's natural width, for compact density, where it gives way to the snippet past 60 % of the line,
+    /// and for the tooltip a cut subject gets.
     let subjectWidth: CGFloat
+    /// The sender line's natural width: a cut sender gets a tooltip.
+    let senderWidth: CGFloat
     /// Compact density's line 2 after the subject: " — " and the snippet, on the subject's baseline.
     let compactSnippet: NSAttributedString?
     let messageCount: Int?
@@ -35,6 +38,7 @@ final class ConversationRowContent {
     init(text: ConversationRowText) {
         let unread = text.isUnread
         sender = Style.sender(text, unread: unread)
+        senderWidth = ceil(sender.size().width)
         time = QuireFont.attributedString(text.timeText, role: unread ? .metaStrong : .meta, color: unread ? .qAccent : .qInk3)
         timeWidth = ceil(time.size().width)
         subject = Style.subject(text, unread: unread)

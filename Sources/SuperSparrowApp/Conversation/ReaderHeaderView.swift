@@ -121,6 +121,11 @@ final class ReaderHeaderView: NSView {
                 button.toolTip = set.starOn ? (several ? "Unstar All  S" : "Unstar  S") : (several ? "Star All  S" : "Star  S")
                 button.setAccessibilityLabel(set.starOn ? "Unstar" : "Star")
             }
+            if action == .replyAll {
+                // A disabled control says why (§5.34): Reply would already reach everyone.
+                let onlyOne = !set.isEnabled(.replyAll) && set.isEnabled(.reply)
+                button.toolTip = onlyOne ? "Reply All: only one other person" : Self.spec(for: .replyAll).tooltip
+            }
         }
     }
 
@@ -289,8 +294,10 @@ final class ReaderKickerView: NSView {
         }
         let layout = layoutText(available: max(0, bounds.width - wordsX))
         words = string(layout.text)
-        // A dropped name stays reachable: the tooltip and VoiceOver still name the account (spec §5.12).
-        toolTip = layout.nameDropped ? kicker.accountName : nil
+        // A cut or dropped name stays reachable: the tooltip names the account (spec §5.12, §5.34), and
+        // VoiceOver does when it was dropped.
+        let nameCut = kicker.accountName.map { !$0.isEmpty && !layout.text.contains($0) } ?? false
+        toolTip = nameCut ? kicker.accountName : nil
         setAccessibilityLabel(layout.nameDropped ? [kicker.lead, kicker.accountName, kicker.trail].compactMap { $0 }.joined(separator: ", ") : layout.text)
     }
 

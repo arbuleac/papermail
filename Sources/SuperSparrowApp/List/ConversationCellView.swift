@@ -195,8 +195,7 @@ final class ConversationCellView: NSView {
             QuireBadge.draw(.messageCount(count), in: rect)
             x = rect.minX - Row.glyphGap
         }
-        let line2End = x == right ? right : x + Row.glyphGap - Row.clusterGap
-        let line2Width = line2End - textX
+        let line2Width = line2End(for: content) - textX
         if compact, let snippet = content.compactSnippet {
             // The subject keeps at most 60 % of the line so some of the snippet always shows after it.
             let cap = (line2Width * ConversationCellView.compactSubjectShare).rounded()
@@ -215,6 +214,16 @@ final class ConversationCellView: NSView {
         if !compact {
             drawLine(content.snippet, x: textX, top: Row.snippetY, width: right - textX, height: Row.snippetHeight)
         }
+    }
+
+    /// Where line 2's text ends: before the count badge, the clip and the star, from the trailing edge in.
+    private func line2End(for content: ConversationRowContent) -> CGFloat {
+        let right = bounds.width - Row.trailing
+        var x = right
+        if content.isStarred { x -= Row.glyph + Row.glyphGap }
+        if content.hasAttachments { x -= Row.glyph + Row.glyphGap }
+        if content.messageCount != nil { x -= content.badgeSize.width + Row.glyphGap }
+        return x == right ? right : x + Row.glyphGap - Row.clusterGap
     }
 
     /// One line, truncated at its width with a tail ellipsis; the role's paragraph style and baseline offset
@@ -293,6 +302,21 @@ final class ConversationCellView: NSView {
         if let failure = content.failureText, let status = c.status {
             // 16 pt around the 12 pt glyph: 2 pt into its 4 pt gap, so it never reaches the tag, tile or time.
             regions.append((lineBox(status), failure))
+        }
+        // A cut sender or subject answers over its own words (§5.34), and only when it is cut: these regions
+        // start at the text column, clear of the face, and end before the time cluster and the glyphs.
+        let textX = isCompact ? Compact.textX : Row.textX
+        let senderSlot = c.leadingEdge - Row.timeGap - textX
+        if content.senderWidth > senderSlot, senderSlot > 0 {
+            regions.append((NSRect(x: textX, y: isCompact ? Compact.senderY : Row.senderY, width: senderSlot, height: Row.senderHeight),
+                            content.sender.string))
+        }
+        let line2Width = line2End(for: content) - textX
+        let subjectSlot = isCompact && content.compactSnippet != nil
+            ? (line2Width * ConversationCellView.compactSubjectShare).rounded() : line2Width
+        if content.subjectWidth > subjectSlot, subjectSlot > 0, !content.subject.string.isEmpty {
+            regions.append((NSRect(x: textX, y: isCompact ? Compact.line2Y : Row.subjectY, width: subjectSlot, height: Row.subjectHeight),
+                            content.subject.string))
         }
         return regions
     }
