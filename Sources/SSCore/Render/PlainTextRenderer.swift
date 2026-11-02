@@ -1,7 +1,16 @@
 import Foundation
 
 /// Turns a text/plain body into the render-ready HTML shape the sanitizer produces for HTML bodies: escaped,
-/// line breaks preserved, URLs and addresses clickable, ">"-quoted blocks folded like HTML quotes.
+/// URLs and addresses clickable, ">"-quoted blocks folded like HTML quotes.
+///
+/// Lines separated by blank lines become `<p>` paragraphs, so the reading page's 12 pt paragraph gap spaces
+/// them (spec §5.14) instead of an empty 24 pt line; lines inside a paragraph keep their breaks as `<br>`.
+/// Runs of blank lines are one paragraph break. No newline is written between elements: the plain body is set
+/// `white-space: pre-wrap`, where one would show as an extra line. The only markup is the renderer's own
+/// (`p`, `br`, `blockquote`, the quote wrapper and linkified anchors); every character of the text is escaped.
+///
+/// Bodies stored before paragraphs were introduced keep their `<br><br>` shape, since opening a message never
+/// re-renders it; they read as before until they are fetched again.
 public enum PlainTextRenderer {
     /// Inner HTML for the body (the sanitizer adds the `ss-body` wrapper) and whether a quote block was found.
     public static func render(_ text: String) -> (html: String, hasQuotedContent: Bool) {
@@ -51,7 +60,7 @@ public enum PlainTextRenderer {
     static let maxQuoteDepth = 32
 
     private static func renderBlock(_ lines: ArraySlice<String>, depth: Int, hasQuote: inout Bool) -> String {
-        guard depth < maxQuoteDepth else { return renderLines(Array(lines)) }
+        guard depth < maxQuoteDepth else { return renderParagraphs(Array(lines)) }
         let topLevel = depth == 0
         var html = ""
         var normal: [String] = []
@@ -80,15 +89,15 @@ public enum PlainTextRenderer {
                 cursor = lookahead
             }
             let attribution = takeAttribution(from: &normal)
-            html += renderLines(normal)
+            html += renderParagraphs(normal)
             normal.removeAll()
             hasQuote = true
-            var block = attribution.map { renderLine($0) + "<br>" } ?? ""
+            var block = attribution.map { "<p>" + renderLine($0) + "</p>" } ?? ""
             block += "<blockquote>" + renderBlock(quoted[...], depth: depth + 1, hasQuote: &hasQuote) + "</blockquote>"
             html += topLevel ? "<div class=\"ss-quote\" data-ss-collapsed=\"true\">" + block + "</div>" : block
             index = cursor
         }
-        html += renderLines(normal)
+        html += renderParagraphs(normal)
         return html
     }
 
@@ -102,8 +111,21 @@ public enum PlainTextRenderer {
         return attribution
     }
 
-    private static func renderLines(_ lines: [String]) -> String {
-        lines.map(renderLine).joined(separator: "<br>")
+    /// A run of non-blank lines is one paragraph, its lines joined by `<br>`; blank lines only end paragraphs,
+    /// so leading, trailing and repeated blank lines leave no empty `<p>`.
+    private static func renderParagraphs(_ lines: [String]) -> String {
+        var html = ""
+        var paragraph: [String] = []
+        func close() {
+            guard !paragraph.isEmpty else { return }
+            html += "<p>" + paragraph.map(renderLine).joined(separator: "<br>") + "</p>"
+            paragraph.removeAll()
+        }
+        for line in lines {
+            if isBlank(line) { close() } else { paragraph.append(line) }
+        }
+        close()
+        return html
     }
 
     private static func renderLine(_ line: String) -> String {

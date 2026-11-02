@@ -52,7 +52,7 @@ Indexes: `(account_id, conversation_provider_id)`, `(account_id, has_body, date_
 | account_id, provider_id | PK | FK messages (cascade) |
 | html | BLOB NULL | original, zlib-compressed |
 | text | BLOB NULL | original text part, zlib-compressed |
-| rendered_html | BLOB | sanitized, zlib-compressed |
+| rendered_html | BLOB | sanitized, zlib-compressed. A text/plain body is `PlainTextRenderer` output: `<p>` paragraphs (blank lines end them) with `<br>` inside; plain bodies stored before paragraphs were introduced keep `<br><br>` until fetched again, since nothing re-renders a stored body |
 | plain_text | TEXT | extracted, uncompressed, feeds FTS |
 | attachments_json | TEXT | `[AttachmentInfo]` |
 | has_quoted | INTEGER NULL | rendered_html has detected quoted text; NULL for bodies stored before v2 |

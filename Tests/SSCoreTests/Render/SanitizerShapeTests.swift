@@ -125,8 +125,8 @@ final class SanitizerShapeTests: XCTestCase {
     func testTextBodyIsRenderedWhenHTMLIsMissing() {
         let out = RenderTestSupport.sanitizeText("Hello <b>\nhttps://example.com\n\nOn Mon, Oct 27, 2025, Bob wrote:\n> quoted")
         assertContains(out.html, "<div class=\"ss-body ss-plain\">")
-        assertContains(out.html, "Hello &lt;b&gt;<br><a href=\"https://example.com\">https://example.com</a><br>")
-        assertContains(out.html, "<div class=\"ss-quote\" data-ss-collapsed=\"true\">On Mon, Oct 27, 2025, Bob wrote:<br><blockquote>quoted</blockquote></div>")
+        assertContains(out.html, "<p>Hello &lt;b&gt;<br><a href=\"https://example.com\">https://example.com</a></p>")
+        assertContains(out.html, "<div class=\"ss-quote\" data-ss-collapsed=\"true\"><p>On Mon, Oct 27, 2025, Bob wrote:</p><blockquote><p>quoted</p></blockquote></div>")
         XCTAssertTrue(out.hasQuotedContent)
         XCTAssertEqual(out.blockedRemoteImageCount, 0)
         assertContains(out.plainText, "Hello <b>")
