@@ -119,7 +119,8 @@ struct QuireGalleryButtons: View {
                 QuireButtonLabel(glyph: variant.3 ?? Quire.Icon.archive, accessibilityLabel: "Archive",
                                  glyphSize: Quire.Layout.IconSize.window, isLoading: state.3)
             } else {
-                QuireButtonLabel(variant.1, isLoading: state.3, loadingTitle: variant.2)
+                // Only the loading column names its gerund: a label given one keeps its width for it.
+                QuireButtonLabel(variant.1, isLoading: state.3, loadingTitle: state.3 ? variant.2 : nil)
             }
         }
         .buttonStyle(.quire(variant.0, size: variant.0 == .icon ? .large : .regular))

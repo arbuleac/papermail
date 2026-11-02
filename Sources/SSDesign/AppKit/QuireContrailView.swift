@@ -12,6 +12,10 @@ import QuartzCore
 ///
 /// The view is 4 pt tall (the head); the line runs through its middle 2 pt. Place it so that line sits on the
 /// edge it runs along. Its animations loop or track time, so `Quire.Motion.finishAll()` never ends them.
+///
+/// The line is a gradient (transparent to the colour over the tail, then solid) inside a clip whose width is
+/// the length, rather than a stroked path under a gradient mask: layer masks are skipped by `render(in:)`,
+/// so `cacheDisplay` snapshots (the app's own `--snapshot-*`) drew a masked line as nothing at all.
 @MainActor
 public final class QuireContrailView: NSView {
     public var mode: QuireProgressMode = .determinate(0) {
@@ -29,8 +33,10 @@ public final class QuireContrailView: NSView {
     }
 
     private let clip = CALayer()
-    private let line = CAShapeLayer()
-    private let fade = CAGradientLayer()
+    /// The visible length: its width is the fraction of the view's width, and it clips the line.
+    private let lineClip = CALayer()
+    /// The whole-width line with its tail fade, fixed in place while `lineClip` grows and drains over it.
+    private let line = CAGradientLayer()
     private let head = CALayer()
     private let sweep = CALayer()
     private let sweepLine = CAGradientLayer()
@@ -49,13 +55,11 @@ public final class QuireContrailView: NSView {
         wantsLayer = true
         colors = QuireLayerColors(view: self)
         clip.masksToBounds = true
-        line.fillColor = nil
-        line.lineWidth = QuireContrailView.lineWidth
-        line.lineCap = .butt
-        line.mask = fade
-        fade.startPoint = CGPoint(x: 0, y: 0.5)
-        fade.endPoint = CGPoint(x: 1, y: 0.5)
-        fade.colors = [NSColor.clear.cgColor, NSColor.black.cgColor]
+        lineClip.masksToBounds = true
+        lineClip.anchorPoint = CGPoint(x: 0, y: 0.5)
+        line.startPoint = CGPoint(x: 0, y: 0.5)
+        line.endPoint = CGPoint(x: 1, y: 0.5)
+        lineClip.addSublayer(line)
         head.cornerRadius = QuireContrailView.headSize / 2
         sweepLine.startPoint = CGPoint(x: 0, y: 0.5)
         sweepLine.endPoint = CGPoint(x: 1, y: 0.5)
@@ -63,7 +67,7 @@ public final class QuireContrailView: NSView {
         sweep.anchorPoint = .zero
         sweep.addSublayer(sweepLine)
         sweep.addSublayer(sweepHead)
-        clip.addSublayer(line)
+        clip.addSublayer(lineClip)
         clip.addSublayer(head)
         clip.addSublayer(sweep)
         layer?.addSublayer(clip)
@@ -84,7 +88,9 @@ public final class QuireContrailView: NSView {
     }
 
     private func bindColors() {
-        colors.set(color, for: \CAShapeLayer.strokeColor, of: line)
+        colors.bind("line", color) { [weak self] cg in
+            self?.line.colors = [cg.copy(alpha: 0) ?? cg, cg, cg]
+        }
         colors.set(color, for: \CALayer.backgroundColor, of: head)
         colors.set(color, for: \CALayer.backgroundColor, of: sweepHead)
         colors.bind("sweepLine", color) { [weak self] cg in
@@ -94,7 +100,8 @@ public final class QuireContrailView: NSView {
 
     /// The share of the width the line covers now (the presentation value while it drains).
     public var displayedFraction: CGFloat {
-        CGFloat((line.presentation() ?? line).strokeEnd)
+        guard bounds.width > 0 else { return 0 }
+        return (lineClip.presentation() ?? lineClip).bounds.width / bounds.width
     }
 
     /// Seconds left on a countdown.
@@ -148,22 +155,25 @@ public final class QuireContrailView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         clip.frame = bounds
-        for layer in [line, self.head, sweep] { layer.removeAnimation(forKey: QuireContrailView.animationKey) }
+        for layer in [lineClip, self.head, sweep] { layer.removeAnimation(forKey: QuireContrailView.animationKey) }
         clock?.stopTicking()
 
-        let path = CGMutablePath()
-        path.move(to: CGPoint(x: 0, y: lineY))
-        path.addLine(to: CGPoint(x: width, y: lineY))
-        line.frame = clip.bounds
-        line.path = path
-        fade.frame = clip.bounds
-        fade.locations = [0, NSNumber(value: Double(width > 0 ? min(1, QuireContrailView.tail / width) : 1))]
+        let lineWidth = QuireContrailView.lineWidth
+        lineClip.position = CGPoint(x: 0, y: lineY)
+        lineClip.bounds = CGRect(x: 0, y: 0, width: lineClip.bounds.width, height: lineWidth)
+        line.frame = CGRect(x: 0, y: 0, width: width, height: lineWidth)
+        let tailEnd = NSNumber(value: Double(width > 0 ? min(1, QuireContrailView.tail / width) : 1))
+        line.locations = [0, tailEnd, 1]
         self.head.bounds = CGRect(x: 0, y: 0, width: head, height: head)
 
+        func setLength(_ fraction: CGFloat) {
+            lineClip.bounds = CGRect(x: 0, y: 0, width: width * fraction, height: lineWidth)
+        }
+
         func showLine(_ fraction: CGFloat) {
-            line.isHidden = false
+            lineClip.isHidden = false
             sweep.isHidden = true
-            line.strokeEnd = fraction
+            setLength(fraction)
             self.head.position = CGPoint(x: headX(forLength: width * fraction), y: lineY)
             self.head.opacity = fraction > 0 ? 1 : 0
         }
@@ -172,7 +182,7 @@ public final class QuireContrailView: NSView {
         case .determinate(let value):
             showLine(CGFloat(min(1, max(0, value.isFinite ? value : 0))))
         case .indeterminate:
-            line.isHidden = true
+            lineClip.isHidden = true
             self.head.opacity = 0
             sweep.isHidden = false
             let share = reduceMotion ? Quire.Layout.Progress.reducedSegment : Quire.Layout.Progress.indeterminateSegment
@@ -203,15 +213,15 @@ public final class QuireContrailView: NSView {
                 let from = clock.fraction
                 showLine(from)
                 // The model ends empty; the animation drains to it, so removing it shows the end state.
-                line.strokeEnd = 0
+                setLength(0)
                 self.head.position = CGPoint(x: -head, y: lineY)
                 let timing = Quire.Motion.Curve.linear.timingFunction
-                let drain = CABasicAnimation(keyPath: "strokeEnd")
-                drain.fromValue = from
+                let drain = CABasicAnimation(keyPath: "bounds.size.width")
+                drain.fromValue = width * from
                 drain.toValue = 0
                 drain.duration = clock.remaining
                 drain.timingFunction = timing
-                line.add(drain, forKey: QuireContrailView.animationKey)
+                lineClip.add(drain, forKey: QuireContrailView.animationKey)
                 let travel = CABasicAnimation(keyPath: "position.x")
                 travel.fromValue = headX(forLength: width * from)
                 travel.toValue = -head
