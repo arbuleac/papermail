@@ -28,11 +28,14 @@ public struct QuireShadowLayer: Equatable, Sendable {
     /// `CALayer.shadowRadius`: CSS blur = 2 × shadowRadius.
     public var shadowRadius: CGFloat { blur / 2 }
 
-    /// `CALayer.shadowOffset` for an unflipped layer, whose y grows up: a shadow that falls 6 pt is (0, -6).
+    /// `CALayer.shadowOffset`: a shadow that falls 6 pt is (0, -6). This holds for sublayers of a flipped,
+    /// layer-backed `NSView` too: `geometryFlipped` flips sublayer geometry but not shadow offsets (measured on
+    /// macOS 27, where (0, +6) cast the shadow upward in a flipped view).
     public var layerOffset: CGSize { CGSize(width: x, height: -y) }
 
-    /// Puts this shadow on `layer`. The caller still sets `shadowPath` (spec §4.8 requires one on every
-    /// shadowed layer, so AppKit never rasterises the alpha mask).
+    /// Puts this shadow on `layer`. Pass `flipped` only for a layer whose own coordinate space is turned upside
+    /// down (a y-scale of -1), not for one in a flipped view. The caller still sets `shadowPath` (spec §4.8
+    /// requires one on every shadowed layer, so AppKit never rasterises the alpha mask).
     public func apply(to layer: CALayer, flipped: Bool = false) {
         layer.shadowColor = NSColor(quireRGBA: rgba | 0xFF).cgColor
         layer.shadowOpacity = opacity
