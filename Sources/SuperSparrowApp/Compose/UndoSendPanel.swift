@@ -36,6 +36,7 @@ final class UndoSendPanel: NSPanel {
         panel.presentRising()
         Self.updateUndoKeyOwner()
         UndoKeyMonitor.shared.install()
+        PanelAnchorObserver.shared.install()
         return panel
     }
 
@@ -242,20 +243,34 @@ final class UndoSendPanel: NSPanel {
 
     // MARK: ⌘Z
 
-    /// When a toast with Undo appeared last; panels shown before it give ⌘Z up (§6.1: the most recent wins).
-    private static var lastYield = Date.distantPast
+    /// When the latest toast with Undo appeared; panels shown before it give ⌘Z up while it is up (§6.1).
+    private static var toastShownAt: Date?
+    private static var toastExpiry: Timer?
 
-    /// The main window calls this when an undoable toast takes ⌘Z.
+    /// The main window calls this when an undoable toast takes ⌘Z. When the toast's life is over, an older
+    /// panel that is still counting takes ⌘Z (and its keycap) back.
     static func yieldUndoKey() {
-        lastYield = Date()
+        toastShownAt = Date()
         updateUndoKeyOwner()
+        toastExpiry?.invalidate()
+        let timer = Timer(timeInterval: Quire.Motion.toastLife, repeats: false) { _ in
+            MainActor.assumeIsolated { updateUndoKeyOwner() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        toastExpiry = timer
     }
 
-    /// The panel ⌘Z cancels now: the newest one still counting, if no newer toast took the key.
+    /// The panel ⌘Z cancels now: the newest one still counting, unless a newer toast is up.
     static var undoKeyOwner: UndoSendPanel? {
-        ComposeWindowRegistry.shared.livePanels
-            .filter { if case .counting = $0.slip.state { return $0.shownAt > lastYield } else { return false } }
-            .max { $0.shownAt < $1.shownAt }
+        let panels = ComposeWindowRegistry.shared.livePanels
+        let candidates = panels.map { panel -> UndoKeyPrecedence.Panel in
+            if case .counting = panel.slip.state, !panel.isFinished {
+                return UndoKeyPrecedence.Panel(shownAt: panel.shownAt, isCounting: true)
+            }
+            return UndoKeyPrecedence.Panel(shownAt: panel.shownAt, isCounting: false)
+        }
+        let index = UndoKeyPrecedence.owner(of: candidates, toastShownAt: toastShownAt, toastLife: Quire.Motion.toastLife, now: Date())
+        return index.map { panels[$0] }
     }
 
     private static func updateUndoKeyOwner() {
@@ -263,7 +278,10 @@ final class UndoSendPanel: NSPanel {
         for panel in ComposeWindowRegistry.shared.livePanels {
             panel.slip.ownsUndoKey = panel === owner
         }
-        if ComposeWindowRegistry.shared.livePanels.isEmpty { UndoKeyMonitor.shared.remove() }
+        if ComposeWindowRegistry.shared.livePanels.isEmpty {
+            UndoKeyMonitor.shared.remove()
+            PanelAnchorObserver.shared.remove()
+        }
     }
 }
 
@@ -277,6 +295,34 @@ private final class PanelContainerView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard let slip, slip.frame.contains(convert(point, from: superview)) else { return nil }
         return super.hitTest(point)
+    }
+}
+
+/// Keeps live panels on the main window's bottom-trailing corner while it moves, resizes or is minimized
+/// (§5.31: anchored to the main window, the screen when it is hidden).
+@MainActor
+private final class PanelAnchorObserver {
+    static let shared = PanelAnchorObserver()
+    private var observers: [NSObjectProtocol] = []
+
+    func install() {
+        guard observers.isEmpty else { return }
+        let names: [Notification.Name] = [NSWindow.didMoveNotification, NSWindow.didResizeNotification,
+                                          NSWindow.didMiniaturizeNotification, NSWindow.didDeminiaturizeNotification]
+        observers = names.map { name in
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { note in
+                let window = note.object as? NSWindow
+                MainActor.assumeIsolated {
+                    guard window?.windowController is MainWindowController else { return }
+                    UndoSendPanel.restack()
+                }
+            }
+        }
+    }
+
+    func remove() {
+        observers.forEach(NotificationCenter.default.removeObserver)
+        observers = []
     }
 }
 

@@ -14,7 +14,7 @@ final class ComposeDraftStore {
     static let shared = ComposeDraftStore()
 
     private nonisolated static let logger = Logger(subsystem: "io.supersparrow.mac", category: "compose")
-    private let directory: URL
+    private var directory: URL
     private let writer = DispatchQueue(label: "io.supersparrow.compose.drafts", qos: .utility)
 
     init(directory: URL = ComposeDraftStore.defaultDirectory) {
@@ -25,6 +25,17 @@ final class ComposeDraftStore {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
         return support.appendingPathComponent("SuperSparrow/Drafts", isDirectory: true)
+    }
+
+    /// The demo's drafts, kept apart from real ones: every demo reset makes new accounts, and wiping the demo
+    /// (`AppEnvironment.wipeDemoData`) must take its drafts along instead of leaving them beside the user's.
+    nonisolated static var demoDirectory: URL {
+        defaultDirectory.deletingLastPathComponent().appendingPathComponent("Drafts-demo", isDirectory: true)
+    }
+
+    /// Points the shared store at the demo's drafts or the real ones; the app calls it as it opens a mailbox.
+    func useDemoDirectory(_ demo: Bool) {
+        directory = demo ? Self.demoDirectory : Self.defaultDirectory
     }
 
     // MARK: Writing
@@ -85,14 +96,36 @@ final class ComposeDraftStore {
         .map(\.draft)
     }
 
-    /// The kept draft answering `original` in `mode`, so reopening a reply brings back what was written.
+    /// The kept draft answering `original` in `mode`, so reopening a reply brings back what was written. Only
+    /// the small JSON records are read to find it: every reply and forward asks, and the bodies and forwarded
+    /// parts of the other drafts are no business of a window that is about to open.
     func keptDraft(for mode: ComposeMode, accounts: [Account]) -> ComposeDraft? {
-        guard mode.originalMessageID != nil else { return nil }
-        return keptDrafts(accounts: accounts).first { $0.mode == mode }
+        guard let original = mode.originalMessageID else { return nil }
+        let kind = Self.kind(of: mode)
+        // Under any account: the draft lives in its From account's folder, which the user may have changed.
+        let folders = accounts.flatMap { account in
+            (try? FileManager.default.contentsOfDirectory(at: directory.appendingPathComponent(account.id.rawValue, isDirectory: true),
+                                                          includingPropertiesForKeys: nil)) ?? []
+        }
+        let match = folders
+            .compactMap { folder in Self.record(in: folder).map { (folder: folder, record: $0) } }
+            .filter { $0.record.kind == kind && $0.record.originalMessageID == original }
+            .max { $0.record.editedAt < $1.record.editedAt }
+        return match.flatMap { load(folder: $0.folder, accounts: accounts)?.draft }
     }
 
     func draft(id: UUID, accounts: [Account]) -> ComposeDraft? {
         folders(for: id).lazy.compactMap { self.load(folder: $0, accounts: accounts)?.draft }.first
+    }
+
+    /// Whether draft `id` is on disk, without reading it.
+    func contains(id: UUID) -> Bool {
+        !folders(for: id).isEmpty
+    }
+
+    private static func record(in folder: URL) -> ComposeDraftRecord? {
+        guard let data = try? Data(contentsOf: folder.appendingPathComponent(ComposeDraftRecord.recordFile)) else { return nil }
+        return try? ComposeDraftRecord.decode(data)
     }
 
     // MARK: Packaging
@@ -157,8 +190,7 @@ final class ComposeDraftStore {
     }
 
     private func load(folder: URL, accounts: [Account]) -> (draft: ComposeDraft, editedAt: Date)? {
-        guard let data = try? Data(contentsOf: folder.appendingPathComponent(ComposeDraftRecord.recordFile)),
-              let record = try? ComposeDraftRecord.decode(data),
+        guard let record = Self.record(in: folder),
               let account = accounts.first(where: { $0.id == record.accountID }) else { return nil }
         let bodyData = (try? Data(contentsOf: folder.appendingPathComponent(ComposeDraftRecord.bodyFile))) ?? Data()
         let attachments: [ComposeAttachment] = record.attachments.compactMap { item in

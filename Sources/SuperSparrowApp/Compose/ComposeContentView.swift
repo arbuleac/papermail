@@ -162,11 +162,6 @@ final class ComposeContentView: NSView {
         let objects = info.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) ?? []
         return objects.compactMap { $0 as? URL }
     }
-
-    /// Shows the drop outline without a drag, for snapshots of the state.
-    func setDropOutlineVisible(_ visible: Bool) {
-        dropOutline.isHidden = !visible
-    }
 }
 
 /// The drop target over the body (§5.20, Dragging files over): a 2 pt dashed `focus` outline inset 8 pt, radius

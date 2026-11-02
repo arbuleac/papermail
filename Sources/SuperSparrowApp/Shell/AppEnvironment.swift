@@ -52,19 +52,22 @@ final class AppEnvironment {
         attachmentCacheDirectory.deletingLastPathComponent().appendingPathComponent("demo-attachments", isDirectory: true)
     }
 
-    /// Deletes the demo database (with its WAL and shared-memory files) and the demo attachment cache.
+    /// Deletes the demo database (with its WAL and shared-memory files), the demo attachment cache and the
+    /// demo's drafts.
     static func wipeDemoData() {
         let fileManager = FileManager.default
         for suffix in ["", "-wal", "-shm"] {
             try? fileManager.removeItem(atPath: demoDatabasePath + suffix)
         }
         try? fileManager.removeItem(at: demoAttachmentCacheDirectory)
+        try? fileManager.removeItem(at: ComposeDraftStore.demoDirectory)
         log.info("demo data wiped")
     }
 
     // MARK: Building
 
     static func make(mode: Mode, settings: AppSettings) throws -> AppEnvironment {
+        ComposeDraftStore.shared.useDemoDirectory(mode == .demo)
         switch mode {
         case .real: return try makeReal(settings: settings)
         case .demo: return try makeDemo(settings: settings)

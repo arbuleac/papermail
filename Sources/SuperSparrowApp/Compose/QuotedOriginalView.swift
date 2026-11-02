@@ -27,7 +27,11 @@ final class QuotedOriginalView: NSView {
 
     let chip = ElisionChip()
     private let attribution = AttributionLabel()
-    private var quoteText = NSAttributedString()
+    /// The unfolded preview's own TextKit stack: laid out once per width, and only the lines in the dirty rect
+    /// are drawn, so scrolling or resizing past a long quote does not set the whole thread again.
+    private let quoteStorage = NSTextStorage()
+    private let quoteLayout = NSLayoutManager()
+    private let quoteContainer = NSTextContainer(size: .zero)
     private(set) var isExpanded = false
     private var measuredHeight: CGFloat = 0
     private var measuredWidth: CGFloat = 0
@@ -38,6 +42,12 @@ final class QuotedOriginalView: NSView {
         isHidden = true
         wantsLayer = true
         layer?.masksToBounds = true
+        QuireFont.configure(quoteLayout)
+        // Folded, nothing is laid out: idle-time layout would set the whole quote for nobody.
+        quoteLayout.backgroundLayoutEnabled = false
+        quoteContainer.lineFragmentPadding = 0
+        quoteLayout.addTextContainer(quoteContainer)
+        quoteStorage.addLayoutManager(quoteLayout)
         chip.target = self
         chip.action = #selector(toggleExpanded(_:))
         attribution.onClick = { [weak self] in self?.toggleExpanded(nil) }
@@ -67,9 +77,7 @@ final class QuotedOriginalView: NSView {
         guard isExpanded else { return foldedHeight }
         if abs(width - measuredWidth) > 0.5 {
             measuredWidth = width
-            let rect = quoteText.boundingRect(with: NSSize(width: textWidth, height: .greatestFiniteMagnitude),
-                                              options: [.usesLineFragmentOrigin])
-            measuredHeight = ceil(rect.height)
+            measuredHeight = layOutQuote()
         }
         return Self.topGap + Quire.Layout.QuotedToggle.composerChip + Self.quoteGap + measuredHeight + Self.bottomPad
     }
@@ -92,6 +100,14 @@ final class QuotedOriginalView: NSView {
                                    height: role.lineHeight)
     }
 
+    /// Lays the preview out at the current text width and returns its height.
+    private func layOutQuote() -> CGFloat {
+        let size = NSSize(width: textWidth, height: .greatestFiniteMagnitude)
+        if quoteContainer.size != size { quoteContainer.size = size }
+        quoteLayout.ensureLayout(for: quoteContainer)
+        return ceil(quoteLayout.usedRect(for: quoteContainer).height)
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         guard isExpanded else { return }
         let c = Quire.Layout.Composer.self
@@ -99,8 +115,12 @@ final class QuotedOriginalView: NSView {
         let barHeight = max(0, min(measuredHeight, bounds.height - top - Self.bottomPad))
         NSColor.qRule.setFill()
         NSRect(x: c.valueX, y: top, width: Quire.Layout.TextStyle.quoteBar, height: barHeight).fill()
-        quoteText.draw(with: NSRect(x: c.valueX + Quire.Layout.TextStyle.quoteIndent, y: top, width: textWidth, height: measuredHeight),
-                       options: [.usesLineFragmentOrigin])
+        if quoteContainer.size.width != textWidth { _ = layOutQuote() }
+        let origin = NSPoint(x: c.valueX + Quire.Layout.TextStyle.quoteIndent, y: top)
+        let visible = dirtyRect.offsetBy(dx: -origin.x, dy: -origin.y)
+        let glyphs = quoteLayout.glyphRange(forBoundingRect: visible, in: quoteContainer)
+        quoteLayout.drawBackground(forGlyphRange: glyphs, at: origin)
+        quoteLayout.drawGlyphs(forGlyphRange: glyphs, at: origin)
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -145,7 +165,7 @@ final class QuotedOriginalView: NSView {
             text = String(text.prefix(Self.previewLimit)) + "…"
         }
         let header = rendering.header.trimmingCharacters(in: .whitespacesAndNewlines)
-        quoteText = Self.quoteString(header.isEmpty ? text : header + "\n" + text)
+        quoteStorage.setAttributedString(Self.quoteString(header.isEmpty ? text : header + "\n" + text))
         measuredWidth = 0
         chip.isOn = isExpanded
         invalidateIntrinsicContentSize()

@@ -125,6 +125,11 @@ final class AttachmentStripView: NSView {
         revealFocusedChip()
     }
 
+    /// The focused chip's ring follows the window's key state.
+    func windowKeyDidChange() {
+        document.needsDisplay = true
+    }
+
     private func revealFocusedChip() {
         guard chips.indices.contains(focusedIndex) else { return }
         document.scrollToVisible(chips[focusedIndex].frame.insetBy(dx: -Quire.Layout.Composer.stripPadX, dy: 0))

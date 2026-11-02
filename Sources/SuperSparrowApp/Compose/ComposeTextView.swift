@@ -88,11 +88,11 @@ final class ComposeTextView: NSTextView {
         maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         // The document view paints the `sheet`; the editor stays transparent over it.
         drawsBackground = false
+        // No pointing-hand cursor: a click on a link places the caret (§5.20), so the text cursor stays.
         linkTextAttributes = [
             .foregroundColor: NSColor.qAccent,
             .underlineStyle: NSUnderlineStyle.single.rawValue,
             .underlineColor: NSColor.qAccent,
-            .cursor: NSCursor.pointingHand,
         ]
         updateDragTypeRegistration()
     }

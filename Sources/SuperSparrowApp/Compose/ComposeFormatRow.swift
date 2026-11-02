@@ -89,9 +89,6 @@ final class ComposeFormatRow: NSView {
         }
     }
 
-    var firstButton: QuireIconButton? { buttons.first?.button }
-    var lastButton: QuireIconButton? { buttons.last?.button }
-
     @objc private func toggled(_ sender: QuireIconButton) {
         guard let item = buttons.first(where: { $0.button === sender })?.item else { return }
         onToggle?(item)

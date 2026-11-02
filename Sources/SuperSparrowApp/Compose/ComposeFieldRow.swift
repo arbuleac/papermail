@@ -40,6 +40,8 @@ final class ComposeFieldRow: NSView {
         setAccessibilityElement(false)
         if let field = control as? NSControl { field.setAccessibilityLabel(title) }
         control.setAccessibilityLabel(title)
+        // VoiceOver lands on the text being typed, so it names the row too: “To”, not just “Recipients”.
+        (control as? AddressTokenField)?.input.setAccessibilityLabel(title)
         NotificationCenter.default.addObserver(self, selector: #selector(environmentDidChange(_:)),
                                                name: QuireEnvironment.didChangeNotification, object: nil)
     }

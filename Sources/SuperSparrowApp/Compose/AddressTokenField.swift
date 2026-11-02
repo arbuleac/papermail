@@ -126,8 +126,6 @@ final class AddressTokenField: NSView, NSTextFieldDelegate {
         return invalid.isEmpty && (!requireRecipient || !tokens.isEmpty)
     }
 
-    var invalidAddresses: [EmailAddress] { AddressListParser.invalidEntries(in: tokens) }
-
     // MARK: Focus
 
     /// Called by the composer whenever the window's first responder changes.
@@ -171,6 +169,11 @@ final class AddressTokenField: NSView, NSTextFieldDelegate {
         let resigned = super.resignFirstResponder()
         if resigned { document.needsDisplay = true }
         return resigned
+    }
+
+    /// The selected token's ring follows the window's key state.
+    func windowKeyDidChange() {
+        document.needsDisplay = true
     }
 
     func focusInput() {
@@ -395,8 +398,10 @@ final class AddressTokenField: NSView, NSTextFieldDelegate {
                 if index + 1 < tokens.count { selectedIndex = index + 1; scrollCaretLineIntoView() } else { focusInput() }
                 return
             case .delete, .deleteForward:
+                let removed = tokens[index]
                 removeToken(at: index)
                 focusInput()
+                offerUndo(restoring: removed, at: index)
                 return
             case .carriageReturn, .enter, .newline:
                 editToken(at: index)
@@ -434,9 +439,30 @@ final class AddressTokenField: NSView, NSTextFieldDelegate {
 
     @objc func cut(_ sender: Any?) {
         guard let index = selectedIndex else { return }
-        writeToPasteboard(tokens[index])
+        let removed = tokens[index]
+        writeToPasteboard(removed)
         removeToken(at: index)
         focusInput()
+        offerUndo(restoring: removed, at: index)
+    }
+
+    /// Removing a selected token can be undone, as it could in `NSTokenField`, whose tokens were text. The
+    /// undo joins the field editor's typing undo, so ⌘Z takes it while the caret is in this field (§6.1, row 1)
+    /// and it ends with the editing, like the typing does.
+    private func offerUndo(restoring address: EmailAddress, at index: Int) {
+        guard let undoManager = input.currentEditor()?.undoManager else { return }
+        undoManager.registerUndo(withTarget: self) { field in
+            field.insertToken(address, at: index)
+        }
+        undoManager.setActionName("Remove Recipient")
+    }
+
+    private func insertToken(_ address: EmailAddress, at index: Int) {
+        guard !isLocked else { return }
+        tokens.insert(address, at: min(max(0, index), tokens.count))
+        selectedIndex = nil
+        relayout()
+        onChange?()
     }
 
     @objc func paste(_ sender: Any?) {
@@ -512,6 +538,8 @@ final class AddressTokenField: NSView, NSTextFieldDelegate {
 
     func controlTextDidEndEditing(_ obj: Notification) {
         lookupTask?.cancel()
+        // A removed token's undo lives as long as the typing undo of this edit (`offerUndo`).
+        window?.undoManager?.removeAllActions(withTarget: self)
     }
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
@@ -601,8 +629,6 @@ final class AddressTokenField: NSView, NSTextFieldDelegate {
         autocomplete = nil
     }
 
-    var isAutocompleteOpen: Bool { autocomplete != nil }
-
     private func accept(_ suggestion: EmailAddress) {
         closeAutocomplete()
         lookupTask?.cancel()
@@ -646,16 +672,25 @@ final class AddressTokenField: NSView, NSTextFieldDelegate {
 
     // MARK: Accessibility
 
+    /// Reused across queries so VoiceOver keeps its place on a recipient while the field relays out.
+    private var tokenElements: [NSAccessibilityElement] = []
+
     override func accessibilityChildren() -> [Any]? {
         var children: [Any] = []
         let rects = Dictionary(uniqueKeysWithValues: tokenRects().map { ($0.index, $0.rect) })
         let fallback = moreRect() ?? input.frame
-        for index in tokens.indices {
+        while tokenElements.count < tokens.count {
             let element = NSAccessibilityElement()
             element.setAccessibilityRole(.button)
+            tokenElements.append(element)
+        }
+        tokenElements.removeLast(tokenElements.count - tokens.count)
+        for index in tokens.indices {
+            let element = tokenElements[index]
             var label = "\(label(for: index)), \(tokens[index].address)"
             if isInvalid(index) { label += ", invalid address" }
             element.setAccessibilityLabel(label)
+            element.setAccessibilitySelected(selectedIndex == index)
             element.setAccessibilityParent(self)
             let rect = rects[index] ?? fallback
             if let window {

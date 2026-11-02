@@ -49,12 +49,23 @@ final class AddressAutocompleteView: NSView {
         highlightIndex = previous.flatMap { suggestions.firstIndex(of: $0) } ?? 0
         rows.needsDisplay = true
         invalidateIntrinsicContentSize()
+        if highlighted != previous { announceHighlight() }
     }
 
     func moveHighlight(by delta: Int) {
         guard !suggestions.isEmpty else { return }
+        let previous = highlightIndex
         highlightIndex = min(max(0, highlightIndex + delta), suggestions.count - 1)
         rows.needsDisplay = true
+        if highlightIndex != previous { announceHighlight() }
+    }
+
+    /// Focus stays in the recipient being typed, so VoiceOver hears the highlighted suggestion this way.
+    private func announceHighlight() {
+        guard let suggestion = highlighted else { return }
+        let text = [suggestion.name, suggestion.address].compactMap { $0 }.joined(separator: ", ")
+        NSAccessibility.post(element: self, notification: .announcementRequested,
+                             userInfo: [.announcement: text, .priority: NSAccessibilityPriorityLevel.high.rawValue])
     }
 
     override var fittingSize: NSSize {

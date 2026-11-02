@@ -289,6 +289,9 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
                 NotificationCenter.default.addObserver(self, selector: #selector(windowKeyChanged(_:)), name: name, object: window)
             }
         }
+        // Quitting closes windows without asking their delegates, so the last edit is kept here instead.
+        NotificationCenter.default.addObserver(self, selector: #selector(applicationWillTerminate(_:)),
+                                               name: NSApplication.willTerminateNotification, object: nil)
     }
 
     /// The Tab loop (§5.20): From → To → Cc → Bcc → Subject → Body → attachment chips → Send → Attach → Format →
@@ -350,7 +353,10 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     }
 
     @objc private func windowKeyChanged(_ note: Notification) {
+        // Rings show only in the key window (§3.4): the rows', a selected token's and a focused chip's.
         for row in [fromRow, toRow, ccRow, bccRow, subjectRow] { row.needsDisplay = true }
+        for field in [toField, ccField, bccField] { field.windowKeyDidChange() }
+        content.strip.windowKeyDidChange()
         if note.name == NSWindow.didResignKeyNotification {
             for field in [toField, ccField, bccField] { field.closeAutocomplete() }
         }
@@ -435,6 +441,19 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     }
 
     func textViewDidChangeSelection(_ notification: Notification) {
+        updateFormatState()
+    }
+
+    /// Clicking a link in the body places the caret, as anywhere else in text being written; ⌘K on it opens
+    /// the link popover to edit it (§5.20). The text view would otherwise open the address in the browser.
+    func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
+        textView.setSelectedRange(NSRange(location: charIndex, length: 0))
+        return true
+    }
+
+    /// ⌘B, ⌘I or ⌘U at a caret change only the typing attributes, which no text or selection change reports;
+    /// the toggles follow the caret all the same (§5.20, Format row).
+    func textViewDidChangeTypingAttributes(_ notification: Notification) {
         updateFormatState()
     }
 
@@ -645,7 +664,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         sendFailure = draft.sendFailure
         // Everything here is the user's own work, so it is worth keeping as it stands.
         baseline = ComposeDraft.Fingerprint()
-        hasStoredDraft = ComposeDraftStore.shared.draft(id: draft.id, accounts: accounts) != nil
+        hasStoredDraft = ComposeDraftStore.shared.contains(id: draft.id)
         updateTitle()
         updateSendEnabled()
         observeStatus()
@@ -784,19 +803,13 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
             alert.informativeText = "Messages without a subject are easy to miss."
             alert.addButton(withTitle: "Add Subject")
             alert.addButton(withTitle: "Send Anyway").keyEquivalent = ""
-            // Esc goes to Add Subject too (§5.20): a hidden third button carries it, since a button holds one key.
-            let escape = alert.addButton(withTitle: "Add Subject")
-            escape.keyEquivalent = "\u{1b}"
-            alert.layout()
-            escape.isHidden = true
-            alert.beginSheetModal(for: window) { [weak self] response in
-                MainActor.assumeIsolated {
-                    guard let self else { return }
-                    if response == .alertSecondButtonReturn {
-                        self.performSend()
-                    } else {
-                        self.window?.makeFirstResponder(self.subjectField)
-                    }
+            // Add Subject takes ↩ and Esc (§5.20).
+            Self.beginSheet(alert, escapeAnswers: .alertFirstButtonReturn, on: window) { [weak self] response in
+                guard let self else { return }
+                if response == .alertSecondButtonReturn {
+                    self.performSend()
+                } else {
+                    self.window?.makeFirstResponder(self.subjectField)
                 }
             }
             return
@@ -879,22 +892,14 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         updateSendEnabled()
     }
 
-    /// Send is disabled without a valid recipient (§5.23); its tooltip says what to fix. ⌘↩ still validates,
-    /// so it lands on the field to fix.
+    /// Send is disabled without a valid recipient (§5.23); its tooltip says what to fix. Send and ⌘↩ both
+    /// validate, so an invalid address beside a valid one lands on the field to fix instead of sending.
     private func updateSendEnabled() {
         let fields = [toField, ccField, bccField]
-        let invalid = fields.flatMap(\.invalidAddresses)
-        let pending = fields.map(\.pendingText).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-        let hasRecipient = fields.contains { !$0.addresses.isEmpty } || !pending.isEmpty
+        let readiness = ComposeSendReadiness.evaluate(tokens: fields.flatMap(\.addresses), pendingText: fields.map(\.pendingText))
         let button = bar.sendButton
-        if let bad = invalid.first {
-            button.toolTip = "Fix the address \(bad.address)"
-        } else if !hasRecipient {
-            button.toolTip = "Add a recipient"
-        } else {
-            button.toolTip = "Send  ⌘↩"
-        }
-        button.isEnabled = isSending || (!isPrefilling && hasRecipient && invalid.isEmpty)
+        button.toolTip = readiness.tooltip
+        button.isEnabled = isSending || (!isPrefilling && readiness.isEnabled)
     }
 
     // MARK: Discarding
@@ -912,10 +917,34 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         alert.addButton(withTitle: "Keep Writing")
         let discard = alert.addButton(withTitle: "Discard")
         discard.hasDestructiveAction = true
-        alert.beginSheetModal(for: window) { [weak self] response in
+        // Esc cancels (§5.33): it keeps writing.
+        Self.beginSheet(alert, escapeAnswers: .alertFirstButtonReturn, on: window) { [weak self] response in
+            guard response == .alertSecondButtonReturn, let self else { return }
+            self.confirmDiscard()
+        }
+    }
+
+    /// Presents `alert` as a sheet on `window` with Esc answering `escapeAnswers`. NSAlert gives Esc only to a
+    /// button titled “Cancel”, and a button holds one key equivalent (a hidden button's never fires), so the
+    /// sheet's Esc is caught by a local monitor that lives as long as the sheet.
+    private static func beginSheet(_ alert: NSAlert, escapeAnswers response: NSApplication.ModalResponse, on window: NSWindow,
+                                   completion: @escaping @MainActor (NSApplication.ModalResponse) -> Void) {
+        let index = response.rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+        let sheet = alert.window
+        let monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak alert] event in
+            // 53 is Escape.
+            guard event.keyCode == 53 else { return event }
+            let answered = MainActor.assumeIsolated {
+                guard event.window === sheet, let alert, alert.buttons.indices.contains(index) else { return false }
+                alert.buttons[index].performClick(nil)
+                return true
+            }
+            return answered ? nil : event
+        }
+        alert.beginSheetModal(for: window) { answer in
             MainActor.assumeIsolated {
-                guard response == .alertSecondButtonReturn, let self else { return }
-                self.confirmDiscard()
+                if let monitor { NSEvent.removeMonitor(monitor) }
+                completion(answer)
             }
         }
     }
@@ -948,13 +977,27 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         if closesWithoutSaving { return true }
         guard !isSending else { return false }
+        keepDraftNow()
+        return true
+    }
+
+    /// The synchronous save behind closing and quitting: content worth keeping is written before returning,
+    /// a draft that no longer holds anything worth keeping is removed.
+    private func keepDraftNow() {
         autosaveTimer?.invalidate()
         if isWorthKeeping {
             ComposeDraftStore.shared.saveNow(currentDraft())
         } else if hasStoredDraft {
             ComposeDraftStore.shared.remove(id: draftID)
         }
-        return true
+    }
+
+    /// Only a window that is still open saves: a minimized one counts, a closed one already saved or was
+    /// discarded, and must not bring back a draft that has since been sent from a reopened window.
+    @objc private func applicationWillTerminate(_ note: Notification) {
+        guard !closesWithoutSaving, !isSending,
+              ComposeWindowRegistry.shared.openControllers.contains(where: { $0 === self }) else { return }
+        keepDraftNow()
     }
 
     func windowDidEndLiveResize(_ notification: Notification) {
@@ -1006,9 +1049,17 @@ final class ComposeWindow: NSWindow {
     /// Every focus change goes through here (clicks, Tab, code), so the rows can redraw their rings.
     var onFirstResponderChange: (() -> Void)?
 
+    private var responderChangeDepth = 0
+
     override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
+        responderChangeDepth += 1
         let changed = super.makeFirstResponder(responder)
-        onFirstResponderChange?()
+        responderChangeDepth -= 1
+        // A field editor that ends editing makes the window itself first responder for a moment, from inside
+        // the outer call (`endEditingFor:`). Reporting that moment would tell a recipient field it lost focus
+        // while a click or ← is selecting one of its tokens, which drops the selection; only the settled
+        // responder is reported.
+        if responderChangeDepth == 0 { onFirstResponderChange?() }
         return changed
     }
 

@@ -109,11 +109,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
                                                name: ComposeWindowController.draftDiscardedNotification, object: nil)
     }
 
-    /// A composer's Message › Discard Draft… confirms here: “Draft discarded · Undo” (spec §5.20).
+    /// A composer's Message › Discard Draft… confirms here: “Draft discarded · Undo” (spec §5.20). Its Undo is
+    /// a click: ⌘Z here reverts mail actions, so the toast leaves ⌘Z with any undo-send panel still counting.
     @objc private func composeDraftDiscarded(_ note: Notification) {
         let undo = note.userInfo?[ComposeWindowController.draftUndoKey] as? ComposeDraftUndo
         listPane.toast.show("Draft discarded") { undo?.undo() }
-        UndoSendPanel.yieldUndoKey()
     }
 
     required init?(coder: NSCoder) {
