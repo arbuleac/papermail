@@ -27,6 +27,13 @@ final class AttachmentPreviewController: NSObject, @MainActor QLPreviewPanelData
         QLPreviewPanel.sharedPreviewPanelExists() && QLPreviewPanel.shared()?.isVisible == true
     }
 
+    /// Drops a preview still fetching and closes the panel: a double click hands the file to its app instead,
+    /// and the first click's Quick Look must not open over it when its fetch lands.
+    func cancel() {
+        pendingBatch &+= 1
+        closePanel()
+    }
+
     func closePanel() {
         guard isPanelVisible else { return }
         QLPreviewPanel.shared()?.orderOut(nil)
@@ -65,7 +72,8 @@ final class AttachmentPreviewController: NSObject, @MainActor QLPreviewPanelData
         }
     }
 
-    private func file(for attachment: AttachmentInfo, of message: MessageID) async -> URL? {
+    /// The attachment as a file in the session's preview folder, fetched once; nil when the fetch failed.
+    func file(for attachment: AttachmentInfo, of message: MessageID) async -> URL? {
         let key = message.accountID.rawValue + "/" + message.providerID + "/" + attachment.id
         if let existing = files[key], FileManager.default.fileExists(atPath: existing.path) { return existing }
         do {

@@ -340,6 +340,16 @@ final class ConversationShellWebViewTests: XCTestCase {
             try await Task.sleep(nanoseconds: 50_000_000)
         }
         XCTAssertEqual(clicked, payload.messages[2].id)
+
+        // From one body straight into another: the shell hears no blur, so it watches while focus is in a body.
+        _ = try await evaluate("document.querySelectorAll('.ss-card iframe')[0].focus()", in: webView)
+        var next: String?
+        for _ in 0..<20 {
+            next = try await evaluate("window.ss.selectedMessageID()", in: webView) as? String
+            if next == payload.messages[1].id { break }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        XCTAssertEqual(next, payload.messages[1].id)
     }
 
     /// Plain and unstyled bodies are set on the Quire reading page; styled ones keep their own design (§8.4).
@@ -410,7 +420,7 @@ final class ConversationShellWebViewTests: XCTestCase {
 
     /// A chip whose file could not be fetched says so and offers the retry (spec §5.17); opening it again clears it.
     func testAFailedAttachmentChipOffersRetry() async throws {
-        let (webView, _) = try await loadedShell()
+        let (webView, handler) = try await loadedShell()
         typealias F = ConversationFixtures
         let message = F.message("m1")
         let file = AttachmentInfo(id: "att-1", filename: "plan.pdf", mimeType: "application/pdf", sizeBytes: 240_000, isInline: false)
@@ -425,6 +435,20 @@ final class ConversationShellWebViewTests: XCTestCase {
         XCTAssertEqual(failed, 0)
         let rest = try await evaluate("document.querySelector('.ss-chip .ss-rest-meta').textContent", in: webView) as? String
         XCTAssertEqual(rest, "PDF \u{00b7} 240 KB")
+
+        // Double click opens with the default app and the context menu is the app's (spec §5.17).
+        _ = try await evaluate("""
+            var chip = document.querySelector('.ss-chip');
+            chip.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+            chip.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 50 }));
+            """, in: webView)
+        for _ in 0..<20 where !handler.received.contains(where: { ($0["type"] as? String) == "attachmentMenu" }) {
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTAssertTrue(handler.received.contains { ($0["type"] as? String) == "openAttachmentWithApp" && ($0["attachmentID"] as? String) == "att-1" })
+        let menu = handler.received.first { ($0["type"] as? String) == "attachmentMenu" }
+        XCTAssertEqual(menu?["attachmentID"] as? String, "att-1")
+        XCTAssertEqual((menu?["x"] as? NSNumber)?.doubleValue, 40)
     }
 
     /// The bottom inset pads the conversation by the quick reply's height + 12, the frame never moves (§8.4).

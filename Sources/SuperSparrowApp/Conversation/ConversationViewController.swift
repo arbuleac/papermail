@@ -58,6 +58,9 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     private let quickReply = QuickReplyView()
     private let emptyState = QuireEmptyStateView(sentence: "No conversation selected")
     private lazy var moreMenu = MessageMoreMenu { [weak self] command in self?.performMore(command) }
+    /// The chip a context menu was opened for: its commands act on it.
+    private var menuAttachment: (message: MessageID, attachment: String)?
+    private lazy var attachmentMenu = AttachmentMenu { [weak self] command in self?.performAttachment(command) }
 
     private var observation: StoreObservation?
     private var statusObservation: StoreObservation?
@@ -818,6 +821,16 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             case "forward": onAction?(.forward(messageID))
             case "openAttachment":
                 if let attachmentID { openAttachment(id: attachmentID, of: messageID) }
+            case "openAttachmentWithApp":
+                // A double click: the first click's Quick Look gives way to the default app (spec §5.17).
+                if let attachmentID {
+                    preview.cancel()
+                    performAttachment(.open, attachmentID, of: messageID)
+                }
+            case "attachmentMenu":
+                guard let attachmentID else { return }
+                menuAttachment = (messageID, attachmentID)
+                attachmentMenu.menu().popUp(positioning: nil, at: point ?? .zero, in: slot.webView)
             case "star":
                 performOnMessage(.setStarred(on ?? true), messageID)
             case "more":
@@ -993,6 +1006,82 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             let opened = await self.preview.preview(info, of: messageID, siblings: siblings)
             if !opened { self.setAttachmentFailed(true, info.id, of: messageID) }
         }
+    }
+
+    private func performAttachment(_ command: AttachmentMenu.Command) {
+        guard let target = menuAttachment else { return }
+        performAttachment(command, target.attachment, of: target.message)
+    }
+
+    /// The chip's commands (spec §5.17). Each one fetches the file first, once per session; a failed fetch marks
+    /// the chip, as a failed Quick Look does.
+    private func performAttachment(_ command: AttachmentMenu.Command, _ attachmentID: String, of messageID: MessageID) {
+        guard let info = attachments(of: messageID).first(where: { $0.id == attachmentID }) else { return }
+        if command == .quickLook {
+            openAttachment(info, of: messageID)
+            return
+        }
+        setAttachmentFailed(false, info.id, of: messageID)
+        let window = view.window
+        Task { [weak self] in
+            guard let self else { return }
+            guard let file = await self.preview.file(for: info, of: messageID) else {
+                self.setAttachmentFailed(true, info.id, of: messageID)
+                return
+            }
+            switch command {
+            case .quickLook:
+                break
+            case .open:
+                NSWorkspace.shared.open(file)
+            case .saveToDownloads:
+                guard let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first else { return }
+                if let saved = Self.copy(file, into: downloads) {
+                    NSWorkspace.shared.activateFileViewerSelecting([saved])
+                } else {
+                    NSSound.beep()
+                }
+            case .saveAs:
+                let panel = NSSavePanel()
+                panel.nameFieldStringValue = file.lastPathComponent
+                let save: (NSApplication.ModalResponse) -> Void = { response in
+                    guard response == .OK, let destination = panel.url else { return }
+                    do {
+                        if FileManager.default.fileExists(atPath: destination.path) {
+                            try FileManager.default.removeItem(at: destination)
+                        }
+                        try FileManager.default.copyItem(at: file, to: destination)
+                    } catch {
+                        ConversationSignposts.log.error("saving an attachment failed: \(String(describing: error), privacy: .public)")
+                        NSSound.beep()
+                    }
+                }
+                if let window { panel.beginSheetModal(for: window, completionHandler: save) } else { save(panel.runModal()) }
+            case .copy:
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.writeObjects([file as NSURL])
+            }
+        }
+    }
+
+    /// Copies `file` into `folder` under its own name, numbered like the Finder ("plan 2.pdf") when taken.
+    private static func copy(_ file: URL, into folder: URL) -> URL? {
+        let manager = FileManager.default
+        let base = file.deletingPathExtension().lastPathComponent
+        let ext = file.pathExtension
+        for index in 1...999 {
+            let name = index == 1 ? file.lastPathComponent : base + " \(index)" + (ext.isEmpty ? "" : "." + ext)
+            let destination = folder.appendingPathComponent(name)
+            guard !manager.fileExists(atPath: destination.path) else { continue }
+            do {
+                try manager.copyItem(at: file, to: destination)
+                return destination
+            } catch {
+                ConversationSignposts.log.error("saving an attachment failed: \(String(describing: error), privacy: .public)")
+                return nil
+            }
+        }
+        return nil
     }
 
     /// "Couldn't download · Retry" on the chip (spec §5.17); opening it again is the retry.

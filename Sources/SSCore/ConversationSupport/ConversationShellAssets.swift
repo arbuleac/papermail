@@ -416,6 +416,8 @@ public enum ConversationShellAssets {
     body {
       font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif;
       overflow-wrap: break-word; word-wrap: break-word;
+      /* The shell's own text is set this way; without it a body's light-on-dark text renders a weight heavier. */
+      -webkit-font-smoothing: antialiased;
     }
     img { max-width: 100%; height: auto; }
     pre { white-space: pre-wrap; }
@@ -480,6 +482,7 @@ public enum ConversationShellAssets {
       var SKELETON_HEIGHT = 58;
       var MOVE_MS = 180;
       var IMAGE_POLL_MS = 250;
+      var FOCUS_WATCH_MS = 300;
       var IMAGE_LOAD_TIMEOUT = 20000;
       // Bodies whose images are not loaded render under this policy: nothing remote is fetched, whatever
       // the stored HTML holds (a body stored while the preference was on keeps live remote sources).
@@ -1234,6 +1237,18 @@ public enum ConversationShellAssets {
         chip.addEventListener('focus', function () {
           post('ss', { kind: 'focusAttachment', messageID: card.message.id, attachmentID: attachment.id });
         });
+        // Double click opens with the default app; the context menu is the app's system menu (spec §5.17).
+        chip.addEventListener('dblclick', function (event) {
+          stop(event);
+          action('openAttachmentWithApp', card, attachment.id);
+        });
+        chip.addEventListener('contextmenu', function (event) {
+          event.preventDefault();
+          stop(event);
+          setTarget(card, true);
+          post('ss', { kind: 'action', type: 'attachmentMenu', messageID: card.message.id, attachmentID: attachment.id,
+                       x: event.clientX, y: event.clientY });
+        });
         return chip;
       }
 
@@ -1896,13 +1911,22 @@ public enum ConversationShellAssets {
       document.addEventListener('keydown', function () { keyboardNav = true; }, true);
       // A click (or Tab) into a body moves focus into its frame and away from the shell. Listeners inside the
       // sandboxed body never run, so this is how the click makes that message the target (spec §5.14).
+      // Focus can also move from one body straight into another, which the shell hears nothing of: while it is
+      // inside a body the shell looks again every FOCUS_WATCH_MS, and stops once it has left.
+      var focusWatch = null;
       function frameFocused() {
         var active = document.activeElement;
-        if (!active || active.tagName !== 'IFRAME') { return; }
+        if (!active || active.tagName !== 'IFRAME') {
+          if (focusWatch) { clearInterval(focusWatch); focusWatch = null; }
+          return;
+        }
+        if (!focusWatch) { focusWatch = setInterval(frameFocused, FOCUS_WATCH_MS); }
         for (var i = 0; i < state.cards.length; i++) {
-          if (state.cards[i].iframe === active) {
+          var card = state.cards[i];
+          if (card.iframe === active) {
+            if (state.target === card) { return; }
             if (!keyboardNav) { clearFocusRing(); }
-            setTarget(state.cards[i], true);
+            setTarget(card, true);
             return;
           }
         }
