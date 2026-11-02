@@ -273,7 +273,8 @@ final class ListPaneViewController: NSViewController {
     }
 
     /// The pane's key views in Tab order: masthead, Demo tag, compose, tabs, search, the list, the sync line's
-    /// action (only while it carries one) and the sync line itself (Full Keyboard Access only).
+    /// action (only while it carries one), the sync line itself and a toast's action (both with Full Keyboard
+    /// Access only; the window drops views that cannot take focus).
     var keyViews: [NSView] {
         var views: [NSView] = [header.masthead]
         if !header.demoTag.isHidden { views.append(header.demoTag) }
@@ -283,6 +284,7 @@ final class ListPaneViewController: NSViewController {
         if let table = Self.firstTable(in: list.view) { views.append(table) }
         if !statusBar.actionButton.isHidden { views.append(statusBar.actionButton) }
         views.append(statusBar)
+        if let action = toastView.slip?.actionButton { views.append(action) }
         return views
     }
 
