@@ -244,3 +244,14 @@ final class AccountStripButton: QuireControl {
         }
     }
 }
+
+extension AccountStripButton: ShellKeyHandling {
+    /// ↑/↓ move within the rail and ↩ chooses, so the list's own ↑/↓/↩ must wait (§5.2).
+    func handlesKey(_ event: NSEvent) -> Bool {
+        guard content != .pending, event.modifierFlags.intersection([.command, .control, .option]).isEmpty else { return false }
+        switch event.specialKey {
+        case .upArrow?, .downArrow?, .carriageReturn?, .enter?: return true
+        default: return false
+        }
+    }
+}

@@ -175,6 +175,11 @@ final class ComponentStateTests: XCTestCase {
         XCTAssertEqual(search.resultsText, "38 results")
         search.resultCount = 1
         XCTAssertEqual(search.resultsText, "1 result")
+        search.resultCount = 200
+        search.resultCountIsLowerBound = true
+        XCTAssertEqual(search.resultsText, "200+ results", "a full first page says more exist")
+        search.resultCountIsLowerBound = false
+        search.resultCount = 1
         var spoken: [String] = []
         QuireAccessibility.observer = { _, text in if let text { spoken.append(text) } }
         search.announceResults()

@@ -62,6 +62,10 @@ final class MastheadButton: QuireControl {
         }
     }
 
+    override func keyDown(with event: NSEvent) {
+        if handlesKey(event) { activate() } else { super.keyDown(with: event) }
+    }
+
     override func accessibilityRole() -> NSAccessibility.Role? { .menuButton }
 }
 
@@ -120,5 +124,19 @@ final class DemoTagButton: QuireControl {
         }
     }
 
+    override func keyDown(with event: NSEvent) {
+        if handlesKey(event) { activate() } else { super.keyDown(with: event) }
+    }
+
     override func accessibilityRole() -> NSAccessibility.Role? { .menuButton }
+}
+
+/// ↩ opens the focused menu button's menu, as Space does; otherwise the router would open the selected
+/// conversation from behind the masthead.
+extension MastheadButton: ShellKeyHandling {
+    func handlesKey(_ event: NSEvent) -> Bool { isEnabled && event.isPlainReturn }
+}
+
+extension DemoTagButton: ShellKeyHandling {
+    func handlesKey(_ event: NSEvent) -> Bool { isEnabled && event.isPlainReturn }
 }

@@ -37,6 +37,9 @@ final class SyncActivityMonitor {
         pollTimer = Timer.scheduledTimer(withTimeInterval: Self.sendPollInterval, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.pollSends() }
         }
+        // The store has no observation for sends, so this ticks for the window's life; the slack lets macOS
+        // coalesce it with other wake-ups.
+        pollTimer?.tolerance = Self.sendPollInterval / 4
     }
 
     func stop() {

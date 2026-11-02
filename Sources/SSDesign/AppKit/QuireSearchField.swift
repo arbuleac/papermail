@@ -33,9 +33,16 @@ public final class QuireSearchField: QuireControl, NSTextFieldDelegate {
         }
     }
 
-    /// The count in words (“38 results”, “1 result”); nil while no results show.
+    /// True when `resultCount` is only how many the list has read so far and more exist (“200+ results”), so the
+    /// count does not grow as the user scrolls the next pages in.
+    public var resultCountIsLowerBound = false {
+        didSet { if oldValue != resultCountIsLowerBound { contentDidChange() } }
+    }
+
+    /// The count in words (“38 results”, “1 result”, “200+ results”); nil while no results show.
     public var resultsText: String? {
         guard showsResults, let count = resultCount else { return nil }
+        if resultCountIsLowerBound { return "\(QuireDraw.grouped(count))+ results" }
         return count == 1 ? "1 result" : "\(QuireDraw.grouped(count)) results"
     }
 

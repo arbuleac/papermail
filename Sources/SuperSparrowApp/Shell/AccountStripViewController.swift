@@ -49,7 +49,6 @@ final class AccountStripViewController: NSViewController {
     private var unreadByAccount: [AccountID: Int] = [:]
     private var statusByAccount: [AccountID: AccountStripButton.Status] = [:]
     private var reconnectingID: AccountID?
-    private var isAddingAccount = false
 
     override func loadView() {
         railView.wantsLayer = true
@@ -189,12 +188,11 @@ final class AccountStripViewController: NSViewController {
     }
 
     /// A browser sign-in is waiting (§5.44): adding shows the pending tile at the end of the stack;
-    /// reconnecting keeps the account's attention badge and changes its tooltip. Add is disabled meanwhile,
-    /// because only one sign-in runs at a time.
-    func setSignIn(adding: Bool, reconnecting: AccountID?) {
-        isAddingAccount = adding
+    /// reconnecting keeps the account's attention badge and changes its tooltip. Add is disabled while any
+    /// sign-in runs, wherever it started (Settings and the File menu too), because only one runs at a time.
+    func setSignIn(active: Bool, adding: Bool, reconnecting: AccountID?) {
         reconnectingID = reconnecting
-        addButton.isEnabled = !adding && reconnecting == nil
+        addButton.isEnabled = !active
         if adding, pendingTile == nil {
             let tile = AccountStripButton(content: .pending)
             tile.toolTip = "Finish signing in in your browser…"

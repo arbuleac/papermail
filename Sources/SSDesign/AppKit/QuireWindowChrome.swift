@@ -104,21 +104,4 @@ public enum QuireWindowChrome {
     public nonisolated static func listMaxWidth(windowWidth: CGFloat, railWidth: CGFloat) -> CGFloat {
         min(Quire.Layout.List.maxWidth, max(Quire.Layout.List.minWidth, windowWidth - railWidth - Quire.Layout.Window.readerMinWidth))
     }
-
-    // MARK: Title-bar double-click
-
-    /// Performs the system's title-bar double-click action (System Settings › Desktop & Dock, “Double-click a
-    /// window's title bar to”): zoom, minimise or nothing. Views that draw the title-bar zone themselves call it,
-    /// because a double-click on content under a transparent title bar is theirs to answer.
-    public static func performTitlebarDoubleClick(in window: NSWindow?) {
-        guard let window else { return }
-        let defaults = UserDefaults.standard
-        let action = defaults.string(forKey: "AppleActionOnDoubleClick")
-            ?? (defaults.bool(forKey: "AppleMiniaturizeOnDoubleClick") ? "Minimize" : "Maximize")
-        switch action {
-        case "Minimize": window.performMiniaturize(nil)
-        case "None": break
-        default: window.performZoom(nil)
-        }
-    }
 }

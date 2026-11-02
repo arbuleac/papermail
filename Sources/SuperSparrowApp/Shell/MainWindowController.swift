@@ -68,6 +68,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     private var signInEndedAt: Date?
     private var reconnectedAccount: AccountID?
     private var checkStartedAt: Date?
+    /// The one account a reconnect's check waits for; nil when the user asked to check every account.
+    private var checkScope: AccountID?
     private var checkTimer: Timer?
     private var acknowledgeTimer: Timer?
 
@@ -319,14 +321,18 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     private func statusesChanged(_ statuses: [AccountSyncStatus]) {
         self.statuses = statuses
         refreshAccounts()
-        if let id = reconnectedAccount, let status = statuses.first(where: { $0.accountID == id }), status.phase != .needsReauth {
-            // No toast: the badge leaving is the confirmation; VoiceOver hears it in words (§5.44).
-            reconnectedAccount = nil
-            if let account = accountsByID[id] {
-                announce("\(AccountMonogram.name(for: account)) reconnected.")
-            }
-        }
+        announceReconnectIfDone()
         refreshSyncLine()
+    }
+
+    /// No toast for a reconnect: the badge leaving is the confirmation, and VoiceOver hears it in words (§5.44).
+    private func announceReconnectIfDone() {
+        guard let id = reconnectedAccount, let status = statuses.first(where: { $0.accountID == id }),
+              status.phase != .needsReauth else { return }
+        reconnectedAccount = nil
+        if let account = accountsByID[id] {
+            announce("\(AccountMonogram.name(for: account)) reconnected.")
+        }
     }
 
     /// The statuses the rail and the sync line draw from.
@@ -352,9 +358,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             pendingSignIn = nil
             signInEndedAt = Date()
             if case .reconnecting(let id) = ended {
-                // A finished reconnect checks for mail, a check the user asked for (§5.11).
+                // A finished reconnect checks that account for mail, a check the user asked for (§5.11).
                 reconnectedAccount = id
-                startCheck()
+                startCheck(onlyFor: id)
             }
         }
         applySignInState()
@@ -362,10 +368,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
     private func applySignInState() {
         switch pendingSignIn {
-        case .adding?: strip.setSignIn(adding: true, reconnecting: nil)
-        case .reconnecting(let id)?: strip.setSignIn(adding: false, reconnecting: id)
-        case .other?: strip.setSignIn(adding: false, reconnecting: nil)
-        case nil: strip.setSignIn(adding: false, reconnecting: nil)
+        case .adding?: strip.setSignIn(active: true, adding: true, reconnecting: nil)
+        case .reconnecting(let id)?: strip.setSignIn(active: true, adding: false, reconnecting: id)
+        case .other?: strip.setSignIn(active: true, adding: false, reconnecting: nil)
+        case nil: strip.setSignIn(active: false, adding: false, reconnecting: nil)
         }
         listPane.statusBar.actionsEnabled = pendingSignIn == nil
         refreshSyncLine()
@@ -432,8 +438,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         startCheck()
     }
 
-    private func startCheck() {
+    private func startCheck(onlyFor account: AccountID? = nil) {
         checkStartedAt = Date()
+        checkScope = account
         checkTimer?.invalidate()
         checkTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] timer in
             MainActor.assumeIsolated {
@@ -442,6 +449,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
                     timer.invalidate()
                     self.checkTimer = nil
                     self.checkStartedAt = nil
+                    self.checkScope = nil
+                    self.announceReconnectIfDone()
                     self.reconnectedAccount = nil
                 }
                 self.refreshSyncLine()
@@ -450,9 +459,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     }
 
     /// The check has not finished: some working account has not synced since it started, and 30 s have not
-    /// passed.
+    /// passed. A reconnect's check waits only for that account, which may still read “needs sign-in” until the
+    /// engine takes the new tokens (a cancelled reconnect keeps it so, under the line's Sign in required).
     private var isCheckPending: Bool {
         guard let started = checkStartedAt, Date().timeIntervalSince(started) < 30 else { return false }
+        if let scope = checkScope {
+            guard let status = statuses.first(where: { $0.accountID == scope }), status.phase != .error else { return false }
+            return status.phase == .needsReauth || status.phase == .syncing || (status.lastSuccessfulSyncAt ?? .distantPast) < started
+        }
         let working = statuses.filter { $0.phase != .needsReauth && $0.phase != .error }
         return working.contains { ($0.lastSuccessfulSyncAt ?? .distantPast) < started || $0.phase == .syncing }
     }
@@ -652,6 +666,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     }
 
     func perform(_ command: KeyCommand) -> Bool {
+        // The router sees every key first; ↑/↓ and ↩ on a focused rail tile, sync line or menu button are that
+        // control's own (§5.2, §5.11), so they go on to it instead of moving or opening the list.
+        if focusedControlTakesCurrentKey { return false }
         switch command {
         case .next:
             list.selectNext()
@@ -695,6 +712,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             setView(view)
             return true
         }
+    }
+
+    private var focusedControlTakesCurrentKey: Bool {
+        guard let event = NSApp.currentEvent, event.type == .keyDown,
+              let control = window?.firstResponder as? ShellKeyHandling else { return false }
+        return control.handlesKey(event)
     }
 
     /// Esc outside a text field, by the precedence of §6.1: a visible toast goes first (its undo keeps working

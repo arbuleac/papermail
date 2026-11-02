@@ -21,6 +21,7 @@ final class SyncStatusBar: QuireControl {
     var onAction: ((SyncLineSummary.Action) -> Void)?
 
     private(set) var summary = SyncLineSummary(state: .upToDate, glyph: .upToDate, lead: "Up to date")
+    private var hasApplied = false
 
     /// Reconnect and Retry wait while another sign-in runs (§5.44); Cancel never does.
     var actionsEnabled = true { didSet { updateAction() } }
@@ -85,6 +86,9 @@ final class SyncStatusBar: QuireControl {
     // MARK: State
 
     func apply(_ summary: SyncLineSummary) {
+        // Every status update and the check's 250 ms tick re-apply; an unchanged line neither lays out nor draws.
+        guard summary != self.summary || !hasApplied else { return }
+        hasApplied = true
         let changedSpinner = (summary.glyph == .spinner) != (self.summary.glyph == .spinner)
         self.summary = summary
         toolTip = summary.tooltip
@@ -131,7 +135,7 @@ final class SyncStatusBar: QuireControl {
     }
 
     override func keyDown(with event: NSEvent) {
-        if event.specialKey == .carriageReturn || event.specialKey == .enter {
+        if event.isPlainReturn {
             activate()
             return
         }
@@ -213,6 +217,15 @@ final class SyncLineActionButton: QuireControl {
 
     override var mouseDownCanMoveWindow: Bool { false }
 
+    /// Tab lands on the link and ↩ runs it (§5.11), as Space does.
+    override func keyDown(with event: NSEvent) {
+        if isEnabled, event.isPlainReturn {
+            activate()
+            return
+        }
+        super.keyDown(with: event)
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         let face = faceRect
         let state = interactionState
@@ -233,4 +246,14 @@ final class SyncLineActionButton: QuireControl {
 
     override func accessibilityRole() -> NSAccessibility.Role? { .button }
     override func accessibilityLabel() -> String? { super.accessibilityLabel() ?? title }
+}
+
+extension SyncStatusBar: ShellKeyHandling {
+    /// ↩ opens Settings › Accounts from the focused line (§5.11).
+    func handlesKey(_ event: NSEvent) -> Bool { event.isPlainReturn }
+}
+
+extension SyncLineActionButton: ShellKeyHandling {
+    /// ↩ runs the focused link: Reconnect, Retry or Cancel (§5.11).
+    func handlesKey(_ event: NSEvent) -> Bool { isEnabled && event.isPlainReturn }
 }

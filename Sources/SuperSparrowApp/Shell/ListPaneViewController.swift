@@ -37,7 +37,6 @@ final class ListPaneViewController: NSViewController {
     private var searchTimer: Timer?
     private var mailboxView: MailboxView = .inbox
     private var isNarrowed = false
-    private var awaitingResults = false
 
     init(list: MessageListViewController) {
         self.list = list
@@ -151,7 +150,6 @@ final class ListPaneViewController: NSViewController {
     func clearSearch(notify: Bool = true) {
         searchTimer?.invalidate()
         searchTimer = nil
-        awaitingResults = false
         header.search.isSearching = false
         header.search.resultCount = nil
         guard !header.search.query.isEmpty else {
@@ -163,7 +161,8 @@ final class ListPaneViewController: NSViewController {
         if notify { onSearchChange?("") }
     }
 
-    /// The list has rows for the current query: the count shows and the spinner stops.
+    /// The list has rows for the current query: the count shows and the spinner stops. The list reads results a
+    /// page at a time, so a full first page is a floor (“200+ results”) that stays put while later pages load.
     func listRowsDidChange() {
         guard !header.search.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             header.search.resultCount = nil
@@ -171,9 +170,11 @@ final class ListPaneViewController: NSViewController {
             return
         }
         guard searchTimer == nil else { return }
-        awaitingResults = false
         header.search.isSearching = false
-        header.search.resultCount = list.conversations.count
+        let count = list.conversations.count
+        let page = list.query.limit
+        header.search.resultCountIsLowerBound = count >= page
+        header.search.resultCount = min(count, page)
     }
 
     private func queryChanged() {
@@ -189,7 +190,6 @@ final class ListPaneViewController: NSViewController {
         searchTimer = nil
         let query = header.search.query
         let searching = !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        awaitingResults = searching
         // The field's spinner shows only once the first page has taken more than 150 ms (its own delay).
         header.search.isSearching = searching
         if !searching { header.search.resultCount = nil }
