@@ -55,10 +55,12 @@ enum AppSnapshots {
         render(controller, steps: steps, completion: completion)
     }
 
-    /// The Accounts and OAuth states of §5.40 that demo mode can show.
+    /// The Accounts and OAuth states of §5.40 that demo mode can show. The OAuth fields are put back before the
+    /// window closes; nothing here saves.
     static func renderSettingsStates(_ controller: SettingsWindowController, completion: @escaping (NSBitmapImageRep?) -> Void) {
         let model = controller.model
         let accounts = model.accounts
+        let original = model.oauth
         let steps: [() -> Void] = [
             { model.tab = .accounts; model.pendingSignIn = .gmail },
             { model.pendingSignIn = nil; model.accountsNotice = .addFailed(kind: .gmail, reason: "Google refused the sign-in. Check the client ID.") },
@@ -67,8 +69,15 @@ enum AppSnapshots {
             { model.setAccounts(accounts); model.tab = .oauth; model.oauthNotice = .needsClient(.gmail) },
             { model.oauthNotice = .unreadable(reason: "The file isn't valid JSON.") },
             { model.oauthNotice = .saveFailed(reason: "The disk is full.") },
+            // A validation line under its field, with Save enabled by the edit.
+            { model.oauthNotice = nil; model.oauth.googleClientID = "1084-ab3f9kq2" },
+            // “Saved” beside Save.
+            { model.oauth = original; model.showSavedForSnapshot() },
         ]
-        render(controller, steps: steps, completion: completion)
+        render(controller, steps: steps) { bitmap in
+            model.oauth = original
+            completion(bitmap)
+        }
     }
 
     private static func render(_ controller: SettingsWindowController, steps: [() -> Void],

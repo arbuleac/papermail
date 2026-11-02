@@ -15,11 +15,13 @@ enum AddAccountMenu {
         return menu
     }
 
-    /// Opens the menu under `button`, leading-aligned, `rail.addMenuOffsetY` below it.
+    /// Opens the menu under `button`, leading-aligned, `rail.addMenuOffsetY` below it. Measured from the visible
+    /// face: Quire controls keep their focus-ring margin outside it (`alignmentRectInsets`).
     static func popUp(below button: NSView, target: AnyObject? = nil) {
         let menu = make(target: target)
         let offset = Quire.Layout.Rail.addMenuOffsetY
-        let point = button.isFlipped ? NSPoint(x: 0, y: button.bounds.maxY + offset) : NSPoint(x: 0, y: -offset)
-        menu.popUp(positioning: nil, at: point, in: button)
+        let insets = button.alignmentRectInsets
+        let y = button.isFlipped ? button.bounds.maxY - insets.bottom + offset : button.bounds.minY + insets.bottom - offset
+        menu.popUp(positioning: nil, at: NSPoint(x: button.bounds.minX + insets.left, y: y), in: button)
     }
 }

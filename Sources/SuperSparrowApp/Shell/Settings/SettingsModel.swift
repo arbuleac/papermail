@@ -202,6 +202,11 @@ final class SettingsModel: ObservableObject {
         }
     }
 
+    /// `--snapshot-settings-states` only: shows “Saved” beside Save without writing the user's file.
+    func showSavedForSnapshot() {
+        oauthSaved = true
+    }
+
     static func googleClientIDError(_ value: String) -> String? {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !trimmed.hasSuffix(".apps.googleusercontent.com") else { return nil }
