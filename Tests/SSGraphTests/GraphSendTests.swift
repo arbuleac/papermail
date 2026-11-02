@@ -153,6 +153,19 @@ final class GraphSendTests: GraphTestCase {
         XCTAssertEqual(requests.map(\.path), ["/v1.0/me/sendMail"])
     }
 
+    func testForwardIsSentFreshNotThroughCreateReply() async throws {
+        // createReply would thread the forward under the original for the recipient and mark the original
+        // "You replied"; a forward starts a new conversation.
+        route { request in request.method == "POST" && request.path == "/v1.0/me/sendMail" ? .status(202) : nil }
+        var forward = message
+        forward.inReplyTo = MessageID(accountID: accountID, providerID: "ORIG")
+        forward.isForward = true
+
+        _ = try await makeProvider().send(forward)
+
+        XCTAssertEqual(requests.map { "\($0.method) \($0.path)" }, ["POST /v1.0/me/sendMail"])
+    }
+
     func testCoversOriginalCCRules() throws {
         let original = try GraphJSON.decode(GraphMessage.self, from: Data(Fixtures.original(id: "ORIG", conversation: "C", cc: ["Carol@Example.com"]).utf8))
         var outgoing = message

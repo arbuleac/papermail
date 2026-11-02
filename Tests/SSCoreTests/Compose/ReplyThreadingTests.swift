@@ -31,6 +31,11 @@ final class ReplyThreadingTests: XCTestCase {
         XCTAssertEqual(threading.references, ["<root@example.com>", "<orig@example.com>"])
     }
 
+    func testForwardIsMarkedSoProvidersDoNotSendItAsAReply() {
+        XCTAssertTrue(ReplyThreading(original: original, isReply: false).isForward)
+        XCTAssertFalse(ReplyThreading(original: original, isReply: true).isForward)
+    }
+
     func testHeadersApplyOnlyFromTheOwningAccount() {
         // Switching From to another account must not forget the headers (an undone send reopens with the
         // chosen account), but that account cannot use them, so they are withheld there and only there.

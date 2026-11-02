@@ -4,9 +4,11 @@ import SSCore
 extension GraphProvider {
     /// New messages go through `/me/sendMail` in one call when they fit its request limit, otherwise through
     /// a draft. Replies are created server side from the original so Outlook threads them, then patched with
-    /// the composer's content and sent.
+    /// the composer's content and sent. Forwards are sent fresh: createReply would make them answers to the
+    /// original, and createForward would attach the original's files a second time beside the ones the
+    /// composer already carries.
     public func send(_ message: OutgoingMessage) async throws -> SendReceipt {
-        if let original = message.inReplyTo, original.accountID == accountID,
+        if let original = message.inReplyTo, original.accountID == accountID, !message.isForward,
            let receipt = try await sendReply(message, to: original.providerID) {
             return receipt
         }

@@ -499,6 +499,25 @@ final class GmailProviderTests: XCTestCase {
         XCTAssertTrue(mime.contains("References: <root@example.com> <m0@example.com> <m1@example.com>\r\n"))
     }
 
+    func testForwardDoesNotClaimToAnswerTheOriginal() async throws {
+        server.on("GET", "/users/me/profile", .json(GmailFixtures.profile))
+        server.on("GET", "/users/me/messages/m1", .json(GmailFixtures.metadataM1))
+        server.on("POST", "/users/me/messages/send", .json(GmailFixtures.sendResponse))
+        let provider = TestSupport.makeProvider()
+        var outgoing = OutgoingMessage(
+            accountID: TestSupport.accountID, to: [EmailAddress(address: "x@example.com")], subject: "Fwd: Hi", html: "<p>Fwd</p>", text: "Fwd",
+            inReplyTo: MessageID(accountID: TestSupport.accountID, providerID: "m1")
+        )
+        outgoing.isForward = true
+
+        _ = try await provider.send(outgoing)
+
+        let send = try XCTUnwrap(server.requests(to: "/users/me/messages/send").first)
+        let raw = try XCTUnwrap(send.jsonBody["raw"] as? String)
+        let mime = String(decoding: try XCTUnwrap(Base64URL.decode(raw)), as: UTF8.self)
+        XCTAssertFalse(mime.contains("In-Reply-To:"), "a forward is not an answer to the original")
+    }
+
     // MARK: Search
 
     func testSearchPassesQueryAndReturnsIDsInOrder() async throws {

@@ -61,6 +61,7 @@ struct ComposeDraft {
             inReplyTo: threading?.inReplyTo,
             inReplyToInternetMessageID: threading?.inReplyToInternetMessageID,
             references: threading?.references ?? [],
+            isForward: threading?.isForward ?? false,
             attachments: loadedAttachments
         )
     }

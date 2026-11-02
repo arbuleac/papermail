@@ -29,6 +29,9 @@ public struct OutgoingMessage: Hashable, Codable, Sendable {
     public var inReplyTo: MessageID?
     public var inReplyToInternetMessageID: String?
     public var references: [String]
+    /// A forward names its original in `inReplyTo` so providers can find its parts and thread, but it does
+    /// not answer it: no In-Reply-To, no server-side reply draft.
+    public var isForward: Bool
     public var attachments: [OutgoingAttachment]
 
     public init(
@@ -42,6 +45,7 @@ public struct OutgoingMessage: Hashable, Codable, Sendable {
         inReplyTo: MessageID? = nil,
         inReplyToInternetMessageID: String? = nil,
         references: [String] = [],
+        isForward: Bool = false,
         attachments: [OutgoingAttachment] = []
     ) {
         self.accountID = accountID
@@ -54,7 +58,25 @@ public struct OutgoingMessage: Hashable, Codable, Sendable {
         self.inReplyTo = inReplyTo
         self.inReplyToInternetMessageID = inReplyToInternetMessageID
         self.references = references
+        self.isForward = isForward
         self.attachments = attachments
+    }
+
+    /// Pending sends are stored as JSON; rows written before `isForward` existed decode as replies.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        accountID = try container.decode(AccountID.self, forKey: .accountID)
+        to = try container.decode([EmailAddress].self, forKey: .to)
+        cc = try container.decode([EmailAddress].self, forKey: .cc)
+        bcc = try container.decode([EmailAddress].self, forKey: .bcc)
+        subject = try container.decode(String.self, forKey: .subject)
+        html = try container.decode(String.self, forKey: .html)
+        text = try container.decode(String.self, forKey: .text)
+        inReplyTo = try container.decodeIfPresent(MessageID.self, forKey: .inReplyTo)
+        inReplyToInternetMessageID = try container.decodeIfPresent(String.self, forKey: .inReplyToInternetMessageID)
+        references = try container.decode([String].self, forKey: .references)
+        isForward = try container.decodeIfPresent(Bool.self, forKey: .isForward) ?? false
+        attachments = try container.decode([OutgoingAttachment].self, forKey: .attachments)
     }
 }
 

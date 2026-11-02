@@ -296,7 +296,7 @@ public final class GmailProvider: MailProvider, Sendable {
                 let fetched = try await fetchMessage(replied.providerID, query: GmailRequest.metadataQuery())
                 let parent = GmailMessageMapper.metadata(from: fetched, accountID: accountID)
                 threadID = parent.conversationID.providerID
-                if outgoing.inReplyToInternetMessageID == nil {
+                if outgoing.inReplyToInternetMessageID == nil, !outgoing.isForward {
                     outgoing.inReplyToInternetMessageID = parent.internetMessageID
                 }
                 if outgoing.references.isEmpty {
