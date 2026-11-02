@@ -593,8 +593,10 @@ final class MessageListViewController: NSViewController {
         }
     }
 
+    /// Rows mark their account only where more than one account can show: the unified view of a Mac with one
+    /// account is a single-account view, and a ring in the same ink on every face would say nothing (spec §5.7).
     private var isUnified: Bool {
-        query.accountIDs.map { $0.count > 1 } ?? true
+        (query.accountIDs?.count ?? accountsByID.count) > 1
     }
 
     private var showsOtherTag: Bool {
@@ -629,7 +631,8 @@ final class MessageListViewController: NSViewController {
                 inkSlot: account.inkSlot,
                 initial: ListAccountMark.initial(email: account.email, monogram: account.monogram),
                 isUnified: true,
-                showsInitial: false
+                showsInitial: false,
+                accountAddress: account.email
             )
             names[id] = ListAccountMark.name(email: account.email)
             own.insert(account.email.lowercased())
@@ -814,7 +817,18 @@ final class MessageListViewController: NSViewController {
         guard key != environmentKey else { return }
         environmentKey = key
         reconfigureVisibleRows()
-        tableView.enumerateAvailableRowViews { rowView, _ in rowView.needsDisplay = true }
+        tableView.enumerateAvailableRowViews { rowView, _ in
+            rowView.needsDisplay = true
+            // The footer's Retry link draws its own label.
+            for subview in rowView.subviews { subview.needsDisplay = true }
+        }
+        // Increase Contrast and Graphite are not appearance changes, so AppKit does not redraw these on its own:
+        // the paper below a short list, the skeleton bars and the focus ring would keep the old values.
+        view.needsDisplay = true
+        tableView.needsDisplay = true
+        scrollView.contentView.needsDisplay = true
+        skeletonView.needsDisplay = true
+        focusOverlay.needsDisplay = true
     }
 
     /// The selection's wash and rule follow the window's key state, not the first responder (spec §3.4).

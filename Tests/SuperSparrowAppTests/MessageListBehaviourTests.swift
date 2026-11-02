@@ -87,6 +87,46 @@ final class MessageListBehaviourTests: XCTestCase {
         XCTAssertNil(list.layout.footerRow, "no footer once the last page is in")
     }
 
+    func testAFailedPageShowsRetryAndTheLinkTakesAClick() throws {
+        let store = PageFailingStore(base: try Support.store(threads: 30))
+        let (list, window) = Support.host(store: store, query: ConversationQuery(limit: 10), settings: Support.settings())
+        // The tail is within two screens, so the list asks for the next page at once, and it fails.
+        list.loadMore()
+        let footerRow = try XCTUnwrap(list.layout.footerRow)
+        func footer() -> ListFooterRowView? {
+            list.tableView.rowView(atRow: footerRow, makeIfNecessary: false) as? ListFooterRowView
+        }
+        list.tableView.scrollRowToVisible(footerRow)
+        window.displayIfNeeded()
+        XCTAssertTrue(Support.spin(until: { footer()?.phase == .failed }, timeout: 2), "a failed page shows the failed tail")
+        XCTAssertEqual(footer()?.accessibilityLabel(), "Couldn't load older mail")
+        XCTAssertEqual(list.conversations.count, 10)
+
+        // A click on Retry reaches the link inside the table row and loads the page.
+        store.failsPages = false
+        list.tableView.scrollRowToVisible(footerRow)
+        window.layoutIfNeeded()
+        window.displayIfNeeded()
+        let retry = try XCTUnwrap(footer()?.subviews.first { $0.accessibilityRole() == .button })
+        XCTAssertFalse(retry.isHidden)
+        let point = retry.convert(NSPoint(x: retry.bounds.midX, y: retry.bounds.midY), to: nil)
+        func mouse(_ type: NSEvent.EventType) -> NSEvent? {
+            NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                               windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
+        }
+        let up = try XCTUnwrap(mouse(.leftMouseUp))
+        let down = try XCTUnwrap(mouse(.leftMouseDown))
+        // The pointer lands on the link, and the table hands the click to it rather than treating it as a row
+        // click. A window off screen is never key, so the press itself is delivered to the link directly.
+        let frameView = try XCTUnwrap(window.contentView?.superview)
+        let hitView = frameView.hitTest(frameView.convert(point, from: nil))
+        XCTAssertTrue(hitView === retry, "the pointer is over Retry")
+        XCTAssertTrue(list.tableView.validateProposedFirstResponder(retry, for: down), "the table lets the link take the click")
+        window.postEvent(up, atStart: false)
+        retry.mouseDown(with: down)
+        XCTAssertTrue(Support.spin(until: { list.conversations.count > 10 }, timeout: 2), "Retry loaded the next page")
+    }
+
     func testEmptyStatesFollowTheView() throws {
         let store = try Support.store(threads: 0)
         let inbox = Support.host(store: store, settings: Support.settings()).list
@@ -186,6 +226,55 @@ final class MessageListBehaviourTests: XCTestCase {
 
         table.setHoveredRow(0)
         XCTAssertEqual(table.hoveredRow, -1, "heads take no hover")
+    }
+
+    func testUnifiedRowsNameTheirAccountInATooltip() throws {
+        let store = try Support.store(threads: 10)
+        let (list, window) = Support.host(store: store, settings: Support.settings())
+        window.displayIfNeeded()
+        let cell = try XCTUnwrap(cell(of: list, conversation: 0))
+        let account = list.conversations[0].id.accountID == Support.accountA.id ? Support.accountA : Support.accountB
+        let face = NSRect(x: Quire.Layout.Row.avatarBoxX, y: Quire.Layout.Row.avatarBoxY, width: Quire.Layout.Row.avatarBox,
+                          height: Quire.Layout.Row.avatarBox)
+        let regions = cell.toolTipRegions()
+        XCTAssertEqual(regions.map(\.text), [account.email], "the ringed face names its account (spec §4.2)")
+        XCTAssertEqual(regions.first?.rect, face)
+    }
+
+    func testAUnifiedViewOfOneAccountDropsTheAccountMarks() throws {
+        let store = try Support.store(threads: 10)
+        let (list, window) = Support.host(store: store, settings: Support.settings(initials: true))
+        list.accountsByID = [Support.accountA.id: Support.accountA]
+        window.displayIfNeeded()
+        let cell = try XCTUnwrap(cell(of: list, conversation: 0))
+        XCTAssertTrue(cell.toolTipRegions().isEmpty, "with one account the unified view is a single-account view: no ring, no tile")
+    }
+
+    func testTheFailedGlyphSaysWhatFailedWithoutCoveringTheAccount() throws {
+        let store = try Support.store(threads: 10)
+        let (list, window) = Support.host(store: store, settings: Support.settings(initials: true))
+        let target = list.conversations[2]
+        let messageID = try XCTUnwrap(store.messages(in: target.id).last?.id)
+        var operation = Operation(accountID: target.id.accountID, change: .archive, targets: [messageID])
+        try store.enqueue(operation)
+        operation.status = .failed
+        try store.updateOperation(operation)
+        Support.spin(until: { list.conversations.first { $0.id == target.id }?.failedOperation != nil }, timeout: 2)
+        window.displayIfNeeded()
+        let index = try XCTUnwrap(list.conversations.firstIndex { $0.id == target.id })
+        let cell = try XCTUnwrap(cell(of: list, conversation: index))
+        let regions = cell.toolTipRegions()
+        let failure = try XCTUnwrap(regions.first { $0.text == "Couldn't archive" }, "the triangle's tooltip (spec §5.7)")
+        let account = regions.filter { $0.text != failure.text }
+        XCTAssertEqual(account.count, 2, "the face and the initial tile both name the account")
+        for region in account {
+            XCTAssertFalse(region.rect.intersects(failure.rect), "tooltip rects never overlap, so each shows its own words")
+        }
+    }
+
+    private func cell(of list: MessageListViewController, conversation index: Int) -> ConversationCellView? {
+        guard let row = list.layout.row(ofConversation: index) else { return nil }
+        return list.tableView.view(atColumn: 0, row: row, makeIfNecessary: false) as? ConversationCellView
     }
 
     func testDraftsAndSentRowsNameRecipients() throws {

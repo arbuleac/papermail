@@ -3,8 +3,9 @@ import SSDesign
 
 /// The list tail (spec §5.10): a fixed 28 pt row that ends the list while older pages exist. It stays empty
 /// `paper` until a page load has run for 150 ms, so fast pages never flash; then a 12 pt `ink3` spinner and
-/// “Loading older mail…”. A failed load shows the danger triangle, “Couldn't load older mail” and a Retry link.
-/// It is the same height in both densities, never selectable, and j/k never land on it.
+/// “Loading older mail…”. A failed load shows the danger triangle and “Couldn't load older mail” in `danger`, then,
+/// 6 pt on, a Retry link, as the specimen's failed footer sets them. It is the same height in both densities,
+/// never selectable, and j/k never land on it.
 final class ListFooterRowView: NSTableRowView {
     static let identifier = NSUserInterfaceItemIdentifier("ListFooterRow")
 
@@ -70,7 +71,8 @@ final class ListFooterRowView: NSTableRowView {
     // MARK: Content
 
     private static let loadingText = QuireFont.attributedString("Loading older mail…", role: .meta, color: .qInk3)
-    private static let failedText = QuireFont.attributedString("Couldn't load older mail · ", role: .meta, color: .qInk3)
+    /// The words carry the error's colour with the glyph, like the sync line's error lead (spec §5.11).
+    private static let failedText = QuireFont.attributedString("Couldn't load older mail", role: .meta, color: .qDanger)
 
     /// The centred cluster's pieces for the current phase: the leading mark (spinner or glyph) and the words.
     private var words: NSAttributedString? {
@@ -84,7 +86,7 @@ final class ListFooterRowView: NSTableRowView {
     private var clusterWidth: CGFloat {
         guard let words else { return Footer.spinner }
         var width = Footer.spinner + Footer.gap + ceil(words.size().width)
-        if phase == .failed { width += retryButton.labelWidth }
+        if phase == .failed { width += Footer.gap + retryButton.labelWidth }
         return width
     }
 
@@ -95,7 +97,7 @@ final class ListFooterRowView: NSTableRowView {
         let size = Footer.spinner
         spinner.frame = NSRect(x: clusterX, y: ((bounds.height - size) / 2).rounded(), width: size, height: size)
         if phase == .failed, let words {
-            let x = clusterX + size + Footer.gap + ceil(words.size().width)
+            let x = clusterX + size + Footer.gap + ceil(words.size().width) + Footer.gap
             let hit = ListFooterRowView.minimumHitHeight
             let pad = Quire.Layout.Button.linkPadX
             retryButton.frame = NSRect(x: x - pad, y: ((bounds.height - hit) / 2).rounded(), width: retryButton.labelWidth + 2 * pad, height: hit)

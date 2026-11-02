@@ -23,13 +23,25 @@ final class ConversationRowStatesRenderTests: XCTestCase {
         let dist = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("dist", isDirectory: true)
         try FileManager.default.createDirectory(at: dist, withIntermediateDirectories: true)
-        for mode in [QuireMode.light, .dark] {
-            let board = makeBoard(mode: mode)
+        // Light and dark are the review boards; Increase Contrast and Graphite check the same states under the
+        // token substitutions (spec §3.1, §3.3), which the window snapshot cannot be asked for.
+        let environment = QuireEnvironment.shared
+        let saved = environment.overrides
+        defer { environment.setOverrides(saved) }
+        let variants: [(mode: QuireMode, graphite: Bool, name: String)] = [
+            (.light, false, "light"), (.dark, false, "dark"), (.lightHC, false, "lightHC"), (.darkHC, false, "darkHC"),
+            (.light, true, "graphite-light"), (.dark, true, "graphite-dark"),
+        ]
+        for variant in variants {
+            var overrides = saved
+            overrides.isGraphite = variant.graphite
+            environment.setOverrides(overrides)
+            let board = makeBoard(mode: variant.mode)
             // The footer's spinner and words appear only after their 150 ms delay.
             ListTestSupport.spin(for: 0.4)
-            let bitmap = try XCTUnwrap(QuireOffscreenRenderer.render(mode: mode, scale: 2) { board })
+            let bitmap = try XCTUnwrap(QuireOffscreenRenderer.render(mode: variant.mode, scale: 2) { board })
             let data = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
-            try data.write(to: dist.appendingPathComponent("apply-list-states-\(mode == .light ? "light" : "dark").png"))
+            try data.write(to: dist.appendingPathComponent("apply-list-states-\(variant.name).png"))
         }
     }
 

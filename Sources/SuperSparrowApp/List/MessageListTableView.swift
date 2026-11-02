@@ -37,6 +37,21 @@ final class MessageListTableView: NSTableView {
         super.keyDown(with: event)
     }
 
+    // MARK: Hit testing
+
+    /// NSTableView hit-tests only into the cell views of its columns and answers itself everywhere else, so a
+    /// control a row view owns directly (the list tail's Retry link, spec §5.10) would never see a click: the
+    /// table would take it as a click on an unselectable row. Such a control gets the click it is under.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hit = super.hitTest(point)
+        guard hit === self else { return hit }
+        let local = convert(point, from: superview)
+        let index = row(at: local)
+        guard index >= 0, let rowView = rowView(atRow: index, makeIfNecessary: false),
+              let control = rowView.hitTest(local) as? NSControl else { return hit }
+        return control
+    }
+
     // MARK: Hover
 
     override func updateTrackingAreas() {

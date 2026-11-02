@@ -19,6 +19,9 @@ final class ConversationCellView: NSView {
         var initial: String
         var isUnified: Bool
         var showsInitial: Bool
+        /// What the mark's tooltip says: the account's address, which tells two Gmail accounts apart where the
+        /// colour may not (spec §4.2, "the avatar's tooltip names it").
+        var accountAddress = ""
 
         static let none = AccountMark(inkSlot: 0, initial: "", isUnified: false, showsInitial: false)
     }
@@ -31,6 +34,8 @@ final class ConversationCellView: NSView {
     private var density = AppSettings.ListDensity.standard
     /// Bumped on every configure so a face that lands after the row was reused is ignored.
     private var generation = 0
+    /// The words of each tooltip rect in place (see `toolTipRegions()`).
+    private var toolTips: [NSView.ToolTipTag: String] = [:]
 
     /// Faces drawn before their cached bitmap was ready, across all rows. The list's hover-while-scrolling
     /// test reads it; a miss is also a signpost event so Instruments shows when one happens.
@@ -57,8 +62,15 @@ final class ConversationCellView: NSView {
         self.mark = mark
         self.density = density
         generation &+= 1
-        toolTip = content.failureText
+        updateToolTips()
         needsDisplay = true
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let widthChanged = newSize.width != frame.width
+        super.setFrameSize(newSize)
+        // The time cluster hangs from the trailing edge, so its tooltip rects move with the width.
+        if widthChanged { updateToolTips() }
     }
 
     // MARK: Geometry
@@ -256,9 +268,52 @@ final class ConversationCellView: NSView {
         needsDisplay = true
     }
 
+    // MARK: Tooltips
+
+    /// Where the row's tooltips answer and what they say, never overlapping, so each shows its own words: the
+    /// account mark (the ringed face, the compact square, the initial tile) names the account in unified views
+    /// (spec §4.2), and the failed triangle says what failed, “Couldn't archive” (spec §5.7). A row-wide tooltip
+    /// would cover the face and hide the account. Internal so the list's tests can read it.
+    func toolTipRegions() -> [(rect: NSRect, text: String)] {
+        guard let content else { return [] }
+        let c = cluster(for: content)
+        // Small marks (the 6 pt square, the 12 pt glyph) answer over the whole sender line box around them.
+        func lineBox(_ rect: NSRect) -> NSRect {
+            rect.insetBy(dx: min(0, (rect.width - Row.senderHeight) / 2), dy: min(0, (rect.height - Row.senderHeight) / 2))
+        }
+        var regions: [(rect: NSRect, text: String)] = []
+        if mark.isUnified, !mark.accountAddress.isEmpty {
+            if !isCompact {
+                regions.append((NSRect(x: Row.avatarBoxX, y: Row.avatarBoxY, width: Row.avatarBox, height: Row.avatarBox), mark.accountAddress))
+            }
+            if let mark = c.tile ?? c.square {
+                regions.append((lineBox(mark), self.mark.accountAddress))
+            }
+        }
+        if let failure = content.failureText, let status = c.status {
+            // 16 pt around the 12 pt glyph: 2 pt into its 4 pt gap, so it never reaches the tag, tile or time.
+            regions.append((lineBox(status), failure))
+        }
+        return regions
+    }
+
+    private func updateToolTips() {
+        removeAllToolTips()
+        toolTips = [:]
+        for region in toolTipRegions() {
+            toolTips[addToolTip(region.rect, owner: self, userData: nil)] = region.text
+        }
+    }
+
     // MARK: Accessibility
 
     override func isAccessibilityElement() -> Bool { true }
     override func accessibilityRole() -> NSAccessibility.Role? { .staticText }
     override func accessibilityLabel() -> String? { content?.accessibilityLabel }
+}
+
+extension ConversationCellView: NSViewToolTipOwner {
+    func view(_ view: NSView, stringForToolTip tag: NSView.ToolTipTag, point: NSPoint, userData data: UnsafeMutableRawPointer?) -> String {
+        toolTips[tag] ?? ""
+    }
 }
