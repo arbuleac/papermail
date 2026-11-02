@@ -218,6 +218,14 @@ final class ConversationShellWebViewTests: XCTestCase {
         _ = try await evaluate("window.ss.loadImages(\(key))", in: webView)
         for _ in 0..<50 where remote.paths.count < 2 { try await Task.sleep(nanoseconds: 100_000_000) }
         XCTAssertEqual(Set(remote.paths), ["/live.png", "/parked.png"])
+        // "Loading 2 images…" stands while they load and then goes (spec §5.16).
+        var loading: Int? = 1
+        for _ in 0..<40 {
+            loading = int(try await evaluate("document.querySelectorAll('.ss-banner .ss-spin').length", in: webView))
+            if loading == 0 { break }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTAssertEqual(loading, 0)
         let buttons = try await count(".ss-load-images", in: webView)
         XCTAssertEqual(buttons, 0)
     }

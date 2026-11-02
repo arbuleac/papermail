@@ -659,7 +659,7 @@ public enum ConversationShellAssets {
           remote[j].addEventListener('load', function () { done(false); }, { once: true });
           remote[j].addEventListener('error', function () { done(true); }, { once: true });
         }
-        if (remote.length === 0) { settleImageLoad(card); }
+        if (remote.length === 0) { settleImageLoad(card); return; }
         card.imageLoad.timer = setTimeout(function () { settleImageLoad(card); }, 20000);
       }
 

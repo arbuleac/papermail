@@ -11,7 +11,7 @@ import os
 /// Reads only from `client.store`; every command goes through `onAction` or `MailClient`. Opening a
 /// conversation is a view swap when it was pre-rendered, otherwise one `ss.render` into a free slot.
 @MainActor
-final class ConversationViewController: NSViewController {
+final class ConversationViewController: NSViewController, NSMenuItemValidation {
     /// What the reader shows: the header, the desk and the quick reply all follow it (spec §5.12, §5.18, §5.19).
     enum Selection: Equatable {
         case none
@@ -72,6 +72,8 @@ final class ConversationViewController: NSViewController {
     private var bodyStates: [MessageID: RenderPayload.BodyState] = [:]
     private var offlineAccounts: Set<AccountID> = []
     private var focusedAttachment: (message: MessageID, attachment: String)?
+    /// Messages the shell shows in Original colors this session, for View › Original Colors' checkmark.
+    private var originalColorsShown: Set<MessageID> = []
     private var drafts = QuickReplyDrafts()
     private var quickSend: QuickSend?
     private var quickSendTimer: Timer?
@@ -808,8 +810,8 @@ final class ConversationViewController: NSViewController {
             if focusedAttachment?.message != id { focusedAttachment = nil }
         case .focusAttachment(let id, let attachment):
             focusedAttachment = (id, attachment)
-        case .originalColors:
-            break
+        case let .originalColors(id, on):
+            if on { originalColorsShown.insert(id) } else { originalColorsShown.remove(id) }
         case .openLink(let url):
             if let scheme = url.scheme?.lowercased(), ConversationNavigationPolicy.isOpenableExternally(scheme) {
                 NSWorkspace.shared.open(url)
@@ -1200,6 +1202,22 @@ final class ConversationViewController: NSViewController {
     @objc func toggleOriginalColors(_ sender: Any?) {
         guard let current = pool.current else { return }
         evaluate("window.ss.toggleOriginal()", in: current)
+    }
+
+    /// The reader's commands apply to one shown conversation; Original Colors carries a checkmark while the
+    /// target message shows the sender's colours (spec §5.16).
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        let showsOne: Bool
+        if case .one = selection { showsOne = pool.current != nil && !webContainer.isHidden } else { showsOne = false }
+        switch menuItem.action {
+        case #selector(toggleOriginalColors(_:)):
+            menuItem.state = selectedMessageID.map(originalColorsShown.contains) == true ? .on : .off
+            return showsOne
+        case #selector(nextMessage(_:)), #selector(previousMessage(_:)), #selector(toggleQuotedText(_:)), #selector(loadImages(_:)):
+            return showsOne
+        default:
+            return true
+        }
     }
 
     // MARK: Helpers
