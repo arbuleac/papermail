@@ -34,7 +34,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var environment: AppEnvironment?
     private var mainWindow: MainWindowController?
     private var settingsWindow: SettingsWindowController?
+    #if DEBUG
     private var galleryWindow: DesignGalleryWindowController?
+    #endif
     /// Snapshots still to write before a quitting `--snapshot-…` launch quits.
     private var pendingQuittingSnapshots = 0
     private var signIn: SignIn?
@@ -199,6 +201,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
     }
 
+    #if DEBUG
     /// The whole design gallery page, in the forced appearance.
     private func writeGallerySnapshot(to path: String) {
         DesignGalleryWindowController.renderSnapshot(appearance: NSApp.appearance) { [weak self] bitmap in
@@ -206,6 +209,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             self?.quittingSnapshotFinished()
         }
     }
+    #endif
 
     /// The main window's welcome screen, over a throwaway empty store in a temporary directory: the user's
     /// mail database, Keychain and saved window frame are never touched. With `states`, every state of
@@ -911,6 +915,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         openSettings(tab: .oauth)
     }
 
+    #if DEBUG
     /// Debug › Design Gallery (and `--gallery`): every SSDesign component in every state. Each opening starts
     /// fresh: the controller forgets itself when its window closes, so the bar and the drawing never disagree.
     @objc func showDesignGallery(_ sender: Any?) {
@@ -921,6 +926,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         galleryWindow?.show()
     }
+    #endif
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         let hasEnvironment = environment != nil

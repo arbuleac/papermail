@@ -45,6 +45,9 @@ struct LaunchOptions: Equatable {
             case "--reset-demo":
                 demo = true
                 resetDemo = true
+            #if DEBUG
+            // Development aids, debug builds only: a release build ignores them, so nothing can make it write
+            // its windows (Settings shows the configured OAuth client ID) to a path a caller picks.
             case "--gallery":
                 gallery = true
             case let value where value.hasPrefix("--snapshot="):
@@ -73,6 +76,7 @@ struct LaunchOptions: Equatable {
                 demo = true
             case let value where value.hasPrefix("--snapshot-alerts="):
                 alertsSnapshotPath = Self.value(of: value, after: "--snapshot-alerts=")
+            #endif
             default:
                 // LaunchServices adds -NSDocumentRevisionsDebugMode and friends; ignore anything unknown.
                 break

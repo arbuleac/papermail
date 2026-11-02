@@ -97,7 +97,7 @@ swift scripts/tools/app-icon.swift          # the app icon, after a change to th
 
 ## Launch options
 
-Debug aids, read by `LaunchOptions` (and `--snapshot-state` by the main window). They never touch the user's mail: the welcome and alert snapshots run over a throwaway store, and the others need `--demo`. Every path is absolute. Options marked “debug” exist only in debug builds.
+Debug aids, read by `LaunchOptions` (and `--snapshot-state` by the main window). They never touch the user's mail: the welcome and alert snapshots run over a throwaway store, and the others need `--demo`. Every path is absolute. Only `--demo` and `--reset-demo` exist in release builds; a release build ignores every other option here, so nothing can make it write its windows (Settings shows the configured OAuth client ID) to a path a caller chooses. The Design Gallery (`Sources/SuperSparrowApp/Design`) is compiled only into debug builds. Snapshots of the main window or a composer use the default frame, split and composer size, ignore the pointer, and never save a size.
 
 | Option | What it does |
 |---|---|

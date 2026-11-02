@@ -1,3 +1,4 @@
+#if DEBUG
 import AppKit
 import SSDesign
 
@@ -54,3 +55,4 @@ enum DesignGalleryStudio {
         return (CGFloat(span) * column + CGFloat(span - 1) * gridGap).rounded(.down)
     }
 }
+#endif

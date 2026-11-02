@@ -1,3 +1,4 @@
+#if DEBUG
 import AppKit
 import SSDesign
 import SwiftUI
@@ -19,3 +20,4 @@ enum DesignGallerySwiftUICard {
         }
     }
 }
+#endif

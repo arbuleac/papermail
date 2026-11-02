@@ -1,3 +1,4 @@
+#if DEBUG
 import AppKit
 import SSDesign
 
@@ -62,3 +63,4 @@ final class DesignGalleryContrastView: NSView {
         }
     }
 }
+#endif

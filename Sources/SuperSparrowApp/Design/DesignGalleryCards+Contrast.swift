@@ -1,3 +1,4 @@
+#if DEBUG
 import AppKit
 import SSDesign
 
@@ -47,3 +48,4 @@ extension DesignGalleryCards {
         }
     }
 }
+#endif

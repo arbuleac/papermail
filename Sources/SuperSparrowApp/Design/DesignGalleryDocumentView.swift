@@ -1,3 +1,4 @@
+#if DEBUG
 import AppKit
 import SSDesign
 
@@ -94,3 +95,4 @@ final class DesignGalleryDocumentView: NSView {
         y += height + DesignGalleryStudio.gridGap
     }
 }
+#endif

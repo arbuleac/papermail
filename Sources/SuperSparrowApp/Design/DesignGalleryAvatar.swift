@@ -1,3 +1,4 @@
+#if DEBUG
 import AppKit
 import SSDesign
 
@@ -45,3 +46,4 @@ final class DesignGalleryAvatar: NSView {
         if let ring { QuireAvatarRenderer.drawRing(around: rect, accountSlot: ring) }
     }
 }
+#endif

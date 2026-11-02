@@ -1,3 +1,4 @@
+#if DEBUG
 import AppKit
 import SSDesign
 
@@ -182,3 +183,4 @@ final class DesignGalleryFlippedView: NSView {
         NSBezierPath(roundedRect: bounds, xRadius: cornerRadius, yRadius: cornerRadius).fill()
     }
 }
+#endif

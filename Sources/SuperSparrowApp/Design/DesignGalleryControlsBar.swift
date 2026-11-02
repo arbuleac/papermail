@@ -1,3 +1,4 @@
+#if DEBUG
 import AppKit
 import SSDesign
 
@@ -66,3 +67,4 @@ final class DesignGalleryControlsBar: NSView {
         onChange?()
     }
 }
+#endif

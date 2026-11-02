@@ -1,3 +1,4 @@
+#if DEBUG
 import AppKit
 import SSDesign
 
@@ -65,3 +66,4 @@ enum DesignGallerySamples {
         for subview in view.subviews { pinKeyWindow(in: subview) }
     }
 }
+#endif

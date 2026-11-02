@@ -1,3 +1,4 @@
+#if DEBUG
 import AppKit
 import SSDesign
 
@@ -36,3 +37,4 @@ final class DesignGalleryText: NSView {
         string.draw(with: bounds, options: QuireFont.drawingOptions, context: nil)
     }
 }
+#endif

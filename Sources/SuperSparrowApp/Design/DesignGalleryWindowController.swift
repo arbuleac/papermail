@@ -1,3 +1,4 @@
+#if DEBUG
 import AppKit
 import SSDesign
 import os
@@ -120,3 +121,4 @@ final class DesignGalleryWindowController: NSWindowController, NSWindowDelegate 
         }
     }
 }
+#endif

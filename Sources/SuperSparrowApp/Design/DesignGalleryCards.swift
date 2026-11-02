@@ -1,3 +1,4 @@
+#if DEBUG
 import AppKit
 import SSDesign
 
@@ -229,3 +230,4 @@ enum DesignGalleryCards {
         }
     }
 }
+#endif
