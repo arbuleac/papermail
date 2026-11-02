@@ -1,12 +1,48 @@
 import AppKit
+import SSDesign
 
-/// The scroll view's document: the editor followed by the quoted original. Clicking the empty space under
-/// the text puts the caret at the end, so the whole page feels like one editor rather than a short box.
+/// The body's scroll document: the `sheet` the editor and the quoted original sit on, and, after a failed send,
+/// the danger banner above the text (spec §5.20: inset 16 pt from the sides, 8 pt below the last row's hairline
+/// and above the body text). Clicking the empty space under the text puts the caret at the end, so the whole
+/// page feels like one editor rather than a short box.
 @MainActor
 final class ComposeDocumentView: NSView {
-    weak var editor: NSTextView?
+    weak var editor: ComposeTextView?
+
+    private(set) var banner: QuireBannerView?
 
     override var isFlipped: Bool { true }
+
+    /// Shows the send-failed banner with `message`, or removes it.
+    func setFailureBanner(_ message: String?) {
+        banner?.removeFromSuperview()
+        banner = nil
+        if let message {
+            let view = QuireBannerView(kind: .danger, message: message)
+            view.allowsMultipleLines = true
+            addSubview(view)
+            banner = view
+        }
+        needsLayout = true
+        layoutBanner()
+    }
+
+    override func layout() {
+        super.layout()
+        layoutBanner()
+    }
+
+    private func layoutBanner() {
+        let c = Quire.Layout.Composer.self
+        guard let banner else {
+            editor?.topInset = c.bodyPadTop
+            return
+        }
+        let width = max(0, bounds.width - 2 * c.bannerInsetX)
+        let height = banner.height(forWidth: width)
+        banner.frame = NSRect(x: c.bannerInsetX, y: c.bannerInsetY, width: width, height: height)
+        editor?.topInset = c.bannerInsetY + height + c.bannerInsetY
+    }
 
     override func mouseDown(with event: NSEvent) {
         guard let editor, let window else {
@@ -18,7 +54,13 @@ final class ComposeDocumentView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.textBackgroundColor.setFill()
-        dirtyRect.fill()
+        NSColor.qSheet.setFill()
+        // Views no longer clip to their bounds (macOS 14), and the dirty rect can reach past them.
+        dirtyRect.intersection(bounds).fill()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
     }
 }

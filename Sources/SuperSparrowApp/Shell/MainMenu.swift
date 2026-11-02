@@ -126,6 +126,11 @@ enum MainMenu {
         menu.addItem(.separator())
         // ⌘Z is claimed by the keyboard router outside text fields; the menu item shows what it will undo.
         menu.addItem(item("Undo Mail Action", #selector(MainWindowController.undoMailAction(_:)), "z"))
+        menu.addItem(.separator())
+        // Composer windows only: the responder chain reaches the composer's window controller (spec §5.20).
+        let discard = item("Discard Draft…", #selector(ComposeWindowController.discardDraft(_:)))
+        discard.image = NSImage(systemSymbolName: "trash", accessibilityDescription: nil)
+        menu.addItem(discard)
         return menu
     }
 

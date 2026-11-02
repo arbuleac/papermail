@@ -1,6 +1,7 @@
 import AppKit
 import Carbon.HIToolbox
 import SSCore
+import SSDesign
 
 /// The body editor. Rich text is limited to what mail reliably carries: bold, italic, underline, links,
 /// bulleted and numbered lists, and block quotes. Everything else the text system could do (fonts, sizes,
@@ -9,13 +10,34 @@ import SSCore
 /// Lists use `NSTextList` paragraph styles with the marker typed into the text, as TextEdit does, so the
 /// editor shows real markers; `ComposeBodyNormalizer` strips them before export. Quotes are a paragraph
 /// attribute (`ComposerBlock.attributeKey`) painted by `ComposeLayoutManager`.
+///
+/// The look is the reader's text styles (spec §5.20, `layout.textStyle`), so a reply reads the same before and
+/// after it is sent: `writing` on the value axis (x = 84, 24 pt from the trailing edge), links in `accent`
+/// underlined, quotes a 2 pt `rule` bar with a 12 pt indent in `ink2`, list markers in `ink2` 6 pt before
+/// text indented 24 pt per level. Colours are dynamic tokens; they are re-derived from the structure whenever
+/// the document is replaced, because archived drafts cannot carry them.
 @MainActor
 final class ComposeTextView: NSTextView {
-    static let bodyFont = NSFont.systemFont(ofSize: 13)
+    static let bodyRole = QuireFont.Role.writing
+    static var bodyFont: NSFont { QuireFont.font(bodyRole) }
     static let bulletFormat = NSTextList.MarkerFormat.disc
     static let numberFormat = NSTextList.MarkerFormat("{decimal}.")
-    static let listIndent: CGFloat = 28
-    static let quoteIndent: CGFloat = 16
+    static let listIndent = Quire.Layout.TextStyle.listIndent
+    static let markerGap = Quire.Layout.TextStyle.listMarkerGap
+    static let quoteIndent = Quire.Layout.TextStyle.quoteIndent
+
+    /// Asked to show the link popover for the selection (⌘K, the Link toggle).
+    var onLinkRequest: ((ComposeTextView) -> Void)?
+
+    /// Space above the first line: `composer.bodyPadTop`, or more while the send-failed banner sits there.
+    var topInset: CGFloat = Quire.Layout.Composer.bodyPadTop {
+        didSet {
+            guard oldValue != topInset else { return }
+            invalidateTextContainerOrigin()
+            invalidateIntrinsicContentSize()
+            needsDisplay = true
+        }
+    }
 
     /// Kept alive here: in TextKit 1 the text view holds its container, the container points weakly at
     /// the layout manager, and the layout manager points weakly at the storage.
@@ -24,9 +46,11 @@ final class ComposeTextView: NSTextView {
     override init(frame: NSRect) {
         let storage = NSTextStorage()
         let layoutManager = ComposeLayoutManager()
+        // Fallback fonts (CJK, Thai, emoji) would otherwise add their leading and break the 21 pt lines.
+        QuireFont.configure(layoutManager)
         storage.addLayoutManager(layoutManager)
         let container = NSTextContainer(size: NSSize(width: frame.width, height: CGFloat.greatestFiniteMagnitude))
-        container.widthTracksTextView = true
+        container.widthTracksTextView = false
         layoutManager.addTextContainer(container)
         ownedStorage = storage
         super.init(frame: frame, textContainer: container)
@@ -51,9 +75,10 @@ final class ComposeTextView: NSTextView {
         isContinuousSpellCheckingEnabled = true
         isGrammarCheckingEnabled = false
         font = Self.bodyFont
-        textColor = .textColor
+        textColor = .qInk
+        insertionPointColor = .qAccent
         typingAttributes = Self.defaultTypingAttributes
-        textContainerInset = NSSize(width: 10, height: 10)
+        textContainerInset = .zero
         // The editor sits in a document view together with the quoted original, so Auto Layout, not the
         // text system, owns its height: it reports the laid-out text height as intrinsic size instead.
         isVerticallyResizable = false
@@ -61,17 +86,61 @@ final class ComposeTextView: NSTextView {
         translatesAutoresizingMaskIntoConstraints = false
         minSize = .zero
         maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        backgroundColor = .textBackgroundColor
+        // The document view paints the `sheet`; the editor stays transparent over it.
+        drawsBackground = false
         linkTextAttributes = [
-            .foregroundColor: NSColor.linkColor,
+            .foregroundColor: NSColor.qAccent,
             .underlineStyle: NSUnderlineStyle.single.rawValue,
+            .underlineColor: NSColor.qAccent,
             .cursor: NSCursor.pointingHand,
         ]
         updateDragTypeRegistration()
     }
 
+    // MARK: Styles
+
+    /// `writing`: 14 pt on exact 21 pt lines, wrapping, no extra paragraph spacing (what you type is sent).
+    static var bodyParagraphStyle: NSParagraphStyle {
+        let style = NSMutableParagraphStyle()
+        style.minimumLineHeight = bodyRole.lineHeight
+        style.maximumLineHeight = bodyRole.lineHeight
+        style.lineBreakMode = .byWordWrapping
+        style.baseWritingDirection = .natural
+        return style
+    }
+
     static var defaultTypingAttributes: [NSAttributedString.Key: Any] {
-        [.font: bodyFont, .foregroundColor: NSColor.textColor, .paragraphStyle: NSParagraphStyle.default]
+        [
+            .font: bodyFont,
+            .foregroundColor: NSColor.qInk,
+            .paragraphStyle: bodyParagraphStyle,
+            .baselineOffset: QuireFont.baselineOffset(bodyRole),
+        ]
+    }
+
+    /// The typed “\t•\t” of a list item: `ink2`, so the marker reads as structure, not words.
+    static func markerAttributes(_ style: NSParagraphStyle) -> [NSAttributedString.Key: Any] {
+        var attributes = defaultTypingAttributes
+        attributes[.paragraphStyle] = style
+        attributes[.foregroundColor] = NSColor.qInk2
+        return attributes
+    }
+
+    // MARK: Geometry
+
+    /// The text starts on the value axis and stops 24 pt before the trailing edge (padding 20 24 0 84).
+    override var textContainerOrigin: NSPoint {
+        let padding = textContainer?.lineFragmentPadding ?? 0
+        return NSPoint(x: Quire.Layout.Composer.valueX - padding, y: topInset)
+    }
+
+    private func updateContainerWidth() {
+        guard let textContainer else { return }
+        let padding = textContainer.lineFragmentPadding
+        let width = max(40, bounds.width - Quire.Layout.Composer.valueX - Quire.Layout.Composer.bodyPadRight + 2 * padding)
+        if abs(textContainer.size.width - width) > 0.5 {
+            textContainer.size = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
+        }
     }
 
     // MARK: Sizing
@@ -82,7 +151,9 @@ final class ComposeTextView: NSTextView {
         guard let layoutManager, let textContainer else { return super.intrinsicContentSize }
         layoutManager.ensureLayout(for: textContainer)
         let used = layoutManager.usedRect(for: textContainer)
-        return NSSize(width: NSView.noIntrinsicMetric, height: ceil(used.height) + textContainerInset.height * 2)
+        // An empty document still has its first line, so the caret has somewhere to sit.
+        let height = max(used.height, Self.bodyRole.lineHeight)
+        return NSSize(width: NSView.noIntrinsicMetric, height: ceil(height) + topInset)
     }
 
     override func didChangeText() {
@@ -94,6 +165,7 @@ final class ComposeTextView: NSTextView {
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
+        updateContainerWidth()
         // Wrapping changes with the width, and so does the height the text needs.
         if abs(newSize.width - lastIntrinsicWidth) > 0.5 {
             lastIntrinsicWidth = newSize.width
@@ -101,11 +173,37 @@ final class ComposeTextView: NSTextView {
         }
     }
 
-    /// Replaces the whole document (reopening an undone send) without leaving stale typing attributes behind.
+    /// Replaces the whole document (reopening a draft or an undone send) without leaving stale typing
+    /// attributes behind, and gives it back its inks.
     func replaceContents(with content: NSAttributedString) {
         textStorage?.setAttributedString(content)
+        if let storage = textStorage { Self.applyInks(to: storage) }
         typingAttributes = Self.defaultTypingAttributes
+        undoManager?.removeAllActions()
         invalidateIntrinsicContentSize()
+    }
+
+    /// Colours from structure: `ink` text, `ink2` quotes and list markers. Archived drafts lose their dynamic
+    /// colours, and pasted plain text arrives without them.
+    static func applyInks(to storage: NSTextStorage) {
+        let whole = NSRange(location: 0, length: storage.length)
+        guard whole.length > 0 else { return }
+        storage.beginEditing()
+        storage.addAttribute(.foregroundColor, value: NSColor.qInk, range: whole)
+        storage.enumerateAttribute(ComposerBlock.attributeKey, in: whole, options: []) { value, range, _ in
+            if let raw = value as? String, raw == ComposerBlock.quote.rawValue {
+                storage.addAttribute(.foregroundColor, value: NSColor.qInk2, range: range)
+            }
+        }
+        let text = storage.string as NSString
+        text.enumerateSubstrings(in: whole, options: [.byParagraphs, .substringNotRequired]) { _, paragraph, _, _ in
+            guard paragraph.length > 0,
+                  (storage.attribute(.paragraphStyle, at: paragraph.location, effectiveRange: nil) as? NSParagraphStyle)?
+                    .textLists.isEmpty == false,
+                  let marker = markerRange(in: text, paragraph: paragraph) else { return }
+            storage.addAttribute(.foregroundColor, value: NSColor.qInk2, range: marker)
+        }
+        storage.endEditing()
     }
 
     // MARK: Plain pasting
@@ -133,6 +231,7 @@ final class ComposeTextView: NSTextView {
             case "i": toggleItalic(nil); return true
             case "u": underline(nil); return true
             case "k": insertLink(nil); return true
+            case "'": toggleBlockQuote(nil); return true
             default: break
             }
         }
@@ -145,6 +244,50 @@ final class ComposeTextView: NSTextView {
             }
         }
         return super.performKeyEquivalent(with: event)
+    }
+
+    // MARK: Format state
+
+    /// Which format toggles are on: a style counts when it applies at the caret or across the whole
+    /// selection; a mixed selection shows it off (spec §5.20, Format row).
+    struct FormatState: Equatable {
+        var bold = false
+        var italic = false
+        var underline = false
+        var bulletList = false
+        var numberedList = false
+        var quote = false
+        var link = false
+    }
+
+    var formatState: FormatState {
+        var state = FormatState()
+        let manager = NSFontManager.shared
+        let range = selectedRange()
+        if range.length == 0 {
+            let font = (typingAttributes[.font] as? NSFont) ?? Self.bodyFont
+            state.bold = manager.traits(of: font).contains(.boldFontMask)
+            state.italic = manager.traits(of: font).contains(.italicFontMask)
+            state.underline = ((typingAttributes[.underlineStyle] as? Int) ?? 0) != 0
+        } else if let storage = textStorage {
+            var bold = true, italic = true, underline = true
+            storage.enumerateAttributes(in: range, options: []) { attributes, _, _ in
+                let font = (attributes[.font] as? NSFont) ?? Self.bodyFont
+                let traits = manager.traits(of: font)
+                if !traits.contains(.boldFontMask) { bold = false }
+                if !traits.contains(.italicFontMask) { italic = false }
+                if ((attributes[.underlineStyle] as? Int) ?? 0) == 0 { underline = false }
+            }
+            state.bold = bold
+            state.italic = italic
+            state.underline = underline
+        }
+        let paragraphs = selectedParagraphs()
+        state.bulletList = !paragraphs.isEmpty && paragraphs.allSatisfy { $0.list?.markerFormat == Self.bulletFormat }
+        state.numberedList = !paragraphs.isEmpty && paragraphs.allSatisfy { $0.list?.markerFormat == Self.numberFormat }
+        state.quote = !paragraphs.isEmpty && paragraphs.allSatisfy { $0.block == .quote }
+        state.link = existingLink(at: range) != nil
+        return state
     }
 
     // MARK: Character styles
@@ -221,61 +364,42 @@ final class ComposeTextView: NSTextView {
 
     // MARK: Links
 
+    /// ⌘K and the Link toggle open the composer's link popover (§5.20), anchored to the selection.
     @objc func insertLink(_ sender: Any?) {
-        guard let window else { return }
-        let range = selectedRange()
-        let existing = existingLink(at: range)
-        let alert = NSAlert()
-        alert.messageText = existing == nil ? "Add Link" : "Edit Link"
-        alert.informativeText = existing == nil && range.length == 0
-            ? "The address is inserted as the link text."
-            : "Leave the address empty to remove the link."
-        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
-        field.placeholderString = "https://"
-        field.stringValue = existing?.target ?? ""
-        alert.accessoryView = field
-        alert.window.initialFirstResponder = field
-        alert.addButton(withTitle: "OK")
-        alert.addButton(withTitle: "Cancel")
-        alert.beginSheetModal(for: window) { [weak self] response in
-            MainActor.assumeIsolated {
-                guard response == .alertFirstButtonReturn, let self else { return }
-                self.applyLink(field.stringValue, to: existing?.range ?? range)
-            }
-        }
+        onLinkRequest?(self)
     }
 
-    private func existingLink(at range: NSRange) -> (target: String, range: NSRange)? {
+    /// The link under the selection (or the caret), with its whole range, for editing it.
+    func existingLink(at range: NSRange) -> (target: String, range: NSRange)? {
         guard let storage = textStorage, storage.length > 0 else { return nil }
         let probe = range.length > 0 ? range.location : max(0, min(range.location, storage.length - 1))
         var effective = NSRange(location: 0, length: 0)
         guard let value = storage.attribute(.link, at: probe, longestEffectiveRange: &effective, in: NSRange(location: 0, length: storage.length)) else {
             return nil
         }
+        // A caret just past a link's end is not on it.
+        if range.length == 0, range.location != probe, range.location >= NSMaxRange(effective) { return nil }
         if let url = value as? URL { return (url.absoluteString, effective) }
         if let string = value as? String { return (string, effective) }
         return nil
     }
 
-    private func applyLink(_ raw: String, to range: NSRange) {
+    /// Links `range` to `target` (an already normalized address), or inserts `text` (the target when empty)
+    /// as a new link at a caret. Undoable as one change.
+    func applyLink(_ target: String, text: String?, to range: NSRange) {
         guard let storage = textStorage else { return }
-        let target = Self.normalizedLink(raw)
         if range.length == 0 {
-            guard let target else { return }
+            let label = (text?.isEmpty == false ? text! : target)
             var attributes = typingAttributes
             attributes[.link] = target
-            let text = NSAttributedString(string: target, attributes: attributes)
-            guard shouldChangeText(in: range, replacementString: target) else { return }
-            storage.replaceCharacters(in: range, with: text)
+            let inserted = NSAttributedString(string: label, attributes: attributes)
+            guard shouldChangeText(in: range, replacementString: label) else { return }
+            storage.replaceCharacters(in: range, with: inserted)
             didChangeText()
-            setSelectedRange(NSRange(location: range.location + text.length, length: 0))
+            setSelectedRange(NSRange(location: range.location + inserted.length, length: 0))
         } else {
             guard shouldChangeText(in: range, replacementString: nil) else { return }
-            if let target {
-                storage.addAttribute(.link, value: target, range: range)
-            } else {
-                storage.removeAttribute(.link, range: range)
-            }
+            storage.addAttribute(.link, value: target, range: range)
             didChangeText()
         }
         // Typing after a link should not extend it.
@@ -284,12 +408,38 @@ final class ComposeTextView: NSTextView {
         typingAttributes = typing
     }
 
-    static func normalizedLink(_ raw: String) -> String? {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        if trimmed.contains("://") || trimmed.lowercased().hasPrefix("mailto:") { return trimmed }
-        if trimmed.contains("@"), !trimmed.contains("/") { return "mailto:" + trimmed }
-        return "https://" + trimmed
+    func removeLink(in range: NSRange) {
+        guard let storage = textStorage, range.length > 0, shouldChangeText(in: range, replacementString: nil) else { return }
+        storage.removeAttribute(.link, range: range)
+        didChangeText()
+    }
+
+    /// The rects of the first and last lines of `range` and the x where it starts, in this view's coordinates,
+    /// for anchoring the link popover.
+    func anchorRects(for range: NSRange) -> (first: NSRect, last: NSRect, startX: CGFloat)? {
+        guard let layoutManager, let textContainer else { return nil }
+        layoutManager.ensureLayout(for: textContainer)
+        let origin = textContainerOrigin
+        let length = (string as NSString).length
+        let safe = NSRange(location: min(range.location, length), length: min(range.length, max(0, length - range.location)))
+        var rects: [NSRect] = []
+        if safe.length == 0 {
+            let caret = firstRect(forCharacterRange: safe, actualRange: nil)
+            if let window, caret != .zero {
+                let local = convert(window.convertFromScreen(caret), from: nil)
+                rects = [NSRect(x: local.minX, y: local.minY, width: 1, height: local.height)]
+            }
+        } else {
+            let glyphs = layoutManager.glyphRange(forCharacterRange: safe, actualCharacterRange: nil)
+            layoutManager.enumerateEnclosingRects(forGlyphRange: glyphs, withinSelectedGlyphRange: glyphs, in: textContainer) { rect, _ in
+                rects.append(rect.offsetBy(dx: origin.x, dy: origin.y))
+            }
+        }
+        guard let first = rects.first, let last = rects.last else {
+            let line = NSRect(x: Quire.Layout.Composer.valueX, y: topInset, width: 1, height: Self.bodyRole.lineHeight)
+            return (line, line, line.minX)
+        }
+        return (first, last, first.minX)
     }
 
     // MARK: Paragraph structure
@@ -367,21 +517,23 @@ final class ComposeTextView: NSTextView {
         return result
     }
 
+    /// A list item: text 24 pt in, the marker right-aligned 6 pt before it (`textStyle.listIndent`, `listMarkerGap`).
     static func listParagraphStyle(_ list: NSTextList) -> NSParagraphStyle {
-        let style = NSMutableParagraphStyle()
+        let style = bodyParagraphStyle.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
         style.textLists = [list]
         style.headIndent = listIndent
         style.firstLineHeadIndent = 0
         style.tabStops = [
-            NSTextTab(textAlignment: .right, location: listIndent - 8, options: [:]),
+            NSTextTab(textAlignment: .right, location: listIndent - markerGap, options: [:]),
             NSTextTab(textAlignment: .left, location: listIndent, options: [:]),
         ]
         style.defaultTabInterval = listIndent
         return style
     }
 
+    /// A quote: 12 pt in, behind the 2 pt bar `ComposeLayoutManager` paints (`textStyle.quoteIndent`, `quoteBar`).
     static var quoteParagraphStyle: NSParagraphStyle {
-        let style = NSMutableParagraphStyle()
+        let style = bodyParagraphStyle.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
         style.headIndent = quoteIndent
         style.firstLineHeadIndent = quoteIndent
         return style
@@ -432,12 +584,14 @@ final class ComposeTextView: NSTextView {
         if range.length > 0 {
             storage.removeAttribute(ComposerBlock.attributeKey, range: range)
             storage.addAttribute(.paragraphStyle, value: style, range: range)
+            storage.addAttribute(.foregroundColor, value: NSColor.qInk, range: range)
         }
-        var attributes = Self.defaultTypingAttributes
-        attributes[.paragraphStyle] = style
-        storage.insert(NSAttributedString(string: "\t" + list.marker(forItemNumber: 1) + "\t", attributes: attributes), at: range.location)
+        storage.insert(NSAttributedString(string: "\t" + list.marker(forItemNumber: 1) + "\t", attributes: Self.markerAttributes(style)),
+                       at: range.location)
         if range.length == 0 {
-            typingAttributes = attributes
+            var typing = Self.defaultTypingAttributes
+            typing[.paragraphStyle] = style
+            typingAttributes = typing
         }
     }
 
@@ -448,7 +602,8 @@ final class ComposeTextView: NSTextView {
             range.length -= marker.length
         }
         if range.length > 0 {
-            storage.addAttribute(.paragraphStyle, value: NSParagraphStyle.default, range: range)
+            storage.addAttribute(.paragraphStyle, value: Self.bodyParagraphStyle, range: range)
+            storage.addAttribute(.foregroundColor, value: NSColor.qInk, range: range)
             storage.removeAttribute(ComposerBlock.attributeKey, range: range)
         }
     }
@@ -492,8 +647,7 @@ final class ComposeTextView: NSTextView {
             let info = paragraphInfo(at: cursor)
             guard let itemList = info.list, itemList.markerFormat == list.markerFormat else { break }
             let expected = "\t" + itemList.marker(forItemNumber: number) + "\t"
-            var attributes = Self.defaultTypingAttributes
-            attributes[.paragraphStyle] = Self.listParagraphStyle(itemList)
+            let attributes = Self.markerAttributes(Self.listParagraphStyle(itemList))
             if let marker = info.markerRange {
                 if text.substring(with: marker) != expected { edits.append((marker, expected, attributes)) }
             } else {
@@ -566,6 +720,7 @@ final class ComposeTextView: NSTextView {
         var typing = Self.defaultTypingAttributes.merging(fontOnly(typingAttributes)) { _, new in new }
         if !removing {
             typing[.paragraphStyle] = Self.quoteParagraphStyle
+            typing[.foregroundColor] = NSColor.qInk2
             typing[ComposerBlock.attributeKey] = ComposerBlock.quote.rawValue
         }
         typingAttributes = typing
@@ -580,12 +735,14 @@ final class ComposeTextView: NSTextView {
         }
         guard range.length > 0 else { return }
         storage.addAttribute(.paragraphStyle, value: Self.quoteParagraphStyle, range: range)
+        storage.addAttribute(.foregroundColor, value: NSColor.qInk2, range: range)
         storage.addAttribute(ComposerBlock.attributeKey, value: ComposerBlock.quote.rawValue, range: range)
     }
 
     private func stripQuote(_ info: ParagraphInfo, storage: NSTextStorage) {
         guard info.range.length > 0 else { return }
-        storage.addAttribute(.paragraphStyle, value: NSParagraphStyle.default, range: info.range)
+        storage.addAttribute(.paragraphStyle, value: Self.bodyParagraphStyle, range: info.range)
+        storage.addAttribute(.foregroundColor, value: NSColor.qInk, range: info.range)
         storage.removeAttribute(ComposerBlock.attributeKey, range: info.range)
     }
 

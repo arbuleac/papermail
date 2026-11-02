@@ -1,7 +1,11 @@
 import AppKit
+import SSDesign
 
-/// The chips for the message's attachments, flowed left to right and wrapping onto new rows. Collapses to
-/// nothing when there is nothing to show. Inline parts of a quoted original are never listed.
+/// The attachment strip (spec §5.22): a 48 pt band of `sheet` under a top hairline, above the format row and
+/// the bottom bar, shown only while there are attachments. Chips are centred, 8 pt apart, from x = 16, and
+/// scroll horizontally. Inline parts of a quoted original are never listed.
+///
+/// The strip is one stop in the Tab loop; ← → move focus between chips and ⌫ removes the focused one.
 @MainActor
 final class AttachmentStripView: NSView {
     var onRemove: ((UUID) -> Void)?
@@ -10,22 +14,29 @@ final class AttachmentStripView: NSView {
         didSet { rebuildChips() }
     }
 
-    private static let inset: CGFloat = 10
-    private static let spacing: CGFloat = 6
+    var hasChips: Bool { !chips.isEmpty }
 
-    private let separator = NSBox()
+    private let scrollView = NSScrollView()
+    private let document = StripDocumentView()
     private var chips: [AttachmentChipView] = []
-    private var measuredHeight: CGFloat = 0
+    private var focusedIndex = 0
 
-    override var isFlipped: Bool { true }
-
-    init() {
-        super.init(frame: .zero)
-        translatesAutoresizingMaskIntoConstraints = false
-        isHidden = true
-        separator.boxType = .separator
-        separator.autoresizingMask = [.width]
-        addSubview(separator)
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        scrollView.drawsBackground = false
+        scrollView.borderType = .noBorder
+        scrollView.hasHorizontalScroller = true
+        scrollView.hasVerticalScroller = false
+        scrollView.autohidesScrollers = true
+        scrollView.scrollerStyle = .overlay
+        scrollView.verticalScrollElasticity = .none
+        scrollView.contentView.drawsBackground = false
+        scrollView.documentView = document
+        document.strip = self
+        addSubview(scrollView)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        setAccessibilityLabel("Attachments")
     }
 
     @available(*, unavailable)
@@ -33,15 +44,7 @@ final class AttachmentStripView: NSView {
         fatalError("AttachmentStripView is built in code")
     }
 
-    override var intrinsicContentSize: NSSize {
-        NSSize(width: NSView.noIntrinsicMetric, height: measuredHeight)
-    }
-
-    override func layout() {
-        super.layout()
-        separator.frame = NSRect(x: Self.inset, y: 0, width: max(0, bounds.width - Self.inset * 2), height: 1)
-        flow(width: bounds.width)
-    }
+    override var isFlipped: Bool { true }
 
     private func rebuildChips() {
         chips.forEach { $0.removeFromSuperview() }
@@ -50,32 +53,98 @@ final class AttachmentStripView: NSView {
             chip.onRemove = { [weak self] id in self?.onRemove?(id) }
             return chip
         }
-        chips.forEach(addSubview)
-        isHidden = chips.isEmpty
+        chips.forEach(document.addSubview)
+        focusedIndex = min(focusedIndex, max(0, chips.count - 1))
         needsLayout = true
-        flow(width: bounds.width)
+        document.needsDisplay = true
     }
 
-    /// Places the chips in rows and reports the height they need through the intrinsic size.
-    private func flow(width: CGFloat) {
-        var x = Self.inset
-        var y = Self.inset
-        var rowHeight: CGFloat = 0
+    override func layout() {
+        super.layout()
+        let c = Quire.Layout.Composer.self
+        scrollView.frame = NSRect(x: 0, y: 1, width: bounds.width, height: max(0, bounds.height - 1))
+        var x = c.stripPadX
+        let height = scrollView.frame.height
         for chip in chips {
-            let size = chip.fittingSize
-            if x > Self.inset, x + size.width > width - Self.inset {
-                x = Self.inset
-                y += rowHeight + Self.spacing
-                rowHeight = 0
-            }
-            chip.frame = NSRect(x: x, y: y, width: size.width, height: size.height)
-            x += size.width + Self.spacing
-            rowHeight = max(rowHeight, size.height)
+            let size = chip.intrinsicContentSize
+            chip.frame = NSRect(x: x, y: ((height - size.height) / 2).rounded(), width: size.width, height: size.height)
+            x += size.width + c.stripChipSpacing
         }
-        let height = chips.isEmpty ? 0 : y + rowHeight + Self.inset
-        if abs(height - measuredHeight) > 0.5 {
-            measuredHeight = height
-            invalidateIntrinsicContentSize()
+        let contentWidth = chips.isEmpty ? 0 : x - c.stripChipSpacing + c.stripPadX
+        document.frame = NSRect(x: 0, y: 0, width: max(contentWidth, scrollView.contentSize.width), height: height)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.qSheet.setFill()
+        // Views no longer clip to their bounds (macOS 14), and the dirty rect can reach past them.
+        dirtyRect.intersection(bounds).fill()
+        QuireHairline.fill(along: NSRect(x: 0, y: 0, width: bounds.width, height: 1), orientation: .horizontal,
+                           width: QuireHairline.width(for: self), color: .qRule, atMaxEdge: false)
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+
+    // MARK: Keyboard
+
+    override var acceptsFirstResponder: Bool { !chips.isEmpty }
+    override var canBecomeKeyView: Bool { !chips.isEmpty && !isHidden }
+
+    override func becomeFirstResponder() -> Bool {
+        document.needsDisplay = true
+        revealFocusedChip()
+        return true
+    }
+
+    override func resignFirstResponder() -> Bool {
+        document.needsDisplay = true
+        return true
+    }
+
+    override func keyDown(with event: NSEvent) {
+        guard !chips.isEmpty, let special = event.specialKey,
+              event.modifierFlags.intersection([.command, .control, .option]).isEmpty else {
+            super.keyDown(with: event)
+            return
         }
+        switch special {
+        case .leftArrow:
+            focusedIndex = max(0, focusedIndex - 1)
+        case .rightArrow:
+            focusedIndex = min(chips.count - 1, focusedIndex + 1)
+        case .delete, .deleteForward:
+            onRemove?(chips[focusedIndex].attachment.id)
+            return
+        default:
+            super.keyDown(with: event)
+            return
+        }
+        document.needsDisplay = true
+        revealFocusedChip()
+    }
+
+    private func revealFocusedChip() {
+        guard chips.indices.contains(focusedIndex) else { return }
+        document.scrollToVisible(chips[focusedIndex].frame.insetBy(dx: -Quire.Layout.Composer.stripPadX, dy: 0))
+    }
+
+    fileprivate var focusedChipFrame: NSRect? {
+        guard window?.firstResponder === self, window?.isKeyWindow == true, chips.indices.contains(focusedIndex) else { return nil }
+        return chips[focusedIndex].frame
+    }
+}
+
+/// Hosts the chips and draws the focus ring around the focused one (outside it, where the chip cannot draw).
+@MainActor
+private final class StripDocumentView: NSView {
+    weak var strip: AttachmentStripView?
+
+    override var isFlipped: Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let frame = strip?.focusedChipFrame else { return }
+        QuireFocusRing.draw(around: frame, cornerRadius: Quire.Layout.Composer.stripChipRadius, gap: QuireFocusRing.gap)
     }
 }

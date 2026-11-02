@@ -1,80 +1,48 @@
 import AppKit
 import SSCore
+import SSDesign
 
-/// The quoted original beneath the editor: collapsed to a "···" chip the way Gmail does it, expanded to the
-/// attribution line and the original's text. It is never editable; the exporter appends the real HTML
-/// after the typed content on send, so what is shown here is only a preview.
+/// The quoted original beneath the editor (spec §5.15, §5.20): folded, a glyph-only 22 pt elision chip
+/// (`ss.elide`) followed by “Ben Carter wrote on Yesterday 23:39” in `snippet` `ink3`; clicking either unfolds
+/// it. Unfolded, the chip turns `accentWash` and the original shows in the shared quote style: a 2 pt `rule`
+/// bar, a 12 pt indent, `writing` in `ink2`. The height animates over `dur.standard` (instant under Reduce
+/// Motion).
+///
+/// It is never editable: the exporter appends the real HTML after the typed content on send, so what shows
+/// here is only a preview.
 @MainActor
 final class QuotedOriginalView: NSView {
     var rendering: QuotedReply.Rendering? {
         didSet { update() }
     }
 
-    private static let inset: CGFloat = 10
-    /// Long threads make a long preview; past this the text field layout gets sluggish for no benefit.
+    /// Called after the height changed, so the document can follow.
+    var onHeightChange: (() -> Void)?
+
+    /// Long threads make a long preview; past this the layout gets sluggish for no benefit.
     private static let previewLimit = 20_000
+    private static let topGap: CGFloat = 16
+    private static let quoteGap: CGFloat = 12
+    private static let bottomPad: CGFloat = 20
 
-    private let toggle = NSButton(title: "···", target: nil, action: nil)
-    private let content = NSView()
-    private let bar = NSView()
-    private let headerLabel = NSTextField(wrappingLabelWithString: "")
-    private let bodyLabel = NSTextField(wrappingLabelWithString: "")
-    private var collapsedBottom: NSLayoutConstraint?
-    private var expandedBottom: NSLayoutConstraint?
-    private var isExpanded = false
+    let chip = ElisionChip()
+    private let attribution = AttributionLabel()
+    private var quoteText = NSAttributedString()
+    private(set) var isExpanded = false
+    private var measuredHeight: CGFloat = 0
+    private var measuredWidth: CGFloat = 0
 
-    init() {
-        super.init(frame: .zero)
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
         translatesAutoresizingMaskIntoConstraints = false
         isHidden = true
-
-        toggle.bezelStyle = .inline
-        toggle.font = .boldSystemFont(ofSize: 11)
-        toggle.setButtonType(.momentaryPushIn)
-        toggle.target = self
-        toggle.action = #selector(toggleExpanded(_:))
-        toggle.translatesAutoresizingMaskIntoConstraints = false
-
-        content.translatesAutoresizingMaskIntoConstraints = false
-        content.isHidden = true
-        bar.translatesAutoresizingMaskIntoConstraints = false
-        bar.wantsLayer = true
-        headerLabel.font = .systemFont(ofSize: 12)
-        headerLabel.textColor = .secondaryLabelColor
-        headerLabel.translatesAutoresizingMaskIntoConstraints = false
-        bodyLabel.font = .systemFont(ofSize: 13)
-        bodyLabel.textColor = .secondaryLabelColor
-        bodyLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        content.addSubview(bar)
-        content.addSubview(headerLabel)
-        content.addSubview(bodyLabel)
-        addSubview(toggle)
-        addSubview(content)
-
-        let collapsed = toggle.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Self.inset)
-        let expanded = content.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Self.inset)
-        collapsedBottom = collapsed
-        expandedBottom = expanded
-        NSLayoutConstraint.activate([
-            toggle.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Self.inset),
-            toggle.topAnchor.constraint(equalTo: topAnchor, constant: 2),
-            collapsed,
-            content.topAnchor.constraint(equalTo: toggle.bottomAnchor, constant: 8),
-            content.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Self.inset),
-            content.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Self.inset),
-            bar.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            bar.topAnchor.constraint(equalTo: content.topAnchor),
-            bar.bottomAnchor.constraint(equalTo: content.bottomAnchor),
-            bar.widthAnchor.constraint(equalToConstant: 3),
-            headerLabel.leadingAnchor.constraint(equalTo: bar.trailingAnchor, constant: 10),
-            headerLabel.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            headerLabel.topAnchor.constraint(equalTo: content.topAnchor),
-            bodyLabel.leadingAnchor.constraint(equalTo: headerLabel.leadingAnchor),
-            bodyLabel.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            bodyLabel.topAnchor.constraint(equalTo: headerLabel.bottomAnchor, constant: 6),
-            bodyLabel.bottomAnchor.constraint(equalTo: content.bottomAnchor),
-        ])
+        wantsLayer = true
+        layer?.masksToBounds = true
+        chip.target = self
+        chip.action = #selector(toggleExpanded(_:))
+        attribution.onClick = { [weak self] in self?.toggleExpanded(nil) }
+        addSubview(chip)
+        addSubview(attribution)
         update()
     }
 
@@ -83,40 +51,201 @@ final class QuotedOriginalView: NSView {
         fatalError("QuotedOriginalView is built in code")
     }
 
-    override func layout() {
-        super.layout()
-        bar.layer?.backgroundColor = NSColor.tertiaryLabelColor.cgColor
-        // Wrapping labels only report a multi-line height once they know how wide they may be.
-        let width = max(0, content.bounds.width - 13)
-        headerLabel.preferredMaxLayoutWidth = width
-        bodyLabel.preferredMaxLayoutWidth = width
+    override var isFlipped: Bool { true }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: NSView.noIntrinsicMetric, height: rendering == nil ? 0 : height(forWidth: bounds.width))
     }
 
+    private var foldedHeight: CGFloat { Self.topGap + Quire.Layout.QuotedToggle.composerChip + Self.bottomPad }
+
+    private var textWidth: CGFloat {
+        max(40, bounds.width - Quire.Layout.Composer.valueX - Quire.Layout.TextStyle.quoteIndent - Quire.Layout.Composer.bodyPadRight)
+    }
+
+    private func height(forWidth width: CGFloat) -> CGFloat {
+        guard isExpanded else { return foldedHeight }
+        if abs(width - measuredWidth) > 0.5 {
+            measuredWidth = width
+            let rect = quoteText.boundingRect(with: NSSize(width: textWidth, height: .greatestFiniteMagnitude),
+                                              options: [.usesLineFragmentOrigin])
+            measuredHeight = ceil(rect.height)
+        }
+        return Self.topGap + Quire.Layout.QuotedToggle.composerChip + Self.quoteGap + measuredHeight + Self.bottomPad
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let widthChanged = abs(newSize.width - frame.width) > 0.5
+        super.setFrameSize(newSize)
+        if widthChanged, isExpanded { invalidateIntrinsicContentSize() }
+    }
+
+    override func layout() {
+        super.layout()
+        let q = Quire.Layout.QuotedToggle.self
+        let chipRect = NSRect(x: Quire.Layout.Composer.valueX, y: Self.topGap, width: q.composerChip, height: q.composerChip)
+        chip.frame = chip.frame(forVisualRect: chipRect)
+        let role = QuireFont.Role.snippet
+        let gap: CGFloat = 8
+        let width = max(0, min(attribution.intrinsicContentSize.width, bounds.width - chipRect.maxX - gap - Quire.Layout.Composer.bodyPadRight))
+        attribution.frame = NSRect(x: chipRect.maxX + gap, y: (chipRect.midY - role.lineHeight / 2).rounded(), width: width,
+                                   height: role.lineHeight)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard isExpanded else { return }
+        let c = Quire.Layout.Composer.self
+        let top = Self.topGap + Quire.Layout.QuotedToggle.composerChip + Self.quoteGap
+        let barHeight = max(0, min(measuredHeight, bounds.height - top - Self.bottomPad))
+        NSColor.qRule.setFill()
+        NSRect(x: c.valueX, y: top, width: Quire.Layout.TextStyle.quoteBar, height: barHeight).fill()
+        quoteText.draw(with: NSRect(x: c.valueX + Quire.Layout.TextStyle.quoteIndent, y: top, width: textWidth, height: measuredHeight),
+                       options: [.usesLineFragmentOrigin])
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+
+    // MARK: Folding
+
     @objc private func toggleExpanded(_ sender: Any?) {
-        isExpanded.toggle()
-        applyExpansion()
+        setExpanded(!isExpanded, animated: true)
+    }
+
+    func setExpanded(_ expanded: Bool, animated: Bool) {
+        guard expanded != isExpanded, rendering != nil else { return }
+        isExpanded = expanded
+        measuredWidth = 0
+        chip.isOn = expanded
+        invalidateIntrinsicContentSize()
+        needsDisplay = true
+        guard animated, let container = superview else {
+            onHeightChange?()
+            return
+        }
+        Quire.Motion.run(Quire.Motion.standard, .settle, reduced: .instant, participants: [self, container]) { _ in
+            container.layoutSubtreeIfNeeded()
+        } completion: { [weak self] in
+            self?.onHeightChange?()
+        }
     }
 
     private func update() {
         guard let rendering else {
             isHidden = true
+            invalidateIntrinsicContentSize()
             return
         }
         isHidden = false
-        headerLabel.stringValue = rendering.header
+        attribution.text = rendering.foldedAttribution()
         var text = rendering.originalText.trimmingCharacters(in: .whitespacesAndNewlines)
         if text.count > Self.previewLimit {
             text = String(text.prefix(Self.previewLimit)) + "…"
         }
-        bodyLabel.stringValue = text
-        applyExpansion()
+        let header = rendering.header.trimmingCharacters(in: .whitespacesAndNewlines)
+        quoteText = Self.quoteString(header.isEmpty ? text : header + "\n" + text)
+        measuredWidth = 0
+        chip.isOn = isExpanded
+        invalidateIntrinsicContentSize()
+        needsLayout = true
+        needsDisplay = true
     }
 
-    private func applyExpansion() {
-        content.isHidden = !isExpanded
-        collapsedBottom?.isActive = !isExpanded
-        expandedBottom?.isActive = isExpanded
-        toggle.toolTip = isExpanded ? "Hide quoted text" : "Show quoted text"
-        invalidateIntrinsicContentSize()
+    /// `writing` in `ink2` on the composer's 21 pt lines, wrapping.
+    private static func quoteString(_ text: String) -> NSAttributedString {
+        var attributes = ComposeTextView.defaultTypingAttributes
+        attributes[.foregroundColor] = NSColor.qInk2
+        return NSAttributedString(string: text, attributes: attributes)
     }
+}
+
+/// The elision chip (§5.15): `fill` with `ss.elide` 14 pt in `ink2` while folded (hover and pressed wash it, the
+/// glyph turns `ink`); unfolded, `accentWash` with the glyph in `accent`. The ring sits outside a 1 pt gap.
+@MainActor
+final class ElisionChip: QuireControl {
+    var isOn = false {
+        didSet {
+            guard oldValue != isOn else { return }
+            toolTip = title
+            stateDidChange()
+            NSAccessibility.post(element: self, notification: .titleChanged)
+        }
+    }
+
+    private var title: String { isOn ? "Hide quoted text" : "Show quoted text" }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        toolTip = title
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("ElisionChip is built in code")
+    }
+
+    override var intrinsicContentSize: NSSize {
+        let side = Quire.Layout.QuotedToggle.composerChip
+        return NSSize(width: side, height: side)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let q = Quire.Layout.QuotedToggle.self
+        let face = faceRect
+        let state = interactionState
+        let glyph: NSColor
+        if isOn {
+            let fill: NSColor = state == .pressed ? .qAccentWashPressed : state == .hover ? .qAccentWashHover : .qAccentWash
+            QuireDraw.fill(face, radius: q.radius, fill)
+            glyph = .qAccent
+        } else {
+            QuireDraw.fill(face, radius: q.radius, .qFill)
+            if state == .pressed { QuireDraw.fill(face, radius: q.radius, .qPressed) }
+            if state == .hover { QuireDraw.fill(face, radius: q.radius, .qHover) }
+            glyph = state == .rest ? .qInk2 : .qInk
+        }
+        QuireSymbol.draw(Quire.Icon.quotedText, size: .custom(q.glyph), color: glyph, centredIn: face)
+        if showsFocusRing {
+            QuireFocusRing.draw(around: face, cornerRadius: q.radius, gap: QuireFocusRing.gap)
+        }
+    }
+
+    override func accessibilityRole() -> NSAccessibility.Role? { .button }
+    override func accessibilityLabel() -> String? { title }
+}
+
+/// “Ben Carter wrote on Yesterday 23:39”: clicking it unfolds the quote, like the chip.
+@MainActor
+private final class AttributionLabel: NSView {
+    var text = "" {
+        didSet { invalidateIntrinsicContentSize(); needsDisplay = true }
+    }
+    var onClick: (() -> Void)?
+
+    override var isFlipped: Bool { true }
+
+    private var string: NSAttributedString { QuireFont.attributedString(text, role: .snippet, color: .qInk3) }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: ceil(string.size().width) + 1, height: QuireFont.Role.snippet.lineHeight)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        string.draw(with: bounds, options: QuireFont.drawingOptions, context: nil)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        onClick?()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+
+    override func isAccessibilityElement() -> Bool { true }
+    override func accessibilityRole() -> NSAccessibility.Role? { .staticText }
+    override func accessibilityLabel() -> String? { text }
 }

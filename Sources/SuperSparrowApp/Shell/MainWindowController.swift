@@ -105,6 +105,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         let router = KeyboardRouter(target: self)
         router.install()
         self.router = router
+        NotificationCenter.default.addObserver(self, selector: #selector(composeDraftDiscarded(_:)),
+                                               name: ComposeWindowController.draftDiscardedNotification, object: nil)
+    }
+
+    /// A composer's Message › Discard Draft… confirms here: “Draft discarded · Undo” (spec §5.20).
+    @objc private func composeDraftDiscarded(_ note: Notification) {
+        let undo = note.userInfo?[ComposeWindowController.draftUndoKey] as? ComposeDraftUndo
+        listPane.toast.show("Draft discarded") { undo?.undo() }
+        UndoSendPanel.yieldUndoKey()
     }
 
     required init?(coder: NSCoder) {
@@ -433,6 +442,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         }
         undoStack.push(record)
         listPane.toast.show(record.title) { [weak self] in self?.undoLastAction() }
+        UndoSendPanel.yieldUndoKey()
         return true
     }
 
