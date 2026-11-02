@@ -9,12 +9,32 @@ final class AppSettings: ObservableObject {
 
     static let undoSendChoices: [TimeInterval] = [5, 10, 20]
 
+    /// Posted after any of the Quire display preferences below change (reading font, density, account
+    /// initials), so AppKit views that cache laid-out text can rebuild without observing each property.
+    static let displayPreferencesChanged = Notification.Name("AppSettings.displayPreferencesChanged")
+
+    /// Spec §5.40 General: the face plain and unstyled bodies are set in.
+    enum ReadingFont: String, CaseIterable {
+        case newYork
+        case sfPro
+    }
+
+    /// Spec §5.7: standard rows are 68 pt, compact rows 48 pt.
+    enum ListDensity: String, CaseIterable {
+        case standard
+        case compact
+    }
+
     private enum Key {
         static let notifications = "notificationsEnabled"
         static let previews = "notificationPreviews"
         static let remoteImages = "loadRemoteImages"
         static let undoSend = "undoSendDelay"
         static let askedForNotifications = "askedForNotificationPermission"
+        static let readingFont = "readingFont"
+        static let listDensity = "listDensity"
+        static let showAccountInitials = "showAccountInitials"
+        static let originalColorsNoticeDismissed = "originalColorsNoticeDismissed"
     }
 
     private let defaults: UserDefaults
@@ -44,6 +64,33 @@ final class AppSettings: ObservableObject {
         }
     }
 
+    @Published var readingFont: ReadingFont {
+        didSet {
+            defaults.set(readingFont.rawValue, forKey: Key.readingFont)
+            postDisplayChange()
+        }
+    }
+
+    @Published var listDensity: ListDensity {
+        didSet {
+            defaults.set(listDensity.rawValue, forKey: Key.listDensity)
+            postDisplayChange()
+        }
+    }
+
+    /// Spec §5.7: an initial tile beside the account ring in unified views, a second, non-colour account cue.
+    @Published var showAccountInitials: Bool {
+        didSet {
+            defaults.set(showAccountInitials, forKey: Key.showAccountInitials)
+            postDisplayChange()
+        }
+    }
+
+    /// Spec §5.16: the Original colors notice is shown until the user dismisses it once.
+    @Published var originalColorsNoticeDismissed: Bool {
+        didSet { defaults.set(originalColorsNoticeDismissed, forKey: Key.originalColorsNoticeDismissed) }
+    }
+
     var hasAskedForNotifications: Bool {
         get { defaults.bool(forKey: Key.askedForNotifications) }
         set { defaults.set(newValue, forKey: Key.askedForNotifications) }
@@ -56,14 +103,26 @@ final class AppSettings: ObservableObject {
             Key.previews: true,
             Key.remoteImages: false,
             Key.undoSend: 5.0,
+            Key.readingFont: ReadingFont.newYork.rawValue,
+            Key.listDensity: ListDensity.standard.rawValue,
+            Key.showAccountInitials: false,
+            Key.originalColorsNoticeDismissed: false,
         ])
         notificationsEnabled = defaults.bool(forKey: Key.notifications)
         showPreviews = defaults.bool(forKey: Key.previews)
         loadRemoteImages = defaults.bool(forKey: Key.remoteImages)
         let stored = defaults.double(forKey: Key.undoSend)
         undoSendDelay = AppSettings.undoSendChoices.contains(stored) ? stored : 5
+        readingFont = ReadingFont(rawValue: defaults.string(forKey: Key.readingFont) ?? "") ?? .newYork
+        listDensity = ListDensity(rawValue: defaults.string(forKey: Key.listDensity) ?? "") ?? .standard
+        showAccountInitials = defaults.bool(forKey: Key.showAccountInitials)
+        originalColorsNoticeDismissed = defaults.bool(forKey: Key.originalColorsNoticeDismissed)
         applyUndoSendDelay()
         ConversationViewController.loadRemoteImages = loadRemoteImages
+    }
+
+    private func postDisplayChange() {
+        NotificationCenter.default.post(name: AppSettings.displayPreferencesChanged, object: self)
     }
 
     private func applyRemoteImages() {
