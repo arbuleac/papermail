@@ -4,7 +4,7 @@ import Foundation
 /// composer opens and kept with the draft, whichever From the user picks afterwards, so an undone send
 /// reopens with them intact; they are applied only when the message leaves from the account that owns
 /// the original, because a provider cannot resolve another account's message id.
-public struct ReplyThreading: Hashable, Sendable {
+public struct ReplyThreading: Hashable, Codable, Sendable {
     public var inReplyTo: MessageID
     public var inReplyToInternetMessageID: String?
     public var references: [String]

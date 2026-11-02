@@ -87,6 +87,24 @@ public enum AddressListParser {
 
     /// Splits a list on commas, semicolons and line breaks that sit outside quotes and angle brackets.
     public static func split(_ input: String) -> [String] {
+        let pieces = splitKeepingRemainder(input)
+        return (pieces.entries + [pieces.remainder])
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    /// The entries a recipient field can turn into tokens while the user is still typing: every entry a
+    /// separator (outside quotes and angle brackets) has ended, and the text after the last such separator,
+    /// which is still being written. `"Doe, John` keeps its comma in the remainder until the quote closes.
+    public static func completedEntries(in input: String) -> (complete: [String], remainder: String) {
+        let pieces = splitKeepingRemainder(input)
+        let complete = pieces.entries
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return (complete, pieces.remainder.trimmingCharacters(in: .whitespaces))
+    }
+
+    private static func splitKeepingRemainder(_ input: String) -> (entries: [String], remainder: String) {
         var entries: [String] = []
         var current = ""
         var inQuotes = false
@@ -123,10 +141,7 @@ public enum AddressListParser {
                 current.append(character)
             }
         }
-        entries.append(current)
-        return entries
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
+        return (entries, current)
     }
 
     /// One entry. Returns nil only for blank input; anything else yields a value, valid or not.
