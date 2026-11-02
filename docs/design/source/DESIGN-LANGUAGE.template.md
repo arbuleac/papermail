@@ -1289,6 +1289,7 @@ The app's complete alert inventory, so no screen invents its own:
 | Launch: the mail database can't be opened | SuperSparrow couldn't open its mail database | the reason in plain words, then “It is stored in ~/Library/Application Support/SuperSparrow.” | Quit (the only button; ↩ and Esc). App-modal, before any window exists: no sheet and nothing behind it; the app quits when it closes |
 | Leave the demo (§5.43) | Leave the demo? | The made-up mailboxes are removed from this Mac. You'll return to the welcome screen. | Leave Demo · Cancel |
 | First real account in demo mode (§5.43) | Replace the demo with this account? | The made-up mailboxes are removed from this Mac when your account is added. | Continue · Cancel |
+| Reader: Open on an attachment that is a program or script (§5.17) | Open “Invoice.command”? | It is a program or script, and opening it lets it change your Mac. Open it only if you trust the sender and expected it. | Cancel · Open |
 
 Closing a composer never asks (its draft is kept, §5.20), and a rejected attachment drop is a composer status, not an alert. **Unreadable OAuth settings** (today's “Your OAuth settings could not be read” alert) is not an alert either: the add or reconnect stops, Settings › OAuth opens, and a danger banner at the top of the tab reads “Couldn't read the OAuth settings.” + the reason + “Correct the fields below and click Save.” (§5.40, Notices); it stays until a save succeeds. Today's generic “OK” error alerts (`AppDelegate.showError`) map onto the rows above; no other error alert remains.
 

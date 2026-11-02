@@ -91,28 +91,39 @@ enum AppSnapshots {
 
     // MARK: Alerts
 
-    /// Every alert of the inventory, two columns, each as NSAlert lays it out.
+    /// Every alert of the inventory, three columns, each as NSAlert lays it out. Each is made key in turn, off
+    /// screen, before it is drawn: the default button shows its emphasis only in the key window (§5.33).
     static func renderAlerts(completion: @escaping (NSBitmapImageRep?) -> Void) {
         let appearance = NSApp.appearance ?? NSApp.effectiveAppearance
-        var bitmaps: [NSBitmapImageRep] = []
-        var alerts: [NSAlert] = []
-        for spec in AppAlert.specimens {
+        let alerts = AppAlert.specimens.map { spec -> NSAlert in
             let alert = spec.makeAlert()
             alert.window.appearance = appearance
             alert.layout()
-            alerts.append(alert)
+            return alert
         }
-        // Lay out once more after a turn of the run loop so text fields settle their heights.
-        DispatchQueue.main.async {
+        renderAlert(at: 0, of: alerts, into: [], appearance: appearance, completion: completion)
+    }
+
+    private static func renderAlert(at index: Int, of alerts: [NSAlert], into bitmaps: [NSBitmapImageRep], appearance: NSAppearance,
+                                    completion: @escaping (NSBitmapImageRep?) -> Void) {
+        guard alerts.indices.contains(index) else {
+            completion(grid(bitmaps, columns: 3, appearance: appearance))
+            return
+        }
+        let alert = alerts[index]
+        let window = alert.window
+        window.setFrameOrigin(NSPoint(x: -20_000, y: -20_000))
+        window.makeKeyAndOrderFront(nil)
+        // A turn of the run loop for the text fields to settle their heights and the key state to reach the buttons.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             MainActor.assumeIsolated {
-                for alert in alerts {
-                    alert.layout()
-                    if let view = alert.window.contentView?.superview ?? alert.window.contentView,
-                       let bitmap = SnapshotRenderer.render(view) {
-                        bitmaps.append(bitmap)
-                    }
+                alert.layout()
+                var bitmaps = bitmaps
+                if let view = window.contentView?.superview ?? window.contentView, let bitmap = SnapshotRenderer.render(view) {
+                    bitmaps.append(bitmap)
                 }
-                completion(grid(bitmaps, columns: 3, appearance: appearance))
+                window.orderOut(nil)
+                renderAlert(at: index + 1, of: alerts, into: bitmaps, appearance: appearance, completion: completion)
             }
         }
     }
