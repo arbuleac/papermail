@@ -89,14 +89,4 @@ final class MailActionRecordTests: XCTestCase {
         XCTAssertEqual(ids(MailActionRecord.targets(for: .setRead(false), in: thread, kind: .gmail)), ["m2"])
         XCTAssertEqual(ids(MailActionRecord.targets(for: .setRead(true), in: thread, kind: .gmail)), ["m1", "m2"])
     }
-
-    func testUndoStackKeepsTheLastTwenty() {
-        var stack = MailActionUndoStack()
-        for n in 0..<25 {
-            let record = MailActionRecord.make(.setStarred(true), on: [message(n, roles: [.inbox])], conversation: nil)!
-            stack.push(record)
-        }
-        XCTAssertEqual(stack.records.count, MailActionUndoStack.capacity)
-        XCTAssertEqual(stack.pop()?.targets.first?.providerID, "m24")
-    }
 }

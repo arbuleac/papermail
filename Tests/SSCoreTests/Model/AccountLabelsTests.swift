@@ -6,8 +6,7 @@ import XCTest
 final class AccountLabelsTests: XCTestCase {
     private func account(_ id: String, _ email: String, kind: ProviderKind = .microsoft, monogram: String? = nil,
                          added: TimeInterval = 0, displayName: String = "Alex Morgan") -> Account {
-        Account(id: AccountID(id), kind: kind, email: email, displayName: displayName, colorHex: "#000000",
-                addedAt: Date(timeIntervalSince1970: added), monogram: monogram)
+        Account(id: AccountID(id), kind: kind, email: email, displayName: displayName, addedAt: Date(timeIntervalSince1970: added), monogram: monogram)
     }
 
     private func monograms(_ accounts: [Account]) -> [String] {

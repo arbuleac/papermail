@@ -3,11 +3,11 @@ import XCTest
 
 final class SyncLineSummaryTests: XCTestCase {
     private let contoso = Account(id: AccountID("c"), kind: .microsoft, email: "alex@contoso.test", displayName: "Alex",
-                                  colorHex: "#000000", addedAt: Date(timeIntervalSince1970: 0))
+                                  addedAt: Date(timeIntervalSince1970: 0))
     private let fabrikam = Account(id: AccountID("f"), kind: .microsoft, email: "alex@fabrikam.test", displayName: "Alex",
-                                   colorHex: "#000000", addedAt: Date(timeIntervalSince1970: 1))
+                                   addedAt: Date(timeIntervalSince1970: 1))
     private let gmail = Account(id: AccountID("g"), kind: .gmail, email: "alex@gmail.com", displayName: "Alex",
-                                colorHex: "#000000", addedAt: Date(timeIntervalSince1970: 2))
+                                addedAt: Date(timeIntervalSince1970: 2))
     private var accounts: [Account] { [contoso, fabrikam, gmail] }
 
     private func status(_ account: Account, _ phase: AccountSyncPhase, message: String? = nil, progress: Int? = nil,
@@ -145,8 +145,7 @@ final class SyncLineSummaryTests: XCTestCase {
     }
 
     func testStatusesOfAccountsTheShellDoesNotShowAreIgnored() {
-        let ghost = Account(id: AccountID("x"), kind: .gmail, email: "x@gone.test", displayName: "X", colorHex: "#000000",
-                            addedAt: Date(timeIntervalSince1970: 3))
+        let ghost = Account(id: AccountID("x"), kind: .gmail, email: "x@gone.test", displayName: "X", addedAt: Date(timeIntervalSince1970: 3))
         let s = make([status(ghost, .error, message: "server 500: gone"), status(contoso, .idle, checked: Date())], accounts: [contoso])
         XCTAssertEqual(s.state, .upToDate)
         XCTAssertEqual(make([status(ghost, .needsReauth)], accounts: []).state, .upToDate)
@@ -178,9 +177,9 @@ final class SyncLineSummaryTests: XCTestCase {
 /// words (spec §5.11, §5.40).
 final class SyncLineProgressTests: XCTestCase {
     private let contoso = Account(id: AccountID("c"), kind: .microsoft, email: "alex@contoso.test", displayName: "Alex",
-                                  colorHex: "#000000", addedAt: Date(timeIntervalSince1970: 0))
+                                  addedAt: Date(timeIntervalSince1970: 0))
     private let fabrikam = Account(id: AccountID("f"), kind: .microsoft, email: "alex@fabrikam.test", displayName: "Alex",
-                                   colorHex: "#000000", addedAt: Date(timeIntervalSince1970: 1))
+                                   addedAt: Date(timeIntervalSince1970: 1))
     private let now = Date(timeIntervalSince1970: 1_790_000_000)
 
     private func make(_ statuses: [AccountSyncStatus], accounts: [Account]) -> SyncLineSummary {

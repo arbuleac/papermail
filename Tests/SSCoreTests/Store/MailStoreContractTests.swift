@@ -34,7 +34,7 @@ class MailStoreContractTests: XCTestCase {
     // MARK: Fixture helpers
 
     func account(_ id: AccountID, email: String, addedAt: Date) -> Account {
-        Account(id: id, kind: .gmail, email: email, displayName: "Owner", colorHex: "#4A90E2", addedAt: addedAt)
+        Account(id: id, kind: .gmail, email: email, displayName: "Owner", addedAt: addedAt)
     }
 
     /// A sender that only ever writes to account B, so account A's cascade and wipe can be told apart from B's data.
@@ -110,7 +110,7 @@ class MailStoreContractTests: XCTestCase {
 
         var updated = accounts[0]
         updated.displayName = "Renamed"
-        updated.colorHex = "#000000"
+        updated.inkSlot = 7
         try store.upsertAccount(updated)
         XCTAssertEqual(try store.accounts().first, updated)
         XCTAssertEqual(try store.accounts().count, 2)

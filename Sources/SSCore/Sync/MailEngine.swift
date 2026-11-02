@@ -144,7 +144,6 @@ public final class MailEngine: MailClient, @unchecked Sendable {
             kind: kind,
             email: profile.email,
             displayName: profile.displayName,
-            colorHex: AccountColorPalette.color(avoiding: existing.map(\.colorHex)),
             addedAt: Date(),
             inkSlot: AccountInkSlot.next(taken: existing.map(\.inkSlot))
         )
@@ -172,10 +171,7 @@ public final class MailEngine: MailClient, @unchecked Sendable {
         let tokens = try await authenticator.signIn(kind: kind, loginHint: loginHint)
         let id = AccountID(UUID().uuidString)
         try tokenStore.save(tokens, for: id)
-        let provisional = Account(
-            id: id, kind: kind, email: "", displayName: "",
-            colorHex: AccountColorPalette.color(at: 0), addedAt: Date()
-        )
+        let provisional = Account(id: id, kind: kind, email: "", displayName: "", addedAt: Date())
         do {
             return (tokens, id, try await providerFactory(provisional).profile())
         } catch {

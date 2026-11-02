@@ -42,7 +42,7 @@ final class SQLiteMailStoreTests: XCTestCase {
         for (index, id) in ids.enumerated() {
             try store.upsertAccount(Account(
                 id: id, kind: .gmail, email: "\(id.rawValue)@example.com", displayName: "Owner \(index)",
-                colorHex: "#4A90E2", addedAt: base.addingTimeInterval(Double(index) * 60)
+                addedAt: base.addingTimeInterval(Double(index) * 60)
             ))
         }
     }

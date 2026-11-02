@@ -149,7 +149,7 @@ enum Fixtures {
     static let baseDate = Date(timeIntervalSince1970: 1_700_000_000)
 
     static func account(id: AccountID = accountID) -> Account {
-        Account(id: id, kind: .gmail, email: "me@example.com", displayName: "Me", colorHex: "#4A90E2", addedAt: baseDate)
+        Account(id: id, kind: .gmail, email: "me@example.com", displayName: "Me", addedAt: baseDate)
     }
 
     static func message(

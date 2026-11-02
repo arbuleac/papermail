@@ -1,5 +1,6 @@
 import AppKit
 import SSCore
+import SSDesign
 
 /// The debug snapshots of the app-level surfaces (`--snapshot-welcome-states`, `--snapshot-settings`,
 /// `--snapshot-settings-states`, `--snapshot-alerts`): each state is applied, given a moment to lay out (and
@@ -136,7 +137,7 @@ enum AppSnapshots {
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = context
         appearance.performAsCurrentDrawingAppearance {
-            NSColor.windowBackgroundColor.setFill()
+            NSColor.qCanvas.setFill()
             NSRect(x: 0, y: 0, width: width, height: height).fill()
         }
         var x: CGFloat = 0

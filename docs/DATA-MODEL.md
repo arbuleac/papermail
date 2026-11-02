@@ -11,7 +11,7 @@ One database per user: `~/Library/Application Support/SuperSparrow/mail.sqlite`,
 | kind | TEXT | gmail / microsoft |
 | email | TEXT | |
 | display_name | TEXT | |
-| color_hex | TEXT | TEMPORARY: the pre-Quire dot colour the app still draws; superseded by `ink_slot` and dropped from use once the app draws `NSColor.qAccount(ink_slot)` |
+| color_hex | TEXT | retired: nothing reads it. The pre-Quire dot colour, superseded by `ink_slot`. v1 declared it NOT NULL without a default, so it stays: new rows store `''`, an upsert never changes it, and existing rows keep their old value |
 | added_at | INTEGER | |
 | sync_cursor | TEXT NULL | provider-opaque |
 | bootstrap_json | TEXT NULL | `BootstrapState` as JSON |

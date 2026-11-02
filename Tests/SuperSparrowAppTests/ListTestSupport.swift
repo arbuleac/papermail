@@ -7,9 +7,9 @@ import XCTest
 @MainActor
 enum ListTestSupport {
     nonisolated static let accountA = Account(id: AccountID("acct-a"), kind: .gmail, email: "alex@contoso.test", displayName: "Alex Morgan",
-                                  colorHex: "#000000", addedAt: Date(timeIntervalSince1970: 0), inkSlot: 0)
+                                  addedAt: Date(timeIntervalSince1970: 0), inkSlot: 0)
     nonisolated static let accountB = Account(id: AccountID("acct-b"), kind: .microsoft, email: "alex@fabrikam.test", displayName: "Alex Morgan",
-                                  colorHex: "#000000", addedAt: Date(timeIntervalSince1970: 1), inkSlot: 1)
+                                  addedAt: Date(timeIntervalSince1970: 1), inkSlot: 1)
 
     nonisolated static let senders: [EmailAddress] = {
         let first = ["Ada", "Grace", "Linus", "Margaret", "Dennis", "Barbara", "Ken", "Radia", "Alan", "Hedy", "Priya", "Ben"]

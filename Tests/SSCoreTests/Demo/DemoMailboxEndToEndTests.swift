@@ -61,7 +61,6 @@ final class DemoMailboxEndToEndTests: XCTestCase {
         let (engine, store, accounts) = try await seededEngine()
         XCTAssertEqual(Set(accounts.map(\.email)), ["alex@demo-gmail.test", "alex@demo-outlook.test"])
         XCTAssertEqual(Set(accounts.map(\.kind)), [.gmail, .microsoft])
-        XCTAssertNotEqual(accounts[0].colorHex, accounts[1].colorHex)
         XCTAssertEqual(Set(accounts.map(\.inkSlot)), [0, 1])
 
         let inbox = try store.conversations(ConversationQuery(view: .inbox, limit: .max))
@@ -231,7 +230,7 @@ final class DemoMailboxEndToEndTests: XCTestCase {
 
     func testMailboxIsDeterministicAndPagesWithoutGapsOrDuplicates() async throws {
         let reference = Date(timeIntervalSince1970: 1_790_000_000)
-        let account = Account(id: AccountID("demo-a"), kind: .gmail, email: "", displayName: "", colorHex: "#000000", addedAt: reference)
+        let account = Account(id: AccountID("demo-a"), kind: .gmail, email: "", displayName: "", addedAt: reference)
         let first = DemoMailService(reference: reference, liveInterval: 3_600, now: { reference }).provider(for: account)
         let second = DemoMailService(reference: reference, liveInterval: 3_600, now: { reference }).provider(for: account)
 

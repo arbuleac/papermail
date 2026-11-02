@@ -81,12 +81,6 @@ final class WindowChromeTests: XCTestCase {
         XCTAssertEqual(QuireWindowChrome.fallbackMetrics.railWidth, Quire.Layout.Rail.width)
     }
 
-    func testListNeverSqueezesTheReaderBelowItsMinimum() {
-        XCTAssertEqual(QuireWindowChrome.listMaxWidth(windowWidth: 1280, railWidth: 84), 480)
-        XCTAssertEqual(QuireWindowChrome.listMaxWidth(windowWidth: 960, railWidth: 84), 476)
-        XCTAssertEqual(QuireWindowChrome.listMaxWidth(windowWidth: 960, railWidth: 76), 480)
-    }
-
     // MARK: The composer
 
     func testComposerFieldRowsStartAtTheMeasuredTitleBar() throws {

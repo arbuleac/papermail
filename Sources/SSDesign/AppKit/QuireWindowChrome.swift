@@ -98,10 +98,4 @@ public enum QuireWindowChrome {
         let layout = content.convert(window.contentLayoutRect, from: nil)
         return max(0, content.isFlipped ? layout.minY : content.bounds.height - layout.maxY)
     }
-
-    /// The list's widest allowed width in a window `windowWidth` wide: the smaller of 480 and the window less
-    /// the rail and the reader's 400 pt minimum (§3.2).
-    public nonisolated static func listMaxWidth(windowWidth: CGFloat, railWidth: CGFloat) -> CGFloat {
-        min(Quire.Layout.List.maxWidth, max(Quire.Layout.List.minWidth, windowWidth - railWidth - Quire.Layout.Window.readerMinWidth))
-    }
 }

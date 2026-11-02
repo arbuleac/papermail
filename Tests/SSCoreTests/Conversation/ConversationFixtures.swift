@@ -16,7 +16,6 @@ enum ConversationFixtures {
         kind: .gmail,
         email: "me@example.com",
         displayName: "Me",
-        colorHex: "#4A90E2",
         addedAt: Date(timeIntervalSince1970: 0)
     )
 

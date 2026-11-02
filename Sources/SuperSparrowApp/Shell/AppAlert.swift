@@ -165,9 +165,9 @@ struct AppAlert {
     /// Every alert of the inventory this surface owns, with sample values, for the alert snapshot.
     static var specimens: [AppAlert] {
         let contoso = Account(id: AccountID("contoso"), kind: .microsoft, email: "alex@contoso.test", displayName: "Alex Morgan",
-                              colorHex: "#000000", addedAt: Date())
+                              addedAt: Date())
         let fabrikam = Account(id: AccountID("fabrikam"), kind: .microsoft, email: "alex@fabrikam.test", displayName: "Alex Morgan",
-                               colorHex: "#000000", addedAt: Date())
+                               addedAt: Date())
         return [
             discardDraft(recipient: "Ben Carter"),
             discardDrafts(count: 3, recipient: nil),

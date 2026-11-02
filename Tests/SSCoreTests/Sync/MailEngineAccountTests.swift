@@ -66,7 +66,6 @@ final class MailEngineAccountTests: XCTestCase {
         XCTAssertEqual(account.email, "me@example.com")
         XCTAssertEqual(account.displayName, "Me")
         XCTAssertEqual(account.kind, .gmail)
-        XCTAssertEqual(account.colorHex, AccountColorPalette.color(at: 0))
         XCTAssertEqual(account.inkSlot, 0)
         XCTAssertNil(account.monogram)
         XCTAssertNotNil(UUID(uuidString: account.id.rawValue))
@@ -78,7 +77,6 @@ final class MailEngineAccountTests: XCTestCase {
 
         let second = try await harness.engine.addAccount(kind: .microsoft)
         XCTAssertNotEqual(second.id, account.id)
-        XCTAssertEqual(second.colorHex, AccountColorPalette.color(at: 1))
         XCTAssertEqual(second.inkSlot, 1)
         XCTAssertEqual(try harness.store.accounts().count, 2)
 
@@ -87,12 +85,9 @@ final class MailEngineAccountTests: XCTestCase {
         XCTAssertEqual(try harness.store.accounts().map(\.id), [second.id])
         XCTAssertNil(try harness.store.message(MessageID(accountID: account.id, providerID: "1")))
 
-        // The next account takes the colour the removed one freed, not the one the remaining account wears.
+        // The next account takes the palette slot the removed one freed, not the one the remaining account wears.
         let third = try await harness.engine.addAccount(kind: .gmail)
         XCTAssertNotEqual(third.id, second.id)
-        XCTAssertNotEqual(third.colorHex, second.colorHex)
-        XCTAssertEqual(third.colorHex, AccountColorPalette.color(at: 0))
-        // Likewise the palette slot: the lowest one no remaining account wears.
         XCTAssertEqual(third.inkSlot, 0)
         XCTAssertEqual(try harness.store.accounts().map(\.inkSlot).sorted(), [0, 1])
         await harness.shutdown()

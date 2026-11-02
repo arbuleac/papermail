@@ -70,7 +70,6 @@ extension MailStoreContractTests {
         let reread = try XCTUnwrap(try store.accounts().last)
         XCTAssertEqual(reread.inkSlot, 3)
         XCTAssertEqual(reread.monogram, "Cx")
-        XCTAssertEqual(reread.colorHex, updated.colorHex)
         updated.monogram = "D E"
         try store.upsertAccount(updated)
         XCTAssertEqual(try store.accounts().last?.monogram, "D")

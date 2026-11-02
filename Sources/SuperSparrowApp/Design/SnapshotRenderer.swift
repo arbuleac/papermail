@@ -1,5 +1,6 @@
 import AppKit
 import os
+import SSDesign
 
 /// Debug snapshots drawn by the app itself (`--snapshot-*`), because `screencapture` needs the Screen
 /// Recording permission. Views render through `cacheDisplay`, in their window's appearance, at its backing
@@ -25,7 +26,7 @@ enum SnapshotRenderer {
     }
 
     /// Bitmaps one under the other, left-aligned on `background`, `gap` points apart, at the first one's scale.
-    static func stack(_ bitmaps: [NSBitmapImageRep], gap: CGFloat = 24, background: NSColor = .windowBackgroundColor,
+    static func stack(_ bitmaps: [NSBitmapImageRep], gap: CGFloat = 24, background: NSColor = .qCanvas,
                       appearance: NSAppearance) -> NSBitmapImageRep? {
         guard let first = bitmaps.first else { return nil }
         let scale = CGFloat(first.pixelsWide) / max(1, first.size.width)

@@ -108,8 +108,8 @@ public struct SyntheticMailbox: Sendable {
                 kind: kind,
                 email: "owner\(index)@\(domain)",
                 displayName: "Owner \(index)",
-                colorHex: ["#4A90E2", "#50E3C2", "#F5A623", "#D0021B"][index % 4],
-                addedAt: now.addingTimeInterval(-Double(index + 1) * 86_400)
+                addedAt: now.addingTimeInterval(-Double(index + 1) * 86_400),
+                inkSlot: index % AccountInkSlot.count
             )
         }
     }

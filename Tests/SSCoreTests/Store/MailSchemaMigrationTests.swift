@@ -94,7 +94,7 @@ final class MailSchemaMigrationTests: XCTestCase {
         ])
         XCTAssertEqual(migrated.map(\.inkSlot), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1])
         XCTAssertEqual(migrated.map(\.monogram), Array(repeating: nil, count: accounts.count))
-        XCTAssertEqual(migrated.first?.colorHex, "#4A90E2", "existing columns survive")
+        XCTAssertEqual(migrated.first?.email, "acct-a@example.com", "existing columns survive")
 
         // The engine's rule agrees with the backfill, so the next account added takes the slot it would have.
         var taken: [Int] = []

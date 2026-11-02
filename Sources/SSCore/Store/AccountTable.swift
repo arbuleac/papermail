@@ -5,7 +5,7 @@ import GRDB
 enum AccountTable {
     static func all(_ db: Database) throws -> [Account] {
         try Row.fetchAll(db, sql: """
-            SELECT id, kind, email, display_name, color_hex, added_at, ink_slot, monogram FROM accounts
+            SELECT id, kind, email, display_name, added_at, ink_slot, monogram FROM accounts
             ORDER BY added_at, id
             """).map { row in
             Account(
@@ -13,27 +13,28 @@ enum AccountTable {
                 kind: ProviderKind(rawValue: row[1]) ?? .gmail,
                 email: row[2],
                 displayName: row[3],
-                colorHex: row[4],
-                addedAt: MailStoreCodec.date(row[5]),
-                inkSlot: row[6],
-                monogram: row[7]
+                addedAt: MailStoreCodec.date(row[4]),
+                inkSlot: row[5],
+                monogram: row[6]
             )
         }
     }
 
     /// Sync columns are deliberately left alone: re-saving an account after a profile refresh must not drop
     /// its cursor.
+    ///
+    /// `color_hex` is retired (the colour is `ink_slot`'s, drawn by the design layer) but v1 declared it NOT NULL
+    /// without a default, so a new row stores an empty string and an existing row keeps whatever it had.
     static func upsert(_ account: Account, in db: Database) throws {
         try validate(inkSlot: account.inkSlot)
         try db.execute(sql: """
             INSERT INTO accounts (id, kind, email, display_name, color_hex, added_at, ink_slot, monogram)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, '', ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 kind = excluded.kind, email = excluded.email, display_name = excluded.display_name,
-                color_hex = excluded.color_hex, added_at = excluded.added_at, ink_slot = excluded.ink_slot,
-                monogram = excluded.monogram
+                added_at = excluded.added_at, ink_slot = excluded.ink_slot, monogram = excluded.monogram
             """, arguments: [
-                account.id.rawValue, account.kind.rawValue, account.email, account.displayName, account.colorHex,
+                account.id.rawValue, account.kind.rawValue, account.email, account.displayName,
                 MailStoreCodec.milliseconds(account.addedAt), account.inkSlot,
                 Account.normalizedMonogram(account.monogram),
             ])
