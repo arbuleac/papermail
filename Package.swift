@@ -13,6 +13,7 @@ let package = Package(
         .library(name: "SSCore", targets: ["SSCore"]),
         .library(name: "SSGmail", targets: ["SSGmail"]),
         .library(name: "SSGraph", targets: ["SSGraph"]),
+        .library(name: "SSDesign", targets: ["SSDesign"]),
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.11.1"),
@@ -28,9 +29,20 @@ let package = Package(
         ),
         .target(name: "SSGmail", dependencies: ["SSCore"]),
         .target(name: "SSGraph", dependencies: ["SSCore"]),
+        // The Quire design runtime. Kept out of the executable so it can be unit-tested, and free of
+        // SSCore, GRDB and WebKit so tokens never pull the mail stack into a test or a preview.
+        .target(
+            name: "SSDesign",
+            swiftSettings: settings,
+            linkerSettings: [
+                .linkedFramework("AppKit"),
+                .linkedFramework("SwiftUI"),
+                .linkedFramework("QuartzCore"),
+            ]
+        ),
         .executableTarget(
             name: "SuperSparrowApp",
-            dependencies: ["SSCore", "SSGmail", "SSGraph"],
+            dependencies: ["SSCore", "SSGmail", "SSGraph", "SSDesign"],
             linkerSettings: [
                 .linkedFramework("AppKit"),
                 .linkedFramework("WebKit"),
@@ -42,6 +54,7 @@ let package = Package(
         .testTarget(name: "SSCoreTests", dependencies: ["SSCore"]),
         .testTarget(name: "SSGmailTests", dependencies: ["SSGmail"]),
         .testTarget(name: "SSGraphTests", dependencies: ["SSGraph"]),
+        .testTarget(name: "SSDesignTests", dependencies: ["SSDesign"]),
     ],
     swiftLanguageModes: [.v5]
 )

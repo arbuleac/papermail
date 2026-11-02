@@ -2618,11 +2618,12 @@ Not tested on purpose: `inkDisabled` (disabled text and glyphs are exempt), deco
 | Artifact | Path | Produced by |
 |---|---|---|
 | Source of truth | `docs/design/tokens.json` | hand-edited |
-| Generator | `scripts/tools/quire-tokens.swift` (SwiftPM-friendly script, no Node) | — |
-| AppKit colours, fonts, metrics | `Sources/SuperSparrowApp/Design/QuireTokens.swift` (generated; one file per kind if it grows) | generator |
-| Accent asset | `Sources/SuperSparrowApp/Resources/Assets.xcassets/AccentColor.colorset` (four appearances), `NSAccentColorName = AccentColor` in the app's Info.plist | generator |
-| Reader CSS head | `Sources/SSCore/ConversationSupport/QuireCSS.swift` (generated string, interpolated at the top of `ConversationShellAssets.css`) | generator |
-| Tests | `Tests/SuperSparrowAppTests/DesignContrastTests.swift`, `AccountPaletteTests.swift` (generated), `RowMetricsTests.swift`, `GlyphPathTests.swift` (hand-written) | generator / hand |
+| Generator | `scripts/tools/quire-tokens.swift` (plain Foundation script, no Node; `--check` lists stale outputs and runs first in `scripts/test.sh`) | — |
+| AppKit colours, fonts, metrics | `Sources/SSDesign/Generated/QuireTokens{Colors,Palettes,Typography,Scales,Layout,Content}.swift` (generated, one file per kind) in the `SSDesign` library target, which the app depends on and which imports AppKit, SwiftUI and QuartzCore but not SSCore, GRDB or WebKit | generator |
+| Design runtime | `Sources/SSDesign/` beside the generated files: `QuireFont`, `QuireEnvironment`, `QuireLayerColors`, `Quire.Motion` (`finishAll()`), `QuireGlyph` and `QuireSVGPath`, `QuireSymbol` | hand |
+| Accent asset | `Resources/Assets.xcassets/AccentColor.colorset` (four appearances), compiled into `Contents/Resources/Assets.car` by `scripts/build-app.sh` with `xcrun actool`, which also sets `NSAccentColorName = AccentColor` in the bundled Info.plist | generator |
+| Reader CSS head | `Sources/SSCore/ConversationSupport/QuireCSS.swift` (generated string, interpolated at the top of `ConversationShellAssets.css`; it lives in SSCore because the shell is built there and SSCore does not import AppKit) | generator |
+| Tests | `Tests/SSDesignTests/Generated/DesignContrastTests.swift`, `AccountPaletteTests.swift`, `RadiusScaleTests.swift` (generated); `Tests/SSDesignTests/RowMetricsTests.swift`, `GlyphPathTests.swift` and the rest of `Tests/SSDesignTests/` (hand-written); `Tests/SSCoreTests/Conversation/QuireCSSTests.swift` (the CSS head against the specimen) | generator / hand |
 | Specimen | `docs/design/specimen.html` (+ PNGs via `scripts/tools/html-snapshot.swift`) | generator |
 
 The generator also emits the `graphite` substitutions as a second branch of every accent-family provider and CSS block (§3.1), asserts `graphiteContrastPairs` next to `contrastPairs` (with `needIC` where present), and turns `cheatSheetContent` into the overlay's rows (§5.32), so the key map, the cheat sheet and the specimen cannot drift apart. Token names map one to one: `color.paper` → `NSColor.qPaper` → `Color.qPaper` → `--q-paper`; `typography.subject` → `QuireFont.subject` → `--q-font-subject`; `layout.row.height` → `Quire.Layout.Row.height` → (AppKit only, or `--q-…` where the reader needs it); `motion.duration.standard` → `Quire.Motion.standard` → `--q-dur-standard`; `motion.curve.settle` → `CAMediaTimingFunction(controlPoints:)` → `--q-ease-settle`.
@@ -2803,13 +2804,15 @@ html.ss-adapt a, html.ss-adapt a * { color: var(--q-accent) !important; }
 
 ### 8.7 Tests
 
+Design tests live in `Tests/SSDesignTests`: the generated ones in `Tests/SSDesignTests/Generated/` (rewritten by the generator, never edited), the hand-written ones beside them, and the colour math they share, a port of `docs/design/source/colorlib.py`, in `Tests/SSDesignTests/Support/`. Tests of the reader shell live in `Tests/SSCoreTests/Conversation/`.
+
 - **`DesignContrastTests`** (generated from `contrastPairs` and `graphiteContrastPairs`): resolves each pair in four modes with the same compositing and asserts ≥ `need`, or ≥ `needIC` in the IC modes when the pair has one.
 - **`AccountPaletteTests`** (generated from `accountRules`): Machado simulation + CIEDE2000; asserts the six-account floor, the ten-account normal floor and the distances from accent, danger, info and star.
 - **`RowMetricsTests`**: lays out subjects in Latin, Cyrillic, Japanese, Arabic, Hebrew, Thai and Devanagari with the chosen role (New York or twin) and asserts the used line fragment height ≤ the role line height and that the coverage check picks the twin for the last five.
 - **`GlyphPathTests`**: parses the five custom glyph paths and checks their bounds stay inside the grid.
 - **`WindowChromeTests`**: builds the main window off screen with the §3.2 configuration (empty unified toolbar) and asserts that the close button's centre is 26 ± 0.5 pt from the top, that the derived rail width is ≥ the zoom button's `maxX` + 4, and that a composer window's field rows start at its measured title-bar height. A failure means a macOS release moved the lights: re-derive the title-bar metrics (§3.2) rather than nudging numbers.
 - **`ReaderSymbolTests`**: the shell's CSS references only `--sym-*` names in `readerSymbols`, and every name rasterises (`NSImage(systemSymbolName:)` is non-nil).
-- **`RadiusScaleTests`** (generated): every `radius` metric in `layout` is on the scale or a listed exception (§4.6).
+- **`RadiusScaleTests`** (generated): every `radius` metric in `layout` is on the scale or a listed exception (§4.6). The exception list mirrors `RADIUS_EXCEPTIONS` in `docs/design/source/tokens_def.py`; `tokens.json` does not carry it, so `scripts/tools/quire-tokens.swift` holds it, each exception pinned to its value.
 - Existing signposts stay the gate: `j`/`k` ≤ 16 ms and list refresh ≤ 50 ms on the synthetic mailbox after the row changes, and a hover-while-scrolling run that asserts no avatar cache miss.
 
 ---

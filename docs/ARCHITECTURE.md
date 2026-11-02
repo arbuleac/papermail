@@ -60,6 +60,32 @@ SuperSparrowApp (AppKit, WebKit)  ──reads──▶  MailStoring (SQLite)  �
 - A read or star change in the shown conversation patches the card headers (`ss.flags`) instead of re-sending bodies. Whether a body has quoted text and how many remote images it parks are stored with it at sync time, so no render scans HTML.
 - Dark mode: the shell adapts; email bodies get `color-scheme: light dark` and a per-message "show original" escape hatch.
 
+## Design
+
+The design language is Quire (`docs/DESIGN-LANGUAGE.md`). `docs/design/tokens.json` is its single source; nothing downstream is edited by hand.
+
+```
+docs/design/source/tokens_def.py ──sh docs/design/source/make.sh (python3)──▶ docs/design/tokens.json
+                                                                             docs/DESIGN-LANGUAGE.md, docs/design/specimen.html
+docs/design/tokens.json ──swift scripts/tools/quire-tokens.swift──▶ Sources/SSDesign/Generated/QuireTokens*.swift
+                                                                    Sources/SSCore/ConversationSupport/QuireCSS.swift
+                                                                    Tests/SSDesignTests/Generated/*.swift
+                                                                    Resources/Assets.xcassets (AccentColor)
+```
+
+- **SSDesign** (`Sources/SSDesign`): the design runtime as a library, so it can be unit-tested; the app depends on it. AppKit, SwiftUI and QuartzCore only: no SSCore, GRDB or WebKit. Generated tokens (`NSColor.q…` and `Color.q…` providers with the Graphite branch, account and avatar palettes, `QuireFont.Role`, `Quire.Space`/`Radius`/`Border`/`Elevation`/`Motion`, `Quire.Layout.<Group>.<name>`, icons, glyphs, the cheat sheet) sit in `Generated/`; beside them the hand-written runtime: `QuireFont` (cached fonts, exact line heights, the New York coverage test), `QuireEnvironment` (Graphite, Increase Contrast, Reduce Motion, Reduce Transparency as a thread-safe snapshot plus a change notification), `QuireLayerColors` (re-resolves `CGColor`s on appearance and environment changes), `Quire.Motion` (token animations, Reduce Motion fallbacks, `finishAll()`), `QuireGlyph`/`QuireSVGPath` and `QuireSymbol`.
+- **Reader CSS**: `QuireCSS.head` lives in SSCore because the reader shell is built there and SSCore does not import AppKit. It is byte-identical to the specimen's `<style>` head (`QuireCSSTests`).
+- **Accent**: `scripts/build-app.sh` compiles `Resources/Assets.xcassets` into `Contents/Resources/Assets.car` with `xcrun actool` (Xcode) and sets `NSAccentColorName = AccentColor`; without actool it warns and the bundle falls back to the system accent.
+- **Tests**: `Tests/SSDesignTests` asserts every contrast pair in four modes (and every Graphite pair), the account-palette rules, the radius scale, row metrics across scripts, the glyph paths, and that the runtime still equals `tokens.json`. The colour math is a port of `docs/design/source/colorlib.py`; a pair that fails in Swift but passes in python is a port bug.
+
+Regenerate after changing tokens:
+
+```
+sh docs/design/source/make.sh               # tokens.json, the spec and the specimen, from the python sources
+swift scripts/tools/quire-tokens.swift      # Swift runtime, reader CSS, generated tests, accent asset
+swift scripts/tools/quire-tokens.swift --check   # exits 1 and lists stale outputs; scripts/test.sh runs it first
+```
+
 ## Performance budgets
 
 Measured with `os_signpost` on a synthetic 100,000-message mailbox (see `Tests/SSCoreTests/Fixtures/SyntheticMailbox.swift`):
