@@ -277,6 +277,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             list.query = query
         }
         listPane.display(view: mailboxView, section: mailboxView == .inbox ? section : nil)
+        conversation.mailboxView = mailboxView
     }
 
     // MARK: Selection
@@ -383,9 +384,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         case .trash:
             return mailAction(.trash)
         case .reply:
-            return composeReply(all: false)
+            // R and A focus the reader's quick reply where it shows; elsewhere they open the composer (spec §5.18).
+            return conversation.focusQuickReply(all: false) || composeReply(all: false)
         case .replyAll:
-            return composeReply(all: true)
+            return conversation.focusQuickReply(all: true) || composeReply(all: true)
         case .forward:
             return composeForward()
         case .compose:
@@ -481,9 +483,17 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             mailAction(.setStarred(starred), on: id)
         case .trash(let id):
             mailAction(.trash, on: id)
+        case .moveToInbox(let id):
+            mailAction(.moveToInbox, on: id)
         case .openAttachment:
             // The reader already opened Quick Look.
             break
+        case .continueDraft(let id):
+            DraftReopener.present(id, client: environment.engine, accounts: accounts)
+        case .discardDraft(let id):
+            mailAction(.trash, on: id)
+        case .reveal(let id):
+            reveal(id)
         }
     }
 

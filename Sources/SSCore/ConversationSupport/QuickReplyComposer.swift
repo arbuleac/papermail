@@ -31,6 +31,37 @@ public enum QuickReplyComposer {
         return first.shortDisplay
     }
 
+    /// Reply all: the reply's recipients in To, and everyone else the latest message went to in Cc, without
+    /// the user's own addresses or anyone twice.
+    public static func replyAllRecipients(to latest: MessageMetadata, accounts: [AccountID: Account]) -> (to: [EmailAddress], cc: [EmailAddress]) {
+        let own = ownAddresses(accounts)
+        let to = replyRecipients(to: latest, accounts: accounts)
+        var seen = Set(to.map { $0.address.lowercased() }).union(own)
+        var cc: [EmailAddress] = []
+        for address in latest.to + latest.cc where seen.insert(address.address.lowercased()).inserted {
+            cc.append(address)
+        }
+        return (to, cc)
+    }
+
+    /// Reply All is offered only when it reaches someone Reply would not (spec §5.12, §5.18).
+    public static func replyAllAvailable(for latest: MessageMetadata, accounts: [AccountID: Account]) -> Bool {
+        let all = replyAllRecipients(to: latest, accounts: accounts)
+        return all.to.count + all.cc.count > 1
+    }
+
+    /// Name shown in the "Reply all to …" placeholder: "Ben Carter and 2 others".
+    public static func replyAllTargetName(for latest: MessageMetadata, accounts: [AccountID: Account]) -> String {
+        let all = replyAllRecipients(to: latest, accounts: accounts)
+        let everyone = all.to + all.cc
+        guard let first = everyone.first else { return "" }
+        switch everyone.count {
+        case 1: return first.shortDisplay
+        case 2: return first.shortDisplay + " and 1 other"
+        default: return first.shortDisplay + " and \(everyone.count - 1) others"
+        }
+    }
+
     public static func replySubject(for subject: String) -> String {
         let trimmed = subject.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.lowercased().hasPrefix("re:") { return trimmed }
@@ -53,15 +84,20 @@ public enum QuickReplyComposer {
     public static func outgoingMessage(
         text: String,
         replyingTo latest: MessageMetadata,
-        accounts: [AccountID: Account]
+        accounts: [AccountID: Account],
+        all: Bool = false
     ) -> OutgoingMessage {
         var references = latest.references
         if let messageID = latest.internetMessageID, !references.contains(messageID) {
             references.append(messageID)
         }
+        let recipients: (to: [EmailAddress], cc: [EmailAddress]) = all
+            ? replyAllRecipients(to: latest, accounts: accounts)
+            : (replyRecipients(to: latest, accounts: accounts), [])
         return OutgoingMessage(
             accountID: latest.id.accountID,
-            to: replyRecipients(to: latest, accounts: accounts),
+            to: recipients.to,
+            cc: recipients.cc,
             subject: replySubject(for: latest.subject),
             html: paragraphsHTML(from: text),
             text: text,

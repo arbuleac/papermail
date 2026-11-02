@@ -2,7 +2,7 @@ import Foundation
 
 /// Turns stored metadata and bodies into a `RenderPayload`. Pure: no store access, no HTML parsing.
 ///
-/// Dates, initials and colors are derived here rather than in JavaScript so the shell stays a dumb
+/// Dates, initials, tints and recipients are derived here rather than in JavaScript so the shell stays a dumb
 /// renderer and the rules can be unit tested without WebKit.
 public struct RenderPayloadBuilder: Sendable {
     public var calendar: Calendar
@@ -20,14 +20,20 @@ public struct RenderPayloadBuilder: Sendable {
     /// - Parameters:
     ///   - messages: a conversation's messages in any order; trash and spam are filtered like the list does.
     ///   - bodies: stored bodies keyed by message; missing ones get a snippet fallback.
+    ///   - bodyStates: what stands in for each missing body (`loading` when absent); ignored once a body exists.
     ///   - subject: overrides the first non-empty message subject when the caller already has it.
     ///   - loadRemoteImages: the user's preference, passed through to the shell.
+    ///   - readingSans: the SF Pro reading font setting (spec §4.4).
+    ///   - colorsNoticeDismissed: the Original colors notice was dismissed for good (spec §5.16).
     public func build(
         messages: [MessageMetadata],
         bodies: [MessageID: StoredBody],
         accounts: [AccountID: Account],
+        bodyStates: [MessageID: RenderPayload.BodyState] = [:],
         subject: String? = nil,
         loadRemoteImages: Bool = false,
+        readingSans: Bool = false,
+        colorsNoticeDismissed: Bool = false,
         now: Date = Date()
     ) -> RenderPayload {
         let visible = Self.visibleMessages(messages)
@@ -39,28 +45,39 @@ public struct RenderPayloadBuilder: Sendable {
             // Stored facts describe renderedHTML; a fallback body (snippet or text) is small enough to scan.
             let stored = body.flatMap { $0.renderedHTML == html ? $0 : nil }
             let design = Self.design(for: message, body: body, stored: stored)
+            let isFromMe = message.from.map { ownAddresses.contains($0.address.lowercased()) } ?? false
+            let isDraft = message.roles.contains(.drafts)
+            let date = isDraft
+                ? draftDateDisplay(for: message.date, now: now, formatters: formatters)
+                : dateDisplay(for: message.date, now: now, formatters: formatters)
             return RenderPayload.Message(
                 id: RenderPayload.messageKey(for: message.id),
                 from: Self.sender(for: message.from),
                 to: Self.recipientsDisplay(message.to, ownAddresses: ownAddresses),
                 cc: Self.recipientsDisplay(message.cc, ownAddresses: ownAddresses),
+                recipients: Self.recipientFields(for: message, isFromMe: isFromMe, ownAddresses: ownAddresses),
                 dateISO: formatters.iso.string(from: message.date),
-                dateDisplay: dateDisplay(for: message.date, now: now, formatters: formatters),
+                dateDisplay: date,
                 snippet: message.snippet,
                 isUnread: !message.isRead,
                 isStarred: message.isStarred,
+                isDraft: isDraft,
                 hasBody: body != nil,
+                bodyState: body != nil ? .ready : (bodyStates[message.id] ?? .loading),
                 html: html,
                 hasQuotedContent: stored?.hasQuotedContent ?? Self.hasQuotedContent(in: html),
                 blockedRemoteImageCount: stored?.blockedRemoteImageCount ?? Self.blockedRemoteImageCount(in: html),
                 attachments: (body?.body.attachments ?? [])
                     .filter { !$0.isInline }
                     .map { attachment in
-                        RenderPayload.Attachment(
+                        let type = Self.attachmentType(filename: attachment.filename, mimeType: attachment.mimeType)
+                        return RenderPayload.Attachment(
                             id: attachment.id,
                             name: attachment.filename.isEmpty ? "Attachment" : attachment.filename,
                             size: Self.sizeString(bytes: attachment.sizeBytes),
-                            mime: attachment.mimeType
+                            mime: attachment.mimeType,
+                            symbol: type.symbol,
+                            kind: type.kind
                         )
                     },
                 typesetting: design.typesetting,
@@ -70,7 +87,15 @@ public struct RenderPayloadBuilder: Sendable {
         }
         let resolvedSubject = subject ?? Self.subject(of: visible)
         let inkSlot = visible.first.flatMap { accounts[$0.id.accountID]?.inkSlot } ?? 0
-        return RenderPayload(subject: resolvedSubject, messages: rendered, loadRemoteImages: loadRemoteImages, inkSlot: inkSlot)
+        return RenderPayload(
+            subject: resolvedSubject,
+            participants: Self.participantsLine(visible, accounts: accounts),
+            messages: rendered,
+            loadRemoteImages: loadRemoteImages,
+            inkSlot: inkSlot,
+            readingSans: readingSans,
+            colorsNoticeDismissed: colorsNoticeDismissed
+        )
     }
 
     /// The design facts the shell sets a body by. A stored body carries them from sync time (nil, for one
@@ -114,16 +139,18 @@ public struct RenderPayloadBuilder: Sendable {
 
     // MARK: Sender
 
+    /// A missing sender is an empty name and address: the shell sets "No sender" in the placeholder style
+    /// (spec §4.1) and the face shows "?".
     public static func sender(for address: EmailAddress?) -> RenderPayload.Sender {
         guard let address else {
-            return RenderPayload.Sender(name: "Unknown sender", address: "", initials: "?", color: palette[0])
+            return RenderPayload.Sender(name: "", address: "", initials: "?", tint: avatarTint(name: nil, address: ""))
         }
         let name = address.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return RenderPayload.Sender(
             name: name.isEmpty ? address.shortDisplay : name,
             address: address.address,
             initials: initials(name: address.name, address: address.address),
-            color: avatarColor(name: address.name, address: address.address)
+            tint: avatarTint(name: address.name, address: address.address)
         )
     }
 
@@ -151,21 +178,20 @@ public struct RenderPayloadBuilder: Sendable {
         return (String(first) + String(last)).uppercased()
     }
 
-    /// A fixed palette keeps avatars legible with white text in both appearances; FNV-1a (not `Hasher`,
-    /// which is seeded per process) makes the choice stable across launches.
-    public static let palette: [String] = [
-        "#D9534F", "#E8792E", "#C9A227", "#3FA34D", "#2A9D8F", "#1E88E5",
-        "#5C6BC0", "#8E44AD", "#D81B60", "#6D4C41", "#546E7A", "#00897B",
-    ]
+    /// The number of avatar tints (spec §4.3, `platform.avatarTintCount`).
+    public static let avatarTintCount = 8
 
-    public static func avatarColor(name: String?, address: String) -> String {
+    /// The avatar tint: FNV-1a 32-bit over the UTF-8 of the lowercased address, modulo the tint count. The same
+    /// arithmetic as `Quire.avatarTintIndex(forAddress:)` in SSDesign, which SSCore cannot import; both are
+    /// tested against the same vectors. Not `Hasher`, which is seeded per process.
+    public static func avatarTint(name: String?, address: String) -> Int {
         let key = address.isEmpty ? (name ?? "") : address
         var hash: UInt32 = 2_166_136_261
         for byte in key.lowercased().utf8 {
             hash ^= UInt32(byte)
             hash = hash &* 16_777_619
         }
-        return palette[Int(hash % UInt32(palette.count))]
+        return Int(hash % UInt32(avatarTintCount))
     }
 
     // MARK: Recipients
@@ -175,6 +201,51 @@ public struct RenderPayloadBuilder: Sendable {
         recipients.map { recipient in
             ownAddresses.contains(recipient.address.lowercased()) ? "me" : recipient.shortDisplay
         }.joined(separator: ", ")
+    }
+
+    /// The expanded recipients (spec §5.14): To, Cc, and Bcc only on messages the user sent; empty fields are
+    /// left out. The user is "me".
+    public static func recipientFields(
+        for message: MessageMetadata,
+        isFromMe: Bool,
+        ownAddresses: Set<String>
+    ) -> [RenderPayload.RecipientField] {
+        func people(_ list: [EmailAddress]) -> [RenderPayload.Person] {
+            list.map { address in
+                let isMe = ownAddresses.contains(address.address.lowercased())
+                let name = address.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                return RenderPayload.Person(name: isMe ? "me" : name, address: address.address)
+            }
+        }
+        var fields: [RenderPayload.RecipientField] = []
+        if !message.to.isEmpty { fields.append(.init(label: "To", people: people(message.to))) }
+        if !message.cc.isEmpty { fields.append(.init(label: "Cc", people: people(message.cc))) }
+        if isFromMe, !message.bcc.isEmpty { fields.append(.init(label: "Bcc", people: people(message.bcc))) }
+        return fields
+    }
+
+    /// Everyone in the conversation in order of appearance (each sender, then their recipients), at most `max`
+    /// names and then "+3" (spec §5.13). The user appears by name, as the list's sender line names them.
+    public static func participantsLine(_ messages: [MessageMetadata], accounts: [AccountID: Account], max: Int = 4) -> String {
+        let ownNames = Dictionary(accounts.values.map { ($0.email.lowercased(), $0.displayName) }, uniquingKeysWith: { first, _ in first })
+        var seen: Set<String> = []
+        var names: [String] = []
+        for message in messages {
+            for address in [message.from].compactMap({ $0 }) + message.to + message.cc {
+                let key = address.address.lowercased()
+                guard !key.isEmpty, seen.insert(key).inserted else { continue }
+                let name = address.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if !name.isEmpty {
+                    names.append(name)
+                } else if let own = ownNames[key], !own.isEmpty {
+                    names.append(own)
+                } else {
+                    names.append(address.shortDisplay)
+                }
+            }
+        }
+        guard names.count > max else { return names.joined(separator: ", ") }
+        return names.prefix(max).joined(separator: ", ") + " +\(names.count - max)"
     }
 
     // MARK: Body
@@ -234,6 +305,40 @@ public struct RenderPayloadBuilder: Sendable {
         return count
     }
 
+    // MARK: Attachments
+
+    /// The chip's type tile symbol and the kind its meta line names (spec §5.17), from the file's extension,
+    /// else its MIME type. Symbols stay inside the reader's rasterised set (§4.11).
+    public static func attachmentType(filename: String, mimeType: String) -> (symbol: String, kind: String) {
+        let ext = (filename as NSString).pathExtension.lowercased()
+        switch ext {
+        case "pdf": return ("doc", "PDF")
+        case "doc", "docx": return ("doc.richtext", "Word")
+        case "pages": return ("doc.richtext", "Pages")
+        case "rtf", "rtfd": return ("doc.richtext", "Rich Text")
+        case "txt", "md": return ("doc", "Text")
+        case "xls", "xlsx": return ("tablecells", "Excel")
+        case "numbers": return ("tablecells", "Numbers")
+        case "csv", "tsv": return ("tablecells", ext.uppercased())
+        case "ppt", "pptx": return ("doc", "PowerPoint")
+        case "key": return ("doc", "Keynote")
+        case "zip", "gz", "tgz", "tar", "7z", "rar", "bz2", "xz": return ("doc.zipper", "Archive")
+        case "mov": return ("film", "QuickTime")
+        case "mp4", "m4v", "avi", "mkv", "webm": return ("film", "Video")
+        case "jpg", "jpeg": return ("photo", "JPEG")
+        case "png", "gif", "heic", "heif", "tif", "tiff", "webp", "bmp": return ("photo", ext.uppercased())
+        default: break
+        }
+        let mime = mimeType.lowercased()
+        if mime == "application/pdf" { return ("doc", "PDF") }
+        if mime.hasPrefix("image/") { return ("photo", "Image") }
+        if mime.hasPrefix("video/") { return ("film", "Video") }
+        if mime.contains("zip") || mime.contains("compressed") { return ("doc.zipper", "Archive") }
+        if mime.contains("spreadsheet") || mime.contains("excel") || mime == "text/csv" { return ("tablecells", "Spreadsheet") }
+        if mime.contains("wordprocessing") || mime.contains("msword") || mime.contains("rtf") { return ("doc.richtext", "Document") }
+        return ("doc", ext.isEmpty ? "File" : ext.uppercased())
+    }
+
     // MARK: Sizes
 
     /// Finder-style decimal units; one decimal below 10 so "1.2 MB" and "45 KB" both read naturally.
@@ -253,7 +358,9 @@ public struct RenderPayloadBuilder: Sendable {
 
     // MARK: Dates
 
-    /// "Today 14:05", "Yesterday 09:12", "Tue 3 Mar" for the rest of the last week, else "3 Mar 2025 14:05".
+    /// What the reader shows (spec §4.13): "Today 09:12", "Yesterday 23:39", "Fri 30 Oct" for the rest of this
+    /// year and "30 Oct 2025" before it. Times follow the locale's 12/24-hour convention (the user's choice
+    /// for the current locale), dates its day and month order.
     public func dateDisplay(for date: Date, now: Date = Date()) -> String {
         dateDisplay(for: date, now: now, formatters: makeFormatters())
     }
@@ -268,9 +375,21 @@ public struct RenderPayloadBuilder: Sendable {
         switch days {
         case 0: return "Today " + formatters.time.string(from: date)
         case 1: return "Yesterday " + formatters.time.string(from: date)
-        case 2...6: return formatters.weekday.string(from: date)
-        default: return formatters.full.string(from: date)
+        case 2...:
+            let sameYear = cal.component(.year, from: date) == cal.component(.year, from: now)
+            return (sameYear ? formatters.weekday : formatters.full).string(from: date)
+        default:
+            // A date in the future is clock skew; it never reads as Today.
+            return formatters.full.string(from: date)
         }
+    }
+
+    /// A draft's date line (spec §5.19): "Edited 23:51" today, else "Edited Fri 30 Oct".
+    private func draftDateDisplay(for date: Date, now: Date, formatters: Formatters) -> String {
+        var cal = calendar
+        cal.timeZone = timeZone
+        if cal.isDate(date, inSameDayAs: now) { return "Edited " + formatters.time.string(from: date) }
+        return "Edited " + dateDisplay(for: date, now: now, formatters: formatters)
     }
 
     private struct Formatters {
@@ -281,21 +400,21 @@ public struct RenderPayloadBuilder: Sendable {
     }
 
     private func makeFormatters() -> Formatters {
-        func formatter(_ format: String) -> DateFormatter {
+        func formatter(template: String) -> DateFormatter {
             let f = DateFormatter()
             f.calendar = calendar
             f.locale = locale
             f.timeZone = timeZone
-            f.dateFormat = format
+            f.setLocalizedDateFormatFromTemplate(template)
             return f
         }
         let iso = ISO8601DateFormatter()
         iso.formatOptions = [.withInternetDateTime]
         iso.timeZone = timeZone
         return Formatters(
-            time: formatter("HH:mm"),
-            weekday: formatter("EEE d MMM"),
-            full: formatter("d MMM yyyy HH:mm"),
+            time: formatter(template: "jmm"),
+            weekday: formatter(template: "EEEdMMM"),
+            full: formatter(template: "dMMMyyyy"),
             iso: iso
         )
     }

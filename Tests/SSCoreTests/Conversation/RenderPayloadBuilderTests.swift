@@ -38,11 +38,14 @@ final class RenderPayloadBuilderTests: XCTestCase {
         XCTAssertEqual(m1.from.name, "Ada Lovelace")
         XCTAssertEqual(m1.from.address, "ada@example.com")
         XCTAssertEqual(m1.from.initials, "AL")
-        XCTAssertTrue(RenderPayloadBuilder.palette.contains(m1.from.color))
+        XCTAssertEqual(m1.from.tint, RenderPayloadBuilder.avatarTint(name: nil, address: "ada@example.com"))
         XCTAssertEqual(m1.to, "me")
         XCTAssertEqual(m1.cc, "")
+        XCTAssertEqual(m1.recipients, [RenderPayload.RecipientField(label: "To", people: [RenderPayload.Person(name: "me", address: "me@example.com")])])
         XCTAssertEqual(m1.dateISO, "2025-01-03T14:05:00Z")
-        XCTAssertEqual(m1.dateDisplay, "3 Jan 2025 14:05")
+        XCTAssertEqual(m1.dateDisplay, "Fri 3 Jan")
+        XCTAssertEqual(m1.bodyState, .ready)
+        XCTAssertFalse(m1.isDraft)
         XCTAssertFalse(m1.isUnread)
         XCTAssertFalse(m1.isStarred)
         XCTAssertTrue(m1.hasBody)
@@ -66,6 +69,73 @@ final class RenderPayloadBuilderTests: XCTestCase {
         XCTAssertEqual(m2.attachments.first?.name, "plan.pdf")
         XCTAssertEqual(m2.attachments.first?.size, "1.2 MB")
         XCTAssertEqual(m2.attachments.first?.mime, "application/pdf")
+        XCTAssertEqual(m2.attachments.first?.symbol, "doc")
+        XCTAssertEqual(m2.attachments.first?.kind, "PDF")
+        XCTAssertEqual(m2.recipients.map(\.label), ["To", "Cc"], "Bcc only on messages the user sent")
+        XCTAssertEqual(payload.participants, "Ada Lovelace, Me, grace.hopper, Bob +1")
+    }
+
+    func testParticipantsLineNamesFourThenCounts() {
+        let one = F.message("m1", from: F.ada, to: [F.me], cc: [F.bob])
+        let two = F.message("m2", from: F.carol, to: [F.ada], date: F.utc(2025, 1, 4))
+        XCTAssertEqual(RenderPayloadBuilder.participantsLine([one, two], accounts: F.accounts), "Ada Lovelace, Me, Bob, Carol")
+        let three = F.message("m3", from: EmailAddress(name: "Dan", address: "dan@example.com"), to: [F.me], date: F.utc(2025, 1, 5))
+        XCTAssertEqual(RenderPayloadBuilder.participantsLine([one, two, three], accounts: F.accounts), "Ada Lovelace, Me, Bob, Carol +1")
+    }
+
+    func testBccShowsOnlyOnMessagesTheUserSent() {
+        var sent = F.message("m1", from: F.me, to: [F.ada], roles: [.sent])
+        sent.bcc = [F.bob]
+        var received = F.message("m2", from: F.ada, to: [F.me], date: F.utc(2025, 1, 4))
+        received.bcc = [F.carol]
+        let payload = builder.build(messages: [sent, received], bodies: [:], accounts: F.accounts, now: now)
+        XCTAssertEqual(payload.messages[0].recipients.map(\.label), ["To", "Bcc"])
+        XCTAssertEqual(payload.messages[0].recipients.last?.people, [RenderPayload.Person(name: "Bob", address: "bob@example.com")])
+        XCTAssertEqual(payload.messages[1].recipients.map(\.label), ["To"])
+    }
+
+    func testDraftsAreMarkedAndDatedAsEdited() {
+        let draft = F.message("d1", from: F.me, to: [F.ada], date: F.utc(2025, 3, 7, 9, 30), roles: [.drafts])
+        let payload = builder.build(messages: [draft], bodies: [:], accounts: F.accounts, now: now)
+        XCTAssertTrue(payload.messages[0].isDraft)
+        XCTAssertEqual(payload.messages[0].dateDisplay, "Edited 09:30")
+    }
+
+    func testMissingBodiesCarryTheirFetchState() {
+        let loading = F.message("m1")
+        let offline = F.message("m2", date: F.utc(2025, 1, 4))
+        let ready = F.message("m3", date: F.utc(2025, 1, 5))
+        let payload = builder.build(
+            messages: [loading, offline, ready], bodies: [ready.id: F.body(html: "<p>Hi</p>")], accounts: F.accounts,
+            bodyStates: [offline.id: .offline, ready.id: .failed], now: now
+        )
+        XCTAssertEqual(payload.messages.map(\.bodyState), [.loading, .offline, .ready], "a stored body is ready whatever the fetch said")
+    }
+
+    func testPreferencesTravelInThePayload() {
+        let payload = builder.build(messages: [F.message("m1")], bodies: [:], accounts: F.accounts,
+                                    readingSans: true, colorsNoticeDismissed: true, now: now)
+        XCTAssertTrue(payload.readingSans)
+        XCTAssertTrue(payload.colorsNoticeDismissed)
+    }
+
+    func testAttachmentTypesUseOnlyReaderSymbols() {
+        let cases: [(String, String, String, String)] = [
+            ("plan.pdf", "application/pdf", "doc", "PDF"),
+            ("cutover-runbook.docx", "application/octet-stream", "doc.richtext", "Word"),
+            ("capacity-plan.numbers", "", "tablecells", "Numbers"),
+            ("walkthrough.mov", "video/quicktime", "film", "QuickTime"),
+            ("logs.zip", "application/zip", "doc.zipper", "Archive"),
+            ("sunset.JPG", "image/jpeg", "photo", "JPEG"),
+            ("noextension", "image/png", "photo", "Image"),
+            ("sso-metadata.xml", "text/xml", "doc", "XML"),
+        ]
+        for (name, mime, symbol, kind) in cases {
+            let type = RenderPayloadBuilder.attachmentType(filename: name, mimeType: mime)
+            XCTAssertEqual(type.symbol, symbol, name)
+            XCTAssertEqual(type.kind, kind, name)
+            XCTAssertTrue(ConversationShellAssets.symbols.contains(type.symbol), name)
+        }
     }
 
     func testSubjectComesFromFirstNonEmptyMessageUnlessOverridden() {
@@ -108,10 +178,11 @@ final class RenderPayloadBuilderTests: XCTestCase {
         XCTAssertFalse(payload.messages[0].hasQuotedContent)
     }
 
-    func testUnknownSenderGetsPlaceholder() {
+    func testUnknownSenderIsLeftForThePlaceholder() {
+        // The shell sets "No sender" in the placeholder style (spec §4.1); the payload carries no made-up name.
         let message = F.message("m1", from: nil)
         let sender = builder.build(messages: [message], bodies: [:], accounts: F.accounts, now: now).messages[0].from
-        XCTAssertEqual(sender.name, "Unknown sender")
+        XCTAssertEqual(sender.name, "")
         XCTAssertEqual(sender.address, "")
         XCTAssertEqual(sender.initials, "?")
     }
@@ -142,16 +213,22 @@ final class RenderPayloadBuilderTests: XCTestCase {
     // MARK: Dates
 
     func testDateDisplayRules() {
+        // Spec §4.13: "Today 09:12", "Yesterday 23:39", "Fri 30 Oct" this year, "30 Oct 2025" before it.
         XCTAssertEqual(builder.dateDisplay(for: F.utc(2025, 3, 7, 14, 5), now: now), "Today 14:05")
         XCTAssertEqual(builder.dateDisplay(for: F.utc(2025, 3, 7, 0, 0), now: now), "Today 00:00")
         XCTAssertEqual(builder.dateDisplay(for: F.utc(2025, 3, 6, 9, 12), now: now), "Yesterday 09:12")
         XCTAssertEqual(builder.dateDisplay(for: F.utc(2025, 3, 6, 23, 59), now: now), "Yesterday 23:59")
         XCTAssertEqual(builder.dateDisplay(for: F.utc(2025, 3, 5, 8, 0), now: now), "Wed 5 Mar")
-        XCTAssertEqual(builder.dateDisplay(for: F.utc(2025, 3, 4, 8, 0), now: now), "Tue 4 Mar")
-        XCTAssertEqual(builder.dateDisplay(for: F.utc(2025, 3, 1, 8, 0), now: now), "Sat 1 Mar", "six days ago is still a weekday")
-        XCTAssertEqual(builder.dateDisplay(for: F.utc(2025, 2, 28, 8, 0), now: now), "28 Feb 2025 08:00", "a week ago is a full date")
-        XCTAssertEqual(builder.dateDisplay(for: F.utc(2024, 12, 25, 18, 30), now: now), "25 Dec 2024 18:30")
-        XCTAssertEqual(builder.dateDisplay(for: F.utc(2025, 3, 9, 10, 0), now: now), "9 Mar 2025 10:00", "clock skew never says Today")
+        XCTAssertEqual(builder.dateDisplay(for: F.utc(2025, 3, 1, 8, 0), now: now), "Sat 1 Mar")
+        XCTAssertEqual(builder.dateDisplay(for: F.utc(2025, 1, 2, 8, 0), now: now), "Thu 2 Jan", "this year is a weekday and a date")
+        XCTAssertEqual(builder.dateDisplay(for: F.utc(2024, 12, 25, 18, 30), now: now), "25 Dec 2024")
+        XCTAssertEqual(builder.dateDisplay(for: F.utc(2025, 3, 9, 10, 0), now: now), "9 Mar 2025", "clock skew never says Today")
+    }
+
+    func testDateDisplayFollowsTheLocalesClock() {
+        let american = RenderPayloadBuilder(calendar: Calendar(identifier: .gregorian), locale: Locale(identifier: "en_US"),
+                                            timeZone: TimeZone(identifier: "UTC") ?? .current)
+        XCTAssertEqual(american.dateDisplay(for: F.utc(2025, 3, 7, 14, 5), now: now), "Today 2:05\u{202F}PM")
     }
 
     func testDateISOUsesBuilderTimeZone() {
@@ -184,12 +261,15 @@ final class RenderPayloadBuilderTests: XCTestCase {
         XCTAssertEqual(RenderPayloadBuilder.initials(name: "---", address: "@example.com"), "?")
     }
 
-    func testAvatarColorIsStableAndFromPalette() {
-        let color = RenderPayloadBuilder.avatarColor(name: "Ada", address: "Ada@Example.com")
-        XCTAssertTrue(RenderPayloadBuilder.palette.contains(color))
-        XCTAssertEqual(color, RenderPayloadBuilder.avatarColor(name: "Someone Else", address: "ada@example.com"), "address decides, case-insensitively")
-        XCTAssertEqual(RenderPayloadBuilder.avatarColor(name: "Only Name", address: ""), RenderPayloadBuilder.avatarColor(name: "Only Name", address: ""))
-        XCTAssertTrue(RenderPayloadBuilder.palette.contains(RenderPayloadBuilder.avatarColor(name: nil, address: "")))
+    func testAvatarTintIsFNV1aModuloEight() {
+        // The published FNV-1a 32-bit vectors, the same ones SSDesign's AvatarTintTests hold
+        // `Quire.avatarTintIndex(forAddress:)` to, so the list and the reader give a sender one face.
+        XCTAssertEqual(RenderPayloadBuilder.avatarTint(name: nil, address: "a"), Int(0xE40C_292C % 8))
+        XCTAssertEqual(RenderPayloadBuilder.avatarTint(name: nil, address: "foobar"), Int(0xBF9C_F968 % 8))
+        XCTAssertEqual(RenderPayloadBuilder.avatarTint(name: nil, address: ""), Int(0x811C_9DC5 % 8))
+        let tint = RenderPayloadBuilder.avatarTint(name: "Ada", address: "Ada@Example.com")
+        XCTAssertEqual(tint, RenderPayloadBuilder.avatarTint(name: "Someone Else", address: "ada@example.com"), "address decides, case-insensitively")
+        XCTAssertTrue((0..<RenderPayloadBuilder.avatarTintCount).contains(tint))
     }
 
     // MARK: Recipients and sizes

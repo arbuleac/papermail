@@ -161,11 +161,14 @@ final class ConversationShellWebViewTests: XCTestCase {
         let now = F.utc(2025, 3, 7, 15, 0)
         let partial = F.builder.build(messages: [first, second], bodies: [second.id: F.body(html: "<p>Two</p>")], accounts: F.accounts, now: now)
         _ = try await evaluate("window.ss.render(\(try partial.jsonString()))", in: webView)
-        let pendingBefore = try await count(".ss-pending-body", in: webView)
-        XCTAssertEqual(pendingBefore, 1)
+        // A body still downloading stands as skeleton bars, never a faded snippet (spec §8.4).
+        let skeletonsBefore = try await count(".ss-card .ss-skels.ss-delayed", in: webView)
+        XCTAssertEqual(skeletonsBefore, 1)
+        let framesBefore = try await count(".ss-card iframe", in: webView)
+        XCTAssertEqual(framesBefore, 1, "no frame for a body that is not there")
         _ = try await evaluate("window.ss.expandAll()", in: webView)
-        try await waitForFrames(count: 2, in: webView)
-        _ = try await evaluate("document.querySelectorAll('.ss-card iframe')[1].dataset.marker = 'kept'", in: webView)
+        try await waitForFramedCards(in: webView)
+        _ = try await evaluate("document.querySelector('.ss-card iframe').dataset.marker = 'kept'", in: webView)
 
         let third = F.message("m3", from: F.carol, date: F.utc(2025, 3, 3, 9, 0), isRead: false)
         let bodies: [MessageID: StoredBody] = [
@@ -178,8 +181,8 @@ final class ConversationShellWebViewTests: XCTestCase {
         XCTAssertEqual(updated, 3)
         let ids = try await evaluate("Array.from(document.querySelectorAll('.ss-card')).map(function (c) { return c.dataset.id; })", in: webView) as? [String]
         XCTAssertEqual(ids, full.messages.map(\.id), "cards follow payload order")
-        let pendingAfter = try await count(".ss-pending-body", in: webView)
-        XCTAssertEqual(pendingAfter, 0, "the fallback is gone")
+        let skeletonsAfter = try await count(".ss-card .ss-skels.ss-delayed", in: webView)
+        XCTAssertEqual(skeletonsAfter, 0, "the skeleton is gone")
         let marker = try await evaluate("document.querySelectorAll('.ss-card iframe')[1].dataset.marker", in: webView) as? String
         XCTAssertEqual(marker, "kept", "an unchanged body keeps its frame")
         let collapsed = try await count(".ss-card.ss-collapsed", in: webView)
@@ -207,7 +210,9 @@ final class ConversationShellWebViewTests: XCTestCase {
         try await Task.sleep(nanoseconds: 500_000_000)
         XCTAssertEqual(remote.paths, [], "nothing remote loads while images are blocked")
         let button = try await evaluate("(document.querySelector('.ss-load-images') || {}).textContent", in: webView) as? String
-        XCTAssertEqual(button, "Load images (2)", "live sources count as blocked images too")
+        XCTAssertEqual(button, "Load images")
+        let banner = try await evaluate("document.querySelector('.ss-banner .ss-wide').textContent", in: webView) as? String
+        XCTAssertEqual(banner, "2 remote images hidden to protect your privacy.", "live sources count as blocked images too")
 
         let key = ConversationShellAssets.jsStringLiteral(payload.messages[0].id)
         _ = try await evaluate("window.ss.loadImages(\(key))", in: webView)
@@ -226,7 +231,9 @@ final class ConversationShellWebViewTests: XCTestCase {
         _ = try await evaluate("window.ss.render(\(try payload.jsonString()))", in: webView)
         try await waitForFrames(count: 1, in: webView)
         let button = try await evaluate("(document.querySelector('.ss-load-images') || {}).textContent", in: webView) as? String
-        XCTAssertEqual(button, "Load images (1)")
+        XCTAssertEqual(button, "Load images")
+        let banner = try await evaluate("document.querySelector('.ss-banner .ss-wide').textContent", in: webView) as? String
+        XCTAssertEqual(banner, "1 remote image hidden to protect your privacy.")
 
         let key = ConversationShellAssets.jsStringLiteral(payload.messages[0].id)
         _ = try await evaluate("window.ss.loadImages(\(key))", in: webView)
@@ -271,7 +278,133 @@ final class ConversationShellWebViewTests: XCTestCase {
         XCTAssertEqual(marker, "kept", "the body frame is left alone")
     }
 
+    // MARK: Quire reader (spec §5.13–5.19)
+
+    /// More than six collapsed messages keep the first and the last two and fold the rest into one row.
+    func testLongStacksFoldTheirMiddle() async throws {
+        let (webView, _) = try await loadedShell()
+        typealias F = ConversationFixtures
+        let messages = (1...9).map { F.message("m\($0)", date: F.utc(2025, 3, $0, 9, 0)) }
+        let payload = F.builder.build(messages: messages, bodies: [:], accounts: F.accounts, now: F.utc(2025, 3, 20, 9, 0))
+        _ = try await evaluate("window.ss.render(\(try payload.jsonString()))", in: webView)
+        let fold = try await evaluate("(document.querySelector('.ss-fold') || {}).textContent", in: webView) as? String
+        XCTAssertEqual(fold, "5 more messages", "eight collapsed: one kept, five folded, two kept")
+        let visibleRows = try await count(".ss-card.ss-collapsed:not(.ss-folded)", in: webView)
+        XCTAssertEqual(visibleRows, 3)
+        let runEnds = try await count(".ss-run-start", in: webView)
+        XCTAssertEqual(runEnds, 1, "one stack")
+        _ = try await evaluate("document.querySelector('.ss-fold').click()", in: webView)
+        let folds = try await count(".ss-fold", in: webView)
+        XCTAssertEqual(folds, 0)
+        let unfolded = try await count(".ss-card.ss-collapsed:not(.ss-folded)", in: webView)
+        XCTAssertEqual(unfolded, 8)
+    }
+
+    /// The target carries the R · A · F keycaps; several open sheets give it the strong edge; N moves it.
+    func testTargetMessageAndStepping() async throws {
+        let (webView, handler) = try await loadedShell()
+        typealias F = ConversationFixtures
+        let messages = (1...3).map { F.message("m\($0)", date: F.utc(2025, 3, $0, 9, 0), isRead: $0 != 2) }
+        let bodies = Dictionary(uniqueKeysWithValues: messages.map { ($0.id, F.body(html: "<p>Body \($0.id.providerID)</p>")) })
+        let payload = F.builder.build(messages: messages, bodies: bodies, accounts: F.accounts, now: F.utc(2025, 3, 20, 9, 0))
+        _ = try await evaluate("window.ss.render(\(try payload.jsonString()))", in: webView)
+        let target = try await evaluate("window.ss.selectedMessageID()", in: webView) as? String
+        XCTAssertEqual(target, payload.messages[2].id, "the last expanded message is the target on open")
+        let multi = try await count("#ss-root.ss-multi", in: webView)
+        XCTAssertEqual(multi, 1, "the unread middle message and the last one are open")
+        let stepped = try await evaluate("window.ss.step(-1)", in: webView) as? String
+        XCTAssertEqual(stepped, payload.messages[1].id)
+        let ring = try await count(".ss-card.ss-focus", in: webView)
+        XCTAssertEqual(ring, 1, "N and P draw the keyboard ring")
+        XCTAssertTrue(handler.received.contains { ($0["kind"] as? String) == "select" && ($0["messageID"] as? String) == payload.messages[1].id })
+    }
+
+    /// Plain and unstyled bodies are set on the Quire reading page; styled ones keep their own design (§8.4).
+    func testTypesetBodiesAreSetLikeAPage() async throws {
+        let (webView, _) = try await loadedShell()
+        typealias F = ConversationFixtures
+        let plain = F.message("m1", date: F.utc(2025, 3, 1, 9, 0))
+        let styled = F.message("m2", date: F.utc(2025, 3, 2, 9, 0))
+        var plainBody = F.body(html: "<p>Plain</p>")
+        plainBody.typesetting = .unstyled
+        plainBody.coveredByNewYork = true
+        var styledBody = F.body(html: "<p style=\"color:#123456\">Styled</p>")
+        styledBody.typesetting = .styled
+        styledBody.declaresColors = true
+        let payload = F.builder.build(messages: [plain, styled], bodies: [plain.id: plainBody, styled.id: styledBody], accounts: F.accounts)
+        _ = try await evaluate("window.ss.render(\(try payload.jsonString())); window.ss.expandAll()", in: webView)
+        try await waitForFramedCards(in: webView)
+        let classes = try await evaluate("Array.from(document.querySelectorAll('.ss-card iframe')).map(function (f) { return f.contentDocument.body.className; })", in: webView) as? [String]
+        XCTAssertEqual(classes, ["ss-set", ""])
+        let typeset = try await count(".ss-card.ss-typeset", in: webView)
+        XCTAssertEqual(typeset, 1)
+        _ = try await evaluate("window.ss.preferences({readingSans: true, colorsNoticeDismissed: false})", in: webView)
+        let sans = try await evaluate("document.querySelector('.ss-card iframe').contentDocument.body.className", in: webView) as? String
+        XCTAssertEqual(sans, "ss-set ss-sans")
+    }
+
+    /// The bottom inset pads the conversation by the quick reply's height + 12, the frame never moves (§8.4).
+    func testBottomInsetPadsTheConversation() async throws {
+        let (webView, _) = try await loadedShell()
+        _ = try await evaluate("window.ss.setBottomInset(60)", in: webView)
+        let padding = try await evaluate("getComputedStyle(document.getElementById('ss-root')).paddingBottom", in: webView) as? String
+        XCTAssertEqual(padding, "72px")
+    }
+
+    /// A body that never arrived shows the snippet and the offline notice; a failed fetch offers Retry.
+    func testMissingBodiesShowTheirState() async throws {
+        let (webView, handler) = try await loadedShell()
+        typealias F = ConversationFixtures
+        let message = F.message("m1", snippet: "Booked the flat")
+        let payload = F.builder.build(messages: [message], bodies: [:], accounts: F.accounts, bodyStates: [message.id: .offline])
+        _ = try await evaluate("window.ss.render(\(try payload.jsonString()))", in: webView)
+        let preview = try await evaluate("document.querySelector('.ss-preview').textContent", in: webView) as? String
+        XCTAssertEqual(preview, "Booked the flat\u{2026}")
+        let notice = try await evaluate("document.querySelector('.ss-frame .ss-banner').textContent", in: webView) as? String
+        XCTAssertEqual(notice, "The full message will load when you\u{2019}re back online.")
+        let patch = [RenderPayload.BodyStatePatch(id: payload.messages[0].id, bodyState: .failed)]
+        let json = String(decoding: try JSONEncoder().encode(patch), as: UTF8.self)
+        _ = try await evaluate("window.ss.bodyStates(\(json))", in: webView)
+        let failed = try await count(".ss-banner.ss-bad", in: webView)
+        XCTAssertEqual(failed, 1)
+        _ = try await evaluate("document.querySelector('.ss-banner.ss-bad .ss-link').click()", in: webView)
+        XCTAssertTrue(handler.received.contains { ($0["type"] as? String) == "retryBody" })
+    }
+
+    /// A styled newsletter wider than its sheet is zoomed to fit, never below 0.74 (spec §5.14).
+    func testWideHTMLIsZoomedToFit() async throws {
+        let (webView, _) = try await loadedShell()
+        typealias F = ConversationFixtures
+        let message = F.message("m1")
+        var body = F.body(html: "<table width=\"900\" style=\"width:900px\"><tr><td>Wide</td></tr></table>")
+        body.typesetting = .styled
+        let payload = F.builder.build(messages: [message], bodies: [message.id: body], accounts: F.accounts)
+        _ = try await evaluate("window.ss.render(\(try payload.jsonString()))", in: webView)
+        try await waitForFramedCards(in: webView)
+        // The fit runs on the frame's load event, which can follow the first measurement.
+        var value = 0.0
+        for _ in 0..<40 {
+            let zoom = try await evaluate("Number(document.querySelector('.ss-card iframe').contentDocument.body.style.zoom || 0)", in: webView) as? NSNumber
+            value = zoom?.doubleValue ?? 0
+            if value > 0 { break }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTAssertLessThan(value, 1)
+        XCTAssertGreaterThanOrEqual(value, 0.74)
+    }
+
     // MARK: Helpers
+
+    /// Every card that has a frame has measured it.
+    private func waitForFramedCards(in webView: WKWebView) async throws {
+        var heights: [Double] = []
+        for _ in 0..<100 {
+            heights = numbers(try await evaluate("window.ss.measureAll(); window.ss.iframeHeights()", in: webView)).filter { $0 >= 0 }
+            if !heights.isEmpty, heights.allSatisfy({ $0 > 0 }) { return }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        XCTFail("frames never measured: \(heights)")
+    }
 
     /// The shell in a web view, once it has signalled ready. Skips unless `SS_UI_TESTS=1`.
     private func loadedShell() async throws -> (WKWebView, ShellMessages) {

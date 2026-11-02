@@ -4,7 +4,8 @@ import Foundation
 /// conversation is a single `window.ss.render(payload)` call.
 ///
 /// The assets live in SSCore as plain strings (no WebKit import) so the JavaScript contract can be
-/// exercised from SSCoreTests next to `RenderPayload`, whose keys it reads.
+/// exercised from SSCoreTests next to `RenderPayload`, whose keys it reads. The CSS is Quire's reader
+/// stylesheet (spec §8.4): the generated `QuireCSS.head` first, then the shell's own rules written against it.
 public enum ConversationShellAssets {
     /// Scheme of the shell document. The app registers a `WKURLSchemeHandler` for it: WebKit never finishes a
     /// `loadHTMLString` whose base scheme has no handler, so this is not optional.
@@ -19,7 +20,24 @@ public enum ConversationShellAssets {
     /// Script message handler the shell pings once its `window.ss` API exists.
     public static let readyHandlerName = "ssReady"
 
-    public static let html: String = """
+    /// The SF Symbols the shell draws (spec §4.11, `readerSymbols` in tokens.json). The app rasterises exactly
+    /// these once per web-view pool and hands them to `document(symbolCSS:)`; a glyph not on this list has no
+    /// legal way to be drawn. `ReaderSymbolTests` holds it to tokens.json and to every name the CSS uses.
+    public static let symbols: [String] = [
+        "star", "star.fill", "arrowshape.turn.up.left", "arrowshape.turn.up.left.2", "arrowshape.turn.up.right",
+        "ellipsis", "circle.lefthalf.filled", "xmark", "photo", "exclamationmark.triangle.fill", "wifi.slash",
+        "doc", "doc.richtext", "tablecells", "doc.zipper", "film",
+    ]
+
+    /// The custom property a rasterised symbol travels in: `star.fill` → `--sym-star-fill`.
+    public static func symbolVariable(_ name: String) -> String {
+        "--sym-" + name.replacingOccurrences(of: ".", with: "-")
+    }
+
+    /// The shell document. `symbolCSS` is the app's rasterised symbols as custom properties
+    /// (`:root{--sym-star:url(data:…);…}`); without it every glyph is blank but nothing else changes.
+    public static func document(symbolCSS: String = "") -> String {
+        """
         <!DOCTYPE html>
         <html>
         <head>
@@ -29,6 +47,7 @@ public enum ConversationShellAssets {
         <title>Conversation</title>
         <style>
         \(css)
+        \(symbolCSS)
         </style>
         </head>
         <body>
@@ -39,134 +58,424 @@ public enum ConversationShellAssets {
         </body>
         </html>
         """
+    }
 
-    public static let css: String = #"""
+    /// The shell without symbols, for tests and anything that never draws a glyph.
+    public static let html: String = document()
+
+    /// One modifier class per reader symbol, so markup names a glyph without knowing how it travels.
+    static let symbolClasses: String = symbols.map { name in
+        ".ss-sym-" + name.replacingOccurrences(of: ".", with: "-") + "{--sym:var(" + symbolVariable(name) + ")}"
+    }.joined(separator: "\n")
+
+    public static let css: String = QuireCSS.head + "\n" + shellCSS + "\n" + symbolClasses
+
+    /// The shell's own rules (spec §5.13–5.19, §8.4). Every colour, font, radius and duration is a Quire
+    /// variable; the old `--ss-*` names stay defined, mapped onto Quire, for anything that still reads them.
+    static let shellCSS: String = #"""
     :root {
-      color-scheme: light dark;
-      --ss-bg: #f2f2f6;
-      --ss-card: #ffffff;
-      --ss-border: rgba(0, 0, 0, 0.12);
-      --ss-text: #1d1d1f;
-      --ss-muted: #6e6e73;
-      --ss-accent: #0a84ff;
-      --ss-chip: rgba(0, 0, 0, 0.05);
-      --ss-selected: rgba(10, 132, 255, 0.45);
-      --ss-star: #f5a623;
-      font: 13px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+      --ss-bg: var(--q-canvas); --ss-card: var(--q-sheet); --ss-border: var(--q-rule); --ss-text: var(--q-ink);
+      --ss-muted: var(--q-ink2); --ss-accent: var(--q-accent); --ss-chip: var(--q-fill); --ss-selected: var(--q-focus);
+      --ss-star: var(--q-star);
+      --ss-hair: 1px; --ss-ring: 2px; --ss-margin: 32px; --ss-pad-x: 28px; --ss-inset: 0px;
     }
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --ss-bg: #1c1c1e;
-        --ss-card: #2a2a2d;
-        --ss-border: rgba(255, 255, 255, 0.12);
-        --ss-text: #f5f5f7;
-        --ss-muted: #98989d;
-        --ss-chip: rgba(255, 255, 255, 0.08);
-      }
+    @media (min-resolution: 2dppx) { :root { --ss-hair: 0.5px; } }
+    @media (prefers-contrast: more) { :root { --ss-hair: 1px; --ss-ring: 3px; } }
+    html.ss-ic { --ss-hair: 1px; --ss-ring: 3px; }
+    @media (max-width: 559px) { :root { --ss-margin: 16px; --ss-pad-x: 16px; } }
+    @media (prefers-reduced-motion: reduce) { :root { --q-move: 0ms; } }
+    html.ss-rm { --q-move: 0ms; }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--q-canvas); color: var(--q-ink); }
+    body { font: var(--q-font-body); -webkit-user-select: text; -webkit-font-smoothing: antialiased; }
+    button { font: inherit; color: inherit; margin: 0; -webkit-appearance: none; appearance: none; cursor: default; }
+    button:focus, [tabindex]:focus { outline: none; }
+
+    /* The reading column (spec §5.12): x = max(margin, (width − 680) / 2); margin 32, or 16 below 560 pt. */
+    #ss-root {
+      max-width: calc(680px + 2 * var(--ss-margin)); margin: 0 auto;
+      padding: 16px var(--ss-margin) calc(var(--ss-inset) + 12px);
     }
-    html, body { margin: 0; padding: 0; background: var(--ss-bg); color: var(--ss-text); }
-    body { padding: 16px; -webkit-user-select: text; -webkit-font-smoothing: antialiased; }
-    #ss-root { max-width: 920px; margin: 0 auto; }
+    .ss-parts {
+      font: var(--q-font-body); letter-spacing: var(--q-track-body); color: var(--q-ink2); margin: 0 0 16px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+
+    /* SF Symbols, rasterised by the app into masks (spec §4.11): they take any token colour. */
+    .ss-sym {
+      display: inline-block; flex: none; width: 1.3em; height: 1.3em; background: currentColor;
+      -webkit-mask-image: var(--sym); -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center;
+      mask-image: var(--sym); mask-size: contain; mask-repeat: no-repeat; mask-position: center;
+    }
+    .ss-glyph { display: inline-block; flex: none; width: 1em; height: 1em; }
+    .ss-glyph svg { display: block; width: 100%; height: 100%; overflow: visible; }
+
+    /* Cards: a collapsed card is a 44 pt stack row, an expanded one a sheet. Heights are always px so the
+       expand and collapse transitions have values at both ends (spec §4.10). */
     .ss-card {
-      background: var(--ss-card);
-      border: 1px solid var(--ss-border);
-      border-radius: 12px;
-      padding: 16px;
-      margin-bottom: 12px;
-      box-sizing: border-box;
+      position: relative; background: var(--q-sheet); overflow: hidden; height: 44px;
+      transition: height var(--q-move, var(--q-dur-standard)) var(--q-ease-settle), opacity var(--q-dur-reducedFade) linear;
     }
-    .ss-card.ss-selected { box-shadow: 0 0 0 2px var(--ss-selected); }
-    .ss-header { display: flex; align-items: flex-start; gap: 12px; }
-    .ss-collapsed .ss-header { cursor: pointer; align-items: center; }
-    .ss-avatar {
-      width: 36px; height: 36px; border-radius: 50%;
-      color: #fff; display: flex; align-items: center; justify-content: center;
-      font-weight: 600; font-size: 14px; flex: none; letter-spacing: 0.5px;
-      -webkit-user-select: none;
+    .ss-card.ss-sheet { margin-top: 12px; border-radius: var(--q-r-lg); box-shadow: 0 0 0 var(--ss-hair) var(--q-rule), var(--q-e1); }
+    .ss-strow { position: relative; background: var(--q-sheet); box-shadow: 0 0 0 var(--ss-hair) var(--q-rule); }
+    .ss-strow.ss-run-start { margin-top: 12px; border-top-left-radius: var(--q-r-lg); border-top-right-radius: var(--q-r-lg); }
+    .ss-strow.ss-run-end { border-bottom-left-radius: var(--q-r-lg); border-bottom-right-radius: var(--q-r-lg); }
+    .ss-folded { display: none; }
+    html.ss-ic .ss-card.ss-sheet { box-shadow: 0 0 0 1px var(--q-ruleStrong), var(--q-e1); }
+    html.ss-ic .ss-strow { box-shadow: 0 0 0 1px var(--q-ruleStrong); }
+    @media (prefers-contrast: more) {
+      .ss-card.ss-sheet { box-shadow: 0 0 0 1px var(--q-ruleStrong), var(--q-e1); }
+      .ss-strow { box-shadow: 0 0 0 1px var(--q-ruleStrong); }
     }
-    .ss-who { flex: 1 1 auto; min-width: 0; }
-    .ss-name-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .ss-name { font-weight: 600; }
-    .ss-address { display: none; color: var(--ss-muted); margin-left: 6px; font-weight: 400; }
-    .ss-header:hover .ss-address { display: inline; }
-    .ss-star { color: var(--ss-star); margin-left: 6px; }
-    .ss-unread .ss-name::before {
-      content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%;
-      background: var(--ss-accent); margin-right: 6px; vertical-align: 1px;
+    /* The target message's edge while several are open, and whenever the keycaps hide (spec §5.14). */
+    #ss-root.ss-multi .ss-card.ss-sheet.ss-target { box-shadow: 0 0 0 1px var(--q-ruleStrong), var(--q-e1); }
+    @media (max-width: 615px) { .ss-card.ss-sheet.ss-target { box-shadow: 0 0 0 1px var(--q-ruleStrong), var(--q-e1); } }
+    .ss-card.ss-sheet.ss-focus {
+      box-shadow: 0 0 0 var(--ss-hair) var(--q-rule), 0 0 0 2px var(--q-canvas), 0 0 0 calc(2px + var(--ss-ring)) var(--q-focus), var(--q-e1);
     }
-    .ss-recipients, .ss-snippet { color: var(--ss-muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .ss-snippet { display: none; }
-    .ss-collapsed .ss-snippet { display: block; }
-    .ss-collapsed .ss-recipients { display: none; }
-    .ss-date { color: var(--ss-muted); font-size: 12px; text-align: right; flex: none; white-space: nowrap; }
-    .ss-tools { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-    .ss-tools:empty { display: none; }
-    .ss-button {
-      font: inherit; font-size: 12px; color: var(--ss-accent); background: transparent;
-      border: 1px solid var(--ss-border); border-radius: 6px; padding: 3px 9px; cursor: pointer;
+    .ss-strow.ss-focus::after {
+      content: ''; position: absolute; inset: 1px; border-radius: 6px; box-shadow: inset 0 0 0 2px var(--q-focus); pointer-events: none;
     }
-    .ss-button:hover { background: var(--ss-chip); }
-    .ss-body { margin-top: 12px; }
-    .ss-body iframe { width: 100%; height: 0; border: 0; display: block; overflow: hidden; }
-    .ss-body.ss-pending-body { opacity: 0.6; }
-    .ss-attachments { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-    .ss-attachments:empty { display: none; }
+
+    /* Stack rows (spec §5.13). */
+    .ss-row { display: none; align-items: center; gap: 10px; height: 44px; padding: 0 16px; white-space: nowrap; position: relative; }
+    .ss-collapsed .ss-row { display: flex; }
+    .ss-collapsed .ss-inner { display: none; }
+    .ss-strow:hover { background: linear-gradient(var(--q-hover), var(--q-hover)), var(--q-sheet); }
+    .ss-strow:active { background: linear-gradient(var(--q-pressed), var(--q-pressed)), var(--q-sheet); }
+    .ss-rpip { position: absolute; left: 5px; top: 19px; width: 6px; height: 6px; border-radius: 50%; background: var(--q-accent); display: none; }
+    .ss-unread .ss-rpip { display: block; }
+    .ss-rname { width: 112px; flex: none; overflow: hidden; text-overflow: ellipsis; font: var(--q-font-senderMedium); color: var(--q-ink); }
+    .ss-unread .ss-rname { font-weight: 600; }
+    .ss-rsnip { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; font: var(--q-font-sender); color: var(--q-ink2); }
+    .ss-rstar { font-size: 12px; color: var(--q-star); margin-right: -6px; }
+    .ss-rdate { flex: none; font: var(--q-font-meta); font-variant-numeric: tabular-nums; color: var(--q-ink3); }
+    .ss-fold { height: 44px; display: flex; align-items: center; justify-content: center; font: var(--q-font-label); color: var(--q-ink2); }
+    .ss-fold:hover { color: var(--q-ink); }
+    .ss-ph { font-style: italic; font-weight: 400; color: var(--q-ink3); }
+
+    /* Avatars: initials on the eight soft tints (spec §4.3), New York Semibold at 0.42 × the diameter. */
+    .ss-av {
+      flex: none; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+      font-family: var(--q-serif); font-weight: 600; background: var(--ss-face); color: var(--ss-avink); -webkit-user-select: none;
+    }
+    .ss-av24 { width: 24px; height: 24px; font-size: 10px; line-height: 24px; }
+    .ss-av36 { width: 36px; height: 36px; font-size: 15px; line-height: 36px; }
+    .ss-tint-0 { --ss-face: var(--q-av-clay-face); --ss-avink: var(--q-av-clay-ink); }
+    .ss-tint-1 { --ss-face: var(--q-av-wheat-face); --ss-avink: var(--q-av-wheat-ink); }
+    .ss-tint-2 { --ss-face: var(--q-av-fern-face); --ss-avink: var(--q-av-fern-ink); }
+    .ss-tint-3 { --ss-face: var(--q-av-sea-face); --ss-avink: var(--q-av-sea-ink); }
+    .ss-tint-4 { --ss-face: var(--q-av-slate-face); --ss-avink: var(--q-av-slate-ink); }
+    .ss-tint-5 { --ss-face: var(--q-av-heather-face); --ss-avink: var(--q-av-heather-ink); }
+    .ss-tint-6 { --ss-face: var(--q-av-rose-face); --ss-avink: var(--q-av-rose-ink); }
+    .ss-tint-7 { --ss-face: var(--q-av-stone-face); --ss-avink: var(--q-av-stone-ink); }
+
+    /* The open sheet (spec §5.14): padding 22 28 14 (16 at the sides below 560 pt). */
+    .ss-inner { padding: 22px var(--ss-pad-x) 14px; }
+    .ss-head { display: flex; gap: 12px; align-items: flex-start; }
+    .ss-who { flex: 1; min-width: 0; }
+    .ss-nl {
+      display: flex; align-items: center; min-width: 0; height: 18px; white-space: nowrap;
+      font: var(--q-font-bodyStrong); color: var(--q-ink);
+    }
+    .ss-name { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+    .ss-pip7 { width: 7px; height: 7px; border-radius: 50%; background: var(--q-accent); margin-right: 6px; flex: none; display: none; }
+    .ss-unread .ss-pip7 { display: inline-block; }
+    .ss-nstar { font-size: 12px; color: var(--q-star); margin-left: 4px; }
+    .ss-addr {
+      flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+      font: var(--q-font-meta); color: var(--q-ink3); margin-left: 6px; opacity: 0;
+    }
+    .ss-sheet:hover .ss-addr, .ss-sheet:focus-within .ss-addr, .ss-sheet.ss-focus .ss-addr {
+      opacity: 1; transition: opacity var(--q-dur-quick) var(--q-ease-settle);
+    }
+    .ss-rc {
+      display: block; max-width: 100%; padding: 0; border: 0; background: none; border-radius: 3px; text-align: start;
+      font: var(--q-font-snippet); line-height: 16px; color: var(--q-ink2);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .ss-rc:focus-visible, .ss-rcx:focus-visible { box-shadow: 0 0 0 1px var(--q-sheet), 0 0 0 calc(1px + var(--ss-ring)) var(--q-focus); }
+    .ss-rcx { display: grid; gap: 2px; border-radius: 3px; }
+    .ss-rcf { display: grid; grid-template-columns: 28px minmax(0, 1fr); font: var(--q-font-snippet); }
+    .ss-rcl { color: var(--q-ink3); }
+    .ss-rcv { color: var(--q-ink2); min-width: 0; }
+    .ss-person { display: inline-block; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: top; margin-right: 0.3em; }
+    .ss-person .ss-pad { color: var(--q-ink3); }
+    .ss-more { padding: 0; border: 0; background: none; font: var(--q-font-snippet); color: var(--q-ink2); text-decoration: underline; text-underline-offset: 2px; }
+    .ss-meta {
+      flex: none; display: flex; align-items: center; height: 18px;
+      font: var(--q-font-snippet); line-height: 18px; font-variant-numeric: tabular-nums; color: var(--q-ink3);
+    }
+    .ss-hacts { display: flex; gap: 2px; margin: -3px 8px -3px 0; }
+    .ss-hacts:empty { display: none; }
+    .ss-hact { opacity: 0; }
+    .ss-hact.ss-qon,
+    .ss-sheet:hover .ss-hact, .ss-sheet:focus-within .ss-hact, .ss-sheet.ss-focus .ss-hact {
+      opacity: 1; transition: opacity var(--q-dur-quick) var(--q-ease-settle);
+    }
+    .ss-ib {
+      width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--q-r-sm); background: none;
+      color: var(--q-ink2); display: inline-flex; align-items: center; justify-content: center; font-size: 14px;
+    }
+    .ss-ib:hover { background: var(--q-hover); color: var(--q-ink); }
+    .ss-ib:active { background: var(--q-pressed); color: var(--q-ink); }
+    .ss-ib.ss-on, .ss-ib.ss-on:hover, .ss-ib.ss-on:active { color: var(--q-star); }
+    .ss-ib.ss-qon { background: var(--q-accentWash); color: var(--q-accent); }
+    .ss-ib.ss-qon:hover { background: var(--q-accentWashHover); color: var(--q-accent); }
+    .ss-ib.ss-qon:active { background: var(--q-accentWashPressed); color: var(--q-accent); }
+    .ss-ib:focus-visible { box-shadow: 0 0 0 1px var(--q-sheet), 0 0 0 calc(1px + var(--ss-ring)) var(--q-focus); }
+
+    /* Body: plain and unstyled bodies sit at the 48 pt indent inside the 576 pt measure; styled ones take the
+       full content width (spec §5.14). */
+    .ss-ind { margin-left: 48px; }
+    .ss-body { margin-top: 18px; }
+    .ss-card.ss-typeset .ss-body { margin-left: 48px; max-width: 576px; }
+    .ss-card.ss-draft .ss-body { margin-left: 0; margin-top: 10px; }
+    .ss-frame { position: relative; }
+    .ss-frame iframe { display: block; width: 100%; height: 0; border: 0; background: transparent; color-scheme: light dark; }
+    .ss-original { background: var(--q-originalPage); border-radius: var(--q-r-xs); padding: 12px; color-scheme: light; }
+    .ss-original iframe { color-scheme: light; }
+    .ss-preview { margin: 0 0 12px; max-width: 576px; font: var(--q-font-reading); color: var(--q-ink2); }
+    .ss-preview.ss-sans { font: var(--q-font-readingSans); }
+    .ss-skels { display: grid; gap: 14px; padding-top: 2px; }
+    .ss-skels.ss-delayed { opacity: 0; animation: ss-appear 1ms linear var(--q-dur-skeletonDelay) forwards; }
+    .ss-frame > .ss-skels:not(:only-child) { position: absolute; left: 0; right: 0; top: 0; }
+    .ss-skel { display: block; height: 10px; border-radius: var(--q-r-xs); background: var(--q-fill); }
+    .ss-skel:nth-child(2) { width: 92%; }
+    .ss-skel:nth-child(3) { width: 60%; }
+
+    /* Banners (spec §5.16, §5.38): neutral for remote images, warning for the Original colors notice. */
+    .ss-banners:empty { display: none; }
+    .ss-banner {
+      display: flex; align-items: center; gap: 8px; min-height: 32px; margin-bottom: 12px; padding: 0 6px 0 10px;
+      border-radius: var(--q-r-md); background: var(--q-fill); color: var(--q-ink);
+      font: var(--q-font-snippet); line-height: 16px;
+    }
+    .ss-frame .ss-banner { margin: 0; }
+    .ss-banner > .ss-sym { font-size: 14px; color: var(--q-ink2); }
+    .ss-banner > .ss-spin { color: var(--q-ink3); margin: 0 1px; }
+    .ss-btxt { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 8px 0; }
+    .ss-btxt .ss-narrow { display: none; }
+    @media (max-width: 419px) { .ss-btxt .ss-wide { display: none; } .ss-btxt .ss-narrow { display: inline; } }
+    .ss-banner.ss-warn { background: var(--q-warningWash); }
+    .ss-banner.ss-warn > .ss-sym, .ss-banner > .ss-sym.ss-warning { color: var(--q-warning); }
+    .ss-banner.ss-bad { background: var(--q-dangerWash); }
+    .ss-banner.ss-bad > .ss-sym { color: var(--q-danger); }
+    .ss-link {
+      flex: none; height: 24px; padding: 0 4px; border: 0; border-radius: var(--q-r-sm); background: none;
+      font: var(--q-font-label); color: var(--q-accent);
+    }
+    .ss-link:hover { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; }
+    .ss-link:active { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; color: var(--q-ink2); }
+    html.ss-graphite .ss-link { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; }
+    .ss-link:focus-visible, .ss-na:focus-visible, .ss-bx:focus-visible {
+      box-shadow: 0 0 0 1px var(--q-sheet), 0 0 0 calc(1px + var(--ss-ring)) var(--q-focus);
+    }
+    .ss-na {
+      flex: none; height: 24px; padding: 0 6px; border: 0; border-radius: var(--q-r-sm); background: none;
+      font: var(--q-font-labelStrong); color: var(--q-ink);
+    }
+    .ss-na:hover { background: var(--q-hover); }
+    .ss-na:active { background: var(--q-pressed); }
+    .ss-bx {
+      flex: none; width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--q-r-sm); background: none;
+      display: inline-flex; align-items: center; justify-content: center; color: var(--q-ink2); font-size: 9px;
+    }
+    .ss-bx:hover { background: var(--q-hover); color: var(--q-ink); }
+
+    /* The elision mark (spec §5.15). */
+    .ss-qrow { margin-top: 12px; }
+    .ss-elide {
+      display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px 0 6px; border: 0;
+      border-radius: var(--q-r-md); background: var(--q-fill); color: var(--q-ink2);
+      font: var(--q-font-label); white-space: nowrap;
+    }
+    .ss-elide .ss-glyph { font-size: 14px; }
+    .ss-elide:hover { background: linear-gradient(var(--q-hover), var(--q-hover)), var(--q-fill); color: var(--q-ink); }
+    .ss-elide:active { background: linear-gradient(var(--q-pressed), var(--q-pressed)), var(--q-fill); color: var(--q-ink); }
+    .ss-elide.ss-on { background: var(--q-accentWash); color: var(--q-accent); }
+    .ss-elide.ss-on:hover { background: var(--q-accentWashHover); color: var(--q-accent); }
+    .ss-elide.ss-on:active { background: var(--q-accentWashPressed); color: var(--q-accent); }
+    .ss-elide:focus-visible { box-shadow: 0 0 0 1px var(--q-sheet), 0 0 0 calc(1px + var(--ss-ring)) var(--q-focus); }
+
+    /* Attachment chips (spec §5.17). */
+    .ss-atts { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 8px; }
+    .ss-atts:empty { display: none; }
     .ss-chip {
-      font: inherit; font-size: 12px; color: var(--ss-text);
-      display: inline-flex; align-items: center; gap: 6px; max-width: 100%;
-      background: var(--ss-chip); border: 1px solid transparent; border-radius: 8px;
-      padding: 6px 10px; cursor: pointer;
+      position: relative; height: 44px; min-width: 196px; max-width: 264px; padding: 0 14px 0 8px; border: 0;
+      border-radius: var(--q-r-lg); background: var(--q-sheet); box-shadow: inset 0 0 0 var(--ss-hair) var(--q-rule);
+      display: flex; align-items: center; gap: 10px; text-align: start; overflow: hidden; white-space: nowrap;
     }
-    .ss-chip:hover { border-color: var(--ss-border); }
-    .ss-chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .ss-chip-size { color: var(--ss-muted); flex: none; }
-    .ss-footer {
-      display: flex; gap: 16px; margin-top: 12px; padding-top: 12px;
-      border-top: 1px solid var(--ss-border); font-size: 12px;
+    .ss-chip:hover { background: linear-gradient(var(--q-hover), var(--q-hover)), var(--q-sheet); box-shadow: inset 0 0 0 1px var(--q-ruleStrong); }
+    .ss-chip:active { background: linear-gradient(var(--q-pressed), var(--q-pressed)), var(--q-sheet); }
+    .ss-chip:focus-visible {
+      box-shadow: inset 0 0 0 var(--ss-hair) var(--q-rule), 0 0 0 1px var(--q-sheet), 0 0 0 calc(1px + var(--ss-ring)) var(--q-focus);
     }
-    .ss-footer a { color: var(--ss-accent); text-decoration: none; cursor: pointer; }
-    .ss-footer a:hover { text-decoration: underline; }
-    .ss-collapsed .ss-tools, .ss-collapsed .ss-body, .ss-collapsed .ss-attachments, .ss-collapsed .ss-footer { display: none; }
-    .ss-empty { color: var(--ss-muted); text-align: center; padding: 48px 16px; }
+    .ss-tile {
+      flex: none; width: 28px; height: 28px; border-radius: var(--q-r-sm); background: var(--q-fill); color: var(--q-ink2);
+      display: flex; align-items: center; justify-content: center; font-size: 15px;
+    }
+    .ss-chip-text { display: flex; flex-direction: column; min-width: 0; }
+    .ss-chip-name { display: flex; min-width: 0; font: var(--q-font-label); color: var(--q-ink); }
+    .ss-chip-name .ss-cb { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+    .ss-chip-name .ss-ce { flex: none; }
+    .ss-chip-meta { font: var(--q-font-meta); color: var(--q-ink3); }
+    .ss-chip-meta .ss-hover-meta, .ss-chip:hover .ss-chip-meta .ss-rest-meta { display: none; }
+    .ss-chip:hover .ss-chip-meta .ss-hover-meta { display: inline; }
+
+    /* Footer (spec §5.14): ghost buttons at the indent; the target's carry R · A · F keycaps. */
+    .ss-foot {
+      margin-top: 16px; padding-top: 10px; border-top: var(--ss-hair) solid var(--q-rule);
+      display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+    }
+    .ss-gb, .ss-sb {
+      height: 28px; padding: 0 10px 0 8px; border: 0; border-radius: var(--q-r-md); background: none;
+      display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+      font: var(--q-font-bodyMedium); color: var(--q-ink2);
+    }
+    .ss-gb .ss-sym, .ss-sb .ss-sym, .ss-sb .ss-glyph { font-size: 14px; }
+    .ss-gb:hover { background: var(--q-hover); color: var(--q-ink); }
+    .ss-gb:active { background: var(--q-pressed); color: var(--q-ink); }
+    .ss-sb { padding: 0 12px 0 10px; background: var(--q-raised); color: var(--q-ink); box-shadow: inset 0 0 0 1px var(--q-ruleStrong); }
+    .ss-sb:hover { background: linear-gradient(var(--q-hover), var(--q-hover)), var(--q-raised); }
+    .ss-sb:active { background: linear-gradient(var(--q-pressed), var(--q-pressed)), var(--q-raised); }
+    .ss-gb:focus-visible { box-shadow: 0 0 0 1px var(--q-sheet), 0 0 0 calc(1px + var(--ss-ring)) var(--q-focus); }
+    .ss-sb:focus-visible { box-shadow: inset 0 0 0 1px var(--q-ruleStrong), 0 0 0 1px var(--q-sheet), 0 0 0 calc(1px + var(--ss-ring)) var(--q-focus); }
+    .ss-kbd {
+      display: none; align-items: center; justify-content: center; height: 18px; min-width: 18px; padding: 0 4px;
+      margin: 0 8px 0 2px; border-radius: var(--q-r-xs); background: var(--q-raised);
+      box-shadow: inset 0 0 0 var(--ss-hair) var(--q-rule), inset 0 -1px 0 var(--q-rule);
+      font: var(--q-font-kbd); color: var(--q-ink2); white-space: nowrap; flex: none; -webkit-user-select: none;
+    }
+    html.ss-ic .ss-kbd { box-shadow: inset 0 0 0 1px var(--q-ruleStrong), inset 0 -1px 0 var(--q-ruleStrong); }
+    @media (prefers-contrast: more) { .ss-kbd { box-shadow: inset 0 0 0 1px var(--q-ruleStrong), inset 0 -1px 0 var(--q-ruleStrong); } }
+    .ss-target .ss-foot .ss-kbd, .ss-draft .ss-foot .ss-kbd { display: inline-flex; }
+    @media (max-width: 615px) { .ss-foot .ss-kbd { display: none !important; } }
+
+    /* Drafts (spec §5.19). */
+    .ss-dhead { display: flex; align-items: baseline; gap: 12px; font: var(--q-font-snippet); line-height: 16px; }
+    .ss-dto { flex: 1; min-width: 0; color: var(--q-ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ss-ddate { flex: none; color: var(--q-ink3); font-variant-numeric: tabular-nums; }
+    .ss-draft .ss-foot { gap: 8px; }
+    .ss-draft .ss-foot .ss-kbd { margin: 0 4px 0 -2px; }
+
+    /* Spinner (spec §5.37): a ¾ ring turning once per spinnerTurn, shown only after spinnerDelay. */
+    .ss-spin {
+      display: inline-block; flex: none; width: 12px; height: 12px; border-radius: 50%;
+      border: 1.5px solid currentColor; border-right-color: transparent; opacity: 0;
+      animation: ss-turn var(--q-dur-spinnerTurn) linear infinite, ss-appear var(--q-dur-quick) linear var(--q-dur-spinnerDelay) forwards;
+    }
+    @keyframes ss-turn { to { transform: rotate(1turn); } }
+    @keyframes ss-appear { to { opacity: 1; } }
+    .ss-contrail { transition: width var(--q-countdown) linear; }
+    @media (prefers-reduced-motion: reduce) { .ss-contrail { transition-timing-function: steps(var(--q-countdown-steps)); } }
+    html.ss-rm .ss-contrail { transition-timing-function: steps(var(--q-countdown-steps)); }
     """#
 
-    /// Styles injected into every body iframe. `color-scheme: light dark` lets plain emails follow the
-    /// appearance; `.ss-original` is the per-message escape hatch back to the sender's light colors.
-    public static let bodyCSS: String = #"""
+    /// The variables a body document needs, cut from `QuireCSS.head` block by block, so `html.ss-ic` and
+    /// `html.ss-graphite` switch them inside the frame exactly as they do in the shell.
+    static let bodyVariables: String = {
+        let keep: Set<String> = [
+            "--q-ink", "--q-ink2", "--q-ink3", "--q-accent", "--q-rule", "--q-focus", "--q-sheet", "--q-fill",
+            "--q-originalPage", "--q-sans", "--q-serif", "--q-font-reading", "--q-font-readingSans", "--q-font-writing",
+            "--q-track-reading", "--q-track-readingSans", "--q-track-writing", "--q-r-xs",
+        ]
+        return QuireCSS.head.components(separatedBy: "\n").compactMap { line -> String? in
+            guard let first = line.range(of: "--") else { return nil }
+            let prefix = String(line[..<first.lowerBound])
+            var suffix = ""
+            var body = Substring(line[first.lowerBound...])
+            while body.hasSuffix("}") {
+                suffix.append("}")
+                body = body.dropLast()
+            }
+            let kept = body.split(separator: ";").filter { declaration in
+                guard let colon = declaration.firstIndex(of: ":") else { return false }
+                return keep.contains(String(declaration[..<colon]))
+            }
+            guard !kept.isEmpty else { return nil }
+            return prefix + kept.joined(separator: ";") + ";" + suffix
+        }.joined(separator: "\n")
+    }()
+
+    /// Styles injected into every body iframe (spec §8.4): the Quire reading page for plain and unstyled bodies,
+    /// the link focus ring, dark-mode adaptation for bodies that declare colours, and the quote fold.
+    public static let bodyCSS: String = bodyVariables + "\n" + #"""
     html, body { margin: 0; padding: 0; }
+    html { overflow-x: hidden; overflow-y: hidden; }
+    html.ss-wide { overflow-x: auto; }
     body {
       font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif;
-      color-scheme: light dark;
-      overflow-wrap: break-word;
-      word-wrap: break-word;
+      overflow-wrap: break-word; word-wrap: break-word;
     }
-    body.ss-original { color-scheme: light; background: #fff; color: #000; }
     img { max-width: 100%; height: auto; }
     pre { white-space: pre-wrap; }
-    blockquote { margin: 0 0 0 8px; padding-left: 8px; border-left: 2px solid rgba(128, 128, 128, 0.4); }
     .ss-quote { display: none; }
     body.ss-show-quotes .ss-quote { display: block; }
+    .ss-quote { border-left: 2px solid var(--q-rule); padding-left: 12px; }
     .ss-plain { white-space: pre-wrap; }
-    .ss-pending { opacity: 0.7; }
+    body.ss-set { font: var(--q-font-reading); letter-spacing: var(--q-track-reading); color: var(--q-ink); max-width: 576px; background: transparent; }
+    body.ss-set.ss-sans { font: var(--q-font-readingSans); letter-spacing: var(--q-track-readingSans); }
+    body.ss-set.ss-draft { font: var(--q-font-writing); letter-spacing: var(--q-track-writing); }
+    body.ss-set p { margin: 0 0 12px; }
+    body.ss-set p:last-child { margin-bottom: 0; }
+    body.ss-set blockquote { margin: 0; border-left: 2px solid var(--q-rule); padding-left: 12px; color: var(--q-ink2); }
+    body.ss-set .ss-quote { color: var(--q-ink2); }
+    body.ss-set a:link { color: var(--q-accent); }
+    a:focus { outline: none; }
+    a:focus-visible { outline: 2px solid var(--q-focus) !important; outline-offset: 1px !important;
+                      box-shadow: 0 0 0 1px var(--q-sheet) !important; border-radius: 2px; }
+    @media (prefers-contrast: more) { a:focus-visible { outline-width: 3px !important; } }
+    html.ss-ic a:focus-visible { outline-width: 3px !important; }
+    .ss-original a:focus-visible { --q-focus: #1E5468; box-shadow: 0 0 0 1px var(--q-originalPage) !important; }
+    @media (prefers-contrast: more) { .ss-original a:focus-visible { --q-focus: #123E4D; } }
+    html.ss-ic.ss-original a:focus-visible { --q-focus: #123E4D; }
+    html.ss-adapt { color-scheme: dark; }
+    html.ss-adapt, html.ss-adapt body, html.ss-adapt body * {
+      color: var(--q-ink) !important;
+      background-color: transparent !important;
+      background-image: none !important;
+      border-color: var(--q-rule) !important;
+    }
+    html.ss-adapt a, html.ss-adapt a * { color: var(--q-accent) !important; }
+    :where(a:link) { color: var(--q-accent); }
+    html.ss-original { color-scheme: light; }
     """#
 
     public static let js: String = "var SS_BODY_CSS = " + jsStringLiteral(bodyCSS) + ";\n" + script
 
     /// Message bodies are loaded with `srcdoc` into `sandbox="allow-same-origin"` iframes: no scripts run
     /// inside them, so the shell measures each document from the parent after load, on every image load
-    /// and on window resize, and sizes the frame to its content.
+    /// and on resize, and sizes the frame to its content.
     static let script: String = #"""
     (function () {
       'use strict';
       var root = document.getElementById('ss-root');
-      var state = { payload: null, cards: [], byID: {}, selected: null };
+      var state = { payload: null, cards: [], byID: {}, target: null, focusEl: null, folds: [] };
       // The "Load remote images" preference of the payload being rendered.
       var loadRemote = false;
+      var prefs = { readingSans: false, noticeDismissed: false };
+      // Session memory that outlives a render: measured body heights per message and width, the messages
+      // shown in Original colors, and the recipient blocks the user opened (spec §4.10, §5.14).
+      var heights = {};
+      var originalOn = {};
+      var recipientsOpen = {};
+      var moving = [];
+      var motionPosted = false;
+      var keyboardNav = false;
+      var MIN_ZOOM = 0.74;
+      var SKELETON_HEIGHT = 58;
+      var MOVE_MS = 180;
       // Bodies whose images are not loaded render under this policy: nothing remote is fetched, whatever
       // the stored HTML holds (a body stored while the preference was on keeps live remote sources).
       var BLOCKING_CSP = "default-src 'none'; img-src ss-cid: data:; style-src 'unsafe-inline'; font-src ss-cid: data:";
       // Sources the policy holds back: any image not served locally, plus remote backgrounds.
       var LIVE_REMOTE = 'img[src]:not([src^="data:" i]):not([src^="ss-cid:" i]), [background^="http" i], [style*="url(http" i]';
+      var ELIDE_SVG = '<svg viewBox="0 0 16 16" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4.75 2.75h-2v10.5h2"/><path d="M11.25 2.75h2v10.5h-2"/></g><g fill="currentColor"><circle cx="5.6" cy="10.6" r="0.95"/><circle cx="8" cy="10.6" r="0.95"/><circle cx="10.4" cy="10.6" r="0.95"/></g></svg>';
+      var NIB_SVG = '<svg viewBox="0 0 16 16" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.91 13.09 L4.32 7.01 C4.43 6.27 4.99 5.7 5.67 5.53 L8.64 4.68 L11.32 7.36 L10.47 10.33 C10.3 11.01 9.73 11.57 8.99 11.68 Z"/><path d="M10.47 2.56 L13.44 5.53 L11.46 7.51 L8.49 4.54 Z"/><path d="M2.91 13.09 L6.66 9.34"/></g><circle cx="7.47" cy="8.53" r="0.9" fill="currentColor"/></svg>';
+      var darkQuery = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+      var reducedQuery = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
 
       function post(handler, body) {
         try {
@@ -183,11 +492,134 @@ public enum ConversationShellAssets {
         return node;
       }
 
-      function bodyDocument(html, allowRemote) {
-        var policy = allowRemote ? '' : '<meta http-equiv="Content-Security-Policy" content="' + BLOCKING_CSP + '">';
-        return '<!DOCTYPE html><html><head><meta charset="utf-8">' + policy
+      function sym(name, cls) {
+        var node = el('i', 'ss-sym ss-sym-' + name.split('.').join('-') + (cls ? ' ' + cls : ''));
+        node.setAttribute('aria-hidden', 'true');
+        return node;
+      }
+
+      function glyph(svg) {
+        var node = el('span', 'ss-glyph');
+        node.innerHTML = svg;
+        return node;
+      }
+
+      function button(cls, label, title) {
+        var node = el('button', cls, label);
+        node.type = 'button';
+        if (title) { node.title = title; }
+        return node;
+      }
+
+      function kbd(legend) { return el('span', 'ss-kbd', legend); }
+
+      function isDark() { return !!(darkQuery && darkQuery.matches); }
+
+      function reducedMotion() {
+        return document.documentElement.classList.contains('ss-rm') || !!(reducedQuery && reducedQuery.matches);
+      }
+
+      function stop(event) { event.stopPropagation(); }
+
+      // MARK: Motion
+
+      // The app finishes running motion before acting on a key (spec §4.10); it learns that something moves here.
+      function noteMotion(node) {
+        if (moving.indexOf(node) < 0) { moving.push(node); }
+        if (!motionPosted) {
+          motionPosted = true;
+          post('ss', { kind: 'motion' });
+          setTimeout(function () { motionPosted = false; }, MOVE_MS);
+        }
+      }
+
+      function settled(node) {
+        var i = moving.indexOf(node);
+        if (i >= 0) { moving.splice(i, 1); }
+      }
+
+      function setHeight(node, px, animate) {
+        var value = px + 'px';
+        if (animate && !reducedMotion()) {
+          if (node.style.height === value) { return; }
+          node.style.transition = '';
+          node.style.height = value;
+          noteMotion(node);
+          return;
+        }
+        if (node.style.height === value && node.style.transition === '') { return; }
+        node.style.transition = 'none';
+        node.style.height = value;
+        void node.offsetHeight;
+        node.style.transition = '';
+        settled(node);
+      }
+
+      function finishAll() {
+        var running = moving.slice();
+        moving = [];
+        for (var i = 0; i < state.cards.length; i++) {
+          var card = state.cards[i];
+          if (card.collapseTimer) { finishCollapse(card); }
+        }
+        for (var j = 0; j < running.length; j++) {
+          var node = running[j];
+          var height = node.style.height;
+          node.style.transition = 'none';
+          node.style.height = height;
+          void node.offsetHeight;
+          node.style.transition = '';
+        }
+      }
+
+      // MARK: Body documents
+
+      function htmlClasses(card) {
+        var classes = [];
+        var shell = document.documentElement.classList;
+        if (shell.contains('ss-ic')) { classes.push('ss-ic'); }
+        if (shell.contains('ss-graphite')) { classes.push('ss-graphite'); }
+        if (adapts(card)) { classes.push('ss-adapt'); }
+        if (showsInset(card)) { classes.push('ss-original'); }
+        if (card.wide) { classes.push('ss-wide'); }
+        return classes;
+      }
+
+      function bodyClasses(card) {
+        var m = card.message;
+        if (!card.typeset) { return ''; }
+        var classes = ['ss-set'];
+        if (m.isDraft) { classes.push('ss-draft'); }
+        else if (prefs.readingSans || !m.coveredByNewYork) { classes.push('ss-sans'); }
+        if (card.quotesShown) { classes.push('ss-show-quotes'); }
+        return classes.join(' ');
+      }
+
+      function bodyDocument(card) {
+        var policy = card.imagesLoaded ? '' : '<meta http-equiv="Content-Security-Policy" content="' + BLOCKING_CSP + '">';
+        return '<!DOCTYPE html><html class="' + htmlClasses(card).join(' ') + '"><head><meta charset="utf-8">' + policy
           + '<meta name="color-scheme" content="light dark"><style>'
-          + SS_BODY_CSS + '</style></head><body>' + html + '</body></html>';
+          + SS_BODY_CSS + '</style></head><body class="' + bodyClasses(card) + '">' + card.message.html + '</body></html>';
+      }
+
+      // Styled HTML that sets its own colours is adapted in dark appearances unless the user asked for the
+      // sender's colours; plain and unstyled bodies already use Quire inks (spec §5.14).
+      function offersOriginal(card) {
+        var m = card.message;
+        return isDark() && m.hasBody && m.typesetting === 'styled' && !!m.declaresColors;
+      }
+      function adapts(card) { return offersOriginal(card) && !originalOn[card.message.id]; }
+      function showsInset(card) { return offersOriginal(card) && !!originalOn[card.message.id]; }
+
+      function syncDocumentClasses(card) {
+        var doc = frameDocument(card);
+        if (!doc || !doc.documentElement) { return; }
+        doc.documentElement.className = htmlClasses(card).join(' ');
+        if (doc.body) {
+          var quotes = !!card.quotesShown;
+          doc.body.className = bodyClasses(card);
+          doc.body.classList.toggle('ss-show-quotes', quotes);
+        }
       }
 
       // Puts parked remote sources back. Runs only in a frame built without the blocking policy.
@@ -195,8 +627,6 @@ public enum ConversationShellAssets {
         var images = doc.querySelectorAll('img[data-ss-src]');
         for (var i = 0; i < images.length; i++) {
           var img = images[i];
-          img.addEventListener('load', card.remeasure);
-          img.addEventListener('error', card.remeasure);
           img.src = img.getAttribute('data-ss-src');
           img.removeAttribute('data-ss-src');
         }
@@ -207,28 +637,114 @@ public enum ConversationShellAssets {
         }
       }
 
+      // Counts the remote images a Load images is waiting for, so the banner can say "Loading 3 images…" and
+      // then either go or report the ones that failed (spec §5.16).
+      function trackImageLoad(card, doc) {
+        if (!card.imageLoad || card.imageLoad.tracking) { return; }
+        var remote = [];
+        var images = doc.images;
+        for (var i = 0; i < images.length; i++) {
+          var src = images[i].getAttribute('src') || '';
+          if (/^https?:/i.test(src) && !images[i].complete) { remote.push(images[i]); }
+        }
+        card.imageLoad.tracking = true;
+        card.imageLoad.pending = remote.length;
+        function done(failed) {
+          if (!card.imageLoad) { return; }
+          if (failed) { card.imageLoad.failed++; }
+          card.imageLoad.pending--;
+          if (card.imageLoad.pending <= 0) { settleImageLoad(card); }
+        }
+        for (var j = 0; j < remote.length; j++) {
+          remote[j].addEventListener('load', function () { done(false); }, { once: true });
+          remote[j].addEventListener('error', function () { done(true); }, { once: true });
+        }
+        if (remote.length === 0) { settleImageLoad(card); }
+        card.imageLoad.timer = setTimeout(function () { settleImageLoad(card); }, 20000);
+      }
+
+      function settleImageLoad(card) {
+        if (!card.imageLoad) { return; }
+        if (card.imageLoad.timer) { clearTimeout(card.imageLoad.timer); }
+        card.imageFailures = card.imageLoad.failed || 0;
+        card.imageLoad = null;
+        renderBanners(card);
+      }
+
       function frameDocument(card) {
         if (!card.iframe) { return null; }
         try { return card.iframe.contentDocument; } catch (e) { return null; }
       }
 
       // body.scrollHeight reflects content in standards mode and is independent of the frame's own
-      // height, so frames can shrink again when quoted text is hidden.
-      function contentHeight(doc) {
+      // height, so frames can shrink again when quoted text is hidden. A zoomed body reports its laid-out
+      // size, so the visible height is that times the zoom.
+      function contentHeight(card, doc) {
         var body = doc.body;
         if (!body) { return 0; }
-        return Math.max(body.scrollHeight, body.offsetHeight);
+        var natural = Math.max(body.scrollHeight, body.offsetHeight);
+        var zoom = card.zoom || 1;
+        return Math.ceil(natural * zoom + (card.wide ? 0 : 0));
+      }
+
+      // Wide HTML (spec §5.14): a styled body wider than its frame is zoomed to fit down to 0.74, past
+      // which it stays at 0.74 and scrolls sideways inside the frame. Read once per load and on refit.
+      function fitWidth(card) {
+        var doc = frameDocument(card);
+        if (!doc || !doc.body || !doc.documentElement) { return; }
+        var wasWide = card.wide;
+        card.zoom = 1;
+        card.wide = false;
+        doc.body.style.zoom = '';
+        doc.documentElement.classList.remove('ss-wide');
+        if (card.typeset) { return; }
+        var available = card.iframe.clientWidth;
+        var natural = Math.max(doc.body.scrollWidth, doc.documentElement.scrollWidth);
+        if (available > 0 && natural > available + 1) {
+          var zoom = available / natural;
+          if (zoom < MIN_ZOOM) {
+            zoom = MIN_ZOOM;
+            card.wide = true;
+            doc.documentElement.classList.add('ss-wide');
+          }
+          card.zoom = zoom;
+          doc.body.style.zoom = String(zoom);
+        }
+        if (wasWide !== card.wide) { card.iframe.setAttribute('scrolling', card.wide ? 'auto' : 'no'); }
+      }
+
+      function heightKey(card) {
+        return card.message.id + ':' + Math.round(card.frameWrap.clientWidth);
       }
 
       function measure(card) {
         var doc = frameDocument(card);
-        if (!doc) { return 0; }
-        var height = contentHeight(doc);
-        if (height > 0 && height !== card.height) {
-          card.height = height;
-          card.iframe.style.height = height + 'px';
+        if (!doc || !doc.body) { return 0; }
+        var height = contentHeight(card, doc);
+        if (height > 0) {
+          if (!card.measured) {
+            card.measured = true;
+            card.frameWrap.style.minHeight = '';
+            var skeletons = card.frameWrap.querySelectorAll('.ss-skels');
+            for (var i = 0; i < skeletons.length; i++) { skeletons[i].remove(); }
+          }
+          if (height !== card.height) {
+            card.height = height;
+            card.iframe.style.height = height + 'px';
+          }
+          heights[heightKey(card)] = height;
+          refitCard(card);
         }
         return height;
+      }
+
+      // The card's px height follows its content. Called directly after every change rather than left to a
+      // ResizeObserver, which never fires in a pooled view that is not on screen.
+      function refitCard(card) {
+        if (!card.expanded) { return; }
+        var animate = card.animateFit;
+        card.animateFit = false;
+        fit(card, animate);
       }
 
       // setTimeout rather than requestAnimationFrame: a pooled view that is not on screen still has to
@@ -243,13 +759,12 @@ public enum ConversationShellAssets {
         if (!doc || !doc.body) { return; }
         if (card.imagesLoaded) {
           restoreRemote(card, doc);
+          trackImageLoad(card, doc);
         } else {
           var live = doc.querySelectorAll(LIVE_REMOTE).length;
-          if (live !== card.liveRemote) { card.liveRemote = live; fillTools(card); }
+          if (live !== card.liveRemote) { card.liveRemote = live; renderBanners(card); }
         }
-        // A frame rebuilt to load images starts from a fresh document; the reader's toggles come along.
-        doc.body.classList.toggle('ss-show-quotes', !!card.quotesShown);
-        doc.body.classList.toggle('ss-original', !!card.original);
+        syncDocumentClasses(card);
         if (card.observer) { try { card.observer.disconnect(); } catch (e) {} card.observer = null; }
         var images = doc.images;
         for (var i = 0; i < images.length; i++) {
@@ -267,149 +782,17 @@ public enum ConversationShellAssets {
           doc.addEventListener('click', function (event) {
             var target = event.target;
             var anchor = target && target.closest ? target.closest('a[href]') : null;
-            if (!anchor) { select(card); return; }
+            setTarget(card, true);
+            if (!anchor) { return; }
             event.preventDefault();
             post('ss', { kind: 'openLink', url: anchor.href });
           });
+          doc.addEventListener('mousedown', function () { keyboardNav = false; clearFocusRing(); }, true);
         }
+        fitWidth(card);
         measure(card);
         setTimeout(card.remeasure, 50);
         setTimeout(card.remeasure, 300);
-      }
-
-      function ensureFrame(card) {
-        if (card.iframe) { return; }
-        var iframe = document.createElement('iframe');
-        iframe.setAttribute('sandbox', 'allow-same-origin');
-        iframe.setAttribute('scrolling', 'no');
-        iframe.setAttribute('title', 'Message body');
-        iframe.addEventListener('load', function () { attachMeasurement(card); });
-        card.iframe = iframe;
-        iframe.srcdoc = bodyDocument(card.message.html, card.imagesLoaded);
-        card.bodyElement.appendChild(iframe);
-      }
-
-      function expand(card) {
-        card.expanded = true;
-        card.element.classList.remove('ss-collapsed');
-        ensureFrame(card);
-        scheduleMeasure(card);
-      }
-
-      function collapse(card) {
-        card.expanded = false;
-        card.element.classList.add('ss-collapsed');
-      }
-
-      function toggle(card) {
-        if (card.expanded) { collapse(card); } else { expand(card); }
-      }
-
-      function select(card) {
-        if (state.selected === card) { return; }
-        if (state.selected) { state.selected.element.classList.remove('ss-selected'); }
-        state.selected = card;
-        if (card) {
-          card.element.classList.add('ss-selected');
-          post('ss', { kind: 'select', messageID: card.message.id });
-        }
-      }
-
-      function action(type, card, attachmentID) {
-        post('ss', { kind: 'action', type: type, messageID: card.message.id, attachmentID: attachmentID || null });
-      }
-
-      // The blocking policy of a document cannot be lifted, so the frame is rebuilt without it; parked
-      // sources are restored once the new document has loaded.
-      function loadImages(card, button) {
-        if (button) { button.remove(); }
-        if (card.imagesLoaded) { return; }
-        card.imagesLoaded = true;
-        releaseFrame(card);
-        if (card.iframe) { card.iframe.remove(); card.iframe = null; }
-        if (card.expanded) { ensureFrame(card); } else { expand(card); }
-        scheduleMeasure(card);
-      }
-
-      function toggleQuotes(card, button) {
-        var doc = frameDocument(card);
-        if (!doc || !doc.body) { return; }
-        card.quotesShown = !card.quotesShown;
-        doc.body.classList.toggle('ss-show-quotes', card.quotesShown);
-        button.textContent = card.quotesShown ? 'Hide quoted text' : 'Show quoted text';
-        measure(card);
-        scheduleMeasure(card);
-      }
-
-      function toggleOriginal(card, button) {
-        var doc = frameDocument(card);
-        if (!doc || !doc.body) { return; }
-        card.original = !card.original;
-        doc.body.classList.toggle('ss-original', card.original);
-        button.textContent = card.original ? 'Adaptive colors' : 'Original colors';
-        scheduleMeasure(card);
-      }
-
-      function headerKey(m) {
-        return JSON.stringify([m.from, m.to, m.cc, m.snippet, m.dateDisplay, m.dateISO, m.isUnread, m.isStarred]);
-      }
-
-      function fillHeader(card) {
-        var m = card.message;
-        var avatar = el('div', 'ss-avatar', m.from.initials);
-        avatar.style.backgroundColor = m.from.color;
-        var who = el('div', 'ss-who');
-        var nameLine = el('div', 'ss-name-line');
-        nameLine.appendChild(el('span', 'ss-name', m.from.name || m.from.address));
-        if (m.from.address && m.from.address !== m.from.name) {
-          nameLine.appendChild(el('span', 'ss-address', m.from.address));
-        }
-        if (m.isStarred) { nameLine.appendChild(el('span', 'ss-star', '★')); }
-        who.appendChild(nameLine);
-        var recipients = '';
-        if (m.to) { recipients += 'To ' + m.to; }
-        if (m.cc) { recipients += (recipients ? ' · ' : '') + 'Cc ' + m.cc; }
-        who.appendChild(el('div', 'ss-recipients', recipients));
-        who.appendChild(el('div', 'ss-snippet', m.snippet || ''));
-        var date = el('time', 'ss-date', m.dateDisplay);
-        date.setAttribute('datetime', m.dateISO);
-        date.title = m.dateISO;
-        card.headerElement.replaceChildren(avatar, who, date);
-        card.element.classList.toggle('ss-unread', !!m.isUnread);
-        card.element.classList.toggle('ss-starred', !!m.isStarred);
-      }
-
-      // Tools follow the body: they are rebuilt only with it, so a "Load images" the user already
-      // pressed does not come back on a metadata change.
-      function fillTools(card) {
-        var m = card.message;
-        var tools = card.toolsElement;
-        tools.replaceChildren();
-        var blocked = (m.blockedRemoteImageCount || 0) + (card.liveRemote || 0);
-        if (blocked > 0 && !card.imagesLoaded) {
-          var loadButton = el('button', 'ss-button ss-load-images', 'Load images (' + blocked + ')');
-          loadButton.addEventListener('click', function (event) { event.stopPropagation(); loadImages(card, loadButton); });
-          tools.appendChild(loadButton);
-        }
-        if (m.hasQuotedContent) {
-          var quoteButton = el('button', 'ss-button ss-toggle-quote', card.quotesShown ? 'Hide quoted text' : 'Show quoted text');
-          quoteButton.addEventListener('click', function (event) { event.stopPropagation(); toggleQuotes(card, quoteButton); });
-          tools.appendChild(quoteButton);
-        }
-        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-          var originalButton = el('button', 'ss-button ss-original-colors', card.original ? 'Adaptive colors' : 'Original colors');
-          originalButton.addEventListener('click', function (event) { event.stopPropagation(); toggleOriginal(card, originalButton); });
-          tools.appendChild(originalButton);
-        }
-      }
-
-      function fillAttachments(card) {
-        var m = card.message;
-        var list = card.attachmentsElement;
-        list.replaceChildren();
-        for (var i = 0; i < m.attachments.length; i++) {
-          list.appendChild(buildChip(card, m.attachments[i]));
-        }
       }
 
       function releaseFrame(card) {
@@ -417,148 +800,940 @@ public enum ConversationShellAssets {
         if (card.measureTimer) { clearTimeout(card.measureTimer); card.measureTimer = null; }
       }
 
-      // The body itself changed (hydration replaced the snippet fallback): the frame is rebuilt, and the
-      // per-frame state goes with it because it described the old document.
-      function replaceBody(card) {
+      function dropFrame(card) {
         releaseFrame(card);
         if (card.iframe) { card.iframe.remove(); card.iframe = null; }
         card.height = 0;
-        card.imagesLoaded = loadRemote;
-        card.liveRemote = 0;
-        card.quotesShown = false;
-        card.original = false;
-        card.bodyElement.classList.toggle('ss-pending-body', !card.message.hasBody);
-        markDesign(card);
-        fillTools(card);
-        if (card.expanded) {
-          ensureFrame(card);
-          scheduleMeasure(card);
-        }
+        card.measured = false;
+        card.zoom = 1;
+        card.wide = false;
       }
 
-      // The body's stored design facts ride on the card as data attributes, so styles can key on them
-      // without the shell ever looking inside the body. They change only with the body.
+      function skeletons(delayed) {
+        var wrap = el('div', 'ss-skels' + (delayed ? ' ss-delayed' : ''));
+        wrap.appendChild(el('i', 'ss-skel'));
+        wrap.appendChild(el('i', 'ss-skel'));
+        wrap.appendChild(el('i', 'ss-skel'));
+        return wrap;
+      }
+
+      // What stands where the body goes: the frame (inside the white inset in Original colors), the skeleton
+      // while a fetch runs, or the offline preview with its notice (spec §5.14, §8.4).
+      function renderFrame(card) {
+        renderFrameContent(card);
+        refitCard(card);
+      }
+
+      function renderFrameContent(card) {
+        dropFrame(card);
+        var m = card.message;
+        var wrap = card.frameWrap;
+        wrap.replaceChildren();
+        wrap.style.minHeight = '';
+        if (!m.hasBody) {
+          if (m.bodyState === 'offline') {
+            var preview = el('p', 'ss-preview' + (prefs.readingSans || !m.coveredByNewYork ? ' ss-sans' : ''));
+            preview.textContent = (m.snippet || '').replace(/[\s.…]+$/, '') + '…';
+            wrap.appendChild(preview);
+            var notice = el('div', 'ss-banner');
+            notice.appendChild(sym('wifi.slash'));
+            notice.appendChild(el('span', 'ss-btxt', 'The full message will load when you’re back online.'));
+            wrap.appendChild(notice);
+          } else if (m.bodyState === 'loading') {
+            wrap.appendChild(skeletons(true));
+          }
+          return;
+        }
+        if (!card.expanded) { return; }
+        var iframe = document.createElement('iframe');
+        iframe.setAttribute('sandbox', 'allow-same-origin');
+        iframe.setAttribute('scrolling', 'no');
+        iframe.setAttribute('title', 'Message body');
+        iframe.addEventListener('load', function () { attachMeasurement(card); });
+        card.iframe = iframe;
+        var host = iframe;
+        if (showsInset(card)) {
+          host = el('div', 'ss-original');
+          host.appendChild(iframe);
+        }
+        wrap.appendChild(host);
+        // Animate to a provisional height, then snap (spec §4.10): the last measured height at this width, or
+        // the skeleton's 58 pt with the skeleton drawn in it.
+        var cached = heights[heightKey(card)];
+        if (cached) {
+          wrap.style.minHeight = cached + (showsInset(card) ? 24 : 0) + 'px';
+        } else {
+          wrap.style.minHeight = SKELETON_HEIGHT + 'px';
+          wrap.appendChild(skeletons(false));
+        }
+        iframe.srcdoc = bodyDocument(card);
+      }
+
+      function ensureFrame(card) {
+        if (card.message.hasBody && !card.iframe) { renderFrame(card); }
+      }
+
+      // MARK: Banners
+
+      function bannerNode(variant, symbolName, words, narrow) {
+        var node = el('div', 'ss-banner' + (variant ? ' ' + variant : ''));
+        if (symbolName) { node.appendChild(sym(symbolName)); }
+        var text = el('span', 'ss-btxt');
+        if (narrow) {
+          text.appendChild(el('span', 'ss-wide', words));
+          text.appendChild(el('span', 'ss-narrow', narrow));
+        } else {
+          text.textContent = words;
+        }
+        node.appendChild(text);
+        return node;
+      }
+
+      function plural(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
+
+      function renderBanners(card) {
+        var m = card.message;
+        var list = [];
+        if (m.hasBody) {
+          var blocked = (m.blockedRemoteImageCount || 0) + (card.liveRemote || 0);
+          if (card.imageLoad) {
+            var loading = bannerNode('', null, 'Loading ' + plural(card.imageLoad.total || blocked, 'image', 'images') + '…');
+            loading.insertBefore(el('span', 'ss-spin'), loading.firstChild);
+            list.push(loading);
+          } else if (card.imageFailures > 0) {
+            var failed = bannerNode('', 'exclamationmark.triangle.fill', plural(card.imageFailures, 'image', 'images') + ' couldn’t load.');
+            failed.firstChild.classList.add('ss-warning');
+            list.push(failed);
+          } else if (blocked > 0 && !card.imagesLoaded) {
+            var images = bannerNode('', 'photo',
+              plural(blocked, 'remote image', 'remote images') + ' hidden to protect your privacy.',
+              plural(blocked, 'remote image', 'remote images') + ' hidden.');
+            var load = button('ss-link ss-load-images', 'Load images', 'Load Images  ⇧⌘I');
+            load.addEventListener('click', function (event) { stop(event); loadImages(card); });
+            images.appendChild(load);
+            list.push(images);
+          }
+          if (offersOriginal(card) && !prefs.noticeDismissed) {
+            var on = !!originalOn[m.id];
+            var notice = bannerNode('ss-warn', 'circle.lefthalf.filled', on ? 'Showing the sender’s colours.' : 'This message uses its own colours.');
+            var toggle = button('ss-na ss-notice-toggle', on ? 'Adaptive colors' : 'Original colors', on ? 'Adaptive Colors  ⇧⌘O' : 'Original Colors  ⇧⌘O');
+            toggle.addEventListener('click', function (event) { stop(event); setOriginal(card, !originalOn[m.id]); });
+            notice.appendChild(toggle);
+            var dismiss = button('ss-bx', null, 'Don’t Show Again');
+            dismiss.setAttribute('aria-label', 'Don’t show again');
+            dismiss.appendChild(sym('xmark'));
+            dismiss.addEventListener('click', function (event) {
+              stop(event);
+              post('ss', { kind: 'action', type: 'dismissColorsNotice', messageID: m.id, attachmentID: null });
+              setPreferences({ readingSans: prefs.readingSans, colorsNoticeDismissed: true });
+            });
+            notice.appendChild(dismiss);
+            list.push(notice);
+          }
+        } else if (m.bodyState === 'failed') {
+          var bad = bannerNode('ss-bad', 'exclamationmark.triangle.fill', 'Couldn’t load this message.');
+          var retry = button('ss-link', 'Retry');
+          retry.addEventListener('click', function (event) {
+            stop(event);
+            post('ss', { kind: 'action', type: 'retryBody', messageID: m.id, attachmentID: null });
+          });
+          bad.appendChild(retry);
+          list.push(bad);
+        }
+        card.banners.replaceChildren.apply(card.banners, list);
+        refitCard(card);
+      }
+
+      // MARK: Headers
+
+      function headerKey(m) {
+        return JSON.stringify([m.from, m.to, m.cc, m.recipients, m.snippet, m.dateDisplay, m.dateISO, m.isUnread, m.isStarred, m.isDraft]);
+      }
+
+      function nameNode(m, cls) {
+        if (m.from && m.from.name) { return el('span', cls, m.from.name); }
+        return el('span', cls + ' ss-ph', 'No sender');
+      }
+
+      function fillRow(card) {
+        var m = card.message;
+        var row = card.row;
+        var pip = el('i', 'ss-rpip');
+        var avatar = el('span', 'ss-av ss-av24 ss-tint-' + (m.from.tint || 0), m.from.initials || '?');
+        avatar.setAttribute('aria-hidden', 'true');
+        var name = nameNode(m, 'ss-rname');
+        var snippet = el('span', 'ss-rsnip', m.isDraft ? 'Draft' : (m.snippet || ''));
+        var date = el('time', 'ss-rdate', m.dateDisplay);
+        date.setAttribute('datetime', m.dateISO);
+        var parts = [pip, avatar, name, snippet];
+        if (m.isStarred) { parts.push(sym('star.fill', 'ss-rstar')); }
+        parts.push(date);
+        row.replaceChildren.apply(row, parts);
+      }
+
+      function recipientSummary(m) {
+        var text = '';
+        if (m.to) { text += 'to ' + m.to; }
+        if (m.cc) { text += (text ? ' · ' : '') + 'cc ' + m.cc; }
+        return text;
+      }
+
+      function personNode(person, last) {
+        var node = el('span', 'ss-person');
+        var label = person.name || '';
+        node.title = label ? label + ' <' + person.address + '>' : person.address;
+        if (label) {
+          node.appendChild(document.createTextNode(label + ' '));
+          node.appendChild(el('span', 'ss-pad', '<' + person.address + '>' + (last ? '' : ',')));
+        } else {
+          node.appendChild(document.createTextNode(person.address + (last ? '' : ',')));
+        }
+        return node;
+      }
+
+      // The expanded recipients (spec §5.14): one block per field, each recipient whole on its line, cut at
+      // twelve lines behind "and 24 more".
+      function expandedRecipients(card) {
+        var m = card.message;
+        var block = el('div', 'ss-rcx');
+        block.tabIndex = 0;
+        block.setAttribute('role', 'button');
+        block.setAttribute('aria-expanded', 'true');
+        block.setAttribute('aria-label', 'Recipients');
+        block.title = 'Hide Addresses';
+        var fields = m.recipients || [];
+        for (var i = 0; i < fields.length; i++) {
+          var row = el('div', 'ss-rcf');
+          row.appendChild(el('span', 'ss-rcl', fields[i].label));
+          var value = el('span', 'ss-rcv');
+          var people = fields[i].people || [];
+          for (var j = 0; j < people.length; j++) { value.appendChild(personNode(people[j], j === people.length - 1)); }
+          row.appendChild(value);
+          block.appendChild(row);
+        }
+        function close(event) {
+          if (event) { stop(event); }
+          recipientsOpen[m.id] = false;
+          card.animateFit = true;
+          fillWho(card);
+          var summary = card.who.querySelector('.ss-rc');
+          if (summary && block === document.activeElement) { summary.focus(); }
+        }
+        block.addEventListener('click', close);
+        block.addEventListener('keydown', function (event) {
+          if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); close(event); }
+        });
+        return block;
+      }
+
+      function capRecipients(block) {
+        var people = block.querySelectorAll('.ss-person');
+        if (people.length === 0) { return; }
+        var lineHeight = 15;
+        var limit = block.getBoundingClientRect().top + lineHeight * 12 + 2 * 11;
+        var hidden = [];
+        for (var i = 0; i < people.length; i++) {
+          if (people[i].getBoundingClientRect().top >= limit - 1) { hidden.push(people[i]); }
+        }
+        if (hidden.length === 0) { return; }
+        for (var j = 0; j < hidden.length; j++) { hidden[j].style.display = 'none'; }
+        var more = button('ss-more', 'and ' + hidden.length + ' more');
+        more.addEventListener('click', function (event) {
+          stop(event);
+          for (var k = 0; k < hidden.length; k++) { hidden[k].style.display = ''; }
+          more.remove();
+        });
+        var lastVisible = people[people.length - hidden.length - 1];
+        if (lastVisible && lastVisible.parentNode) { lastVisible.parentNode.insertBefore(more, lastVisible.nextSibling); }
+      }
+
+      function fillWho(card) {
+        var m = card.message;
+        var who = card.who;
+        var line = el('div', 'ss-nl');
+        line.appendChild(el('i', 'ss-pip7'));
+        line.appendChild(nameNode(m, 'ss-name'));
+        if (m.isStarred) { line.appendChild(sym('star.fill', 'ss-nstar')); }
+        if (m.from && m.from.address && m.from.address !== m.from.name) { line.appendChild(el('span', 'ss-addr', m.from.address)); }
+        var parts = [line];
+        if (recipientsOpen[m.id] && (m.recipients || []).length) {
+          var block = expandedRecipients(card);
+          parts.push(block);
+          who.replaceChildren.apply(who, parts);
+          capRecipients(block);
+          refitCard(card);
+          return;
+        }
+        var summary = button('ss-rc', recipientSummary(m), 'Show Addresses');
+        summary.setAttribute('aria-expanded', 'false');
+        summary.setAttribute('aria-label', 'Recipients, collapsed');
+        summary.addEventListener('click', function (event) {
+          stop(event);
+          setTarget(card, true);
+          if (!(m.recipients || []).length) { return; }
+          recipientsOpen[m.id] = true;
+          card.animateFit = true;
+          fillWho(card);
+          var opened = who.querySelector('.ss-rcx');
+          if (opened && keyboardNav) { opened.focus(); }
+        });
+        parts.push(summary);
+        who.replaceChildren.apply(who, parts);
+        refitCard(card);
+      }
+
+      function headerAction(symbolName, title, label, cls) {
+        var node = button('ss-ib ss-hact' + (cls ? ' ' + cls : ''), null, title);
+        node.setAttribute('aria-label', label);
+        node.appendChild(sym(symbolName));
+        return node;
+      }
+
+      function fillMeta(card) {
+        var m = card.message;
+        var actions = el('span', 'ss-hacts');
+        if (!m.isDraft) {
+          var star = headerAction(m.isStarred ? 'star.fill' : 'star', m.isStarred ? 'Unstar Message' : 'Star Message',
+            m.isStarred ? 'Unstar' : 'Star', m.isStarred ? 'ss-on' : '');
+          star.addEventListener('click', function (event) {
+            stop(event);
+            setTarget(card, true);
+            post('ss', { kind: 'action', type: 'star', messageID: m.id, attachmentID: null, on: !m.isStarred });
+          });
+          var reply = headerAction('arrowshape.turn.up.left', 'Reply  R', 'Reply');
+          reply.addEventListener('click', function (event) { stop(event); setTarget(card, true); action('reply', card); });
+          var more = headerAction('ellipsis', 'More', 'More');
+          more.addEventListener('click', function (event) {
+            stop(event);
+            setTarget(card, true);
+            var rect = more.getBoundingClientRect();
+            post('ss', { kind: 'action', type: 'more', messageID: m.id, attachmentID: null, x: rect.left, y: rect.bottom + 2 });
+          });
+          actions.appendChild(star);
+          actions.appendChild(reply);
+          actions.appendChild(more);
+          if (offersOriginal(card)) {
+            var on = !!originalOn[m.id];
+            var colors = headerAction('circle.lefthalf.filled', on ? 'Adaptive Colors  ⇧⌘O' : 'Original Colors  ⇧⌘O',
+              on ? 'Adaptive colors' : 'Original colors', on ? 'ss-qon' : '');
+            colors.setAttribute('aria-pressed', on ? 'true' : 'false');
+            colors.addEventListener('click', function (event) { stop(event); setTarget(card, true); setOriginal(card, !originalOn[m.id]); });
+            actions.appendChild(colors);
+          }
+        }
+        var date = el('time', 'ss-date', m.dateDisplay);
+        date.setAttribute('datetime', m.dateISO);
+        date.title = m.dateISO;
+        card.meta.replaceChildren(actions, date);
+      }
+
+      function fillHead(card) {
+        var m = card.message;
+        if (m.isDraft) {
+          var head = el('div', 'ss-dhead');
+          var to = recipientSummary(m).replace(/^to /, 'To ');
+          head.appendChild(to ? el('span', 'ss-dto', to) : el('span', 'ss-dto ss-ph', 'No recipients yet'));
+          head.appendChild(el('span', 'ss-ddate', m.dateDisplay));
+          card.head.replaceWith(head);
+          card.head = head;
+          return;
+        }
+        card.avatar.className = 'ss-av ss-av36 ss-tint-' + (m.from.tint || 0);
+        card.avatar.textContent = m.from.initials || '?';
+        card.avatar.title = m.from.address || '';
+        fillWho(card);
+        fillMeta(card);
+      }
+
+      function fillHeader(card) {
+        var m = card.message;
+        fillRow(card);
+        fillHead(card);
+        card.element.classList.toggle('ss-unread', !!m.isUnread);
+        card.element.classList.toggle('ss-starred', !!m.isStarred);
+        card.element.setAttribute('aria-label', (m.from && m.from.name ? m.from.name : 'No sender') + ', ' + m.dateDisplay);
+      }
+
+      // MARK: Quoted text, attachments, footer
+
+      function fillQuote(card) {
+        var m = card.message;
+        card.qrow.replaceChildren();
+        card.qrow.style.display = m.hasBody && m.hasQuotedContent ? '' : 'none';
+        if (!(m.hasBody && m.hasQuotedContent)) { refitCard(card); return; }
+        var toggle = button('ss-elide ss-toggle-quote' + (card.quotesShown ? ' ss-on' : ''), null, 'Show Quoted Text  .');
+        toggle.appendChild(glyph(ELIDE_SVG));
+        toggle.appendChild(document.createTextNode(card.quotesShown ? 'Hide quoted text' : 'Show quoted text'));
+        toggle.setAttribute('aria-pressed', card.quotesShown ? 'true' : 'false');
+        toggle.addEventListener('click', function (event) { stop(event); setTarget(card, true); toggleQuotes(card); });
+        card.qrow.appendChild(toggle);
+        refitCard(card);
+      }
+
+      function chipName(name) {
+        var node = el('span', 'ss-chip-name');
+        // Middle truncation keeps the extension (spec §4.4): the head shrinks, the last characters never do.
+        var dot = name.lastIndexOf('.');
+        var keep = dot > 0 ? Math.min(name.length, (name.length - dot) + 4) : Math.min(name.length, 6);
+        node.appendChild(el('span', 'ss-cb', name.slice(0, name.length - keep)));
+        node.appendChild(el('span', 'ss-ce', name.slice(name.length - keep)));
+        return node;
+      }
+
+      function buildChip(card, attachment, index) {
+        var chip = button('ss-chip');
+        chip.title = attachment.name;
+        chip.tabIndex = index === 0 ? 0 : -1;
+        chip.dataset.attachmentId = attachment.id;
+        chip.dataset.mime = attachment.mime || '';
+        var tile = el('span', 'ss-tile');
+        tile.appendChild(sym(attachment.symbol || 'doc'));
+        var text = el('span', 'ss-chip-text');
+        text.appendChild(chipName(attachment.name));
+        var meta = el('span', 'ss-chip-meta');
+        meta.appendChild(el('span', 'ss-rest-meta', (attachment.kind ? attachment.kind + ' · ' : '') + attachment.size));
+        meta.appendChild(el('span', 'ss-hover-meta', 'Space to Quick Look'));
+        text.appendChild(meta);
+        chip.appendChild(tile);
+        chip.appendChild(text);
+        chip.addEventListener('click', function (event) {
+          stop(event);
+          setTarget(card, true);
+          action('openAttachment', card, attachment.id);
+        });
+        chip.addEventListener('focus', function () {
+          post('ss', { kind: 'focusAttachment', messageID: card.message.id, attachmentID: attachment.id });
+        });
+        return chip;
+      }
+
+      function fillAttachments(card) {
+        var m = card.message;
+        var list = card.atts;
+        list.replaceChildren();
+        for (var i = 0; i < m.attachments.length; i++) { list.appendChild(buildChip(card, m.attachments[i], i)); }
+        refitCard(card);
+      }
+
+      function footerButton(card, type, label, symbolName, key, title) {
+        var node = button('ss-gb ss-' + type, null, title);
+        node.appendChild(sym(symbolName));
+        node.appendChild(document.createTextNode(label));
+        node.addEventListener('click', function (event) {
+          event.preventDefault();
+          stop(event);
+          setTarget(card, true);
+          action(type, card, null);
+        });
+        return [node, kbd(key)];
+      }
+
+      function fillFooter(card) {
+        var m = card.message;
+        var foot = card.foot;
+        var parts = [];
+        if (m.isDraft) {
+          var cont = button('ss-sb ss-continueDraft', null, 'Continue Editing  ↩');
+          cont.appendChild(glyph(NIB_SVG));
+          cont.appendChild(document.createTextNode('Continue editing'));
+          cont.addEventListener('click', function (event) { stop(event); setTarget(card, true); action('continueDraft', card, null); });
+          var discard = button('ss-gb ss-discardDraft', 'Discard draft…', 'Discard Draft…  #');
+          discard.addEventListener('click', function (event) { stop(event); setTarget(card, true); action('discardDraft', card, null); });
+          parts = [cont, kbd('↩'), discard];
+        } else {
+          parts = parts
+            .concat(footerButton(card, 'reply', 'Reply', 'arrowshape.turn.up.left', 'R', 'Reply  R'))
+            .concat(footerButton(card, 'replyAll', 'Reply all', 'arrowshape.turn.up.left.2', 'A', 'Reply All  A'))
+            .concat(footerButton(card, 'forward', 'Forward', 'arrowshape.turn.up.right', 'F', 'Forward  F'));
+        }
+        foot.replaceChildren.apply(foot, parts);
+      }
+
+      // MARK: Cards
+
       function markDesign(card) {
         var m = card.message;
+        card.typeset = m.hasBody && (m.typesetting === 'plain' || m.typesetting === 'unstyled');
         card.element.dataset.typesetting = m.typesetting || 'styled';
         card.element.dataset.declaresColors = m.declaresColors === false ? 'false' : 'true';
         card.element.dataset.coveredByNewYork = m.coveredByNewYork ? 'true' : 'false';
+        card.element.classList.toggle('ss-typeset', card.typeset || (!m.hasBody && m.bodyState === 'offline'));
+        card.element.classList.toggle('ss-draft', !!m.isDraft);
+      }
+
+      // The body itself changed (hydration replaced the snippet fallback): the frame is rebuilt, and the
+      // per-frame state goes with it because it described the old document.
+      function replaceBody(card) {
+        card.imagesLoaded = loadRemote;
+        card.liveRemote = 0;
+        card.quotesShown = false;
+        card.imageLoad = null;
+        card.imageFailures = 0;
+        markDesign(card);
+        renderBanners(card);
+        renderFrame(card);
+        fillQuote(card);
       }
 
       function patch(card, m) {
         var previous = card.message;
         card.message = m;
         if (headerKey(previous) !== headerKey(m)) { fillHeader(card); }
-        if (previous.html !== m.html || previous.hasBody !== m.hasBody) { replaceBody(card); }
+        if (previous.html !== m.html || previous.hasBody !== m.hasBody) {
+          replaceBody(card);
+        } else if (previous.bodyState !== m.bodyState) {
+          applyBodyState(card, m.bodyState);
+        }
         if (JSON.stringify(previous.attachments) !== JSON.stringify(m.attachments)) { fillAttachments(card); }
+      }
+
+      function fit(card, animate) {
+        if (card.collapseTimer || card.folded) { return; }
+        var target = card.expanded ? Math.ceil(card.inner.getBoundingClientRect().height) : 44;
+        if (target <= 0) { return; }
+        setHeight(card.element, target, animate);
       }
 
       function buildCard(m) {
         var card = {
-          message: m, element: null, headerElement: null, toolsElement: null, bodyElement: null,
-          attachmentsElement: null, iframe: null, observer: null, expanded: false, imagesLoaded: loadRemote, liveRemote: 0,
-          quotesShown: false, original: false, height: 0, measureTimer: null
+          message: m, element: null, row: null, inner: null, head: null, avatar: null, who: null, meta: null,
+          banners: null, frameWrap: null, qrow: null, atts: null, foot: null, iframe: null, observer: null,
+          expanded: false, folded: false, imagesLoaded: loadRemote, liveRemote: 0, quotesShown: false, height: 0,
+          measured: false, measureTimer: null, collapseTimer: null, imageLoad: null, imageFailures: 0, zoom: 1,
+          wide: false, typeset: false, animateFit: false, sizeObserver: null
         };
         card.remeasure = function () { scheduleMeasure(card); };
 
-        var article = el('article', 'ss-card');
+        var article = el('article', 'ss-card ss-collapsed ss-strow');
         article.dataset.id = m.id;
-        var header = el('header', 'ss-header');
-        header.addEventListener('click', function (event) {
-          event.stopPropagation();
-          select(card);
-          toggle(card);
-        });
-        var tools = el('div', 'ss-tools');
+        article.tabIndex = 0;
+        var row = el('div', 'ss-row');
+        var inner = el('div', 'ss-inner');
+        var head = el('header', 'ss-head');
+        var avatar = el('span', 'ss-av ss-av36');
+        avatar.setAttribute('aria-hidden', 'true');
+        var who = el('div', 'ss-who');
+        var meta = el('div', 'ss-meta');
+        head.appendChild(avatar);
+        head.appendChild(who);
+        head.appendChild(meta);
         var body = el('div', 'ss-body');
-        body.classList.toggle('ss-pending-body', !m.hasBody);
-        var attachments = el('div', 'ss-attachments');
-        var footer = el('footer', 'ss-footer');
-        footer.appendChild(buildFooterLink(card, 'reply', 'Reply'));
-        footer.appendChild(buildFooterLink(card, 'replyAll', 'Reply all'));
-        footer.appendChild(buildFooterLink(card, 'forward', 'Forward'));
+        var banners = el('div', 'ss-banners');
+        var frameWrap = el('div', 'ss-frame');
+        body.appendChild(banners);
+        body.appendChild(frameWrap);
+        var qrow = el('div', 'ss-qrow ss-ind');
+        var atts = el('div', 'ss-atts ss-ind');
+        var foot = el('footer', 'ss-foot ss-ind');
+        inner.appendChild(head);
+        inner.appendChild(body);
+        inner.appendChild(qrow);
+        inner.appendChild(atts);
+        inner.appendChild(foot);
+        article.appendChild(row);
+        article.appendChild(inner);
 
-        article.appendChild(header);
-        article.appendChild(tools);
-        article.appendChild(body);
-        article.appendChild(attachments);
-        article.appendChild(footer);
-        article.addEventListener('click', function () { select(card); });
+        row.addEventListener('click', function (event) {
+          stop(event);
+          setTarget(card, true);
+          expand(card, true);
+        });
+        inner.addEventListener('click', function () { setTarget(card, true); });
+        article.addEventListener('focus', function () {
+          setTarget(card, true);
+          if (keyboardNav) { showFocusRing(article); }
+        });
+        article.addEventListener('keydown', function (event) {
+          if (event.target !== article) { return; }
+          if ((event.key === 'Enter') && !card.expanded) { event.preventDefault(); expand(card, true); }
+        });
+        atts.addEventListener('keydown', function (event) {
+          if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') { return; }
+          var chips = Array.prototype.slice.call(atts.querySelectorAll('.ss-chip'));
+          var i = chips.indexOf(document.activeElement);
+          if (i < 0) { return; }
+          event.preventDefault();
+          var next = chips[Math.max(0, Math.min(chips.length - 1, i + (event.key === 'ArrowRight' ? 1 : -1)))];
+          for (var c = 0; c < chips.length; c++) { chips[c].tabIndex = chips[c] === next ? 0 : -1; }
+          next.focus();
+        });
 
         card.element = article;
+        card.row = row;
+        card.inner = inner;
+        card.head = head;
+        card.avatar = avatar;
+        card.who = who;
+        card.meta = meta;
+        card.banners = banners;
+        card.frameWrap = frameWrap;
+        card.qrow = qrow;
+        card.atts = atts;
+        card.foot = foot;
         markDesign(card);
-        card.headerElement = header;
-        card.toolsElement = tools;
-        card.bodyElement = body;
-        card.attachmentsElement = attachments;
         fillHeader(card);
-        fillTools(card);
+        renderBanners(card);
+        fillQuote(card);
         fillAttachments(card);
+        fillFooter(card);
+        if (!m.hasBody) { renderFrame(card); }
+        try {
+          if (window.ResizeObserver) {
+            card.sizeObserver = new ResizeObserver(function () {
+              var animate = card.animateFit;
+              card.animateFit = false;
+              fit(card, animate);
+            });
+            card.sizeObserver.observe(inner);
+          }
+        } catch (e) { card.sizeObserver = null; }
         return card;
       }
 
-      function buildChip(card, attachment) {
-        var chip = el('button', 'ss-chip');
-        chip.appendChild(el('span', 'ss-chip-name', attachment.name));
-        chip.appendChild(el('span', 'ss-chip-size', attachment.size));
-        chip.title = attachment.mime;
-        chip.dataset.attachmentId = attachment.id;
-        chip.addEventListener('click', function (event) {
-          event.stopPropagation();
-          select(card);
-          action('openAttachment', card, attachment.id);
-        });
-        return chip;
+      // MARK: Expand and collapse (spec §4.10)
+
+      function expand(card, animate) {
+        if (card.expanded) { return; }
+        if (card.folded) { unfoldAll(); }
+        if (card.collapseTimer) { clearTimeout(card.collapseTimer); card.collapseTimer = null; }
+        var start = card.element.getBoundingClientRect().height || 44;
+        card.expanded = true;
+        card.element.classList.remove('ss-collapsed', 'ss-strow', 'ss-run-start', 'ss-run-end');
+        card.element.classList.add('ss-sheet');
+        ensureFrame(card);
+        restack();
+        card.element.style.transition = 'none';
+        card.element.style.height = start + 'px';
+        void card.element.offsetHeight;
+        card.element.style.transition = '';
+        fit(card, animate);
       }
 
-      function buildFooterLink(card, type, label) {
-        var link = el('a', 'ss-' + type, label);
-        link.setAttribute('role', 'button');
-        link.href = '#';
-        link.addEventListener('click', function (event) {
-          event.preventDefault();
-          event.stopPropagation();
-          select(card);
-          action(type, card, null);
-        });
-        return link;
+      function collapse(card, animate) {
+        if (!card.expanded) { return; }
+        card.expanded = false;
+        if (animate && !reducedMotion()) {
+          setHeight(card.element, 44, true);
+          card.collapseTimer = setTimeout(function () { finishCollapse(card); }, MOVE_MS + 40);
+        } else {
+          finishCollapse(card);
+        }
       }
+
+      function finishCollapse(card) {
+        if (card.collapseTimer) { clearTimeout(card.collapseTimer); card.collapseTimer = null; }
+        if (card.expanded) { return; }
+        card.element.classList.remove('ss-sheet');
+        card.element.classList.add('ss-collapsed', 'ss-strow');
+        dropFrame(card);
+        if (card.message.hasBody) { card.frameWrap.replaceChildren(); }
+        setHeight(card.element, 44, false);
+        restack();
+      }
+
+      function toggle(card) {
+        if (card.expanded) { collapse(card, true); } else { expand(card, true); }
+      }
+
+      // Collapsed rows between sheets form one stack: the classes give each run its rounded ends (spec §5.13).
+      function restack() {
+        var prev = null;
+        var prevIsRow = false;
+        var expanded = 0;
+        var children = root.children;
+        for (var i = 0; i < children.length; i++) {
+          var child = children[i];
+          if (child.classList.contains('ss-folded') || child.classList.contains('ss-parts')) { continue; }
+          var isRow = child.classList.contains('ss-strow');
+          if (child.classList.contains('ss-sheet')) { expanded++; }
+          child.classList.toggle('ss-run-start', isRow && !prevIsRow);
+          if (prev) { prev.classList.toggle('ss-run-end', prevIsRow && !isRow); }
+          prev = child;
+          prevIsRow = isRow;
+        }
+        if (prev) { prev.classList.toggle('ss-run-end', prevIsRow); }
+        root.classList.toggle('ss-multi', expanded > 1);
+      }
+
+      // More than six collapsed messages in a run keep the first one and the last two and fold the rest into
+      // one "4 more messages" row, until the conversation is reopened (spec §5.13).
+      function foldRuns() {
+        var run = [];
+        function flush() {
+          if (run.length > 6) {
+            var hidden = run.slice(1, run.length - 2);
+            var fold = el('div', 'ss-fold ss-strow', hidden.length + ' more messages');
+            fold.tabIndex = 0;
+            fold.setAttribute('role', 'button');
+            for (var i = 0; i < hidden.length; i++) {
+              hidden[i].folded = true;
+              hidden[i].element.classList.add('ss-folded');
+            }
+            root.insertBefore(fold, run[0].element.nextSibling);
+            var entry = { element: fold, cards: hidden };
+            state.folds.push(entry);
+            fold.addEventListener('click', function (event) { stop(event); unfold(entry, true); });
+            fold.addEventListener('keydown', function (event) {
+              if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); unfold(entry, true); }
+            });
+            fold.addEventListener('focus', function () { if (keyboardNav) { showFocusRing(fold); } });
+          }
+          run = [];
+        }
+        for (var c = 0; c < state.cards.length; c++) {
+          if (state.cards[c].expanded) { flush(); } else { run.push(state.cards[c]); }
+        }
+        flush();
+      }
+
+      function unfold(entry, animate) {
+        var index = state.folds.indexOf(entry);
+        if (index < 0) { return; }
+        state.folds.splice(index, 1);
+        var hadFocus = entry.element === state.focusEl;
+        entry.element.remove();
+        for (var i = 0; i < entry.cards.length; i++) {
+          var card = entry.cards[i];
+          card.folded = false;
+          card.element.classList.remove('ss-folded');
+          if (animate && !reducedMotion()) {
+            card.element.style.transition = 'none';
+            card.element.style.height = '0px';
+            void card.element.offsetHeight;
+            card.element.style.transition = '';
+            setHeight(card.element, 44, true);
+          } else {
+            setHeight(card.element, 44, false);
+          }
+        }
+        restack();
+        if (entry.cards.length && (hadFocus || animate)) {
+          var first = entry.cards[0];
+          if (hadFocus) { focusStop(first.element); } else { setTarget(first, true); }
+        }
+      }
+
+      function unfoldAll() {
+        while (state.folds.length) { unfold(state.folds[0], false); }
+      }
+
+      // MARK: Target and focus (spec §5.14)
+
+      function setTarget(card, notify) {
+        if (!card || state.target === card) { return; }
+        if (state.target) { state.target.element.classList.remove('ss-target'); }
+        state.target = card;
+        card.element.classList.add('ss-target');
+        if (notify) { post('ss', { kind: 'select', messageID: card.message.id }); }
+      }
+
+      function clearFocusRing() {
+        if (state.focusEl) { state.focusEl.classList.remove('ss-focus'); }
+        state.focusEl = null;
+      }
+
+      function showFocusRing(node) {
+        clearFocusRing();
+        state.focusEl = node;
+        node.classList.add('ss-focus');
+      }
+
+      function cardForElement(node) {
+        for (var i = 0; i < state.cards.length; i++) { if (state.cards[i].element === node) { return state.cards[i]; } }
+        return null;
+      }
+
+      function stops() {
+        var list = [];
+        var children = root.children;
+        for (var i = 0; i < children.length; i++) {
+          var child = children[i];
+          if (child.classList.contains('ss-folded')) { continue; }
+          if (child.classList.contains('ss-card') || child.classList.contains('ss-fold')) { list.push(child); }
+        }
+        return list;
+      }
+
+      function focusStop(node) {
+        keyboardNav = true;
+        showFocusRing(node);
+        var card = cardForElement(node);
+        if (card) { setTarget(card, true); }
+        try { node.focus({ preventScroll: true }); } catch (e) { node.focus(); }
+        node.scrollIntoView({ block: 'nearest' });
+      }
+
+      // N and P: the next or previous stack row, fold row or sheet takes the ring and becomes the target.
+      function step(delta) {
+        var list = stops();
+        if (list.length === 0) { return null; }
+        var current = state.focusEl || (state.target && state.target.element);
+        var i = list.indexOf(current);
+        var next = i < 0 ? (delta > 0 ? 0 : list.length - 1) : Math.max(0, Math.min(list.length - 1, i + delta));
+        focusStop(list[next]);
+        return state.target ? state.target.message.id : null;
+      }
+
+      function action(type, card, attachmentID) {
+        post('ss', { kind: 'action', type: type, messageID: card.message.id, attachmentID: attachmentID || null });
+      }
+
+      // MARK: Commands
+
+      // The blocking policy of a document cannot be lifted, so the frame is rebuilt without it; parked
+      // sources are restored once the new document has loaded.
+      function loadImages(card) {
+        if (!card || card.imagesLoaded) { return; }
+        var blocked = (card.message.blockedRemoteImageCount || 0) + (card.liveRemote || 0);
+        card.imagesLoaded = true;
+        card.imageFailures = 0;
+        card.imageLoad = blocked > 0 ? { total: blocked, failed: 0, pending: blocked, tracking: false, timer: null } : null;
+        renderBanners(card);
+        if (card.expanded) { renderFrame(card); } else { expand(card, true); }
+      }
+
+      function toggleQuotes(card) {
+        if (!card || !card.message.hasQuotedContent) { return; }
+        card.quotesShown = !card.quotesShown;
+        fillQuote(card);
+        var doc = frameDocument(card);
+        if (doc && doc.body) {
+          doc.body.classList.toggle('ss-show-quotes', card.quotesShown);
+          card.animateFit = true;
+          measure(card);
+        }
+      }
+
+      function setOriginal(card, on) {
+        if (!card) { return; }
+        if (on) { originalOn[card.message.id] = true; } else { delete originalOn[card.message.id]; }
+        renderBanners(card);
+        fillMeta(card);
+        if (card.expanded && card.message.hasBody) { renderFrame(card); }
+        post('ss', { kind: 'originalColors', messageID: card.message.id, on: !!on });
+      }
+
+      function applyBodyState(card, bodyState) {
+        card.message = Object.assign({}, card.message, { bodyState: bodyState });
+        if (card.message.hasBody) { return; }
+        markDesign(card);
+        renderBanners(card);
+        renderFrame(card);
+      }
+
+      function setPreferences(p) {
+        var sansChanged = !!p.readingSans !== prefs.readingSans;
+        var noticeChanged = !!p.colorsNoticeDismissed !== prefs.noticeDismissed;
+        prefs.readingSans = !!p.readingSans;
+        prefs.noticeDismissed = !!p.colorsNoticeDismissed;
+        for (var i = 0; i < state.cards.length; i++) {
+          var card = state.cards[i];
+          if (sansChanged) {
+            syncDocumentClasses(card);
+            if (!card.message.hasBody) { renderFrame(card); }
+          }
+          if (noticeChanged) { renderBanners(card); }
+        }
+      }
+
+      // The app mirrors Increase Contrast, Reduce Motion, Reduce Transparency and Graphite onto the shell and
+      // every body document, because WebKit does not reliably track the media queries (spec §3.3, §8.4).
+      function setModes(modes) {
+        var shell = document.documentElement.classList;
+        shell.toggle('ss-ic', !!modes.ic);
+        shell.toggle('ss-rm', !!modes.rm);
+        shell.toggle('ss-rt', !!modes.rt);
+        shell.toggle('ss-graphite', !!modes.graphite);
+        for (var i = 0; i < state.cards.length; i++) { syncDocumentClasses(state.cards[i]); }
+      }
+
+      function appearanceChanged() {
+        for (var i = 0; i < state.cards.length; i++) {
+          var card = state.cards[i];
+          var hadInset = !!(card.frameWrap.querySelector('.ss-original'));
+          renderBanners(card);
+          if (!card.message.isDraft) { fillMeta(card); }
+          if (card.expanded && card.message.hasBody && hadInset !== showsInset(card)) {
+            renderFrame(card);
+          } else {
+            syncDocumentClasses(card);
+          }
+        }
+      }
+      if (darkQuery) {
+        if (darkQuery.addEventListener) { darkQuery.addEventListener('change', appearanceChanged); }
+        else if (darkQuery.addListener) { darkQuery.addListener(appearanceChanged); }
+      }
+
+      function refit() {
+        for (var i = 0; i < state.cards.length; i++) {
+          var card = state.cards[i];
+          if (!card.iframe) { continue; }
+          fitWidth(card);
+          measure(card);
+        }
+      }
+
+      // MARK: Rendering
 
       function teardown() {
-        for (var i = 0; i < state.cards.length; i++) { releaseFrame(state.cards[i]); }
+        for (var i = 0; i < state.cards.length; i++) {
+          var card = state.cards[i];
+          releaseFrame(card);
+          if (card.collapseTimer) { clearTimeout(card.collapseTimer); }
+          if (card.sizeObserver) { try { card.sizeObserver.disconnect(); } catch (e) {} }
+          if (card.imageLoad && card.imageLoad.timer) { clearTimeout(card.imageLoad.timer); }
+        }
         state.cards = [];
         state.byID = {};
-        state.selected = null;
+        state.target = null;
+        state.focusEl = null;
+        state.folds = [];
         state.payload = null;
+        moving = [];
+      }
+
+      function readPayloadSettings(payload) {
+        loadRemote = !!payload.loadRemoteImages;
+        prefs.readingSans = !!payload.readingSans;
+        prefs.noticeDismissed = !!payload.colorsNoticeDismissed;
+        root.dataset.inkSlot = String(payload.inkSlot || 0);
+        document.title = payload.subject || '';
+      }
+
+      function participantsNode(payload) {
+        var node = el('div', 'ss-parts', payload.participants || '');
+        node.style.display = payload.participants ? '' : 'none';
+        return node;
       }
 
       function render(payload) {
         teardown();
         state.payload = payload;
-        loadRemote = !!payload.loadRemoteImages;
-        root.dataset.inkSlot = String(payload.inkSlot || 0);
-        document.title = payload.subject || '';
+        readPayloadSettings(payload);
         var messages = payload.messages || [];
         var fragment = document.createDocumentFragment();
+        fragment.appendChild(participantsNode(payload));
         for (var i = 0; i < messages.length; i++) {
           var card = buildCard(messages[i]);
           state.cards.push(card);
           state.byID[card.message.id] = card;
           fragment.appendChild(card.element);
         }
-        if (messages.length === 0) { fragment.appendChild(el('div', 'ss-empty', 'No messages')); }
         root.replaceChildren(fragment);
+        var lastExpanded = null;
         var firstExpanded = null;
         for (var j = 0; j < state.cards.length; j++) {
           var c = state.cards[j];
-          if (j === state.cards.length - 1 || c.message.isUnread) {
-            expand(c);
+          if (j === state.cards.length - 1 || c.message.isUnread || c.message.isDraft) {
+            expand(c, false);
             if (!firstExpanded) { firstExpanded = c; }
-          } else {
-            collapse(c);
+            lastExpanded = c;
           }
         }
-        if (state.cards.length > 0) { select(state.cards[state.cards.length - 1]); }
+        foldRuns();
+        restack();
+        if (lastExpanded) { setTarget(lastExpanded, true); }
         window.scrollTo(0, 0);
         if (firstExpanded && firstExpanded !== state.cards[0]) {
           firstExpanded.element.scrollIntoView({ block: 'start' });
@@ -580,7 +1755,12 @@ public enum ConversationShellAssets {
         var messages = payload.messages || [];
         if (!state.payload || state.cards.length === 0 || messages.length === 0) { return render(payload); }
         if (!!payload.loadRemoteImages !== loadRemote) { return render(payload); }
-        root.dataset.inkSlot = String(payload.inkSlot || 0);
+        readPayloadSettings(payload);
+        var parts = root.querySelector('.ss-parts');
+        if (parts) {
+          parts.textContent = payload.participants || '';
+          parts.style.display = payload.participants ? '' : 'none';
+        }
         var incoming = {};
         for (var i = 0; i < messages.length; i++) { incoming[messages[i].id] = messages[i]; }
         var surviving = [];
@@ -593,16 +1773,21 @@ public enum ConversationShellAssets {
           if (state.byID[messages[k].id]) { kept.push(messages[k].id); }
         }
         if (!sameList(surviving, kept)) { return render(payload); }
+        // A fold row stands for particular cards; once cards come or go it would miscount, so it opens.
+        if (surviving.length !== state.cards.length || kept.length !== messages.length) { unfoldAll(); }
         for (var r = 0; r < state.cards.length; r++) {
           var gone = state.cards[r];
           if (incoming[gone.message.id]) { continue; }
           releaseFrame(gone);
+          if (gone.sizeObserver) { try { gone.sizeObserver.disconnect(); } catch (e) {} }
           gone.element.remove();
-          if (state.selected === gone) { state.selected = null; }
+          if (state.target === gone) { state.target = null; }
+          if (state.focusEl === gone.element) { state.focusEl = null; }
         }
         var cards = [];
         var byID = {};
         var next = null;
+        var added = [];
         for (var n = messages.length - 1; n >= 0; n--) {
           var m = messages[n];
           var card = state.byID[m.id];
@@ -611,7 +1796,7 @@ public enum ConversationShellAssets {
           } else {
             card = buildCard(m);
             root.insertBefore(card.element, next);
-            if (m.isUnread || n === messages.length - 1) { expand(card); } else { collapse(card); }
+            added.push({ card: card, expand: m.isUnread || n === messages.length - 1 || m.isDraft });
           }
           cards.push(card);
           byID[m.id] = card;
@@ -621,8 +1806,9 @@ public enum ConversationShellAssets {
         state.cards = cards;
         state.byID = byID;
         state.payload = payload;
-        document.title = payload.subject || '';
-        if (!state.selected) { select(cards[cards.length - 1]); }
+        for (var a = 0; a < added.length; a++) { if (added[a].expand) { expand(added[a].card, false); } }
+        restack();
+        if (!state.target) { setTarget(cards[cards.length - 1], false); }
         return cards.length;
       }
 
@@ -642,22 +1828,68 @@ public enum ConversationShellAssets {
         return patched;
       }
 
+      function bodyStates(patches) {
+        var patched = 0;
+        for (var i = 0; i < patches.length; i++) {
+          var card = state.byID[patches[i].id];
+          if (!card || card.message.hasBody || card.message.bodyState === patches[i].bodyState) { continue; }
+          applyBodyState(card, patches[i].bodyState);
+          patched++;
+        }
+        return patched;
+      }
+
       function clear() {
         teardown();
         document.title = '';
-        root.replaceChildren(el('div', 'ss-empty', ''));
+        root.replaceChildren();
       }
 
+      document.addEventListener('keydown', function () { keyboardNav = true; }, true);
+      document.addEventListener('mousedown', function () { keyboardNav = false; clearFocusRing(); }, true);
+      document.addEventListener('transitionend', function (event) {
+        if (event.propertyName === 'height') { settled(event.target); }
+      });
       window.addEventListener('resize', function () {
         for (var i = 0; i < state.cards.length; i++) { scheduleMeasure(state.cards[i]); }
       });
 
+      function targetCard() { return state.target; }
+
       window.ss = {
-        version: 2,
+        version: 3,
         render: render,
         update: update,
         flags: flags,
+        bodyStates: bodyStates,
         clear: clear,
+        setBottomInset: function (px) {
+          document.documentElement.style.setProperty('--ss-inset', Math.max(0, Math.round(px)) + 'px');
+        },
+        setModes: setModes,
+        preferences: setPreferences,
+        refit: refit,
+        finishAll: finishAll,
+        step: step,
+        target: function (id) { var card = state.byID[id]; if (card) { setTarget(card, false); } },
+        targetState: function () {
+          var card = targetCard();
+          if (!card) { return null; }
+          var m = card.message;
+          return {
+            id: m.id, offersOriginal: offersOriginal(card), original: !!originalOn[m.id],
+            imagesBlocked: m.hasBody && !card.imagesLoaded && ((m.blockedRemoteImageCount || 0) + (card.liveRemote || 0)) > 0,
+            hasQuotes: !!(m.hasBody && m.hasQuotedContent), quotesShown: !!card.quotesShown, isStarred: !!m.isStarred
+          };
+        },
+        toggleQuotes: function () { toggleQuotes(targetCard()); },
+        toggleOriginal: function () {
+          var card = targetCard();
+          if (!card || !offersOriginal(card)) { return null; }
+          setOriginal(card, !originalOn[card.message.id]);
+          return !!originalOn[card.message.id];
+        },
+        originalColors: function (id, on) { setOriginal(state.byID[id], !!on); },
         cardCount: function () { return state.cards.length; },
         cardStates: function () {
           var states = [];
@@ -665,7 +1897,7 @@ public enum ConversationShellAssets {
             var card = state.cards[i];
             states.push({
               id: card.message.id, expanded: card.expanded, imagesLoaded: card.imagesLoaded,
-              quotesShown: card.quotesShown, hasFrame: !!card.iframe
+              quotesShown: card.quotesShown, hasFrame: !!card.iframe, folded: card.folded
             });
           }
           return states;
@@ -676,24 +1908,20 @@ public enum ConversationShellAssets {
           return heights;
         },
         iframeHeights: function () {
-          var heights = [];
+          var list = [];
           for (var i = 0; i < state.cards.length; i++) {
             var card = state.cards[i];
-            heights.push(card.iframe ? (parseFloat(card.iframe.style.height) || 0) : -1);
+            list.push(card.iframe ? (parseFloat(card.iframe.style.height) || 0) : -1);
           }
-          return heights;
+          return list;
         },
         expandAll: function () {
-          for (var i = 0; i < state.cards.length; i++) { expand(state.cards[i]); }
+          for (var i = 0; i < state.cards.length; i++) { expand(state.cards[i], false); }
         },
-        select: function (id) { var card = state.byID[id]; if (card) { select(card); } },
-        selectedMessageID: function () { return state.selected ? state.selected.message.id : null; },
-        loadImages: function (id) {
-          var card = state.byID[id];
-          if (!card) { return; }
-          var button = card.element.querySelector('.ss-load-images');
-          loadImages(card, button);
-        }
+        toggle: function (id) { var card = state.byID[id]; if (card) { toggle(card); } },
+        select: function (id) { var card = state.byID[id]; if (card) { setTarget(card, true); } },
+        selectedMessageID: function () { return state.target ? state.target.message.id : null; },
+        loadImages: function (id) { loadImages(id ? state.byID[id] : targetCard()); }
       };
 
       post('ssReady', { kind: 'ready' });
@@ -702,7 +1930,7 @@ public enum ConversationShellAssets {
     """#
 
     /// A JavaScript string literal for arbitrary text (JSON string escaping is a subset of JS).
-    static func jsStringLiteral(_ text: String) -> String {
+    public static func jsStringLiteral(_ text: String) -> String {
         var out = "\""
         for scalar in text.unicodeScalars {
             switch scalar {

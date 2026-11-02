@@ -12,6 +12,10 @@ public struct RenderInputs: Hashable, Sendable {
         public var from: EmailAddress?
         public var to: [EmailAddress]
         public var cc: [EmailAddress]
+        /// Read for the expanded recipients of messages the user sent.
+        public var bcc: [EmailAddress]
+        /// Read for drafts, which render read-only.
+        public var roles: Set<MailboxRole>
         public var subject: String
         public var snippet: String
         public var date: Date
@@ -25,6 +29,8 @@ public struct RenderInputs: Hashable, Sendable {
             from = metadata.from
             to = metadata.to
             cc = metadata.cc
+            bcc = metadata.bcc
+            roles = metadata.roles
             subject = metadata.subject
             snippet = metadata.snippet
             date = metadata.date

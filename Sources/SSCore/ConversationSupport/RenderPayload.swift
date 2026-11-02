@@ -8,17 +8,42 @@ import Foundation
 /// initials derived, HTML sanitized at sync time) so rendering never touches the store or parses HTML.
 public struct RenderPayload: Hashable, Codable, Sendable {
     public struct Sender: Hashable, Codable, Sendable {
+        /// Empty when the message has no sender; the shell then sets "No sender" in the placeholder style.
         public var name: String
         public var address: String
         public var initials: String
-        /// Hex color for the avatar circle, derived from the address so a sender keeps one color everywhere.
-        public var color: String
+        /// The avatar tint (spec §4.3): FNV-1a of the lowercased address modulo the eight tints, the same
+        /// index `Quire.avatarTintIndex(forAddress:)` gives, so a sender has one face in the list and the reader.
+        public var tint: Int
 
-        public init(name: String, address: String, initials: String, color: String) {
+        public init(name: String, address: String, initials: String, tint: Int) {
             self.name = name
             self.address = address
             self.initials = initials
-            self.color = color
+            self.tint = tint
+        }
+    }
+
+    /// One recipient of the expanded recipients block (spec §5.14).
+    public struct Person: Hashable, Codable, Sendable {
+        /// "me" for the user's own addresses; the display name, or empty when the address has none.
+        public var name: String
+        public var address: String
+
+        public init(name: String, address: String) {
+            self.name = name
+            self.address = address
+        }
+    }
+
+    /// One field of the expanded recipients block: "To", "Cc" or "Bcc".
+    public struct RecipientField: Hashable, Codable, Sendable {
+        public var label: String
+        public var people: [Person]
+
+        public init(label: String, people: [Person]) {
+            self.label = label
+            self.people = people
         }
     }
 
@@ -29,13 +54,32 @@ public struct RenderPayload: Hashable, Codable, Sendable {
         /// Human-readable size ("1.2 MB"), formatted here so the shell stays locale-free.
         public var size: String
         public var mime: String
+        /// The type tile's SF Symbol (spec §5.17): one of the reader symbols `doc`, `doc.richtext`, `photo`,
+        /// `tablecells`, `doc.zipper`, `film`.
+        public var symbol: String
+        /// The kind named in the chip's meta line, "PDF · 240 KB".
+        public var kind: String
 
-        public init(id: String, name: String, size: String, mime: String) {
+        public init(id: String, name: String, size: String, mime: String, symbol: String = "doc", kind: String = "") {
             self.id = id
             self.name = name
             self.size = size
             self.mime = mime
+            self.symbol = symbol
+            self.kind = kind
         }
+    }
+
+    /// What the reader shows where a body belongs (spec §5.14, §8.4).
+    public enum BodyState: String, Codable, Sendable, CaseIterable {
+        /// The stored body is in `html`.
+        case ready
+        /// No body yet and a fetch is running: skeleton bars after 300 ms.
+        case loading
+        /// No body and the fetch cannot run offline: the snippet preview and the `wifi.slash` notice.
+        case offline
+        /// No body and the fetch failed online: "Couldn't load this message · Retry".
+        case failed
     }
 
     public struct Message: Hashable, Codable, Sendable {
@@ -45,13 +89,18 @@ public struct RenderPayload: Hashable, Codable, Sendable {
         /// Display string of the To recipients ("Ada, me").
         public var to: String
         public var cc: String
+        /// The expanded recipients: To, Cc, and Bcc on messages the user sent.
+        public var recipients: [RecipientField]
         public var dateISO: String
         public var dateDisplay: String
         public var snippet: String
         public var isUnread: Bool
         public var isStarred: Bool
+        /// A draft (Drafts view): read-only, set in `writing`, with Continue editing and Discard draft.
+        public var isDraft: Bool
         /// False while the body is still being hydrated; `html` then carries a snippet fallback.
         public var hasBody: Bool
+        public var bodyState: BodyState
         /// Sanitized HTML (or a text fallback) loaded into a sandboxed iframe via `srcdoc`.
         public var html: String
         public var hasQuotedContent: Bool
@@ -70,12 +119,15 @@ public struct RenderPayload: Hashable, Codable, Sendable {
             from: Sender,
             to: String,
             cc: String,
+            recipients: [RecipientField] = [],
             dateISO: String,
             dateDisplay: String,
             snippet: String,
             isUnread: Bool,
             isStarred: Bool,
+            isDraft: Bool = false,
             hasBody: Bool,
+            bodyState: BodyState? = nil,
             html: String,
             hasQuotedContent: Bool,
             blockedRemoteImageCount: Int,
@@ -88,12 +140,15 @@ public struct RenderPayload: Hashable, Codable, Sendable {
             self.from = from
             self.to = to
             self.cc = cc
+            self.recipients = recipients
             self.dateISO = dateISO
             self.dateDisplay = dateDisplay
             self.snippet = snippet
             self.isUnread = isUnread
             self.isStarred = isStarred
+            self.isDraft = isDraft
             self.hasBody = hasBody
+            self.bodyState = bodyState ?? (hasBody ? .ready : .loading)
             self.html = html
             self.hasQuotedContent = hasQuotedContent
             self.blockedRemoteImageCount = blockedRemoteImageCount
@@ -117,7 +172,21 @@ public struct RenderPayload: Hashable, Codable, Sendable {
         }
     }
 
+    /// A body state change for one card, for `ss.bodyStates`: a fetch starting, failing or going offline
+    /// changes what stands in for the body without a new payload.
+    public struct BodyStatePatch: Hashable, Codable, Sendable {
+        public var id: String
+        public var bodyState: BodyState
+
+        public init(id: String, bodyState: BodyState) {
+            self.id = id
+            self.bodyState = bodyState
+        }
+    }
+
     public var subject: String
+    /// The participants line above the stack (spec §5.13): up to four names, then "+3".
+    public var participants: String
     /// Oldest first, the order the cards are stacked in.
     public var messages: [Message]
     /// The "Load remote images" preference: when false, bodies render under a policy that blocks every
@@ -125,12 +194,27 @@ public struct RenderPayload: Hashable, Codable, Sendable {
     public var loadRemoteImages: Bool
     /// The conversation's account palette slot (`Account.inkSlot`); a conversation never spans accounts.
     public var inkSlot: Int
+    /// Settings › General › Reading font is SF Pro: plain and unstyled bodies use `readingSans`.
+    public var readingSans: Bool
+    /// The Original colors notice was dismissed for good (`originalColorsNoticeDismissed`, spec §5.16).
+    public var colorsNoticeDismissed: Bool
 
-    public init(subject: String, messages: [Message], loadRemoteImages: Bool = false, inkSlot: Int = 0) {
+    public init(
+        subject: String,
+        participants: String = "",
+        messages: [Message],
+        loadRemoteImages: Bool = false,
+        inkSlot: Int = 0,
+        readingSans: Bool = false,
+        colorsNoticeDismissed: Bool = false
+    ) {
         self.subject = subject
+        self.participants = participants
         self.messages = messages
         self.loadRemoteImages = loadRemoteImages
         self.inkSlot = inkSlot
+        self.readingSans = readingSans
+        self.colorsNoticeDismissed = colorsNoticeDismissed
     }
 
     // MARK: Message keys

@@ -1,5 +1,6 @@
 import AppKit
 import SSCore
+import SSDesign
 import WebKit
 
 /// Three warm web views sharing one process pool and configuration.
@@ -25,14 +26,22 @@ final class WebViewPool: NSObject, WKScriptMessageHandler {
 
     private let navigation = ConversationNavigationPolicy()
     private var tick: UInt64 = 0
+    /// The shell with the reader symbols rasterised into it once for the pool (spec §4.11).
+    private let document: String
+    /// The script that mirrors the display modes onto a shell, kept so a slot that becomes ready gets it too.
+    private var modesScript = ""
 
     init(client: MailClient, size: Int = 3) {
+        let document = ConversationShellAssets.document(symbolCSS: ReaderSymbolSheet.css)
+        self.document = document
         let configuration = WKWebViewConfiguration()
-        configuration.setURLSchemeHandler(ShellSchemeHandler(), forURLScheme: ConversationShellAssets.scheme)
+        configuration.setURLSchemeHandler(ShellSchemeHandler(document: document), forURLScheme: ConversationShellAssets.scheme)
         configuration.setURLSchemeHandler(InlineImageSchemeHandler(client: client), forURLScheme: RenderURLScheme.inlineImage)
         configuration.setURLSchemeHandler(AttachmentSchemeHandler(client: client), forURLScheme: RenderURLScheme.attachment)
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
         configuration.suppressesIncrementalRendering = true
+        // Links in a body join the Tab order only with Full Keyboard Access, as in Safari (spec §5.14).
+        configuration.preferences.tabFocusesLinks = NSApp.isFullKeyboardAccessEnabled
         #if DEBUG
         configuration.preferences.setValue(true, forKey: "developerExtrasEnabled")
         #endif
@@ -43,6 +52,36 @@ final class WebViewPool: NSObject, WKScriptMessageHandler {
         navigation.onProcessTerminated = { [weak self] webView in self?.recreate(webView) }
         for _ in 0..<max(1, size) {
             slots.append(PooledConversationView(webView: makeWebView()))
+        }
+        modesScript = Self.modesScript()
+        NotificationCenter.default.addObserver(self, selector: #selector(environmentDidChange(_:)),
+                                               name: QuireEnvironment.didChangeNotification, object: nil)
+    }
+
+    // MARK: Display modes
+
+    /// `ss-ic`, `ss-rm`, `ss-rt` and `ss-graphite` on every shell’s `<html>`, because WebKit does not reliably
+    /// track those media queries (spec §3.3). Increase Contrast is read through QuireEnvironment: on macOS 27
+    /// `bestMatch` alone does not report it.
+    private static func modesScript() -> String {
+        let s = QuireEnvironment.shared.snapshot
+        return "window.ss && window.ss.setModes({ic: \(s.increaseContrast), rm: \(s.reduceMotion), rt: \(s.reduceTransparency), graphite: \(s.isGraphite)})"
+    }
+
+    @objc private func environmentDidChange(_ note: Notification) {
+        modesScript = Self.modesScript()
+        configuration.preferences.tabFocusesLinks = NSApp.isFullKeyboardAccessEnabled
+        broadcast(modesScript)
+    }
+
+    /// Runs `script` in every shell that is ready; slots that become ready later get the modes on `markReady`.
+    func broadcast(_ script: String) {
+        for slot in slots where slot.isReady {
+            slot.webView.evaluateJavaScript(script) { _, error in
+                if let error {
+                    ConversationSignposts.log.error("shell broadcast failed: \(String(describing: error), privacy: .public)")
+                }
+            }
         }
     }
 
@@ -195,8 +234,9 @@ final class WebViewPool: NSObject, WKScriptMessageHandler {
         webView.uiDelegate = navigation
         webView.allowsBackForwardNavigationGestures = false
         webView.allowsMagnification = true
-        webView.underPageBackgroundColor = .windowBackgroundColor
-        webView.loadHTMLString(ConversationShellAssets.html, baseURL: ConversationShellAssets.baseURL)
+        // The desk behind the sheets (spec §4.1), also what shows while a render lands or the page overscrolls.
+        webView.underPageBackgroundColor = .qCanvas
+        webView.loadHTMLString(document, baseURL: ConversationShellAssets.baseURL)
         return webView
     }
 
@@ -226,6 +266,7 @@ final class WebViewPool: NSObject, WKScriptMessageHandler {
     private func markReady(_ slot: PooledConversationView) {
         guard !slot.isReady else { return }
         slot.isReady = true
+        slot.webView.evaluateJavaScript(modesScript) { _, _ in }
         if let pending = slot.pendingRender {
             slot.pendingRender = nil
             render(pending.payload, inputs: pending.inputs, id: pending.id, into: slot, completion: pending.completion)

@@ -1,22 +1,71 @@
 import AppKit
 import SSCore
+import SSDesign
 
-/// The reply box docked under the conversation: one line until focused, then it grows with the text.
+/// The quick reply bar (spec §5.18): docked to the bottom of the reader and drawn over the web view, which
+/// is told the bar's height as a bottom inset instead of being resized. The field sits on the reading column;
+/// at rest it is one 38 pt line with the replying account's face, the R keycap and a send glyph; focused it
+/// grows with the text to five lines and shows the tool row (Reply · Reply all, Attach, Open in Composer, Send).
 ///
-/// The view owns no mail logic. It reports the typed text on Cmd+Return, tells its owner when focus
-/// changes or Escape is pressed, and shows a transient status strip ("Sent · Undo") on request.
+/// The view owns no mail logic: it reports the text on ⌘↩ and the commands of its buttons, and shows the
+/// strip and the states its owner asks for.
 @MainActor
 final class QuickReplyView: NSView {
-    static let collapsedHeight: CGFloat = 40
-    static let expandedMinHeight: CGFloat = 112
-    static let expandedMaxHeight: CGFloat = 280
+    enum Mode: Int, Equatable {
+        case reply = 0
+        case replyAll = 1
+    }
 
-    var onSend: ((String) -> Void)?
+    /// What the tool row's leading status says instead of the mode tabs.
+    enum Status: Equatable {
+        case none
+        /// The send could not be queued: 1.5 pt danger edge, text kept, Send stays enabled to retry.
+        case error
+        /// The reply has no recipients: Send disabled, Open in Composer available.
+        case noRecipients
+        /// The countdown went on after the field came back for a new reply.
+        case counting(endsAt: Date)
+    }
+
+    var onSend: ((String, Mode) -> Void)?
     var onEscape: (() -> Void)?
     var onFocusChange: ((Bool) -> Void)?
+    /// The bar's height changed; the owner moves the web view's bottom inset, once per change.
+    var onHeightChange: ((CGFloat) -> Void)?
+    var onOpenInComposer: ((String, Mode) -> Void)?
+    var onUndo: (() -> Void)?
+    var onShowDraft: (() -> Void)?
+    /// A click on the field while a composer holds this conversation's draft.
+    var onDisabledClick: (() -> Void)?
 
-    var placeholderName: String = "" {
-        didSet { updatePlaceholder() }
+    /// The replying account's rail face (spec §5.18).
+    var face: (monogram: String, inkSlot: Int)? {
+        didSet { needsDisplay = true }
+    }
+
+    var replyName = "" { didSet { updatePlaceholder() } }
+    var replyAllName = "" { didSet { updatePlaceholder() } }
+    var replyAllAvailable = true {
+        didSet {
+            tabs.items = Self.tabItems(replyAll: replyAllAvailable)
+            if !replyAllAvailable, mode == .replyAll { mode = .reply }
+        }
+    }
+
+    var mode: Mode = .reply {
+        didSet {
+            tabs.selectedIndex = mode.rawValue
+            updatePlaceholder()
+        }
+    }
+
+    var status: Status = .none {
+        didSet { if oldValue != status { statusDidChange() } }
+    }
+
+    /// A composer window holds this conversation's draft: the field is a quiet `fill` that brings it forward.
+    var isComposerOpen = false {
+        didSet { if oldValue != isComposerOpen { updatePlaceholder(); needsDisplay = true; needsLayout = true } }
     }
 
     var text: String {
@@ -27,19 +76,31 @@ final class QuickReplyView: NSView {
         }
     }
 
-    private(set) var isExpanded = false
     private(set) var isFocused = false
+    private(set) var barHeight: CGFloat = Quire.Layout.QuickReply.rest
+    var stripState: QuickReplyStripView.State? { strip.state }
 
     private let scrollView = NSScrollView()
     private let textView = QuickReplyTextView()
     private let placeholder = NSTextField(labelWithString: "")
-    private let separator = NSBox()
-    private let strip = NSView()
-    private let stripLabel = NSTextField(labelWithString: "")
-    private let stripButton = NSButton(title: "Undo", target: nil, action: nil)
-    private var heightConstraint = NSLayoutConstraint()
+    private let restSend = QuireIconButton(symbolName: Quire.Icon.send, size: .large, accessibilityLabel: "Send")
+    private let restKeycap = QuireKeycap("R")
+    private let tabs = QuireUnderlineTabs(items: QuickReplyView.tabItems(replyAll: true), style: .replyMode)
+    private let attach = QuireIconButton(symbolName: Quire.Icon.attach, size: .small, accessibilityLabel: "Attach")
+    private let openInComposer = QuireIconButton(symbolName: Quire.Icon.openInComposer, size: .small, accessibilityLabel: "Open in Composer")
+    private let send = QuireButton(title: "Send", variant: .primary, size: .small)
+    private let statusGlyph = NSImageView()
+    private let statusLabel = NSTextField(labelWithString: "")
+    private let statusAction = QuireButton(title: "Undo", variant: .link, size: .small)
+    private let statusContrail = QuireContrailView(mode: .determinate(0))
+    private let strip = QuickReplyStripView()
+    private var heightConstraint: NSLayoutConstraint!
+    private var hovering = false
+    private var hoverArea: NSTrackingArea?
     private var stripTimer: Timer?
-    private var stripAction: (() -> Void)?
+    private var statusTicker: Timer?
+
+    private static let lineHeight = QuireFont.Role.writing.lineHeight
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -50,161 +111,442 @@ final class QuickReplyView: NSView {
         nil
     }
 
-    // MARK: Public controls
-
-    func focus() {
-        window?.makeFirstResponder(textView)
-    }
-
-    /// Hands focus back to the window; the owner decides where it should go next via `onEscape`.
-    func blur() {
-        if window?.firstResponder === textView {
-            window?.makeFirstResponder(nil)
-        }
-    }
-
-    func clear() {
-        text = ""
-        collapseIfEmpty()
-    }
-
-    func restoreDraft(_ draft: String) {
-        text = draft
-        if !draft.isEmpty { expand() }
-    }
-
-    /// Shows `message` with an optional button for `duration` seconds. Calling again replaces the strip.
-    func showStrip(_ message: String, buttonTitle: String? = nil, duration: TimeInterval = 5, action: (() -> Void)? = nil) {
+    deinit {
         stripTimer?.invalidate()
-        // Reads as one phrase, "Sent · Undo", with the verb on the button.
-        stripLabel.stringValue = buttonTitle == nil ? message : message + " ·"
-        stripButton.title = buttonTitle ?? ""
-        stripButton.isHidden = buttonTitle == nil
-        stripAction = action
-        strip.isHidden = false
-        stripTimer = Timer.scheduledTimer(withTimeInterval: duration, repeats: false) { [weak self] _ in
-            MainActor.assumeIsolated { self?.hideStrip() }
-        }
+        statusTicker?.invalidate()
     }
 
-    func hideStrip() {
-        stripTimer?.invalidate()
-        stripTimer = nil
-        stripAction = nil
-        strip.isHidden = true
-    }
+    override var isFlipped: Bool { true }
 
-    func expand() {
-        isExpanded = true
-        scrollView.hasVerticalScroller = true
-        updateHeight(animated: true)
-    }
-
-    func collapseIfEmpty() {
-        guard text.isEmpty else { return }
-        isExpanded = false
-        scrollView.hasVerticalScroller = false
-        updateHeight(animated: true)
+    private static func tabItems(replyAll: Bool) -> [QuireUnderlineTabs.Item] {
+        [QuireUnderlineTabs.Item("Reply", symbolName: Quire.Icon.reply),
+         QuireUnderlineTabs.Item("Reply all", symbolName: Quire.Icon.replyAll, isEnabled: replyAll)]
     }
 
     // MARK: Building
 
     private func build() {
-        wantsLayer = true
         translatesAutoresizingMaskIntoConstraints = false
+        wantsLayer = true
 
-        separator.boxType = .separator
-        separator.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(separator)
-
-        scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.borderType = .noBorder
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = false
         scrollView.autohidesScrollers = true
+        scrollView.scrollerStyle = .overlay
         scrollView.documentView = textView
+        scrollView.contentView.postsBoundsChangedNotifications = false
         addSubview(scrollView)
 
-        textView.minSize = NSSize(width: 0, height: 0)
+        textView.minSize = .zero
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]
         textView.textContainer?.widthTracksTextView = true
-        textView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
-        textView.textContainerInset = NSSize(width: 8, height: 10)
-        textView.font = NSFont.systemFont(ofSize: 13)
+        textView.textContainer?.lineFragmentPadding = 0
+        textView.textContainerInset = .zero
+        if let layoutManager = textView.layoutManager { QuireFont.configure(layoutManager) }
+        let writing = QuireFont.attributes(.writing, color: .qInk)
+        textView.font = writing[.font] as? NSFont
+        textView.textColor = .qInk
+        textView.typingAttributes = writing
+        textView.defaultParagraphStyle = writing[.paragraphStyle] as? NSParagraphStyle
+        textView.insertionPointColor = .qAccent
         textView.isRichText = false
         textView.allowsUndo = true
         textView.isAutomaticLinkDetectionEnabled = false
         textView.drawsBackground = false
+        textView.focusRingType = .none
         textView.delegate = self
-        textView.onCommandReturn = { [weak self] in self?.send() }
+        textView.onCommandReturn = { [weak self] in self?.sendPressed() }
+        textView.onOpenInComposer = { [weak self] in self?.openInComposerPressed() }
         textView.onEscape = { [weak self] in self?.escape() }
         textView.onFocusChange = { [weak self] focused in self?.focusDidChange(focused) }
 
-        placeholder.translatesAutoresizingMaskIntoConstraints = false
-        placeholder.textColor = .placeholderTextColor
-        placeholder.font = NSFont.systemFont(ofSize: 13)
         placeholder.lineBreakMode = .byTruncatingTail
+        placeholder.maximumNumberOfLines = 1
+        placeholder.cell?.truncatesLastVisibleLine = true
         placeholder.isSelectable = false
         addSubview(placeholder)
 
-        strip.translatesAutoresizingMaskIntoConstraints = false
-        strip.wantsLayer = true
-        strip.layer?.cornerRadius = 8
-        strip.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
+        restSend.target = self
+        restSend.action = #selector(sendPressed)
+        restSend.toolTip = "Send  ⌘↩"
+        addSubview(restSend)
+        addSubview(restKeycap)
+
+        tabs.onChange = { [weak self] index in
+            guard let self else { return }
+            self.mode = Mode(rawValue: index) ?? .reply
+            self.focus()
+        }
+        addSubview(tabs)
+        attach.target = self
+        attach.action = #selector(openInComposerPressed)
+        attach.toolTip = "Attach Files…  ⇧⌘A"
+        addSubview(attach)
+        openInComposer.target = self
+        openInComposer.action = #selector(openInComposerPressed)
+        openInComposer.toolTip = "Open in Composer  ⇧⌘R"
+        addSubview(openInComposer)
+        send.keycap = "⌘↩"
+        send.keycapLeads = true
+        send.keycapGap = Quire.Layout.QuickReply.sendKeycapGap
+        send.target = self
+        send.action = #selector(sendPressed)
+        addSubview(send)
+
+        statusGlyph.imageScaling = .scaleNone
+        addSubview(statusGlyph)
+        statusLabel.lineBreakMode = .byTruncatingTail
+        statusLabel.maximumNumberOfLines = 1
+        addSubview(statusLabel)
+        statusAction.target = self
+        statusAction.action = #selector(statusActionPressed)
+        addSubview(statusAction)
+        addSubview(statusContrail)
+
         strip.isHidden = true
-        stripLabel.translatesAutoresizingMaskIntoConstraints = false
-        stripLabel.textColor = .white
-        stripLabel.font = NSFont.systemFont(ofSize: 12, weight: .medium)
-        stripButton.translatesAutoresizingMaskIntoConstraints = false
-        stripButton.bezelStyle = .inline
-        stripButton.controlSize = .small
-        stripButton.target = self
-        stripButton.action = #selector(stripButtonPressed)
-        strip.addSubview(stripLabel)
-        strip.addSubview(stripButton)
+        strip.onUndo = { [weak self] in self?.onUndo?() }
+        strip.onShow = { [weak self] in self?.onShowDraft?() }
+        strip.onDismiss = { [weak self] in self?.stripDismissed() }
         addSubview(strip)
 
-        heightConstraint = heightAnchor.constraint(equalToConstant: Self.collapsedHeight)
-        heightConstraint.priority = .defaultHigh
-        NSLayoutConstraint.activate([
-            heightConstraint,
-            separator.topAnchor.constraint(equalTo: topAnchor),
-            separator.leadingAnchor.constraint(equalTo: leadingAnchor),
-            separator.trailingAnchor.constraint(equalTo: trailingAnchor),
-            scrollView.topAnchor.constraint(equalTo: topAnchor, constant: 1),
-            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            placeholder.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor, constant: 13),
-            placeholder.trailingAnchor.constraint(lessThanOrEqualTo: scrollView.trailingAnchor, constant: -8),
-            placeholder.topAnchor.constraint(equalTo: scrollView.topAnchor, constant: 10),
-            strip.topAnchor.constraint(equalTo: topAnchor, constant: 7),
-            strip.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            strip.heightAnchor.constraint(equalToConstant: 26),
-            stripLabel.leadingAnchor.constraint(equalTo: strip.leadingAnchor, constant: 10),
-            stripLabel.centerYAnchor.constraint(equalTo: strip.centerYAnchor),
-            stripButton.leadingAnchor.constraint(equalTo: stripLabel.trailingAnchor, constant: 6),
-            stripButton.trailingAnchor.constraint(equalTo: strip.trailingAnchor, constant: -6),
-            stripButton.centerYAnchor.constraint(equalTo: strip.centerYAnchor),
-        ])
+        heightConstraint = heightAnchor.constraint(equalToConstant: Quire.Layout.QuickReply.rest)
+        heightConstraint.isActive = true
         updatePlaceholder()
+        statusDidChange()
+    }
+
+    // MARK: Public controls
+
+    func focus() {
+        guard !isComposerOpen else { return }
+        if !strip.isHidden, case .counting = strip.state { stripDismissed() }
+        window?.makeFirstResponder(textView)
+    }
+
+    func focus(mode: Mode) {
+        if mode == .replyAll, !replyAllAvailable { self.mode = .reply } else { self.mode = mode }
+        focus()
+    }
+
+    /// Hands focus back to the window; the owner decides where it goes next via `onEscape`.
+    func blur() {
+        if window?.firstResponder === textView { window?.makeFirstResponder(nil) }
+    }
+
+    func clear() {
+        text = ""
+        status = .none
+        updateHeight(animated: true)
+    }
+
+    func restoreDraft(_ draft: String) {
+        text = draft
+        updateHeight(animated: false)
+    }
+
+    // MARK: Strip
+
+    /// Puts the strip over the field: the countdown, or an outcome that leaves by itself after its time.
+    func showStrip(_ state: QuickReplyStripView.State) {
+        stripTimer?.invalidate()
+        stripTimer = nil
+        if status != .none, case .counting = status { status = .none }
+        strip.apply(state)
+        strip.isHidden = false
+        hideFieldContents(true)
+        let life: TimeInterval?
+        switch state {
+        case .counting: life = nil
+        case .sent: life = Quire.Motion.sentConfirm
+        case .queuedOffline, .alreadySent, .notSent: life = Quire.Motion.stripNotice
+        }
+        if let life {
+            stripTimer = Timer.scheduledTimer(withTimeInterval: life, repeats: false) { [weak self] _ in
+                MainActor.assumeIsolated { self?.hideStrip(fade: true) }
+            }
+        }
+        needsLayout = true
+    }
+
+    /// Closes the strip; the field comes back (cross-fade `dur.quick` after an outcome, at once after Undo).
+    func hideStrip(fade: Bool = false) {
+        stripTimer?.invalidate()
+        stripTimer = nil
+        if case .counting = status { status = .none }
+        guard !strip.isHidden else { return }
+        strip.apply(nil)
+        if fade, let layer = strip.layer ?? { strip.wantsLayer = true; return strip.layer }() {
+            Quire.Motion.animate(layer, keyPath: "opacity", to: 0, duration: Quire.Motion.quick, curve: .leave, reduced: .keep) { [weak self] in
+                guard let self else { return }
+                self.strip.isHidden = true
+                layer.opacity = 1
+                self.hideFieldContents(false)
+            }
+        } else {
+            strip.isHidden = true
+            hideFieldContents(false)
+        }
+        needsLayout = true
+    }
+
+    /// The countdown, if one is running, so the bar can hand it to an undo panel when it hides.
+    var countdownEnd: Date? {
+        if case let .counting(endsAt, _, _) = strip.state { return endsAt }
+        if case let .counting(endsAt) = status { return endsAt }
+        return nil
+    }
+
+    private func stripDismissed() {
+        guard case let .counting(endsAt, _, _) = strip.state else { return }
+        hideStrip()
+        status = .counting(endsAt: endsAt)
+        window?.makeFirstResponder(textView)
+    }
+
+    private func hideFieldContents(_ hidden: Bool) {
+        scrollView.isHidden = hidden
+        placeholder.isHidden = hidden || !text.isEmpty
+        needsLayout = true
+        needsDisplay = true
+    }
+
+    // MARK: Geometry
+
+    private var showsKeycaps: Bool { ReaderColumn.showsKeycaps(readerWidth: bounds.width) }
+
+    /// Text lines, 1 to 5; past five the text scrolls inside the field.
+    private var lineCount: Int {
+        guard let layoutManager = textView.layoutManager, let container = textView.textContainer else { return 1 }
+        layoutManager.ensureLayout(for: container)
+        let used = layoutManager.usedRect(for: container).height
+        let lines = Int(ceil(max(used, Self.lineHeight) / Self.lineHeight - 0.01))
+        return max(1, min(Int(Quire.Layout.QuickReply.maxLines), lines))
+    }
+
+    /// Field height: 9 + lines × 21 + 8 at rest (one line), 9 + lines × 21 + 4 + 28 + 4 focused (spec §5.18).
+    private var fieldHeight: CGFloat {
+        let m = Quire.Layout.QuickReply.self
+        guard isFocused, !isComposerOpen else { return m.field }
+        return min(m.fieldMax, m.fieldPadTop + CGFloat(lineCount) * Self.lineHeight + m.toolRowGap + m.toolRow + m.toolRowBottom)
+    }
+
+    private var fieldRect: NSRect {
+        let column = ReaderColumn.frame(readerWidth: bounds.width)
+        let m = Quire.Layout.QuickReply.self
+        return NSRect(x: column.x, y: m.barPadY, width: column.width, height: max(m.field, bounds.height - 2 * m.barPadY))
+    }
+
+    private var showsToolRow: Bool { isFocused && !isComposerOpen && strip.isHidden }
+
+    private func updateHeight(animated: Bool) {
+        let target = min(Quire.Layout.QuickReply.max, fieldHeight + 2 * Quire.Layout.QuickReply.barPadY)
+        guard abs(heightConstraint.constant - target) > 0.5 else {
+            needsLayout = true
+            return
+        }
+        barHeight = target
+        onHeightChange?(target)
+        if animated, window != nil {
+            Quire.Motion.run(Quire.Motion.standard, .glide, reduced: .instant, participants: [self]) { _ in
+                heightConstraint.animator().constant = target
+                superview?.layoutSubtreeIfNeeded()
+            }
+        } else {
+            heightConstraint.constant = target
+        }
+        needsLayout = true
+        needsDisplay = true
     }
 
     override func layout() {
         super.layout()
-        // The document view tracks the clip width; without this the first layout leaves it at zero.
+        let m = Quire.Layout.QuickReply.self
+        let field = fieldRect
+        let keycaps = showsKeycaps
+        let toolRow = showsToolRow
+        let trailing = toolRow ? m.focusedTrailing : m.restTrailing
+        let textWidth = max(0, field.width - m.textX - trailing)
+        let lines = isFocused ? lineCount : 1
+        scrollView.frame = NSRect(x: field.minX + m.textX, y: field.minY + m.fieldPadTop, width: textWidth, height: CGFloat(lines) * Self.lineHeight)
         textView.frame.size.width = scrollView.contentSize.width
+        scrollView.hasVerticalScroller = isFocused && lineCount >= Int(m.maxLines)
+        placeholder.frame = NSRect(x: field.minX + m.textX - 2, y: field.minY + m.fieldPadTop, width: textWidth + 4, height: Self.lineHeight)
+        // Unfocused with text, the field shows its first line tail-truncated so the reader does not jump.
+        let showsPreview = !isFocused && !text.isEmpty && strip.isHidden
+        scrollView.isHidden = !strip.isHidden || showsPreview
+        placeholder.isHidden = !strip.isHidden || (!text.isEmpty && !showsPreview)
+
+        let restVisible = !toolRow && strip.isHidden && !isComposerOpen
+        restSend.isHidden = !restVisible
+        restKeycap.isHidden = !restVisible || !keycaps
+        restSend.isEnabled = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && status != .noRecipients
+        let sendRect = NSRect(x: field.maxX - m.restSendInset - m.restSend, y: field.minY + m.restSendInset, width: m.restSend, height: m.restSend)
+        restSend.frame = restSend.frame(forVisualRect: sendRect)
+        let cap = restKeycap.intrinsicContentSize
+        restKeycap.frame = NSRect(x: sendRect.minX - m.restKeycapGap - cap.width, y: (field.minY + m.field / 2 - cap.height / 2).rounded(),
+                                  width: cap.width, height: cap.height)
+
+        let rowY = field.minY + m.fieldPadTop + CGFloat(lines) * Self.lineHeight + m.toolRowGap
+        let showsStatus = status != .none
+        tabs.isHidden = !toolRow || showsStatus
+        attach.isHidden = !toolRow || showsStatus
+        openInComposer.isHidden = !toolRow || (showsStatus && status == .error)
+        send.isHidden = !toolRow
+        send.keycap = keycaps ? "⌘↩" : nil
+        send.isEnabled = status != .noRecipients && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        send.toolTip = status == .noRecipients ? "No one to reply to" : "Send  ⌘↩"
+        let tabSize = tabs.intrinsicContentSize
+        tabs.frame = tabs.frame(forVisualRect: NSRect(x: field.minX + m.textX, y: rowY, width: tabSize.width, height: m.toolRow))
+        var x = field.minX + m.textX + tabSize.width + m.toolGroupGap
+        let iconY = rowY + (m.toolRow - m.toolIcon) / 2
+        attach.frame = attach.frame(forVisualRect: NSRect(x: x, y: iconY, width: m.toolIcon, height: m.toolIcon))
+        x += m.toolIcon + m.toolIconGap
+        let composerX = showsStatus ? nil : x
+        send.sizeToFit()
+        let sendSize = send.alignmentRect(forFrame: send.frame).size
+        let sendVisual = NSRect(x: field.maxX - m.sendInset - sendSize.width, y: rowY + (m.toolRow - sendSize.height) / 2,
+                                width: sendSize.width, height: sendSize.height)
+        send.frame = send.frame(forVisualRect: sendVisual)
+
+        // The leading status replaces the tabs and tools; Open in Composer follows it when it applies.
+        statusGlyph.isHidden = !toolRow || !showsStatus || { if case .counting = status { return true } else { return false } }()
+        statusLabel.isHidden = !toolRow || !showsStatus
+        statusAction.isHidden = !toolRow || !showsStatus
+        statusContrail.isHidden = true
+        if toolRow, showsStatus {
+            var sx = field.minX + m.textX
+            if !statusGlyph.isHidden {
+                statusGlyph.frame = NSRect(x: sx - 1, y: rowY + (m.toolRow - 14) / 2, width: 14, height: 14)
+                sx += 12 + 6
+            }
+            let labelWidth = ceil(statusLabel.attributedStringValue.size().width) + 4
+            statusLabel.frame = NSRect(x: sx, y: rowY + (m.toolRow - 16) / 2, width: min(labelWidth, max(0, sendVisual.minX - sx - 8)), height: 16)
+            sx = statusLabel.frame.maxX + 2
+            statusAction.sizeToFit()
+            let actionSize = statusAction.alignmentRect(forFrame: statusAction.frame).size
+            statusAction.frame = statusAction.frame(forVisualRect: NSRect(x: sx, y: rowY + (m.toolRow - actionSize.height) / 2,
+                                                                         width: actionSize.width, height: actionSize.height))
+            sx += actionSize.width + m.toolGroupGap
+            if case .counting = status {
+                statusContrail.isHidden = false
+                statusContrail.frame = NSRect(x: field.minX + m.textX, y: rowY + m.toolRow - 4, width: max(0, sx - field.minX - m.textX), height: 4)
+            }
+            if status == .noRecipients {
+                openInComposer.frame = openInComposer.frame(forVisualRect: NSRect(x: sx, y: iconY, width: m.toolIcon, height: m.toolIcon))
+            }
+        } else if let composerX {
+            openInComposer.frame = openInComposer.frame(forVisualRect: NSRect(x: composerX, y: iconY, width: m.toolIcon, height: m.toolIcon))
+        }
+
+        strip.frame = field.insetBy(dx: 1, dy: 1)
+        strip.showsKeycaps = keycaps
+    }
+
+    // MARK: Drawing
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.qPaper.setFill()
+        dirtyRect.fill()
+        QuireHairline.fill(along: NSRect(x: 0, y: 0, width: bounds.width, height: 1), orientation: .horizontal,
+                           width: QuireHairline.width(for: self), color: .qRule, atMaxEdge: false)
+        let m = Quire.Layout.QuickReply.self
+        let field = fieldRect
+        let radius = m.fieldRadius
+        if isComposerOpen {
+            QuireDraw.fill(field, radius: radius, .qFill)
+            return
+        }
+        QuireDraw.fill(field, radius: radius, .qSheet)
+        if status == .error {
+            QuireDraw.strokeInside(field, radius: radius, width: Quire.Border.Error.width, .qDanger)
+        } else {
+            QuireDraw.strokeInside(field, radius: radius, width: 1, hovering && !isFocused ? .qInk3 : .qRuleStrong)
+        }
+        if isFocused, window?.isKeyWindow == true {
+            QuireFocusRing.draw(around: field, cornerRadius: radius, gap: QuireFocusRing.gap, gapColor: .qPaper)
+        }
+        if let face, strip.isHidden {
+            let rect = NSRect(x: field.minX + m.faceX, y: field.minY + m.faceTop, width: m.face, height: m.face)
+            QuireAvatarRenderer.drawAccountFace(monogram: face.monogram, slot: face.inkSlot, in: rect)
+            QuireAvatarRenderer.drawRing(around: rect, accountSlot: face.inkSlot)
+        }
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverArea { removeTrackingArea(hoverArea) }
+        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .mouseMoved, .activeInKeyWindow, .inVisibleRect], owner: self)
+        addTrackingArea(area)
+        hoverArea = area
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        let inside = fieldRect.contains(convert(event.locationInWindow, from: nil))
+        if inside != hovering {
+            hovering = inside
+            needsDisplay = true
+        }
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        if hovering {
+            hovering = false
+            needsDisplay = true
+        }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        guard fieldRect.contains(point) else { return }
+        if isComposerOpen {
+            onDisabledClick?()
+            return
+        }
+        focus()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updatePlaceholder()
+        statusDidChange()
+        needsDisplay = true
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: nil)
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didResignKeyNotification, object: nil)
+        guard let window else { return }
+        NotificationCenter.default.addObserver(self, selector: #selector(windowKeyChanged), name: NSWindow.didBecomeKeyNotification, object: window)
+        NotificationCenter.default.addObserver(self, selector: #selector(windowKeyChanged), name: NSWindow.didResignKeyNotification, object: window)
+    }
+
+    @objc private func windowKeyChanged() {
+        needsDisplay = true
     }
 
     // MARK: Behavior
 
-    private func send() {
+    @objc private func sendPressed() {
         let typed = text
-        guard !typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        onSend?(typed)
+        guard !typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, status != .noRecipients else { return }
+        onSend?(typed, mode)
+    }
+
+    @objc private func openInComposerPressed() {
+        onOpenInComposer?(text, mode)
+    }
+
+    @objc private func statusActionPressed() {
+        switch status {
+        case .counting: onUndo?()
+        case .error: onOpenInComposer?(text, mode)
+        case .noRecipients, .none: break
+        }
     }
 
     private func escape() {
@@ -214,53 +556,67 @@ final class QuickReplyView: NSView {
 
     private func focusDidChange(_ focused: Bool) {
         isFocused = focused
-        if focused {
-            expand()
-        } else {
-            collapseIfEmpty()
-        }
+        updateHeight(animated: true)
+        needsDisplay = true
         onFocusChange?(focused)
     }
 
     private func updatePlaceholder() {
-        let name = placeholderName.trimmingCharacters(in: .whitespacesAndNewlines)
-        placeholder.stringValue = name.isEmpty ? "Reply…" : "Reply to \(name)…"
-        placeholder.isHidden = !text.isEmpty
+        let words: String
+        if isComposerOpen {
+            words = "Reply in the composer"
+        } else if !isFocused, !text.isEmpty {
+            let first = text.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: true).first.map(String.init) ?? text
+            placeholder.attributedStringValue = QuireFont.attributedString(first, role: .writing, color: .qInk)
+            return
+        } else if mode == .replyAll {
+            words = replyAllName.isEmpty ? "Reply all…" : "Reply all to \(replyAllName)…"
+        } else {
+            words = replyName.isEmpty ? "Reply…" : "Reply to \(replyName)…"
+        }
+        placeholder.attributedStringValue = QuireFont.attributedString(words, role: .writing, color: .qInk3)
     }
 
-    private func updateHeight(animated: Bool) {
-        let target: CGFloat
-        if isExpanded {
-            let content = contentHeight() + 2
-            target = min(Self.expandedMaxHeight, max(Self.expandedMinHeight, content))
-        } else {
-            target = Self.collapsedHeight
-        }
-        guard abs(heightConstraint.constant - target) > 0.5 else { return }
-        if animated, window != nil {
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.15
-                context.allowsImplicitAnimation = true
-                heightConstraint.animator().constant = target
-                superview?.layoutSubtreeIfNeeded()
+    private func statusDidChange() {
+        statusTicker?.invalidate()
+        statusTicker = nil
+        switch status {
+        case .none:
+            statusLabel.stringValue = ""
+        case .error:
+            setStatusGlyph(Quire.Icon.failed, color: .qDanger)
+            statusLabel.attributedStringValue = QuireFont.attributedString("Couldn\u{2019}t send", role: .snippet, color: .qDanger)
+            statusAction.title = "Open in composer"
+        case .noRecipients:
+            setStatusGlyph(Quire.Icon.warning, color: .qWarning)
+            statusLabel.attributedStringValue = QuireFont.attributedString("No one to reply to", role: .snippet, color: .qInk2)
+            statusAction.title = ""
+        case .counting(let endsAt):
+            statusAction.title = "Undo"
+            statusContrail.mode = .countdown(duration: max(1, endsAt.timeIntervalSinceNow), remaining: max(0, endsAt.timeIntervalSinceNow))
+            updateCountdownStatus(endsAt)
+            statusTicker = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.updateCountdownStatus(endsAt) }
             }
-        } else {
-            heightConstraint.constant = target
         }
+        statusAction.isHidden = statusAction.title.isEmpty
+        needsLayout = true
+        needsDisplay = true
     }
 
-    private func contentHeight() -> CGFloat {
-        guard let layoutManager = textView.layoutManager, let container = textView.textContainer else {
-            return Self.expandedMinHeight
+    private func updateCountdownStatus(_ endsAt: Date) {
+        let left = max(0, Int(ceil(endsAt.timeIntervalSinceNow)))
+        statusLabel.attributedStringValue = QuireFont.attributedString("Sending in \(left) s \u{00b7}", role: .snippet, color: .qInk2)
+        if left == 0 {
+            statusTicker?.invalidate()
+            statusTicker = nil
         }
-        layoutManager.ensureLayout(for: container)
-        return layoutManager.usedRect(for: container).height + textView.textContainerInset.height * 2
+        needsLayout = true
     }
 
-    @objc private func stripButtonPressed() {
-        let action = stripAction
-        hideStrip()
-        action?()
+    private func setStatusGlyph(_ name: String, color: NSColor) {
+        statusGlyph.image = QuireSymbol.image(name, size: .custom(12, weight: .semibold))
+        statusGlyph.contentTintColor = color
     }
 }
 
@@ -270,21 +626,30 @@ extension QuickReplyView: NSTextViewDelegate {
     }
 
     private func textDidChange() {
-        placeholder.isHidden = !text.isEmpty
-        if isExpanded { updateHeight(animated: false) }
+        if status == .error || status == .noRecipients, text.isEmpty { status = .none }
+        updatePlaceholder()
+        placeholder.isHidden = !text.isEmpty && isFocused
+        updateHeight(animated: false)
+        needsLayout = true
     }
 }
 
-/// Catches the keys the delegate protocol cannot: Cmd+Return is not a text command, and Escape must
-/// blur rather than cancel completion.
+/// Catches the keys the delegate protocol cannot: ⌘↩ is not a text command, ⇧⌘R opens the composer, and
+/// Escape must blur rather than cancel completion.
 private final class QuickReplyTextView: NSTextView {
     var onCommandReturn: (() -> Void)?
+    var onOpenInComposer: (() -> Void)?
     var onEscape: (() -> Void)?
     var onFocusChange: ((Bool) -> Void)?
 
     override func keyDown(with event: NSEvent) {
         if ReaderShortcuts.isSend(keyCode: event.keyCode, rawModifierFlags: event.modifierFlags.rawValue) {
             onCommandReturn?()
+            return
+        }
+        let chord = ReaderShortcuts.chord(event.modifierFlags.rawValue)
+        if chord == ReaderShortcuts.shift | ReaderShortcuts.command, event.charactersIgnoringModifiers?.lowercased() == "r" {
+            onOpenInComposer?()
             return
         }
         super.keyDown(with: event)

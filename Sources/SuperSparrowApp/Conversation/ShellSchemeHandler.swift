@@ -11,6 +11,14 @@ import WebKit
 /// under the scheme is 404.
 @MainActor
 final class ShellSchemeHandler: NSObject, WKURLSchemeHandler {
+    /// The document every pooled view loaded, symbols included, so a reload gets the same one.
+    private let document: String
+
+    init(document: String) {
+        self.document = document
+        super.init()
+    }
+
     func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
         guard let url = urlSchemeTask.request.url else {
             urlSchemeTask.didFailWithError(URLError(.badURL))
@@ -24,7 +32,7 @@ final class ShellSchemeHandler: NSObject, WKURLSchemeHandler {
         SchemeURLSupport.respond(
             urlSchemeTask,
             url: url,
-            data: Data(ConversationShellAssets.html.utf8),
+            data: Data(document.utf8),
             mimeType: "text/html; charset=utf-8"
         )
     }
