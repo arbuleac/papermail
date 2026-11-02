@@ -54,7 +54,9 @@ final class WindowChromeTests: XCTestCase {
         let zoom = try XCTUnwrap(window.standardWindowButton(.zoomButton))
         let zoomMaxX = zoom.convert(zoom.bounds, to: content).maxX
         let metrics = QuireWindowChrome.metrics(of: window)
-        XCTAssertEqual(metrics.lightsEnd, zoomMaxX, accuracy: 0.01)
+        // The drawn light: the frame's end, or up to 2 pt inside it in the compatibility appearance.
+        XCTAssertLessThanOrEqual(metrics.lightsEnd, zoomMaxX + 0.01)
+        XCTAssertGreaterThanOrEqual(metrics.lightsEnd, zoomMaxX - 2)
         XCTAssertGreaterThanOrEqual(metrics.railWidth, zoomMaxX + Quire.Layout.Rail.lightsClearance)
         XCTAssertEqual(metrics.railWidth.truncatingRemainder(dividingBy: 2), 0, "the rail width is even so tiles centre on whole points")
     }
@@ -70,6 +72,19 @@ final class WindowChromeTests: XCTestCase {
             XCTAssertEqual(metrics.railWidth, Quire.Layout.Rail.width)
             XCTAssertEqual(metrics.mastheadMinimalX, Quire.Layout.ListHeader.mastheadMinimalX)
         }
+    }
+
+    /// A 12 pt light in a 14 pt frame, as the compatibility appearance draws it, ends 1 pt inside the frame.
+    func testTheDrawnEdgeOfALightInsideItsFrame() throws {
+        final class Light: NSView {
+            override func draw(_ dirtyRect: NSRect) {
+                NSColor.systemRed.setFill()
+                NSBezierPath(ovalIn: NSRect(x: 1, y: 2, width: 12, height: 12)).fill()
+            }
+        }
+        let light = Light(frame: NSRect(x: 0, y: 0, width: 14, height: 16))
+        XCTAssertEqual(try XCTUnwrap(QuireWindowChrome.drawnTrailingEdge(of: light)), 13, accuracy: 0.01)
+        XCTAssertNil(QuireWindowChrome.drawnTrailingEdge(of: NSView(frame: NSRect(x: 0, y: 0, width: 14, height: 16))))
     }
 
     func testRailWidthMaths() {

@@ -6,8 +6,9 @@ import AppKit
 /// The empty unified toolbar is there only for its geometry: without a toolbar AppKit lays out the plain title
 /// bar (lights near x 7–9, centre y 14–16) and every Quire metric above the horizon would be wrong. The lights
 /// are never moved by hand; the rail width and the minimal-mode masthead are read from them instead, because
-/// their horizontal extent differs between macOS releases (72 pt to the zoom button's end on macOS 15, 79 pt on
-/// 26 and later, 73 pt for an app AppKit lays out in its compatibility appearance). `WindowChromeTests` builds a
+/// their horizontal extent differs between macOS releases (the zoom light ends at 72 pt on macOS 15 and in the
+/// compatibility appearance AppKit gives an app linked against that SDK, whose button frame ends at 73; 79 pt on
+/// 26 and later). `WindowChromeTests` builds a
 /// window with exactly this configuration, so a release that moves the lights fails a test rather than drifting
 /// by eye.
 @MainActor
@@ -73,7 +74,25 @@ public enum QuireWindowChrome {
         let zoomRect = topLeading(zoom.convert(zoom.bounds, to: content), in: content)
         let closeRect = topLeading(close.convert(close.bounds, to: content), in: content)
         guard zoomRect.width > 0, closeRect.height > 0 else { return fallbackMetrics }
-        return Metrics(lightsEnd: zoomRect.maxX, lightsCenterY: closeRect.midY)
+        // The light, not its button: in the compatibility appearance (an app linked against the macOS 15 SDK,
+        // as SwiftPM builds are) the 12 pt light sits in a 14 pt frame, and the frame's end would widen the rail
+        // to 78 for a light that ends at 72.
+        let drawnEnd = drawnTrailingEdge(of: zoom).map { zoomRect.minX + $0 } ?? zoomRect.maxX
+        return Metrics(lightsEnd: min(zoomRect.maxX, drawnEnd), lightsCenterY: closeRect.midY)
+    }
+
+    /// How far from its leading edge `view` paints, in points: the trailing edge of its last column with any
+    /// real coverage. Nil when nothing is painted (a window not drawn yet), so the caller keeps the frame.
+    public static func drawnTrailingEdge(of view: NSView) -> CGFloat? {
+        guard view.bounds.width > 0, view.bounds.height > 0, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return nil }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        let scale = CGFloat(rep.pixelsWide) / view.bounds.width
+        for x in stride(from: rep.pixelsWide - 1, through: 0, by: -1) {
+            for y in 0..<rep.pixelsHigh where (rep.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.1 {
+                return CGFloat(x + 1) / scale
+            }
+        }
+        return nil
     }
 
     /// `rect` in `view`'s coordinates, re-expressed with y measured down from the top.

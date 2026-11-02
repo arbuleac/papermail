@@ -29,9 +29,9 @@ final class MainWindowDividerTests: XCTestCase {
         split.backingScaleOverride = 2
         split.layoutSubtreeIfNeeded()
         XCTAssertEqual(split.dividerThickness, 0.5)
-        // The list's divider (the rail's is pinned by the rail's fixed width) is laid out at half a point,
-        // which pixel rounding drops at 1×: proof the split controller rebuilt its constraints.
-        XCTAssertLessThan(gaps(split)[1], 1, "the split controller took the new thickness: \(gaps(split))")
+        // Half-point dividers at 1×: pixel rounding drops at least one of them, proof that the split
+        // controller rebuilt its constraints for the new thickness.
+        XCTAssertLessThan(gaps(split).reduce(0, +), 2, "the split controller took the new thickness: \(gaps(split))")
         split.backingScaleOverride = nil
         split.layoutSubtreeIfNeeded()
         let thickness = split.dividerThickness

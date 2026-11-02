@@ -89,7 +89,9 @@ final class AccountStripViewController: NSViewController {
     // MARK: Layout
 
     private func layoutRail() {
-        let width = railView.bounds.width
+        // Centred on the whole rail, its trailing hairline included (§3.2: x = width / 2), not on this pane,
+        // which ends where the split's divider (that hairline) begins.
+        let width = max(railView.bounds.width, railWidth)
         let height = railView.bounds.height
         let r = Quire.Layout.Rail.self
         let margin = AccountStripButton.verticalMargin

@@ -3,7 +3,7 @@ import CoreGraphics
 extension QuireWindowChrome {
     /// What the shell reads from a configured window, in points from the content view's top-leading corner.
     public struct Metrics: Equatable, Sendable {
-        /// The zoom button's trailing edge (`lightsEnd`, §3.2).
+        /// Where the zoom light ends (`lightsEnd`, §3.2): its drawn edge, which can sit inside its button frame.
         public var lightsEnd: CGFloat
         /// The close button's vertical centre (`lightsCenterY`): 26 on every supported release.
         public var lightsCenterY: CGFloat

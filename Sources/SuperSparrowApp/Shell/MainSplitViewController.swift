@@ -35,6 +35,10 @@ final class HairlineSplitView: NSSplitView {
     /// The thickness NSSplitViewController last built its divider constraints for; nil until it is known.
     private var builtThickness: CGFloat?
 
+    /// Called after the divider thickness changed; the rail's hairline is part of its width, so the window
+    /// sizes the rail's item again.
+    var onThicknessChange: (() -> Void)?
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         isVertical = true
@@ -71,6 +75,7 @@ final class HairlineSplitView: NSSplitView {
             let style = dividerStyle
             dividerStyle = style == .thin ? .thick : .thin
             dividerStyle = style
+            onThicknessChange?()
             adjustSubviews()
         }
         needsDisplay = true

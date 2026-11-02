@@ -222,14 +222,17 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
         splitController.splitViewItems = [stripItem, listItem, readerItem]
         applyRailWidth()
+        (splitController.splitView as? HairlineSplitView)?.onThicknessChange = { [weak self] in self?.applyRailWidth() }
     }
 
-    /// The rail is exactly as wide as the lights need (76 on macOS 15, 84 from 26 on).
+    /// The rail is exactly as wide as the lights need (76 on macOS 15, 84 from 26 on), its trailing hairline
+    /// included (§3.2): the split's divider is that hairline, so the rail's own pane is one hairline narrower.
     private func applyRailWidth() {
         let width = chrome.railWidth
         strip.railWidth = width
-        stripItem?.minimumThickness = width
-        stripItem?.maximumThickness = width
+        let pane = width - splitController.splitView.dividerThickness
+        stripItem?.minimumThickness = pane
+        stripItem?.maximumThickness = pane
     }
 
     /// A first run has no autosaved divider positions; the list then starts at its preferred width.
@@ -249,7 +252,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         guard !didPlaceDividers, isSnapshot || isFirstSplitLayout else { return }
         didPlaceDividers = true
         splitController.splitView.layoutSubtreeIfNeeded()
-        splitController.splitView.setPosition(chrome.railWidth + ListPaneViewController.preferredWidth, ofDividerAt: 1)
+        // The list's 364 includes its own trailing hairline, as the rail's width includes the rail's.
+        let split = splitController.splitView
+        split.setPosition(chrome.railWidth + ListPaneViewController.preferredWidth - split.dividerThickness, ofDividerAt: 1)
     }
 
     /// Minimal mode (§5.1): the masthead moves past the would-be rail, the title menu gains the accounts and the
