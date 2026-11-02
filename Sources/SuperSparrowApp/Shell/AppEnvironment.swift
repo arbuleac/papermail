@@ -66,8 +66,10 @@ final class AppEnvironment {
 
     // MARK: Building
 
+    /// Building an environment does not make it the app's: the demo is seeded beside the real store, and a real
+    /// one is built beside the demo while its first sign-in runs. `AppDelegate.install` points the drafts at the
+    /// environment that is actually shown.
     static func make(mode: Mode, settings: AppSettings) throws -> AppEnvironment {
-        ComposeDraftStore.shared.useDemoDirectory(mode == .demo)
         switch mode {
         case .real: return try makeReal(settings: settings)
         case .demo: return try makeDemo(settings: settings)

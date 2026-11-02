@@ -391,6 +391,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// caller's to shut down.
     private func install(_ environment: AppEnvironment, replacing old: MainWindowController?) {
         self.environment = environment
+        // Drafts kept on this Mac follow the mailbox on screen, so a cancelled “Replace the demo” sign-in, which
+        // built a real environment beside the demo, never sends the demo's drafts to the real folder.
+        ComposeDraftStore.shared.useDemoDirectory(environment.isDemo)
         // File › Leave Demo… exists only in demo mode (§5.35). Set here, not in validation, which skips hidden items.
         let fileItems = NSApp.mainMenu?.items.flatMap { $0.submenu?.items ?? [] } ?? []
         fileItems.first { $0.action == #selector(leaveDemo(_:)) }?.isHidden = !environment.isDemo
