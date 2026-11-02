@@ -1154,7 +1154,10 @@ private final class ComposeSubjectField: NSTextField {
         super.init(frame: frameRect)
         isBordered = false
         isBezeled = false
-        drawsBackground = false
+        // Opaque on the row's `paper`: over a clear background AppKit set the New York 15 regular subject a
+        // visible step heavier than the specimen (§5.20), as if semibold.
+        drawsBackground = true
+        backgroundColor = .qPaper
         focusRingType = .none
         textColor = .qInk
         lineBreakMode = .byTruncatingTail
