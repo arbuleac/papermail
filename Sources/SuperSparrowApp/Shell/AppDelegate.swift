@@ -14,6 +14,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var environment: AppEnvironment?
     private var mainWindow: MainWindowController?
     private var settingsWindow: SettingsWindowController?
+    private var galleryWindow: DesignGalleryWindowController?
+    /// Snapshots still to write before a `--snapshot-gallery/-welcome/-settings` launch quits.
+    private var pendingQuittingSnapshots = 0
     private var signInTask: Task<Void, Never>?
     /// Tells a sign-in's completion whether it is still the current one; a replaced or cancelled sign-in must
     /// not clear the progress line of the one that took its place.
@@ -35,11 +38,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         default: break
         }
         if options.resetDemo { AppEnvironment.wipeDemoData() }
-        start(mode: options.demo ? .demo : .real)
+        if options.needsMailEnvironment {
+            start(mode: options.demo ? .demo : .real)
+        }
         NSApp.activate()
         if options.snapshotPath != nil || options.composeSnapshotPath != nil {
             runSnapshots(main: options.snapshotPath, compose: options.composeSnapshotPath)
         }
+        runQuittingSnapshots()
+        if options.gallery { showDesignGallery(nil) }
     }
 
     // MARK: Snapshots (debug aid)
@@ -134,12 +141,119 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func writePNG(_ bitmap: NSBitmapImageRep, to path: String) {
-        guard let data = bitmap.representation(using: .png, properties: [:]) else { return }
+        SnapshotRenderer.writePNG(bitmap, to: path)
+    }
+
+    // MARK: Snapshots that quit (debug aid)
+
+    /// `--snapshot-gallery`, `--snapshot-welcome` and `--snapshot-settings` each write one PNG; once all of
+    /// them have, the app quits, unless `--snapshot` or `--snapshot-compose` (which never quit) are running too.
+    private func runQuittingSnapshots() {
+        let jobs: [(String?, (String) -> Void)] = [
+            (options.gallerySnapshotPath, writeGallerySnapshot),
+            (options.welcomeSnapshotPath, writeWelcomeSnapshot),
+            (options.settingsSnapshotPath, writeSettingsSnapshot),
+        ]
+        let requested = jobs.compactMap { path, job in path.map { (path: $0, job: job) } }
+        // Counted before any starts, so an early finisher cannot quit while the others are still queued.
+        pendingQuittingSnapshots = requested.count
+        for (path, job) in requested { job(path) }
+    }
+
+    private func quittingSnapshotFinished() {
+        pendingQuittingSnapshots -= 1
+        guard pendingQuittingSnapshots == 0, options.snapshotPath == nil, options.composeSnapshotPath == nil else { return }
+        // Not from inside a main-queue callout: with an environment open, terminate waits (terminateLater) in a
+        // nested run loop for a main-actor task to reply, and a nested loop cannot drain the queue it was
+        // entered from, so terminating from a dispatch block would hang. A run-loop block can.
+        RunLoop.main.perform {
+            MainActor.assumeIsolated { NSApp.terminate(nil) }
+        }
+    }
+
+    /// The whole design gallery page, in the forced appearance.
+    private func writeGallerySnapshot(to path: String) {
+        DesignGalleryWindowController.renderSnapshot(appearance: NSApp.appearance) { [weak self] bitmap in
+            if let bitmap { SnapshotRenderer.writePNG(bitmap, to: path) }
+            self?.quittingSnapshotFinished()
+        }
+    }
+
+    /// The main window's welcome screen, over a throwaway empty store in a temporary directory: the user's
+    /// mail database, Keychain and saved window frame are never touched.
+    private func writeWelcomeSnapshot(to path: String) {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SuperSparrow-welcome-\(UUID().uuidString)", isDirectory: true)
+        let scratch: AppEnvironment
         do {
-            try data.write(to: URL(fileURLWithPath: path))
-            Self.log.info("snapshot written")
+            scratch = try AppEnvironment.makeScratch(in: directory)
         } catch {
-            Self.log.error("snapshot failed: \(error.localizedDescription, privacy: .public)")
+            Self.log.error("snapshot: no scratch store: \(error.localizedDescription, privacy: .public)")
+            try? FileManager.default.removeItem(at: directory)
+            quittingSnapshotFinished()
+            return
+        }
+        let controller = MainWindowController(environment: scratch, settings: settings)
+        // Detach from the real main window's saved frame before sizing, so the snapshot is always the default
+        // size and never rewrites the user's frame.
+        controller.window?.setFrameAutosaveName("")
+        controller.window?.setContentSize(MainWindowController.defaultSize)
+        controller.showWindow(nil)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            MainActor.assumeIsolated {
+                if let window = controller.window, let bitmap = SnapshotRenderer.render(window: window) {
+                    SnapshotRenderer.writePNG(bitmap, to: path)
+                } else {
+                    Self.log.error("snapshot: the welcome window did not render")
+                }
+                controller.tearDown()
+                controller.close()
+                Task { @MainActor in
+                    await scratch.shutdown()
+                    try? FileManager.default.removeItem(at: directory)
+                    self?.quittingSnapshotFinished()
+                }
+            }
+        }
+    }
+
+    /// Every Settings tab in demo mode, one under the other. Waits for the demo inbox so the Accounts tab
+    /// shows rows, not the empty state.
+    private func writeSettingsSnapshot(to path: String) {
+        waitForInbox(deadline: Date().addingTimeInterval(20)) { [weak self] in
+            guard let self else { return }
+            self.openSettings()
+            guard let controller = self.settingsWindow else {
+                Self.log.error("snapshot: no settings window")
+                self.quittingSnapshotFinished()
+                return
+            }
+            let tabs: [SettingsModel.Tab] = [.accounts, .oauth, .general]
+            var bitmaps: [NSBitmapImageRep] = []
+            @MainActor func capture(_ index: Int) {
+                guard index < tabs.count else {
+                    let appearance = controller.window?.effectiveAppearance ?? NSApp.effectiveAppearance
+                    if let sheet = SnapshotRenderer.stack(bitmaps, appearance: appearance) {
+                        SnapshotRenderer.writePNG(sheet, to: path)
+                    }
+                    self.quittingSnapshotFinished()
+                    return
+                }
+                controller.model.tab = tabs[index]
+                // Let SwiftUI swap the tab and lay it out before drawing it.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                    MainActor.assumeIsolated {
+                        if let window = controller.window, let bitmap = SnapshotRenderer.render(window: window) {
+                            bitmaps.append(bitmap)
+                        }
+                        capture(index + 1)
+                    }
+                }
+            }
+            // Statuses settle a moment after the inbox fills.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                MainActor.assumeIsolated { capture(0) }
+            }
         }
     }
 
@@ -444,5 +558,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func showOAuthHelp(_ sender: Any?) {
         openSettings(tab: .oauth, notice: nil)
+    }
+
+    /// Debug › Design Gallery (and `--gallery`): every SSDesign component in every state.
+    @objc func showDesignGallery(_ sender: Any?) {
+        if galleryWindow == nil { galleryWindow = DesignGalleryWindowController() }
+        galleryWindow?.show()
     }
 }

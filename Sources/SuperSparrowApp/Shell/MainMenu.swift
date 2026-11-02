@@ -13,6 +13,7 @@ enum MainMenu {
         main.addItem(submenu(editMenu()))
         main.addItem(submenu(viewMenu()))
         main.addItem(submenu(messageMenu()))
+        main.addItem(submenu(debugMenu(appDelegate)))
         let window = windowMenu()
         main.addItem(submenu(window))
         NSApp.windowsMenu = window
@@ -122,6 +123,13 @@ enum MainMenu {
         menu.addItem(.separator())
         // ⌘Z is claimed by the keyboard router outside text fields; the menu item shows what it will undo.
         menu.addItem(item("Undo Mail Action", #selector(MainWindowController.undoMailAction(_:)), "z"))
+        return menu
+    }
+
+    /// Tools for checking the app's own drawing; nothing here touches mail.
+    private static func debugMenu(_ delegate: AppDelegate) -> NSMenu {
+        let menu = NSMenu(title: "Debug")
+        menu.addItem(item("Design Gallery", #selector(AppDelegate.showDesignGallery(_:)), target: delegate))
         return menu
     }
 
