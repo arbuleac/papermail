@@ -1,12 +1,12 @@
 import AppKit
 import SSCore
 
-/// Everything a composer window holds, captured so an undone send can reopen the exact same message
-/// and so the close prompt can tell prefilled content from what the user actually changed.
+/// Everything a composer window holds, captured so an undone send can reopen the exact same message, so
+/// the draft can be kept on this Mac, and so closing can tell prefilled content from what the user changed.
 @MainActor
 struct ComposeDraft {
     /// The parts the user can edit, reduced to something comparable. Prefill writes into the baseline
-    /// as it lands, so only what the user typed or attached counts as unsaved.
+    /// as it lands, so only what the user typed or attached counts as worth keeping.
     struct Fingerprint: Hashable {
         var to: [String] = []
         var cc: [String] = []
@@ -16,6 +16,8 @@ struct ComposeDraft {
         var attachmentIDs: Set<UUID> = []
     }
 
+    /// The draft's identity in `ComposeDraftStore`, kept across undo send and reopening.
+    var id: UUID
     var mode: ComposeMode
     var account: Account
     var to: [EmailAddress]
@@ -31,6 +33,8 @@ struct ComposeDraft {
     /// Taken from the original when replying or forwarding and kept whatever From is chosen, so an undone
     /// send reopens with them; `outgoingMessage` applies them only when the account can use them.
     var threading: ReplyThreading?
+    /// The provider's reason when this draft comes back from a failed send; the composer shows the banner.
+    var sendFailure: String?
 
     var fingerprint: Fingerprint {
         Fingerprint(
@@ -41,6 +45,12 @@ struct ComposeDraft {
             bodyText: body.string,
             attachmentIDs: Set(attachments.map(\.id))
         )
+    }
+
+    /// The first recipient as a person would name them, for “The message to Ben Carter hasn't been sent.”
+    var firstRecipientName: String? {
+        guard let first = to.first ?? cc.first ?? bcc.first else { return nil }
+        return QuotedReply.authorName(first)
     }
 
     /// Builds what `MailClient.send` takes from the normalized body and the already-read attachment bytes

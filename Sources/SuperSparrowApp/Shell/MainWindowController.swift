@@ -140,6 +140,16 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         self.router = router
         listPane.setDemo(environment.isDemo)
         refreshSyncLine()
+        NotificationCenter.default.addObserver(self, selector: #selector(composeDraftDiscarded(_:)),
+                                               name: ComposeWindowController.draftDiscardedNotification, object: nil)
+    }
+
+    /// A composer's Message › Discard Draft… confirms here: “Draft discarded · Undo” (spec §5.20). Its Undo is
+    /// a click with no keycap: Z and ⌘Z here revert mail actions, so the toast leaves ⌘Z with any undo-send
+    /// panel still counting.
+    @objc private func composeDraftDiscarded(_ note: Notification) {
+        let undo = note.userInfo?[ComposeWindowController.draftUndoKey] as? ComposeDraftUndo
+        listPane.toasts.show("Draft discarded", kind: .undoable, symbol: Quire.Icon.trash, actionTitle: "Undo") { undo?.undo() }
     }
 
     required init?(coder: NSCoder) {
@@ -787,6 +797,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             toasts.show(MailActionCopy.toast(for: record.change, count: group.records.count), kind: .undoable,
                         symbol: symbol(for: record.change), actionTitle: "Undo", keycap: "Z",
                         updating: group.toastID) { [weak self] in self?.undo(groupID: id) }
+            UndoSendPanel.yieldUndoKey()
             return
         }
         // No toast for a change the row itself shows; Z still reaches it for the grace period.
@@ -796,6 +807,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         let toastID = toasts.show(MailActionCopy.toast(for: record.change), kind: .undoable, symbol: symbol(for: record.change),
                                   actionTitle: "Undo", keycap: "Z") { [weak self] in self?.undo(groupID: id) }
         undoHistory.bindToast(toastID, to: id)
+        // The toast's Z keycap takes ⌘Z from an undo-send panel still counting, until the toast's life is over.
+        UndoSendPanel.yieldUndoKey()
     }
 
     /// A toast stopped being visible: Z and ⌘Z reach its action for 10000 ms more (§6.1).

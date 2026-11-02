@@ -1,62 +1,107 @@
 import AppKit
 import SSCore
+import SSDesign
 
-/// Recipient field. Tokens are `EmailAddress` values; completions come from the store's contact table,
-/// looked up off the main thread after an 80 ms pause in typing so a fast typist never waits on SQLite.
+/// A recipient field (spec §5.21): tokens are `EmailAddress` values drawn as 22 pt Quire pills, followed by
+/// the text being typed. Completions come from the store's contact table, looked up off the main thread
+/// after an 80 ms pause in typing so a fast typist never waits on SQLite, and show in the app-drawn
+/// autocomplete popover.
+///
+/// Focused, the tokens wrap into lines 26 pt apart and the row grows up to three lines, then scrolls inside
+/// itself. Unfocused, the row collapses to one line with “+N more”, never hiding an invalid token.
+///
+/// A token is selected by clicking it or with ← from the start of the text; the field itself is then the first
+/// responder, ← → move the selection, ⌫ removes it, ↩ or a double-click edits it, and typing goes back to
+/// the text. The row's inset focus ring moves onto the selected token.
 @MainActor
-final class AddressTokenField: NSTokenField, NSTokenFieldDelegate, NSViewToolTipOwner {
+final class AddressTokenField: NSView, NSTextFieldDelegate {
     typealias SuggestionProvider = @Sendable (_ prefix: String, _ limit: Int) throws -> [EmailAddress]
 
     /// Usually `store.suggestAddresses(prefix:limit:)`.
     var suggestionProvider: SuggestionProvider?
+    /// Tokens or typed text changed.
     var onChange: (() -> Void)?
+    /// The height the row needs changed (tokens wrapped, focus collapsed the row).
+    var onLayoutChange: (() -> Void)?
+    /// Keyboard focus moved into, out of or within the field (the row redraws its ring).
+    var onFocusChange: (() -> Void)?
+    /// The token context menu's New Message.
+    var onNewMessage: ((EmailAddress) -> Void)?
+    /// Where the autocomplete popover is drawn: the composer's content view, above everything else.
+    weak var overlayHost: NSView?
 
     var addresses: [EmailAddress] {
-        get { Self.addresses(in: objectValue) }
+        get { tokens }
         set {
-            objectValue = newValue
-            invalidateIntrinsicContentSize()
+            tokens = newValue
+            selectedIndex = nil
+            relayout()
         }
     }
 
-    private(set) var showsInvalidOutline = false {
-        didSet { needsDisplay = true }
+    /// Text typed but not yet a token.
+    var pendingText: String { input.stringValue }
+
+    /// The Send in progress: tokens draw disabled and nothing can be edited.
+    var isLocked = false {
+        didSet {
+            input.isEditable = !isLocked
+            document.needsDisplay = true
+        }
     }
 
-    private struct CompletionCache {
-        var prefix: String
-        var results: [EmailAddress]
-    }
+    /// The view the key-view loop goes through.
+    var keyView: NSView { input }
 
-    private var completionCache: CompletionCache?
-    private var requestedPrefix = ""
+    /// The row's height for the current layout (36 pt per line, up to 88 pt).
+    private(set) var rowHeight: CGFloat = Quire.Layout.Composer.fieldRow
+
+    private var tokens: [EmailAddress] = []
+    private(set) var selectedIndex: Int? {
+        didSet { if oldValue != selectedIndex { document.needsDisplay = true; onFocusChange?() } }
+    }
+    private var hoveredIndex: Int? {
+        didSet { if oldValue != hoveredIndex { document.needsDisplay = true } }
+    }
+    private var layoutResult = AddressTokenLayout(placements: [], inputLine: 0, inputX: 0, inputWidth: 0, lineCount: 1)
+    private var isExpanded = false
+    private(set) var hasKeyboardFocus = false
+
+    private let scrollView = NSScrollView()
+    private let document = TokenDocumentView()
+    let input = TokenInputField()
+    private var autocomplete: AddressAutocompleteView?
     private var lookupTask: Task<Void, Never>?
-    /// The field editor's text the last tokenization was resolved against, and the pieces of the entry
-    /// being resolved that are still to come; see `representedObjectForEditing`.
-    private var tokenizedText = ""
-    private var tokenizedEntries: [AddressListParser.Entry] = []
-    private var piecesPending: [String] = []
-    private var toolTipTag: NSView.ToolTipTag?
-    private var lastLayoutWidth: CGFloat = 0
+    private var requestedPrefix = ""
+    private var toolTipTags: [NSView.ToolTipTag] = []
 
-    private static let suggestionLimit = 8
+    private static let suggestionLimit = Int(Quire.Layout.Autocomplete.maxRows)
     private static let debounce = Duration.milliseconds(80)
+    /// The typed text keeps at least this much of a line before it wraps under the tokens.
+    private static let minimumInputWidth: CGFloat = 96
+    /// Tokens start this far into the field so the selected token's ring (2 pt gap + 3 pt in Increase
+    /// Contrast) is never clipped; the row puts the field this much left of the value axis.
+    static let inset: CGFloat = Quire.Layout.Composer.valueX - Quire.Layout.Composer.focusRingX
+    /// The first line's top: the field sits 3 pt into its row, and the token 7 pt.
+    static let lineTop: CGFloat = 4
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        delegate = self
-        tokenStyle = .rounded
-        tokenizingCharacterSet = AddressListParser.separators
-        isBezeled = false
-        drawsBackground = false
-        focusRingType = .none
-        font = NSFont.systemFont(ofSize: 13)
-        lineBreakMode = .byWordWrapping
-        cell?.wraps = true
-        cell?.isScrollable = false
-        cell?.usesSingleLineMode = false
-        setContentHuggingPriority(.defaultLow, for: .horizontal)
-        setContentCompressionResistancePriority(.defaultHigh, for: .vertical)
+        scrollView.drawsBackground = false
+        scrollView.borderType = .noBorder
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+        scrollView.scrollerStyle = .overlay
+        scrollView.verticalScrollElasticity = .none
+        scrollView.contentView.drawsBackground = false
+        scrollView.documentView = document
+        addSubview(scrollView)
+        document.field = self
+        document.registerForDraggedTypes([.string])
+        document.addSubview(input)
+        input.delegate = self
+        setAccessibilityRole(.group)
     }
 
     @available(*, unavailable)
@@ -68,286 +113,811 @@ final class AddressTokenField: NSTokenField, NSTokenFieldDelegate, NSViewToolTip
         lookupTask?.cancel()
     }
 
+    override var isFlipped: Bool { true }
+
     // MARK: Validation
 
-    /// Commits any text still being typed, flags invalid entries and reports whether sending may proceed.
+    /// Commits any text still being typed and reports whether every token is a valid address (and, when
+    /// asked, that there is at least one). Invalid tokens show themselves in red.
     @discardableResult
     func validateForSend(requireRecipient: Bool = false) -> Bool {
-        validateEditing()
-        dropSplitRemainders()
-        let current = addresses
-        let invalid = AddressListParser.invalidEntries(in: current)
-        let valid = invalid.isEmpty && (!requireRecipient || !current.isEmpty)
-        showsInvalidOutline = !valid
-        return valid
+        commitPendingText()
+        let invalid = AddressListParser.invalidEntries(in: tokens)
+        return invalid.isEmpty && (!requireRecipient || !tokens.isEmpty)
     }
 
-    func clearValidation() {
-        showsInvalidOutline = false
+    // MARK: Focus
+
+    /// Called by the composer whenever the window's first responder changes.
+    func firstResponderDidChange() {
+        let focused = isFocused
+        guard focused != hasKeyboardFocus else {
+            onFocusChange?()
+            return
+        }
+        hasKeyboardFocus = focused
+        if !focused {
+            commitPendingText()
+            selectedIndex = nil
+            closeAutocomplete()
+            scrollView.contentView.scroll(to: .zero)
+        }
+        isExpanded = focused
+        relayout()
+        onFocusChange?()
     }
 
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-        guard showsInvalidOutline else { return }
-        NSColor.systemRed.setStroke()
-        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.75, dy: 0.75), xRadius: 4, yRadius: 4)
-        path.lineWidth = 1.5
-        path.stroke()
+    private var isFocused: Bool {
+        guard let responder = window?.firstResponder else { return false }
+        if responder === self || responder === input { return true }
+        if let editor = responder as? NSTextView, editor.delegate === input { return true }
+        return false
+    }
+
+    /// True when the selected token carries the focus ring instead of the row (§5.21).
+    var focusIsOnToken: Bool { selectedIndex != nil && window?.firstResponder === self }
+
+    override var acceptsFirstResponder: Bool { selectedIndex != nil }
+
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        if accepted { document.needsDisplay = true }
+        return accepted
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let resigned = super.resignFirstResponder()
+        if resigned { document.needsDisplay = true }
+        return resigned
+    }
+
+    /// The selected token's ring follows the window's key state.
+    func windowKeyDidChange() {
+        document.needsDisplay = true
+    }
+
+    func focusInput() {
+        selectedIndex = nil
+        window?.makeFirstResponder(input)
+        if let editor = input.currentEditor() {
+            editor.selectedRange = NSRange(location: (input.stringValue as NSString).length, length: 0)
+        }
     }
 
     // MARK: Layout
 
     override func layout() {
         super.layout()
-        // Wrapping fields only report a multi-line intrinsic height once they know their width.
-        if abs(bounds.width - lastLayoutWidth) > 0.5 {
-            lastLayoutWidth = bounds.width
-            preferredMaxLayoutWidth = bounds.width
-            invalidateIntrinsicContentSize()
-        }
-        if let toolTipTag { removeToolTip(toolTipTag) }
-        toolTipTag = addToolTip(bounds, owner: self, userData: nil)
+        scrollView.frame = bounds
+        relayout()
     }
 
-    override var intrinsicContentSize: NSSize {
-        var size = super.intrinsicContentSize
-        size.height = max(size.height, 22)
-        return size
+    private func tokenWidth(_ index: Int) -> CGFloat {
+        let t = Quire.Layout.Token.self
+        let label = Self.label(tokens[index])
+        let text = ceil(QuireFont.attributedString(label, role: .body, color: .black).size().width)
+        if isInvalid(index) {
+            return Self.invalidPadLeft + t.invalidGlyph + t.gap + text + t.padX
+        }
+        return text + 2 * t.padX
     }
 
-    // MARK: Completions
+    private static let invalidPadLeft: CGFloat = 6
 
-    func tokenField(_ tokenField: NSTokenField, completionsForSubstring substring: String, indexOfToken tokenIndex: Int, indexOfSelectedItem selectedIndex: UnsafeMutablePointer<Int>?) -> [Any]? {
-        let prefix = substring.trimmingCharacters(in: .whitespaces)
-        guard !prefix.isEmpty else { return nil }
-        selectedIndex?.pointee = 0
-        if let cache = completionCache, cache.prefix == prefix {
-            return completionStrings(cache.results)
-        }
-        scheduleLookup(prefix)
-        // Narrow the previous results while the lookup is pending so the menu does not blink.
-        if let cache = completionCache, prefix.hasPrefix(cache.prefix) {
-            let needle = prefix.lowercased()
-            let narrowed = cache.results.filter {
-                $0.address.lowercased().hasPrefix(needle) || ($0.name ?? "").lowercased().contains(needle)
-            }
-            return completionStrings(narrowed)
-        }
-        return nil
+    private func moreWidth(_ count: Int) -> CGFloat {
+        ceil(QuireFont.attributedString(Self.moreLabel(count), role: .body, color: .black).size().width)
     }
 
-    private func completionStrings(_ results: [EmailAddress]) -> [Any]? {
-        let taken = Set(addresses.map { $0.address.lowercased() })
-        let strings = results
-            .filter { !taken.contains($0.address.lowercased()) }
-            .map(AddressListParser.format)
-        return strings.isEmpty ? nil : strings
+    static func moreLabel(_ count: Int) -> String { "+\(count) more" }
+
+    func isInvalid(_ index: Int) -> Bool {
+        !AddressListParser.isValid(tokens[index].address)
     }
 
-    private func scheduleLookup(_ prefix: String) {
-        lookupTask?.cancel()
-        requestedPrefix = prefix
-        guard let provider = suggestionProvider else { return }
-        lookupTask = Task { [weak self] in
-            try? await Task.sleep(for: Self.debounce)
-            guard !Task.isCancelled else { return }
-            let limit = Self.suggestionLimit
-            let results = await Task.detached(priority: .userInitiated) {
-                (try? provider(prefix, limit)) ?? []
-            }.value
-            guard !Task.isCancelled, let self, self.requestedPrefix == prefix else { return }
-            self.completionCache = CompletionCache(prefix: prefix, results: results)
-            guard !results.isEmpty, let editor = self.currentEditor() as? NSTextView else { return }
-            // Re-ask for completions now that there are some to show.
-            editor.complete(nil)
-        }
-    }
-
-    // MARK: Tokens
-
-    /// Stands in for the later pieces of an entry the field cut inside quotes. Never meant to survive:
-    /// `shouldAdd` drops it, and the paths that bypass `shouldAdd` purge it with `dropSplitRemainders`.
-    private final class SplitRemainder: NSObject {}
-
-    /// The field cuts the editing string at every tokenizing character, quotes or not, so a completion or
-    /// an edited token named "Doe, John" arrives here as `"Doe` and then `John" <john@example.com>`. The
-    /// field editor still holds the whole text at this point, so the first piece of such an entry resolves
-    /// to the entry parsed properly and the pieces after it to placeholders that are dropped again.
-    func tokenField(_ tokenField: NSTokenField, representedObjectForEditing editingString: String) -> Any? {
-        let piece = editingString.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Existing tokens sit in the text as attachment characters; they end an entry like a line break.
-        let text = (currentEditor()?.string ?? "").replacingOccurrences(of: "\u{FFFC}", with: "\n")
-        if text != tokenizedText {
-            tokenizedText = text
-            tokenizedEntries = AddressListParser.entries(in: text)
-            piecesPending = []
-        }
-        if let next = piecesPending.first, next == piece {
-            piecesPending.removeFirst()
-            return SplitRemainder()
-        }
-        if let entry = tokenizedEntries.first(where: { $0.pieces.count > 1 && $0.pieces.first == piece }) {
-            piecesPending = Array(entry.pieces.dropFirst())
-            return AddressListParser.parseEntry(entry.text) ?? editingString
-        }
-        return AddressListParser.parseEntry(editingString) ?? editingString
-    }
-
-    func tokenField(_ tokenField: NSTokenField, displayStringForRepresentedObject representedObject: Any) -> String? {
-        if representedObject is SplitRemainder { return "" }
-        guard let address = representedObject as? EmailAddress else { return representedObject as? String }
-        if let name = address.name, !name.isEmpty { return name }
+    static func label(_ address: EmailAddress) -> String {
+        if let name = address.name?.trimmingCharacters(in: .whitespaces), !name.isEmpty { return name }
         return address.address
     }
 
-    func tokenField(_ tokenField: NSTokenField, editingStringForRepresentedObject representedObject: Any) -> String? {
-        guard let address = representedObject as? EmailAddress else { return representedObject as? String }
-        return AddressListParser.format(address)
-    }
-
-    func tokenField(_ tokenField: NSTokenField, shouldAdd tokens: [Any], at index: Int) -> [Any] {
-        // Anything else, a `SplitRemainder` included, is dropped.
-        let added = tokens.compactMap { token -> EmailAddress? in
-            if let address = token as? EmailAddress { return address.address.isEmpty ? nil : address }
-            if let string = token as? String { return AddressListParser.parseEntry(string) }
-            return nil
+    /// Lays the tokens out for the current width and focus, and tells the row when it must change height.
+    func relayout() {
+        let t = Quire.Layout.Token.self
+        let available = max(40, bounds.width - 2 * Self.inset)
+        let widths = tokens.indices.map(tokenWidth)
+        if isExpanded || tokens.isEmpty {
+            layoutResult = AddressTokenLayout.flow(widths: widths, availableWidth: available, gap: t.gap,
+                                                   minimumInputWidth: min(Self.minimumInputWidth, available))
+        } else {
+            let invalid = Set(tokens.indices.filter(isInvalid))
+            layoutResult = AddressTokenLayout.collapse(widths: widths, invalid: invalid, availableWidth: available,
+                                                       gap: t.gap, moreGap: t.moreGap, moreWidth: moreWidth)
         }
-        DispatchQueue.main.async { [weak self] in
-            self?.invalidateIntrinsicContentSize()
-            self?.onChange?()
+        let lines = layoutResult.lineCount
+        let documentHeight = Self.lineTop * 2 + CGFloat(lines - 1) * t.lineGrow + t.height
+        document.frame = NSRect(x: 0, y: 0, width: bounds.width, height: max(documentHeight, bounds.height))
+        placeInput()
+        let height = AddressTokenLayout.rowHeight(lines: lines, base: Quire.Layout.Composer.fieldRow, lineGrow: t.lineGrow,
+                                                  maxLines: Int(t.maxLines))
+        updateToolTips()
+        document.needsDisplay = true
+        if abs(height - rowHeight) > 0.5 {
+            rowHeight = height
+            onLayoutChange?()
         }
-        return added
+        scrollCaretLineIntoView()
+        if autocomplete != nil { positionAutocomplete() }
     }
 
-    func tokenField(_ tokenField: NSTokenField, styleForRepresentedObject representedObject: Any) -> NSTokenField.TokenStyle {
-        if let address = representedObject as? EmailAddress, !AddressListParser.isValid(address.address) {
-            return .squared
+    private func placeInput() {
+        let t = Quire.Layout.Token.self
+        let fieldHeight = input.intrinsicContentSize.height
+        let line: Int
+        let x: CGFloat
+        let width: CGFloat
+        if let inputLine = layoutResult.inputLine {
+            line = inputLine
+            x = layoutResult.inputX
+            width = layoutResult.inputWidth
+        } else {
+            // Collapsed: the empty field waits after the last visible mark so a click or Tab still lands in it.
+            line = 0
+            var end: CGFloat = 0
+            if let moreX = layoutResult.moreX {
+                end = moreX + moreWidth(layoutResult.hiddenCount) + t.gap
+            } else if let last = layoutResult.placements.last {
+                end = last.x + last.width + t.gap
+            }
+            x = end
+            width = max(2, bounds.width - 2 * Self.inset - end)
         }
-        return .rounded
+        let top = lineRectTop(line) + (t.height - fieldHeight) / 2
+        input.frame = NSRect(x: Self.inset + x, y: top.rounded(), width: width, height: fieldHeight)
     }
 
-    func tokenField(_ tokenField: NSTokenField, hasMenuForRepresentedObject representedObject: Any) -> Bool {
-        representedObject is EmailAddress
+    func lineRectTop(_ line: Int) -> CGFloat {
+        Self.lineTop + CGFloat(line) * Quire.Layout.Token.lineGrow
     }
 
-    func tokenField(_ tokenField: NSTokenField, menuForRepresentedObject representedObject: Any) -> NSMenu? {
-        guard let address = representedObject as? EmailAddress else { return nil }
+    /// Each visible token's pill, in document coordinates.
+    func tokenRects() -> [(index: Int, rect: NSRect)] {
+        layoutResult.placements.map { placement in
+            (placement.index, NSRect(x: Self.inset + placement.x, y: lineRectTop(placement.line),
+                                     width: placement.width, height: Quire.Layout.Token.height))
+        }
+    }
+
+    func moreRect() -> NSRect? {
+        guard let moreX = layoutResult.moreX, layoutResult.hiddenCount > 0 else { return nil }
+        return NSRect(x: Self.inset + moreX, y: lineRectTop(0), width: moreWidth(layoutResult.hiddenCount),
+                      height: Quire.Layout.Token.height)
+    }
+
+    var hiddenCount: Int { layoutResult.hiddenCount }
+
+    private func scrollCaretLineIntoView() {
+        guard isExpanded else { return }
+        let line = selectedIndex.flatMap { index in layoutResult.placements.first { $0.index == index }?.line }
+            ?? layoutResult.inputLine ?? 0
+        let rect = NSRect(x: 0, y: lineRectTop(line) - Self.lineTop, width: 1, height: Quire.Layout.Token.lineGrow + Self.lineTop)
+        document.scrollToVisible(rect)
+    }
+
+    private func updateToolTips() {
+        for tag in toolTipTags { document.removeToolTip(tag) }
+        toolTipTags = tokenRects().map { item in
+            document.addToolTip(item.rect, owner: self, userData: UnsafeMutableRawPointer(bitPattern: item.index + 1))
+        }
+    }
+
+    // MARK: Editing tokens
+
+    /// Turns everything typed into tokens (focus leaving, Send, Return).
+    func commitPendingText() {
+        let text = input.stringValue
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            if !text.isEmpty { input.stringValue = "" }
+            return
+        }
+        let parsed = AddressListParser.parse(text)
+        input.stringValue = ""
+        addTokens(parsed)
+    }
+
+    private func addTokens(_ added: [EmailAddress]) {
+        let fresh = added.filter { !$0.address.isEmpty }
+        guard !fresh.isEmpty else { return }
+        tokens.append(contentsOf: fresh)
+        relayout()
+        onChange?()
+    }
+
+    func removeToken(at index: Int) {
+        guard tokens.indices.contains(index), !isLocked else { return }
+        tokens.remove(at: index)
+        selectedIndex = nil
+        hoveredIndex = nil
+        relayout()
+        onChange?()
+    }
+
+    /// The token turns back into text with the caret at its end (§5.21, Being edited).
+    func editToken(at index: Int) {
+        guard tokens.indices.contains(index), !isLocked else { return }
+        let address = tokens.remove(at: index)
+        commitPendingText()
+        input.stringValue = AddressListParser.format(address)
+        selectedIndex = nil
+        relayout()
+        focusInput()
+        onChange?()
+    }
+
+    func formattedAddress(at index: Int) -> String {
+        tokens.indices.contains(index) ? AddressListParser.format(tokens[index]) : ""
+    }
+
+    /// Addresses dropped as text (a token from another field, a list from elsewhere) become tokens.
+    func acceptDroppedText(_ text: String) -> Bool {
+        guard !isLocked else { return false }
+        let parsed = AddressListParser.parse(text)
+        guard !parsed.isEmpty else { return false }
+        addTokens(parsed)
+        return true
+    }
+
+    func selectToken(_ index: Int) {
+        guard tokens.indices.contains(index) else { return }
+        closeAutocomplete()
+        commitPendingText()
+        selectedIndex = index
+        window?.makeFirstResponder(self)
+        scrollCaretLineIntoView()
+    }
+
+    func expandFromMore() {
+        isExpanded = true
+        relayout()
+        focusInput()
+    }
+
+    // MARK: Keyboard (a token selected)
+
+    override func keyDown(with event: NSEvent) {
+        guard let index = selectedIndex else {
+            super.keyDown(with: event)
+            return
+        }
+        let flags = event.modifierFlags.intersection([.command, .control, .option])
+        if let special = event.specialKey, flags.isEmpty {
+            switch special {
+            case .leftArrow:
+                selectedIndex = max(0, index - 1)
+                scrollCaretLineIntoView()
+                return
+            case .rightArrow:
+                if index + 1 < tokens.count { selectedIndex = index + 1; scrollCaretLineIntoView() } else { focusInput() }
+                return
+            case .delete, .deleteForward:
+                let removed = tokens[index]
+                removeToken(at: index)
+                focusInput()
+                offerUndo(restoring: removed, at: index)
+                return
+            case .carriageReturn, .enter, .newline:
+                editToken(at: index)
+                return
+            case .tab:
+                selectedIndex = nil
+                window?.selectKeyView(following: input)
+                return
+            case .backTab:
+                selectedIndex = nil
+                window?.selectKeyView(preceding: input)
+                return
+            default:
+                break
+            }
+        }
+        if event.keyCode == 53 { // Esc: back to the text, the token kept.
+            focusInput()
+            return
+        }
+        if flags.isEmpty, let characters = event.characters, !characters.isEmpty,
+           characters.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) }) {
+            // Typing returns to the text and keeps the keystroke.
+            focusInput()
+            input.currentEditor()?.insertText(characters)
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    @objc func copy(_ sender: Any?) {
+        guard let index = selectedIndex else { return }
+        writeToPasteboard(tokens[index])
+    }
+
+    @objc func cut(_ sender: Any?) {
+        guard let index = selectedIndex else { return }
+        let removed = tokens[index]
+        writeToPasteboard(removed)
+        removeToken(at: index)
+        focusInput()
+        offerUndo(restoring: removed, at: index)
+    }
+
+    /// Removing a selected token can be undone, as it could in `NSTokenField`, whose tokens were text. The
+    /// undo joins the field editor's typing undo, so ⌘Z takes it while the caret is in this field (§6.1, row 1)
+    /// and it ends with the editing, like the typing does.
+    private func offerUndo(restoring address: EmailAddress, at index: Int) {
+        guard let undoManager = input.currentEditor()?.undoManager else { return }
+        undoManager.registerUndo(withTarget: self) { field in
+            field.insertToken(address, at: index)
+        }
+        undoManager.setActionName("Remove Recipient")
+    }
+
+    private func insertToken(_ address: EmailAddress, at index: Int) {
+        guard !isLocked else { return }
+        tokens.insert(address, at: min(max(0, index), tokens.count))
+        selectedIndex = nil
+        relayout()
+        onChange?()
+    }
+
+    @objc func paste(_ sender: Any?) {
+        focusInput()
+        input.currentEditor()?.paste(sender)
+    }
+
+    @objc override func selectAll(_ sender: Any?) {
+        focusInput()
+        input.currentEditor()?.selectAll(sender)
+    }
+
+    private func writeToPasteboard(_ address: EmailAddress) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(AddressListParser.format(address), forType: .string)
+    }
+
+    // MARK: Context menu
+
+    func menu(forToken index: Int) -> NSMenu {
+        let address = tokens[index]
         let menu = NSMenu()
-        let copy = NSMenuItem(title: address.address, action: #selector(copyAddress(_:)), keyEquivalent: "")
-        copy.target = self
-        copy.representedObject = address.address
-        menu.addItem(copy)
+        menu.autoenablesItems = false
+        func add(_ title: String, _ action: Selector) {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            item.target = self
+            item.tag = index
+            item.isEnabled = !isLocked || action == #selector(copyAddress(_:))
+            menu.addItem(item)
+        }
+        add("Copy Address", #selector(copyAddress(_:)))
+        add("Edit", #selector(editFromMenu(_:)))
+        add("Remove", #selector(removeFromMenu(_:)))
         menu.addItem(.separator())
-        let remove = NSMenuItem(title: "Remove", action: #selector(removeToken(_:)), keyEquivalent: "")
-        remove.target = self
-        remove.representedObject = address
-        menu.addItem(remove)
+        add("New Message", #selector(newMessageFromMenu(_:)))
+        menu.items.last?.isEnabled = onNewMessage != nil && AddressListParser.isValid(address.address)
         return menu
     }
 
     @objc private func copyAddress(_ sender: NSMenuItem) {
-        guard let address = sender.representedObject as? String else { return }
+        guard tokens.indices.contains(sender.tag) else { return }
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        pasteboard.setString(address, forType: .string)
+        pasteboard.setString(tokens[sender.tag].address, forType: .string)
     }
 
-    @objc private func removeToken(_ sender: NSMenuItem) {
-        guard let address = sender.representedObject as? EmailAddress else { return }
-        addresses = addresses.filter { $0 != address }
-        onChange?()
+    @objc private func editFromMenu(_ sender: NSMenuItem) { editToken(at: sender.tag) }
+
+    @objc private func removeFromMenu(_ sender: NSMenuItem) { removeToken(at: sender.tag) }
+
+    @objc private func newMessageFromMenu(_ sender: NSMenuItem) {
+        guard tokens.indices.contains(sender.tag) else { return }
+        onNewMessage?(tokens[sender.tag])
     }
 
-    // MARK: Pasteboard
-
-    func tokenField(_ tokenField: NSTokenField, readFrom pboard: NSPasteboard) -> [Any]? {
-        guard let string = pboard.string(forType: .string) else { return nil }
-        let parsed = AddressListParser.parse(string)
-        return parsed.isEmpty ? nil : parsed
-    }
-
-    func tokenField(_ tokenField: NSTokenField, writeRepresentedObjects objects: [Any], to pboard: NSPasteboard) -> Bool {
-        let text = objects.compactMap { ($0 as? EmailAddress).map(AddressListParser.format) }.joined(separator: ", ")
-        pboard.clearContents()
-        pboard.setString(text, forType: .string)
-        return true
-    }
-
-    // MARK: Editing notifications
+    // MARK: Text field delegate
 
     func controlTextDidChange(_ obj: Notification) {
-        showsInvalidOutline = false
-        invalidateIntrinsicContentSize()
+        selectedIndex = nil
+        let text = input.stringValue
+        // Separators outside quotes end an entry, so a typed or pasted list becomes tokens as it arrives.
+        if text.unicodeScalars.contains(where: AddressListParser.separators.contains) {
+            let pieces = AddressListParser.completedEntries(in: text)
+            if !pieces.complete.isEmpty {
+                input.stringValue = pieces.remainder
+                addTokens(pieces.complete.compactMap(AddressListParser.parseEntry))
+            }
+        }
+        scheduleLookup(input.stringValue.trimmingCharacters(in: .whitespaces))
         onChange?()
     }
 
     func controlTextDidEndEditing(_ obj: Notification) {
         lookupTask?.cancel()
-        dropSplitRemainders()
-        invalidateIntrinsicContentSize()
-        onChange?()
+        // A removed token's undo lives as long as the typing undo of this edit (`offerUndo`).
+        window?.undoManager?.removeAllActions(withTarget: self)
     }
 
-    /// Removes the placeholders `representedObjectForEditing` hands out. Ending editing by Return goes
-    /// through `shouldAdd`, which never adds them; losing focus and `validateEditing()` do not, so the
-    /// field adds them itself and they are taken out again here.
-    private func dropSplitRemainders() {
-        guard let items = objectValue as? [Any], items.contains(where: { $0 is SplitRemainder }) else { return }
-        objectValue = items.filter { !($0 is SplitRemainder) }
-    }
-
-    // MARK: Tooltips
-
-    func view(_ view: NSView, stringForToolTip tag: NSView.ToolTipTag, point: NSPoint, userData data: UnsafeMutableRawPointer?) -> String {
-        guard let address = token(at: point) else { return "" }
-        return address.address
-    }
-
-    private func token(at point: NSPoint) -> EmailAddress? {
-        let objects = addresses
-        guard !objects.isEmpty else { return nil }
-        if let editor = currentEditor() as? NSTextView, let layoutManager = editor.layoutManager,
-           let container = editor.textContainer, let storage = editor.textStorage {
-            var local = convert(point, to: editor)
-            local.x -= editor.textContainerOrigin.x
-            local.y -= editor.textContainerOrigin.y
-            return Self.token(at: local, layoutManager: layoutManager, container: container, string: storage.string, objects: objects)
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        if let autocomplete {
+            switch selector {
+            case #selector(NSResponder.moveDown(_:)): autocomplete.moveHighlight(by: 1); return true
+            case #selector(NSResponder.moveUp(_:)): autocomplete.moveHighlight(by: -1); return true
+            case #selector(NSResponder.insertNewline(_:)), #selector(NSResponder.insertTab(_:)):
+                if let suggestion = autocomplete.highlighted { accept(suggestion); return true }
+            case #selector(NSResponder.cancelOperation(_:)):
+                closeAutocomplete()
+                return true
+            default: break
+            }
         }
-        // Not editing: lay the cell's attributed value out the way the cell draws it.
-        let titleRect = cell?.titleRect(forBounds: bounds) ?? bounds
-        let storage = NSTextStorage(attributedString: attributedStringValue)
-        let layoutManager = NSLayoutManager()
-        let container = NSTextContainer(size: NSSize(width: titleRect.width, height: CGFloat.greatestFiniteMagnitude))
-        container.lineFragmentPadding = 0
-        layoutManager.addTextContainer(container)
-        storage.addLayoutManager(layoutManager)
-        let local = NSPoint(x: point.x - titleRect.minX, y: isFlipped ? point.y - titleRect.minY : titleRect.maxY - point.y)
-        return Self.token(at: local, layoutManager: layoutManager, container: container, string: storage.string, objects: objects)
+        switch selector {
+        case #selector(NSResponder.insertNewline(_:)):
+            commitPendingText()
+            return true
+        case #selector(NSResponder.deleteBackward(_:)), #selector(NSResponder.moveLeft(_:)):
+            // From the start of the text, ⌫ and ← reach the last token: the first press selects it.
+            if textView.selectedRange() == NSRange(location: 0, length: 0), !tokens.isEmpty {
+                selectToken(tokens.count - 1)
+                return true
+            }
+        case #selector(NSResponder.cancelOperation(_:)):
+            // Esc in a composer only ever closes popovers (§6.1); it never closes the window.
+            return true
+        default: break
+        }
+        return false
     }
 
-    private static func token(at point: NSPoint, layoutManager: NSLayoutManager, container: NSTextContainer, string: String, objects: [EmailAddress]) -> EmailAddress? {
-        let glyphCount = layoutManager.numberOfGlyphs
-        guard glyphCount > 0 else { return nil }
-        let glyph = layoutManager.glyphIndex(for: point, in: container, fractionOfDistanceThroughGlyph: nil)
-        guard glyph < glyphCount, layoutManager.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: container).contains(point) else {
-            return nil
+    // MARK: Completions
+
+    private func scheduleLookup(_ prefix: String) {
+        lookupTask?.cancel()
+        requestedPrefix = prefix
+        guard !prefix.isEmpty, let provider = suggestionProvider else {
+            closeAutocomplete()
+            return
         }
-        let character = layoutManager.characterIndexForGlyph(at: glyph)
-        let text = string as NSString
-        guard character < text.length, text.character(at: character) == 0xFFFC else { return nil }
-        var ordinal = 0
-        for index in 0..<character where text.character(at: index) == 0xFFFC { ordinal += 1 }
-        return ordinal < objects.count ? objects[ordinal] : nil
+        let taken = Set(tokens.map { $0.address.lowercased() })
+        lookupTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.debounce)
+            guard !Task.isCancelled else { return }
+            let limit = Self.suggestionLimit + taken.count
+            let results = await Task.detached(priority: .userInitiated) {
+                (try? provider(prefix, limit)) ?? []
+            }.value
+            guard !Task.isCancelled, let self, self.requestedPrefix == prefix, self.hasKeyboardFocus else { return }
+            let fresh = results.filter { !taken.contains($0.address.lowercased()) }.prefix(Self.suggestionLimit)
+            self.showAutocomplete(Array(fresh), prefix: prefix)
+        }
     }
 
-    // MARK: Helpers
-
-    private static func addresses(in objectValue: Any?) -> [EmailAddress] {
-        guard let items = objectValue as? [Any] else { return [] }
-        return items.compactMap { item in
-            if let address = item as? EmailAddress { return address }
-            if let string = item as? String { return AddressListParser.parseEntry(string) }
-            return nil
+    private func showAutocomplete(_ suggestions: [EmailAddress], prefix: String) {
+        guard !suggestions.isEmpty, let host = overlayHost else {
+            closeAutocomplete()
+            return
         }
+        let view = autocomplete ?? AddressAutocompleteView()
+        if autocomplete == nil {
+            view.onAccept = { [weak self] suggestion in self?.accept(suggestion) }
+            host.addSubview(view, positioned: .above, relativeTo: nil)
+            autocomplete = view
+        }
+        view.show(suggestions, typed: prefix)
+        positionAutocomplete()
+    }
+
+    private func positionAutocomplete() {
+        guard let autocomplete, let host = overlayHost else { return }
+        let line = layoutResult.inputLine ?? 0
+        let lineRect = NSRect(x: input.frame.minX, y: lineRectTop(line), width: input.frame.width, height: Quire.Layout.Token.height)
+        let hostLine = host.convert(lineRect, from: document)
+        let editorStart = input.convert(NSPoint(x: input.textStartX, y: 0), to: host).x
+        let a = Quire.Layout.Autocomplete.self
+        let frame = ComposePopoverPlacement.autocomplete(
+            tokenStartX: editorStart, caretLine: hostLine, size: autocomplete.fittingSize, bounds: host.bounds,
+            offsetX: a.offsetX, offsetY: a.offsetY, edgeMin: Quire.Layout.Composer.popoverEdgeMin)
+        autocomplete.setFrameFromPopover(frame)
+    }
+
+    func closeAutocomplete() {
+        autocomplete?.removeFromSuperview()
+        autocomplete = nil
+    }
+
+    private func accept(_ suggestion: EmailAddress) {
+        closeAutocomplete()
+        lookupTask?.cancel()
+        input.stringValue = ""
+        addTokens([suggestion])
+        focusInput()
+    }
+
+    // MARK: Hover
+
+    func pointerMoved(to point: NSPoint?) {
+        guard let point else {
+            hoveredIndex = nil
+            return
+        }
+        hoveredIndex = tokenRects().first { $0.rect.contains(point) }?.index
+    }
+
+    // MARK: Drawing support
+
+    struct TokenLook {
+        var fill: NSColor
+        var edge: NSColor?
+        var text: NSColor
+        var glyph: NSColor?
+    }
+
+    func look(for index: Int) -> TokenLook {
+        if isLocked { return TokenLook(fill: .qFill, text: .qInkDisabled) }
+        if selectedIndex == index { return TokenLook(fill: .qAccentFill, text: .qOnAccent) }
+        if isInvalid(index) { return TokenLook(fill: .qDangerWash, edge: .qDanger, text: .qDanger, glyph: .qDanger) }
+        if hoveredIndex == index { return TokenLook(fill: .qPressed, text: .qInk) }
+        return TokenLook(fill: .qFill, text: .qInk)
+    }
+
+    func label(for index: Int) -> String { Self.label(tokens[index]) }
+
+    var showsTokenRing: Bool {
+        focusIsOnToken && (window?.isKeyWindow ?? false)
+    }
+
+    // MARK: Accessibility
+
+    /// Reused across queries so VoiceOver keeps its place on a recipient while the field relays out.
+    private var tokenElements: [NSAccessibilityElement] = []
+
+    override func accessibilityChildren() -> [Any]? {
+        var children: [Any] = []
+        let rects = Dictionary(uniqueKeysWithValues: tokenRects().map { ($0.index, $0.rect) })
+        let fallback = moreRect() ?? input.frame
+        while tokenElements.count < tokens.count {
+            let element = NSAccessibilityElement()
+            element.setAccessibilityRole(.button)
+            tokenElements.append(element)
+        }
+        tokenElements.removeLast(tokenElements.count - tokens.count)
+        for index in tokens.indices {
+            let element = tokenElements[index]
+            var label = "\(label(for: index)), \(tokens[index].address)"
+            if isInvalid(index) { label += ", invalid address" }
+            element.setAccessibilityLabel(label)
+            element.setAccessibilitySelected(selectedIndex == index)
+            element.setAccessibilityParent(self)
+            let rect = rects[index] ?? fallback
+            if let window {
+                element.setAccessibilityFrame(window.convertToScreen(document.convert(rect, to: nil)))
+            }
+            children.append(element)
+        }
+        children.append(input)
+        return children
+    }
+}
+
+extension AddressTokenField: NSViewToolTipOwner {
+    nonisolated func view(_ view: NSView, stringForToolTip tag: NSView.ToolTipTag, point: NSPoint, userData data: UnsafeMutableRawPointer?) -> String {
+        let index = Int(bitPattern: data) - 1
+        return MainActor.assumeIsolated {
+            tokens.indices.contains(index) ? tokens[index].address : ""
+        }
+    }
+}
+
+/// The flipped document inside the field's scroll view: draws the tokens and “+N more”, hosts the text field.
+@MainActor
+final class TokenDocumentView: NSView {
+    weak var field: AddressTokenField?
+    private var trackingArea: NSTrackingArea?
+
+    override var isFlipped: Bool { true }
+
+    override func updateTrackingAreas() {
+        if let trackingArea { removeTrackingArea(trackingArea) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+                                  owner: self, userInfo: nil)
+        addTrackingArea(area)
+        trackingArea = area
+        super.updateTrackingAreas()
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        field?.pointerMoved(to: convert(event.locationInWindow, from: nil))
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        field?.pointerMoved(to: nil)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let field else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        if let hit = field.tokenRects().first(where: { $0.rect.contains(point) }) {
+            if event.clickCount >= 2 {
+                field.editToken(at: hit.index)
+            } else {
+                field.selectToken(hit.index)
+                trackDrag(of: hit.index, rect: hit.rect, from: event)
+            }
+            return
+        }
+        if let more = field.moreRect(), more.insetBy(dx: -4, dy: -4).contains(point) {
+            field.expandFromMore()
+            return
+        }
+        field.focusInput()
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard let field else { return nil }
+        let point = convert(event.locationInWindow, from: nil)
+        guard let hit = field.tokenRects().first(where: { $0.rect.contains(point) }) else { return nil }
+        return field.menu(forToken: hit.index)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let field else { return }
+        let t = Quire.Layout.Token.self
+        let radius = t.height / 2
+        for item in field.tokenRects() {
+            let look = field.look(for: item.index)
+            let rect = item.rect
+            QuireDraw.fill(rect, radius: radius, look.fill)
+            if let edge = look.edge { QuireDraw.strokeInside(rect, radius: radius, width: 1, edge) }
+            var textX = rect.minX + t.padX
+            if let glyph = look.glyph {
+                let glyphRect = NSRect(x: rect.minX + 6, y: rect.minY, width: t.invalidGlyph, height: rect.height)
+                QuireSymbol.draw(Quire.Icon.warning, size: .custom(t.invalidGlyph), color: glyph, centredIn: glyphRect)
+                textX = glyphRect.maxX + t.gap
+            }
+            let role = QuireFont.Role.body
+            let string = QuireFont.attributedString(field.label(for: item.index), role: role, color: look.text)
+            let lineTop = (rect.midY - role.lineHeight / 2).rounded()
+            string.draw(with: NSRect(x: textX, y: lineTop, width: max(0, rect.maxX - t.padX - textX + 1), height: role.lineHeight),
+                        options: QuireFont.drawingOptions, context: nil)
+            if field.showsTokenRing, field.selectedIndex == item.index {
+                QuireFocusRing.draw(around: rect, cornerRadius: radius, gap: QuireFocusRing.gapOnFill)
+            }
+        }
+        if let more = field.moreRect() {
+            let role = QuireFont.Role.body
+            let string = QuireFont.attributedString(AddressTokenField.moreLabel(field.hiddenCount), role: role, color: .qInk2)
+            string.draw(with: NSRect(x: more.minX, y: (more.midY - role.lineHeight / 2).rounded(), width: more.width + 1,
+                                     height: role.lineHeight), options: QuireFont.drawingOptions, context: nil)
+        }
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+
+    override func isAccessibilityElement() -> Bool { false }
+
+    // MARK: Dragging tokens out
+
+    /// A token dragged past a few points leaves as its formatted address; dropped on another recipient field
+    /// it moves there, as `NSTokenField` tokens did.
+    private func trackDrag(of index: Int, rect: NSRect, from mouseDown: NSEvent) {
+        guard let window, let field, !field.isLocked else { return }
+        let start = mouseDown.locationInWindow
+        while let next = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) {
+            if next.type == .leftMouseUp { return }
+            let moved = hypot(next.locationInWindow.x - start.x, next.locationInWindow.y - start.y)
+            guard moved > 3 else { continue }
+            let item = NSPasteboardItem()
+            item.setString(field.formattedAddress(at: index), forType: .string)
+            let dragging = NSDraggingItem(pasteboardWriter: item)
+            dragging.setDraggingFrame(rect, contents: tokenImage(rect))
+            draggedIndex = index
+            beginDraggingSession(with: [dragging], event: mouseDown, source: self)
+            return
+        }
+    }
+
+    private var draggedIndex: Int?
+
+    private func tokenImage(_ rect: NSRect) -> NSImage {
+        let image = NSImage(size: rect.size)
+        if let rep = bitmapImageRepForCachingDisplay(in: rect) {
+            cacheDisplay(in: rect, to: rep)
+            image.addRepresentation(rep)
+        }
+        return image
+    }
+
+    // MARK: Dropping
+
+    /// Files dropped on a recipient row are attachments like anywhere else in the window: the composer content
+    /// view takes them, since a view that registers for a drag type keeps it from its ancestors.
+    private var fileDropTarget: ComposeContentView? {
+        sequence(first: superview, next: { $0?.superview }).lazy.compactMap { $0 as? ComposeContentView }.first
+    }
+
+    private func carriesFiles(_ sender: NSDraggingInfo) -> Bool {
+        sender.draggingPasteboard.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true])
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        if let sender, carriesFiles(sender) { fileDropTarget?.draggingExited(sender) }
+    }
+
+    override func draggingEnded(_ sender: NSDraggingInfo) {
+        if carriesFiles(sender) { fileDropTarget?.draggingEnded(sender) }
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        if carriesFiles(sender) { return fileDropTarget?.draggingEntered(sender) ?? [] }
+        guard let field, !field.isLocked, sender.draggingPasteboard.string(forType: .string) != nil else { return [] }
+        return (sender.draggingSource as? TokenDocumentView).map { $0 === self ? [] : NSDragOperation.move } ?? .copy
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        draggingEntered(sender)
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        if carriesFiles(sender) { return fileDropTarget?.performDragOperation(sender) ?? false }
+        guard let field, let text = sender.draggingPasteboard.string(forType: .string) else { return false }
+        return field.acceptDroppedText(text)
+    }
+}
+
+extension TokenDocumentView: NSDraggingSource {
+    func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+        context == .withinApplication ? [.move, .copy] : .copy
+    }
+
+    func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        defer { draggedIndex = nil }
+        guard operation == .move, let index = draggedIndex else { return }
+        field?.removeToken(at: index)
+    }
+}
+
+/// The text being typed after the tokens: borderless, `body`, an `accent` caret, no ring of its own (the row
+/// draws the inset ring).
+@MainActor
+final class TokenInputField: NSTextField {
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        isBordered = false
+        isBezeled = false
+        drawsBackground = false
+        focusRingType = .none
+        font = QuireFont.font(.body)
+        textColor = .qInk
+        lineBreakMode = .byClipping
+        cell?.usesSingleLineMode = true
+        cell?.isScrollable = true
+        cell?.wraps = false
+        setAccessibilityLabel("Recipients")
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("TokenInputField is built in code")
+    }
+
+    /// Where the typed text starts, in this field's coordinates (the cell's text inset).
+    var textStartX: CGFloat {
+        let rect = cell?.drawingRect(forBounds: bounds) ?? bounds
+        return rect.minX + 2
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        if accepted, let editor = currentEditor() as? NSTextView {
+            editor.insertionPointColor = .qAccent
+        }
+        return accepted
     }
 }

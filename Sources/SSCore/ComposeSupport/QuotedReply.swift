@@ -10,7 +10,7 @@ import SwiftSoup
 /// turns inline references back into `cid:` URLs and drops the style blocks; the composer re-attaches the
 /// parts the `cid:` references name (see `partsToCarry`) so they resolve again.
 public enum QuotedReply {
-    public struct Rendering: Hashable, Sendable {
+    public struct Rendering: Hashable, Codable, Sendable {
         public var html: String
         public var text: String
         /// The attribution ("On …, X wrote:" or the forward header block) on its own, so a composer can
@@ -18,11 +18,27 @@ public enum QuotedReply {
         public var header: String
         /// The original's plain text without quote prefixes, for the same preview.
         public var originalText: String
-        public init(html: String, text: String, header: String = "", originalText: String = "") {
+        /// Who wrote the original, as a person reads it: the display name, else the address.
+        public var author: String
+        /// When the original was sent; nil for renderings made without one.
+        public var date: Date?
+        public init(html: String, text: String, header: String = "", originalText: String = "", author: String = "",
+                    date: Date? = nil) {
             self.html = html
             self.text = text
             self.header = header
             self.originalText = originalText
+            self.author = author
+            self.date = date
+        }
+
+        /// The composer's line beside the folded original (spec §5.15): “Ben Carter wrote on Yesterday 23:39”,
+        /// the date as the reader writes it. Falls back to the attribution header without an author or date.
+        public func foldedAttribution(now: Date = Date(), calendar: Calendar = .current, locale: Locale = .current,
+                                      timeZone: TimeZone = .current) -> String {
+            guard !author.isEmpty, let date else { return header }
+            let when = RenderPayloadBuilder(calendar: calendar, locale: locale, timeZone: timeZone).dateDisplay(for: date, now: now)
+            return "\(author) wrote on \(when)"
         }
     }
 
@@ -50,7 +66,8 @@ public enum QuotedReply {
         let html = "<div class=\"\(headerClass)\">" + ComposerHTMLExporter.escape(headerText) + "</div>"
             + "<blockquote class=\"\(quoteClass)\">" + sendableHTML(body.renderedHTML, of: original.id) + "</blockquote>"
         let text = headerText + "\n" + quotePlainText(body.plainText)
-        return Rendering(html: html, text: text, header: headerText, originalText: body.plainText)
+        return Rendering(html: html, text: text, header: headerText, originalText: body.plainText,
+                         author: authorName(original.from), date: original.date)
     }
 
     public static func forward(original: MessageMetadata, body: StoredBody, locale: Locale = .current, timeZone: TimeZone = .current) -> Rendering {
@@ -70,7 +87,8 @@ public enum QuotedReply {
 
         let headerText = rule + "\n" + fields.map { "\($0.label): \($0.value)" }.joined(separator: "\n")
         let text = headerText + "\n\n" + body.plainText
-        return Rendering(html: html, text: text, header: headerText, originalText: body.plainText)
+        return Rendering(html: html, text: text, header: headerText, originalText: body.plainText,
+                         author: authorName(original.from), date: original.date)
     }
 
     /// "Nov 1, 2026 at 10:04" in the user's locale: readable, and recognizable to other clients' quote detectors.
@@ -81,6 +99,13 @@ public enum QuotedReply {
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
         return formatter.string(from: date)
+    }
+
+    /// The name a person would say: the display name, else the address.
+    public static func authorName(_ address: EmailAddress?) -> String {
+        guard let address else { return "" }
+        if let name = address.name?.trimmingCharacters(in: .whitespaces), !name.isEmpty { return name }
+        return address.address
     }
 
     public static func displayString(_ address: EmailAddress?) -> String {

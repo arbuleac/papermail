@@ -7,12 +7,15 @@ final class ComposeWindowRegistry {
     static let shared = ComposeWindowRegistry()
 
     private var controllers: [ObjectIdentifier: ComposeWindowController] = [:]
-    private var panels: [ObjectIdentifier: UndoSendPanel] = [:]
+    /// In the order they were shown: the first sits lowest in the stack.
+    private var panels: [UndoSendPanel] = []
     private var lastCascadePoint = NSPoint.zero
 
     var openControllers: [ComposeWindowController] {
         Array(controllers.values)
     }
+
+    var livePanels: [UndoSendPanel] { panels }
 
     func register(_ controller: ComposeWindowController) {
         controllers[ObjectIdentifier(controller)] = controller
@@ -23,16 +26,17 @@ final class ComposeWindowRegistry {
     }
 
     func register(_ panel: UndoSendPanel) {
-        panels[ObjectIdentifier(panel)] = panel
+        guard !panels.contains(where: { $0 === panel }) else { return }
+        panels.append(panel)
     }
 
     func unregister(_ panel: UndoSendPanel) {
-        panels[ObjectIdentifier(panel)] = nil
+        panels.removeAll { $0 === panel }
     }
 
-    /// Stacking position for a new panel so simultaneous undo panels do not cover each other.
+    /// Stacking position for a panel: how many panels were shown before it and are still up.
     func slot(for panel: UndoSendPanel) -> Int {
-        panels.values.filter { $0 !== panel && $0.isVisible }.count
+        panels.firstIndex { $0 === panel } ?? panels.count
     }
 
     /// Offsets each new composer from the previous one, the way document windows cascade.

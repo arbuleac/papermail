@@ -143,7 +143,13 @@ open class QuireControl: NSControl {
     /// responder is shown in a window that is not key, §3.4).
     public var showsFocusRing: Bool {
         if let forced = displayState { return forced == .focused }
-        return isEnabled && hasKeyboardFocus && isWindowKey
+        return drawsFocusRing && isEnabled && hasKeyboardFocus && isWindowKey
+    }
+
+    /// False when a container draws this control's focus instead: the composer's From popup sits in a
+    /// borderless field row whose inset ring shows its focus (§4.1, §5.20), so it must not ring itself too.
+    public var drawsFocusRing = true {
+        didSet { if oldValue != drawsFocusRing { stateDidChange() } }
     }
 
     /// Redraws and lets layer-backed subclasses restyle. Called for every change of what the control shows.

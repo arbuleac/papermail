@@ -16,8 +16,10 @@ enum DraftReopener {
         } else if let extracted = body?.plainText, !extracted.isEmpty {
             text = extracted
         }
+        // A fresh identity in ComposeDraftStore: the store keeps drafts written on this Mac, and this one is the
+        // provider's copy, so it is not one of them until the composer keeps it.
         let draft = ComposeDraft(
-            mode: .new, account: account, to: message.to, cc: message.cc, bcc: message.bcc, subject: message.subject,
+            id: UUID(), mode: .new, account: account, to: message.to, cc: message.cc, bcc: message.bcc, subject: message.subject,
             body: NSAttributedString(string: text), attachments: [], quoted: nil, threading: nil
         )
         ComposeWindowController.present(client: client, accounts: accounts, draft: draft)

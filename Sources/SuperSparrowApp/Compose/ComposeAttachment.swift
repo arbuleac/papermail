@@ -1,5 +1,6 @@
 import Foundation
 import SSCore
+import SSDesign
 import UniformTypeIdentifiers
 
 /// A file the user attached (still on disk until send) or bytes already in memory (forwarded parts).
@@ -12,6 +13,20 @@ struct ComposeAttachment: Identifiable, Hashable, Sendable {
         case data(Data)
     }
 
+    /// Where the chip stands (spec §5.22): a forwarded part is fetched after the window opens, and a part or
+    /// file can fail. Failed attachments stay visible, with the problem in the tooltip, and are never sent.
+    enum State: Hashable, Sendable {
+        case ready
+        case loading
+        /// `short` replaces the size on the chip (“Too large”); `detail` is the tooltip.
+        case failed(short: String, detail: String)
+
+        var isFailed: Bool {
+            if case .failed = self { return true }
+            return false
+        }
+    }
+
     let id: UUID
     var filename: String
     var mimeType: String
@@ -19,22 +34,30 @@ struct ComposeAttachment: Identifiable, Hashable, Sendable {
     var source: Source
     /// Present for inline parts referenced as `cid:` from a quoted original. Those never show as chips.
     var contentID: String?
+    var state: State = .ready
 
     var isInline: Bool { contentID != nil }
+    /// Parts still loading or that failed have nothing to send.
+    var isSendable: Bool { state == .ready }
 
-    init(id: UUID = UUID(), filename: String, mimeType: String, sizeBytes: Int, source: Source, contentID: String? = nil) {
+    init(id: UUID = UUID(), filename: String, mimeType: String, sizeBytes: Int, source: Source, contentID: String? = nil,
+         state: State = .ready) {
         self.id = id
         self.filename = filename
         self.mimeType = mimeType
         self.sizeBytes = sizeBytes
         self.source = source
         self.contentID = contentID
+        self.state = state
     }
 
     init(fileURL: URL) throws {
-        let values = try fileURL.resourceValues(forKeys: [.fileSizeKey, .contentTypeKey, .isDirectoryKey, .nameKey])
+        let values = try fileURL.resourceValues(forKeys: [.fileSizeKey, .contentTypeKey, .isDirectoryKey, .nameKey, .isReadableKey])
         if values.isDirectory == true {
-            throw CocoaError(.fileReadUnsupportedScheme)
+            throw AttachError.folder
+        }
+        if values.isReadable == false {
+            throw AttachError.unreadable
         }
         self.init(
             filename: values.name ?? fileURL.lastPathComponent,
@@ -42,6 +65,12 @@ struct ComposeAttachment: Identifiable, Hashable, Sendable {
             sizeBytes: values.fileSize ?? 0,
             source: .file(fileURL)
         )
+    }
+
+    /// Why a dropped item was not attached, so the composer can word the status (§5.20, Rejected drop).
+    enum AttachError: Error {
+        case folder
+        case unreadable
     }
 
     /// A part of a quoted original. `contentID` is the caller's decision (`QuotedReply.partsToCarry`): what
@@ -57,6 +86,18 @@ struct ComposeAttachment: Identifiable, Hashable, Sendable {
         )
     }
 
+    /// The chip shown while a forwarded part is fetched; `info.sizeBytes` is what the original declared.
+    static func loading(info: AttachmentInfo, contentID: String?) -> ComposeAttachment {
+        ComposeAttachment(
+            filename: info.filename.isEmpty ? "attachment" : info.filename,
+            mimeType: info.mimeType.isEmpty ? "application/octet-stream" : info.mimeType,
+            sizeBytes: info.sizeBytes,
+            source: .data(Data()),
+            contentID: contentID,
+            state: .loading
+        )
+    }
+
     /// Reads the bytes. Blocking for file sources; call it off the main thread.
     func loadData() throws -> Data {
         switch source {
@@ -67,6 +108,20 @@ struct ComposeAttachment: Identifiable, Hashable, Sendable {
 
     func outgoing() throws -> OutgoingAttachment {
         OutgoingAttachment(filename: filename, mimeType: mimeType, data: try loadData(), contentID: contentID)
+    }
+
+    /// The chip's type glyph (§5.17's set): document, rich text, image, spreadsheet, archive or video.
+    var symbolName: String {
+        let type = UTType(mimeType: mimeType) ?? UTType(filenameExtension: (filename as NSString).pathExtension) ?? .data
+        if type.conforms(to: .image) { return Quire.Icon.fileImage }
+        if type.conforms(to: .movie) || type.conforms(to: .video) { return Quire.Icon.fileVideo }
+        if type.conforms(to: .archive) || type.conforms(to: .zip) { return Quire.Icon.fileArchive }
+        if type.conforms(to: .spreadsheet) { return Quire.Icon.fileSheet }
+        if type.conforms(to: .rtf) || type.conforms(to: .presentation) || type.identifier.contains("wordprocessingml")
+            || type.identifier == "com.microsoft.word.doc" {
+            return Quire.Icon.fileText
+        }
+        return Quire.Icon.file
     }
 
     static func mimeType(forExtension pathExtension: String) -> String {
