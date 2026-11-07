@@ -192,7 +192,7 @@ final class ComponentBehaviourTests: XCTestCase {
 
     func testTabsChooseEnabledTabsOnly() {
         let target = Target()
-        let tabs = QuireUnderlineTabs(items: [.init("All"), .init("Focused", isEnabled: false), .init("Other")])
+        let tabs = QuireUnderlineTabs(items: [.init("Reply"), .init("Reply all", isEnabled: false), .init("Forward")])
         tabs.target = target
         tabs.action = #selector(Target.fire(_:))
         tabs.choose(1)
@@ -205,7 +205,7 @@ final class ComponentBehaviourTests: XCTestCase {
         XCTAssertEqual(target.count, 1)
         tabs.isEnabled = false
         tabs.choose(0)
-        XCTAssertEqual(tabs.selectedIndex, 2, "first sync: nothing can be chosen")
+        XCTAssertEqual(tabs.selectedIndex, 2, "disabled: nothing can be chosen")
     }
 
     func testIconButtonTogglesWhenAsked() {

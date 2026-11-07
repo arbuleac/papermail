@@ -73,9 +73,8 @@ final class CheatSheetController {
             let key = (event.charactersIgnoringModifiers ?? "").lowercased()
             return !Self.passThroughCommands.contains(key)
         }
-        // ⌥ and ⌃ chords are menu shortcuts too (⌥1–3 pick an Inbox filter); they must not reach the menu
-        // and act behind the sheet. Plain keys inside the panel take the normal path, so the close button
-        // still answers Space.
+        // ⌥ and ⌃ chords are swallowed as well, so no menu shortcut, today's or a later one, acts behind the
+        // sheet. Plain keys inside the panel take the normal path, so the close button still answers Space.
         if let responder = overlay.window?.firstResponder as? NSView, responder === overlay || responder.isDescendant(of: overlay),
            modifiers.isEmpty {
             return false

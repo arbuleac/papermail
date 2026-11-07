@@ -714,16 +714,11 @@ final class MessageListViewController: NSViewController {
         (query.accountIDs?.count ?? accountsByID.count) > 1
     }
 
-    private var showsOtherTag: Bool {
-        query.view == .inbox && query.section == nil && (query.searchText?.isEmpty ?? true)
-    }
-
     private func context(forConversation index: Int) -> ConversationRowText.Context {
         let summary = conversations[index]
         return ConversationRowText.Context(
             kind: rowKind,
             timeStyle: layout.timeStyles.indices.contains(index) ? layout.timeStyles[index] : .relative,
-            showsOtherTag: showsOtherTag,
             ownAddresses: ownAddresses,
             accountName: accountNames[summary.id.accountID]
         )

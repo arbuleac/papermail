@@ -10,7 +10,8 @@ public enum MailboxRole: String, Codable, Sendable, CaseIterable {
     case spam
 }
 
-/// Gmail categories (Primary vs the rest) and Outlook Focused Inbox, folded into one bit.
+/// Gmail categories (Primary vs the rest) and Outlook Focused Inbox, folded into one bit. Stored to round-trip
+/// provider state; the app neither filters nor marks rows by it (spec §5.5).
 public enum InboxSection: String, Codable, Sendable {
     case focused
     case other

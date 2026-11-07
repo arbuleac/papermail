@@ -11,11 +11,6 @@ final class ListEmptyStateTests: XCTestCase {
 
     func testEveryViewHasItsPair() {
         XCTAssertEqual(state(.inbox), ListEmptyState(sentence: "Nothing left to read.", hint: "New mail will land here.", glyph: .sparrow))
-        XCTAssertEqual(state(.inbox, section: .focused),
-                       ListEmptyState(sentence: "Nothing in Focused",
-                                      hint: "Mail from people lands here; newsletters and notifications go to Other."))
-        XCTAssertEqual(state(.inbox, section: .other),
-                       ListEmptyState(sentence: "Nothing in Other", hint: "Newsletters and notifications land here."))
         XCTAssertEqual(state(.starred), ListEmptyState(sentence: "No starred conversations", hint: "Press S to star one."))
         XCTAssertEqual(state(.sent), ListEmptyState(sentence: "No sent mail", hint: "Messages you send appear here."))
         XCTAssertEqual(state(.drafts), ListEmptyState(sentence: "Nothing in Drafts", hint: "Drafts you start here are kept on this Mac."))
@@ -28,7 +23,14 @@ final class ListEmptyStateTests: XCTestCase {
         for view in MailboxView.allCases where view != .inbox {
             XCTAssertNil(state(view).glyph, "\(view)")
         }
-        XCTAssertNil(state(.inbox, section: .focused).glyph)
+    }
+
+    /// There is no Focused or Other list any more (spec §5.5): a query that still names a section, which the
+    /// shell never builds, says what the whole Inbox says.
+    func testAnInboxSectionSaysWhatTheInboxSays() {
+        let inbox = state(.inbox)
+        XCTAssertEqual(state(.inbox, section: .focused), inbox)
+        XCTAssertEqual(state(.inbox, section: .other), inbox)
     }
 
     func testSearchWinsAndQuotesTheQuery() {

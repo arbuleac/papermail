@@ -1,48 +1,50 @@
 import AppKit
 import SSDesign
 
-/// The list header (spec §5.3–§5.6): 92 pt on `paper`, its bottom hairline on the horizon.
+/// The list header (spec §5.3, §5.6): one 52 pt row on `paper`, the title-bar zone itself, with its bottom
+/// hairline at 52. Everything sits on the traffic lights' centre line (y = 26): the masthead (a plain title while
+/// the rail shows, the title menu's button in minimal mode), then, only when they apply, the minimal-mode new-mail
+/// dot, the Demo tag and the narrowed account's address, then the search field in the free width, then compose.
 ///
-/// Row 1 is the 52 pt title-bar zone: the masthead centred on the traffic lights' line (y = 26), then, only when
-/// they apply, the minimal-mode new-mail dot, the Demo tag and the narrowed account's address, and the compose
-/// button at the trailing edge. Row 2 (40 pt) holds the filter tabs at x = 16 (Inbox only) and the search field
-/// trailing; without tabs the search spans the row. Row 2 never drags the window.
+/// The search field keeps its 140 pt minimum while anything can make room for it: first the address (it truncates,
+/// and below 40 pt drops out whole, the placeholder then naming the account), then the Demo tag, which steps off the
+/// line whole. The masthead text, the chevron and the dot never give way; only when they alone leave less
+/// than the minimum does the field narrow, and it never starts before the cluster ends.
 @MainActor
 final class ListHeaderView: NonDraggingView {
     let masthead = MastheadButton(frame: .zero)
     let demoTag = DemoTagButton(frame: .zero)
     let compose = QuireIconButton(symbolName: Quire.Icon.compose, size: .large, accessibilityLabel: "New Message")
-    let tabs = QuireUnderlineTabs(titles: ["All", "Focused", "Other"], style: .filter)
     let search = QuireSearchField(placeholder: "Search")
 
-    private let rowOne = HeaderRowOne()
-    private let rowTwo = NonDraggingView()
+    private let row = HeaderRow()
 
     /// Where the masthead text starts: 16, or rail width + 8 while the rail is hidden.
     var mastheadX: CGFloat = Quire.Layout.ListHeader.mastheadX { didSet { if oldValue != mastheadX { needsLayout = true } } }
-    var showsTabs = true { didSet { if oldValue != showsTabs { needsLayout = true; updateTabsVisibility() } } }
     var showsDemoTag = false { didSet { if oldValue != showsDemoTag { demoTag.isHidden = !showsDemoTag; needsLayout = true } } }
     var showsNewMailDot = false { didSet { if oldValue != showsNewMailDot { needsLayout = true } } }
     /// The narrowed account's address, shown as “· alex@contoso.test”.
-    var address: String? { didSet { if oldValue != address { rowOne.address = address.map { "· " + $0 }; needsLayout = true } } }
+    var address: String? { didSet { if oldValue != address { row.address = address.map { "· " + $0 }; needsLayout = true } } }
+    /// The narrowed account's name (“Contoso”). While the line has no room for the address the placeholder names the
+    /// account instead (“Search Contoso”, or “Contoso” in a field too narrow for that), so the scope stays on screen
+    /// in minimal mode, where nothing else shows it.
+    var accountName: String? { didSet { if oldValue != accountName { needsLayout = true } } }
+    /// The view's placeholder (“Search”, “Search Starred”, “Search Inbox”, §5.6).
+    var searchPlaceholder = "Search" { didSet { if oldValue != searchPlaceholder { needsLayout = true } } }
 
-    /// The search field covers the row: while it has focus, and while it keeps a query.
-    private(set) var isSearchExpanded = false
-    private var isAnimatingSearch = false
+    /// The address as it is drawn now: its full width, and the part of it the search field leaves (0 hides it).
+    private(set) var addressWidths: (natural: CGFloat, shown: CGFloat) = (0, 0)
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         compose.symbolSize = .custom(Quire.Layout.ListHeader.composeGlyph)
         compose.toolTip = "New Message  C"
         demoTag.isHidden = true
-        search.wantsLayer = true
-        addSubview(rowOne)
-        addSubview(rowTwo)
-        rowOne.addSubview(masthead)
-        rowOne.addSubview(demoTag)
-        rowOne.addSubview(compose)
-        rowTwo.addSubview(tabs)
-        rowTwo.addSubview(search)
+        addSubview(row)
+        row.addSubview(masthead)
+        row.addSubview(demoTag)
+        row.addSubview(search)
+        row.addSubview(compose)
         NotificationCenter.default.addObserver(self, selector: #selector(environmentDidChange(_:)),
                                                name: QuireEnvironment.didChangeNotification, object: nil)
     }
@@ -64,8 +66,7 @@ final class ListHeaderView: NonDraggingView {
         super.layout()
         let h = Quire.Layout.ListHeader.self
         let width = bounds.width
-        rowOne.frame = NSRect(x: 0, y: 0, width: width, height: h.row1)
-        rowTwo.frame = NSRect(x: 0, y: h.row1, width: width, height: h.row2)
+        row.frame = NSRect(x: 0, y: 0, width: width, height: h.height)
 
         let composeRect = NSRect(x: width - h.composeTrailing - h.composeSize, y: h.composeTop, width: h.composeSize, height: h.composeSize)
         compose.frame = compose.frame(forVisualRect: composeRect)
@@ -78,74 +79,56 @@ final class ListHeaderView: NonDraggingView {
         if showsNewMailDot {
             let dot = NSRect(x: cursor + h.minimalDotGap, y: h.mastheadCenterY - h.minimalDotSize / 2,
                              width: h.minimalDotSize, height: h.minimalDotSize)
-            rowOne.dotRect = dot
+            row.dotRect = dot
             cursor = dot.maxX
         } else {
-            rowOne.dotRect = nil
+            row.dotRect = nil
         }
+        // Search runs from the cluster (+ 12) to compose (− 8). The Demo tag stays on the line only while the field
+        // keeps its minimum beside it; off the line, the window title and the sync line still say Demo (§5.43).
+        let searchEnd = composeRect.minX - h.searchComposeGap
+        var tagShown = false
         if showsDemoTag {
             let size = demoTag.intrinsicContentSize
             let tag = NSRect(x: cursor + h.demoTagGap, y: h.mastheadCenterY - size.height / 2, width: size.width, height: size.height)
-            demoTag.frame = demoTag.frame(forVisualRect: tag)
-            cursor = tag.maxX
-        }
-        let lineHeight = QuireFont.Role.snippet.lineHeight
-        let addressX = cursor + h.addressGap
-        rowOne.addressRect = NSRect(x: addressX, y: (h.mastheadCenterY - lineHeight / 2).rounded(),
-                                    width: max(0, composeRect.minX - 8 - addressX), height: lineHeight)
-
-        let tabsSize = tabs.intrinsicContentSize
-        tabs.frame = tabs.frame(forVisualRect: NSRect(x: h.tabsX, y: 0, width: tabsSize.width, height: h.row2))
-        if !isAnimatingSearch { search.frame = search.frame(forVisualRect: searchRect(expanded: isSearchExpanded)) }
-    }
-
-    /// The field's visual rect in row 2: 168 × 26 at rest, trailing 12, top 59; the full row (inset 12) when
-    /// expanded or when the view has no tabs.
-    private func searchRect(expanded: Bool) -> NSRect {
-        let h = Quire.Layout.ListHeader.self
-        let top = h.searchTop - h.row1
-        if expanded || !showsTabs {
-            let inset = Quire.Layout.Search.expandedInset
-            return NSRect(x: inset, y: top, width: max(0, bounds.width - 2 * inset), height: h.searchHeight)
-        }
-        return NSRect(x: bounds.width - h.searchTrailing - h.searchWidth, y: top, width: h.searchWidth, height: h.searchHeight)
-    }
-
-    // MARK: Search expansion
-
-    /// Grows the field over the tabs or returns it to 168 pt (`dur.standard`, `ease.glide`; a cross-fade under
-    /// Reduce Motion). Only the field animates; the list does not move.
-    func setSearchExpanded(_ expanded: Bool, animated: Bool = true) {
-        guard expanded != isSearchExpanded else { return }
-        isSearchExpanded = expanded
-        let target = search.frame(forVisualRect: searchRect(expanded: expanded))
-        if !expanded { updateTabsVisibility() }
-        guard animated, window != nil, showsTabs else {
-            search.frame = target
-            updateTabsVisibility()
-            return
-        }
-        isAnimatingSearch = true
-        Quire.Motion.run(Quire.Motion.standard, .glide, reduced: .fade, participants: [search], animations: { plan in
-            if plan.isReduced {
-                self.search.frame = target
-                self.search.alphaValue = 0
-                self.search.animator().alphaValue = 1
-            } else {
-                self.search.animator().frame = target
+            if searchEnd - (tag.maxX + h.searchGap) >= h.searchMinWidth {
+                demoTag.frame = demoTag.frame(forVisualRect: tag)
+                cursor = tag.maxX
+                tagShown = true
             }
-        }, completion: { [weak self] in
-            guard let self else { return }
-            self.isAnimatingSearch = false
-            self.search.alphaValue = 1
-            self.search.frame = self.search.frame(forVisualRect: self.searchRect(expanded: self.isSearchExpanded))
-            self.updateTabsVisibility()
-        })
-    }
+        }
+        demoTag.isHidden = !tagShown
 
-    /// Tabs show in Inbox while the field rests; an expanded field covers them, so they leave the key loop too.
-    private func updateTabsVisibility() {
-        tabs.isHidden = !showsTabs || (isSearchExpanded && !isAnimatingSearch)
+        // The address takes only what the field's minimum leaves. A lone “· a…” names nothing, so below its own
+        // minimum it drops out whole; and it gives way before the Demo tag, so it stays off while the tag is.
+        let addressX = cursor + h.addressGap
+        let natural = row.addressNaturalWidth
+        let room = searchEnd - h.searchMinWidth - h.searchGap - addressX
+        var shown: CGFloat = 0
+        if natural > 0, showsDemoTag == tagShown {
+            if room >= natural {
+                shown = natural
+            } else if room >= h.addressMinWidth {
+                shown = room
+            }
+        }
+        addressWidths = (natural, shown)
+        let lineHeight = QuireFont.Role.snippet.lineHeight
+        row.addressRect = NSRect(x: addressX, y: (h.mastheadCenterY - lineHeight / 2).rounded(), width: shown, height: lineHeight)
+
+        // Never under the cluster: what the masthead, chevron and dot leave is the field's, even below its minimum.
+        let searchStart = shown > 0 ? addressX + shown + h.searchGap : cursor + h.searchGap
+        let searchWidth = max(0, searchEnd - searchStart)
+        search.frame = search.frame(forVisualRect: NSRect(x: searchStart, y: h.searchTop, width: searchWidth, height: h.searchHeight))
+        // With the address off the line the placeholder names the account; when “Search Contoso” would be cut, the
+        // name alone, since the magnifier already says search and a cut name may no longer tell two accounts apart.
+        var placeholder = searchPlaceholder
+        if address != nil, shown == 0, let accountName {
+            let scoped = "Search " + accountName
+            placeholder = search.fitsPlaceholder(scoped) ? scoped : accountName
+        }
+        if search.placeholder != placeholder { search.placeholder = placeholder }
+        search.allowsKeycap = placeholder != accountName
     }
 
     // MARK: Drawing
@@ -161,8 +144,8 @@ final class ListHeaderView: NonDraggingView {
     @objc private func environmentDidChange(_ note: Notification) {
         needsDisplay = true
         needsLayout = true
-        // Row 1 draws the new-mail dot (`accent`, which Graphite changes) and the address itself.
-        rowOne.needsDisplay = true
+        // The row draws the new-mail dot (`accent`, which Graphite changes) and the address itself.
+        row.needsDisplay = true
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -176,18 +159,27 @@ final class ListHeaderView: NonDraggingView {
     }
 }
 
-/// Row 1 of the header: the title-bar zone, with the minimal-mode dot and the narrowed address drawn in it.
+/// The header's one row: the title-bar zone, with the minimal-mode dot and the narrowed address drawn in it.
 @MainActor
-private final class HeaderRowOne: TitleBarZoneView {
+private final class HeaderRow: TitleBarZoneView {
     var dotRect: NSRect? { didSet { if oldValue != dotRect { needsDisplay = true } } }
     var addressRect: NSRect = .zero { didSet { if oldValue != addressRect { needsDisplay = true } } }
     var address: String? { didSet { if oldValue != address { needsDisplay = true } } }
 
+    private func addressText(_ address: String) -> NSAttributedString {
+        QuireFont.attributedString(address, role: .snippet, color: .qInk3)
+    }
+
+    /// The address's untruncated width; 0 without one.
+    var addressNaturalWidth: CGFloat {
+        guard let address else { return 0 }
+        return ceil(addressText(address).size().width)
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         if let dotRect { QuireDraw.fillCircle(dotRect, .qAccent) }
-        if let address, addressRect.width > 0 {
-            let text = QuireFont.attributedString(address, role: .snippet, color: .qInk3)
-            text.draw(with: addressRect, options: QuireFont.drawingOptions, context: nil)
+        if let address, addressRect.width >= 1 {
+            addressText(address).draw(with: addressRect, options: QuireFont.drawingOptions, context: nil)
         }
     }
 

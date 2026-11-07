@@ -15,15 +15,19 @@ enum AccountScope: Hashable {
     }
 }
 
-/// The account rail (spec §5.2): an opaque `spine` column with the traffic lights in its title-bar zone, All
-/// Inboxes at y = 62, a short hairline at 116, the account tiles from 130 at a 50 pt pitch, and Add and
-/// Settings pinned to the bottom. The selection is the margin rule at x = 0.
+/// The rail (spec §5.2): an opaque `spine` column with the traffic lights in its title-bar zone, the six views as
+/// folder tiles from y = 62 (Inbox to Trash at a 44 pt pitch, a short hairline, All Mail), and at its foot the
+/// account group anchored just above Add: All Inboxes, a short hairline, the account tiles at a 50 pt pitch, then
+/// Add and Settings. The view's selection is a raised folder tile; the scope's is the margin rule at x = 0.
 ///
-/// The account stack scrolls inside a clip from y = 124 down to 12 pt above Add, so tiles never overlap the
-/// utilities; while tiles are clipped a hairline marks the clipped edge.
+/// The account group rises as accounts are added until All Inboxes would come within `groupGap` of All Mail;
+/// from then on the account tiles scroll inside their own clip, which ends 12 pt above Add, so tiles never
+/// overlap the folders or the utilities. While tiles are clipped a hairline marks the clipped edge.
 @MainActor
 final class AccountStripViewController: NSViewController {
     var onSelect: ((AccountScope) -> Void)?
+    /// A folder tile was clicked or chosen with ↑/↓: switch the view as the title menu does.
+    var onSelectView: ((MailboxView) -> Void)?
     /// Add's menu picked a provider (§5.44).
     var onAddAccount: ((ProviderKind) -> Void)?
     var onOpenSettings: (() -> Void)?
@@ -35,9 +39,12 @@ final class AccountStripViewController: NSViewController {
 
     private(set) var accounts: [Account] = []
     private(set) var scope: AccountScope = .unified
+    private(set) var mailboxView: MailboxView = .inbox
 
     private let railView = RailView()
     private let zone = TitleBarZoneView()
+    /// One tile per view, in the title menu's order.
+    private(set) var folderTiles: [AccountStripButton] = []
     private let unifiedTile = AccountStripButton(content: .unified)
     private let scrollView = NSScrollView()
     private let stackView = NonDraggingView()
@@ -63,6 +70,20 @@ final class AccountStripViewController: NSViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(clipDidScroll(_:)),
                                                name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
 
+        railView.addSubview(zone)
+        for entry in TitleMenu.entries {
+            let tile = AccountStripButton(content: .folder(symbol: entry.symbol))
+            tile.toolTip = "\(entry.title)  \(entry.sequence)"
+            tile.setAccessibilityLabel(entry.title)
+            tile.isSelected = entry.view == mailboxView
+            tile.target = self
+            tile.action = #selector(folderClicked(_:))
+            let view = entry.view
+            tile.onArrow = { [weak self] delta in self?.moveView(from: view, by: delta) }
+            railView.addSubview(tile)
+            folderTiles.append(tile)
+        }
+
         unifiedTile.toolTip = "All Inboxes  ⌘0"
         unifiedTile.setAccessibilityLabel("All Inboxes")
         unifiedTile.isSelected = true
@@ -77,7 +98,6 @@ final class AccountStripViewController: NSViewController {
         settingsButton.target = self
         settingsButton.action = #selector(settingsClicked(_:))
 
-        railView.addSubview(zone)
         railView.addSubview(unifiedTile)
         railView.addSubview(scrollView)
         railView.addSubview(addButton)
@@ -88,6 +108,43 @@ final class AccountStripViewController: NSViewController {
 
     // MARK: Layout
 
+    /// The top edge of folder tile `index` (0 is Inbox): Inbox to Trash at the folder pitch, All Mail below the
+    /// folders' hairline.
+    static func folderTop(at index: Int) -> CGFloat {
+        let r = Quire.Layout.Rail.self
+        return index == TitleMenu.entries.count - 1 ? r.allMailTop : r.folderTop + CGFloat(index) * r.folderPitch
+    }
+
+    /// Where the account group sits in a rail `railHeight` tall with `tileCount` tiles (accounts and the pending
+    /// tile), all values top edges in rail coordinates (§5.2).
+    struct AccountGroupLayout: Equatable {
+        var unifiedTop: CGFloat
+        var dividerY: CGFloat
+        /// The account tiles' clip: from `stackInset` above the first tile to 12 pt above Add.
+        var clipTop: CGFloat
+        var clipBottom: CGFloat
+        /// The tiles' own height inside the clip, `stackInset` at both ends included.
+        var contentHeight: CGFloat
+
+        var scrolls: Bool { contentHeight > clipBottom - clipTop + 0.5 }
+    }
+
+    static func accountGroupLayout(railHeight: CGFloat, tileCount: Int) -> AccountGroupLayout {
+        let r = Quire.Layout.Rail.self
+        let clipBottom = railHeight - r.addTopFromBottom - r.stackBottomGap
+        let others = CGFloat(max(0, tileCount - 1)) * r.accountPitch
+        // Anchored above Add: the last tile ends `stackInset` inside the clip's bottom.
+        let naturalFirstTop = clipBottom - r.stackInset - r.tile - others
+        let naturalUnifiedTop = naturalFirstTop - r.accountGap - r.dividerGap - r.tile
+        // …but never closer than `groupGap` to All Mail: from there on the tiles scroll.
+        let unifiedTop = max(r.allMailTop + r.tile + r.groupGap, naturalUnifiedTop)
+        let dividerY = unifiedTop + r.tile + r.dividerGap
+        let clipTop = dividerY + r.accountGap - r.stackInset
+        let content = tileCount == 0 ? 0 : 2 * r.stackInset + others + r.tile
+        return AccountGroupLayout(unifiedTop: unifiedTop, dividerY: dividerY, clipTop: clipTop,
+                                  clipBottom: max(clipTop, clipBottom), contentHeight: content)
+    }
+
     private func layoutRail() {
         // Centred on the whole rail, its trailing hairline included (§3.2: x = width / 2), not on this pane,
         // which ends where the split's divider (that hairline) begins.
@@ -96,7 +153,9 @@ final class AccountStripViewController: NSViewController {
         let r = Quire.Layout.Rail.self
         let margin = AccountStripButton.verticalMargin
         zone.frame = NSRect(x: 0, y: 0, width: width, height: Quire.Layout.Window.titlebarZone)
-        unifiedTile.frame = NSRect(x: 0, y: r.unifiedTop - margin, width: width, height: AccountStripButton.height)
+        for (index, tile) in folderTiles.enumerated() {
+            tile.frame = NSRect(x: 0, y: Self.folderTop(at: index) - margin, width: width, height: AccountStripButton.height)
+        }
 
         let utility = r.utility
         let utilityX = ((width - utility) / 2).rounded()
@@ -105,17 +164,19 @@ final class AccountStripViewController: NSViewController {
         settingsButton.frame = settingsButton.frame(forVisualRect: NSRect(x: utilityX, y: height - r.settingsTopFromBottom,
                                                                           width: utility, height: utility))
 
-        let clipTop = r.accountTop - r.stackTopInset
-        let clipHeight = max(0, addTop - r.stackBottomGap - clipTop)
-        scrollView.frame = NSRect(x: 0, y: clipTop, width: width, height: clipHeight)
         let tiles = orderedTiles
-        let contentHeight = tiles.isEmpty ? 0 : r.stackTopInset + CGFloat(tiles.count - 1) * r.accountPitch + r.tile + r.stackBottomGap
-        stackView.frame = NSRect(x: 0, y: 0, width: width, height: max(clipHeight, contentHeight))
+        let group = Self.accountGroupLayout(railHeight: height, tileCount: tiles.count)
+        unifiedTile.frame = NSRect(x: 0, y: group.unifiedTop - margin, width: width, height: AccountStripButton.height)
+        let clipHeight = group.clipBottom - group.clipTop
+        scrollView.frame = NSRect(x: 0, y: group.clipTop, width: width, height: clipHeight)
+        stackView.frame = NSRect(x: 0, y: 0, width: width, height: max(clipHeight, group.contentHeight))
         for (index, tile) in tiles.enumerated() {
-            let top = r.stackTopInset + CGFloat(index) * r.accountPitch
+            let top = r.stackInset + CGFloat(index) * r.accountPitch
             tile.frame = NSRect(x: 0, y: top - margin, width: width, height: AccountStripButton.height)
         }
-        railView.dividerRect = NSRect(x: ((width - r.dividerWidth) / 2).rounded(), y: r.dividerY, width: r.dividerWidth, height: 1)
+        let dividerX = ((width - r.dividerWidth) / 2).rounded()
+        railView.dividerRects = [NSRect(x: dividerX, y: r.folderDividerY, width: r.dividerWidth, height: 1),
+                                 NSRect(x: dividerX, y: group.dividerY, width: r.dividerWidth, height: 1)]
         updateClipEdges()
     }
 
@@ -125,6 +186,23 @@ final class AccountStripViewController: NSViewController {
     /// Account tiles in rail order, then the pending tile.
     private var orderedTiles: [AccountStripButton] {
         accounts.compactMap { accountTiles[$0.id] } + (pendingTile.map { [$0] } ?? [])
+    }
+
+    /// The account tiles' clip, in rail coordinates (the app's tests check what it shows).
+    var accountClipFrame: NSRect { scrollView.frame }
+
+    /// The account and pending tiles' 38 pt squares in rail coordinates, as drawn now (scrolled or not).
+    var accountTileRects: [NSRect] {
+        view.layoutSubtreeIfNeeded()
+        return orderedTiles.map { $0.convert($0.tileRect, to: railView) }
+    }
+
+    /// The tile `scope` selects (All Inboxes or an account), for the app's tests.
+    func tile(for scope: AccountScope) -> AccountStripButton? {
+        switch scope {
+        case .unified: return unifiedTile
+        case .account(let id): return accountTiles[id]
+        }
     }
 
     @objc private func clipDidScroll(_ note: Notification) {
@@ -139,6 +217,10 @@ final class AccountStripViewController: NSViewController {
         let clippedAbove = clip.minY > 0.5
         railView.clipEdges = (top: clippedAbove ? frame.minY : nil, bottom: clippedBelow ? frame.maxY : nil)
     }
+
+    /// The clipped-edge hairlines drawn now, for tests: the clip's top once scrolled, its bottom while tiles
+    /// are hidden below.
+    var clipEdges: (top: CGFloat?, bottom: CGFloat?) { railView.clipEdges }
 
     // MARK: Accounts
 
@@ -169,6 +251,11 @@ final class AccountStripViewController: NSViewController {
         tile.action = #selector(tileClicked(_:))
         stackView.addSubview(tile)
         return tile
+    }
+
+    /// The Inbox tile's badge: the unread Inbox count of the current scope, as the title menu's Inbox item shows.
+    func setInboxUnread(_ count: Int) {
+        folderTiles.first?.unreadCount = count
     }
 
     func setUnreadCounts(unified: Int, perAccount: [AccountID: Int]) {
@@ -234,6 +321,23 @@ final class AccountStripViewController: NSViewController {
 
     // MARK: Selection
 
+    /// Shows `view` as the selected folder. `notify` is for the rail's own clicks and arrows; the window calls
+    /// it without, whenever the view changes from anywhere (G-sequences, menus, a notification).
+    func selectView(_ view: MailboxView, notify: Bool) {
+        mailboxView = view
+        for (entry, tile) in zip(TitleMenu.entries, folderTiles) { tile.isSelected = entry.view == view }
+        if notify { onSelectView?(view) }
+    }
+
+    /// ↑/↓ on a focused folder: choose the neighbour view and keep the keyboard on its tile.
+    private func moveView(from current: MailboxView, by delta: Int) {
+        guard let index = TitleMenu.entries.firstIndex(where: { $0.view == current }) else { return }
+        let next = index + delta
+        guard TitleMenu.entries.indices.contains(next) else { return }
+        selectView(TitleMenu.entries[next].view, notify: true)
+        view.window?.makeFirstResponder(folderTiles[next])
+    }
+
     /// ⌘0 is All Inboxes; ⌘1…⌘9 are accounts in rail order.
     func selectShortcut(_ number: Int) {
         if number == 0 {
@@ -258,7 +362,7 @@ final class AccountStripViewController: NSViewController {
     /// Instantly, as ⌘1…⌘9 and ↑/↓ want (§5.2).
     private func scrollIntoView(_ tile: AccountStripButton) {
         view.layoutSubtreeIfNeeded()
-        let rect = tile.convert(tile.tileRect.insetBy(dx: 0, dy: -Quire.Layout.Rail.stackTopInset), to: stackView)
+        let rect = tile.convert(tile.tileRect.insetBy(dx: 0, dy: -Quire.Layout.Rail.stackInset), to: stackView)
         stackView.scrollToVisible(rect)
     }
 
@@ -278,16 +382,27 @@ final class AccountStripViewController: NSViewController {
         if let tile { view.window?.makeFirstResponder(tile) }
     }
 
-    /// The tile that takes the keyboard when Tab enters the rail: the selected one.
+    /// The tile that takes the keyboard when Tab reaches the accounts: the selected one.
     var selectedTile: NSView {
         if case .account(let id) = scope, let tile = accountTiles[id] { return tile }
         return unifiedTile
     }
 
-    /// The rail's key views in order: the selected tile, Add, Settings.
-    var keyViews: [NSView] { [selectedTile, addButton, settingsButton] }
+    /// The folder that takes the keyboard when Tab enters the rail: the current view's.
+    var selectedFolderTile: NSView {
+        let index = TitleMenu.entries.firstIndex { $0.view == mailboxView } ?? 0
+        return folderTiles[index]
+    }
+
+    /// The rail's key views in order: the selected folder, the selected account tile, Add, Settings.
+    var keyViews: [NSView] { [selectedFolderTile, selectedTile, addButton, settingsButton] }
 
     // MARK: Actions
+
+    @objc private func folderClicked(_ sender: AccountStripButton) {
+        guard let index = folderTiles.firstIndex(where: { $0 === sender }) else { return }
+        selectView(TitleMenu.entries[index].view, notify: true)
+    }
 
     @objc private func tileClicked(_ sender: AccountStripButton) {
         if sender === unifiedTile {
@@ -324,12 +439,12 @@ final class AccountStripViewController: NSViewController {
     }
 }
 
-/// The rail's own surface: opaque `spine`, the 20 pt divider hairline and the clip-edge hairlines. The split
-/// view's divider is the rail's trailing hairline.
+/// The rail's own surface: opaque `spine`, the two 20 pt divider hairlines (under Trash, under All Inboxes) and
+/// the clip-edge hairlines. The split view's divider is the rail's trailing hairline.
 @MainActor
 private final class RailView: NonDraggingView {
     var onLayout: (() -> Void)?
-    var dividerRect: NSRect = .zero { didSet { if oldValue != dividerRect { needsDisplay = true } } }
+    var dividerRects: [NSRect] = [] { didSet { if oldValue != dividerRects { needsDisplay = true } } }
     var clipEdges: (top: CGFloat?, bottom: CGFloat?) = (nil, nil) {
         didSet { if oldValue.top != clipEdges.top || oldValue.bottom != clipEdges.bottom { needsDisplay = true } }
     }
@@ -366,7 +481,9 @@ private final class RailView: NonDraggingView {
         dirtyRect.intersection(bounds).fill()
         let hairline = QuireHairline.width(for: self)
         NSColor.qRule.setFill()
-        NSRect(x: dividerRect.minX, y: dividerRect.minY, width: dividerRect.width, height: hairline).fill()
+        for divider in dividerRects {
+            NSRect(x: divider.minX, y: divider.minY, width: divider.width, height: hairline).fill()
+        }
         if let top = clipEdges.top {
             NSRect(x: 0, y: top, width: bounds.width, height: hairline).fill()
         }
@@ -386,6 +503,6 @@ private final class RailView: NonDraggingView {
     }
 
     override func accessibilityRole() -> NSAccessibility.Role? { .group }
-    override func accessibilityLabel() -> String? { "Accounts" }
+    override func accessibilityLabel() -> String? { "Mailboxes and accounts" }
     override func isAccessibilityElement() -> Bool { true }
 }

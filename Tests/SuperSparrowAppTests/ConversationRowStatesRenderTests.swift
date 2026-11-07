@@ -50,7 +50,7 @@ final class ConversationRowStatesRenderTests: XCTestCase {
     private func makeBoard(mode: QuireMode) -> NSView {
         let columns: [[NSView]] = [
             [label("Read · unread · hover · selected · selected (window not key) · multi-selection · no subject")] + columnOne(),
-            [label("Starred · attachment · count · queued · failed · Other · initials · Drafts · Sent")] + columnTwo(),
+            [label("Starred · attachment · count · queued · failed · initials · Drafts · Sent")] + columnTwo(),
             [label("Compact density · square account mark · with initials on, the tile replaces the square")] + columnThree()
                 + [label("Running heads · hidden in search and in views under 8 conversations")] + headsCard()
                 + [label("Scripts New York lacks fall back to subjectSans; line height stays 18 pt")] + scriptsCard(),
@@ -104,9 +104,9 @@ final class ConversationRowStatesRenderTests: XCTestCase {
             RowSpec(summary(sender: "Forge", subject: "[sparrow-sync] PR #2657", snippet: "maya-c commented: one nit about the retry budget.",
                             minutesAgo: 60, failed: .archive), slot: 2),
             RowSpec(summary(sender: "Northwind Weekly", subject: "Issue #182: Quiet software", snippet: "This week: the case for fewer notifications.",
-                            minutesAgo: 900, other: true), slot: 1, otherTag: true),
+                            minutesAgo: 900, other: true), slot: 1),
             RowSpec(summary(sender: "Calendar", subject: "Accepted: Design review @ Thu 15:30", snippet: "Room: Juniper (4th floor)",
-                            minutesAgo: 700, other: true), slot: 0, otherTag: true, initials: true),
+                            minutesAgo: 700, other: true), slot: 0, initials: true),
             RowSpec(summary(participants: [me], subject: "Re: Contoso rollout", snippet: "Thanks for running the checks. I have forwarded the runbook.",
                             minutesAgo: 10), slot: 0, unified: false, kind: .draft,
                     recipients: [EmailAddress(name: "Ben Carter", address: "ben@contoso.test")]),
@@ -193,7 +193,7 @@ final class ConversationRowStatesRenderTests: XCTestCase {
     private func emptyCard() -> [NSView] {
         let states: [(String, String, QuireEmptyStateView.Glyph?)] = [
             ("Nothing left to read.", "New mail will land here.", .sparrow),
-            ("Nothing in Focused", "Mail from people lands here; newsletters and notifications go to Other.", nil),
+            ("No starred conversations", "Press S to star one.", nil),
             ("No results for “lisbon flat”", "Search looks at subjects, people and message text.", nil),
             ("You're offline", "Mail will appear when you reconnect.", .offline),
         ]
@@ -216,14 +216,13 @@ final class ConversationRowStatesRenderTests: XCTestCase {
         var hovered = false
         var selected = false
         var key = true
-        var otherTag = false
         var initials = false
         var density = AppSettings.ListDensity.standard
         var kind = ConversationRowText.Kind.received
         var recipients: [EmailAddress] = []
 
         init(_ summary: ConversationSummary, latest: EmailAddress? = nil, slot: Int, unified: Bool = true, hovered: Bool = false,
-             selected: Bool = false, key: Bool = true, otherTag: Bool = false, initials: Bool = false,
+             selected: Bool = false, key: Bool = true, initials: Bool = false,
              density: AppSettings.ListDensity = .standard, kind: ConversationRowText.Kind = .received, recipients: [EmailAddress] = []) {
             self.summary = summary
             self.latest = latest
@@ -232,7 +231,6 @@ final class ConversationRowStatesRenderTests: XCTestCase {
             self.hovered = hovered
             self.selected = selected
             self.key = key
-            self.otherTag = otherTag
             self.initials = initials
             self.density = density
             self.kind = kind
@@ -264,7 +262,6 @@ final class ConversationRowStatesRenderTests: XCTestCase {
         let context = ConversationRowText.Context(
             kind: spec.kind,
             timeStyle: .timeOfDay,
-            showsOtherTag: spec.otherTag,
             ownAddresses: ["alex@contoso.test"],
             latestSender: spec.latest,
             recipients: spec.recipients,

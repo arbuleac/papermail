@@ -2,17 +2,14 @@ import AppKit
 import SSCore
 import SSDesign
 
-/// The middle column: the 92 pt list header (masthead, title menu, Demo tag, compose, filter tabs, search),
-/// the message list, the 28 pt sync status line and the toast overlay.
+/// The middle column: the 52 pt list header (masthead, which is the title menu in minimal mode, Demo tag, search,
+/// compose), the message list, the 28 pt sync status line and the toast overlay.
 @MainActor
 final class ListPaneViewController: NSViewController {
     static let minimumWidth: CGFloat = Quire.Layout.List.minWidth
     static let maximumWidth: CGFloat = Quire.Layout.List.maxWidth
     static let preferredWidth: CGFloat = Quire.Layout.List.defaultWidth
     static let searchDebounce: TimeInterval = 0.12
-
-    /// The filter tabs' choices. `nil` section means both.
-    static let sections: [(title: String, section: InboxSection?)] = [("All", nil), ("Focused", .focused), ("Other", .other)]
 
     let list: MessageListViewController
     let header = ListHeaderView(frame: .zero)
@@ -21,7 +18,6 @@ final class ListPaneViewController: NSViewController {
     private(set) lazy var toasts = ToastPresenter(host: toastView)
 
     var onViewChange: ((MailboxView) -> Void)?
-    var onSectionChange: ((InboxSection?) -> Void)?
     var onSearchChange: ((String) -> Void)?
     /// Escape in an empty field, ↓ or Return: give the keyboard back to the list.
     var onLeaveSearch: (() -> Void)?
@@ -65,16 +61,10 @@ final class ListPaneViewController: NSViewController {
         header.demoTag.action = #selector(demoTagClicked(_:))
         header.compose.target = self
         header.compose.action = #selector(composeClicked(_:))
-        header.tabs.onChange = { [weak self] index in
-            guard let self, Self.sections.indices.contains(index) else { return }
-            self.onSectionChange?(Self.sections[index].section)
-        }
         let search = header.search
         search.onQueryChange = { [weak self] _ in self?.queryChanged() }
         search.onCancel = { [weak self] in self?.onLeaveSearch?() }
         search.onSubmit = { [weak self] _ in self?.submitSearch() }
-        search.onClear = { [weak self] in self?.updateSearchExpansion() }
-        search.onFocusChange = { [weak self] _ in self?.updateSearchExpansion() }
         search.onCommand = { [weak self] selector in
             guard selector == #selector(NSResponder.moveDown(_:)) else { return false }
             self?.submitSearch()
@@ -85,23 +75,29 @@ final class ListPaneViewController: NSViewController {
 
     // MARK: State from the window controller
 
-    func display(view mailboxView: MailboxView, section: InboxSection?) {
+    func display(view mailboxView: MailboxView) {
         self.mailboxView = mailboxView
         header.masthead.title = TitleMenu.title(for: mailboxView)
-        header.showsTabs = mailboxView == .inbox
-        header.tabs.selectedIndex = Self.sections.firstIndex { $0.section == section } ?? 0
+        // The search field starts after the masthead, whose width follows the view's name.
+        header.needsLayout = true
         updatePlaceholder()
     }
 
-    /// Minimal mode moves the masthead past the would-be rail (§5.1); row 2 never changes.
-    func setMastheadX(_ x: CGFloat) {
-        header.mastheadX = x
+    /// Minimal mode (§5.1): the masthead moves past the would-be rail to `mastheadX` and becomes the title menu's
+    /// button, because the folders and accounts the rail held are only reachable through it. With the rail it
+    /// is a plain title at 16.
+    func setMinimalMode(_ minimal: Bool, mastheadX: CGFloat) {
+        header.mastheadX = mastheadX
+        header.masthead.isMenu = minimal
+        header.needsLayout = true
     }
 
-    /// Narrowed to one account: “· alex@contoso.test” after the masthead, and “Search Inbox”.
-    func setNarrowedAddress(_ address: String?) {
+    /// Narrowed to one account: “· alex@contoso.test” after the masthead, and “Search Inbox”; while the header line
+    /// has no room for the address, the placeholder names the account instead (“Search Contoso”, §5.3).
+    func setNarrowedAccount(address: String?, name: String?) {
         isNarrowed = address != nil
         header.address = address
+        header.accountName = address == nil ? nil : name
         updatePlaceholder()
     }
 
@@ -111,14 +107,6 @@ final class ListPaneViewController: NSViewController {
 
     func setDemo(_ isDemo: Bool) {
         header.showsDemoTag = isDemo
-    }
-
-    /// First sync with the categories not known yet: Focused and Other wait (§5.5).
-    func setCategoriesKnown(_ known: Bool) {
-        let items = header.tabs.items
-        var updated = items
-        for index in updated.indices where index > 0 { updated[index].isEnabled = known }
-        if updated.map(\.isEnabled) != items.map(\.isEnabled) { header.tabs.items = updated }
     }
 
     /// No accounts: the field is disabled (§5.6).
@@ -132,7 +120,7 @@ final class ListPaneViewController: NSViewController {
         case .inbox: placeholder = isNarrowed ? "Search Inbox" : "Search"
         default: placeholder = "Search " + TitleMenu.title(for: mailboxView)
         }
-        if header.search.placeholder != placeholder { header.search.placeholder = placeholder }
+        header.searchPlaceholder = placeholder
     }
 
     // MARK: Search
@@ -152,12 +140,8 @@ final class ListPaneViewController: NSViewController {
         searchTimer = nil
         header.search.isSearching = false
         header.search.resultCount = nil
-        guard !header.search.query.isEmpty else {
-            updateSearchExpansion()
-            return
-        }
+        guard !header.search.query.isEmpty else { return }
         header.search.query = ""
-        updateSearchExpansion()
         if notify { onSearchChange?("") }
     }
 
@@ -178,7 +162,6 @@ final class ListPaneViewController: NSViewController {
     }
 
     private func queryChanged() {
-        updateSearchExpansion()
         searchTimer?.invalidate()
         searchTimer = Timer.scheduledTimer(withTimeInterval: Self.searchDebounce, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated { self?.sendQuery() }
@@ -201,17 +184,11 @@ final class ListPaneViewController: NSViewController {
         onLeaveSearch?()
     }
 
-    /// Expanded while focused or holding a query; a field with a query stays expanded with focus elsewhere,
-    /// because the list below is still its result set (§5.6).
-    private func updateSearchExpansion() {
-        let search = header.search
-        header.setSearchExpanded(search.hasKeyboardFocus || !search.query.isEmpty)
-    }
-
     // MARK: Menus
 
     @objc private func mastheadClicked(_ sender: Any?) {
-        guard let model = titleMenuModel?() else { return }
+        // Only minimal mode has a title menu; beside the rail the masthead is a plain title (§5.3).
+        guard header.masthead.isMenu, let model = titleMenuModel?() else { return }
         let menu = TitleMenu.build(model, target: self, viewAction: #selector(viewPicked(_:)), scopeAction: #selector(scopePicked(_:)))
         // Left-aligned to the masthead text, 4 pt below it.
         let masthead = header.masthead
@@ -272,15 +249,14 @@ final class ListPaneViewController: NSViewController {
         onCompose?()
     }
 
-    /// The pane's key views in Tab order: masthead, Demo tag, compose, tabs, search, the list, the sync line's
-    /// action (only while it carries one), the sync line itself and a toast's action (both with Full Keyboard
-    /// Access only; the window drops views that cannot take focus).
+    /// The pane's key views in Tab order: the masthead (minimal mode only, when it is the title menu), Demo tag,
+    /// search, compose, the list, the sync line's action (only while it carries one), the sync line itself and a
+    /// toast's action (both with Full Keyboard Access only; the window drops views that cannot take focus).
     var keyViews: [NSView] {
-        var views: [NSView] = [header.masthead]
+        var views: [NSView] = header.masthead.isMenu ? [header.masthead] : []
         if !header.demoTag.isHidden { views.append(header.demoTag) }
-        views.append(header.compose)
-        if !header.tabs.isHidden { views.append(header.tabs) }
         views.append(header.search.textField)
+        views.append(header.compose)
         if let table = Self.firstTable(in: list.view) { views.append(table) }
         if !statusBar.actionButton.isHidden { views.append(statusBar.actionButton) }
         views.append(statusBar)

@@ -296,7 +296,7 @@ final class ComponentStateTests: XCTestCase {
             XCTAssertEqual(QuireBadge.size(for: kind), QuireBadge(kind).intrinsicContentSize, "\(kind)")
         }
         XCTAssertEqual(QuireBadge.size(for: .messageCount(4)).height, Quire.Layout.Badge.height)
-        XCTAssertEqual(QuireTag.size(for: "Other"), QuireTag("Other").intrinsicContentSize)
+        XCTAssertEqual(QuireTag.size(for: "Gmail"), QuireTag("Gmail").intrinsicContentSize)
         let first = QuireSymbol.cachedImage(Quire.Icon.attach, size: .row)
         XCTAssertNotNil(first)
         XCTAssertTrue(first === QuireSymbol.cachedImage(Quire.Icon.attach, size: .row), "one configured image per name and size")
@@ -308,7 +308,7 @@ final class ComponentStateTests: XCTestCase {
                 NSColor.qPaper.setFill()
                 bounds.fill()
                 QuireBadge.draw(.messageCount(4), in: NSRect(origin: NSPoint(x: 4, y: 4), size: QuireBadge.size(for: .messageCount(4))))
-                QuireTag.draw("Other", in: NSRect(origin: NSPoint(x: 40, y: 4), size: QuireTag.size(for: "Other")))
+                QuireTag.draw("Gmail", in: NSRect(origin: NSPoint(x: 40, y: 4), size: QuireTag.size(for: "Gmail")))
             }
         }
         let row = Row(frame: NSRect(x: 0, y: 0, width: 100, height: 24))

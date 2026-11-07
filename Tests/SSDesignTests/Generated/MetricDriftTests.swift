@@ -51,10 +51,15 @@ final class MetricDriftTests: XCTestCase {
         number(Quire.Layout.Rail.tileHit, "layout.rail.tileHit")
         number(Quire.Layout.Rail.tileRadius, "layout.rail.tileRadius")
         number(Quire.Layout.Rail.tileCenterX, "layout.rail.tileCenterX")
-        number(Quire.Layout.Rail.unifiedTop, "layout.rail.unifiedTop")
-        number(Quire.Layout.Rail.dividerY, "layout.rail.dividerY")
+        number(Quire.Layout.Rail.folderTop, "layout.rail.folderTop")
+        number(Quire.Layout.Rail.folderPitch, "layout.rail.folderPitch")
+        number(Quire.Layout.Rail.folderGlyph, "layout.rail.folderGlyph")
+        number(Quire.Layout.Rail.folderDividerY, "layout.rail.folderDividerY")
+        number(Quire.Layout.Rail.allMailTop, "layout.rail.allMailTop")
         number(Quire.Layout.Rail.dividerWidth, "layout.rail.dividerWidth")
-        number(Quire.Layout.Rail.accountTop, "layout.rail.accountTop")
+        number(Quire.Layout.Rail.groupGap, "layout.rail.groupGap")
+        number(Quire.Layout.Rail.dividerGap, "layout.rail.dividerGap")
+        number(Quire.Layout.Rail.accountGap, "layout.rail.accountGap")
         number(Quire.Layout.Rail.accountPitch, "layout.rail.accountPitch")
         number(Quire.Layout.Rail.face, "layout.rail.face")
         number(Quire.Layout.Rail.faceAlpha, "layout.rail.faceAlpha")
@@ -69,7 +74,7 @@ final class MetricDriftTests: XCTestCase {
         number(Quire.Layout.Rail.badgeTrailing, "layout.rail.badgeTrailing")
         number(Quire.Layout.Rail.unifiedGlyph, "layout.rail.unifiedGlyph")
         number(Quire.Layout.Rail.stackBottomGap, "layout.rail.stackBottomGap")
-        number(Quire.Layout.Rail.stackTopInset, "layout.rail.stackTopInset")
+        number(Quire.Layout.Rail.stackInset, "layout.rail.stackInset")
         number(Quire.Layout.Rail.pendingSpinner, "layout.rail.pendingSpinner")
         number(Quire.Layout.Rail.addMenuOffsetY, "layout.rail.addMenuOffsetY")
     }
@@ -84,8 +89,6 @@ final class MetricDriftTests: XCTestCase {
     func testLayoutListHeader() {
         number(Quire.Layout.ListHeader.mastheadHitPad, "layout.listHeader.mastheadHitPad")
         number(Quire.Layout.ListHeader.height, "layout.listHeader.height")
-        number(Quire.Layout.ListHeader.row1, "layout.listHeader.row1")
-        number(Quire.Layout.ListHeader.row2, "layout.listHeader.row2")
         number(Quire.Layout.ListHeader.mastheadX, "layout.listHeader.mastheadX")
         number(Quire.Layout.ListHeader.mastheadMinimalX, "layout.listHeader.mastheadMinimalX")
         number(Quire.Layout.ListHeader.mastheadMinimalX26, "layout.listHeader.mastheadMinimalX26")
@@ -97,18 +100,16 @@ final class MetricDriftTests: XCTestCase {
         number(Quire.Layout.ListHeader.composeGlyph, "layout.listHeader.composeGlyph")
         number(Quire.Layout.ListHeader.composeTrailing, "layout.listHeader.composeTrailing")
         number(Quire.Layout.ListHeader.composeTop, "layout.listHeader.composeTop")
-        number(Quire.Layout.ListHeader.tabsX, "layout.listHeader.tabsX")
-        number(Quire.Layout.ListHeader.tabLabelY, "layout.listHeader.tabLabelY")
-        number(Quire.Layout.ListHeader.tabGap, "layout.listHeader.tabGap")
-        number(Quire.Layout.ListHeader.tabHitPad, "layout.listHeader.tabHitPad")
-        number(Quire.Layout.ListHeader.searchWidth, "layout.listHeader.searchWidth")
         number(Quire.Layout.ListHeader.searchHeight, "layout.listHeader.searchHeight")
-        number(Quire.Layout.ListHeader.searchTrailing, "layout.listHeader.searchTrailing")
         number(Quire.Layout.ListHeader.searchTop, "layout.listHeader.searchTop")
+        number(Quire.Layout.ListHeader.searchMinWidth, "layout.listHeader.searchMinWidth")
+        number(Quire.Layout.ListHeader.searchGap, "layout.listHeader.searchGap")
+        number(Quire.Layout.ListHeader.searchComposeGap, "layout.listHeader.searchComposeGap")
         number(Quire.Layout.ListHeader.minimalDotSize, "layout.listHeader.minimalDotSize")
         number(Quire.Layout.ListHeader.minimalDotGap, "layout.listHeader.minimalDotGap")
         number(Quire.Layout.ListHeader.demoTagGap, "layout.listHeader.demoTagGap")
         number(Quire.Layout.ListHeader.addressGap, "layout.listHeader.addressGap")
+        number(Quire.Layout.ListHeader.addressMinWidth, "layout.listHeader.addressMinWidth")
     }
 
     func testLayoutReaderHeader() {
@@ -157,7 +158,6 @@ final class MetricDriftTests: XCTestCase {
         number(Quire.Layout.Row.accountTileRadius, "layout.row.accountTileRadius")
         number(Quire.Layout.Row.accountTileBorder, "layout.row.accountTileBorder")
         number(Quire.Layout.Row.tileGap, "layout.row.tileGap")
-        number(Quire.Layout.Row.tagGap, "layout.row.tagGap")
         number(Quire.Layout.Row.separatorX, "layout.row.separatorX")
     }
 
@@ -353,6 +353,7 @@ final class MetricDriftTests: XCTestCase {
         number(Quire.Layout.QuickReply.toolRow, "layout.quickReply.toolRow")
         number(Quire.Layout.QuickReply.toolRowBottom, "layout.quickReply.toolRowBottom")
         number(Quire.Layout.QuickReply.modeGap, "layout.quickReply.modeGap")
+        number(Quire.Layout.QuickReply.modeHitPad, "layout.quickReply.modeHitPad")
         number(Quire.Layout.QuickReply.toolGroupGap, "layout.quickReply.toolGroupGap")
         number(Quire.Layout.QuickReply.toolIconGap, "layout.quickReply.toolIconGap")
         number(Quire.Layout.QuickReply.toolIcon, "layout.quickReply.toolIcon")
@@ -489,7 +490,6 @@ final class MetricDriftTests: XCTestCase {
     }
 
     func testLayoutSearch() {
-        number(Quire.Layout.Search.expandedInset, "layout.search.expandedInset")
         number(Quire.Layout.Search.radius, "layout.search.radius")
         number(Quire.Layout.Search.glyph, "layout.search.glyph")
         number(Quire.Layout.Search.glyphX, "layout.search.glyphX")

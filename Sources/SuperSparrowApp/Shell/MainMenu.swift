@@ -154,11 +154,6 @@ enum MainMenu {
             menu.addItem(sequenceItem(title, keys: keys, symbol: symbol, tag: MailboxView.allCases.firstIndex(of: view) ?? 0))
         }
         menu.addItem(.separator())
-        // The Inbox filter tabs (spec §5.5): All, Focused, Other.
-        for (index, title) in ["All", "Focused", "Other"].enumerated() {
-            menu.addItem(item(title, #selector(MainWindowController.selectInboxSection(_:)), "\(index + 1)", .option, tag: index))
-        }
-        menu.addItem(.separator())
         menu.addItem(item("All Inboxes", #selector(MainWindowController.selectAccountShortcut(_:)), "0", symbol: Quire.Icon.unifiedInbox,
                           tag: 0))
         for number in 1...9 {

@@ -91,7 +91,7 @@ enum ComponentGallery {
         cut.setFrameOrigin(NSPoint(x: 8, y: 2))
         spineTile.addSubview(cut)
         builder.add(spineTile, width: 60)
-        for tag in ["Other", "Gmail", "Microsoft 365"] { builder.add(QuireTag(tag), width: tag.count < 7 ? 50 : 100) }
+        for tag in ["Gmail", "Microsoft 365", "Demo"] { builder.add(QuireTag(tag), width: tag.count < 7 ? 50 : 100) }
         builder.newline()
         builder.label("keycaps")
         for legend in ["E", "#", "⌘↩", "⇧⌘R", "esc", "G", "J"] { builder.add(QuireKeycap(legend), width: 40) }
@@ -166,7 +166,7 @@ enum ComponentGallery {
         let banners: [(QuireBannerView.Kind, String, String?, String?)] = [
             (.neutral, "3 remote images hidden to protect your privacy.", Quire.Icon.loadImages, "Load images"),
             (.warning, "This message uses its own colours.", Quire.Icon.originalColors, nil),
-            (.info, "Focused mirrors Gmail Primary.", nil, nil),
+            (.info, "Demo mail lives only on this Mac.", nil, nil),
             (.success, "OAuth clients saved.", nil, nil),
             (.danger, "Couldn't load this message.", nil, "Retry"),
         ]
@@ -316,26 +316,25 @@ enum ComponentGallery {
         builder.newline()
 
         builder.section("Tabs · avatars · scrim")
-        let tabs = QuireUnderlineTabs(titles: ["All", "Focused", "Other"])
-        tabs.windowKeyOverride = true
-        builder.add(tabs, width: 170)
-        let hoverTabs = QuireUnderlineTabs(titles: ["All", "Focused", "Other"])
-        hoverTabs.windowKeyOverride = true
-        hoverTabs.displayState = .hover
-        builder.add(hoverTabs, width: 170)
-        let focusTabs = QuireUnderlineTabs(titles: ["All", "Focused", "Other"], selectedIndex: 2)
-        focusTabs.displayState = .focused
-        builder.add(focusTabs, width: 170)
-        let idleTabs = QuireUnderlineTabs(titles: ["All", "Focused", "Other"])
-        idleTabs.windowKeyOverride = false
-        builder.add(idleTabs, width: 170)
-        let firstSync = QuireUnderlineTabs(titles: ["All", "Focused", "Other"])
-        firstSync.isEnabled = false
-        builder.add(firstSync, width: 170)
-        let modes = QuireUnderlineTabs(items: [.init("Reply", symbolName: Quire.Icon.reply), .init("Reply all", symbolName: Quire.Icon.replyAll)],
-                                       style: .replyMode)
+        func modeTabs() -> QuireUnderlineTabs {
+            QuireUnderlineTabs(items: [.init("Reply", symbolName: Quire.Icon.reply), .init("Reply all", symbolName: Quire.Icon.replyAll)])
+        }
+        let modes = modeTabs()
         modes.windowKeyOverride = true
         builder.add(modes, width: 200)
+        let hoverTabs = modeTabs()
+        hoverTabs.windowKeyOverride = true
+        hoverTabs.displayState = .hover
+        builder.add(hoverTabs, width: 200)
+        let focusTabs = modeTabs()
+        focusTabs.displayState = .focused
+        builder.add(focusTabs, width: 200)
+        let idleTabs = modeTabs()
+        idleTabs.windowKeyOverride = false
+        builder.add(idleTabs, width: 200)
+        let disabled = modeTabs()
+        disabled.isEnabled = false
+        builder.add(disabled, width: 200)
         builder.newline()
         builder.label("avatars")
         builder.add(AvatarSample(diameter: 24, initials: "AM", address: "alex@contoso.test", ring: nil), width: 40)

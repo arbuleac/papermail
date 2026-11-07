@@ -63,7 +63,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     private var statuses: [AccountSyncStatus] = []
     private var scope: AccountScope = .unified
     private var mailboxView: MailboxView = .inbox
-    private var section: InboxSection?
     private var searchText = ""
     private var showingWelcome = false
     private var unifiedUnread = 0
@@ -267,23 +266,20 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         split.setPosition(chrome.railWidth + ListPaneViewController.preferredWidth - split.dividerThickness, ofDividerAt: 1)
     }
 
-    /// Minimal mode (§5.1): the masthead moves past the would-be rail, the title menu gains the accounts and the
-    /// new-mail dot may show. Row 2 of the header never changes.
+    /// Minimal mode (§5.1): the masthead moves past the would-be rail and becomes the title menu (the views and
+    /// the accounts the rail held), and the new-mail dot may show. Search and compose keep the header line.
     private func applyMinimalMode() {
-        listPane.setMastheadX(isMinimal ? chrome.mastheadMinimalX : Quire.Layout.ListHeader.mastheadX)
+        listPane.setMinimalMode(isMinimal, mastheadX: isMinimal ? chrome.mastheadMinimalX : Quire.Layout.ListHeader.mastheadX)
         updateNewMailDot()
     }
 
     private func wireCallbacks() {
         strip.onSelect = { [weak self] scope in self?.scopeChanged(scope) }
+        strip.onSelectView = { [weak self] view in self?.setView(view) }
         strip.onAddAccount = { [weak self] kind in self?.requestAddAccount(kind) }
         strip.onOpenSettings = { [weak self] in self?.onOpenSettings?() }
 
         listPane.onViewChange = { [weak self] view in self?.setView(view) }
-        listPane.onSectionChange = { [weak self] section in
-            self?.section = section
-            self?.applyQuery()
-        }
         listPane.onSearchChange = { [weak self] text in
             self?.searchText = text
             self?.applyQuery()
@@ -528,7 +524,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             signIn: signIn, sendingCount: activity.sendingCount, isChecking: isCheckRunning, now: now
         ))
         listPane.statusBar.apply(summary)
-        updateCategoriesKnown()
         // “retrying in 30 s” counts down: the line is chosen again each second while a retry is ahead.
         let retryAhead = effective.contains { ($0.retryAt ?? .distantPast) > now }
         if retryAhead, retryLineTimer == nil {
@@ -559,13 +554,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
     private func openAccountsSettings() {
         (onOpenAccountsSettings ?? onOpenSettings)?()
-    }
-
-    /// First sync with no categories known yet: Focused and Other wait (§5.5).
-    private func updateCategoriesKnown() {
-        let inScope = effectiveStatuses.filter { status in scope.accountIDs.map { $0.contains(status.accountID) } ?? true }
-        let known = inScope.isEmpty || !inScope.allSatisfy { $0.phase == .bootstrapping }
-        listPane.setCategoriesKnown(known)
     }
 
     // MARK: Checking for mail
@@ -622,16 +610,16 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         unreadAtScopeChange = unreadByAccount
         updateScopeDetails()
         applyQuery()
-        updateCategoriesKnown()
     }
 
-    /// Narrowed to one account, the masthead names its address (§5.3).
+    /// Narrowed to one account, the masthead names its address (§5.3) and the rail's Inbox counts its mail.
     private func updateScopeDetails() {
         if case .account(let id) = scope, let account = accountsByID[id] {
-            listPane.setNarrowedAddress(account.email)
+            listPane.setNarrowedAccount(address: account.email, name: AccountLabels.name(for: account))
         } else {
-            listPane.setNarrowedAddress(nil)
+            listPane.setNarrowedAccount(address: nil, name: nil)
         }
+        strip.setInboxUnread(inboxUnread)
         updateNewMailDot()
     }
 
@@ -639,7 +627,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         unifiedUnread = unified
         unreadByAccount = perAccount
         strip.setUnreadCounts(unified: unified, perAccount: perAccount)
+        strip.setInboxUnread(inboxUnread)
         updateNewMailDot()
+    }
+
+    /// The unread Inbox count of the current scope (all accounts, or the narrowed one): the rail's Inbox badge and
+    /// the title menu's Inbox item (§5.2, §5.4).
+    private var inboxUnread: Int {
+        if case .account(let id) = scope { return unreadByAccount[id] ?? 0 }
+        return unifiedUnread
     }
 
     /// Minimal mode, narrowed: another account received mail since the user chose this scope.
@@ -654,8 +650,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
     private var titleMenuModel: TitleMenu.Model {
         let monograms = AccountLabels.monograms(for: accounts)
-        let inboxUnread: Int
-        if case .account(let id) = scope { inboxUnread = unreadByAccount[id] ?? 0 } else { inboxUnread = unifiedUnread }
         return TitleMenu.Model(
             view: mailboxView, inboxUnread: inboxUnread, scope: scope, showsAccounts: isMinimal, unifiedUnread: unifiedUnread,
             accounts: accounts.map { TitleMenu.AccountEntry(account: $0, monogram: monograms[$0.id] ?? "?", unread: unreadByAccount[$0.id] ?? 0) }
@@ -666,7 +660,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// overriding the view.
     private func setView(_ view: MailboxView) {
         mailboxView = view
-        if view != .inbox { section = nil }
         endSearch()
         applyQuery()
     }
@@ -679,9 +672,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
     private func applyQuery() {
         conversation.mailboxView = mailboxView
-        let query = ShellQuery.make(
-            scope: scope.accountIDs, view: mailboxView, section: section, searchText: searchText
-        )
+        let query = ShellQuery.make(scope: scope.accountIDs, view: mailboxView, searchText: searchText)
         if query != list.query {
             // A selection carried into another list would be handed to whatever row replaced it there, and the
             // reader would open (and mark read) a conversation the user never picked.
@@ -694,9 +685,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             // The same query (a trailing space, say) brings no new rows; the field must not wait for them.
             listPane.listRowsDidChange()
         }
-        listPane.display(view: mailboxView, section: mailboxView == .inbox ? section : nil)
-        // No notification for Other mail while the Inbox filter is Focused (spec §5.41).
-        notifier.hidesOtherMail = mailboxView == .inbox && section == .focused
+        listPane.display(view: mailboxView)
+        strip.selectView(mailboxView, notify: false)
     }
 
     // MARK: Selection
@@ -777,7 +767,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         scope = .unified
         updateScopeDetails()
         mailboxView = .inbox
-        section = nil
         applyQuery()
         list.selectedConversationID = id
         present(selection: [id])
@@ -1408,15 +1397,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         setView(MailboxView.allCases[item.tag])
     }
 
-    /// View › All / Focused / Other and ⌥1 / ⌥2 / ⌥3 (§5.5, §5.35). The menu item's tag is the tab's index.
-    @objc func selectInboxSection(_ sender: Any?) {
-        guard let item = sender as? NSMenuItem, ListPaneViewController.sections.indices.contains(item.tag) else { return }
-        if mailboxView != .inbox { mailboxView = .inbox }
-        section = ListPaneViewController.sections[item.tag].section
-        endSearch()
-        applyQuery()
-    }
-
     /// ⌃⌘S: the rail goes instantly in every mode, so no row re-truncates and no frame re-measures over frames
     /// (§5.1, §8.2).
     @objc func toggleAccountStrip(_ sender: Any?) {
@@ -1462,10 +1442,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             return !showingWelcome && !typing && target != .nothing
         case #selector(selectAccountShortcut(_:)):
             return !showingWelcome && (menuItem.tag == 0 || menuItem.tag <= accounts.count)
-        case #selector(selectInboxSection(_:)):
-            let current = ListPaneViewController.sections.firstIndex { $0.section == section } ?? 0
-            menuItem.state = mailboxView == .inbox && menuItem.tag == current ? .on : .off
-            return !showingWelcome && !typing
         case #selector(goToMailboxView(_:)):
             menuItem.state = MailboxView.allCases.indices.contains(menuItem.tag) && MailboxView.allCases[menuItem.tag] == mailboxView ? .on : .off
             return !showingWelcome
@@ -1496,8 +1472,9 @@ enum PendingSignIn: Equatable {
 
 #if DEBUG
 extension MainWindowController {
-    /// `--snapshot-state=key,notkey,minimal,narrowed,adding,reconnect,signin,toast,search,focus-rail,focus-action,
-    /// hover-demo,hover-masthead,ic,graphite` (debug builds; `several` is applied where the first selection is made):
+    /// `--snapshot-state=key,notkey,minimal,narrowed,adding,reconnect,signin,toast,search,focus-rail,focus-folder,
+    /// focus-action,hover-demo,hover-masthead,many-accounts,ic,graphite` (debug builds; `several` is applied where the
+    /// first selection is made):
     /// puts the window in the named states before `--snapshot` captures it, so every state of the chrome can be
     /// compared with the specimen without a screen recording.
     fileprivate func applyDebugSnapshotStates() {
@@ -1507,6 +1484,15 @@ extension MainWindowController {
         if states.contains("ic") || states.contains("graphite") {
             QuireEnvironment.shared.setOverrides(QuireEnvironment.Overrides(
                 isGraphite: states.contains("graphite") ? true : nil, increaseContrast: states.contains("ic") ? true : nil))
+        }
+        if states.contains("many-accounts") {
+            // Six made-up accounts after the real ones, in the rail only (never the store), so a render shows the
+            // account stack scrolling under the folders (§5.2).
+            let extra = (1...6).map { n in
+                Account(id: AccountID("snapshot-\(n)"), kind: n % 2 == 0 ? .microsoft : .gmail, email: "alex@example\(n).test",
+                        displayName: "Alex Morgan", addedAt: Date(), inkSlot: accounts.count + n)
+            }
+            strip.setAccounts(accounts + extra)
         }
         if states.contains("narrowed"), let first = accounts.first {
             strip.select(.account(first.id), notify: true)
@@ -1544,6 +1530,9 @@ extension MainWindowController {
         // hover are drawn by state rather than by the real first responder.
         if states.contains("focus-rail") {
             (strip.selectedTile as? QuireControl)?.displayState = .focused
+        }
+        if states.contains("focus-folder") {
+            (strip.selectedFolderTile as? QuireControl)?.displayState = .focused
         }
         if states.contains("focus-action") {
             listPane.statusBar.actionButton.displayState = .focused

@@ -6,9 +6,9 @@ SuperSparrow is a local-first Mac mail client. Every interaction is a read or wr
 
 Sparrow's shape, Superhuman's speed:
 
-- Unified inbox across Gmail and Microsoft accounts, with a thin account strip to narrow to one account.
+- Unified inbox across Gmail and Microsoft accounts, with a thin rail: the views as folder tiles at the top, the accounts at its foot to narrow to one account.
 - Views: Inbox, Starred, Sent, Drafts, Trash, All mail. No folders, no labels, ever shown.
-- One "Focused" toggle on the inbox, mapping Gmail Primary category and Outlook Focused Inbox.
+- The inbox always shows all of its mail. Gmail's Primary category and Outlook's Focused Inbox are stored (`inbox_section`) only to round-trip provider state; nothing filters or marks rows by them.
 - Read conversations as stacked cards; quoted text folded; inline images; attachments with Quick Look.
 - Actions: archive, mark read/unread, star, trash, restore. Undo for every action.
 - Reply, reply all, forward, new message. Plain composer: bold, italic, underline, links, lists, quotes, attachments. Undo send (five seconds).
@@ -110,7 +110,7 @@ Debug aids, read by `LaunchOptions` (and `--snapshot-state` by the main window).
 | `--appearance=light` / `=dark` | Forces the app's appearance, so one machine can check both. |
 | `--snapshot=<png>` | In demo mode, opens the first inbox conversation and writes the main window with the reader composited in. The app keeps running. |
 | `--snapshot-compose=<png>` | In demo mode, writes a reply composer for the first inbox conversation. The app keeps running. |
-| `--snapshot-state=<a,b,…>` | Debug. Puts the main window in named states before `--snapshot`: `key`, `notkey`, `several` (three conversations selected), `minimal`, `narrowed`, `search`, `toast`, `adding`, `signin`, `reconnect`, `focus-rail`, `focus-action`, `hover-demo`, `hover-masthead`, `ic`, `graphite`. |
+| `--snapshot-state=<a,b,…>` | Debug. Puts the main window in named states before `--snapshot`: `key`, `notkey`, `several` (three conversations selected), `minimal`, `narrowed`, `search`, `toast`, `adding`, `signin`, `reconnect`, `focus-rail`, `focus-folder`, `focus-action`, `hover-demo`, `hover-masthead`, `many-accounts` (six made-up accounts in the rail only, to show the account stack scrolling), `ic`, `graphite`. |
 | `--snapshot-welcome=<png>` | Writes the welcome screen over a throwaway store, then quits. |
 | `--snapshot-welcome-states=<png>` | Every welcome state of §5.39, stacked, then quits. |
 | `--snapshot-settings=<png>` | Every Settings tab, stacked, then quits (implies `--demo`). Settings › OAuth shows the configured client ID. |

@@ -24,6 +24,46 @@ def g(name, pt=15, cls=''):
     return '<svg class="glyph %s" viewBox="0 0 %d %d" style="width:%gpx;height:%gpx">%s</svg>' % (cls, grid, grid, pt, pt, body)
 
 ACCT_IDX = {'C': 1, 'G': 2, 'F': 3}
+FOLDERS = [('tray', 'Inbox  G I'), ('star', 'Starred  G S'), ('paperplane', 'Sent  G T'), ('doc', 'Drafts  G D'), ('trash', 'Trash  G #'),
+           ('archivebox', 'All Mail  G A')]
+def rail_folders(selected=0, badge=None):
+    """The rail's folder tiles (spec §5.2): Inbox to Trash at the folder pitch, a hairline, All Mail. The selected
+    folder is a raised tile with no margin rule; Inbox carries the scope's unread count."""
+    R = T.LAYOUT['rail']
+    out = []
+    for i, (sym, tip) in enumerate(FOLDERS):
+        top = R['allMailTop'] if i == 5 else R['folderTop'] + i * R['folderPitch']
+        b = '<span class="badge">%s</span>' % badge if i == 0 and badge else ''
+        out.append('<span class="rt%s" style="top:%dpx" title="%s">%s%s</span>' % (' sel' if i == selected else '', top, tip, s(sym, R['folderGlyph']), b))
+        if i == 4:
+            out.append('<i class="rdiv" style="top:%dpx"></i>' % R['folderDividerY'])
+    return ''.join(out)
+def rail_accounts(height, tiles, unified='sel', unified_badge=None, scroll_end=False):
+    """The account group anchored above Add in a window `height` tall (spec §5.2): All Inboxes, its hairline, then
+    `tiles` (each a (classes, inner html, title) triple). Where the group would come closer than groupGap to All Mail
+    it stops there and the tiles scroll in their own clip; scroll_end shows the clip scrolled to its end."""
+    R = T.LAYOUT['rail']
+    tile, pitch, inset = R['tile'], R['accountPitch'], R['stackInset']
+    clip_bottom = height - R['addTopFromBottom'] - R['stackBottomGap']
+    n = len(tiles)
+    natural_first = clip_bottom - inset - tile - (n - 1) * pitch
+    unified_top = max(R['allMailTop'] + tile + R['groupGap'], natural_first - R['accountGap'] - R['dividerGap'] - tile)
+    divider = unified_top + tile + R['dividerGap']
+    first = divider + R['accountGap']
+    clip_top = first - inset
+    content = inset + (n - 1) * pitch + tile + inset
+    visible = clip_bottom - clip_top
+    offset = max(0, content - visible) if scroll_end else 0
+    edges = (' edge-top' if offset > 0 else '') + (' edge-bottom' if content - offset > visible + 0.5 else '')
+    mr = '<i class="mr%s"></i>' % (' idle' if unified == 'idle' else '') if unified in ('sel', 'idle') else ''
+    b = '<span class="badge">%s</span>' % unified_badge if unified_badge else ''
+    out = ['<span class="rt%s" style="top:%dpx" title="All Inboxes  ⌘0">%s%s%s</span>' % (' sel' if unified in ('sel', 'idle') else '', unified_top, mr, g('ss.quire', R['unifiedGlyph']), b),
+           '<i class="rdiv" style="top:%dpx"></i>' % divider,
+           '<div class="rclip%s" style="top:%dpx;height:%dpx">' % (edges, clip_top, visible)]
+    for i, (cls, inner, title) in enumerate(tiles):
+        out.append('<span class="rt %s" style="top:%dpx" title="%s">%s</span>' % (cls, inset + i * pitch - offset, title, inner))
+    out.append('</div>')
+    return ''.join(out)
 def row(sender, subject, snippet, time, av, initials, acct=None, unread=False, state='', star=False, clip=False, count=0, tag=None,
         pending=False, failed=False, initial_tile=False, cls='', sender_html=None, subject_cls=''):
     st = {'sel': 'sel', 'idle': 'idle', 'hover': 'hov', '': ''}[state]
@@ -109,7 +149,7 @@ SAMPLE = {'display': 'SuperSparrow', 'headline': 'Contoso rollout: go-live check
           'reading': 'Tested with three accounts this afternoon, all good.', 'subject': 'Lisbon in March?', 'composeSubject': 'Re: Contoso rollout',
           'aside': 'Nothing left to read.', 'writing': 'Thanks Ben, I will forward it to IT.', 'body': 'Alex Morgan <alex@contoso.test>',
           'sender': 'Priya Raman, Alex Morgan', 'label': 'Show quoted text', 'snippet': 'Booked the flat near Príncipe Real.', 'meta': '23:39 · 240 KB',
-          'runningHead': 'Yesterday', 'tag': 'Other', 'badge': '128', 'kbd': '⌘↩', 'mono': '1084-ab3f.apps.googleusercontent.com', 'buttonLarge': 'Add Gmail account', 'metaMedium': 'Up to date · 3 accounts', 'metaStrong': '22:10 · Retry', 'senderMedium': 'Ben Carter', 'bodyMedium': 'Archived 3 conversations', 'bodyStrong': 'Ben Carter · Go to…', 'labelStrong': 'All · Reply', 'buttonLargeStrong': 'Send'}
+          'runningHead': 'Yesterday', 'tag': 'Gmail', 'badge': '128', 'kbd': '⌘↩', 'mono': '1084-ab3f.apps.googleusercontent.com', 'buttonLarge': 'Add Gmail account', 'metaMedium': 'Up to date · 3 accounts', 'metaStrong': '22:10 · Retry', 'senderMedium': 'Ben Carter', 'bodyMedium': 'Archived 3 conversations', 'bodyStrong': 'Ben Carter · Go to…', 'labelStrong': 'All · Reply', 'buttonLargeStrong': 'Send'}
 def type_scale():
     out = ''
     for role, fam, size, weight, lh, tr, ex in T.TYPE:

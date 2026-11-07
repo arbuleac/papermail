@@ -22,13 +22,13 @@ extension DesignGalleryCards {
             block.row(nil, [
                 S.button("Send", .primary), S.button("Reconnect", .secondary), S.button("Cancel", .ghost),
                 S.button("Discard", .destructive), focused, S.button("Load images", .link, state: .hover),
-                QuireBadge(.unread(21)), QuireBadge(.messageCount(4)), QuireTag("Other"), QuireKeycap("⌘Z"),
+                QuireBadge(.unread(21)), QuireBadge(.messageCount(4)), QuireTag("Gmail"), QuireKeycap("⌘Z"),
             ])
             let field = S.sized(QuireTextField(placeholder: "Client ID"), NSSize(width: 220, height: Quire.Layout.TextField.height))
             let focusField = S.sized(QuireTextField(placeholder: "Client ID"), NSSize(width: 220, height: Quire.Layout.TextField.height))
             focusField.stringValue = "alex@contoso"
             focusField.displayState = .focused
-            let tabs = QuireUnderlineTabs(titles: ["All", "Focused", "Other"])
+            let tabs = QuireUnderlineTabs(items: [.init("Reply", symbolName: Quire.Icon.reply), .init("Reply all", symbolName: Quire.Icon.replyAll)])
             block.row(nil, [
                 field, focusField, QuireCheckbox(state: .on), QuireCheckbox(state: .off), QuireToggle(isOn: true), QuireToggle(isOn: false),
                 QuireRadioButton(isSelected: true), tabs, S.forced(QuireSearchField(), .hover),

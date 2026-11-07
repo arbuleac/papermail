@@ -271,7 +271,7 @@ struct QuireGalleryBanners: View {
             QuireBanner(.neutral, "3 remote images hidden to protect your privacy.", glyph: Quire.Icon.loadImages,
                         link: ("Load images", {}), wraps: false)
             QuireBanner(.neutral, "2 images couldn't load.", glyph: Quire.Icon.warning, glyphColor: .warning, wraps: false)
-            QuireBanner(.info, "Focused mirrors Gmail Primary.")
+            QuireBanner(.info, "Demo mode: these mailboxes are made up and live only on this Mac.", link: ("Leave demo…", {}))
             QuireBanner(.success, "OAuth clients saved.")
             QuireBanner(.warning, "This message uses its own colours.", glyph: Quire.Icon.originalColors)
             QuireBanner(.danger, "Couldn't load this message.", link: ("Retry", {}))

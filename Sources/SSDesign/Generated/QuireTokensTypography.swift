@@ -107,7 +107,7 @@ extension QuireFont.Role {
             return QuireFont.Spec(family: .sf, size: 12, weight: 500, lineHeight: 16, tracking: 0,
                                   italic: false, tabular: false, uppercase: false, unreadWeight: nil,
                                   twin: nil, twinOf: nil, variantOf: nil, sizeRatio: nil, minSize: nil,
-                                  use: "Buttons, chips, tabs, field labels")
+                                  use: "Buttons, chips, quick-reply modes, field labels")
         case .snippet:
             return QuireFont.Spec(family: .sf, size: 12, weight: 400, lineHeight: 15, tracking: 0,
                                   italic: false, tabular: false, uppercase: false, unreadWeight: nil,
@@ -127,7 +127,7 @@ extension QuireFont.Role {
             return QuireFont.Spec(family: .sf, size: 11, weight: 500, lineHeight: 14, tracking: 0,
                                   italic: false, tabular: false, uppercase: false, unreadWeight: nil,
                                   twin: nil, twinOf: nil, variantOf: nil, sizeRatio: nil, minSize: nil,
-                                  use: "Tags: Other, Gmail, Microsoft 365")
+                                  use: "Tags: Gmail, Microsoft 365, Demo")
         case .badge:
             return QuireFont.Spec(family: .rounded, size: 11, weight: 600, lineHeight: 14, tracking: 0,
                                   italic: false, tabular: true, uppercase: false, unreadWeight: nil,
@@ -217,7 +217,7 @@ extension QuireFont.Role {
             return QuireFont.Spec(family: .sf, size: 12, weight: 600, lineHeight: 16, tracking: 0,
                                   italic: false, tabular: false, uppercase: false, unreadWeight: nil,
                                   twin: nil, twinOf: nil, variantOf: .label, sizeRatio: nil, minSize: nil,
-                                  use: "Selected filter tab, active quick-reply mode, small primary / destructive labels")
+                                  use: "Active quick-reply mode, small primary / destructive labels")
         case .buttonLargeStrong:
             return QuireFont.Spec(family: .sf, size: 14, weight: 600, lineHeight: 18, tracking: 0,
                                   italic: false, tabular: false, uppercase: false, unreadWeight: nil,

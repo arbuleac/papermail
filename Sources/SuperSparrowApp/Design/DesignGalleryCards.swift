@@ -176,41 +176,25 @@ enum DesignGalleryCards {
         }
     }
 
-    // MARK: List header, tabs, search (§5.5, §5.6)
-
-    /// Tabs in their 40 pt header row, over the header's bottom hairline: the selected underline overlaps it.
-    static func onHeader(_ tabs: QuireUnderlineTabs, width: CGFloat) -> NSView {
-        let height = tabs.alignmentRect(forFrame: tabs.frame).height
-        let row = DesignGalleryFlippedView(frame: NSRect(x: 0, y: 0, width: width, height: height))
-        let rule = QuireHairline()
-        rule.frame = NSRect(x: 0, y: height - 1, width: width, height: 1)
-        row.addSubview(rule)
-        let visual = tabs.alignmentRect(forFrame: tabs.frame)
-        tabs.frame = tabs.frame(forAlignmentRect: NSRect(origin: .zero, size: visual.size))
-        row.addSubview(tabs)
-        return row
-    }
+    // MARK: Search and mode tabs (§5.6, §5.18)
 
     static func listHeader() -> DesignGalleryCard {
-        DesignGalleryCard("List header, tabs, search", code: "layout.listHeader",
-                          caption: "Tabs carry state with weight and a 2 pt underline (≥ 3:1). Search has a resting 1 pt "
-                              + "ruleStrong edge.",
+        DesignGalleryCard("Search, mode tabs", code: "layout.listHeader · search",
+                          caption: "Search shares the list header's one line and takes its free width, at least 140 pt; it "
+                              + "has a resting 1 pt ruleStrong edge. The quick reply's modes carry state with weight and a 2 pt "
+                              + "underline (≥ 3:1).",
                           span: 4) { block in
-            let titles = ["All", "Focused", "Other"]
-            let hover = QuireUnderlineTabs(titles: titles)
-            hover.displayStateIndex = 1
-            S.forced(hover, .hover)
-            block.row("Tabs", [onHeader(hover, width: block.contentWidth)], caption: "All selected · Focused hover", captionGap: 4)
-            let focus = QuireUnderlineTabs(titles: titles)
-            focus.displayStateIndex = 2
-            S.forced(focus, .focused)
-            block.row("Focused", [onHeader(focus, width: block.contentWidth)], caption: "Other focused", captionGap: 4)
-            let idle = QuireUnderlineTabs(items: [.init("All"), .init("Focused", isEnabled: false), .init("Other", isEnabled: false)])
-            idle.windowKeyOverride = false
-            block.row("Not key / first sync", [onHeader(idle, width: block.contentWidth)])
             let modes = QuireUnderlineTabs(items: [.init("Reply", symbolName: Quire.Icon.reply),
-                                                   .init("Reply all", symbolName: Quire.Icon.replyAll)], style: .replyMode)
+                                                   .init("Reply all", symbolName: Quire.Icon.replyAll)])
             block.row("Reply mode", [modes])
+            let modesHover = QuireUnderlineTabs(items: [.init("Reply", symbolName: Quire.Icon.reply),
+                                                        .init("Reply all", symbolName: Quire.Icon.replyAll)])
+            S.forced(modesHover, .hover)
+            block.row("Hover", [modesHover], caption: "Reply selected · Reply all hover", captionGap: 4)
+            let modesIdle = QuireUnderlineTabs(items: [.init("Reply", symbolName: Quire.Icon.reply),
+                                                       .init("Reply all", symbolName: Quire.Icon.replyAll, isEnabled: false)])
+            modesIdle.windowKeyOverride = false
+            block.row("Not key · one participant", [modesIdle])
 
             block.row("Search rest", [QuireSearchField()])
             block.row("Hover", [S.forced(QuireSearchField(), .hover)])

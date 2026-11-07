@@ -1,7 +1,7 @@
 import Foundation
 
-/// The empty list's sentence and hint (spec §5.9): one serif sentence and one hint for every view, filter and
-/// sync state, chosen without AppKit so the copy table can be tested.
+/// The empty list's sentence and hint (spec §5.9): one serif sentence and one hint for every view and sync
+/// state, chosen without AppKit so the copy table can be tested.
 public struct ListEmptyState: Hashable, Sendable {
     /// The only glyphs an empty list carries.
     public enum Glyph: Hashable, Sendable {
@@ -50,15 +50,8 @@ public struct ListEmptyState: Hashable, Sendable {
     private static func settledState(_ query: ConversationQuery) -> ListEmptyState {
         switch query.view {
         case .inbox:
-            switch query.section {
-            case .focused?:
-                return ListEmptyState(sentence: "Nothing in Focused",
-                                      hint: "Mail from people lands here; newsletters and notifications go to Other.")
-            case .other?:
-                return ListEmptyState(sentence: "Nothing in Other", hint: "Newsletters and notifications land here.")
-            case .unknown?, nil:
-                return ListEmptyState(sentence: "Nothing left to read.", hint: "New mail will land here.", glyph: .sparrow)
-            }
+            // The Inbox always shows all of its mail (§5.5): there is no Focused or Other list to be empty.
+            return ListEmptyState(sentence: "Nothing left to read.", hint: "New mail will land here.", glyph: .sparrow)
         case .starred:
             return ListEmptyState(sentence: "No starred conversations", hint: "Press S to star one.")
         case .sent:

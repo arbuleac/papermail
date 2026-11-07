@@ -142,8 +142,8 @@ final class ComponentMetricsTests: XCTestCase {
     }
 
     func testTagSize() {
-        let tag = QuireTag("Other")
-        XCTAssertEqual(tag.intrinsicContentSize, NSSize(width: labelWidth("Other", .tag) + 10, height: 16))
+        let tag = QuireTag("Gmail")
+        XCTAssertEqual(tag.intrinsicContentSize, NSSize(width: labelWidth("Gmail", .tag) + 10, height: 16))
     }
 
     func testKeycapSizes() {
@@ -198,7 +198,12 @@ final class ComponentMetricsTests: XCTestCase {
         error.frame = error.frame(forVisualRect: NSRect(x: 0, y: 0, width: 600, height: 50))
         XCTAssertEqual(error.intrinsicContentSize.height, 28 + 5 + 14, "help line 5 pt below, one meta line when it fits")
         XCTAssertEqual(error.faceRect.height, 28)
-        XCTAssertEqual(QuireSearchField().intrinsicContentSize, NSSize(width: 168, height: 26))
+        XCTAssertEqual(QuireSearchField().intrinsicContentSize, NSSize(width: 140, height: 26), "its minimum: the header gives it the free width")
+        // The keycap stays only while the whole placeholder fits beside it.
+        let narrow = QuireSearchField(placeholder: "Search All Mail")
+        XCTAssertFalse(narrow.showsKeycap, "“Search All Mail” and “/” need more than 140 pt")
+        narrow.frame = narrow.frame(forVisualRect: NSRect(x: 0, y: 0, width: 200, height: 26))
+        XCTAssertTrue(narrow.showsKeycap)
     }
 
     func testChoiceControlSizes() {
@@ -238,16 +243,15 @@ final class ComponentMetricsTests: XCTestCase {
         XCTAssertEqual(marked.intrinsicContentSize.width, ceil(9 + 14 + 8 + labelWidth("Persimmon", .body) + 8 + chevron + 6))
         XCTAssertEqual(QuirePopUpButton.InkMark.dot(slot: 2).diameter, 7)
 
-        let tabs = QuireUnderlineTabs(titles: ["All", "Focused", "Other"])
-        XCTAssertEqual(tabs.intrinsicContentSize.height, 40)
-        let strong = ["All", "Focused", "Other"].map { labelWidth($0, .labelStrong) }
-        XCTAssertEqual(tabs.intrinsicContentSize.width, strong.reduce(0, +) + 2 * 18)
-        XCTAssertEqual(tabs.labelRect(forTab: 0).minY - tabs.bodyRect.minY, 12, "label top at y = 12 in row 2")
-        XCTAssertEqual(tabs.hitRect(forTab: 1).height, 40, "full row height")
+        // The quick reply's mode tabs (§5.18), the only underline tabs since the filter tabs went (§5.5).
+        let titles = ["Reply", "Reply all", "Forward"]
+        let tabs = QuireUnderlineTabs(titles: titles)
+        XCTAssertEqual(tabs.intrinsicContentSize.height, 28, "the tool row")
+        let strong = titles.map { labelWidth($0, .labelStrong) }
+        XCTAssertEqual(tabs.intrinsicContentSize.width, strong.reduce(0, +) + 2 * 16)
+        XCTAssertEqual(tabs.labelRect(forTab: 0).minY - tabs.bodyRect.minY, 6, "label box y 6–22")
+        XCTAssertEqual(tabs.hitRect(forTab: 1).height, 28, "full row height")
         XCTAssertEqual(tabs.hitRect(forTab: 1).width, tabs.slotRect(forTab: 1).width + 12, "label ± 6")
-        XCTAssertEqual(QuireUnderlineTabs.Style.replyMode.height, 28)
-        XCTAssertEqual(QuireUnderlineTabs.Style.replyMode.underlineTop, 24)
-        XCTAssertEqual(QuireUnderlineTabs.Style.replyMode.labelTop, 6, "label box y 6–22")
         // Choosing a tab never moves the others.
         let before = tabs.slotRect(forTab: 2)
         tabs.selectedIndex = 1
@@ -276,7 +280,7 @@ final class ComponentMetricsTests: XCTestCase {
     }
 
     func testEmptyStateStaysWithin300Points() {
-        let long = QuireEmptyStateView(sentence: "Mail from people lands here; newsletters and notifications go to Other.",
+        let long = QuireEmptyStateView(sentence: "Every conversation in this account appears here, archived ones too.",
                                        hint: "Search looks at subjects, people and message text.")
         XCTAssertLessThanOrEqual(long.intrinsicContentSize.width, 300)
         let short = QuireEmptyStateView(sentence: "Nothing left to read.", hint: "New mail will land here.", glyph: .sparrow)

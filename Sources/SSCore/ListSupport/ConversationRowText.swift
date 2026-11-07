@@ -34,8 +34,6 @@ public struct ConversationRowText: Hashable, Sendable {
     public struct Context: Hashable, Sendable {
         public var kind: Kind
         public var timeStyle: DateFormatting.Style
-        /// Inbox › All marks Other conversations with a tag; every other view and filter does not.
-        public var showsOtherTag: Bool
         /// The user's own addresses, lowercased: they read "me" in a sender line.
         public var ownAddresses: Set<String>
         /// The sender of the conversation's newest message, whose face the row shows (spec §5.29). Nil falls
@@ -49,7 +47,6 @@ public struct ConversationRowText: Hashable, Sendable {
         public init(
             kind: Kind = .received,
             timeStyle: DateFormatting.Style = .relative,
-            showsOtherTag: Bool = false,
             ownAddresses: Set<String> = [],
             latestSender: EmailAddress? = nil,
             recipients: [EmailAddress] = [],
@@ -57,7 +54,6 @@ public struct ConversationRowText: Hashable, Sendable {
         ) {
             self.kind = kind
             self.timeStyle = timeStyle
-            self.showsOtherTag = showsOtherTag
             self.ownAddresses = ownAddresses
             self.latestSender = latestSender
             self.recipients = recipients
@@ -83,7 +79,6 @@ public struct ConversationRowText: Hashable, Sendable {
     public let isUnread: Bool
     public let isStarred: Bool
     public let hasAttachments: Bool
-    public let showsOtherTag: Bool
     public let status: Status
     /// What VoiceOver reads for the row (spec §4.14).
     public let accessibilityLabel: String
@@ -137,7 +132,6 @@ public struct ConversationRowText: Hashable, Sendable {
         isUnread = summary.unreadCount > 0
         isStarred = summary.isStarred
         hasAttachments = summary.hasAttachments
-        showsOtherTag = context.showsOtherTag && summary.inboxSection == .other
         if let failed = summary.failedOperation {
             status = .failed(failed)
         } else if summary.hasPendingOperations {
@@ -162,7 +156,6 @@ public struct ConversationRowText: Hashable, Sendable {
         parts.append(timeText)
         if let count = messageCount { parts.append("\(count) messages") }
         if hasAttachments { parts.append("Has attachments") }
-        if showsOtherTag { parts.append("Other") }
         switch status {
         case .none: break
         case .queued: parts.append("Waiting to sync")
@@ -301,7 +294,6 @@ public struct ConversationRowText: Hashable, Sendable {
         hasher.combine(dayStamp)
         hasher.combine(context.kind.rawValue)
         hasher.combine(context.timeStyle.rawValue)
-        hasher.combine(context.showsOtherTag)
         for address in context.ownAddresses.sorted() { hasher.combine(address) }
         hasher.combine(context.latestSender?.name ?? "")
         hasher.combine(context.latestSender?.address ?? "")
@@ -326,7 +318,6 @@ public struct ConversationRowText: Hashable, Sendable {
         hasher.combine(summary.hasAttachments)
         hasher.combine(summary.hasPendingOperations)
         hasher.combine(summary.failedOperation?.rawValue ?? "")
-        hasher.combine(summary.inboxSection.rawValue)
         hasher.combine(summary.subject)
         hasher.combine(summary.snippet)
         hasher.combine(summary.participants.count)

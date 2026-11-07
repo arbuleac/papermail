@@ -85,7 +85,6 @@ final class ConversationRowTextTests: XCTestCase {
         XCTAssertNil(row.messageCount)
         XCTAssertFalse(row.isUnread)
         XCTAssertEqual(row.status, .none)
-        XCTAssertFalse(row.showsOtherTag)
     }
 
     func testUnreadAndMessageCount() {
@@ -219,10 +218,17 @@ final class ConversationRowTextTests: XCTestCase {
 
     // MARK: Marks
 
-    func testOtherTagNeedsTheContextAndTheSection() {
-        XCTAssertTrue(text(summary(inboxSection: .other), .init(showsOtherTag: true)).showsOtherTag)
-        XCTAssertFalse(text(summary(inboxSection: .focused), .init(showsOtherTag: true)).showsOtherTag)
-        XCTAssertFalse(text(summary(inboxSection: .other)).showsOtherTag, "only Inbox › All tags Other rows")
+    /// Rows never show the provider's Focused/Other category (spec §5.7): an Other conversation reads exactly as a
+    /// Focused one, to VoiceOver too, while the summary keeps the category for the provider.
+    /// The context has no way left to ask for the category; `InboxShowsAllMailTests` checks the rows the list
+    /// itself configures, in the Inbox where the tag used to show.
+    func testTheCategoryNeverShowsOnARow() {
+        let other = text(summary(inboxSection: .other))
+        let focused = text(summary(inboxSection: .focused))
+        XCTAssertEqual(other.accessibilityLabel, focused.accessibilityLabel)
+        XCTAssertFalse(other.accessibilityLabel.contains("Other"))
+        XCTAssertEqual(other.senderLine, focused.senderLine)
+        XCTAssertEqual(other.status, focused.status)
     }
 
     func testQueuedAndFailedStatus() {
@@ -268,7 +274,6 @@ final class ConversationRowTextTests: XCTestCase {
             summary(unreadCount: 1),
             summary(isStarred: true),
             summary(hasAttachments: true),
-            summary(inboxSection: .other),
             summary(hasPendingOperations: true),
             summary(failedOperation: .archive),
             newMessage,
@@ -283,6 +288,9 @@ final class ConversationRowTextTests: XCTestCase {
         var changed = summary()
         changed.inInbox = false
         XCTAssertEqual(ConversationRowText.cacheKey(for: changed, dayStamp: 1), ConversationRowText.cacheKey(for: summary(), dayStamp: 1))
+        // The category round-trips provider state only; no row shows it.
+        XCTAssertEqual(ConversationRowText.cacheKey(for: summary(inboxSection: .other), dayStamp: 1),
+                       ConversationRowText.cacheKey(for: summary(), dayStamp: 1))
     }
 
     func testContextAndEnvironmentAreInTheExtendedKey() {
@@ -291,7 +299,6 @@ final class ConversationRowTextTests: XCTestCase {
         let contexts: [ConversationRowText.Context] = [
             .init(kind: .sent),
             .init(timeStyle: .timeOfDay),
-            .init(showsOtherTag: true),
             .init(ownAddresses: ["ada@example.com"]),
             .init(accountName: "Gmail"),
         ]
@@ -328,7 +335,7 @@ final class ConversationRowTextTests: XCTestCase {
 
         let start = DispatchTime.now()
         var checksum: UInt64 = 0
-        let context = ConversationRowText.Context(timeStyle: .timeOfDay, showsOtherTag: true, ownAddresses: ["ada.lovelace@example.com"])
+        let context = ConversationRowText.Context(timeStyle: .timeOfDay, ownAddresses: ["ada.lovelace@example.com"])
         for summary in summaries {
             let row = ConversationRowText(summary: summary, reference: reference, formatter: formatting, context: context)
             checksum ^= ConversationRowText.cacheKey(for: summary, dayStamp: reference.dayStamp, context: context, environment: "light|ic0|g0")

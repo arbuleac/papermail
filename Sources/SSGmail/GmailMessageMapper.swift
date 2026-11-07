@@ -56,8 +56,9 @@ enum GmailMessageMapper {
         return roles
     }
 
-    /// Primary is the only category the Focused toggle shows; a message with no category at all (older
-    /// mail, or accounts with tabs off) belongs there too, otherwise it would vanish from both views.
+    /// Primary maps to Focused, the rest to Other; a message with no category at all (older mail, or accounts
+    /// with Gmail's tabs off) counts as Primary. The app stores the section only to round-trip provider state:
+    /// the Inbox always shows all of its mail.
     static func section(from labels: [String]) -> InboxSection {
         let categories = labels.filter { $0.hasPrefix("CATEGORY_") }
         if categories.isEmpty || categories.contains("CATEGORY_PERSONAL") { return .focused }

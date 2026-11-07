@@ -1,58 +1,53 @@
 <section class="sh"><span class="n">D2 · Flows and states</span><h2>Demo, sign-in, drafts, outcomes</h2><p>Surfaces and states specified in 1.1 to 1.3: the demo marker, adding accounts from the main window, Settings account states, the composer's link popover and statuses, drafts, Original colors, list paging, the cheat-sheet overlay and the key precedence.</p></section>
 <div class="grid">
   <div class="c6">
-    <div class="win" style="height:330px">
+    <div class="win" style="height:{{layout.window.minHeight}}px">
       <div class="rail">
         <div class="lights"><i></i><i></i><i></i></div>
-        <span class="rt sel" style="top:{{layout.rail.unifiedTop}}px"><i class="mr"></i>{{PY: g('ss.quire', 18)}}<span class="badge" style="--cut:var(--q-spine)">9</span></span>
-        <i class="rdiv" style="top:{{layout.rail.dividerY}}px"></i>
-        <span class="rt" style="top:{{layout.rail.accountTop}}px"><span class="face" style="--a:var(--q-acct-1)"><span>N</span></span></span>
-        <span class="rt" style="top:180px"><span class="face" style="--a:var(--q-acct-2)"><span>W</span></span></span>
+        {{PY: rail_folders(0, 9)}}
+        {{PY: rail_accounts(600, [('', '<span class="face" style="--a:var(--q-acct-1)"><span>N</span></span>', 'Northwind · ada@northwind.test  ⌘1'), ('', '<span class="face" style="--a:var(--q-acct-2)"><span>W</span></span>', 'Wingtip · ada@wingtip.test  ⌘2')], 'sel', 9)}}
         <span class="rutil" style="bottom:64px">{{PY: s('plus', 15)}}</span>
         <span class="rutil" style="bottom:24px">{{PY: s('gearshape', 15)}}</span>
       </div>
       <div class="list" style="width:auto;right:0">
-        <div class="lh"><div class="mast">Inbox {{PY: s('chevron.down', 9)}}<span class="dtag hov">Demo {{PY: s('chevron.down', 7)}}</span></div>
-          <div class="ib compose">{{PY: g('ss.nib', 18)}}</div>
-          <div class="tabs"><span class="tab on">All</span><span class="tab">Focused</span><span class="tab">Other</span></div>
-          <div class="search" style="left:auto">{{PY: s('magnifyingglass', 12)}}<span class="ph">Search</span><span class="kbd">/</span></div></div>
+        <div class="lh"><div class="mast">Inbox<span class="dtag hov">Demo {{PY: s('chevron.down', 7)}}</span></div>
+          <div class="search" style="--sl:142px">{{PY: s('magnifyingglass', 12)}}<span class="ph">Search</span><span class="kbd">/</span></div>
+          <div class="ib compose">{{PY: g('ss.nib', 18)}}</div></div>
         {{PY: row('Northwind Traders', 'Your order has shipped', 'Track it any time from your account page.', '09:41', 'wheat', 'NT', acct='C', unread=True)}}
-        {{PY: row('Wingtip Toys', 'Spring catalogue', 'Twelve new kites and a very serious frisbee.', '08:15', 'rose', 'WT', acct='G', tag='Other')}}
+        {{PY: row('Wingtip Toys', 'Spring catalogue', 'Twelve new kites and a very serious frisbee.', '08:15', 'rose', 'WT', acct='G')}}
         <div class="sync">{{PY: s('info.circle', 11)}}<b>Demo</b> · made-up mail, nothing syncs</div>
       </div>
-      <div class="menu" style="position:absolute;left:220px;top:40px;width:226px;z-index:20">
+      <div class="menu" style="position:absolute;left:152px;top:40px;width:226px;z-index:20">
         <div class="mi">{{PY: s('envelope', 14)}}Add a Real Account…<span class="kc">{{PY: s('chevron.right', 9)}}</span></div>
         <div class="msep"></div>
         <div class="mi hi">{{PY: s('arrow.uturn.backward', 14)}}Leave Demo…</div>
       </div>
     </div>
-    <p class="ann" style="margin-top:10px">Demo mode (§5.43): a “Demo” tag after the masthead (hovered, its menu open), the window title “SuperSparrow — Demo”, a sync line that says nothing syncs, and a Settings banner. Leave Demo asks once, then returns to the welcome screen.</p>
+    <p class="ann" style="margin-top:10px">Demo mode (§5.43): a “Demo” tag after the masthead (hovered, its menu open), the window title “SuperSparrow — Demo”, a sync line that says nothing syncs, and a Settings banner. Leave Demo asks once, then returns to the welcome screen. At the {{layout.window.minHeight}} pt minimum height one account fits under the folders; the second scrolls in the account clip, whose clipped edge carries a hairline.</p>
   </div>
   <div class="c6">
-    <div class="win" style="height:330px">
+    <div class="win" style="height:{{layout.window.minHeight}}px">
       <div class="rail">
         <div class="lights"><i></i><i></i><i></i></div>
-        <span class="rt sel" style="top:{{layout.rail.unifiedTop}}px"><i class="mr"></i>{{PY: g('ss.quire', 18)}}</span>
-        <i class="rdiv" style="top:{{layout.rail.dividerY}}px"></i>
-        <span class="rt" style="top:{{layout.rail.accountTop}}px"><span class="face" style="--a:var(--q-acct-1)"><span>C</span></span></span>
-        <span class="rt" style="top:180px" title="Finish signing in in your browser…"><span class="pface"><span class="spin" style="--sz:{{layout.rail.pendingSpinner}}px;color:var(--q-ink3)"></span></span></span>
+        {{PY: rail_folders(0)}}
+        {{PY: rail_accounts(600, [('', '<span class="face" style="--a:var(--q-acct-1)"><span>C</span></span>', 'Contoso · alex@contoso.test  ⌘1'), ('', '<span class="pface"><span class="spin" style="--sz:16px;color:var(--q-ink3)"></span></span>', 'Finish signing in in your browser…')], 'sel', None, True)}}
         <span class="rutil" style="bottom:64px;background:var(--q-pressed);color:var(--q-ink)">{{PY: s('plus', 15)}}</span>
         <span class="rutil" style="bottom:24px">{{PY: s('gearshape', 15)}}</span>
       </div>
       <div class="list" style="width:auto;right:0">
-        <div class="lh"><div class="mast">Inbox {{PY: s('chevron.down', 9)}}</div><div class="ib compose">{{PY: g('ss.nib', 18)}}</div>
-          <div class="tabs"><span class="tab on">All</span><span class="tab">Focused</span><span class="tab">Other</span></div>
-          <div class="search" style="left:auto">{{PY: s('magnifyingglass', 12)}}<span class="ph">Search</span><span class="kbd">/</span></div></div>
+        <div class="lh"><div class="mast">Inbox</div>
+          <div class="search">{{PY: s('magnifyingglass', 12)}}<span class="ph">Search</span><span class="kbd">/</span></div>
+          <div class="ib compose">{{PY: g('ss.nib', 18)}}</div></div>
         {{PY: row('Ben Carter', 'Contoso rollout: go-live checklist', 'Tested with three accounts this afternoon, all good.', '23:39', 'slate', 'BC', acct='C')}}
         {{PY: row('Rachel Kim', 'Q4 roadmap review', 'Great work. One comment on offline mode.', '17:20', 'sea', 'RK', acct='C', clip=True, count=2)}}
         <div class="sync"><span class="spin" style="--sz:11px;color:var(--q-ink3)"></span><b>Finish signing in in your browser</b> · Gmail<span class="act" style="border-radius:5px;box-shadow:0 0 0 2px var(--q-focus);padding:0 3px">Cancel</span></div>
       </div>
-      <div class="menu" style="position:absolute;left:24px;top:270px;width:236px;z-index:20">
+      <div class="menu" style="position:absolute;left:24px;top:540px;width:236px;z-index:20">
         <div class="mi hi">{{PY: s('envelope', 14)}}Add Gmail Account…</div>
         <div class="mi">{{PY: s('envelope', 14)}}Add Microsoft Account…</div>
       </div>
     </div>
-    <p class="ann" style="margin-top:10px">Adding an account (§5.44): rail + opens a provider menu (no alert); while the browser is open the rail shows a dashed pending tile with a spinner and the sync line offers Cancel, which joins the Tab order (shown focused). Failures arrive as an alert sheet with “Try Again”.</p>
+    <p class="ann" style="margin-top:10px">Adding an account (§5.44): rail + opens a provider menu (no alert); while the browser is open the rail shows a dashed pending tile with a spinner at the end of the account stack, scrolled into view (the hairline marks the clipped top edge), and the sync line offers Cancel, which joins the Tab order (shown focused). Failures arrive as an alert sheet with “Try Again”.</p>
   </div>
 
   <div class="c12 card deskbg">
@@ -181,7 +176,7 @@
 
   <div class="c12 card" style="background:var(--studio-card);box-shadow:0 0 0 1px var(--studio-rule)">
     <h3 style="color:var(--studio-ink)">Cheat sheet overlay <code>layout.cheatSheet · cheatSheetContent · scrim</code></h3>
-    <p class="cap" style="color:var(--studio-ink2);max-width:none">An in-window overlay, not a system sheet: <code>scrim</code> over the window (<code>scrimSolid</code>, opaque, under Reduce Transparency), focus trapped in the panel, single keys swallowed. Esc, ?, ⌘/, ⌘W, the close button or a click on the scrim dismisses it. The content is the whole key map in two bands of three sections, sentence case, drawn from <code>cheatSheetContent</code>; {{layout.cheatSheet.width}} × 604 pt, so it fits the default window whole.</p>
+    <p class="cap" style="color:var(--studio-ink2);max-width:none">An in-window overlay, not a system sheet: <code>scrim</code> over the window (<code>scrimSolid</code>, opaque, under Reduce Transparency), focus trapped in the panel, single keys swallowed. Esc, ?, ⌘/, ⌘W, the close button or a click on the scrim dismisses it. The content is the whole key map in two bands of three sections, sentence case, drawn from <code>cheatSheetContent</code>; {{layout.cheatSheet.width}} × 576 pt, so it fits the default window whole.</p>
     <div class="scrimbox" style="height:652px;background:var(--q-paper)">
       <div style="position:absolute;inset:0;width:364px">{{PY: row('Priya Raman', 'Lisbon in March?', 'Booked the flat near Príncipe Real.', '22:10', 'heather', 'PR', acct='G', unread=True)}}{{PY: row('Ben Carter', 'Contoso rollout: go-live checklist', 'Tested with three accounts, all good.', '23:39', 'slate', 'BC', acct='C', state='sel')}}{{PY: row('Forge', '[sparrow-sync] PR #2657', 'maya-c commented.', '21:48', 'stone', 'F', acct='F')}}{{PY: row('Maya Singh', 'Lunch on Thursday?', 'The new place on Rua da Rosa has a terrace.', 'Tue', 'clay', 'MS', acct='G')}}{{PY: row('Tom Hughes', 'Metadata for SSO', 'Attached the XML; the certificate rolls over in March.', 'Mon', 'fern', 'TH', acct='C')}}</div>
       <div class="scr"></div>

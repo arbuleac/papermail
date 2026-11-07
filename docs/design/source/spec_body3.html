@@ -14,11 +14,11 @@
         {{PY: row('Rachel Kim', 'Q4 roadmap review', 'Great work. One comment on offline mode.', '17:20', 'sea', 'RK', acct='C', state='sel', clip=True, count=2)}}
         {{PY: row('Rachel Kim', 'No subject', 'Sending the photos from Friday.', '16:02', 'sea', 'RK', acct='C', unread=True, subject_cls='phi')}}
       </div></div>
-      <div><span class="lbl">Starred · attachment · count · queued · failed · Other · initials · Drafts · Sent</span><div class="listbox">
+      <div><span class="lbl">Starred · attachment · count · queued · failed · initials · Drafts · Sent</span><div class="listbox">
         {{PY: row('Linda Morgan', 'Sunday dinner', 'Ha, noted. I will bring the plum cake.', '19:02', 'rose', 'LM', acct='G', star=True, clip=True, count=4, pending=True)}}
         {{PY: row('Forge', '[sparrow-sync] PR #2657', 'maya-c commented: one nit about the retry budget.', '21:48', 'stone', 'F', acct='F', failed=True)}}
-        {{PY: row('Northwind Weekly', 'Issue #182: Quiet software', 'This week: the case for fewer notifications.', '08:15', 'slate', 'NW', acct='G', tag='Other')}}
-        {{PY: row('Calendar', 'Accepted: Design review @ Thu 15:30', 'Room: Juniper (4th floor)', '13:05', 'wheat', 'C', acct='C', tag='Other', initial_tile=True)}}
+        {{PY: row('Northwind Weekly', 'Issue #182: Quiet software', 'This week: the case for fewer notifications.', '08:15', 'slate', 'NW', acct='G')}}
+        {{PY: row('Calendar', 'Accepted: Design review @ Thu 15:30', 'Room: Juniper (4th floor)', '13:05', 'wheat', 'C', acct='C', initial_tile=True)}}
         {{PY: row('', 'Re: Contoso rollout', 'Thanks for running the checks. I have forwarded…', '23:51', 'slate', 'BC', sender_html='<span class="me">Draft to</span> Ben Carter')}}
         {{PY: row('', 'Lisbon in March?', 'Count me in for the weekend, I will book the train.', '22:30', 'heather', 'PR', sender_html='<span class="me">To</span> Priya Raman', clip=True)}}
       </div></div>
@@ -47,7 +47,7 @@
 
   <div class="c4 card">
     <h3>Account rail <code>layout.rail</code></h3>
-    <p class="cap">Opaque <code>spine</code>, {{layout.rail.width}} pt ({{layout.rail.width26}} from macOS 26). Tiles {{layout.rail.tile}} pt visual, {{layout.rail.tileHit}} pt hit. Domain monograms. A press darkens only the face, never the ring's surroundings.</p>
+    <p class="cap">Opaque <code>spine</code>, {{layout.rail.width}} pt ({{layout.rail.width26}} from macOS 26). Tiles {{layout.rail.tile}} pt visual, {{layout.rail.tileHit}} pt hit. Folders at the top, the accounts anchored above Add. A selected folder is a raised tile with no margin rule; the selected account carries the rule. Domain monograms. A press darkens only the face, never the ring's surroundings.</p>
     <div class="railspec">
       <div><span class="rt2"><span class="face" style="--a:var(--q-acct-1)"><span>C</span></span></span><b>Rest</b></div>
       <div><span class="rt2 hov"><span class="face" style="--a:var(--q-acct-2)"><span>G</span></span></span><b>Hover</b></div>
@@ -61,19 +61,20 @@
       <div><span class="rt2" title="Finish signing in in your browser…"><span class="pface"><span class="spin" style="--sz:{{layout.rail.pendingSpinner}}px;color:var(--q-ink3)"></span></span></span><b>Signing in</b></div>
       <div><span class="rt2"><span class="face two" style="--a:var(--q-acct-5)"><span>Ga</span></span></span><b>Collision: Ga</b></div>
       <div><span class="rt2 sel2"><i class="mr2"></i>{{PY: g('ss.quire', 18)}}</span><b>All Inboxes</b></div>
+      <div><span class="rt2 sel2" title="Inbox  G I">{{PY: s('tray', 16)}}<span class="badge">21</span></span><b>Inbox, selected</b></div>
+      <div><span class="rt2 hov" title="Starred  G S">{{PY: s('star', 16)}}</span><b>Folder, hover</b></div>
       <div><span class="rt2 hov">{{PY: s('plus', 15)}}</span><b>Add, hover</b></div>
       <div><span class="rt2">{{PY: s('gearshape', 15)}}</span><b>Settings</b></div>
     </div>
   </div>
 
   <div class="c4 card">
-    <h3>List header, tabs, search <code>layout.listHeader</code></h3>
-    <p class="cap">Masthead New York {{typography.masthead.size}}/{{typography.masthead.lineHeight}}. Tabs carry state with weight and a {{border.tabUnderline.width}} pt underline (≥ 3:1). Search has a resting {{border.strong.width}} pt <code>ruleStrong</code> edge.</p>
+    <h3>List header, search <code>layout.listHeader</code></h3>
+    <p class="cap">Masthead New York {{typography.masthead.size}}/{{typography.masthead.lineHeight}}: a plain title beside the rail, the title menu (chevron) in minimal mode. Search shares its line and takes the free width, at least {{layout.listHeader.searchMinWidth}} pt. It has a resting {{border.strong.width}} pt <code>ruleStrong</code> edge.</p>
     <div class="st">
-      <span class="lb">Masthead</span><span class="rowline"><span class="mst">Inbox {{PY: s('chevron.down', 9)}}</span><span class="mst hov">Starred {{PY: s('chevron.down', 9)}}</span><span class="mst foc">Sent {{PY: s('chevron.down', 9)}}</span></span>
-      <span class="lb">Narrowed</span><span class="mst">Inbox {{PY: s('chevron.down', 9)}}<span style="font:var(--q-font-snippet);color:var(--q-ink3)">· alex@contoso.test</span></span>
-      <span class="lb">Tabs</span><span class="tabs2"><span class="tab on">All</span><span class="tab hov">Focused</span><span class="tab foc">Other</span></span>
-      <span class="lb">Not key / first sync</span><span class="tabs2"><span class="tab on idle">All</span><span class="tab dis">Focused</span><span class="tab dis">Other</span></span>
+      <span class="lb">Masthead</span><span class="rowline"><span class="mst">Inbox</span></span>
+      <span class="lb">Minimal mode</span><span class="rowline"><span class="mst">Inbox {{PY: s('chevron.down', 9)}}</span><span class="mst hov">Starred {{PY: s('chevron.down', 9)}}</span><span class="mst foc">Sent {{PY: s('chevron.down', 9)}}</span></span>
+      <span class="lb">Narrowed</span><span class="mst">Inbox<span style="font:var(--q-font-snippet);color:var(--q-ink3)">· alex@contoso.test</span></span>
       <span class="lb">Search rest</span><span class="search s2">{{PY: s('magnifyingglass', 12)}}<span class="ph">Search</span><span class="kbd">/</span></span>
       <span class="lb">Hover</span><span class="search s2 hov">{{PY: s('magnifyingglass', 12)}}<span class="ph">Search</span><span class="kbd">/</span></span>
       <span class="lb">Focused, typing</span><span class="search s2 foc" style="width:250px;color:var(--q-ink)">{{PY: s('magnifyingglass', 12)}}<span class="ph" style="color:var(--q-ink)">lisbon flat<span class="caret" style="display:inline-block;vertical-align:-3px;margin-left:1px"></span></span><span class="ann">38 results</span><span class="clr">{{PY: s('xmark', 9)}}</span></span>
@@ -200,7 +201,7 @@
       <div class="banner"><span class="spin" style="--sz:12px;color:var(--q-ink3)"></span><span class="txt">Loading 3 images…</span></div>
       <div class="banner"><span style="color:var(--q-warning)">{{PY: s('exclamationmark.triangle.fill', 14)}}</span><span class="txt">2 images couldn’t load.</span></div>
       <div class="banner warn">{{PY: s('circle.lefthalf.filled', 14)}}<span class="txt">This message uses its own colours.</span><span class="btn linkb" style="color:var(--q-ink);font-weight:600">Original colors</span></div>
-      <div class="banner info">{{PY: s('info.circle', 14)}}<span class="txt">Focused mirrors Gmail Primary.</span></div>
+      <div class="banner info">{{PY: s('info.circle', 14)}}<span class="txt">Demo mode: these mailboxes are made up and live only on this Mac.</span></div>
       <div class="banner ok">{{PY: s('checkmark.circle.fill', 14)}}<span class="txt">OAuth clients saved.</span></div>
       <div class="banner bad">{{PY: s('exclamationmark.triangle.fill', 14)}}<span class="txt">Couldn’t load this message.</span><span class="btn linkb">Retry</span></div>
     </div>
@@ -263,7 +264,7 @@
       <span class="lb">Unread count</span><span class="rowline"><span class="cntb acc">3</span><span class="cntb acc">21</span><span class="cntb acc">99+</span></span>
       <span class="lb">Message count</span><span class="rowline"><span class="cntb neu">2</span><span class="cntb neu">14</span><span class="cntb neu" style="background:linear-gradient(var(--q-fill),var(--q-fill)),var(--q-selWash)">4</span><span class="ann">on selection</span></span>
       <span class="lb">Dot · attention</span><span class="rowline"><span class="dotb"></span><span class="attn">{{PY: s('exclamationmark', 9)}}</span></span>
-      <span class="lb">Tags</span><span class="rowline"><span class="tag">Other</span><span class="tag">Gmail</span><span class="tag">Microsoft 365</span><span class="tag" style="background:var(--q-selWash)">Other</span></span>
+      <span class="lb">Tags</span><span class="rowline"><span class="tag">Gmail</span><span class="tag">Microsoft 365</span><span class="tag" style="background:var(--q-selWash)">Gmail</span></span>
       <span class="lb">Dock</span><span class="ann">System red badge, unified Inbox unread count (system-drawn).</span>
     </div>
   </div>
@@ -302,7 +303,7 @@
     <p class="cap">One serif sentence and one hint. Only inbox zero shows the sparrow.</p>
     <div class="empty"><span style="color:var(--q-ink3)">{{PY: g('ss.sparrow', 30)}}</span><b>Nothing left to read.</b><i>New mail will land here.</i></div>
     <div class="empty" style="margin-top:14px"><b>No results for “lisbon flat”</b><i>Search looks at subjects, people and message text.</i></div>
-    <div class="empty" style="margin-top:14px"><b>Nothing in Focused</b><i>Mail from people lands here; newsletters and notifications go to Other.</i></div>
+    <div class="empty" style="margin-top:14px"><b>No starred conversations</b><i>Press S to star one.</i></div>
     <div class="empty" style="margin-top:14px;background:var(--q-canvas);border-radius:8px;padding:14px"><b>No conversation selected</b><i><span class="kbd">J</span> <span class="kbd">K</span> to move · <span class="kbd">↩</span> to open</i></div>
     <div class="empty" style="margin-top:10px;background:var(--q-canvas);border-radius:8px;padding:14px"><b>No messages to show</b><i>They were deleted or moved on another device.</i></div>
   </div>
@@ -380,11 +381,10 @@
       <div class="listbox" style="box-shadow:0 0 0 1px var(--q-ruleStrong)">
         {{PY: row('Ben Carter, Alex Morgan, Tom Hughes', 'Contoso rollout: go-live checklist', 'Tested with three accounts, all good.', '23:39', 'slate', 'BC', acct='C', state='sel', count=4, clip=True)}}
         {{PY: row('Priya Raman', 'Lisbon in March?', 'Booked the flat near Príncipe Real.', '22:10', 'heather', 'PR', acct='G', unread=True, star=True, count=3)}}
-        {{PY: row('Forge', '[sparrow-sync] PR #2657', 'maya-c commented.', '21:48', 'stone', 'F', acct='F', tag='Other', pending=True)}}
+        {{PY: row('Forge', '[sparrow-sync] PR #2657', 'maya-c commented.', '21:48', 'stone', 'F', acct='F', pending=True)}}
       </div>
       <div style="display:grid;gap:12px;align-content:start">
         <div class="rowline"><span class="btn primary">Send</span><span class="btn secondary">Reconnect</span><span class="btn ghost">Cancel</span><span class="btn destructive">Discard</span><span class="btn secondary foc ichc">Focused</span><span class="tok sel">Selected</span><span class="tok bad">{{PY: s('exclamationmark.triangle.fill', 10)}}it-desk@contoso</span></div>
-        <div class="rowline"><span class="field"><span class="ph">Client ID</span></span><span class="field foc ichc">alex@contoso<span class="caret"></span></span><span class="cb on">{{PY: s('checkmark', 9)}}</span><span class="cb"></span><span class="tg on"></span><span class="tg"></span><span class="tabs2"><span class="tab on">All</span><span class="tab">Focused</span></span></div>
         <div class="rowline"><span class="slip" style="box-shadow:inset 0 0 0 1px var(--q-ruleStrong),var(--q-e2)">{{PY: s('archivebox', 14)}}Archived<i class="dv"></i><span class="ua">Undo <span class="kbd os">Z</span></span><i class="contrail" style="width:62%"></i></span><span class="qt">{{PY: g('ss.elide', 14)}}Show quoted text</span><span class="ach" style="min-width:0;box-shadow:inset 0 0 0 1px var(--q-ruleStrong)"><span class="tl">{{PY: s('doc', 15)}}</span><div><div class="nm">checklist.pdf</div><div class="mt">PDF · 240 KB</div></div></span></div>
       </div>
     </div>

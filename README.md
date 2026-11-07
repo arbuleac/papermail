@@ -45,7 +45,6 @@ SuperSparrow signs in through your browser with OAuth clients you register yours
 | `g` then `i` / `s` / `t` / `a` | Go to Inbox / Starred / Sent / All Mail |
 | `⌘0` | All inboxes |
 | `⌘1` … `⌘9` | One account |
-| `⌘\` | Focused inbox on / off |
 | `⌃⌘S` | Hide / show the account strip |
 | `⌘,` | Settings |
 
@@ -65,8 +64,8 @@ SuperSparrow's look is **Quire**: New York subjects on warm paper, one blue-blac
 
 ## More
 
-- Roadmap, November 2026 to October 2027: [docs/ROADMAP.md](docs/ROADMAP.md)
 - Architecture, launch options and performance budgets: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- Roadmap, November 2026 to October 2027: [docs/ROADMAP.md](docs/ROADMAP.md)
 - Design language: [docs/DESIGN-LANGUAGE.md](docs/DESIGN-LANGUAGE.md)
 - Database schema: [docs/DATA-MODEL.md](docs/DATA-MODEL.md)
 - OAuth setup: [docs/OAUTH-SETUP.md](docs/OAUTH-SETUP.md)

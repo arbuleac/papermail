@@ -312,11 +312,12 @@ final class ComponentColorTests: XCTestCase {
     func testTabUnderlineFollowsWindowKeyState() {
         for mode in QuireMode.allCases {
             for key in [true, false] {
-                let tabs = QuireUnderlineTabs(titles: ["All", "Focused", "Other"])
+                let tabs = QuireUnderlineTabs(titles: ["Reply", "Reply all"])
                 tabs.windowKeyOverride = key
                 let (snapshot, _) = render(tabs, mode)
                 let label = tabs.labelRect(forTab: 0).offsetBy(dx: pad, dy: pad)
-                let y = pad + tabs.bodyRect.minY + 39
+                // The 2 pt underline's top is at y = 24 in the 28 pt tool row.
+                let y = pad + tabs.bodyRect.minY + 25
                 assertPixel(snapshot, NSPoint(x: label.midX, y: y), expected(key ? "ink" : "ink3", mode: mode), "\(mode) key \(key)")
                 let other = tabs.labelRect(forTab: 1).offsetBy(dx: pad, dy: pad)
                 assertPixel(snapshot, NSPoint(x: other.midX, y: y), expected("paper", mode: mode), "\(mode) no underline on rest tabs")
@@ -325,12 +326,12 @@ final class ComponentColorTests: XCTestCase {
     }
 
     func testDisabledTabsDrawNoUnderline() {
-        let tabs = QuireUnderlineTabs(titles: ["All", "Focused", "Other"])
+        let tabs = QuireUnderlineTabs(titles: ["Reply", "Reply all"])
         tabs.windowKeyOverride = true
         tabs.isEnabled = false
         let (snapshot, _) = render(tabs, .light)
         let label = tabs.labelRect(forTab: 0).offsetBy(dx: pad, dy: pad)
-        assertPixel(snapshot, NSPoint(x: label.midX, y: pad + tabs.bodyRect.minY + 39), expected("paper", mode: .light), "first sync")
+        assertPixel(snapshot, NSPoint(x: label.midX, y: pad + tabs.bodyRect.minY + 25), expected("paper", mode: .light), "disabled")
     }
 
     func testMarginRuleColourFollowsWindowKeyState() {

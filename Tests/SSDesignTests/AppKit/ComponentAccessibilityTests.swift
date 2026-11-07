@@ -89,7 +89,7 @@ final class ComponentAccessibilityTests: XCTestCase {
         XCTAssertEqual(QuireBadge(.unread(128)).accessibilityRole(), .staticText)
         XCTAssertEqual(QuireBadge(.unread(128)).accessibilityLabel(), "128 unread", "VoiceOver hears the real count")
         XCTAssertEqual(QuireBadge(.attention).accessibilityLabel(), "Sign in required")
-        XCTAssertEqual(QuireTag("Other").accessibilityLabel(), "Other")
+        XCTAssertEqual(QuireTag("Gmail").accessibilityLabel(), "Gmail")
         XCTAssertEqual(QuireKeycap("⌘Z").accessibilityRole(), .staticText)
 
         let empty = QuireEmptyStateView(sentence: "No conversation selected", hint: [.keys(["J", "K"]), .text("to move")])

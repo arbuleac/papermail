@@ -103,11 +103,11 @@ final class OverlayAndPanelTests: XCTestCase {
     // MARK: Cheat sheet
 
     func testCheatSheetPanelMetrics() {
-        XCTAssertEqual(QuireCheatSheetPanel.naturalHeight(), 604, "24 + 28 + 16 + (22 + 9 × 28) + 20 + (22 + 7 × 28) + 24")
+        XCTAssertEqual(QuireCheatSheetPanel.naturalHeight(), 576, "24 + 28 + 16 + (22 + 8 × 28) + 20 + (22 + 7 × 28) + 24")
         let bands = QuireCheatSheetPanel.bands(of: Quire.cheatSheet)
         XCTAssertEqual(bands.map { $0.map(\.title) }, [["Move", "Act", "Go"], ["Write", "Format", "View"]])
         let panel = QuireCheatSheetPanel()
-        XCTAssertEqual(panel.frame.size, NSSize(width: 816, height: 604))
+        XCTAssertEqual(panel.frame.size, NSSize(width: 816, height: 576))
         XCTAssertFalse(panel.scrolls)
         panel.layoutSubtreeIfNeeded()
         let close = panel.closeButton.alignmentRect(forFrame: panel.closeButton.frame)
@@ -118,7 +118,7 @@ final class OverlayAndPanelTests: XCTestCase {
 
     func testOverlayPlacesThePanelUnderTheHorizon() {
         let roomy = QuireCheatSheetOverlay.panelFrame(in: NSSize(width: 1280, height: 800))
-        XCTAssertEqual(roomy, NSRect(x: 232, y: 92, width: 816, height: 604), "centred, top at 92, whole")
+        XCTAssertEqual(roomy, NSRect(x: 232, y: 92, width: 816, height: 576), "centred, top at 92, whole")
         let short = QuireCheatSheetOverlay.panelFrame(in: NSSize(width: 960, height: 600))
         XCTAssertEqual(short.minY, 92)
         XCTAssertEqual(short.height, 600 - 92 - 24, "at least 24 pt from the bottom; the bands scroll")
@@ -150,11 +150,11 @@ final class OverlayAndPanelTests: XCTestCase {
     }
 
     func testOverlayMotionScalesFromTheCentreAndOnlyFadesUnderReduceMotion() {
-        let t = QuireCheatSheetOverlay.scaleTransform(0.98, size: NSSize(width: 816, height: 604))
+        let t = QuireCheatSheetOverlay.scaleTransform(0.98, size: NSSize(width: 816, height: 576))
         let affine = CATransform3DGetAffineTransform(t)
-        let centre = CGPoint(x: 408, y: 302).applying(affine)
+        let centre = CGPoint(x: 408, y: 288).applying(affine)
         XCTAssertEqual(centre.x, 408, accuracy: 0.001)
-        XCTAssertEqual(centre.y, 302, accuracy: 0.001)
+        XCTAssertEqual(centre.y, 288, accuracy: 0.001)
         XCTAssertEqual(affine.a, 0.98, accuracy: 0.0001)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 800), styleMask: .borderless, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

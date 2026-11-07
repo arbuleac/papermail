@@ -1,10 +1,11 @@
 import AppKit
 
-/// Newspaper-style section tabs (spec §5.5) instead of a bezelled segmented control: labels in `label` (12 pt
-/// Medium), the selected one `labelStrong` in `ink` over a 2 pt `ink` underline as wide as the label; `ink3`
-/// when the window is not key (§3.4). Rest labels are `ink2`, hover and press `ink`; disabled (first sync,
-/// category not yet known) labels are `inkDisabled` with no underline. Focus rings the selected label (radius
-/// `r.sm`), and ← → then move the choice. The hit area of a tab is its label ± 6 pt, the full row height.
+/// The quick reply's mode tabs, Reply · Reply all (spec §5.18), drawn as underline tabs rather than a bezelled
+/// segmented control: labels in `label` (12 pt Medium) after a 12 pt glyph, centred in the 28 pt tool row, the
+/// selected one `labelStrong` in `ink` over a 2 pt `ink` underline as wide as the label, its top at y = 24;
+/// `ink3` when the window is not key (§3.4). Rest labels are `ink2`, hover and press `ink`; disabled labels are
+/// `inkDisabled` with no underline. Focus rings the selected label (radius `r.sm`), and ← → then move the
+/// choice. The hit area of a tab is its label ± 6 pt, the full row height.
 ///
 /// Each tab's slot is as wide as its Semibold label, so choosing a tab never shifts the others.
 @MainActor
@@ -15,10 +16,6 @@ public final class QuireUnderlineTabs: QuireControl {
 
     public var selectedIndex: Int {
         didSet { if oldValue != selectedIndex { needsDisplay = true } }
-    }
-
-    public var style: Style {
-        didSet { invalidateIntrinsicContentSize(); needsDisplay = true }
     }
 
     /// The tab a forced `displayState` applies to: the selected tab for `.focused`, the first other tab for
@@ -35,16 +32,15 @@ public final class QuireUnderlineTabs: QuireControl {
     private var moveArea: NSTrackingArea?
     private var tabElements: [QuireTabAccessibilityElement] = []
 
-    public init(items: [Item], selectedIndex: Int = 0, style: Style = .filter) {
+    public init(items: [Item], selectedIndex: Int = 0) {
         self.items = items
         self.selectedIndex = selectedIndex
-        self.style = style
         super.init(frame: .zero)
         setFrameSize(frame(forAlignmentRect: NSRect(origin: .zero, size: intrinsicContentSize)).size)
     }
 
-    public convenience init(titles: [String], selectedIndex: Int = 0, style: Style = .filter) {
-        self.init(items: titles.map { Item($0) }, selectedIndex: selectedIndex, style: style)
+    public convenience init(titles: [String], selectedIndex: Int = 0) {
+        self.init(items: titles.map { Item($0) }, selectedIndex: selectedIndex)
     }
 
     @available(*, unavailable)
@@ -53,6 +49,12 @@ public final class QuireUnderlineTabs: QuireControl {
     // MARK: Geometry
 
     private static var glyphSize: QuireSymbolSize { .custom(Quire.Layout.IconSize.row) }
+
+    /// The tool row the tabs sit in.
+    private static var rowHeight: CGFloat { Quire.Layout.QuickReply.toolRow }
+
+    /// The label box's top: centred in the row.
+    private static var labelTop: CGFloat { (rowHeight - QuireFont.Role.label.lineHeight) / 2 }
 
     private func glyphWidth(_ item: Item) -> CGFloat {
         guard let name = item.symbolName else { return 0 }
@@ -65,15 +67,15 @@ public final class QuireUnderlineTabs: QuireControl {
 
     public override var intrinsicContentSize: NSSize {
         let widths = items.map(slotWidth)
-        let gaps = CGFloat(max(0, items.count - 1)) * style.gap
-        return NSSize(width: widths.reduce(0, +) + gaps, height: style.height)
+        let gaps = CGFloat(max(0, items.count - 1)) * Quire.Layout.QuickReply.modeGap
+        return NSSize(width: widths.reduce(0, +) + gaps, height: QuireUnderlineTabs.rowHeight)
     }
 
     /// Tab `index`'s slot: glyph plus Semibold label width, full row height.
     func slotRect(forTab index: Int) -> NSRect {
         let body = bodyRect
         var x = body.minX
-        for i in 0..<index { x += slotWidth(items[i]) + style.gap }
+        for i in 0..<index { x += slotWidth(items[i]) + Quire.Layout.QuickReply.modeGap }
         return NSRect(x: x, y: body.minY, width: slotWidth(items[index]), height: body.height)
     }
 
@@ -85,12 +87,12 @@ public final class QuireUnderlineTabs: QuireControl {
         let width = QuireDraw.width(QuireDraw.line(item.title, role, .black))
         let glyph = glyphWidth(item)
         let x = (slot.minX + (slot.width - glyph - width) / 2 + glyph).rounded()
-        return NSRect(x: x, y: slot.minY + style.labelTop, width: width, height: QuireFont.Role.label.lineHeight)
+        return NSRect(x: x, y: slot.minY + QuireUnderlineTabs.labelTop, width: width, height: QuireFont.Role.label.lineHeight)
     }
 
     /// Where a tab takes clicks: its slot ± 6 pt, the full row.
     func hitRect(forTab index: Int) -> NSRect {
-        slotRect(forTab: index).insetBy(dx: -Quire.Layout.ListHeader.tabHitPad, dy: 0)
+        slotRect(forTab: index).insetBy(dx: -Quire.Layout.QuickReply.modeHitPad, dy: 0)
     }
 
     private func tabIndex(at point: NSPoint) -> Int? {
@@ -138,7 +140,7 @@ public final class QuireUnderlineTabs: QuireControl {
                            lineHeight: label.height)
             if selected, enabled {
                 (isWindowKey ? NSColor.qInk : NSColor.qInk3).setFill()
-                NSRect(x: label.minX, y: bodyRect.minY + style.underlineTop, width: label.width,
+                NSRect(x: label.minX, y: bodyRect.minY + Quire.Layout.QuickReply.modeUnderlineY, width: label.width,
                        height: Quire.Border.TabUnderline.width).fill()
             }
         }

@@ -1,6 +1,6 @@
 # Quire — the SuperSparrow design language
 
-**Version 1.3.1 · 2 November 2026 · authoritative.** 1.3.1 records what the code does where it went past 1.3: one rule for account names and monograms (§4.2), plain text set as paragraphs (§5.14), the app icon as drawn (§5.42, `appIcon.corner` and `stampWidth`), `QuireWindowChrome` (§3.2) and the AppKit component names (§8.2), and the composer title-bar test (§8.7). 1.3 closes the eighteen gaps of the 1.2 review: pressed checkbox, radio and toggle states that keep 3:1 (`controlOnPressed`, a knob-face press, a wash-free link press), account inks that never meet a popup's hover or pressed face, a complete Graphite substitution with its own generated contrast pairs, the full alert inventory, the reconnect flow, no signatures in v1, the cheat sheet's content, Space and Tab inside a sheet, the Settings window's size and detail form, the multi-selection and Trash action sets, the positions that still had no metric, a Reduce Transparency scrim, capped token rows, expanded recipients, and the worked numbers that still assumed the macOS 15 rail. This document, `docs/design/tokens.json` and `docs/design/specimen.html` (rendered as `specimen-light.png` and `specimen-dark.png`) are the complete design language for SuperSparrow. Where they disagree, `tokens.json` wins and the other two are regenerated from it.
+**Version 1.4.0 · 7 November 2026 · authoritative.** 1.4 moves the six views into the rail as folder tiles (§5.2), anchors the accounts at the bottom of the rail just above Add, puts the masthead, search and compose on one header line (§5.3, §5.6), keeps the title menu for minimal mode only (§5.4), and removes the Focused/Other filter tabs (§5.5) and the rows' “Other” tag (§5.7). 1.3.1 records what the code does where it went past 1.3: one rule for account names and monograms (§4.2), plain text set as paragraphs (§5.14), the app icon as drawn (§5.42, `appIcon.corner` and `stampWidth`), `QuireWindowChrome` (§3.2) and the AppKit component names (§8.2), and the composer title-bar test (§8.7). 1.3 closes the eighteen gaps of the 1.2 review: pressed checkbox, radio and toggle states that keep 3:1 (`controlOnPressed`, a knob-face press, a wash-free link press), account inks that never meet a popup's hover or pressed face, a complete Graphite substitution with its own generated contrast pairs, the full alert inventory, the reconnect flow, no signatures in v1, the cheat sheet's content, Space and Tab inside a sheet, the Settings window's size and detail form, the multi-selection and Trash action sets, the positions that still had no metric, a Reduce Transparency scrim, capped token rows, expanded recipients, and the worked numbers that still assumed the macOS 15 rail. This document, `docs/design/tokens.json` and `docs/design/specimen.html` (rendered as `specimen-light.png` and `specimen-dark.png`) are the complete design language for SuperSparrow. Where they disagree, `tokens.json` wins and the other two are regenerated from it.
 
 A quire is a gathering of folded sheets, the unit a book is sewn from. Quire treats mail the same way: each conversation is a tight stack of folded messages and one open sheet, set in New York on warm paper and marked in a single ink, **Iron Gall**, the blue-black ink letters were written in for a thousand years. The list is a still index; the reader gets the room of a page. Sparrow's shape stays: a narrow account rail, one list, one reader, almost no chrome. Superhuman's speed shows in response, not in motion.
 
@@ -13,7 +13,7 @@ A quire is a gathering of folded sheets, the unit a book is sewn from. Quire tre
 1. **Reading is the product.** Serif where people read, sans where they scan or write. New York sets subjects, the reader headline and plain mail; SF Pro sets everything you scan, operate or type.
 2. **One ink, used like a pen.** Iron Gall marks only what needs you: unread, keyboard focus, the current selection and the single primary action. If two Iron Gall things compete in one region, one of them is wrong.
 3. **A still list, a generous page.** The list is an index: fixed rows, no motion, no shadow, no blur. Actions never animate rows; feedback goes to the toast. The reader is a page: a 680 pt column with 24 pt leading.
-4. **Shape before colour.** Every state has a shape, a weight or a word: the pip, the margin rule, Semibold, the filled star, the “Other” tag, the queued glyph, the “!” badge. Colour confirms a state; it never carries it alone.
+4. **Shape before colour.** Every state has a shape, a weight or a word: the pip, the margin rule, Semibold, the filled star, the queued glyph, the “!” badge. Colour confirms a state; it never carries it alone.
 5. **Native first, then ours.** Traffic lights, menus, alerts, tooltips, scrollers, notifications and the Settings window frame and toolbar stay macOS. Quire styles content, the controls inside Settings (so their focus rings and edges meet 3:1), and the few surfaces macOS does not provide.
 
 ## 2. Signature elements
@@ -23,7 +23,7 @@ A quire is a gathering of folded sheets, the unit a book is sewn from. Quire tre
 | **New York subjects** | Subjects are set in New York: 14 pt in rows, 24 pt as the reader headline, 15 pt in the composer. Next to SF Pro senders and snippets the list reads like a table of contents. | Rows, reader header, composer |
 | **Iron Gall** | The single accent: blue-black on paper (`#1E5468`), wet ink on dark paper (`#6DB6C9`). Fills use a deeper pooled ink in dark (`#2D788B`) so white labels stay crisp. | Pip, unread time, margin rule, focus, primary button, badges |
 | **The margin rule** | A 3 pt rule flush with the leading edge marks where you are, as an editor marks a passage. Always drawn, in Iron Gall while its window is key and in `ink3` when it is not. | Selected row, rail, selected Settings account row, autocomplete highlight |
-| **The horizon** | List header and reader header are both 92 pt; their bottom hairlines meet at one y across the window. The masthead, the kicker and the traffic lights share one centre line. | Main window |
+| **The horizon** | The traffic lights, the masthead, the search field, the compose button and the reader's kicker share one centre line, y = 26. The list header is that 52 pt title-bar band alone, so the index starts right under the title bar; the reader header adds its headline below the line, and its hairline at 92 pt is the horizon the reader and the cheat sheet hang from. | Main window |
 | **The quire** | Collapsed messages fold into one stack of 44 pt lines; the open message is a full sheet beneath it. | Reader |
 | **Kicker and headline** | A small uppercase kicker names the account (with its ink dot) and the message count above a New York headline, as a newspaper names its section. | Reader header |
 | **The elision mark `[…]`** | Quoted text folds behind the editor's mark for omitted text (`ss.elide`), placed at the fold. | Reader, composer |
@@ -72,7 +72,7 @@ A quire is a gathering of folded sheets, the unit a book is sewn from. Quire tre
 
   **Rail width** = the larger of 76 and the smallest even number ≥ `lightsEnd` + 4 (`layout.rail.lightsClearance`), so the lights always sit on the rail with at least 4 pt before its trailing hairline. The width includes that hairline: the split view's first divider is the hairline, so the rail's own pane is the width less one hairline (75 pt and the rule at x = 75 at 1×), and the list's default 364 likewise includes its trailing divider. Rail tiles, the divider and the utilities are centred in it (x = width / 2; `layout.rail.tileCenterX` is the macOS 15 value). In minimal mode the masthead starts at rail width + 8 (`layout.listHeader.mastheadMinimalGap`), measured from the would-be rail, so it clears the lights by at least 8 + 4 pt on every release.
 - **One centre line.** The masthead (§5.3), the kicker and the reader header actions (§5.12) and the compose button are all centred on `lightsCenterY` = 26, and the title-bar zone is twice that (52). `WindowChromeTests` (§8.7) builds the main window off screen with this exact configuration and asserts the close button's centre is 26 ± 0.5 pt and that the rail clears `lightsEnd` by 4 pt. If a future macOS moves the centre, that test fails, and `titlebarZone`, `mastheadCenterY`, `kickerCenterY` and the action tops are re-derived from the measured centre (zone = 2 × centre, tops = centre − 14) instead of patched by eye.
-- The top 52 pt of every pane is the title-bar zone: it drags the window (`mouseDownCanMoveWindow`), double-click follows the system preference, and controls inside it opt out. Content under the toolbar still receives clicks (hit-testing passes through the transparent unified toolbar to the content view; verified on macOS 27). The toolbar's own container is taller than the band from macOS 26 on (66 pt measured), so every header view below y = 52 returns `mouseDownCanMoveWindow = false`: a click in header row 2 never drags the window. In full screen AppKit hides the toolbar band and reveals it on hover; the zone keeps its height so nothing jumps.
+- The top 52 pt of every pane is the title-bar zone: it drags the window (`mouseDownCanMoveWindow`), double-click follows the system preference, and controls inside it opt out. Content under the toolbar still receives clicks (hit-testing passes through the transparent unified toolbar to the content view; verified on macOS 27). The toolbar's own container is taller than the band from macOS 26 on (66 pt measured), so every view below y = 52 returns `mouseDownCanMoveWindow = false`: a click on the reader's headline or the first list row never drags the window. In full screen AppKit hides the toolbar band and reveals it on hover; the zone keeps its height so nothing jumps.
 - Default size 1280 × 800, minimum 960 × 600. The reader never gets narrower than 400 pt (`layout.window.readerMinWidth`): the list's maximum width is the smaller of 480 and window width − rail − 400.
 - **Composer windows** use the same transparent title bar over `paper`: `.titled .closable .miniaturizable .resizable .fullSizeContentView`, `titlebarAppearsTransparent = true`, `titleVisibility = .visible` (the system draws the title text and the lights), no toolbar, so it keeps the plain system title bar: 28 pt on macOS 15, 32 pt from macOS 26 on (measured on 27.0.1; `layout.window.composerTitlebar` / `composerTitlebar26`). `QuireWindowChrome.configureComposerWindow` applies it. The band's height is read from the window (`QuireWindowChrome.titlebarHeight(of:)`: the content view's height above `contentLayoutRect`), never assumed; the band is `paper` with a hairline at its bottom drawn by the content view, and the field rows start directly below it.
 
@@ -91,14 +91,14 @@ The app mirrors the three NSWorkspace flags onto the reader's `<html>` as `ss-ic
 
 - The list's selection stays **emphasized** (Iron Gall wash and rule) whenever the main window is key, whichever view is first responder, because `KeyboardRouter` drives `j`/`k` from the list, the reader and the quick-reply field alike. It turns idle (`selWashIdle` + `selRuleIdle`) only when the window is not key.
 - The reader shows its own focus on a message (the 2 pt ring) only after keyboard navigation (`n`/`p`, Tab). Which message R, A, F and Space act on is always shown, keyboard or mouse (the target message, §5.14).
-- Tab order: rail → list header controls → list → sync line (only while it carries an action: Reconnect, Retry, Cancel; with Full Keyboard Access always) → reader actions → messages (stack rows, and inside each expanded sheet the order of §5.14) → quick reply. Esc follows the precedence in §6.1.
+- Tab order: rail (the selected folder, the selected account, Add, Settings) → list header controls (the masthead in minimal mode only, the Demo tag while it is on the line, search, compose) → list → sync line (only while it carries an action: Reconnect, Retry, Cancel; with Full Keyboard Access always) → reader actions → messages (stack rows, and inside each expanded sheet the order of §5.14) → quick reply. Esc follows the precedence in §6.1.
 
 **Window not key: exactly these marks change.** When a window resigns key, AppKit stops drawing keyboard focus in it, and Quire changes only:
 
 | Mark | Key | Not key |
 |---|---|---|
 | Selection wash and margin rule (list rows, rail tile, Settings account row) | `selWash` + `selRule` | `selWashIdle` + `selRuleIdle` |
-| Filter-tab underline and the quick reply's active-mode underline | `ink` | `ink3` |
+| The quick reply's active-mode underline | `ink` | `ink3` |
 | Primary buttons (Send, Save) | `accentFill` | secondary look (`raised`, `ruleStrong` edge, `ink` label), as native default buttons do |
 | Focus rings | drawn on the first responder | not drawn (no first responder is shown in a non-key window) |
 
@@ -135,7 +135,7 @@ Every other Iron Gall mark stays as it is: the unread pip and unread time, badge
 | `paper` | `#FBFAF6` | `#1C1B18` | `#FDFCFA` | `#121110` | List pane, list and reader headers, composer chrome, quick-reply bar, welcome |
 | `canvas` | `#F4F2EC` | `#171614` | `#F1EFE9` | `#0D0C0B` | Reader desk behind sheets, Settings window background |
 | `sheet` | `#FFFEFB` | `#24221F` | `#FFFFFF` | `#1C1B19` | Message sheets and stack, fields, composer body, Settings groups |
-| `raised` | `#FFFFFF` | `#2C2A26` | `#FFFFFF` | `#252320` | Selected unified tile, secondary button face, keycaps, popovers, cheat sheet |
+| `raised` | `#FFFFFF` | `#2C2A26` | `#FFFFFF` | `#252320` | Selected rail tile (folder or All Inboxes), secondary button face, keycaps, popovers, cheat sheet |
 | `slip` | `#24221F` | `#36332E` | `#12100E` | `#2E2B27` | Toast, undo-send panel, g-sequence HUD (a dark slip in both appearances) |
 | `slipEdge` | `#000000` @ 0% | `#FFFFFF` @ 10% | `#000000` @ 0% | `#FFFFFF` @ 45% | 1 pt edge around the slip in dark appearances |
 | `knob` | `#FFFFFF` | `#DCD7CE` | `#FFFFFF` | `#FFFFFF` | Toggle knob face (its boundary is the 1 pt ruleStrong knob edge, layout.toggle) |
@@ -146,7 +146,7 @@ Every other Iron Gall mark stays as it is: the unread pip and unread time, badge
 
 | Token | Light | Dark | Light IC | Dark IC | Use |
 |---|---|---|---|---|---|
-| `ink` | `#1D1B18` | `#EDE9E2` | `#0F0E0C` | `#FFFFFF` | Primary text, headlines, selected tab underline |
+| `ink` | `#1D1B18` | `#EDE9E2` | `#0F0E0C` | `#FFFFFF` | Primary text, headlines, active quick-reply mode underline |
 | `ink2` | `#55504A` | `#B8B2A8` | `#3A3631` | `#DCD7CE` | Secondary text and resting glyphs: snippets, recipients, labels, icons |
 | `ink3` | `#625C55` | `#A8A297` | `#4A4540` | `#C8C2B8` | Tertiary text: times, running heads, placeholders, captions; idle selection rule |
 | `inkDisabled` | `#A9A398` | `#5F5A53` | `#8A8479` | `#7D776F` | Disabled text and glyphs only (exempt from contrast minimums) |
@@ -220,7 +220,7 @@ Every other Iron Gall mark stays as it is: the unread pip and unread time, badge
 | Graphite system accent, window key | `selWashIdle` | `ink` | unchanged inks |
 | Pointer over a selected row | no hover wash (hover is suppressed on selected rows) | unchanged | unchanged |
 
-Text never inverts on selection, so the attributed strings cached per row stay valid across `j`/`k`, no on-accent string variants are needed, and no row is rebuilt when the selection moves. The light wash is deliberately stronger than a tint (1.25:1 or more against `paper`, asserted in §7) so the current row is found at a glance after fast `j`/`k`; the 3 pt rule, the hidden separators around it and the unchanged ink do the rest, and the wash is tuned so `ink3` times still read at 4.5:1 on it. Every secondary item on a selected row (time, unread time, count badge, tag, star, pip, queued glyph, failed glyph, account ring) is in the contrast table against both washes.
+Text never inverts on selection, so the attributed strings cached per row stay valid across `j`/`k`, no on-accent string variants are needed, and no row is rebuilt when the selection moves. The light wash is deliberately stronger than a tint (1.25:1 or more against `paper`, asserted in §7) so the current row is found at a glance after fast `j`/`k`; the 3 pt rule, the hidden separators around it and the unchanged ink do the rest, and the wash is tuned so `ink3` times still read at 4.5:1 on it. Every secondary item on a selected row (time, unread time, count badge, star, pip, queued glyph, failed glyph, account ring) is in the contrast table against both washes.
 
 **Focus.** A 2 pt ring in `focus` (3 pt in Increase Contrast), drawn outside the control, separated by a 1 pt gap in the surface colour (2 pt around sheets and cards, 2 pt around anything filled with `accentFill`, so the ring never touches a fill of the same hue). It follows the control's corner radius plus the gap and is never animated. Fields use the same ring; a focused field never shows focus only as a 1 pt colour change. **Borderless field rows** (the composer's From, To, Cc, Bcc and Subject rows) have no edge to draw outside, so their ring is drawn **inset**, around the value area: from x = 78 (84 − 6) to 16 pt before the row's trailing edge (6 pt before the Cc / Bcc buttons while they show), its outer edge 3 pt inside the row's top and bottom, radius `r.sm` (§5.20). **One exception:** the composer body, a full-pane multi-line text view, shows focus by its insertion point (`accent`, asserted ≥ 3:1 on `sheet`) and its selection, as every macOS text view does; a ring around it would frame the whole window. No other focusable element is exempt. List rows and rail items show focus through the selection itself (the native Mac list convention); with Full Keyboard Access on and an empty selection the list draws the ring inset by 2 pt. On the slip, the ring is `onSlip` (`border.focusRing.onSlipColor`). Native SwiftUI controls are never left with the system ring (its alpha falls below 3:1 on `canvas`): Settings draws this ring itself (§8.3).
 
@@ -305,11 +305,11 @@ System families only: **SF Pro** (`NSFont.systemFont`, CSS `-apple-system, syste
 | `writing` | SF Pro | 14 | 400 | 21 | 0 |  | Composer body, quick reply (read in serif, write in sans) |
 | `body` | SF Pro | 13 | 400 | 18 | 0 |  | Controls, menus, settings, message-header name line, participants |
 | `sender` | SF Pro | 13 | 400 | 16 | 0 | 600 when unread | List row sender line |
-| `label` | SF Pro | 12 | 500 | 16 | 0 |  | Buttons, chips, tabs, field labels |
+| `label` | SF Pro | 12 | 500 | 16 | 0 |  | Buttons, chips, quick-reply modes, field labels |
 | `snippet` | SF Pro | 12 | 400 | 15 | 0 |  | List snippet, recipients, banners, collapsed snippet |
 | `meta` | SF Pro | 11 | 400 | 14 | 0 | tabular digits | Times, sizes, sync line, captions |
 | `runningHead` | SF Pro | 11 | 600 | 14 | +0.6 | uppercase | Date dividers, reader kicker, section overlines |
-| `tag` | SF Pro | 11 | 500 | 14 | 0 |  | Tags: Other, Gmail, Microsoft 365 |
+| `tag` | SF Pro | 11 | 500 | 14 | 0 |  | Tags: Gmail, Microsoft 365, Demo |
 | `badge` | SF Pro Rounded | 11 | 600 | 14 | 0 | tabular digits | Count badges |
 | `kbd` | SF Pro | 11 | 500 | 14 | 0 |  | Keycaps; SF Pro carries the modifier glyphs |
 | `mono` | SF Mono | 12 | 400 | 16 | 0 |  | OAuth client IDs, raw source |
@@ -337,7 +337,7 @@ System families only: **SF Pro** (`NSFont.systemFont`, CSS `-apple-system, syste
 | `senderMedium` | SF Pro | 13 | 500 | 16 | 0 | 600 when unread, variant of `sender` | Names in collapsed stack rows |
 | `bodyMedium` | SF Pro | 13 | 500 | 18 | 0 | variant of `body` | Toast message, undo-panel title, regular secondary / ghost / link button labels |
 | `bodyStrong` | SF Pro | 13 | 600 | 18 | 0 | variant of `body` | Message name line, HUD title, Settings account name, regular primary / destructive labels, slip actions (Undo) |
-| `labelStrong` | SF Pro | 12 | 600 | 16 | 0 | variant of `label` | Selected filter tab, active quick-reply mode, small primary / destructive labels |
+| `labelStrong` | SF Pro | 12 | 600 | 16 | 0 | variant of `label` | Active quick-reply mode, small primary / destructive labels |
 | `buttonLargeStrong` | SF Pro | 14 | 600 | 18 | 0 | variant of `buttonLarge` | Large primary / destructive labels |
 
 **Button labels** use roles, never bare sizes: small `label` / `labelStrong`, regular `bodyMedium` / `bodyStrong`, large `buttonLarge` / `buttonLargeStrong` (the strong role for primary and destructive buttons; `layout.button.<size>.font` / `.fontStrong`).
@@ -396,7 +396,7 @@ Paper is flat. Only things that float cast shadows; rows, the rail and the list 
 | Level | Light (CSS) | Dark (CSS) | AppKit | Used for |
 |---|---|---|---|---|
 | `e0` | `none` | `none` | — | List, rows, rail, stack, fields, chips (hairline only) |
-| `e1` | `0px 1px 2px rgba(29,27,24,0.06)` | `0px 1px 2px rgba(0,0,0,0.35)` | key layer: opacity 0.06 / 0.35, radius 1 / 1, offset (0, -1 / -1) | Open message sheet, selected unified tile |
+| `e1` | `0px 1px 2px rgba(29,27,24,0.06)` | `0px 1px 2px rgba(0,0,0,0.35)` | key layer: opacity 0.06 / 0.35, radius 1 / 1, offset (0, -1 / -1) | Open message sheet, selected rail tile (folder or All Inboxes) |
 | `e2` | `0px 6px 20px rgba(29,27,24,0.14), 0px 1px 3px rgba(29,27,24,0.10)` | `0px 8px 24px rgba(0,0,0,0.50), 0px 1px 3px rgba(0,0,0,0.35)` | key layer: opacity 0.14 / 0.50, radius 10 / 12, offset (0, -6 / -8) | Toast, g-sequence HUD, autocomplete, link popover, dragged chip, dragged rail tile |
 | `e3` | `0px 16px 40px rgba(29,27,24,0.18), 0px 2px 8px rgba(29,27,24,0.10)` | `0px 18px 48px rgba(0,0,0,0.60), 0px 2px 8px rgba(0,0,0,0.40)` | key layer: opacity 0.18 / 0.60, radius 20 / 24, offset (0, -16 / -18) | Undo-send panel, cheat-sheet overlay |
 
@@ -474,7 +474,7 @@ Rules:
 
 SF Symbols, monochrome; status glyphs use the `.fill` variant in their semantic colour.
 
-**Defaults** (`layout.iconSize`), Regular weight unless noted: 15 pt for window-level icon buttons (reader header actions, the composer bar, the rail's Add and Settings); 14 pt inside text buttons, chips, banners, tool rows and format toggles; 12 pt **Semibold** in rows and the sync line (so the small size holds up); 18 pt for the rail's All Inboxes glyph. **Exceptions**, each a named metric of its component and the only other sizes in use: the compose button's `ss.nib` at 18 pt (`listHeader.composeGlyph`: the list header's one verb, sized against the 20 pt masthead beside it); the masthead chevron at 9 pt **Semibold** (`listHeader.chevron`: a disclosure mark, Semibold so 9 pt holds); popup chevrons at 12 pt (`popup.chevron`); the attention badge's `exclamationmark` at 9 pt **Semibold**; dismiss and remove `xmark` at 9 pt (`banner.dismissGlyph`, `composer.removeGlyph`, `search.clearGlyph`); the sheet's header hover actions at 14 pt on 24 pt buttons (`reader.headerActionGlyph`); the toast glyph at 14 pt and the undo panel's at 15 pt. The Settings toolbar tabs are system-drawn at the system's size.
+**Defaults** (`layout.iconSize`), Regular weight unless noted: 15 pt for window-level icon buttons (reader header actions, the composer bar, the rail's Add and Settings); 14 pt inside text buttons, chips, banners, tool rows and format toggles; 12 pt **Semibold** in rows and the sync line (so the small size holds up); 18 pt for the rail's All Inboxes glyph. **Exceptions**, each a named metric of its component and the only other sizes in use: the compose button's `ss.nib` at 18 pt (`listHeader.composeGlyph`: the list header's one verb, sized against the 20 pt masthead on its line); the rail's folder symbols at 16 pt (`rail.folderGlyph`: SF Symbols fill more of their box than the custom `ss.quire`, so 16 pt reads as the same size beside it); the masthead chevron at 9 pt **Semibold** (`listHeader.chevron`: a disclosure mark, Semibold so 9 pt holds); popup chevrons at 12 pt (`popup.chevron`); the attention badge's `exclamationmark` at 9 pt **Semibold**; dismiss and remove `xmark` at 9 pt (`banner.dismissGlyph`, `composer.removeGlyph`, `search.clearGlyph`); the sheet's header hover actions at 14 pt on 24 pt buttons (`reader.headerActionGlyph`); the toast glyph at 14 pt and the undo panel's at 15 pt. The Settings toolbar tabs are system-drawn at the system's size.
 
 Glyph colour: `ink2` at rest, `ink` on hover and press, `inkDisabled` when disabled; the star is `star` **and** filled when on. Menu items carry their symbol leading in `ink2`.
 
@@ -509,8 +509,8 @@ Glyph colour: `ink2` at rest, `ink` on hover and press, `inkDisabled` when disab
 | Discard Draft (Drafts reader, composer Message menu) | `trash` | # in Drafts |
 | Remove account (Settings) | `minus` | ⌫ in the account list |
 | Show / hide rail | `sidebar.left` | ⌃⌘S |
-| Title menu / popup | `chevron.down` / `chevron.up.chevron.down` | — |
-| Views: Inbox, Starred, Sent, Drafts, Trash, All Mail | `tray`, `star`, `paperplane`, `doc`, `trash`, `archivebox` | G I, G S, G T, G D, G #, G A |
+| Title menu (minimal mode) / popup | `chevron.down` / `chevron.up.chevron.down` | — |
+| Views (the rail's folder tiles, the title menu, View menu): Inbox, Starred, Sent, Drafts, Trash, All Mail | `tray`, `star`, `paperplane`, `doc`, `trash`, `archivebox` | G I, G S, G T, G D, G #, G A |
 | Queued locally (row) | `ss.queued` (custom) | — |
 | Operation failed (row), error, sign-in | `exclamationmark.triangle.fill` | — |
 | Up to date / Offline / Retrying / Retry | `checkmark` / `wifi.slash` / `clock` / `arrow.clockwise` | — |
@@ -589,7 +589,7 @@ The reader has one density.
 ### 4.13 Voice and microcopy
 
 - **Plain, short, calm.** No exclamation marks, no “Oops”, no emoji, no “please”.
-- **Casing follows the surface, not the control.** **Title case** where macOS itself names commands: menu items (including context menus and the More menu), alert and sheet buttons, popover buttons, window and panel titles, tooltips (they repeat the command's menu name), and buttons in Settings. **Sentence case** for everything set inside a content surface: the list (tabs, empty states, the tail footer), the reader (banners and their actions, the quoted-text toggle, footer buttons, the quick reply, its tabs and its strip), the composer's content (field labels, status, the drop label; its one chrome button is “Send”), slips (toast and undo-panel actions), the g-sequence HUD and the keyboard cheat sheet (their labels describe what a key does rather than naming a menu command: “Mark as unread · read”, “Show · hide quoted text”, “Move to Trash”, where Trash is a proper name; the overlay's title “Keyboard Shortcuts” is a panel title and stays title case), the welcome screen, banners in any window (Settings included), status lines and captions. Proper names keep their capitals (Settings, Gmail, Microsoft 365, Quick Look, Trash, Inbox). Sentence-like links stay sentences (“How to create one…”, “Set up OAuth clients…”). One command can therefore appear in both forms, deliberately: Message › Reply All and the tooltip “Reply All  A”, but the footer button “Reply all”; View › Load Images and the banner action “Load images”; Message › Discard Draft… and the Drafts footer “Discard draft…”.
+- **Casing follows the surface, not the control.** **Title case** where macOS itself names commands: menu items (including context menus and the More menu), alert and sheet buttons, popover buttons, window and panel titles, tooltips (they repeat the command's menu name), and buttons in Settings. **Sentence case** for everything set inside a content surface: the list (empty states, the tail footer), the reader (banners and their actions, the quoted-text toggle, footer buttons, the quick reply, its tabs and its strip), the composer's content (field labels, status, the drop label; its one chrome button is “Send”), slips (toast and undo-panel actions), the g-sequence HUD and the keyboard cheat sheet (their labels describe what a key does rather than naming a menu command: “Mark as unread · read”, “Show · hide quoted text”, “Move to Trash”, where Trash is a proper name; the overlay's title “Keyboard Shortcuts” is a panel title and stays title case), the welcome screen, banners in any window (Settings included), status lines and captions. Proper names keep their capitals (Settings, Gmail, Microsoft 365, Quick Look, Trash, Inbox). Sentence-like links stay sentences (“How to create one…”, “Set up OAuth clients…”). One command can therefore appear in both forms, deliberately: Message › Reply All and the tooltip “Reply All  A”, but the footer button “Reply all”; View › Load Images and the banner action “Load images”; Message › Discard Draft… and the Drafts footer “Discard draft…”.
 - **Verbs on buttons.** “Send”, “Discard”, “Reconnect”, “Load images”. Never “OK” when a verb exists.
 - **Past tense plus one remedy** in toasts: “Archived · Undo”, “Moved to Trash · Undo”, “Moved to Inbox · Undo”, “Unstarred · Undo” (in Starred, where the row leaves the view), “Marked 3 as unread · Undo”. Coalesced: “Archived 3 conversations”. Only actions that take a row out of view, or change several rows at once, get a toast; starring or marking one conversation unread does not, because the row itself shows the change.
 - **An undo confirms itself** with an action-less toast naming the undone command as Edit › Undo does: “Undid Archive”, “Undid Move to Trash”, “Undid Mark as Unread” (`arrow.uturn.backward`, 2000 ms, §5.30).
@@ -607,7 +607,7 @@ The reader has one density.
 
   The reader shows “Yesterday 23:39”, “Fri 30 Oct”, “30 Oct 2025”.
 - **Sender lines by view:** Drafts “Draft to Ben Carter”, Sent “To Ben Carter” (the prefix in `ink2`).
-- **Empty states** are one serif sentence and one hint: “Nothing left to read.” / “New mail will land here.” Every view, filter and reader state has its pair in §5.9.
+- **Empty states** are one serif sentence and one hint: “Nothing left to read.” / “New mail will land here.” Every view and reader state has its pair in §5.9.
 - **Privacy copy** is literal: “Your mail is stored on this Mac and travels only between this Mac and Google or Microsoft.”
 - **VoiceOver announcements** repeat the toast: “Archived. Press Z to undo.”, “Undid Archive.”
 - **Demo copy** says what is made up and where it lives: “Demo mode: these mailboxes are made up and live only on this Mac.”
@@ -629,7 +629,6 @@ The reader has one density.
 | Starred | `star` | filled star vs outline |
 | Queued locally | `ink3` glyph | `ss.queued` shape, VoiceOver “Waiting to sync” |
 | Operation failed | `danger` glyph | triangle shape, toast text |
-| Other category | none | “Other” tag text |
 | Account | ring ink | kicker words, monogram, optional initial tile, compact square, tooltip, VoiceOver |
 | Invalid address | `danger` wash and edge | triangle glyph inside the token |
 | Error | `danger` | glyph and words |
@@ -646,7 +645,7 @@ The reader has one density.
 ---
 ## 5. Components
 
-Conventions: metrics in points; x and y from the component's top-leading corner; a row height includes its bottom hairline. Unless a component says otherwise its states are: **hover** = `hover` wash, glyph and text to `ink`, no animation; **pressed** = `pressed` wash (link buttons, checkbox and radio on fills and toggles have their own hover and press, §5.24 and §5.26, so that no wash ever pulls a state mark under its floor); **focused** = the focus ring (§4.1); **disabled** = `inkDisabled` text and glyph, no wash, no pointer feedback; **window not key** = only the marks listed in §3.4 change (selection wash and rule, tab and mode underlines, primary buttons, focus rings); every other mark, Iron Gall included, stays. Every metric table below is rendered from `layout.<component>` in `tokens.json`.
+Conventions: metrics in points; x and y from the component's top-leading corner; a row height includes its bottom hairline. Unless a component says otherwise its states are: **hover** = `hover` wash, glyph and text to `ink`, no animation; **pressed** = `pressed` wash (link buttons, checkbox and radio on fills and toggles have their own hover and press, §5.24 and §5.26, so that no wash ever pulls a state mark under its floor); **focused** = the focus ring (§4.1); **disabled** = `inkDisabled` text and glyph, no wash, no pointer feedback; **window not key** = only the marks listed in §3.4 change (selection wash and rule, the quick reply's mode underline, primary buttons, focus rings); every other mark, Iron Gall included, stays. Every metric table below is rendered from `layout.<component>` in `tokens.json`.
 
 ### 5.1 App window and title bar
 
@@ -662,79 +661,90 @@ Anatomy: rail (76; 84 from macOS 26 on, §3.2) · list pane (364 default, 300–
 
 | State | Treatment |
 |---|---|
-| Key | coloured traffic lights; Iron Gall selection, tab underline `ink`, primary buttons filled |
+| Key | coloured traffic lights; Iron Gall selection, mode underline `ink`, primary buttons filled |
 | Not key | system grey lights; exactly the §3.4 list changes (idle selection, `ink3` underlines, primary buttons as secondary, no focus ring); the unread pip and unread time, badges and every other mark stay |
 | Full screen | traffic lights hidden by the system; layout unchanged, title-bar zone keeps 52 pt |
-| Minimal mode (⌃⌘S, View › Hide Account Rail) | rail width 0, **instantly** in every mode (the split view snaps in one frame, so no row re-truncates and no iframe re-measures over frames); masthead moves to x = rail width + 8 (84 on macOS 15, 92 from macOS 26 on, §3.2); header row 2 does **not** change: in Inbox the filter tabs stay and search rests at 168 pt, exactly as with the rail (only the rail is hidden, never a control); `⌘0…⌘9` keep working; the title menu gains an Accounts section |
+| Minimal mode (⌃⌘S, View › Hide Account Rail) | rail width 0, **instantly** in every mode (the split view snaps in one frame, so no row re-truncates and no iframe re-measures over frames); the masthead moves to x = rail width + 8 (84 on macOS 15, 92 from macOS 26 on, §3.2) and becomes the title menu's button again (chevron, §5.4), with the views and an Accounts section, so every folder and account the rail held is still a click away; search and compose keep the header line and search takes the width that is left (§5.3); `⌘0…⌘9` and the G-sequences keep working |
 | Live resize | the list keeps its width; the reader takes the change; the reader re-fits wide HTML (§5.14) once, when the resize ends |
 | Narrow reader (< 560 pt) | column margins 16, sheet padding x 16 (§5.14); below 616 pt the reader's keycaps hide (§5.36) |
 
 ### 5.2 Account rail and its items
 
-Anatomy, top to bottom: title-bar zone (traffic lights) · All Inboxes tile at y = 62 · 20 pt hairline at y = 116 · the account stack from y = 130, pitch 50 · flexible space · Add · Settings. Opaque `spine`, trailing hairline. All y values are top edges: Add's 28 pt button has its **top** at bottom − 92, Settings' top at bottom − 52.
+Anatomy, top to bottom: title-bar zone (traffic lights) · **the folders**, one tile per view in the title menu's order: Inbox at y = 62, then Starred, Sent, Drafts and Trash at a 44 pt pitch, a 20 pt hairline at y = 285, and All Mail at y = 294 · flexible space · **the accounts**, anchored just above Add: the All Inboxes tile, a 20 pt hairline 16 pt below it, then the account tiles from 14 pt below the hairline at a 50 pt pitch · Add · Settings. Opaque `spine`, trailing hairline. All y values are top edges: Add's 28 pt button has its **top** at bottom − 92, Settings' top at bottom − 52. The account stack's clip ends 12 pt above Add's top and the last tile ends 6 pt inside it, so in the default 800 pt window with three accounts the last tile spans 652–690, the first starts at 552, the hairline is at 538 and All Inboxes starts at 484.
 
-- **All Inboxes tile**: 38 pt, radius `r.tile`, `ss.quire` 18 pt in `ink2`.
+- **Folder tiles**: 38 pt, radius `r.tile`, the view's symbol (`tray`, `star`, `paperplane`, `doc`, `trash`, `archivebox`) 16 pt in `ink2`, with the All Inboxes tile's washes, raised selection and focus ring, but no margin rule: the rail carries two selections, the view (the raised tile) and the scope (the margin rule), and they must read apart. A click switches the view as the title menu does (§5.4); the G-sequences are unchanged. Inbox carries the unread count badge of the current scope's Inbox (all accounts, or the narrowed one; the count the title menu's Inbox item carries); the other folders carry none. Tooltips name the folder and its sequence: “Inbox  G I”, “Starred  G S”, “Sent  G T”, “Drafts  G D”, “Trash  G #”, “All Mail  G A”.
+- **All Inboxes tile**: 38 pt, radius `r.tile`, `ss.quire` 18 pt in `ink2`; the first tile of the account group.
 - **Account tile**: a 30 pt face (the account ink at 0.14 opacity over `sheet`), the domain monogram in New York Semibold 14 pt (12 pt for two letters) in `ink`, and a 2 pt ring in the account ink outside a 2 pt `spine` gap (38 pt overall).
 - **Badge**: unread count badge (§5.28) at top -5, trailing -8 relative to the tile, with a 2 pt `spine` cut-out ring.
 - **Utilities**: 28 pt icon buttons, `plus` / `gearshape` 15 pt. Add opens the add-account menu (§5.44).
-- **Margin rule**: 3 × 24 pt at x = 0, centred on the selected tile.
-- **Capacity.** The account stack is a clip view from y = 130 − 6 (room for the badge overhang) down to 12 pt above Add's top. It scrolls whenever the last tile's bottom + 12 would pass Add's top: at the 600 pt minimum height (Add's top at 600 − 92) seven tiles fit, at the default 800 pt eleven. While tiles are clipped a `rule` hairline marks the clipped edge (bottom, and top once scrolled); the scroller shows only while scrolling; ⌘1…⌘9 and ↑/↓ scroll the chosen tile into view instantly. Tiles never overlap the utilities.
+- **Margin rule**: 3 × 24 pt at x = 0, centred on the selected account tile or All Inboxes; never on a folder.
+- **Capacity.** The account group sits as low as it can and rises as accounts are added, until the All Inboxes tile would come closer than 20 pt to All Mail's tile (its top at 294 + 38 + 20 = 352). From then on All Inboxes and its hairline stay there and the account tiles scroll inside their own clip view, from 6 pt above the first tile (room for the badge overhang) down to 12 pt above Add's top. Without scrolling, one account fits at the 600 pt minimum height, five at the default 800 pt and seven at 900 pt. While tiles are clipped a `rule` hairline marks the clipped edge (bottom, and top once scrolled); the scroller shows only while scrolling; ⌘1…⌘9 and ↑/↓ scroll the chosen tile into view instantly. Tiles never overlap the folders or the utilities.
 
 `layout.rail`
 
 | Metric | pt | Metric | pt | Metric | pt | Metric | pt |
 |---|---|---|---|---|---|---|---|
 | `width` | 76 | `lightsClearance` | 4 | `width26` | 84 | `tile` | 38 |
-| `tileHit` | 44 | `tileRadius` | 11 | `tileCenterX` | 38 | `unifiedTop` | 62 |
-| `dividerY` | 116 | `dividerWidth` | 20 | `accountTop` | 130 | `accountPitch` | 50 |
-| `face` | 30 | `faceAlpha` | 0.14 | `monogram` | 14 | `monogramTwoLetter` | 12 |
-| `utility` | 28 | `utilityGlyph` | 15 | `addTopFromBottom` | 92 | `settingsTopFromBottom` | 52 |
-| `marginRuleHeight` | 24 | `badgeTop` | -5 | `badgeTrailing` | -8 | `unifiedGlyph` | 18 |
-| `stackBottomGap` | 12 | `stackTopInset` | 6 | `pendingSpinner` | 16 | `addMenuOffsetY` | 4 |
+| `tileHit` | 44 | `tileRadius` | 11 | `tileCenterX` | 38 | `folderTop` | 62 |
+| `folderPitch` | 44 | `folderGlyph` | 16 | `folderDividerY` | 285 | `allMailTop` | 294 |
+| `dividerWidth` | 20 | `groupGap` | 20 | `dividerGap` | 16 | `accountGap` | 14 |
+| `accountPitch` | 50 | `face` | 30 | `faceAlpha` | 0.14 | `monogram` | 14 |
+| `monogramTwoLetter` | 12 | `utility` | 28 | `utilityGlyph` | 15 | `addTopFromBottom` | 92 |
+| `settingsTopFromBottom` | 52 | `marginRuleHeight` | 24 | `badgeTop` | -5 | `badgeTrailing` | -8 |
+| `unifiedGlyph` | 18 | `stackBottomGap` | 12 | `stackInset` | 6 | `pendingSpinner` | 16 |
+| `addMenuOffsetY` | 4 |  |  |  |  |  |  |
 
-| State | All Inboxes | Account tile |
+| State | Folder tiles and All Inboxes | Account tile |
 |---|---|---|
 | Rest | glyph `ink2`, no fill | face + ring + monogram |
-| Hover | 44 pt `hover` wash, radius `r.xl`; tooltip “All Inboxes  ⌘0” | same wash (it sits under the ring; `spine + hover` is an asserted ring surface); tooltip “Contoso · alex@contoso.test  ⌘1” |
+| Hover | 44 pt `hover` wash, radius `r.xl`; tooltip “Inbox  G I”, “All Inboxes  ⌘0” | same wash (it sits under the ring; `spine + hover` is an asserted ring surface); tooltip “Contoso · alex@contoso.test  ⌘1” |
 | Pressed | 44 pt `pressed` wash | the hover wash stays and a `pressed` wash darkens only the 30 pt face, never the gap or the ring, so every account ink keeps ≥ 3:1 (≥ 3.5:1 in IC) against what is beside it |
-| Selected | `raised` fill, `rule` edge, `e1`, glyph `ink`, margin rule `selRule` | margin rule `selRule` |
-| Selected, window not key | margin rule `selRuleIdle` | same |
-| Focused (Tab into the rail, ↑/↓ move) | ring outside the tile, 2 pt gap | ring outside the account ring |
-| Unread | count badge (99+ cap) | same |
+| Selected | `raised` fill, `rule` edge, `e1`, glyph `ink`; All Inboxes adds the margin rule `selRule`, a folder never does | margin rule `selRule` |
+| Selected, window not key | All Inboxes: margin rule `selRuleIdle`; a folder: unchanged | margin rule `selRuleIdle` |
+| Focused (Tab enters the folders on the selected folder and the accounts on the selected account; ↑/↓ move within each group and choose) | ring outside the tile, 2 pt gap | ring outside the account ring |
+| Unread | count badge (99+ cap): Inbox and All Inboxes only | same |
 | Needs sign-in | — | attention badge (`dangerFill`, `exclamationmark`) replaces the count; tooltip “Sign in required” |
 | First sync | — | 12 pt spinner replaces the badge |
 | Reconnecting (§5.44) | — | the attention badge **stays**: the account still needs sign-in until the browser finishes, and an abandoned sign-in must not look like progress. The tooltip reads “Finish signing in in your browser…”; the tile gets no spinner (the sync line carries the wait and its Cancel) |
 | Signing in (pending tile, §5.44) | — | a placeholder at the end of the stack: 30 pt `fill` face with a 1 pt dashed `ruleStrong` ring and a 16 pt `ink3` spinner; tooltip “Finish signing in in your browser…”; not selectable |
 | Collision monogram | — | two letters at 12 pt |
-| Drag to reorder | tile lifts with `e2`; others shift instantly | same |
+| Drag to reorder | — | tile lifts with `e2`; others shift instantly |
 
 Add and Settings: rest `ink2`; hover `hover` wash (radius `r.md`), glyph `ink`; pressed `pressed` wash; Add shows `pressed` while its menu is open; focused ring with a 1 pt `spine` gap.
 
 ### 5.3 List header
 
-Height 92 = row 1 (52, the title-bar zone) + row 2 (40). `paper`, bottom hairline at the horizon.
+One row, 52 pt: the title-bar zone itself, `paper`, its bottom hairline at y = 52. Everything in it is centred on y = 26, the traffic lights' centre line, in this order:
 
-- **Masthead** at x = 16, centred on y = 26 (the traffic lights' centre line): `masthead` (New York 20/24), then `chevron.down` 9 pt Semibold `ink2` after 6 pt. Hit area: text + chevron + 6 pt padding, radius `r.md`. After the chevron, in this fixed order and only when they apply: the minimal-mode new-mail dot (8 pt `accent`, 8 pt after the chevron, vertically centred on y = 26; shown in minimal mode when another account has new mail), the “Demo” tag (8 pt after the previous item, §5.43), and, narrowed to one account, “· alex@contoso.test” in `snippet` `ink3` (6 pt after the previous item). The address is the only part that truncates, and it truncates first; the cluster stops 8 pt before the compose button.
+- **Masthead** at x = 16 (rail width + 8 in minimal mode, §5.1): the view's name in `masthead` (New York 20/24). With the rail showing it is a plain title, not a control: the folders are in the rail, so it has no chevron, no hover, no menu and no Tab stop, VoiceOver reads it as a heading, and a click on it drags the window like the rest of the zone. In minimal mode it is the title menu's button (§5.4): `chevron.down` 9 pt Semibold `ink2` after 6 pt, hit area text + chevron + 6 pt padding, radius `r.md`. After it, in this fixed order and only when they apply: the minimal-mode new-mail dot (8 pt `accent`, 8 pt after the chevron; shown in minimal mode when another account has new mail), the “Demo” tag (8 pt after the previous item, §5.43), and, narrowed to one account, “· alex@contoso.test” in `snippet` `ink3` (6 pt after the previous item).
+- **Search** (§5.6): from 12 pt after the masthead cluster to 8 pt before compose.
 - **Compose**: 28 pt icon button, `ss.nib` 18 pt, trailing 12, top 12.
-- **Row 2**: filter tabs at x = 16 (Inbox only, §5.5) and search trailing (§5.6); in views without tabs, search spans the row.
+
+**Who gives way.** The search field takes the free width between the cluster and compose, never starts before the cluster ends, and keeps at least 140 pt while anything else on the line can make room for it, in this order:
+
+1. **The address** truncates (tail), and drops out whole when less than 40 pt of it would show (a lone “· a…” names nothing). While it is off the line the placeholder names the account instead (“Search Contoso”, or “Contoso” alone where that would be cut, §5.6), so the narrowed scope is always on screen; in minimal mode nothing else shows it.
+2. **The Demo tag** steps off the line whole, and out of the Tab order, when the field beside it would be narrower than its minimum. The window title and the sync line still say Demo, and its menu's commands are in the File menu (§5.43). The address, which gave way first, stays off while the tag is.
+
+The masthead text, the chevron and the dot never give way. When they alone leave less than 140 pt the field narrows to what is left, drops its keycap before its placeholder and ends the placeholder with an ellipsis. That happens only in minimal mode, where the masthead starts at 84 (92 from macOS 26) and carries the chevron: at the default list width for Starred and All Mail (and Drafts from macOS 26) and whenever the dot shows, and at the 300 pt list minimum in every view, down to 51 pt (All Mail with the dot; 43 pt from macOS 26). Beside the rail the masthead alone always leaves the minimum, so there the field never goes below 140 pt; on a list at its minimum width the Demo tag is off the line.
+
+Worked numbers, with the rail, in Inbox, at the default list width (the header is 363 pt, the pane less its divider): the field runs from x = 82 to 315 (233 pt); with the Demo tag, which ends at x = 132, from 144; narrowed to alex@contoso.test, the address shows 87 of its 111 pt and the field is 175–315, exactly the minimum. In minimal mode (masthead at 84), narrowed, with the dot, the address is off the line and the field runs from x = 182 to 315 (133 pt), a point short of the 134 pt “Search Contoso” needs, so it reads “Contoso”; without the dot it is 149 pt and reads “Search Contoso”.
 
 `layout.listHeader`
 
 | Metric | pt | Metric | pt | Metric | pt | Metric | pt |
 |---|---|---|---|---|---|---|---|
-| `mastheadHitPad` | 6 | `height` | 92 | `row1` | 52 | `row2` | 40 |
-| `mastheadX` | 16 | `mastheadMinimalX` | 84 | `mastheadMinimalX26` | 92 | `mastheadMinimalGap` | 8 |
-| `mastheadCenterY` | 26 | `chevronGap` | 6 | `chevron` | 9 | `composeSize` | 28 |
-| `composeGlyph` | 18 | `composeTrailing` | 12 | `composeTop` | 12 | `tabsX` | 16 |
-| `tabLabelY` | 12 | `tabGap` | 18 | `tabHitPad` | 6 | `searchWidth` | 168 |
-| `searchHeight` | 26 | `searchTrailing` | 12 | `searchTop` | 59 | `minimalDotSize` | 8 |
-| `minimalDotGap` | 8 | `demoTagGap` | 8 | `addressGap` | 6 |  |  |
+| `mastheadHitPad` | 6 | `height` | 52 | `mastheadX` | 16 | `mastheadMinimalX` | 84 |
+| `mastheadMinimalX26` | 92 | `mastheadMinimalGap` | 8 | `mastheadCenterY` | 26 | `chevronGap` | 6 |
+| `chevron` | 9 | `composeSize` | 28 | `composeGlyph` | 18 | `composeTrailing` | 12 |
+| `composeTop` | 12 | `searchHeight` | 26 | `searchTop` | 13 | `searchMinWidth` | 140 |
+| `searchGap` | 12 | `searchComposeGap` | 8 | `minimalDotSize` | 8 | `minimalDotGap` | 8 |
+| `demoTagGap` | 8 | `addressGap` | 6 | `addressMinWidth` | 40 |  |  |
 
-States: masthead rest; hover (`hover` wash behind text and chevron); pressed / menu open (`pressed`); focused (ring around the hit area); window not key (unchanged).
+States of the masthead in minimal mode: rest; hover (`hover` wash behind text and chevron); pressed / menu open (`pressed`); focused (ring around the hit area); window not key (unchanged). With the rail showing it has none.
 
 ### 5.4 Title menu
 
-A system `NSMenu` popped from the masthead, left-aligned to the masthead text, 4 pt below it.
+A system `NSMenu` popped from the masthead in minimal mode only: with the rail showing, the folders and accounts are in the rail and the masthead is a plain title (§5.3). Left-aligned to the masthead text, 4 pt below it.
 
 | Item | Symbol | Shortcut column |
 |---|---|---|
@@ -745,44 +755,26 @@ A system `NSMenu` popped from the masthead, left-aligned to the masthead text, 4
 | Trash | `trash` | G # |
 | — separator — | | |
 | All Mail | `archivebox` | G A |
-| — separator (minimal mode only) — | | |
+| — separator — | | |
 | All Inboxes, then each account | monogram | ⌘0, ⌘1…⌘9 |
 
 The current view has a checkmark. G-sequences are an attributed title with a right tab stop in `ink3` (`keyEquivalent` cannot express a sequence). Highlight and item states are the system's; under Multicolor the highlight is Iron Gall through the accent asset (§3.1).
 
-**Unread counts** are system menu-item badges, never custom fills: Inbox carries `NSMenuItemBadge(count:)` with the unread Inbox count of the current scope (all accounts, or the narrowed one), and in minimal mode All Inboxes and each account item carry theirs. Numerals only, drawn and coloured by the system, so they stay legible on the highlighted row. Zero shows no badge. Starred, Sent, Drafts, Trash and All Mail carry none.
+**Unread counts** are system menu-item badges, never custom fills: Inbox carries `NSMenuItemBadge(count:)` with the unread Inbox count of the current scope (all accounts, or the narrowed one; the rail's Inbox tile shows the same count, §5.2), and All Inboxes and each account item carry theirs. Numerals only, drawn and coloured by the system, so they stay legible on the highlighted row. Zero shows no badge. Starred, Sent, Drafts, Trash and All Mail carry none.
 
-### 5.5 Filter tabs (All · Focused · Other)
+### 5.5 Filter tabs (removed in 1.4)
 
-Newspaper-style section tabs instead of a bezelled segmented control: they read as navigation, and the underline gives a ≥ 3:1 state cue that a white-on-grey thumb cannot.
-
-| Part | Spec |
-|---|---|
-| Container | header row 2, 40 pt; labels centred on the row: label top at y = 12 within row 2 (`listHeader.tabLabelY`), so the labels share the search field's centre line; the underline sits on the bottom hairline |
-| Label | `label` (12 pt Medium); selected is `labelStrong` |
-| Gap / hit | 18 pt apart; hit area = label ± 6 pt, full row height |
-| Underline | 2 pt `ink`, label width, at y = 40 − 2 within row 2, overlapping the header hairline |
-
-| State | Label | Underline |
-|---|---|---|
-| Rest | `ink2` | none |
-| Hover / pressed | `ink` | none |
-| Selected | `ink`, `labelStrong` | `ink` |
-| Selected, window not key | `ink`, `labelStrong` | `ink3` |
-| Focused | ring around the label (radius `r.sm`) | unchanged |
-| Disabled (first sync, category not yet known) | `inkDisabled` | none |
-
-Shown only in Inbox, with the rail and in minimal mode alike (§5.1). Keyboard: ⌥1 / ⌥2 / ⌥3, or ← → when focused. Focused maps to Gmail Primary and Outlook Focused Inbox.
+Removed: the Inbox always shows all of its mail. Focused and Other split one inbox into two places to check, and the header now has a single line for the masthead, search and compose. The providers' categories are still stored (`inbox_section`) to round-trip provider state, and nothing filters or marks rows by them (§5.7). The section number stays so that references to the sections after it keep their meaning.
 
 ### 5.6 Search field
 
 | Part | Spec |
 |---|---|
-| Size | 168 × 26 at rest, trailing 12, top 59; on focus it expands to the full row (inset 12) covering the tabs (`dur.standard`, `ease.glide`; Reduce Motion: cross-fade). Only the field animates; the list does not move |
+| Size | height 26, top 13 (centred on y = 26); the width fills the header line from the masthead cluster + 12 to compose − 8, at least 140 pt and never under the masthead cluster (§5.3 says what gives way). It already has the free width, so focus never resizes or animates it, and the list does not move |
 | Shape | radius 6, `sheet`, 1 pt `ruleStrong` resting edge |
 | Leading | `magnifyingglass` 12 pt `ink3` at x = 8; text and placeholder start at x = 26 |
-| Placeholder | “Search” (`body`, `ink3`); “Search Starred” etc. in other views; “Search Inbox” when narrowed |
-| Trailing | 5 pt from the trailing edge: keycap “/” (16 pt) when empty and not focused; while results show, the clear button (16 pt `fill` disc, `xmark` 9 pt, 24 pt hit) with “38 results” in `meta` `ink3` 6 pt before it; the query truncates before the count does |
+| Placeholder | “Search” (`body`, `ink3`); “Search Starred” etc. in other views; “Search Inbox” when narrowed; while the header line has no room for the narrowed account's address (§5.3), the account's name in every view: “Search Contoso” (search looks through all of that account's mail but the Trash, whatever the view), or the name alone (“Contoso”, “Demo Gmail”) in a field too narrow to show that whole, since the magnifier already says search and a cut name may not tell two accounts apart |
+| Trailing | 5 pt from the trailing edge: keycap “/” (16 pt) when empty and not focused, and only while the whole placeholder fits beside it (a field the header line has narrowed drops the keycap before the word, and a placeholder that has given up its “Search”, the bare account name, never gets the keycap in its place); while results show, the clear button (16 pt `fill` disc, `xmark` 9 pt, 24 pt hit) with “38 results” in `meta` `ink3` 6 pt before it; the query truncates before the count does |
 
 | State | Look |
 |---|---|
@@ -792,10 +784,10 @@ Shown only in Inbox, with the rail and in minimal mode alike (§5.1). Keyboard: 
 | Typing | query `ink`, caret `accent` |
 | Searching | a 12 pt spinner replaces the magnifier, only when the first page takes more than 150 ms |
 | No results | list shows the empty state (§5.9) |
-| Query kept, focus elsewhere | stays expanded over the tabs with its query, count and clear button and no ring, because the list below is still the result set; it collapses only when the query is cleared |
+| Query kept, focus elsewhere | keeps its query, count and clear button with no ring, because the list below is still the result set, until the query is cleared |
 | Disabled (no accounts) | `fill`, no edge, `inkDisabled` |
 
-**Collapsing.** When focus leaves an empty field it returns to 168 pt (same motion); a field with a query stays expanded (above). Esc in the field clears the query; Esc in an empty field returns focus to the list and collapses it (§6.1). The clear button clears and keeps focus in the field.
+**Leaving.** The field keeps its size whatever has focus. Esc in the field clears the query; Esc in an empty field returns focus to the list (§6.1). The clear button clears and keeps focus in the field.
 
 ### 5.7 Conversation row
 
@@ -807,7 +799,7 @@ Fixed **68 pt** (compact 48). Drawn by hand in `layout()` / `draw(_:)`: no Auto 
 | Unread pip | 7, 14, 7, 7 (centred on the sender line) | `accent` circle |
 | Avatar box | 20, 15, 38, 38: face 30 centred; 2 pt gap; 2 pt ring | face tint, New York monogram, ring = account ink (unified views only). The gap is **not drawn**: it is the row's own fill showing through, so the same face serves every row state |
 | Sender line | 68, 10, to the time − 8, 16 | `sender`; Semibold when unread; participants joined by “, ”, the user as “me”; Drafts/Sent prefixes in `ink2`; no sender: “No sender” in the placeholder style (§4.1) |
-| Time cluster | trailing 16, on the sender line | from the trailing edge: time (`meta`, tabular, `ink3`; unread: `metaStrong` in `accent`; format per running head, §4.13) · 6 pt (`tileGap`) · optional account initial tile (16 pt) · 6 pt (`tagGap`) · optional “Other” tag · 4 pt (`queuedGap`) · `ss.queued` or the failed glyph (12 pt). An absent item takes its leading gap with it: with no tile the tag sits 6 pt from the time; with neither, the glyph sits 4 pt from the time |
+| Time cluster | trailing 16, on the sender line | from the trailing edge: time (`meta`, tabular, `ink3`; unread: `metaStrong` in `accent`; format per running head, §4.13) · 6 pt (`tileGap`) · optional account initial tile (16 pt) · 4 pt (`queuedGap`) · `ss.queued` or the failed glyph (12 pt). An absent tile takes its leading gap with it: with no tile the glyph sits 4 pt from the time. Rows carry no category tag: the Focused/Other category is not shown anywhere (§5.5) |
 | Subject line | 68, 27, to the glyph cluster − 6, 18 | `subject` (New York; `subjectSans` when New York lacks the script); Semibold when unread; no subject: “No subject” in the placeholder style (italic `ink3`, regular weight even when unread) |
 | Glyph cluster | trailing 16, centred on the subject line, 5 pt gaps, fixed order from the trailing edge: star, attachment, count | `star.fill` 12 pt `star`; `paperclip` 12 pt `ink2`; count badge 16 pt, neutral |
 | Snippet | 68, 46, to trailing 16, 15 | `snippet`, `ink2` |
@@ -824,7 +816,7 @@ Fixed **68 pt** (compact 48). Drawn by hand in `layout()` / `draw(_:)`: no Auto 
 | `subjectHeight` | 18 | `snippetY` | 46 | `snippetHeight` | 15 | `glyph` | 12 |
 | `glyphGap` | 5 | `clusterGap` | 6 | `queuedGlyph` | 12 | `queuedGap` | 4 |
 | `accountTile` | 16 | `accountTileRadius` | 3 | `accountTileBorder` | 1.5 | `tileGap` | 6 |
-| `tagGap` | 6 | `separatorX` | 68 |  |  |  |  |
+| `separatorX` | 68 |  |  |  |  |  |  |
 
 | State | Fill | Marks | Notes |
 |---|---|---|---|
@@ -832,7 +824,7 @@ Fixed **68 pt** (compact 48). Drawn by hand in `layout()` / `draw(_:)`: no Auto 
 | Unread | `paper` | pip | Semibold sender, subject and time; time in `accent` |
 | Hover | `paper + hover` | — | pointer only, instant; never on a selected row; no hover action buttons in rows; suspended while the list scrolls (below) |
 | Pressed | — | — | selection applies on mouse-down |
-| Selected, window key | `selWash` | margin rule `selRule` | text unchanged; pip, ring, badge, tag, star keep ≥ 3:1 / 4.5:1 |
+| Selected, window key | `selWash` | margin rule `selRule` | text unchanged; pip, ring, badge, star keep ≥ 3:1 / 4.5:1 |
 | Selected, window not key | `selWashIdle` | margin rule `selRuleIdle` | always drawn |
 | Multi-selection | each selected row as above | | ⇧-click, ⌘-click, ⇧J / ⇧K; the reader shows §5.19 |
 | Keyboard focus with no selection | `paper` | 2 pt ring inset | Full Keyboard Access only |
@@ -841,7 +833,6 @@ Fixed **68 pt** (compact 48). Drawn by hand in `layout()` / `draw(_:)`: no Auto 
 | Message count ≥ 2 | — | neutral count badge | |
 | Queued locally | — | `ss.queued` `ink3` before the time | full contrast, never faded; VoiceOver “Waiting to sync” |
 | Operation failed permanently | — | `exclamationmark.triangle.fill` `danger` replaces `ss.queued` | the row is restored locally; toast “Couldn't archive. Restored.”; tooltip and VoiceOver “Couldn't archive”. The triangle stays until the conversation is opened (selected for 150 ms, which acknowledges it), a later operation on it succeeds, or 24 hours pass (`failed_op_kind`, §8.5) |
-| Other (Inbox › All only) | — | “Other” tag | Focused rows carry nothing; hidden in the Focused and Other filters |
 | Account (unified views) | — | ring; optional initial tile | single-account views drop both; face size unchanged |
 | Drafts / Sent views | — | “Draft to Ben Carter” / “To Ben Carter” | |
 | Dragging | — | system drag image | the row itself is unchanged |
@@ -887,9 +878,7 @@ Centred in the pane, max width 300. Line 1 is `aside` (New York Italic 17/24) in
 
 | Case | Glyph | Line 1 | Line 2 |
 |---|---|---|---|
-| Inbox zero (Inbox › All) | `ss.sparrow` 30 pt `ink3`, 8 pt above | Nothing left to read. | New mail will land here. |
-| Inbox › Focused empty | — | Nothing in Focused | Mail from people lands here; newsletters and notifications go to Other. |
-| Inbox › Other empty | — | Nothing in Other | Newsletters and notifications land here. |
+| Inbox zero | `ss.sparrow` 30 pt `ink3`, 8 pt above | Nothing left to read. | New mail will land here. |
 | Empty Starred | — | No starred conversations | Press S to star one. |
 | Empty Sent | — | No sent mail | Messages you send appear here. |
 | Empty Drafts | — | Nothing in Drafts | Drafts you start here are kept on this Mac. |
@@ -1192,10 +1181,10 @@ Docked to the bottom of the reader, drawn **over** the web view: the web view al
 | `faceTop` | 7 | `faceMonogram` | 11 | `faceMonogramTwoLetter` | 10 | `textX` | 48 |
 | `restTrailing` | 67 | `focusedTrailing` | 12 | `restSend` | 28 | `restSendGlyph` | 15 |
 | `restSendInset` | 5 | `restKeycapGap` | 8 | `toolRowGap` | 4 | `toolRow` | 28 |
-| `toolRowBottom` | 4 | `modeGap` | 16 | `toolGroupGap` | 12 | `toolIconGap` | 2 |
-| `toolIcon` | 22 | `toolIconGlyph` | 14 | `sendInset` | 8 | `sendKeycapGap` | 8 |
-| `maxLines` | 5 | `fieldMax` | 150 | `max` | 172 | `stripGlyph` | 14 |
-| `stripGap` | 8 | `stripKeycapGap` | 8 | `modeUnderlineY` | 24 |  |  |
+| `toolRowBottom` | 4 | `modeGap` | 16 | `modeHitPad` | 6 | `toolGroupGap` | 12 |
+| `toolIconGap` | 2 | `toolIcon` | 22 | `toolIconGlyph` | 14 | `sendInset` | 8 |
+| `sendKeycapGap` | 8 | `maxLines` | 5 | `fieldMax` | 150 | `max` | 172 |
+| `stripGlyph` | 14 | `stripGap` | 8 | `stripKeycapGap` | 8 | `modeUnderlineY` | 24 |
 
 **Anatomy and metrics** (x from the field's leading edge, y from its top):
 
@@ -1211,7 +1200,7 @@ Docked to the bottom of the reader, drawn **over** the web view: the web view al
 
 **Growth.** Field height = 9 + lines × 21 + 8 when not focused and showing one line; focused = 9 + lines × 21 + 4 + 28 + 4. Focused and empty that is 66 (bar 88). The text grows to 5 lines: field max 150, bar max 172, both **including** the tool row; past that the text scrolls inside the field. Unfocused with text, the field returns to 38 pt showing the first line, tail-truncated, so the reader does not jump when focus leaves. Height changes use `dur.standard` `ease.glide` (Reduce Motion: instant).
 
-**Reply mode** (Reply · Reply all) is a pair of tabs, the filter-tab language at small size: `label` with the reply glyph at 12 pt; the active mode is `labelStrong` `ink` with a 2 pt `ink` underline under the label (2 pt `ink3` when the window is not key). Labels are centred in the 28 pt tool row (label box y = 6–22); the underline's top is at y = 24 from the tool row's top (`quickReply.modeUnderlineY`), 2 pt below the label box and 2 pt above the row's bottom; the inactive one is `label` `ink2`. Hover / pressed on the inactive tab: `ink`. Focused: ring around the label, radius `r.sm`. Reply all is disabled (`inkDisabled`, skipped by Tab) when the message has one other participant. ← → switch while a tab is focused. From the list or the reader, R focuses the field in Reply mode and A in Reply all mode; while typing, single keys type, so the mode changes only through the tabs. VoiceOver: “Reply, selected, tab 1 of 2”.
+**Reply mode** (Reply · Reply all) is a pair of underline tabs (`QuireUnderlineTabs`, the only place Quire uses them): `label` with the reply glyph at 12 pt; the active mode is `labelStrong` `ink` with a 2 pt `ink` underline under the label (2 pt `ink3` when the window is not key). Labels are centred in the 28 pt tool row (label box y = 6–22); the underline's top is at y = 24 from the tool row's top (`quickReply.modeUnderlineY`), 2 pt below the label box and 2 pt above the row's bottom; the inactive one is `label` `ink2`. Hover / pressed on the inactive tab: `ink`. Focused: ring around the label, radius `r.sm`. Reply all is disabled (`inkDisabled`, skipped by Tab) when the message has one other participant. ← → switch while a tab is focused. From the list or the reader, R focuses the field in Reply mode and A in Reply all mode; while typing, single keys type, so the mode changes only through the tabs. VoiceOver: “Reply, selected, tab 1 of 2”.
 
 | State | Look |
 |---|---|
@@ -1496,7 +1485,7 @@ Labels are `body` `ink`, 8 pt from the control, and part of the hit area. Toggle
 | Message count (rows) | 16 pt, min 18; exact numbers | `fill` / `ink2` (on any row fill, including both selection washes) |
 | Dot | 8 pt circle | `accent` |
 | Attention | 16 pt circle, `exclamationmark` 9 pt `.semibold`, centred | `dangerFill` / `onDanger` |
-| Tag | 16 pt, padding 0 5, radius 3, 1 pt `ruleStrong` inset, `tag` role (SF Pro 11 Medium, sentence case) | text `ink2`: “Other”, “Gmail”, “Microsoft 365” |
+| Tag | 16 pt, padding 0 5, radius 3, 1 pt `ruleStrong` inset, `tag` role (SF Pro 11 Medium, sentence case) | text `ink2`: “Gmail”, “Microsoft 365” (Settings account rows) |
 | Title menu counts | system `NSMenuItemBadge(count:)`, numerals only (§5.4) | system |
 | Dock | system red badge with the unified Inbox unread count | system |
 
@@ -1613,7 +1602,7 @@ The second key, any other key, Esc or the end of the 2000 ms window dismisses it
 | Part | Spec |
 |---|---|
 | Scrim | `scrim` over the whole window content below the title-bar zone's controls (the traffic lights stay usable); fades in `dur.quick` |
-| Panel | 816 pt wide (= 2 × 24 + 3 × 240 + 2 × 24; it fits the 960 pt minimum window with 72 pt to spare on each side), centred horizontally, top at y = 92 (under the horizon), at least 24 pt from the window bottom; `raised`, radius 12, `e3`, padding 24; `ruleStrong` edge in Increase Contrast. Its full height is 604 pt (24 + 28 + 16 + band 1 (22 + 9 × 28) + 20 + band 2 (22 + 7 × 28) + 24), so it fits whole in the default window (92 + 604 + 24 = 720 ≤ 800); in a window shorter than 720 pt the bands scroll inside the panel under a fixed title row |
+| Panel | 816 pt wide (= 2 × 24 + 3 × 240 + 2 × 24; it fits the 960 pt minimum window with 72 pt to spare on each side), centred horizontally, top at y = 92 (under the horizon), at least 24 pt from the window bottom; `raised`, radius 12, `e3`, padding 24; `ruleStrong` edge in Increase Contrast. Its full height is 576 pt (24 + 28 + 16 + band 1 (22 + 8 × 28) + 20 + band 2 (22 + 7 × 28) + 24), so it fits whole in the default window (92 + 576 + 24 = 692 ≤ 800); in a window shorter than 692 pt the bands scroll inside the panel under a fixed title row |
 | Title row | 28 pt: “Keyboard Shortcuts” (`title`) and a close button (24 pt icon button, `xmark`, at 16 pt from the top-trailing corner) |
 | Sections | 16 pt below the title: 2 bands of 3 columns, each 240 pt, 24 pt apart: **Move · Act · Go** in the first band, **Write · Format · View** in the second, 20 pt between bands; each section opens with a 22 pt `runningHead` `ink3` title |
 | Rows | 28 pt: large keycaps (24 pt, 4 pt apart) in a 96 pt key column, then the label (`snippet`, `ink`, sentence case, §4.13; it tail-truncates in the remaining 144 pt, which every label below fits); sequences as “G then I” (“then” in `meta` `ink3`, 6 pt either side); ranges as “⌘1 … ⌘9” |
@@ -1644,7 +1633,6 @@ The second key, any other key, Esc or the end of the 2000 ms window dismisses it
 | 1 | 3 | Go | 6 | G  then  A | All Mail |
 | 1 | 3 | Go | 7 | ⌘0 | All Inboxes |
 | 1 | 3 | Go | 8 | ⌘1  …  ⌘9 | One account |
-| 1 | 3 | Go | 9 | ⌥1  ⌥2  ⌥3 | All · Focused · Other |
 | 2 | 1 | Write | 1 | C | New message |
 | 2 | 1 | Write | 2 | R | Reply |
 | 2 | 1 | Write | 3 | A | Reply all |
@@ -1713,7 +1701,7 @@ Main menu (system), with Quire content. Single-key shortcuts are handled by `Key
 - **SuperSparrow**: About SuperSparrow (the system About panel) · Settings… ⌘, · Services · Hide · Quit.
 - **File**: New Message ⌘N (also C) · Close Window ⌘W · Add Gmail Account… · Add Microsoft Account… · Save Attachments… · in demo mode, Leave Demo… (§5.43).
 - **Edit**: standard, plus Find… ⌘F (focuses search). Undo is titled by its target (“Undo Archive”, “Undo Send”, “Undo Typing”), following §6.1.
-- **View**: Inbox · Starred · Sent · Drafts · Trash · All Mail (G-sequences) · All / Focused / Other ⌥1–3 · All Inboxes ⌘0 · accounts ⌘1–9 · Check for New Mail ⇧⌘N · Show/Hide Account Rail ⌃⌘S · Compact Rows ⌥⌘C · Load Images ⇧⌘I · Original Colors ⇧⌘O (checkmark when on) · Show Quoted Text .
+- **View**: Inbox · Starred · Sent · Drafts · Trash · All Mail (G-sequences) · All Inboxes ⌘0 · accounts ⌘1–9 · Check for New Mail ⇧⌘N · Show/Hide Account Rail ⌃⌘S · Compact Rows ⌥⌘C · Load Images ⇧⌘I · Original Colors ⇧⌘O (checkmark when on) · Show Quoted Text .
 - **Message**: Reply R · Reply All A · Forward F · — · Archive E · Move to Trash # · Move to Inbox ⇧I · Star S · Mark as Unread U · Undo Z · — · Next Message N · Previous Message P.
 - **Format** (composer windows only): Show Format Row ⇧⌘T · — · Bold ⌘B · Italic ⌘I · Underline ⌘U · — · Bulleted List ⇧⌘8 · Numbered List ⇧⌘7 · Quote ⌘' · — · Add Link… ⌘K. In a composer window the Message menu holds Send ⌘↩ · Attach Files… ⇧⌘A · Add Cc Field ⇧⌘C · Add Bcc Field ⇧⌘B · — · Discard Draft… (§5.20).
 - **Window**, **Help** (Keyboard Shortcuts ⌘/).
@@ -1913,7 +1901,7 @@ States per control as §5.24–5.27, Quire-drawn; validation errors inline under
 | Body | first line of the snippet, max 120 characters | none |
 | Summary (more than 3 within 30 s) | “3 new messages” · account name | same |
 
-No actions in v1. Sound: system default, off while the app is frontmost. No notification for mail that arrives while its conversation is open in a key window, for Other mail while the Inbox filter is Focused, or during an account's first sync (its first page of newest mail, including mail of that page whose rows land just after it). New mail notifies while older mail downloads behind it; the older mail itself never does, since it predates the first page.
+No actions in v1. Sound: system default, off while the app is frontmost. No notification for mail that arrives while its conversation is open in a key window, or during an account's first sync (its first page of newest mail, including mail of that page whose rows land just after it). New mail notifies while older mail downloads behind it; the older mail itself never does, since it predates the first page.
 
 ### 5.42 App icon
 
@@ -1935,7 +1923,7 @@ The Dock badge stays system red. The icon shares its mark with the welcome scree
 
 | Where | Marker | States |
 |---|---|---|
-| Masthead | a “Demo” tag (16 pt, `tag` role, `ink2`, `ruleStrong` edge, radius `r.xs`) 8 pt after the chevron (or after the minimal-mode dot, §5.3), in every view and in minimal mode | it is a pull-down button: hover `hover` wash and `ink` text; pressed / menu open `pressed`; focused ring; tooltip “These mailboxes are made up and live only on this Mac.” Its menu: “Add a Real Account…” (submenu: Add Gmail Account…, Add Microsoft Account…) · — · “Leave Demo…” |
+| Masthead | a “Demo” tag (16 pt, `tag` role, `ink2`, `ruleStrong` edge, radius `r.xs`) 8 pt after the masthead (after its chevron in minimal mode, or after the minimal-mode dot, §5.3), in every view and in minimal mode while the header line keeps search's minimum beside it; on a line too crowded for both (minimal mode at the default list width, any list at its minimum width) it steps off the line and the other three markers carry the demo | it is a pull-down button: hover `hover` wash and `ink` text; pressed / menu open `pressed`; focused ring; tooltip “These mailboxes are made up and live only on this Mac.” Its menu: “Add a Real Account…” (submenu: Add Gmail Account…, Add Microsoft Account…) · — · “Leave Demo…” |
 | Window title | “SuperSparrow — Demo” (Window menu, Mission Control, VoiceOver; the title bar itself hides titles, §3.2) | — |
 | Sync line | `info.circle` `ink3` + **Demo** · made-up mail, nothing syncs | replaces Up to date; no action |
 | Settings › Accounts | an info banner above the group: `info.circle` + “Demo mode: these mailboxes are made up and live only on this Mac.” + link “Leave demo…” (sentence case in a banner, §4.13) | the demo accounts list as usual, with the tag “Demo” in place of the provider; Reconnect and Colour work, Remove is replaced by Leave Demo |
@@ -1987,12 +1975,12 @@ All single keys are inactive while a text field has focus. Every key press first
 | . | show / hide quoted text | C or ⌘N | new message |
 | R / A / F | reply / reply all / forward | / or ⌘F | search |
 | G I, G S, G T, G D, G #, G A | Inbox, Starred, Sent, Drafts, Trash, All Mail (HUD after 500 ms) | ⌘0 / ⌘1…⌘9 | All Inboxes / account |
-| ⌥1 / ⌥2 / ⌥3 | All / Focused / Other | ⌘↩ | send |
-| ⇧⌘R | open the quick reply in the composer | ⌃⌘S | show / hide the rail |
-| ⇧⌘I / ⇧⌘O | load images / original colors | ? or ⌘/ | keyboard shortcuts |
-| ⌥⌘C | compact rows | ⇧I | move to Inbox |
-| ⇧⌘N | check for new mail | ⇧⌘T, ⌘B ⌘I ⌘U, ⇧⌘8 ⇧⌘7, ⌘', ⌘K | composer: format row, styles, lists, quote, link |
-| Space | reader (focus in the reader, not in a text field): Quick Look the target message's attachments, starting from the focused chip, else the first; Space again closes Quick Look. With no attachments to preview the key passes to the web view, which scrolls down a page (⇧Space up), as in Safari. In the list Space does nothing | ⇧⌘A, ⇧⌘C, ⇧⌘B | composer: attach files, Cc field, Bcc field |
+| ⇧⌘R | open the quick reply in the composer | ⌘↩ | send |
+| ⇧⌘I / ⇧⌘O | load images / original colors | ⌃⌘S | show / hide the rail |
+| ⌥⌘C | compact rows | ? or ⌘/ | keyboard shortcuts |
+| ⇧⌘N | check for new mail | ⇧I | move to Inbox |
+| ⇧⌘T, ⌘B ⌘I ⌘U, ⇧⌘8 ⇧⌘7, ⌘', ⌘K | composer: format row, styles, lists, quote, link | ⇧⌘A, ⇧⌘C, ⇧⌘B | composer: attach files, Cc field, Bcc field |
+| Space | reader (focus in the reader, not in a text field): Quick Look the target message's attachments, starting from the focused chip, else the first; Space again closes Quick Look. With no attachments to preview the key passes to the web view, which scrolls down a page (⇧Space up), as in Safari. In the list Space does nothing | | |
 
 **G-sequences** arm for 2000 ms from the G key-down; the HUD appears at 500 ms and leaves with the sequence (§5.32). The cheat sheet (§5.32) lists every row of this map, one key per action.
 
@@ -2032,7 +2020,7 @@ So in the reader with a toast up, the first Esc dismisses the toast and the seco
 
 Computed by the token generator from `tokens.json` with WCAG 2.x relative luminance. Alpha tokens are composited in sRGB over the surface beneath them first; “`a` + `b`” means `b` composited over `a`. Need is 4.5 for text and 3.0 for essential non-text UI (glyphs that carry state, state-bearing edges, focus rings, pips, rules, rings, toggle and checkbox fills). The pair list is every foreground-on-surface combination the components above produce, including hover and pressed washes, both selection washes, washes over washes, fills, slips and all account inks; it is stored as `contrastPairs` in `tokens.json` and asserted by `DesignContrastTests` (§8.7), so a token change that breaks a pair fails `swift test`. Two pairs are selection scan cues with a 1.25 floor (`selWash` on `paper` and on `sheet`): they make the current row easy to find, while the margin rule, asserted at 3:1, carries the state. Account-ink pairs carry two needs, 3 in Light and Dark and 3.5 in the IC modes (`needIC`), and the test asserts each mode against its own.
 
-**Result:** 476 pairs × 4 modes = 1904 checks, plus 99 Graphite pairs × 4 = 396, 0 failures (2 of the pairs are selection scan cues with a 1.25 floor; account inks need 3.0, or 3.5 in IC; the rest need 4.5 or 3.0). Smallest margins: Checkbox / radio on fill vs sheet 3.01 (Dark IC, needs 3.0); Toggle on track vs sheet (rest, hover and pressed: the track never takes a wash) 3.01 (Dark IC, needs 3.0); Account ink Jade on selected row 3.52 (Dark IC, needs 3.5); Account ink Lilac on hovered rail tile 3.56 (Light IC, needs 3.5); Account ink Lilac on selected row 3.56 (Light IC, needs 3.5); Account ink Azure on hovered rail tile 3.57 (Light IC, needs 3.5).
+**Result:** 471 pairs × 4 modes = 1884 checks, plus 99 Graphite pairs × 4 = 396, 0 failures (2 of the pairs are selection scan cues with a 1.25 floor; account inks need 3.0, or 3.5 in IC; the rest need 4.5 or 3.0). Smallest margins: Checkbox / radio on fill vs sheet 3.01 (Dark IC, needs 3.0); Toggle on track vs sheet (rest, hover and pressed: the track never takes a wash) 3.01 (Dark IC, needs 3.0); Account ink Jade on selected row 3.52 (Dark IC, needs 3.5); Account ink Lilac on hovered rail tile 3.56 (Light IC, needs 3.5); Account ink Lilac on selected row 3.56 (Light IC, needs 3.5); Account ink Azure on hovered rail tile 3.57 (Light IC, needs 3.5).
 
 Not tested on purpose: `inkDisabled` (disabled text and glyphs are exempt), decorative `rule` hairlines (they separate, they do not carry state), the toggle knob's face against the off track (its `ruleStrong` edge is the tested boundary), the popup halo against a hovered or pressed face (the halo is the ink's surface, not a mark), swatches inside the open Colour menu (the item's title names the ink), the cheat-sheet `scrim` and `scrimSolid` (they sit behind the panel and carry nothing), avatar faces and the account face wash against their surroundings (decorative; the initials on them are tested), and system-drawn chrome: menus and their badges, alerts, notifications, tooltips, and the Settings toolbar with its tabs. Every control inside Settings is Quire-drawn and tested. Bodies shown in Original colors are the sender's design on the `originalPage` inset and are not Quire pairs; adapted bodies use only tested inks (§5.14). The account square and the initial tile's edge are drawn in the account ink and are covered by the account-ink rows below, never by a `ruleStrong` pair.
 
@@ -2060,12 +2048,10 @@ Not tested on purpose: `inkDisabled` (disabled text and glyphs are exempt), deco
 | Row count badge numerals, hover | `ink2` | `paper` + `hover` + `fill` | 4.5 | 6.21 | 5.77 | 8.52 | 7.13 | pass |
 | Row count badge numerals, selected | `ink2` | `selWash` + `fill` | 4.5 | 5.26 | 4.62 | 6.72 | 5.44 | pass |
 | Row count badge numerals, selected idle | `ink2` | `selWashIdle` + `fill` | 4.5 | 5.77 | 5.55 | 7.10 | 6.50 | pass |
-| Row tag text (Other), rest | `ink2` | `paper` | 4.5 | 7.64 | 8.18 | 11.69 | 13.16 | pass |
-| Row tag text, selected | `ink2` | `selWash` | 4.5 | 5.88 | 5.71 | 7.96 | 7.82 | pass |
-| Row tag text, selected idle | `ink2` | `selWashIdle` | 4.5 | 6.46 | 6.89 | 8.42 | 9.56 | pass |
-| Row tag edge, rest | `ruleStrong` | `paper` | 3 | 4.13 | 4.71 | 6.77 | 7.01 | pass |
-| Row tag edge, selected | `ruleStrong` | `selWash` | 3 | 3.18 | 3.29 | 4.61 | 4.16 | pass |
-| Row tag edge, selected idle | `ruleStrong` | `selWashIdle` | 3 | 3.49 | 3.97 | 4.88 | 5.09 | pass |
+| Tag text on the selected Settings account row | `ink2` | `selWash` | 4.5 | 5.88 | 5.71 | 7.96 | 7.82 | pass |
+| Tag text on the selected Settings account row, window not key | `ink2` | `selWashIdle` | 4.5 | 6.46 | 6.89 | 8.42 | 9.56 | pass |
+| Tag edge on the selected Settings account row | `ruleStrong` | `selWash` | 3 | 3.18 | 3.29 | 4.61 | 4.16 | pass |
+| Tag edge on the selected Settings account row, window not key | `ruleStrong` | `selWashIdle` | 3 | 3.49 | 3.97 | 4.88 | 5.09 | pass |
 | Unread pip, rest | `accent` | `paper` | 3 | 7.97 | 7.53 | 11.24 | 11.38 | pass |
 | Unread pip, hover | `accent` | `paper` + `hover` | 3 | 7.27 | 6.59 | 9.77 | 9.06 | pass |
 | Unread pip, selected | `accent` | `selWash` | 3 | 6.13 | 5.26 | 7.65 | 6.76 | pass |
@@ -2093,10 +2079,7 @@ Not tested on purpose: `inkDisabled` (disabled text and glyphs are exempt), deco
 | Account initial tile letter, hover | `ink2` | `paper` + `hover` | 4.5 | 6.97 | 7.15 | 10.16 | 10.48 | pass |
 | Account initial tile letter, selected | `ink2` | `selWash` | 4.5 | 5.88 | 5.71 | 7.96 | 7.82 | pass |
 | Account initial tile letter, selected idle | `ink2` | `selWashIdle` | 4.5 | 6.46 | 6.89 | 8.42 | 9.56 | pass |
-| Masthead and selected tab label | `ink` | `paper` | 4.5 | 16.45 | 14.23 | 18.82 | 18.86 | pass |
-| Unselected tab label | `ink2` | `paper` | 4.5 | 7.64 | 8.18 | 11.69 | 13.16 | pass |
-| Selected tab underline | `ink` | `paper` | 3 | 16.45 | 14.23 | 18.82 | 18.86 | pass |
-| Selected tab underline, window not key | `ink3` | `paper` | 3 | 6.32 | 6.79 | 9.24 | 10.66 | pass |
+| Masthead | `ink` | `paper` | 4.5 | 16.45 | 14.23 | 18.82 | 18.86 | pass |
 | Masthead chevron, compose glyph | `ink2` | `paper` | 3 | 7.64 | 8.18 | 11.69 | 13.16 | pass |
 | Masthead hover text | `ink` | `paper` + `hover` | 4.5 | 15.00 | 12.45 | 16.36 | 15.02 | pass |
 | Demo tag text | `ink2` | `paper` | 4.5 | 7.64 | 8.18 | 11.69 | 13.16 | pass |
@@ -2120,10 +2103,10 @@ Not tested on purpose: `inkDisabled` (disabled text and glyphs are exempt), deco
 | Empty-state hint (reader desk) | `ink3` | `canvas` | 4.5 | 5.90 | 7.13 | 8.24 | 11.04 | pass |
 | Empty-state sentence (list) | `ink` | `paper` | 4.5 | 16.45 | 14.23 | 18.82 | 18.86 | pass |
 | Inbox-zero mark | `ink3` | `paper` | 3 | 6.32 | 6.79 | 9.24 | 10.66 | pass |
-| Rail unified glyph | `ink2` | `spine` | 3 | 6.58 | 8.96 | 9.09 | 13.98 | pass |
-| Rail unified glyph, hover | `ink` | `spine` + `hover` | 3 | 12.94 | 13.93 | 12.79 | 16.63 | pass |
-| Rail unified glyph, selected tile | `ink` | `raised` | 3 | 17.18 | 11.84 | 19.29 | 15.67 | pass |
-| Rail unified glyph, pressed | `ink` | `spine` + `pressed` | 3 | 11.88 | 12.31 | 11.37 | 13.82 | pass |
+| Rail folder and All Inboxes glyphs | `ink2` | `spine` | 3 | 6.58 | 8.96 | 9.09 | 13.98 | pass |
+| Rail folder and All Inboxes glyphs, hover | `ink` | `spine` + `hover` | 3 | 12.94 | 13.93 | 12.79 | 16.63 | pass |
+| Rail folder and All Inboxes glyphs, selected tile | `ink` | `raised` | 3 | 17.18 | 11.84 | 19.29 | 15.67 | pass |
+| Rail folder and All Inboxes glyphs, pressed | `ink` | `spine` + `pressed` | 3 | 11.88 | 12.31 | 11.37 | 13.82 | pass |
 | Rail utility glyphs, hover | `ink` | `spine` + `hover` | 3 | 12.94 | 13.93 | 12.79 | 16.63 | pass |
 | Rail utility glyphs, pressed | `ink` | `spine` + `pressed` | 3 | 11.88 | 12.31 | 11.37 | 13.82 | pass |
 | Rail sign-in spinner (pending tile) | `ink3` | `spine` | 3 | 5.44 | 7.44 | 7.19 | 11.32 | pass |
@@ -2529,8 +2512,8 @@ Not tested on purpose: `inkDisabled` (disabled text and glyphs are exempt), deco
 | Graphite · Row time (unread), selected | `ink` | `selWashIdle` | 4.5 | 13.90 | 12.00 | 13.56 | 13.70 | pass |
 | Graphite · Row time (unread), selected idle | `ink` | `selWashIdle` | 4.5 | 13.90 | 12.00 | 13.56 | 13.70 | pass |
 | Graphite · Row count badge numerals, selected | `ink2` | `selWashIdle` + `fill` | 4.5 | 5.77 | 5.55 | 7.10 | 6.50 | pass |
-| Graphite · Row tag text, selected | `ink2` | `selWashIdle` | 4.5 | 6.46 | 6.89 | 8.42 | 9.56 | pass |
-| Graphite · Row tag edge, selected | `ruleStrong` | `selWashIdle` | 3 | 3.49 | 3.97 | 4.88 | 5.09 | pass |
+| Graphite · Tag text on the selected Settings account row | `ink2` | `selWashIdle` | 4.5 | 6.46 | 6.89 | 8.42 | 9.56 | pass |
+| Graphite · Tag edge on the selected Settings account row | `ruleStrong` | `selWashIdle` | 3 | 3.49 | 3.97 | 4.88 | 5.09 | pass |
 | Graphite · Unread pip, rest | `ink` | `paper` | 3 | 16.45 | 14.23 | 18.82 | 18.86 | pass |
 | Graphite · Unread pip, hover | `ink` | `paper` + `hover` | 3 | 15.00 | 12.45 | 16.36 | 15.02 | pass |
 | Graphite · Unread pip, selected | `ink` | `selWashIdle` | 3 | 13.90 | 12.00 | 13.56 | 13.70 | pass |
@@ -2791,8 +2774,8 @@ html.ss-adapt a, html.ss-adapt a * { color: var(--q-accent) !important; }
 | §4.1–4.3 tokens | `List/NSColor+Hex.swift`, hex literals across views, `.systemYellow` star, `controlAccentColor` pip, `quaternaryLabelColor` badge, four avatar palettes (`List/AvatarCache.swift`, `Shell/AccountStripButton.swift`, shell `.ss-avatar`, compose tokens) | all colours from `QuireTokens.swift`; one avatar palette, one account palette |
 | §4.4 typography | font sizes set per view (10–26 pt) | `QuireFont` roles; New York subjects and reading |
 | §5.1 window | `Shell/MainWindowController.swift` | empty unified toolbar (`toolbarStyle = .unified`, `titlebarSeparatorStyle = .none`) so the lights sit at the 52 pt band's centre; rail width derived from the zoom button's frame (76 / 84); title-bar zone 52 |
-| §5.2 rail | `Shell/AccountStripViewController.swift`, `Shell/AccountStripButton.swift` | opaque `spine`; face + ring + domain monogram; margin-rule selection; accent badges with cut-out |
-| §5.3–5.6 list header | `Shell/ListPaneViewController.swift` (search field, filter, title) | masthead + title menu, underline tabs, search with resting edge, horizon at 92 |
+| §5.2 rail | `Shell/AccountStripViewController.swift`, `Shell/AccountStripButton.swift` | opaque `spine`; folder tiles at the top with a raised selection; the account group anchored above Add with its own scrolling clip; face + ring + domain monogram; margin-rule selection; accent badges with cut-out |
+| §5.3–5.6 list header | `Shell/ListPaneViewController.swift` (search field, filter, title) | one 52 pt line: masthead (the title menu only in minimal mode), search with resting edge filling the free width, compose; no filter tabs |
 | §5.7 row | `List/ConversationCellView.swift`, `List/ConversationRowView.swift`, `List/ConversationRowContent.swift`, `List/RowContentCache.swift`, `List/AvatarCache.swift` | row 68 (from 72), ring drawn in `draw(_:)` instead of the 10 pt dot, ring-less face cache, `ss.queued` instead of the 0.6 alpha fade, unread time, failed state, selection from window key state, hover paused while scrolling, cache key gains appearance + contrast |
 | §5.10 list tail | `List/MessageListViewController.swift` (20 pt “Loading…” footer) | 28 pt footer row with delayed spinner, “Loading older mail…”, retry |
 | §5.8 running heads | `List/MessageListViewController.swift`, `List/MessageListTableView.swift` | non-sticky group rows; `j`/`k` skip them |

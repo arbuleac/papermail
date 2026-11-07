@@ -16,8 +16,9 @@ extension DesignGalleryCards {
             block.row("Message count", [QuireBadge(.messageCount(2)), QuireBadge(.messageCount(14)), selected], gap: 8, ann: "on selection")
             block.row("", [QuireBadge(.messageCount(1_204))], gap: 8, ann: "exact, in the locale's grouping")
             block.row("Dot · attention", [QuireBadge(.dot), QuireBadge(.attention)], gap: 8)
-            let tagOnSelection = S.surface(.qSelWash, size: NSSize(width: 52, height: 22), radius: 4, centring: QuireTag("Other"))
-            block.row("Tags", [QuireTag("Other"), QuireTag("Gmail"), QuireTag("Microsoft 365"), tagOnSelection], gap: 8)
+            // On the selected Settings account row; rows themselves carry no tag (§5.7).
+            let tagOnSelection = S.surface(.qSelWash, size: NSSize(width: 52, height: 22), radius: 4, centring: QuireTag("Gmail"))
+            block.row("Tags", [QuireTag("Gmail"), QuireTag("Microsoft 365"), tagOnSelection], gap: 8)
             // The rail tile's badge cuts a 2 pt ring of `spine` where it overlaps the tile.
             let tile = DesignGalleryFlippedView(frame: NSRect(x: 0, y: 0, width: 38, height: 38))
             tile.fill = .qRaised
@@ -102,8 +103,7 @@ extension DesignGalleryCards {
             block.full(empty(QuireEmptyStateView(sentence: "Nothing left to read.", hint: "New mail will land here.", glyph: .sparrow), height: 92))
             block.full(empty(QuireEmptyStateView(sentence: "No results for “lisbon flat”",
                                                  hint: "Search looks at subjects, people and message text."), height: 50))
-            block.full(empty(QuireEmptyStateView(sentence: "Nothing in Focused",
-                                                 hint: "Mail from people lands here; newsletters and notifications go to Other."), height: 64))
+            block.full(empty(QuireEmptyStateView(sentence: "No starred conversations", hint: "Press S to star one."), height: 50))
             let none = QuireEmptyStateView(sentence: "No conversation selected",
                                            hint: [.keys(["J", "K"]), .text("to move ·"), .keys(["↩"]), .text("to open")])
             none.setFrameSize(NSSize(width: width, height: 74))

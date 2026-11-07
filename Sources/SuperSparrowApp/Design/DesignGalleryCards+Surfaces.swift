@@ -132,7 +132,7 @@ extension DesignGalleryCards {
         DesignGalleryCard("Cheat sheet overlay", code: "layout.cheatSheet · cheatSheetContent · scrim",
                           caption: "An in-window overlay, not a system sheet: scrim over the window (scrimSolid, opaque, under Reduce "
                               + "Transparency), the panel centred with its top at 92 pt, focus trapped in it, single keys swallowed. "
-                              + "Esc, ?, ⌘/, ⌘W, the close button or a click on the scrim dismisses it. 816 × 604 pt, drawn from "
+                              + "Esc, ?, ⌘/, ⌘W, the close button or a click on the scrim dismisses it. 816 × 576 pt, drawn from "
                               + "cheatSheetContent; shown here in a 720 pt window, the height it fits whole.",
                           span: 12, surface: .studio) { block in
             block.labelWidth = 0
@@ -181,7 +181,7 @@ extension DesignGalleryCards {
             block.full(banner(.neutral, "Loading 3 images…") { $0.isLoading = true })
             block.full(banner(.neutral, "2 images couldn't load.", symbol: Quire.Icon.warning) { $0.glyphColor = .qWarning })
             block.full(banner(.warning, "This message uses its own colours.", symbol: Quire.Icon.originalColors) { _ = $0.setDismissible(true) })
-            block.full(banner(.info, "Focused mirrors Gmail Primary."))
+            block.full(banner(.info, "Demo mode: these mailboxes are made up and live only on this Mac."))
             block.full(banner(.success, "OAuth clients saved."))
             block.full(banner(.danger, "Couldn't load this message.", action: "Retry"))
             block.full(banner(.danger, "Couldn't send: Microsoft 365 rejected the attachment size. The draft is kept on this Mac, "

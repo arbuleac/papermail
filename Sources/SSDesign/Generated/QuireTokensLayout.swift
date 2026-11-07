@@ -42,10 +42,15 @@ extension Quire {
             public static let tileHit: CGFloat = 44
             public static let tileRadius: CGFloat = 11
             public static let tileCenterX: CGFloat = 38
-            public static let unifiedTop: CGFloat = 62
-            public static let dividerY: CGFloat = 116
+            public static let folderTop: CGFloat = 62
+            public static let folderPitch: CGFloat = 44
+            public static let folderGlyph: CGFloat = 16
+            public static let folderDividerY: CGFloat = 285
+            public static let allMailTop: CGFloat = 294
             public static let dividerWidth: CGFloat = 20
-            public static let accountTop: CGFloat = 130
+            public static let groupGap: CGFloat = 20
+            public static let dividerGap: CGFloat = 16
+            public static let accountGap: CGFloat = 14
             public static let accountPitch: CGFloat = 50
             public static let face: CGFloat = 30
             public static let faceAlpha: CGFloat = 0.14
@@ -60,7 +65,7 @@ extension Quire {
             public static let badgeTrailing: CGFloat = -8
             public static let unifiedGlyph: CGFloat = 18
             public static let stackBottomGap: CGFloat = 12
-            public static let stackTopInset: CGFloat = 6
+            public static let stackInset: CGFloat = 6
             public static let pendingSpinner: CGFloat = 16
             public static let addMenuOffsetY: CGFloat = 4
         }
@@ -72,9 +77,7 @@ extension Quire {
         }
         public enum ListHeader {
             public static let mastheadHitPad: CGFloat = 6
-            public static let height: CGFloat = 92
-            public static let row1: CGFloat = 52
-            public static let row2: CGFloat = 40
+            public static let height: CGFloat = 52
             public static let mastheadX: CGFloat = 16
             public static let mastheadMinimalX: CGFloat = 84
             public static let mastheadMinimalX26: CGFloat = 92
@@ -86,18 +89,16 @@ extension Quire {
             public static let composeGlyph: CGFloat = 18
             public static let composeTrailing: CGFloat = 12
             public static let composeTop: CGFloat = 12
-            public static let tabsX: CGFloat = 16
-            public static let tabLabelY: CGFloat = 12
-            public static let tabGap: CGFloat = 18
-            public static let tabHitPad: CGFloat = 6
-            public static let searchWidth: CGFloat = 168
             public static let searchHeight: CGFloat = 26
-            public static let searchTrailing: CGFloat = 12
-            public static let searchTop: CGFloat = 59
+            public static let searchTop: CGFloat = 13
+            public static let searchMinWidth: CGFloat = 140
+            public static let searchGap: CGFloat = 12
+            public static let searchComposeGap: CGFloat = 8
             public static let minimalDotSize: CGFloat = 8
             public static let minimalDotGap: CGFloat = 8
             public static let demoTagGap: CGFloat = 8
             public static let addressGap: CGFloat = 6
+            public static let addressMinWidth: CGFloat = 40
         }
         public enum ReaderHeader {
             public static let height: CGFloat = 92
@@ -144,7 +145,6 @@ extension Quire {
             public static let accountTileRadius: CGFloat = 3
             public static let accountTileBorder: CGFloat = 1.5
             public static let tileGap: CGFloat = 6
-            public static let tagGap: CGFloat = 6
             public static let separatorX: CGFloat = 68
         }
         public enum RowCompact {
@@ -328,6 +328,7 @@ extension Quire {
             public static let toolRow: CGFloat = 28
             public static let toolRowBottom: CGFloat = 4
             public static let modeGap: CGFloat = 16
+            public static let modeHitPad: CGFloat = 6
             public static let toolGroupGap: CGFloat = 12
             public static let toolIconGap: CGFloat = 2
             public static let toolIcon: CGFloat = 22
@@ -464,7 +465,6 @@ extension Quire {
             public static let settingsHeight: CGFloat = 24
         }
         public enum Search {
-            public static let expandedInset: CGFloat = 12
             public static let radius: CGFloat = 6
             public static let glyph: CGFloat = 12
             public static let glyphX: CGFloat = 8

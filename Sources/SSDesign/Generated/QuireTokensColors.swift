@@ -16,7 +16,7 @@ extension NSColor {
     public static let qCanvas = NSColor.quire("canvas", QuireColorValues(light: 0xF4F2ECFF, dark: 0x171614FF, lightHC: 0xF1EFE9FF, darkHC: 0x0D0C0BFF))
     /// `color.sheet`: Message sheets and stack, fields, composer body, Settings groups (surface).
     public static let qSheet = NSColor.quire("sheet", QuireColorValues(light: 0xFFFEFBFF, dark: 0x24221FFF, lightHC: 0xFFFFFFFF, darkHC: 0x1C1B19FF))
-    /// `color.raised`: Selected unified tile, secondary button face, keycaps, popovers, cheat sheet (surface).
+    /// `color.raised`: Selected rail tile (folder or All Inboxes), secondary button face, keycaps, popovers, cheat sheet (surface).
     public static let qRaised = NSColor.quire("raised", QuireColorValues(light: 0xFFFFFFFF, dark: 0x2C2A26FF, lightHC: 0xFFFFFFFF, darkHC: 0x252320FF))
     /// `color.slip`: Toast, undo-send panel, g-sequence HUD (a dark slip in both appearances) (surface).
     public static let qSlip = NSColor.quire("slip", QuireColorValues(light: 0x24221FFF, dark: 0x36332EFF, lightHC: 0x12100EFF, darkHC: 0x2E2B27FF))
@@ -30,7 +30,7 @@ extension NSColor {
     public static let qOriginalPage = NSColor.quire("originalPage", QuireColorValues(light: 0xFFFFFFFF, dark: 0xFFFFFFFF, lightHC: 0xFFFFFFFF, darkHC: 0xFFFFFFFF))
     /// `color.scrimSolid`: The cheat-sheet scrim under Reduce Transparency: opaque, the value `scrim` gives over `canvas`, so the window behind is hidden instead of dimmed (surface).
     public static let qScrimSolid = NSColor.quire("scrimSolid", QuireColorValues(light: 0xB8B6B1FF, dark: 0x0B0B0AFF, lightHC: 0x9C9A95FF, darkHC: 0x050504FF))
-    /// `color.ink`: Primary text, headlines, selected tab underline (ink).
+    /// `color.ink`: Primary text, headlines, active quick-reply mode underline (ink).
     public static let qInk = NSColor.quire("ink", QuireColorValues(light: 0x1D1B18FF, dark: 0xEDE9E2FF, lightHC: 0x0F0E0CFF, darkHC: 0xFFFFFFFF))
     /// `color.ink2`: Secondary text and resting glyphs: snippets, recipients, labels, icons (ink).
     public static let qInk2 = NSColor.quire("ink2", QuireColorValues(light: 0x55504AFF, dark: 0xB8B2A8FF, lightHC: 0x3A3631FF, darkHC: 0xDCD7CEFF))

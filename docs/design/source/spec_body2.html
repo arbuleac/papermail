@@ -5,28 +5,27 @@
       <div class="lights idle"><i></i><i></i><i></i></div>
       <div class="list" style="left:0;width:100%">
         <div class="lh"><div class="mast" style="left:84px">Inbox {{PY: s('chevron.down', 9)}}</div>
-          <div class="tabs"><span class="tab on idle">All</span><span class="tab">Focused</span><span class="tab">Other</span></div></div>
+          <div class="search" style="--sl:161px">{{PY: s('magnifyingglass', 12)}}<span class="ph">Search</span><span class="kbd">/</span></div>
+          <div class="ib compose">{{PY: g('ss.nib', 18)}}</div></div>
         {{PY: row('Priya Raman', 'Lisbon in March?', 'Booked the flat near Príncipe Real. Sam wants to come for the weekend too.', '22:10', 'heather', 'PR', acct='G', state='idle', star=True, count=3)}}
-        {{PY: row('Forge', '[sparrow-sync] PR #2657: Coalesce history pages', 'maya-c commented: Looks good, one nit about the retry budget.', '21:48', 'stone', 'F', acct='F', unread=True, tag='Other')}}
+        {{PY: row('Forge', '[sparrow-sync] PR #2657: Coalesce history pages', 'maya-c commented: Looks good, one nit about the retry budget.', '21:48', 'stone', 'F', acct='F', unread=True)}}
         {{PY: row('Linda Morgan', 'Sunday dinner', 'Ha, noted. I will bring the plum cake from the bakery.', '19:02', 'rose', 'LM', acct='G', failed=True)}}
       </div>
     </div>
-    <p class="ann" style="margin-top:10px">Window not key: grey lights, <code>selWashIdle</code> with the always-drawn {{border.marginRule.width}} pt <code>selRuleIdle</code> rule, tab underline in <code>ink3</code>. The third row shows a permanently failed operation.</p>
+    <p class="ann" style="margin-top:10px">Window not key: grey lights, <code>selWashIdle</code> with the always-drawn {{border.marginRule.width}} pt <code>selRuleIdle</code> rule. The third row shows a permanently failed operation.</p>
   </div>
   <div class="c4">
-    <div class="win" style="height:330px">
+    <div class="win" style="height:330px;width:calc({{layout.list.defaultWidth}}px - 1px);max-width:100%">
       <div class="lights"><i></i><i></i><i></i></div>
       <div class="list" style="left:0;width:100%">
-        <div class="lh"><div class="mast" style="left:{{layout.listHeader.mastheadMinimalX}}px;right:52px">Inbox {{PY: s('chevron.down', 9)}}<span class="dotb" style="margin-left:calc({{layout.listHeader.minimalDotGap}}px - 6px);flex:none" title="New mail in another account"></span><span class="sfx" style="margin-left:0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">· alex@contoso.test</span></div>
-          <div class="ib compose">{{PY: g('ss.nib', 18)}}</div>
-          <div class="tabs"><span class="tab on">All</span><span class="tab">Focused</span><span class="tab">Other</span></div>
-          <div class="search">{{PY: s('magnifyingglass', 12)}}<span class="ph">Search Inbox</span><span class="kbd">/</span></div></div>
+        <div class="lh"><div class="mast" style="left:{{layout.listHeader.mastheadMinimalX}}px;right:calc({{layout.listHeader.composeTrailing}}px + {{layout.listHeader.composeSize}}px + {{layout.listHeader.searchComposeGap}}px)">Inbox {{PY: s('chevron.down', 9)}}<span class="dotb" style="margin-left:calc({{layout.listHeader.minimalDotGap}}px - 6px);flex:none" title="New mail in another account"></span><div class="search s2" style="flex:1;width:auto;min-width:0;margin-left:calc({{layout.listHeader.searchGap}}px - 6px);letter-spacing:0">{{PY: s('magnifyingglass', 12)}}<span class="ph" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Contoso</span></div></div>
+          <div class="ib compose">{{PY: g('ss.nib', 18)}}</div></div>
         {{PY: row('Ben Carter, Alex Morgan, Tom Hughes', 'Contoso rollout: go-live checklist', 'Tested with three accounts this afternoon, all good.', '23:39', 'slate', 'BC', state='sel', clip=True, count=4)}}
         {{PY: row('Rachel Kim, Alex Morgan', 'Q4 roadmap review', 'Great work. One comment: move offline mode ahead of search.', '17:20', 'sea', 'RK', unread=True, clip=True, count=2)}}
         {{PY: row('Calendar', 'Accepted: Design review @ Thu 15:30', 'Room: Juniper (4th floor) · Video link in the event', '13:05', 'wheat', 'C')}}
       </div>
     </div>
-    <p class="ann" style="margin-top:10px">Minimal mode (⌃⌘S), narrowed to one account: the masthead starts at x = {{layout.listHeader.mastheadMinimalX}} past the traffic lights, rings are dropped, an {{layout.listHeader.minimalDotSize}} pt dot {{layout.listHeader.minimalDotGap}} pt after the chevron says another account has new mail, and the address truncates first. Header row 2 is unchanged: the Inbox tabs stay and search rests at {{layout.listHeader.searchWidth}} pt.</p>
+    <p class="ann" style="margin-top:10px">Minimal mode (⌃⌘S), narrowed to one account, at the default list width: the masthead starts at x = {{layout.listHeader.mastheadMinimalX}} past the traffic lights and is the title menu again (chevron), so the folders and accounts stay a click away, rings are dropped, and an {{layout.listHeader.minimalDotSize}} pt dot {{layout.listHeader.minimalDotGap}} pt after the chevron says another account has new mail. The address gives way first so search can keep its {{layout.listHeader.searchMinWidth}} pt; with no room for it here, the placeholder names the account instead. The masthead and the dot alone leave the field a few points under its minimum, too narrow for the whole “Search Contoso”, so it shows the name alone and no keycap (§5.3, §5.6).</p>
   </div>
   <div class="c4">
     <div class="win" style="height:330px;background:var(--q-canvas)">

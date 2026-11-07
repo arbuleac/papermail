@@ -1,8 +1,8 @@
 import AppKit
 import SSDesign
 
-/// One tile on the account rail (spec §5.2): All Inboxes, an account, or the pending tile of a sign-in that is
-/// waiting for the browser.
+/// One tile on the rail (spec §5.2): a folder (one of the six views), All Inboxes, an account, or the pending
+/// tile of a sign-in that is waiting for the browser.
 ///
 /// The view spans the rail's full width so it can draw the selection's margin rule at x = 0 and the badge's
 /// overhang; clicks count only in the 44 pt hit square around the 38 pt tile. Everything is drawn in
@@ -10,6 +10,9 @@ import SSDesign
 @MainActor
 final class AccountStripButton: QuireControl {
     enum Content: Equatable {
+        /// A view (Inbox, Starred…): drawn as All Inboxes is, with the view's symbol, but its selection is the
+        /// raised tile alone, so it never reads as the account selection's margin rule.
+        case folder(symbol: String)
         case unified
         case account(monogram: String, slot: Int)
         /// A sign-in waiting for the browser (§5.44): a dashed placeholder, not selectable.
@@ -123,7 +126,8 @@ final class AccountStripButton: QuireControl {
         needsDisplay = true
     }
 
-    /// Only the selected tile is a Tab stop: Tab enters the rail once and ↑/↓ move within it (§5.2).
+    /// Only the selected tile of each group is a Tab stop: Tab enters the folders once and the accounts once, and
+    /// ↑/↓ move within the group (§5.2).
     override var canBecomeKeyView: Bool {
         isSelected && content != .pending && super.canBecomeKeyView
     }
@@ -154,7 +158,7 @@ final class AccountStripButton: QuireControl {
         let wash = Quire.Radius.xl
 
         switch content {
-        case .unified:
+        case .unified, .folder:
             if state == .pressed {
                 QuireDraw.fill(washRect, radius: wash, .qPressed)
             } else if state == .hover {
@@ -162,7 +166,11 @@ final class AccountStripButton: QuireControl {
             }
             if isSelected { drawRaisedTile(tile) }
             let glyph: NSColor = isSelected || state != .rest ? .qInk : .qInk2
-            QuireSymbol.draw(Quire.Icon.unifiedInbox, size: .custom(Quire.Layout.Rail.unifiedGlyph), color: glyph, centredIn: tile)
+            if case .folder(let symbol) = content {
+                QuireSymbol.draw(symbol, size: .custom(Quire.Layout.Rail.folderGlyph), color: glyph, centredIn: tile)
+            } else {
+                QuireSymbol.draw(Quire.Icon.unifiedInbox, size: .custom(Quire.Layout.Rail.unifiedGlyph), color: glyph, centredIn: tile)
+            }
         case .account(let monogram, let slot):
             // The wash sits under the ring (`spine + hover` is an asserted ring surface); a press darkens only
             // the face, so every account ink keeps 3:1 against what is beside it.
@@ -179,7 +187,7 @@ final class AccountStripButton: QuireControl {
             ring.stroke()
         }
 
-        if isSelected, content != .pending {
+        if isSelected, drawsMarginRule {
             let height = Quire.Layout.Rail.marginRuleHeight
             let rtl = userInterfaceLayoutDirection == .rightToLeft
             let width = Quire.Border.MarginRule.width
@@ -190,7 +198,7 @@ final class AccountStripButton: QuireControl {
         // The ring goes under the badge, whose cut-out keeps the count legible over it.
         if showsFocusRing {
             let gap = Quire.Border.FocusRing.gapAroundSheets
-            if content == .unified {
+            if isSquircle {
                 QuireFocusRing.draw(around: tile, cornerRadius: Quire.Layout.Rail.tileRadius, gap: gap)
             } else {
                 QuireFocusRing.draw(around: tile, cornerRadius: tile.width / 2, gap: gap)
@@ -209,7 +217,23 @@ final class AccountStripButton: QuireControl {
         }
     }
 
-    /// The selected All Inboxes tile: `raised` with a 1 pt `rule` edge outside it and the `e1` shadow.
+    /// The scope's selection is the margin rule (All Inboxes and the accounts); a folder's is the raised tile alone.
+    private var drawsMarginRule: Bool {
+        switch content {
+        case .unified, .account: return true
+        case .folder, .pending: return false
+        }
+    }
+
+    /// Folders and All Inboxes are near-squircles; accounts and the pending tile are round.
+    private var isSquircle: Bool {
+        switch content {
+        case .unified, .folder: return true
+        case .account, .pending: return false
+        }
+    }
+
+    /// The selected folder or All Inboxes tile: `raised` with a 1 pt `rule` edge outside it and the `e1` shadow.
     private func drawRaisedTile(_ tile: NSRect) {
         let radius = Quire.Layout.Rail.tileRadius
         let mode = QuireMode(NSAppearance.currentDrawing())

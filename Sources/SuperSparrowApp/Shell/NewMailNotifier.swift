@@ -31,8 +31,6 @@ final class NewMailNotifier: NSObject, UNUserNotificationCenterDelegate {
             for id in oldValue.subtracting(accountsInFirstSync) { firstSyncEndedAt[id] = now }
         }
     }
-    /// Set while the Inbox filter is Focused: Other mail then does not notify.
-    var hidesOtherMail = false
     /// The app is frontmost: notifications come without sound.
     var isFrontmost: () -> Bool = { NSApp.isActive }
     /// The conversation open in a key window, which never notifies: its new message is already on screen.
@@ -100,7 +98,6 @@ final class NewMailNotifier: NSObject, UNUserNotificationCenterDelegate {
             let newSince = max(launchDate, firstSyncEndedAt[row.id.accountID] ?? launchDate)
             guard seeded, row.unreadCount > 0, row.latestDate > newSince.addingTimeInterval(-60) else { continue }
             guard !accountsInFirstSync.contains(row.id.accountID) else { continue }
-            if hidesOtherMail, row.inboxSection == .other { continue }
             if row.id == open { continue }
             fresh.append(row)
         }

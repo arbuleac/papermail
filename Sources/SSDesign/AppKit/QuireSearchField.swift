@@ -1,14 +1,14 @@
 import AppKit
 
-/// The list's search field (spec §5.6): 168 × 26 at rest, radius 6, `sheet` with a resting 1 pt `ruleStrong`
-/// edge, `magnifyingglass` 12 pt `ink3` at x = 8, text from x = 26, and on the trailing side, 5 pt in: the “/”
+/// The list's search field (spec §5.6): 26 pt high and at least 140 pt wide, radius 6, `sheet` with a resting
+/// 1 pt `ruleStrong` edge, `magnifyingglass` 12 pt `ink3` at x = 8, text from x = 26, and on the trailing side, 5 pt in: the “/”
 /// keycap (16 pt) while empty and not focused, or, while results show, the clear button with “38 results” in
 /// `meta` `ink3` 6 pt before it (the query truncates before the count does).
 ///
 /// States: hover `sheet + hover`; focused keeps the edge and adds the ring outside a 1 pt gap; searching swaps
 /// the magnifier for a 12 pt spinner, only once the spinner's 150 ms delay has passed; disabled (no accounts)
 /// is `fill` with no edge and `inkDisabled`. Esc clears the query, and in an empty field calls `onCancel` so the
-/// owner returns focus to the list. The width animation on focus belongs to the list header.
+/// owner returns focus to the list. The list header gives it the free width on its line; focus never resizes it.
 @MainActor
 public final class QuireSearchField: QuireControl, NSTextFieldDelegate {
     public let textField: NSTextField
@@ -20,7 +20,8 @@ public final class QuireSearchField: QuireControl, NSTextFieldDelegate {
 
     /// “Search”, “Search Starred”, “Search Inbox” (§5.6).
     public var placeholder = "Search" {
-        didSet { applyText() }
+        // Whether the keycap fits depends on the placeholder's width, and the text field's width on the keycap.
+        didSet { applyText(); needsLayout = true }
     }
 
     /// The result count while results show; nil hides the count and the clear button.
@@ -63,7 +64,7 @@ public final class QuireSearchField: QuireControl, NSTextFieldDelegate {
     public var onCancel: (@MainActor () -> Void)?
     /// The query was cleared by Esc or the clear button.
     public var onClear: (@MainActor () -> Void)?
-    /// Editing started (true) or ended (false): the list header expands and collapses the field on it (§5.6).
+    /// Editing started (true) or ended (false).
     public var onFocusChange: (@MainActor (Bool) -> Void)?
     /// Any other editing command (↓ to hand the keyboard to the list, for one); return true when handled.
     public var onCommand: (@MainActor (Selector) -> Bool)?
@@ -99,7 +100,7 @@ public final class QuireSearchField: QuireControl, NSTextFieldDelegate {
     public required init?(coder: NSCoder) { fatalError("QuireSearchField is built in code") }
 
     public override var intrinsicContentSize: NSSize {
-        NSSize(width: Quire.Layout.ListHeader.searchWidth, height: Quire.Layout.ListHeader.searchHeight)
+        NSSize(width: Quire.Layout.ListHeader.searchMinWidth, height: Quire.Layout.ListHeader.searchHeight)
     }
 
     // MARK: State
@@ -110,8 +111,31 @@ public final class QuireSearchField: QuireControl, NSTextFieldDelegate {
         didSet { textField.isEnabled = isEnabled; applyText(); contentDidChange() }
     }
 
-    /// The “/” keycap shows while the field is empty and not focused.
-    public var showsKeycap: Bool { isEnabled && query.isEmpty && !hasKeyboardFocus && displayState != .focused }
+    /// The “/” keycap shows while the field is empty and not focused, and only while the placeholder fits beside
+    /// it: on a header line the masthead cluster has squeezed, the word comes before the hint (§5.6).
+    public var showsKeycap: Bool {
+        allowsKeycap && isEnabled && query.isEmpty && !hasKeyboardFocus && displayState != .focused && faceRect.width >= keycapFitWidth
+    }
+
+    /// False keeps the keycap off even where it would fit: a placeholder that has already given up its “Search” for
+    /// width (the list header's bare account name, §5.3) does not get the hint back in its place.
+    public var allowsKeycap = true {
+        didSet { if oldValue != allowsKeycap { contentDidChange() } }
+    }
+
+    /// Whether `text` would show whole as the placeholder at the field's current width, without the keycap.
+    public func fitsPlaceholder(_ text: String) -> Bool {
+        let s = Quire.Layout.Search.self
+        let width = ceil(NSAttributedString(string: text, attributes: [.font: QuireFont.font(.body)]).size().width)
+        return s.textX + width + s.resultsGap + s.trailingInset <= faceRect.width
+    }
+
+    /// The face width that holds the magnifier, the whole placeholder and the keycap.
+    private var keycapFitWidth: CGFloat {
+        let s = Quire.Layout.Search.self
+        let placeholderWidth = ceil(textField.placeholderAttributedString?.size().width ?? 0)
+        return s.textX + placeholderWidth + s.resultsGap + QuireKeycap.size(for: "/", style: .inField).width + s.trailingInset
+    }
     /// The clear button and the count show while results show.
     public var showsResults: Bool { isEnabled && resultCount != nil && !query.isEmpty }
 
@@ -124,9 +148,13 @@ public final class QuireSearchField: QuireControl, NSTextFieldDelegate {
         let font = QuireFont.font(.body)
         textField.font = font
         textField.textColor = isEnabled ? .qInk : .qInkDisabled
+        // A field the header line has narrowed ends its placeholder with an ellipsis rather than a cut letter.
+        let truncating = NSMutableParagraphStyle()
+        truncating.lineBreakMode = .byTruncatingTail
         textField.placeholderAttributedString = NSAttributedString(string: placeholder, attributes: [
             .font: font,
             .foregroundColor: isEnabled ? NSColor.qInk3 : NSColor.qInkDisabled,
+            .paragraphStyle: truncating,
         ])
         textField.setAccessibilityLabel(placeholder)
         textField.cell?.setAccessibilityLabel(placeholder)
@@ -156,6 +184,13 @@ public final class QuireSearchField: QuireControl, NSTextFieldDelegate {
             x -= s.clearVisual + s.resultsGap + QuireDraw.width(results)
         }
         return x
+    }
+
+    /// The keycap depends on the width.
+    public override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        needsLayout = true
+        needsDisplay = true
     }
 
     public override func layout() {

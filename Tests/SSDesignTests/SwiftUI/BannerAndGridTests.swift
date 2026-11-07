@@ -38,7 +38,7 @@ final class BannerAndGridTests: XCTestCase {
         let recorder = FrameRecorder()
         let long = "To add a Gmail account, SuperSparrow needs your own Google OAuth client ID. Enter it below and click Save, then try again."
         let view = VStack(spacing: 8) {
-            QuireBanner(.info, "Focused mirrors Gmail Primary.", link: ("Retry", {}), onDismiss: {}).recordFrame("one", in: recorder)
+            QuireBanner(.info, "Demo mode: nothing syncs.", link: ("Leave demo…", {}), onDismiss: {}).recordFrame("one", in: recorder)
             QuireBanner(.info, long, link: ("How to create one…", {})).recordFrame("two", in: recorder)
             QuireBanner(.danger, long, wraps: false).recordFrame("truncated", in: recorder)
         }

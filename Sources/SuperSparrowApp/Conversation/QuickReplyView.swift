@@ -98,7 +98,7 @@ final class QuickReplyView: NSView {
     private let placeholder = NSTextField(labelWithString: "")
     private let restSend = QuireIconButton(symbolName: Quire.Icon.send, size: .large, accessibilityLabel: "Send")
     private let restKeycap = QuireKeycap("R")
-    private let tabs = QuireUnderlineTabs(items: QuickReplyView.tabItems(replyAll: true), style: .replyMode)
+    private let tabs = QuireUnderlineTabs(items: QuickReplyView.tabItems(replyAll: true))
     private let attach = QuireIconButton(symbolName: Quire.Icon.attach, size: .small, accessibilityLabel: "Attach")
     private let openInComposer = QuireIconButton(symbolName: Quire.Icon.openInComposer, size: .small, accessibilityLabel: "Open in Composer")
     private let send = QuireButton(title: "Send", variant: .primary, size: .small)

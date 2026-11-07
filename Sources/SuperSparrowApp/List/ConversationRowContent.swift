@@ -29,7 +29,6 @@ final class ConversationRowContent {
     let isUnread: Bool
     let isStarred: Bool
     let hasAttachments: Bool
-    let showsOtherTag: Bool
     let status: ConversationRowText.Status
     /// The failed row's tooltip: “Couldn't archive”.
     let failureText: String?
@@ -52,7 +51,6 @@ final class ConversationRowContent {
         isUnread = unread
         isStarred = text.isStarred
         hasAttachments = text.hasAttachments
-        showsOtherTag = text.showsOtherTag
         status = text.status
         if case .failed(let kind) = text.status {
             failureText = ConversationRowText.failureText(for: kind)

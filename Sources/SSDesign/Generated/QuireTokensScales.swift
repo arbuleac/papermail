@@ -86,7 +86,7 @@ extension Quire {
         /// List, rows, rail, stack, fields, chips (hairline only)
         public static let e0 = QuireElevationLevel(light: [],
                                                    dark: [])
-        /// Open message sheet, selected unified tile
+        /// Open message sheet, selected rail tile (folder or All Inboxes)
         public static let e1 = QuireElevationLevel(light: [QuireShadowLayer(x: 0, y: 1, blur: 2, spread: 0, rgba: 0x1D1B180F)],
                                                    dark: [QuireShadowLayer(x: 0, y: 1, blur: 2, spread: 0, rgba: 0x00000059)])
         /// Toast, g-sequence HUD, autocomplete, link popover, dragged chip, dragged rail tile

@@ -172,9 +172,9 @@ final class MessageListBehaviourTests: XCTestCase {
         XCTAssertEqual(inbox.emptyView.sentence, "Nothing left to read.")
         XCTAssertEqual(inbox.emptyView.glyph, .sparrow)
 
-        inbox.query = ConversationQuery(view: .inbox, section: .other)
+        inbox.query = ConversationQuery(view: .starred)
         Support.spin(for: 0.05)
-        XCTAssertEqual(inbox.emptyView.sentence, "Nothing in Other")
+        XCTAssertEqual(inbox.emptyView.sentence, "No starred conversations")
         XCTAssertNil(inbox.emptyView.glyph)
 
         inbox.query = ConversationQuery(view: .all, searchText: "lisbon flat")

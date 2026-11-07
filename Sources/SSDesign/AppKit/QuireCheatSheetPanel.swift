@@ -7,7 +7,7 @@ import AppKit
 /// `ink3` title, then 28 pt rows of large keycaps (24 pt, 4 pt apart) in a 96 pt key column and the label in
 /// `snippet` `ink`, tail-truncated. Sequences read “G then I” with “then” in `meta` `ink3`, 6 pt either side.
 ///
-/// The content is `Quire.cheatSheet`, generated from `cheatSheetContent`. At its natural height (604 pt) the
+/// The content is `Quire.cheatSheet`, generated from `cheatSheetContent`. At its natural height (576 pt) the
 /// panel shows everything; given less, the bands scroll under the fixed title row. `QuireCheatSheetOverlay`
 /// places it over the window with the scrim and runs its motion and keys.
 @MainActor
@@ -79,7 +79,7 @@ public final class QuireCheatSheetPanel: NSView {
         return all.map(bandHeight).reduce(0, +) + CGFloat(max(0, all.count - 1)) * Quire.Layout.CheatSheet.sectionGap
     }
 
-    /// The panel's whole height: 24 + 28 + 16 + bands + 24 (604 pt for the generated content).
+    /// The panel's whole height: 24 + 28 + 16 + bands + 24 (576 pt for the generated content).
     public static func naturalHeight(for sections: [QuireCheatSheetSection] = Quire.cheatSheet) -> CGFloat {
         let c = Quire.Layout.CheatSheet.self
         return 2 * c.pad + c.titleRow + c.headerGap + bandsHeight(for: sections)
