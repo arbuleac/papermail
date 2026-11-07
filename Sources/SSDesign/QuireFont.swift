@@ -3,21 +3,42 @@ import CoreText
 
 /// Quire's typography runtime (spec §4.4, §8.2): fonts, exact line heights and the New York coverage test.
 /// Every font comes from a `Role`; nothing asks for a bare size or weight.
+///
+/// The Font setting (`QuireEnvironment.typeface`) is applied here, once, for every caller: under SF Pro a New
+/// York role is replaced by its sans twin before anything is looked up. The caches are keyed by the role
+/// actually set, never by the role asked for, so after a switch no cache can hand back the other face.
 public enum QuireFont {
     private struct FontKey: Hashable {
         let role: Role
         let unread: Bool
     }
 
+    private struct MonogramKey: Hashable {
+        let role: Role
+        let size: CGFloat
+    }
+
     private static let fonts = LockedCache<FontKey, NSFont>()
     private static let styles = LockedCache<Role, NSParagraphStyle>()
     private static let offsets = LockedCache<FontKey, CGFloat>()
-    private static let monograms = LockedCache<CGFloat, NSFont>()
+    private static let monograms = LockedCache<MonogramKey, NSFont>()
 
     // MARK: Fonts
 
-    /// The role's font, cached. `unread` switches to the role's `unreadWeight` where it has one.
+    /// The role's font under the Font setting, cached. `unread` switches to the role's `unreadWeight` where it
+    /// has one.
     public static func font(_ role: Role, unread: Bool = false) -> NSFont {
+        font(setIn: resolvedRole(role), unread: unread)
+    }
+
+    /// The font for `text` in `role`: the role's sans twin under the SF Pro font, or when New York cannot set
+    /// every letter of it (spec §4.4, script fallback). Twins keep the line height, so metrics never change.
+    public static func font(_ role: Role, for text: String, unread: Bool = false) -> NSFont {
+        font(setIn: resolvedRole(role, for: text), unread: unread)
+    }
+
+    /// Exactly `role`'s font: the typeface has already been applied.
+    private static func font(setIn role: Role, unread: Bool) -> NSFont {
         let unread = unread && role.spec.unreadWeight != nil
         return fonts.value(for: FontKey(role: role, unread: unread)) {
             let spec = role.spec
@@ -25,31 +46,61 @@ public enum QuireFont {
         }
     }
 
-    /// The font for `text` in `role`: the role's sans twin when New York cannot set every letter of it
-    /// (spec §4.4, script fallback). Twins keep the line height, so metrics never change.
-    public static func font(_ role: Role, for text: String, unread: Bool = false) -> NSFont {
-        font(resolvedRole(role, for: text), unread: unread)
+    /// The role `role` is set in under the current Font setting: its sans twin under SF Pro when it is a New
+    /// York role, otherwise `role` itself.
+    public static func resolvedRole(_ role: Role) -> Role {
+        resolvedRole(role, typeface: QuireEnvironment.typeface)
     }
 
-    /// `role`, or its twin when `text` has letters New York does not cover.
-    public static func resolvedRole(_ role: Role, for text: String) -> Role {
-        guard role.spec.family == .serif, let twin = role.spec.twin, !newYorkCovers(text) else { return role }
+    /// `resolvedRole(_:)` for a given typeface, for views that track the setting themselves (SwiftUI).
+    public static func resolvedRole(_ role: Role, typeface: Typeface) -> Role {
+        guard typeface == .sfPro, role.spec.family == .serif, let twin = role.spec.twin else { return role }
         return twin
     }
 
-    /// Initials for an avatar or rail face of `diameter` points: New York Semibold at 0.42 × the diameter,
-    /// rounded to the half point, never below the role's minimum (spec §4.3, §5.29).
-    public static func monogramFont(diameter: CGFloat) -> NSFont {
-        let size = monogramSize(diameter: diameter)
-        return monograms.value(for: size) {
-            make(Role.monogram.spec, size: size, weight: Role.monogram.spec.weight)
-        }
+    /// `role`, or its twin under the SF Pro font or when `text` has letters New York does not cover.
+    public static func resolvedRole(_ role: Role, for text: String) -> Role {
+        guard role.spec.family == .serif, let twin = role.spec.twin else { return role }
+        if QuireEnvironment.typeface == .sfPro || !newYorkCovers(text) { return twin }
+        return role
     }
 
-    public static func monogramSize(diameter: CGFloat) -> CGFloat {
-        let spec = Role.monogram.spec
+    /// Initials for an avatar or rail face of `diameter` points: New York Semibold at 0.42 × the diameter, or
+    /// under the SF Pro font `monogramSans` at its own ratio, rounded to the half point, never below the
+    /// role's minimum (spec §4.3, §5.29).
+    public static func monogramFont(diameter: CGFloat, typeface: Typeface = QuireEnvironment.typeface) -> NSFont {
+        let role = resolvedRole(.monogram, typeface: typeface)
+        return monogramFont(role, size: monogramSize(diameter: diameter, role: role))
+    }
+
+    public static func monogramSize(diameter: CGFloat, typeface: Typeface = QuireEnvironment.typeface) -> CGFloat {
+        monogramSize(diameter: diameter, role: resolvedRole(.monogram, typeface: typeface))
+    }
+
+    private static func monogramSize(diameter: CGFloat, role: Role) -> CGFloat {
+        let spec = role.spec
         let ratio = spec.sizeRatio ?? 0.42
         return max(spec.minSize ?? 0, (diameter * ratio * 2).rounded() / 2)
+    }
+
+    /// A monogram size the layout names for New York (the rail's 14 / 12 pt, the quick reply's 11 / 10 pt) in
+    /// the current face: under SF Pro scaled by the twin's ratio to the serif's, to the half point and never
+    /// below the twin's minimum, so the letters keep their optical size (spec §5.29).
+    public static func monogramSize(named size: CGFloat, typeface: Typeface = QuireEnvironment.typeface) -> CGFloat {
+        let role = resolvedRole(.monogram, typeface: typeface)
+        guard role != .monogram, let serif = Role.monogram.spec.sizeRatio, let ratio = role.spec.sizeRatio, serif > 0 else { return size }
+        return max(role.spec.minSize ?? 0, (size * ratio / serif * 2).rounded() / 2)
+    }
+
+    /// The monogram face at `size` points, for account faces whose sizes come from the layout.
+    public static func monogramFont(size: CGFloat, typeface: Typeface = QuireEnvironment.typeface) -> NSFont {
+        monogramFont(resolvedRole(.monogram, typeface: typeface), size: size)
+    }
+
+    private static func monogramFont(_ role: Role, size: CGFloat) -> NSFont {
+        monograms.value(for: MonogramKey(role: role, size: size)) {
+            make(role.spec, size: size, weight: role.spec.weight)
+        }
     }
 
     /// The §8.2 recipe: SF Pro at the weight, then the serif or rounded design, italic and tabular digits.
@@ -114,9 +165,10 @@ public enum QuireFont {
     /// font line height being what NSLayoutManager would give it (spec §4.4). The reader's CSS line-height
     /// centres the same way, so AppKit and the reader agree to the point.
     public static func baselineOffset(_ role: Role, unread: Bool = false) -> CGFloat {
+        let role = resolvedRole(role)
         let unread = unread && role.spec.unreadWeight != nil
         return offsets.value(for: FontKey(role: role, unread: unread)) {
-            baselineOffset(for: font(role, unread: unread), lineHeight: role.lineHeight)
+            baselineOffset(for: font(setIn: role, unread: unread), lineHeight: role.lineHeight)
         }
     }
 
@@ -124,11 +176,13 @@ public enum QuireFont {
         (lineHeight - NSLayoutManager().defaultLineHeight(for: font)) / 2
     }
 
-    /// String attributes for `role` in `color`. Tracking is applied as `.kern` only when the role has one,
-    /// because an explicit 0 kern turns off the font's own kerning.
+    /// String attributes for `role` in `color`, under the Font setting (the twin's tracking with its font).
+    /// Tracking is applied as `.kern` only when the role has one, because an explicit 0 kern turns off the
+    /// font's own kerning.
     public static func attributes(_ role: Role, color: NSColor, unread: Bool = false) -> [NSAttributedString.Key: Any] {
+        let role = resolvedRole(role)
         var a: [NSAttributedString.Key: Any] = [
-            .font: font(role, unread: unread),
+            .font: font(setIn: role, unread: unread),
             .foregroundColor: color,
             .paragraphStyle: paragraphStyle(role),
             .baselineOffset: baselineOffset(role, unread: unread),
@@ -137,8 +191,8 @@ public enum QuireFont {
         return a
     }
 
-    /// `text` set in `role`: the twin when New York cannot set it, uppercased for uppercase roles, with the
-    /// role's attributes. This is the one call row and header builders need.
+    /// `text` set in `role`: the twin under the SF Pro font or when New York cannot set it, uppercased for
+    /// uppercase roles, with the role's attributes. This is the one call row and header builders need.
     public static func attributedString(_ text: String, role: Role, color: NSColor, unread: Bool = false,
                                         locale: Locale = .current) -> NSAttributedString {
         let used = resolvedRole(role, for: text)

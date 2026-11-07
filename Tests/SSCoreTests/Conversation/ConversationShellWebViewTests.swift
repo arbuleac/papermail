@@ -376,6 +376,32 @@ final class ConversationShellWebViewTests: XCTestCase {
         XCTAssertEqual(sans, "ss-set ss-sans")
     }
 
+    /// The Font setting reaches the shell's own New York too (spec §4.4): `readingSans` puts `html.ss-sf` on the
+    /// root, which sets the avatar initials in SF Pro at the twin's size, live through `ss.preferences` and from
+    /// any payload built afterwards.
+    func testTheSFProFontSetsTheAvatarInitialsInTheTwin() async throws {
+        let (webView, _) = try await loadedShell()
+        typealias F = ConversationFixtures
+        _ = try await evaluate("window.ss.render(\(try twoMessagePayload().jsonString())); window.ss.expandAll()", in: webView)
+        try await waitForFramedCards(in: webView)
+        let probe = "(function () { var a = document.querySelector('.ss-av36'); var s = getComputedStyle(a);"
+            + " return [document.documentElement.classList.contains('ss-sf'), s.fontFamily, s.fontSize]; })()"
+        let serif = try await evaluate(probe, in: webView) as? [Any]
+        XCTAssertEqual(serif?.first as? Bool, false)
+        XCTAssertTrue((serif?[1] as? String ?? "").contains("serif"), "\(String(describing: serif))")
+        XCTAssertEqual(serif?[2] as? String, "15px", "0.42 × 36")
+        _ = try await evaluate("window.ss.preferences({readingSans: true, colorsNoticeDismissed: false})", in: webView)
+        let sans = try await evaluate(probe, in: webView) as? [Any]
+        XCTAssertEqual(sans?.first as? Bool, true)
+        XCTAssertFalse((sans?[1] as? String ?? "").contains("ui-serif"), "\(String(describing: sans))")
+        XCTAssertEqual(sans?[2] as? String, "14px", "monogramSans: 0.39 × 36")
+        // A payload carries the choice: rendering one built under New York takes the class off again.
+        let payload = F.builder.build(messages: [F.message("m1")], bodies: [:], accounts: F.accounts, readingSans: false)
+        _ = try await evaluate("window.ss.render(\(try payload.jsonString()))", in: webView)
+        let again = try await evaluate("document.documentElement.classList.contains('ss-sf')", in: webView) as? Bool
+        XCTAssertEqual(again, false)
+    }
+
     /// A Gmail reply ends its new text with a <br> before the quote; folded, that break must not leave an empty
     /// line between the body and the elision mark, and unfolded the reply reads as sent (spec §5.14, §5.15).
     func testAFoldedQuoteLeavesNoEmptyLine() async throws {

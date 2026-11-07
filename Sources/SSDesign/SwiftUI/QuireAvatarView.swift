@@ -8,6 +8,8 @@ import SwiftUI
 ///   New York Semibold at 0.42 × the diameter (never under 10 pt) in the tint's ink. Sizes 24 / 30 / 36.
 /// - Account faces: the account ink at `rail.faceAlpha` over `sheet`, the monogram in `ink` at 14 / 12 pt on a
 ///   30 pt face and 11 / 10 pt on a 24 pt face (one / two letters), always with the account ring.
+/// - Under the SF Pro font every monogram is `monogramSans` (spec §4.4, §5.29). The view tracks the setting
+///   itself and redraws when it changes, so a Settings window left open follows a switch at once.
 /// - The account ring: 2 pt in the account ink outside a 2 pt gap. The gap is left undrawn, so the surface the
 ///   face sits on (a row's fill, a selection wash) shows through it, as spec §5.7 asks of row avatars.
 ///
@@ -25,6 +27,8 @@ public struct QuireAvatarView: View {
     let monogram: String
     let diameter: CGFloat
     let ringSlot: Int?
+    /// Read in `body`, so SwiftUI redraws the letters when the Font setting changes.
+    @State private var typeface = QuireEnvironment.typeface
 
     /// A sender's avatar, tinted by `address`.
     /// - Parameter ringInk: the account ink slot to ring it with (unified views only); nil for no ring.
@@ -68,13 +72,13 @@ public struct QuireAvatarView: View {
             case .sender(let tint):
                 Circle().fill(Color(nsColor: tint.face))
                 Text(monogram)
-                    .font(Font(QuireAvatarView.monogramFont(face: face, monogram: monogram, diameter: diameter) as CTFont))
+                    .font(Font(QuireAvatarView.monogramFont(face: face, monogram: monogram, diameter: diameter, typeface: typeface) as CTFont))
                     .foregroundStyle(Color(nsColor: tint.ink))
             case .account(let slot):
                 Circle().fill(Color.qSheet)
                 Circle().fill(Color.qAccount(slot).opacity(Quire.Layout.Rail.faceAlpha))
                 Text(monogram)
-                    .font(Font(QuireAvatarView.monogramFont(face: face, monogram: monogram, diameter: diameter) as CTFont))
+                    .font(Font(QuireAvatarView.monogramFont(face: face, monogram: monogram, diameter: diameter, typeface: typeface) as CTFont))
                     .foregroundStyle(Color.qInk)
             case .pending:
                 Circle().fill(Color.qFill)
@@ -86,6 +90,10 @@ public struct QuireAvatarView: View {
         .overlay { ring }
         .accessibilityHidden(face == .pending)
         .accessibilityLabel(Text(monogram))
+        .onReceive(NotificationCenter.default.publisher(for: QuireEnvironment.didChangeNotification)) { _ in
+            let now = QuireEnvironment.typeface
+            if now != typeface { typeface = now }
+        }
     }
 
     @ViewBuilder
@@ -111,24 +119,27 @@ public struct QuireAvatarView: View {
     /// The dash of the pending ring: the specimen's CSS `dashed` 1 px border, whose dashes are 3 × the width.
     static let pendingDash: CGFloat = 3 * Quire.Border.Strong.width
 
-    /// The monogram's font. Sender initials follow the 0.42 × d rule of `QuireFont.monogramFont(diameter:)`;
-    /// account monograms use the named sizes of the face they sit on.
-    static func monogramFont(face: Face, monogram: String, diameter: CGFloat) -> NSFont {
-        let ratioFont = QuireFont.monogramFont(diameter: diameter)
-        guard case .account = face else { return ratioFont }
-        let size = accountMonogramSize(diameter: diameter, letters: monogram.count)
-        return NSFont(descriptor: ratioFont.fontDescriptor, size: size) ?? ratioFont
+    /// The monogram's font in `typeface`. Sender initials follow the ratio rule of
+    /// `QuireFont.monogramFont(diameter:)`; account monograms use the named sizes of the face they sit on.
+    static func monogramFont(face: Face, monogram: String, diameter: CGFloat,
+                             typeface: QuireFont.Typeface = QuireEnvironment.typeface) -> NSFont {
+        guard case .account = face else { return QuireFont.monogramFont(diameter: diameter, typeface: typeface) }
+        let size = accountMonogramSize(diameter: diameter, letters: monogram.count, typeface: typeface)
+        return QuireFont.monogramFont(size: size, typeface: typeface)
     }
 
     /// 14 / 12 pt on a 30 pt face (`rail.monogram`, `rail.monogramTwoLetter`), 11 / 10 pt on a 24 pt face
-    /// (`quickReply.faceMonogram*`); any other diameter scales the 30 pt pair.
-    static func accountMonogramSize(diameter: CGFloat, letters: Int) -> CGFloat {
+    /// (`quickReply.faceMonogram*`); any other diameter scales the 30 pt pair. Under the SF Pro font each is
+    /// scaled to the twin (`QuireFont.monogramSize(named:)`).
+    static func accountMonogramSize(diameter: CGFloat, letters: Int, typeface: QuireFont.Typeface = QuireEnvironment.typeface) -> CGFloat {
         let twoLetters = letters > 1
+        let named: CGFloat
         if diameter == Quire.Layout.QuickReply.face {
-            return twoLetters ? Quire.Layout.QuickReply.faceMonogramTwoLetter : Quire.Layout.QuickReply.faceMonogram
+            named = twoLetters ? Quire.Layout.QuickReply.faceMonogramTwoLetter : Quire.Layout.QuickReply.faceMonogram
+        } else {
+            let base = twoLetters ? Quire.Layout.Rail.monogramTwoLetter : Quire.Layout.Rail.monogram
+            named = diameter == Quire.Layout.Rail.face ? base : ((base * diameter / Quire.Layout.Rail.face) * 2).rounded() / 2
         }
-        let base = twoLetters ? Quire.Layout.Rail.monogramTwoLetter : Quire.Layout.Rail.monogram
-        guard diameter != Quire.Layout.Rail.face else { return base }
-        return ((base * diameter / Quire.Layout.Rail.face) * 2).rounded() / 2
+        return QuireFont.monogramSize(named: named, typeface: typeface)
     }
 }

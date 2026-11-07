@@ -105,7 +105,6 @@ final class MessageListViewController: NSViewController {
         rowContentCache = RowContentCache(store: store)
         density = settings.listDensity
         showsAccountInitials = settings.showAccountInitials
-        readingFont = settings.readingFont
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -146,7 +145,6 @@ final class MessageListViewController: NSViewController {
     private var itemIDs: [ListLayout.ItemID] = []
     private var density: AppSettings.ListDensity
     private var showsAccountInitials: Bool
-    private var readingFont: AppSettings.ReadingFont
     private var environmentKey = ""
     private var marks: [AccountID: ConversationCellView.AccountMark] = [:]
     private var accountNames: [AccountID: String] = [:]
@@ -788,8 +786,9 @@ final class MessageListViewController: NSViewController {
         headRow.density = density
     }
 
+    /// Appearance, contrast, Graphite and the Font setting: everything a row's strings and face depend on.
     private func makeEnvironmentKey() -> String {
-        QuireEnvironment.cacheKey(for: view.effectiveAppearance) + "|" + readingFont.rawValue
+        QuireEnvironment.cacheKey(for: view.effectiveAppearance)
     }
 
     // MARK: Empty state, skeleton and footer
@@ -921,15 +920,12 @@ final class MessageListViewController: NSViewController {
         apply(conversations)
     }
 
-    /// Density and account initials switch the row layout live; the reading font is part of the cache key.
+    /// Density and account initials switch the row layout live; the Font setting is part of the environment key
+    /// (`environmentDidChange()`).
     @objc private func displayPreferencesChanged(_ notification: Notification) {
         let densityChanged = settings.listDensity != density
         density = settings.listDensity
         showsAccountInitials = settings.showAccountInitials
-        if settings.readingFont != readingFont {
-            readingFont = settings.readingFont
-            environmentKey = makeEnvironmentKey()
-        }
         guard isViewLoaded else { return }
         if densityChanged {
             // Row heights change, so every row is re-measured; the selection and the scroll position follow.
@@ -948,8 +944,9 @@ final class MessageListViewController: NSViewController {
         environmentDidChange()
     }
 
-    /// Appearance, Increase Contrast or Graphite changed: rows rebuild under the new environment key and every
-    /// visible row view redraws its fill.
+    /// Appearance, Increase Contrast, Graphite or the Font setting changed: rows rebuild under the new environment
+    /// key and every visible row view redraws. Twins keep the line height, so a Font switch re-measures nothing:
+    /// the visible rows are reconfigured in place, never reloaded.
     private func environmentDidChange() {
         guard isViewLoaded else { return }
         let key = makeEnvironmentKey()

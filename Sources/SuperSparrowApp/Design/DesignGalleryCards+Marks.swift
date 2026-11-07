@@ -34,16 +34,20 @@ extension DesignGalleryCards {
 
     static func avatars() -> DesignGalleryCard {
         DesignGalleryCard("Avatars", code: "layout.avatar",
-                          caption: "New York monograms on eight soft tints, by address hash. Faces never take account colour; the "
+                          caption: "Monograms in the app font on eight soft tints, by address hash. Faces never take account colour; the "
                               + "account shows as a ring.",
                           span: 4) { block in
             block.labelWidth = 0
+            // The ratio and the floor of the face the page is drawn in: the page rebuilds on a Font switch.
+            let monogram = QuireFont.resolvedRole(.monogram).spec
+            let ratio = String(format: "%.2f", Double(monogram.sizeRatio ?? 0.42))
+            let floor = Int(monogram.minSize ?? 10)
             // The specimen picks these three tints by hand; rows pick by address hash (the tint row below).
             block.row(nil, [
                 DesignGalleryAvatar(.tinted(initials: "AM", tint: .sea), diameter: 24),
                 DesignGalleryAvatar(.tinted(initials: "PR", tint: .heather), diameter: 30),
                 DesignGalleryAvatar(.tinted(initials: "BC", tint: .slate), diameter: 36),
-            ], gap: 6, caption: "24 / 30 / 36; initials 0.42 × d, never below 10 pt; initials only, no photos")
+            ], gap: 6, caption: "24 / 30 / 36; initials \(ratio) × d, never below \(floor) pt; initials only, no photos")
             let railTile = S.surface(.qSpine, size: NSSize(width: 38, height: 38), radius: 8,
                                      centring: DesignGalleryAvatar(.account(monogram: "C", slot: 0), diameter: 30, ring: 0))
             block.row(nil, [
@@ -91,9 +95,11 @@ extension DesignGalleryCards {
     // MARK: Empty states (§5.9)
 
     static func emptyStates() -> DesignGalleryCard {
-        DesignGalleryCard("Empty states", code: "layout.emptyState",
-                          caption: "One serif sentence and one hint. Only inbox zero shows the sparrow.",
-                          span: 4) { block in
+        // The sentence is `aside`, or `asideSans` under the SF Pro font; the page rebuilds on a Font switch.
+        let face = QuireEnvironment.typeface == .sfPro ? "sans" : "serif"
+        return DesignGalleryCard("Empty states", code: "layout.emptyState",
+                                 caption: "One \(face) sentence and one hint. Only inbox zero shows the sparrow.",
+                                 span: 4) { block in
             block.labelWidth = 0
             let width = block.width
             @MainActor func empty(_ view: QuireEmptyStateView, height: CGFloat) -> QuireEmptyStateView {

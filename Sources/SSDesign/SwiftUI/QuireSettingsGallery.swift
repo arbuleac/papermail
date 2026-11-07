@@ -229,7 +229,7 @@ struct QuireGalleryPopups: View {
             }
             QuireGalleryCaption("Colour: the swatch keeps its 2 pt raised halo when pressed")
             HStack(spacing: Quire.Space.s4) {
-                QuirePopup("Reading font", selection: .constant("New York"), options: ["New York", "SF Pro"]) { $0 }
+                QuirePopup("Font", selection: .constant("New York"), options: ["New York", "SF Pro"]) { $0 }
                 QuirePopup("Colour", selection: .constant(3), options: Array(0..<10), width: Quire.Layout.Settings.colourPopupWidth,
                            title: { Quire.accountInkNames[$0] }, swatch: { $0 })
             }
@@ -354,8 +354,8 @@ struct QuireGalleryAccountsEmpty: View {
 struct QuireGalleryGeneral: View {
     var body: some View {
         QuireSettingsGrid {
-            QuireSettingsRow("Reading font") {
-                QuirePopup("Reading font", selection: .constant("New York"), options: ["New York", "SF Pro"]) { $0 }
+            QuireSettingsRow("Font") {
+                QuirePopup("Font", selection: .constant("New York"), options: ["New York", "SF Pro"]) { $0 }
             }
             QuireSettingsRow("List density") {
                 QuireRadioGroup("List density", selection: .constant("Standard"), options: ["Standard", "Compact"]) { $0 }

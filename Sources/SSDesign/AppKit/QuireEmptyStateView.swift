@@ -1,11 +1,11 @@
 import AppKit
 
 /// An empty state (spec §5.9): one serif sentence and one hint, centred, at most 300 pt wide. The sentence is
-/// `aside` (New York Italic 17/24, or its sans twin when New York cannot set it) in `ink`; the hint is
-/// `snippet` in `ink3`, 4 pt below, and may carry keycaps inline (“J K to move · ↩ to open”). A hint with
-/// keycaps is a row of commands, so it may use the whole pane rather than the sentence's 300 pt, and it wraps
-/// only between commands: a keycap never ends a line apart from the words it goes with. Inbox zero adds the
-/// sparrow, offline the `wifi.slash` glyph, 8 pt above the sentence.
+/// `aside` (New York Italic 17/24, or its sans twin under the SF Pro font or when New York cannot set it) in
+/// `ink`; the hint is `snippet` in `ink3`, 4 pt below, and may carry keycaps inline (“J K to move · ↩ to
+/// open”). A hint with keycaps is a row of commands, so it may use the whole pane rather than the sentence's
+/// 300 pt, and it wraps only between commands: a keycap never ends a line apart from the words it goes with.
+/// Inbox zero adds the sparrow, offline the `wifi.slash` glyph, 8 pt above the sentence.
 ///
 /// The block centres itself in the view's bounds, so the view can simply fill the pane.
 @MainActor
@@ -203,8 +203,10 @@ public final class QuireEmptyStateView: NSView {
         needsDisplay = true
     }
 
+    /// Colours re-resolve on the redraw; a Font switch also changes the sentence's width, so the size is asked
+    /// again (the line height, and so the height, stays).
     @objc private func environmentDidChange(_ note: Notification) {
-        needsDisplay = true
+        contentDidChange()
     }
 
     // MARK: Accessibility

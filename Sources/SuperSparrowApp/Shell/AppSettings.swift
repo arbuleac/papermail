@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import SSDesign
 
 /// User preferences, backed by `UserDefaults`. Observable so the SwiftUI settings window and the AppKit shell
 /// read the same values.
@@ -9,15 +10,10 @@ final class AppSettings: ObservableObject {
 
     static let undoSendChoices: [TimeInterval] = [5, 10, 20]
 
-    /// Posted after any of the Quire display preferences below change (reading font, density, account
-    /// initials), so AppKit views that cache laid-out text can rebuild without observing each property.
+    /// Posted after the row display preferences below change (density, account initials), so AppKit views that
+    /// cache laid-out rows can rebuild without observing each property. The Font setting is not posted here: it
+    /// lives in `QuireEnvironment`, whose change notification every Quire surface already follows.
     static let displayPreferencesChanged = Notification.Name("AppSettings.displayPreferencesChanged")
-
-    /// Spec §5.40 General: the face plain and unstyled bodies are set in.
-    enum ReadingFont: String, CaseIterable {
-        case newYork
-        case sfPro
-    }
 
     /// Spec §5.7: standard rows are 68 pt, compact rows 48 pt.
     enum ListDensity: String, CaseIterable {
@@ -31,7 +27,8 @@ final class AppSettings: ObservableObject {
         static let remoteImages = "loadRemoteImages"
         static let undoSend = "undoSendDelay"
         static let askedForNotifications = "askedForNotificationPermission"
-        static let readingFont = "readingFont"
+        /// The Font setting's key from when it was Reading font; kept, with its raw values, so the choice carries over.
+        static let typeface = "readingFont"
         static let listDensity = "listDensity"
         static let showAccountInitials = "showAccountInitials"
         static let originalColorsNoticeDismissed = "originalColorsNoticeDismissed"
@@ -70,10 +67,12 @@ final class AppSettings: ObservableObject {
         }
     }
 
-    @Published var readingFont: ReadingFont {
+    /// Spec §4.4, §5.40 General › Font: the face every New York role is set in, app-wide. A change is saved and
+    /// pushed into `QuireEnvironment` at once, so everything on screen switches face live.
+    @Published var typeface: QuireFont.Typeface {
         didSet {
-            defaults.set(readingFont.rawValue, forKey: Key.readingFont)
-            postDisplayChange()
+            defaults.set(typeface.rawValue, forKey: Key.typeface)
+            applyTypeface()
         }
     }
 
@@ -148,7 +147,7 @@ final class AppSettings: ObservableObject {
             Key.previews: true,
             Key.remoteImages: false,
             Key.undoSend: 5.0,
-            Key.readingFont: ReadingFont.newYork.rawValue,
+            Key.typeface: QuireFont.Typeface.newYork.rawValue,
             Key.listDensity: ListDensity.standard.rawValue,
             Key.showAccountInitials: false,
             Key.originalColorsNoticeDismissed: false,
@@ -161,7 +160,9 @@ final class AppSettings: ObservableObject {
         loadRemoteImages = defaults.bool(forKey: Key.remoteImages)
         let stored = defaults.double(forKey: Key.undoSend)
         undoSendDelay = AppSettings.undoSendChoices.contains(stored) ? stored : 5
-        readingFont = ReadingFont(rawValue: defaults.string(forKey: Key.readingFont) ?? "") ?? .newYork
+        // Not pushed into QuireEnvironment here: the app does that at launch (a `--font` override may win), and
+        // the throwaway settings tests build must not change what every other window draws.
+        typeface = QuireFont.Typeface(rawValue: defaults.string(forKey: Key.typeface) ?? "") ?? .newYork
         listDensity = ListDensity(rawValue: defaults.string(forKey: Key.listDensity) ?? "") ?? .standard
         showAccountInitials = defaults.bool(forKey: Key.showAccountInitials)
         originalColorsNoticeDismissed = defaults.bool(forKey: Key.originalColorsNoticeDismissed)
@@ -170,6 +171,12 @@ final class AppSettings: ObservableObject {
         sevenAccountsNoticePending = defaults.bool(forKey: Key.sevenAccountsNoticePending)
         applyUndoSendDelay()
         ConversationViewController.loadRemoteImages = loadRemoteImages
+    }
+
+    /// Makes the saved choice what Quire draws in. Called by `typeface`'s observer; the app delegate sets the
+    /// environment itself at launch.
+    func applyTypeface() {
+        QuireEnvironment.shared.setTypeface(typeface)
     }
 
     private func postDisplayChange() {

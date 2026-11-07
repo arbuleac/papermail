@@ -255,7 +255,7 @@ def table_type(twins=False, variants=False):
         if extra.get('twin'): notes.append('twin `%s`' % extra['twin'])
         if extra.get('twinOf'): notes.append('twin of `%s`' % extra['twinOf'])
         if extra.get('variantOf'): notes.append('variant of `%s`' % extra['variantOf'])
-        sz = '%g' % size if size else '0.42 × d (min %d)' % extra['minSize']
+        sz = '%g' % size if size else '%g × d (min %d)' % (extra['sizeRatio'], extra['minSize'])
         lhs = '%g' % lh if lh else '1.0 × size'
         rows.append(('`%s`' % role, FAMILY[fam], sz, weight, lhs, '%+.1f' % tr if tr else '0', ', '.join(notes), extra.get('use', '')))
     return md_table(['Role', 'Family', 'Size (pt)', 'Weight', 'Line height (pt)', 'Tracking (pt)', 'Notes', 'Used for'], rows)
@@ -447,8 +447,11 @@ def render(text):
                 use = {24: 'collapsed stack rows, autocomplete', 30: 'list rows (inside the %d pt ring box)' % T.LAYOUT['row']['avatarBox'],
                        36: 'message header'}
                 r = T.LAYOUT['avatar']['monogramRatio']
-                return md_table(['Diameter', 'Use', 'Initials (0.42 × d, min %d)' % typography['monogram']['minSize']],
-                                [(d, use[d], '%g pt' % max(typography['monogram']['minSize'], round(d * r * 2) / 2)) for d in T.LAYOUT['avatar']['sizes']])
+                sans = typography['monogramSans']
+                return md_table(['Diameter', 'Use', 'Initials, New York (0.42 × d, min %d)' % typography['monogram']['minSize'],
+                                 'Initials, SF Pro (`monogramSans`, %g × d, min %d)' % (sans['sizeRatio'], sans['minSize'])],
+                                [(d, use[d], '%g pt' % max(typography['monogram']['minSize'], round(d * r * 2) / 2),
+                                  '%g pt' % max(sans['minSize'], round(d * sans['sizeRatio'] * 2) / 2)) for d in T.LAYOUT['avatar']['sizes']])
             raise KeyError(key)
         if key == 'CONTRAST_SUMMARY': return contrast_summary()
         if key == 'GRAPHITE_SUMMARY': return graphite_summary()

@@ -93,9 +93,12 @@ final class ConversationRowContent {
             return NSAttributedString(string: string, attributes: attributes)
         }
 
+        /// Keyed by the role actually set (the twin under the SF Pro font), so a Font switch cannot return the
+        /// other face.
         private static var italics: [QuireFont.Role: NSFont] = [:]
 
         static func italic(_ role: QuireFont.Role) -> NSFont {
+            let role = QuireFont.resolvedRole(role)
             if let font = italics[role] { return font }
             let base = QuireFont.font(role)
             let descriptor = base.fontDescriptor.withSymbolicTraits(base.fontDescriptor.symbolicTraits.union(.italic))

@@ -1,11 +1,13 @@
 import AppKit
 import CoreText
 
-/// Monogram faces (spec §4.3, §5.29, §5.7): sender avatars, New York Semibold initials in a tint's ink on its
-/// face, and account faces, the domain monogram in `ink` on the account ink at 0.14 over `sheet`.
+/// Monogram faces (spec §4.3, §5.29, §5.7): sender avatars, New York Semibold initials (`monogramSans` under the
+/// SF Pro font) in a tint's ink on its face, and account faces, the domain monogram in `ink` on the account ink
+/// at 0.14 over `sheet`.
 ///
 /// Faces are cached, rings are drawn. A face bitmap holds the disc and the letters only, never the account
-/// ring, and is keyed on `QuireEnvironment.cacheKey` (mode, contrast, Graphite) + size + initials + tint, never
+/// ring, and is keyed on `QuireEnvironment.cacheKey` (mode, contrast, Graphite, typeface) + size + initials +
+/// tint, never
 /// on row or window state, so hover and selection never miss the cache. The ring is stroked over the row's own
 /// fill with `drawRing(around:color:)`, its gap left undrawn so the fill shows through. Faces render off the
 /// main thread on request; until one lands, `drawFace` draws the same face synchronously, so a row never shows
@@ -55,20 +57,22 @@ public final class QuireAvatarRenderer: @unchecked Sendable {
 
     // MARK: Sizes
 
-    /// Initials on an avatar: 0.42 × the diameter, never below 10 pt (10 / 12.5 / 15 at 24 / 30 / 36).
+    /// Initials on an avatar: 0.42 × the diameter, never below 10 pt (10 / 12.5 / 15 at 24 / 30 / 36); under the
+    /// SF Pro font 0.39 × (10 / 11.5 / 14).
     public static func initialsSize(diameter: CGFloat) -> CGFloat {
         QuireFont.monogramSize(diameter: diameter)
     }
 
     /// A domain monogram on an account face: 14 / 12 pt (one / two letters) on a 30 pt face, 11 / 10 pt on a
-    /// 24 pt face (§5.2, §5.18, §5.29); other diameters follow the avatar ratio.
+    /// 24 pt face (§5.2, §5.18, §5.29), scaled to the twin under the SF Pro font; other diameters follow the
+    /// avatar ratio.
     public static func monogramSize(for monogram: String, diameter: CGFloat) -> CGFloat {
         let twoLetters = monogram.count > 1
         switch diameter {
         case Quire.Layout.Rail.face:
-            return twoLetters ? Quire.Layout.Rail.monogramTwoLetter : Quire.Layout.Rail.monogram
+            return QuireFont.monogramSize(named: twoLetters ? Quire.Layout.Rail.monogramTwoLetter : Quire.Layout.Rail.monogram)
         case Quire.Layout.QuickReply.face:
-            return twoLetters ? Quire.Layout.QuickReply.faceMonogramTwoLetter : Quire.Layout.QuickReply.faceMonogram
+            return QuireFont.monogramSize(named: twoLetters ? Quire.Layout.QuickReply.faceMonogramTwoLetter : Quire.Layout.QuickReply.faceMonogram)
         default:
             return initialsSize(diameter: diameter)
         }
@@ -110,18 +114,9 @@ public final class QuireAvatarRenderer: @unchecked Sendable {
         let colors = mode.performAsCurrent {
             (NSColor.qSheet.cgColor, NSColor.qAccount(slot).withAlphaComponent(Quire.Layout.Rail.faceAlpha).cgColor, NSColor.qInk.cgColor)
         }
-        let font = accountFont(size: monogramSize(for: monogram, diameter: diameter))
+        // Cached by QuireFont per face and size: rows and tiles draw faces in place on every redraw.
+        let font = QuireFont.monogramFont(size: monogramSize(for: monogram, diameter: diameter))
         return Recipe(text: monogram, face: [colors.0, colors.1], ink: colors.2, font: font, diameter: diameter, scale: scale)
-    }
-
-    private static let accountFonts = LockedCache<CGFloat, NSFont>()
-
-    /// The domain monogram's font at `size`, built once: rows and tiles draw faces in place on every redraw.
-    private static func accountFont(size: CGFloat) -> NSFont {
-        accountFonts.value(for: size) {
-            let spec = QuireFont.Role.monogram.spec
-            return QuireFont.make(spec, size: size, weight: spec.weight)
-        }
     }
 
     /// A sender's face, ring-less, from the cache or rendered now.

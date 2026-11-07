@@ -2,15 +2,15 @@ import SSDesign
 import SwiftUI
 
 /// Settings › General (spec §5.40): a two-column grid, a hairline between the reading group and the mail
-/// group.
+/// group. Font applies live across the app (spec §4.4).
 struct GeneralSettingsView: View {
     @ObservedObject var settings: AppSettings
 
     var body: some View {
         QuireSettingsGrid {
-            QuireSettingsRow("Reading font") {
-                QuirePopup("Reading font", selection: $settings.readingFont, options: AppSettings.ReadingFont.allCases) { font in
-                    font == .newYork ? "New York" : "SF Pro"
+            QuireSettingsRow("Font") {
+                QuirePopup("Font", selection: $settings.typeface, options: QuireFont.Typeface.allCases) { typeface in
+                    typeface == .newYork ? "New York" : "SF Pro"
                 }
             }
             QuireSettingsRow("List density") {

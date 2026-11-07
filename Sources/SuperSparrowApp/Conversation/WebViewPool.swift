@@ -30,6 +30,9 @@ final class WebViewPool: NSObject, WKScriptMessageHandler {
     private let document: String
     /// The script that mirrors the display modes onto a shell, kept so a slot that becomes ready gets it too.
     private var modesScript = ""
+    /// The last preferences told to the shells (Font, colours notice). A slot still loading its shell misses the
+    /// broadcast and later replays a payload built before it, so `markReady` sends this after that replay.
+    private var preferencesScript = ""
     /// Full Keyboard Access is a keyboard setting, not a display option, so QuireEnvironment never reports it.
     private var fullKeyboardAccessObservation: NSKeyValueObservation?
 
@@ -91,7 +94,14 @@ final class WebViewPool: NSObject, WKScriptMessageHandler {
         updateTabFocusesLinks()
     }
 
-    /// Runs `script` in every shell that is ready; slots that become ready later get the modes on `markReady`.
+    /// Tells every ready shell the reader's preferences and keeps them for the shells that become ready later.
+    func broadcastPreferences(_ script: String) {
+        preferencesScript = script
+        broadcast(script)
+    }
+
+    /// Runs `script` in every shell that is ready; slots that become ready later get the modes and the
+    /// preferences on `markReady`.
     func broadcast(_ script: String) {
         for slot in slots where slot.isReady {
             slot.webView.evaluateJavaScript(script) { _, error in
@@ -279,7 +289,8 @@ final class WebViewPool: NSObject, WKScriptMessageHandler {
         onMessage?(slot, parsed)
     }
 
-    /// The shell announces readiness on both handlers; the second arrival must not replay a render.
+    /// The shell announces readiness on both handlers; the second arrival must not replay a render. Scripts run
+    /// in the order they are sent, so the preferences after the replay win over the queued payload's.
     private func markReady(_ slot: PooledConversationView) {
         guard !slot.isReady else { return }
         slot.isReady = true
@@ -287,6 +298,9 @@ final class WebViewPool: NSObject, WKScriptMessageHandler {
         if let pending = slot.pendingRender {
             slot.pendingRender = nil
             render(pending.payload, inputs: pending.inputs, id: pending.id, into: slot, completion: pending.completion)
+        }
+        if !preferencesScript.isEmpty {
+            slot.webView.evaluateJavaScript(preferencesScript) { _, _ in }
         }
         onReady?(slot)
     }

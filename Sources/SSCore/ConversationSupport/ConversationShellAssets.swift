@@ -162,6 +162,9 @@ public enum ConversationShellAssets {
     }
     .ss-av24 { width: 24px; height: 24px; font-size: 10px; line-height: 24px; }
     .ss-av36 { width: 36px; height: 36px; font-size: 15px; line-height: 36px; }
+    /* The SF Pro font (spec §4.4): the twin `monogramSans`, SF Pro Semibold at 0.39 × the diameter (24 pt stays at the 10 pt floor). */
+    html.ss-sf .ss-av { font-family: var(--q-sans); }
+    html.ss-sf .ss-av36 { font-size: 14px; }
     .ss-tint-0 { --ss-face: var(--q-av-clay-face); --ss-avink: var(--q-av-clay-ink); }
     .ss-tint-1 { --ss-face: var(--q-av-wheat-face); --ss-avink: var(--q-av-wheat-ink); }
     .ss-tint-2 { --ss-face: var(--q-av-fern-face); --ss-avink: var(--q-av-fern-ink); }
@@ -1772,11 +1775,18 @@ public enum ConversationShellAssets {
         renderFrame(card);
       }
 
+      // `readingSans` is the app's Font setting (spec §4.4): bodies take `readingSans` and the shell's own New
+      // York (the avatar initials) its sans twin through the root class.
+      function applyTypeface() {
+        document.documentElement.classList.toggle('ss-sf', prefs.readingSans);
+      }
+
       function setPreferences(p) {
         var sansChanged = !!p.readingSans !== prefs.readingSans;
         var noticeChanged = !!p.colorsNoticeDismissed !== prefs.noticeDismissed;
         prefs.readingSans = !!p.readingSans;
         prefs.noticeDismissed = !!p.colorsNoticeDismissed;
+        applyTypeface();
         for (var i = 0; i < state.cards.length; i++) {
           var card = state.cards[i];
           if (sansChanged) {
@@ -1848,6 +1858,7 @@ public enum ConversationShellAssets {
         loadRemote = !!payload.loadRemoteImages;
         prefs.readingSans = !!payload.readingSans;
         prefs.noticeDismissed = !!payload.colorsNoticeDismissed;
+        applyTypeface();
         root.dataset.inkSlot = String(payload.inkSlot || 0);
         document.title = payload.subject || '';
       }

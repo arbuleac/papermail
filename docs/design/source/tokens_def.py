@@ -2,7 +2,7 @@
 and the rendered DESIGN-LANGUAGE.md. Colour order: light, dark, lightHC, darkHC."""
 
 NAME = "Quire"
-VERSION = "1.4.0"
+VERSION = "1.5.0"
 
 # (token, light, dark, lightHC, darkHC, group, use)
 COLOR = [
@@ -112,15 +112,17 @@ TYPE = [
  ("kbd",            "sf",      11, 500, 14,  0.0, {"use": "Keycaps; SF Pro carries the modifier glyphs"}),
  ("mono",           "mono",    12, 400, 16,  0.0, {"use": "OAuth client IDs, raw source"}),
  ("buttonLarge",    "sf",      14, 500, 18,  0.0, {"use": "Large button labels (welcome actions)"}),
- ("monogram",       "serif",    0, 600,  0,  0.0, {"sizeRatio": 0.42, "minSize": 10, "use": "Avatar and rail initials (size = 0.42 x diameter, never below 10)"}),
- # sans twins: same line height as their serif role, smaller size, used when New York lacks the script
+ ("monogram",       "serif",    0, 600,  0,  0.0, {"twin": "monogramSans", "sizeRatio": 0.42, "minSize": 10, "use": "Avatar and rail initials (size = 0.42 x diameter, never below 10)"}),
+ # sans twins: same line height as their serif role, smaller size, used when New York lacks the script and
+# everywhere when Settings > General > Font is SF Pro
  ("displaySans",        "sf", 31, 600, 40, -0.4, {"twinOf": "display"}),
  ("headlineSans",       "sf", 22, 600, 30, -0.2, {"twinOf": "headline"}),
  ("mastheadSans",       "sf", 18, 600, 24,  0.0, {"twinOf": "masthead"}),
- ("readingSans",        "sf", 14, 400, 24,  0.0, {"twinOf": "reading", "use": "Also the SF Pro choice of Settings > General > Reading font"}),
+ ("readingSans",        "sf", 14, 400, 24,  0.0, {"twinOf": "reading"}),
  ("subjectSans",        "sf", 13, 400, 18,  0.0, {"twinOf": "subject", "unreadWeight": 600}),
  ("composeSubjectSans", "sf", 14, 400, 20,  0.0, {"twinOf": "composeSubject"}),
  ("asideSans",          "sf", 16, 400, 24,  0.0, {"twinOf": "aside", "style": "italic"}),
+ ("monogramSans",       "sf",  0, 600,  0,  0.0, {"twinOf": "monogram", "sizeRatio": 0.39, "minSize": 10, "use": "Avatar and rail initials under the SF Pro font (size = 0.39 x diameter, never below 10)"}),
  # weight variants: same size, line height and tracking as their base role, one other weight. Only these exist.
  ("metaMedium",        "sf", 11, 500, 14, 0.0, {"variantOf": "meta", "numeric": "tabular", "use": "Sync-line lead phrase"}),
  ("metaStrong",        "sf", 11, 600, 14, 0.0, {"variantOf": "meta", "numeric": "tabular", "use": "Unread time in rows; inline actions in meta lines (Retry, Reconnect, Cancel)"}),

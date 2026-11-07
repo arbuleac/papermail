@@ -1,12 +1,12 @@
 import AppKit
 import SSDesign
 
-/// The masthead (spec §5.3): the view's name in `masthead` (New York 20/24). While the rail shows it is a plain
-/// title: the folders are in the rail, so it takes no clicks (a click drags the window like the rest of the
-/// title-bar zone), no hover and no focus, and VoiceOver reads it as a heading. In minimal mode it is the title
-/// menu's button: `chevron.down` 9 pt Semibold in `ink2` 6 pt after the text, a visual rect of text and chevron
-/// with 6 pt of padding that takes the `hover` and `pressed` washes (radius `r.md`) and the focus ring. The text
-/// never truncates; the address after the cluster does.
+/// The masthead (spec §5.3): the view's name in `masthead` (New York 20/24, `mastheadSans` under the SF Pro
+/// font). While the rail shows it is a plain title: the folders are in the rail, so it takes no clicks (a click
+/// drags the window like the rest of the title-bar zone), no hover and no focus, and VoiceOver reads it as a
+/// heading. In minimal mode it is the title menu's button: `chevron.down` 9 pt Semibold in `ink2` 6 pt after the
+/// text, a visual rect of text and chevron with 6 pt of padding that takes the `hover` and `pressed` washes
+/// (radius `r.md`) and the focus ring. The text never truncates; the address after the cluster does.
 @MainActor
 final class MastheadButton: QuireControl {
     var title: String = "Inbox" {
@@ -29,7 +29,8 @@ final class MastheadButton: QuireControl {
 
     private static let chevron = QuireSymbolSize.custom(Quire.Layout.ListHeader.chevron, weight: .semibold)
 
-    private var titleString: NSAttributedString { QuireFont.attributedString(title, role: .masthead, color: .qInk) }
+    /// Internal so tests can read the face the title is set in.
+    var titleString: NSAttributedString { QuireFont.attributedString(title, role: .masthead, color: .qInk) }
 
     private var titleWidth: CGFloat { ceil(titleString.size().width) }
 
@@ -44,6 +45,13 @@ final class MastheadButton: QuireControl {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("built in code") }
+
+    /// A Font switch changes the title's width, never its line height; `ListHeaderView` lays the header out again
+    /// on the same notification and reads the new size.
+    override func appearanceDidChange() {
+        super.appearanceDidChange()
+        invalidateIntrinsicContentSize()
+    }
 
     /// A menu button is labelled “Mailbox” with the view as its value; a plain title is the view's name.
     private func titleDidChange() {

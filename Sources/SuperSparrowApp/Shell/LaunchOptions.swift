@@ -1,4 +1,5 @@
 import Foundation
+import SSDesign
 
 /// What the command line asked for. `--reset-demo` implies `--demo`: wiping the demo mailbox only makes
 /// sense on the way into it. `--snapshot-settings` implies it too, so Settings shows accounts without ever
@@ -15,6 +16,10 @@ struct LaunchOptions: Equatable {
     /// Debug aid: force the app's appearance ("light" or "dark") regardless of the system setting, so
     /// snapshots can verify both appearances from one machine.
     var appearance: String?
+    /// Debug aid: force the Font setting ("newyork" or "sf") for this process only, so snapshots can verify both
+    /// faces from one machine. Never written to the user's defaults; Settings › General › Font still shows the
+    /// saved choice, and picking one there applies it as usual.
+    var typeface: QuireFont.Typeface?
     /// Debug aid: open the design gallery (Debug › Design Gallery) at launch.
     var gallery = false
     /// Debug aid: render the whole design gallery page into this PNG, then quit.
@@ -54,6 +59,8 @@ struct LaunchOptions: Equatable {
                 snapshotPath = Self.value(of: value, after: "--snapshot=")
             case let value where value.hasPrefix("--appearance="):
                 appearance = Self.value(of: value, after: "--appearance=")
+            case let value where value.hasPrefix("--font="):
+                typeface = Self.typeface(named: Self.value(of: value, after: "--font="))
             case let value where value.hasPrefix("--snapshot-compose="):
                 composeSnapshotPath = Self.value(of: value, after: "--snapshot-compose=")
             case let value where value.hasPrefix("--snapshot-gallery="):
@@ -103,6 +110,15 @@ struct LaunchOptions: Equatable {
     var needsMailEnvironment: Bool {
         snapshotPath != nil || composeSnapshotPath != nil || settingsSnapshotPath != nil || settingsStatesSnapshotPath != nil
             || cheatSheetSnapshotPath != nil || hudSnapshotPath != nil || !hasQuittingSnapshots
+    }
+
+    /// `--font=newyork` or `--font=sf`; anything else leaves the saved choice in charge.
+    static func typeface(named name: String?) -> QuireFont.Typeface? {
+        switch name?.lowercased() {
+        case "newyork": return .newYork
+        case "sf": return .sfPro
+        default: return nil
+        }
     }
 
     /// An empty value (`--snapshot-gallery=`) asks for nothing.

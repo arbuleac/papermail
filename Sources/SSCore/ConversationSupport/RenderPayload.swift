@@ -202,7 +202,8 @@ public struct RenderPayload: Hashable, Codable, Sendable {
     public var loadRemoteImages: Bool
     /// The conversation's account palette slot (`Account.inkSlot`); a conversation never spans accounts.
     public var inkSlot: Int
-    /// Settings › General › Reading font is SF Pro: plain and unstyled bodies use `readingSans`.
+    /// Settings › General › Font is SF Pro (spec §4.4): plain and unstyled bodies use `readingSans`, and the
+    /// shell's avatar initials `monogramSans` (`html.ss-sf`).
     public var readingSans: Bool
     /// The Original colors notice was dismissed for good (`originalColorsNoticeDismissed`, spec §5.16).
     public var colorsNoticeDismissed: Bool

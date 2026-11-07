@@ -2,13 +2,15 @@
 import AppKit
 import SSDesign
 
-/// The gallery window's bar: an appearance popup and the four Quire environment overrides. System controls on
-/// purpose: the bar is a tool for looking at Quire, not part of it.
+/// The gallery window's bar: an appearance popup, a font popup and the four Quire environment overrides. System
+/// controls on purpose: the bar is a tool for looking at Quire, not part of it.
 @MainActor
 final class DesignGalleryControlsBar: NSView {
     var onChange: (() -> Void)?
 
     private let appearancePopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    /// "App Font" follows Settings › General › Font; the others force a face for the gallery's check.
+    private let fontPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let graphite = NSButton(checkboxWithTitle: "Graphite", target: nil, action: nil)
     private let contrast = NSButton(checkboxWithTitle: "Increase Contrast", target: nil, action: nil)
     private let motion = NSButton(checkboxWithTitle: "Reduce Motion", target: nil, action: nil)
@@ -17,11 +19,19 @@ final class DesignGalleryControlsBar: NSView {
     init() {
         super.init(frame: NSRect(x: 0, y: 0, width: 640, height: 32))
         appearancePopup.addItems(withTitles: ["System Appearance", "Light", "Dark"])
-        appearancePopup.controlSize = .small
-        appearancePopup.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         // Start from what the app is showing, so `--appearance` carries into the bar.
         if NSApp.appearance?.name == .aqua { appearancePopup.selectItem(at: 1) }
         if NSApp.appearance?.name == .darkAqua { appearancePopup.selectItem(at: 2) }
+        fontPopup.addItems(withTitles: ["App Font", "New York", "SF Pro"])
+        switch QuireEnvironment.shared.overrides.typeface {
+        case .newYork?: fontPopup.selectItem(at: 1)
+        case .sfPro?: fontPopup.selectItem(at: 2)
+        case nil: fontPopup.selectItem(at: 0)
+        }
+        for popup in [appearancePopup, fontPopup] {
+            popup.controlSize = .small
+            popup.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        }
         let current = QuireEnvironment.shared.snapshot
         let checks = [(graphite, current.isGraphite), (contrast, current.increaseContrast),
                       (motion, current.reduceMotion), (transparency, current.reduceTransparency)]
@@ -30,11 +40,11 @@ final class DesignGalleryControlsBar: NSView {
             box.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
             box.state = on ? .on : .off
         }
-        for control in [appearancePopup] + checks.map(\.0) as [NSControl] {
+        for control in [appearancePopup, fontPopup] + checks.map(\.0) as [NSControl] {
             control.target = self
             control.action = #selector(changed(_:))
         }
-        let stack = NSStackView(views: [appearancePopup] + checks.map(\.0))
+        let stack = NSStackView(views: [appearancePopup, fontPopup] + checks.map(\.0))
         stack.orientation = .horizontal
         stack.spacing = 16
         stack.edgeInsets = NSEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
@@ -59,8 +69,14 @@ final class DesignGalleryControlsBar: NSView {
     }
 
     var overrides: QuireEnvironment.Overrides {
-        QuireEnvironment.Overrides(isGraphite: graphite.state == .on, increaseContrast: contrast.state == .on,
-                                   reduceMotion: motion.state == .on, reduceTransparency: transparency.state == .on)
+        let typeface: QuireFont.Typeface? = switch fontPopup.indexOfSelectedItem {
+        case 1: .newYork
+        case 2: .sfPro
+        default: nil
+        }
+        return QuireEnvironment.Overrides(isGraphite: graphite.state == .on, increaseContrast: contrast.state == .on,
+                                          reduceMotion: motion.state == .on, reduceTransparency: transparency.state == .on,
+                                          typeface: typeface)
     }
 
     @objc private func changed(_ sender: Any?) {

@@ -61,10 +61,12 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     static var loadRemoteImages = false
     static let remoteImagesPolicyChanged = Notification.Name("SSRemoteImagesPolicyChanged")
 
-    private let pool: WebViewPool
+    /// Internal, not private, so the reader's tests can ask the pooled shells what they were told.
+    let pool: WebViewPool
     private let preview: AttachmentPreviewController
     private let builder = RenderPayloadBuilder()
-    private let header = ReaderHeaderView()
+    /// Internal so tests can read the headline as set.
+    let header = ReaderHeaderView()
     private let webContainer = NSView()
     private let quickReply = QuickReplyView()
     private let emptyState = QuireEmptyStateView(sentence: "No conversation selected")
@@ -144,6 +146,10 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         })
         notificationTokens.append(center.addObserver(forName: AppSettings.displayPreferencesChanged, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.displayPreferencesDidChange() }
+        })
+        // The Font setting lives in the Quire environment: every shell, the pre-rendered ones too, is told in place.
+        notificationTokens.append(center.addObserver(forName: QuireEnvironment.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.typefaceMayHaveChanged() }
         })
         statusObservation = client.observeStatus { [weak self] statuses in
             if Thread.isMainThread {
@@ -683,7 +689,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         let settings = AppSettings.shared
         let payload = builder.build(
             messages: all, bodies: bodies, accounts: accountsByID, bodyStates: states,
-            loadRemoteImages: Self.loadRemoteImages, readingSans: settings.readingFont == .sfPro,
+            loadRemoteImages: Self.loadRemoteImages, readingSans: QuireEnvironment.typeface == .sfPro,
             colorsNoticeDismissed: settings.originalColorsNoticeDismissed, pending: Set(sheets.map(\.metadata.id))
         )
         return (payload, RenderInputs(messages: all) { bodies[$0] != nil })
@@ -879,16 +885,30 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
 
     // MARK: Preferences, modes and resizing
 
-    /// Reading font and the colours notice change what bodies look like, never what they hold: every shell is
-    /// told in place, and the payloads built from now on carry the new values.
+    /// The Font setting and the colours notice change what bodies and avatars look like, never what they hold:
+    /// every shell is told in place, and the payloads built from now on carry the new values.
     private func displayPreferencesDidChange() {
         broadcastPreferences()
     }
 
+    /// The typeface last told to the shells. Graphite and contrast changes post the same notification; they
+    /// reach the shells through the pool's modes, so only a typeface change is broadcast here.
+    private var broadcastTypeface = QuireEnvironment.typeface
+
+    private func typefaceMayHaveChanged() {
+        guard QuireEnvironment.typeface != broadcastTypeface else { return }
+        broadcastPreferences()
+    }
+
+    /// `readingSans` is the Font setting (spec §4.4): the shell sets plain and unstyled bodies in `readingSans`
+    /// and toggles `html.ss-sf`, which puts the avatar initials in `monogramSans`.
     private func broadcastPreferences() {
         let settings = AppSettings.shared
-        let sans = settings.readingFont == .sfPro
-        pool.broadcast("window.ss && window.ss.preferences({readingSans: \(sans), colorsNoticeDismissed: \(settings.originalColorsNoticeDismissed)})")
+        broadcastTypeface = QuireEnvironment.typeface
+        let sans = broadcastTypeface == .sfPro
+        pool.broadcastPreferences(
+            "window.ss && window.ss.preferences({readingSans: \(sans), colorsNoticeDismissed: \(settings.originalColorsNoticeDismissed)})"
+        )
     }
 
     /// Wide HTML is refitted once a live resize ends, never per frame (spec §5.14).

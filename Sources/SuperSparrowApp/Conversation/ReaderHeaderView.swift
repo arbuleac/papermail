@@ -89,6 +89,9 @@ final class ReaderHeaderView: NSView {
         needsLayout = true
     }
 
+    /// The headline as it is set now (tests read its font).
+    var headlineString: NSAttributedString { headline.attributedString() }
+
     private func applyHeadline() {
         guard let subject = content.headline else {
             headline.isHidden = true

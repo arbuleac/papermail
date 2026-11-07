@@ -34,6 +34,7 @@ extension QuireFont {
         case subjectSans
         case composeSubjectSans
         case asideSans
+        case monogramSans
         case metaMedium
         case metaStrong
         case senderMedium
@@ -151,7 +152,7 @@ extension QuireFont.Role {
         case .monogram:
             return QuireFont.Spec(family: .serif, size: 0, weight: 600, lineHeight: 0, tracking: 0,
                                   italic: false, tabular: false, uppercase: false, unreadWeight: nil,
-                                  twin: nil, twinOf: nil, variantOf: nil, sizeRatio: 0.42, minSize: 10,
+                                  twin: .monogramSans, twinOf: nil, variantOf: nil, sizeRatio: 0.42, minSize: 10,
                                   use: "Avatar and rail initials (size = 0.42 x diameter, never below 10)")
         case .displaySans:
             return QuireFont.Spec(family: .sf, size: 31, weight: 600, lineHeight: 40, tracking: -0.4,
@@ -172,7 +173,7 @@ extension QuireFont.Role {
             return QuireFont.Spec(family: .sf, size: 14, weight: 400, lineHeight: 24, tracking: 0,
                                   italic: false, tabular: false, uppercase: false, unreadWeight: nil,
                                   twin: nil, twinOf: .reading, variantOf: nil, sizeRatio: nil, minSize: nil,
-                                  use: "Also the SF Pro choice of Settings > General > Reading font")
+                                  use: "")
         case .subjectSans:
             return QuireFont.Spec(family: .sf, size: 13, weight: 400, lineHeight: 18, tracking: 0,
                                   italic: false, tabular: false, uppercase: false, unreadWeight: 600,
@@ -188,6 +189,11 @@ extension QuireFont.Role {
                                   italic: true, tabular: false, uppercase: false, unreadWeight: nil,
                                   twin: nil, twinOf: .aside, variantOf: nil, sizeRatio: nil, minSize: nil,
                                   use: "")
+        case .monogramSans:
+            return QuireFont.Spec(family: .sf, size: 0, weight: 600, lineHeight: 0, tracking: 0,
+                                  italic: false, tabular: false, uppercase: false, unreadWeight: nil,
+                                  twin: nil, twinOf: .monogram, variantOf: nil, sizeRatio: 0.39, minSize: 10,
+                                  use: "Avatar and rail initials under the SF Pro font (size = 0.39 x diameter, never below 10)")
         case .metaMedium:
             return QuireFont.Spec(family: .sf, size: 11, weight: 500, lineHeight: 14, tracking: 0,
                                   italic: false, tabular: true, uppercase: false, unreadWeight: nil,
@@ -257,6 +263,7 @@ extension QuireFont {
     public static var subjectSans: NSFont { font(.subjectSans) }
     public static var composeSubjectSans: NSFont { font(.composeSubjectSans) }
     public static var asideSans: NSFont { font(.asideSans) }
+    public static var monogramSans: NSFont { font(.monogramSans) }
     public static var metaMedium: NSFont { font(.metaMedium) }
     public static var metaStrong: NSFont { font(.metaStrong) }
     public static var senderMedium: NSFont { font(.senderMedium) }

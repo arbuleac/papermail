@@ -287,7 +287,7 @@ public struct ConversationRowText: Hashable, Sendable {
     }
 
     /// `cacheKey(for:dayStamp:)` extended with the row's context and a caller's environment key (appearance,
-    /// contrast, Graphite, reading font), which the app adds because its attributed strings depend on them.
+    /// contrast, Graphite, the Font setting), which the app adds because its attributed strings depend on them.
     public static func cacheKey(for summary: ConversationSummary, dayStamp: Int, context: Context, environment: String) -> UInt64 {
         var hasher = StableHasher()
         combine(summary, into: &hasher)

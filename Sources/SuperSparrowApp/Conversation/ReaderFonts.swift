@@ -5,11 +5,13 @@ import SSDesign
 @MainActor
 enum ReaderFonts {
     /// The italic face of each role and its baseline offset, resolved once: the headline asks on every selection.
+    /// Keyed by the role actually set, so a Font switch never returns the other face.
     private static var placeholderFaces: [QuireFont.Role: (font: NSFont, baselineOffset: CGFloat)] = [:]
 
-    /// A placeholder for missing data (spec §4.1): set in the role it replaces, `ink3`, italic and never
-    /// Semibold, so "No subject" never reads as content or as unread.
+    /// A placeholder for missing data (spec §4.1): set in the role it replaces (its sans twin under the SF Pro
+    /// font), `ink3`, italic and never Semibold, so "No subject" never reads as content or as unread.
     static func placeholder(_ text: String, role: QuireFont.Role) -> NSAttributedString {
+        let role = QuireFont.resolvedRole(role)
         let face = placeholderFace(role)
         var attributes = QuireFont.attributes(role, color: .qInk3)
         attributes[.font] = face.font

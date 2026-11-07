@@ -206,8 +206,8 @@ final class WelcomeView: NSView {
     }
 
     private let mark = WelcomeMarkView(frame: .zero)
-    private let titleLabel = WelcomeView.label("SuperSparrow", role: .display, color: .qInk)
-    private let taglineLabel = WelcomeView.label("Your mail, quietly fast.", role: .aside, color: .qInk2)
+    private let titleLabel = WelcomeView.label()
+    private let taglineLabel = WelcomeView.label()
     private let footnote: NSTextField = {
         let text = NSMutableAttributedString()
         if let lock = WelcomeView.tintedSymbol(Quire.Icon.privacy, pointSize: QuireFont.Role.meta.size - 1, color: .qInk3) {
@@ -236,6 +236,20 @@ final class WelcomeView: NSView {
         super.init(frame: frameRect)
         for subview in [mark, titleLabel, taglineLabel, footnote] as [NSView] { addSubview(subview) }
         mark.setAccessibilityElement(false)
+        applyLabels()
+        NotificationCenter.default.addObserver(self, selector: #selector(environmentDidChange(_:)),
+                                               name: QuireEnvironment.didChangeNotification, object: nil)
+    }
+
+    /// The title and tagline are New York roles: a Font switch sets them again in place. Their frames are the
+    /// roles' line heights, which twins keep, so nothing moves.
+    @objc private func environmentDidChange(_ note: Notification) {
+        applyLabels()
+    }
+
+    private func applyLabels() {
+        titleLabel.attributedStringValue = Self.string("SuperSparrow", role: .display, color: .qInk)
+        taglineLabel.attributedStringValue = Self.string("Your mail, quietly fast.", role: .aside, color: .qInk2)
     }
 
     required init?(coder: NSCoder) { nil }
@@ -247,14 +261,19 @@ final class WelcomeView: NSView {
         dirtyRect.fill()
     }
 
-    private static func label(_ text: String, role: QuireFont.Role, color: NSColor) -> NSTextField {
+    private static func label() -> NSTextField {
+        let field = NSTextField(labelWithString: "")
+        field.isSelectable = false
+        return field
+    }
+
+    /// `text` in `role` under the Font setting, centred.
+    private static func string(_ text: String, role: QuireFont.Role, color: NSColor) -> NSAttributedString {
         var attributes = QuireFont.attributes(role, color: color)
         let style = (attributes[.paragraphStyle] as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
         style.alignment = .center
         attributes[.paragraphStyle] = style
-        let field = NSTextField(labelWithAttributedString: NSAttributedString(string: text, attributes: attributes))
-        field.isSelectable = false
-        return field
+        return NSAttributedString(string: text, attributes: attributes)
     }
 
     /// A symbol image that resolves its colour when drawn, so the footnote's lock follows the appearance.

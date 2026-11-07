@@ -57,6 +57,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     // MARK: NSApplicationDelegate
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Before the first window or menu image is drawn: the Font setting decides every New York role (§4.4).
+        // `--font` (debug) wins for this process without being saved.
+        QuireEnvironment.shared.setTypeface(options.typeface ?? settings.typeface)
         NSApp.mainMenu = MainMenu.build(appDelegate: self)
         switch options.appearance {
         case "light": NSApp.appearance = NSAppearance(named: .aqua)

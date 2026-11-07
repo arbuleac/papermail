@@ -57,6 +57,8 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     private let ccButton = QuireButton(title: "Cc", variant: .ghost, size: .small)
     private let bccButton = QuireButton(title: "Bcc", variant: .ghost, size: .small)
     private let subjectField = ComposeSubjectField()
+    /// The Subject field's font as set now (tests read it).
+    var subjectFont: NSFont? { subjectField.font }
     private let fromRow: ComposeFieldRow
     private let toRow: ComposeFieldRow
     private let ccRow: ComposeFieldRow
@@ -1155,8 +1157,9 @@ final class ComposeWindow: NSWindow {
     override func cancelOperation(_ sender: Any?) {}
 }
 
-/// The Subject field: borderless `composeSubject` (New York 15 pt, its sans twin for scripts New York lacks)
-/// in `ink`, an `accent` caret, no ring of its own (the row draws the inset ring).
+/// The Subject field: borderless `composeSubject` (New York 15 pt, its sans twin under the SF Pro font or for
+/// scripts New York lacks) in `ink`, an `accent` caret, no ring of its own (the row draws the inset ring). A
+/// Font switch re-sets it at once, in every open composer, mid-edit included.
 @MainActor
 private final class ComposeSubjectField: NSTextField {
     override init(frame frameRect: NSRect) {
@@ -1173,6 +1176,8 @@ private final class ComposeSubjectField: NSTextField {
         cell?.usesSingleLineMode = true
         cell?.isScrollable = true
         updateFont()
+        NotificationCenter.default.addObserver(self, selector: #selector(environmentDidChange(_:)),
+                                               name: QuireEnvironment.didChangeNotification, object: nil)
     }
 
     @available(*, unavailable)
@@ -1182,7 +1187,18 @@ private final class ComposeSubjectField: NSTextField {
 
     func updateFont() {
         let font = QuireFont.font(.composeSubject, for: stringValue)
-        if self.font != font { self.font = font }
+        guard self.font != font else { return }
+        self.font = font
+        // While the subject is being edited the field editor draws it, with its own font and typing attributes.
+        if let editor = currentEditor() as? NSTextView {
+            editor.font = font
+            editor.typingAttributes[.font] = font
+        }
+    }
+
+    @objc private func environmentDidChange(_ note: Notification) {
+        updateFont()
+        superview?.needsLayout = true
     }
 
     override func becomeFirstResponder() -> Bool {

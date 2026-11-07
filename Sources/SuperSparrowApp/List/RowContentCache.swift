@@ -4,7 +4,7 @@ import SSDesign
 
 /// Builds `ConversationRowContent` on demand and keeps it keyed by a stable hash of the summary fields that
 /// affect the row, the row's context (view, running-head time format, Other tag), the current day and the
-/// drawing environment: appearance + contrast + Graphite and the reading-font setting (spec §5.7, §8.2).
+/// drawing environment: appearance + contrast + Graphite + the Font setting (spec §5.7, §8.2).
 /// Window key state is never part of the key: no text colour depends on it (spec §3.4).
 @MainActor
 final class RowContentCache {

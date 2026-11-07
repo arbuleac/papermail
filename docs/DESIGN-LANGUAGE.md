@@ -1,6 +1,6 @@
 # Quire — the SuperSparrow design language
 
-**Version 1.4.0 · 7 November 2026 · authoritative.** 1.4 moves the six views into the rail as folder tiles (§5.2), anchors the accounts at the bottom of the rail just above Add, puts the masthead, search and compose on one header line (§5.3, §5.6), keeps the title menu for minimal mode only (§5.4), and removes the Focused/Other filter tabs (§5.5) and the rows' “Other” tag (§5.7). 1.3.1 records what the code does where it went past 1.3: one rule for account names and monograms (§4.2), plain text set as paragraphs (§5.14), the app icon as drawn (§5.42, `appIcon.corner` and `stampWidth`), `QuireWindowChrome` (§3.2) and the AppKit component names (§8.2), and the composer title-bar test (§8.7). 1.3 closes the eighteen gaps of the 1.2 review: pressed checkbox, radio and toggle states that keep 3:1 (`controlOnPressed`, a knob-face press, a wash-free link press), account inks that never meet a popup's hover or pressed face, a complete Graphite substitution with its own generated contrast pairs, the full alert inventory, the reconnect flow, no signatures in v1, the cheat sheet's content, Space and Tab inside a sheet, the Settings window's size and detail form, the multi-selection and Trash action sets, the positions that still had no metric, a Reduce Transparency scrim, capped token rows, expanded recipients, and the worked numbers that still assumed the macOS 15 rail. This document, `docs/design/tokens.json` and `docs/design/specimen.html` (rendered as `specimen-light.png` and `specimen-dark.png`) are the complete design language for SuperSparrow. Where they disagree, `tokens.json` wins and the other two are regenerated from it.
+**Version 1.5.0 · 7 November 2026 · authoritative.** 1.5 renames the General font setting **Font** and makes it the app's typeface: SF Pro now sets every New York role in its sans twin across the app and applies live, and monograms gain the twin `monogramSans` (§4.4, §5.29, §5.40). 1.4 moves the six views into the rail as folder tiles (§5.2), anchors the accounts at the bottom of the rail just above Add, puts the masthead, search and compose on one header line (§5.3, §5.6), keeps the title menu for minimal mode only (§5.4), and removes the Focused/Other filter tabs (§5.5) and the rows' “Other” tag (§5.7). 1.3.1 records what the code does where it went past 1.3: one rule for account names and monograms (§4.2), plain text set as paragraphs (§5.14), the app icon as drawn (§5.42, `appIcon.corner` and `stampWidth`), `QuireWindowChrome` (§3.2) and the AppKit component names (§8.2), and the composer title-bar test (§8.7). 1.3 closes the eighteen gaps of the 1.2 review: pressed checkbox, radio and toggle states that keep 3:1 (`controlOnPressed`, a knob-face press, a wash-free link press), account inks that never meet a popup's hover or pressed face, a complete Graphite substitution with its own generated contrast pairs, the full alert inventory, the reconnect flow, no signatures in v1, the cheat sheet's content, Space and Tab inside a sheet, the Settings window's size and detail form, the multi-selection and Trash action sets, the positions that still had no metric, a Reduce Transparency scrim, capped token rows, expanded recipients, and the worked numbers that still assumed the macOS 15 rail. This document, `docs/design/tokens.json` and `docs/design/specimen.html` (rendered as `specimen-light.png` and `specimen-dark.png`) are the complete design language for SuperSparrow. Where they disagree, `tokens.json` wins and the other two are regenerated from it.
 
 A quire is a gathering of folded sheets, the unit a book is sewn from. Quire treats mail the same way: each conversation is a tight stack of folded messages and one open sheet, set in New York on warm paper and marked in a single ink, **Iron Gall**, the blue-black ink letters were written in for a thousand years. The list is a still index; the reader gets the room of a page. Sparrow's shape stays: a narrow account rail, one list, one reader, almost no chrome. Superhuman's speed shows in response, not in motion.
 
@@ -28,7 +28,7 @@ A quire is a gathering of folded sheets, the unit a book is sewn from. Quire tre
 | **Kicker and headline** | A small uppercase kicker names the account (with its ink dot) and the message count above a New York headline, as a newspaper names its section. | Reader header |
 | **The elision mark `[…]`** | Quoted text folds behind the editor's mark for omitted text (`ss.elide`), placed at the fold. | Reader, composer |
 | **The slip and the contrail** | Toasts, the undo-send panel and the g-sequence HUD are small dark slips with one verb. The contrail, a 2 pt line with a 4 pt head, is the one drawn element that means time is moving. | Toast, undo send, sync line, attachment progress |
-| **Monograms** | Avatar initials in New York Semibold on soft tints, like monogrammed letterhead. The rail shows domain monograms (C for contoso.com). | Rows, reader, rail, Settings |
+| **Monograms** | Avatar initials in New York Semibold (its SF Pro twin under the SF Pro font, §4.4) on soft tints, like monogrammed letterhead. The rail shows domain monograms (C for contoso.com). | Rows, reader, rail, Settings |
 
 ## 3. Platform decisions
 
@@ -275,7 +275,7 @@ The square and the tile's edge are drawn in the account ink, never in `ruleStron
 
 ### 4.3 Avatar tints
 
-Sender avatars use eight soft tints chosen by a stable hash of the lowercased address (FNV-1a 32-bit, modulo 8). Faces never take account colour, so a sender looks the same in every account. Initials: New York Semibold at 0.42 × the diameter (never below 10 pt), at most two letters (first and last word of the display name, else the first alphanumeric of the address), in the tint's own ink. v1 faces are initials only: no Contacts access, no remote avatars, so no photo source exists and nothing on the face ever arrives late.
+Sender avatars use eight soft tints chosen by a stable hash of the lowercased address (FNV-1a 32-bit, modulo 8). Faces never take account colour, so a sender looks the same in every account. Initials: New York Semibold at 0.42 × the diameter (never below 10 pt), or under the SF Pro font (§4.4) the twin `monogramSans`, SF Pro Semibold at 0.39 × the diameter (never below 10 pt); at most two letters (first and last word of the display name, else the first alphanumeric of the address), in the tint's own ink. v1 faces are initials only: no Contacts access, no remote avatars, so no photo source exists and nothing on the face ever arrives late.
 
 | Tint | Light face / ink | Dark face / ink | Light IC face / ink | Dark IC face / ink |
 |---|---|---|---|---|
@@ -314,19 +314,20 @@ System families only: **SF Pro** (`NSFont.systemFont`, CSS `-apple-system, syste
 | `kbd` | SF Pro | 11 | 500 | 14 | 0 |  | Keycaps; SF Pro carries the modifier glyphs |
 | `mono` | SF Mono | 12 | 400 | 16 | 0 |  | OAuth client IDs, raw source |
 | `buttonLarge` | SF Pro | 14 | 500 | 18 | 0 |  | Large button labels (welcome actions) |
-| `monogram` | New York | 0.42 × d (min 10) | 600 | 1.0 × size | 0 |  | Avatar and rail initials (size = 0.42 x diameter, never below 10) |
+| `monogram` | New York | 0.42 × d (min 10) | 600 | 1.0 × size | 0 | twin `monogramSans` | Avatar and rail initials (size = 0.42 x diameter, never below 10) |
 
-**Sans twins.** New York covers Latin, Greek and Cyrillic. Every New York role has an SF Pro twin with the **same line height** and a smaller size (SF Pro's larger x-height makes it look the same size), used when New York cannot set the text:
+**Sans twins.** New York covers Latin, Greek and Cyrillic. Every New York role has an SF Pro twin with the **same line height** and a smaller size (SF Pro's larger x-height makes it look the same size), used when New York cannot set the text and, under the SF Pro font, everywhere:
 
 | Role | Family | Size (pt) | Weight | Line height (pt) | Tracking (pt) | Notes | Used for |
 |---|---|---|---|---|---|---|---|
 | `displaySans` | SF Pro | 31 | 600 | 40 | -0.4 | twin of `display` |  |
 | `headlineSans` | SF Pro | 22 | 600 | 30 | -0.2 | twin of `headline` |  |
 | `mastheadSans` | SF Pro | 18 | 600 | 24 | 0 | twin of `masthead` |  |
-| `readingSans` | SF Pro | 14 | 400 | 24 | 0 | twin of `reading` | Also the SF Pro choice of Settings > General > Reading font |
+| `readingSans` | SF Pro | 14 | 400 | 24 | 0 | twin of `reading` |  |
 | `subjectSans` | SF Pro | 13 | 400 | 18 | 0 | 600 when unread, twin of `subject` |  |
 | `composeSubjectSans` | SF Pro | 14 | 400 | 20 | 0 | twin of `composeSubject` |  |
 | `asideSans` | SF Pro | 16 | 400 | 24 | 0 | italic, twin of `aside` |  |
+| `monogramSans` | SF Pro | 0.39 × d (min 10) | 600 | 1.0 × size | 0 | twin of `monogram` | Avatar and rail initials under the SF Pro font (size = 0.39 x diameter, never below 10) |
 
 **Weight variants.** A role has exactly one weight unless a variant is listed here; each variant keeps its base role's size, line height and tracking. The generator emits them as roles (`QuireFont.bodyStrong`, `--q-font-bodyStrong`), so no component asks for “`body` at Semibold”.
 
@@ -344,10 +345,10 @@ System families only: **SF Pro** (`NSFont.systemFont`, CSS `-apple-system, syste
 
 Rules:
 
-- **Read in serif, write in sans.** Composer and quick-reply bodies use `writing` (SF Pro) because what you type is sent without a font. Only the composer subject keeps New York.
+- **Read in serif, write in sans.** Composer and quick-reply bodies use `writing` (SF Pro) because what you type is sent without a font. Only the composer subject keeps the serif (`composeSubject`; its twin `composeSubjectSans` under the SF Pro font).
 - **Script fallback.** A string is set in a New York role only if every letter in it is covered by New York's character set (`CTFontCopyCharacterSet` of the New York system font, computed once at launch). Otherwise the role's sans twin is used and the system cascade supplies the script (PingFang, Hiragino, Apple SD Gothic Neo, Geeza Pro, Arial Hebrew, Thonburi, Kohinoor Devanagari). The test runs when the row's attributed strings are built and is cached with them; the reader header runs it when the subject changes. Because twins keep the line height, row metrics never change; `RowMetricsTests` (§8.7) lays out CJK, Arabic, Hebrew, Thai and Devanagari samples and asserts the used height stays within the role's line height.
 - **Bidirectional text.** Subjects, senders and snippets use natural writing direction with leading alignment (the UI's direction), so an Arabic or Hebrew subject reads right-to-left but stays flush with the column. CSS: `dir="auto"` with `text-align: start`.
-- **Reading font setting.** Settings › General › Reading font: New York (default) or SF Pro (`readingSans`). It changes only plain and unstyled bodies (below). HTML mail with its own fonts is never restyled.
+- **Font setting.** Settings › General › Font: New York (default) or SF Pro. It picks the face of every New York role across the app. Under SF Pro each role is set in its sans twin wherever it appears, in AppKit, SwiftUI and the reader: `display` → `displaySans`, `headline` → `headlineSans`, `masthead` → `mastheadSans`, `reading` → `readingSans` (plain and unstyled bodies), `subject` → `subjectSans` (unread weight kept), `composeSubject` → `composeSubjectSans`, `aside` → `asideSans`, and `monogram` → `monogramSans` (§4.3, §5.29). Under New York the script fallback above still decides per string. A change applies live: every window on screen, the pre-rendered reader views and every open composer redraw in the new face at once, with no relaunch and no reselection. Twins keep the line height, so line heights and row metrics never change, no row is reloaded or re-measured and nothing moves vertically; only text widths follow the face, so the masthead takes its new width and the header items after it (the Demo tag, the search field's leading edge) shift with it. HTML mail with its own fonts is never restyled.
 - **Unstyled bodies.** “Set like a page” applies to bodies classified at sync time, never at open. The sanitizer, which already walks the tree, stores one of three values with the body: `plain` (text/plain only), `unstyled` (HTML with no `<style>` blocks, no `font-family`, `font-size`, `color`, `background` or width declarations in `style` attributes, no `<font>` face/size/color, no `bgcolor`, no layout tables with explicit widths; only text structure such as `p`, `div`, `br`, `span`, `b`, `i`, `u`, `a`, `ul`, `ol`, `li`, `blockquote`, `pre`, `code`, `img`) or `styled` (everything else). Plain and unstyled bodies get `reading` (or `readingSans`) inside the 576 pt measure; styled bodies keep their own fonts at full sheet width. The value also records whether the body's letters are covered by New York (same rule as above); if not, `readingSans` is used.
 - **Tabular digits** (`.monospacedDigit` / `font-variant-numeric: tabular-nums`) for times, counts, badges, sizes and progress, so columns do not jitter during sync.
 - **Tracking** is in points at the stated size: AppKit `.kern`, CSS `letter-spacing` in px. A tracking of 0 means the system's own optical tracking. `runningHead` is uppercased at string-build time (`uppercased(with: locale)`).
@@ -674,7 +675,7 @@ Anatomy, top to bottom: title-bar zone (traffic lights) · **the folders**, one 
 
 - **Folder tiles**: 38 pt, radius `r.tile`, the view's symbol (`tray`, `star`, `paperplane`, `doc`, `trash`, `archivebox`) 16 pt in `ink2`, with the All Inboxes tile's washes, raised selection and focus ring, but no margin rule: the rail carries two selections, the view (the raised tile) and the scope (the margin rule), and they must read apart. A click switches the view as the title menu does (§5.4); the G-sequences are unchanged. Inbox carries the unread count badge of the current scope's Inbox (all accounts, or the narrowed one; the count the title menu's Inbox item carries); the other folders carry none. Tooltips name the folder and its sequence: “Inbox  G I”, “Starred  G S”, “Sent  G T”, “Drafts  G D”, “Trash  G #”, “All Mail  G A”.
 - **All Inboxes tile**: 38 pt, radius `r.tile`, `ss.quire` 18 pt in `ink2`; the first tile of the account group.
-- **Account tile**: a 30 pt face (the account ink at 0.14 opacity over `sheet`), the domain monogram in New York Semibold 14 pt (12 pt for two letters) in `ink`, and a 2 pt ring in the account ink outside a 2 pt `spine` gap (38 pt overall).
+- **Account tile**: a 30 pt face (the account ink at 0.14 opacity over `sheet`), the domain monogram in New York Semibold 14 pt (12 pt for two letters; `monogramSans` under the SF Pro font, §5.29) in `ink`, and a 2 pt ring in the account ink outside a 2 pt `spine` gap (38 pt overall).
 - **Badge**: unread count badge (§5.28) at top -5, trailing -8 relative to the tile, with a 2 pt `spine` cut-out ring.
 - **Utilities**: 28 pt icon buttons, `plus` / `gearshape` 15 pt. Add opens the add-account menu (§5.44).
 - **Margin rule**: 3 × 24 pt at x = 0, centred on the selected account tile or All Inboxes; never on a folder.
@@ -797,10 +798,10 @@ Fixed **68 pt** (compact 48). Drawn by hand in `layout()` / `draw(_:)`: no Auto 
 |---|---|---|
 | Margin rule (selected) | 0, 8, 3, 52 | `selRule` / `selRuleIdle` |
 | Unread pip | 7, 14, 7, 7 (centred on the sender line) | `accent` circle |
-| Avatar box | 20, 15, 38, 38: face 30 centred; 2 pt gap; 2 pt ring | face tint, New York monogram, ring = account ink (unified views only). The gap is **not drawn**: it is the row's own fill showing through, so the same face serves every row state |
+| Avatar box | 20, 15, 38, 38: face 30 centred; 2 pt gap; 2 pt ring | face tint, monogram (New York, or `monogramSans` under the SF Pro font), ring = account ink (unified views only). The gap is **not drawn**: it is the row's own fill showing through, so the same face serves every row state |
 | Sender line | 68, 10, to the time − 8, 16 | `sender`; Semibold when unread; participants joined by “, ”, the user as “me”; Drafts/Sent prefixes in `ink2`; no sender: “No sender” in the placeholder style (§4.1) |
 | Time cluster | trailing 16, on the sender line | from the trailing edge: time (`meta`, tabular, `ink3`; unread: `metaStrong` in `accent`; format per running head, §4.13) · 6 pt (`tileGap`) · optional account initial tile (16 pt) · 4 pt (`queuedGap`) · `ss.queued` or the failed glyph (12 pt). An absent tile takes its leading gap with it: with no tile the glyph sits 4 pt from the time. Rows carry no category tag: the Focused/Other category is not shown anywhere (§5.5) |
-| Subject line | 68, 27, to the glyph cluster − 6, 18 | `subject` (New York; `subjectSans` when New York lacks the script); Semibold when unread; no subject: “No subject” in the placeholder style (italic `ink3`, regular weight even when unread) |
+| Subject line | 68, 27, to the glyph cluster − 6, 18 | `subject` (New York; `subjectSans` when New York lacks the script, and always under the SF Pro font); Semibold when unread; no subject: “No subject” in the placeholder style (italic `ink3`, regular weight even when unread) |
 | Glyph cluster | trailing 16, centred on the subject line, 5 pt gaps, fixed order from the trailing edge: star, attachment, count | `star.fill` 12 pt `star`; `paperclip` 12 pt `ink2`; count badge 16 pt, neutral |
 | Snippet | 68, 46, to trailing 16, 15 | `snippet`, `ink2` |
 | Separator | from x = 68 to the trailing edge, bottom | hairline `rule`; hidden on the selected row and the row above it |
@@ -850,8 +851,8 @@ Fixed **68 pt** (compact 48). Drawn by hand in `layout()` / `draw(_:)`: no Auto 
 
 **Performance contract.**
 
-- All attributed strings are built once per (conversation id, version, appearance, contrast, reading-font setting, day) in `RowContentCache`, including the script-coverage decision and the running-head time format. Window key state is not part of the key: no text colour depends on it (§3.4).
-- **Avatars: faces are cached, rings are drawn.** The face bitmap (tint disc + monogram) renders off the main thread, cached by (initials, tint, size, appearance, contrast) only. The account ring is stroked in `draw(_:)` with `NSBezierPath` (a circle of radius face/2 + gap + ring/2, width 2, in the account ink), and the gap is left transparent so the row's fill (`paper`, `paper + hover`, `selWash`, `selWashIdle`) shows through. Hover and selection therefore never miss the cache or flash a wrong-coloured gap. Until a face is ready the row draws the tint disc and initials synchronously from the cached glyph run; it never shows an empty circle.
+- All attributed strings are built once per (conversation id, version, appearance, contrast, Font setting, day) in `RowContentCache`, including the script-coverage decision and the running-head time format. Window key state is not part of the key: no text colour depends on it (§3.4).
+- **Avatars: faces are cached, rings are drawn.** The face bitmap (tint disc + monogram) renders off the main thread, cached by (initials, tint, size, appearance, contrast, Graphite, Font setting) only. The account ring is stroked in `draw(_:)` with `NSBezierPath` (a circle of radius face/2 + gap + ring/2, width 2, in the account ink), and the gap is left transparent so the row's fill (`paper`, `paper + hover`, `selWash`, `selWashIdle`) shows through. Hover and selection therefore never miss the cache or flash a wrong-coloured gap. Until a face is ready the row draws the tint disc and initials synchronously from the cached glyph run; it never shows an empty circle.
 - **Hover is suspended while scrolling.** On `NSScrollView.willStartLiveScrollNotification` (and for scroll-wheel momentum) the list stops updating hover; rows that slide under a still pointer draw no wash. On `didEndLiveScrollNotification` the row under the pointer, if any, takes the hover wash once.
 - Selection changes redraw only the fill and the margin rule inside `CATransaction.setDisableActions(true)`. Row views are opaque and layer-backed.
 
@@ -1192,7 +1193,7 @@ Docked to the bottom of the reader, drawn **over** the web view: the web view al
 |---|---|
 | Bar | 60 pt at rest = 11 + field 38 + 11; `paper`, top hairline |
 | Field | on the reading column; radius 8; `sheet`; 1 pt `ruleStrong` edge; text padding 9 top, 8 bottom |
-| Face | the replying account's rail face at 24 pt with its ring (2 pt `sheet` gap + 2 pt account ink, so the ring's outer edge is 4 pt further out), face at x = 12, y = 7; monogram New York Semibold 11 pt (10 pt for two letters) in `ink` |
+| Face | the replying account's rail face at 24 pt with its ring (2 pt `sheet` gap + 2 pt account ink, so the ring's outer edge is 4 pt further out), face at x = 12, y = 7; monogram New York Semibold 11 pt (10 pt for two letters; `monogramSans` under the SF Pro font, §5.29) in `ink` |
 | Text | `writing` (14/21) from x = 48; trailing inset 67 at rest (room for the keycap and send), 12 when focused |
 | Placeholder | “Reply to Ben Carter…” (`writing`, `ink3`); “Reply all to Ben Carter and 2 others…” in Reply all mode |
 | Trailing (rest) | send icon button 28 pt, `paperplane` 15 pt, `inkDisabled`, inset 5 from the trailing and top edges; keycap “R” 8 pt before it |
@@ -1499,13 +1500,13 @@ Badges never animate when counts change.
 |---|---|---|---|---|---|---|---|
 | `sizes` | 24 / 30 / 36 | `monogramRatio` | 0.42 |  |  |  |  |
 
-| Diameter | Use | Initials (0.42 × d, min 10) |
-|---|---|---|
-| 24 | collapsed stack rows, autocomplete | 10 pt |
-| 30 | list rows (inside the 38 pt ring box) | 12.5 pt |
-| 36 | message header | 15 pt |
+| Diameter | Use | Initials, New York (0.42 × d, min 10) | Initials, SF Pro (`monogramSans`, 0.39 × d, min 10) |
+|---|---|---|---|
+| 24 | collapsed stack rows, autocomplete | 10 pt | 10 pt |
+| 30 | list rows (inside the 38 pt ring box) | 12.5 pt | 11.5 pt |
+| 36 | message header | 15 pt | 14 pt |
 
-Face = tint (§4.3); initials New York Semibold. **Account faces are not avatars:** the rail tile, the Settings account row and the quick-reply face show the account's domain monogram on the account face wash, at 14 / 12 pt on a 30 pt face and 11 / 10 pt on a 24 pt face (one / two letters), always with the account ring. Three sizes only; there is no contact popover in v1, and About is the system panel with the app icon. **Account ring**: 2 pt gap in the surface colour + 2 pt ring in the account ink, outside the face, unified views only. A group conversation shows its most recent sender. Avatars are not interactive in rows; in the reader, hover shows the address tooltip.
+Face = tint (§4.3); initials New York Semibold, or SF Pro Semibold (`monogramSans`) under the SF Pro font (§4.4), at the sizes above. **Account faces are not avatars:** the rail tile, the Settings account row and the quick-reply face show the account's domain monogram on the account face wash, at 14 / 12 pt on a 30 pt face and 11 / 10 pt on a 24 pt face (one / two letters), always with the account ring; under the SF Pro font they are set in `monogramSans` at those sizes × 0.39 / 0.42, rounded to the half point and never below 10 pt, so the letters keep their optical size. Three sizes only; there is no contact popover in v1, and About is the system panel with the app icon. **Account ring**: 2 pt gap in the surface colour + 2 pt ring in the account ink, outside the face, unified views only. A group conversation shows its most recent sender. Avatars are not interactive in rows; in the reader, hover shows the address tooltip.
 
 ### 5.30 Toast
 
@@ -1886,7 +1887,7 @@ The group is **not** a `List(selection:)`: SwiftUI's list selection paints an ac
 
 **“Saved”** is a status beside Save, not a banner: `checkmark.circle.fill` `success` 12 pt + “Saved” (`snippet` `ink2`), 8 pt before the Save button, from a successful save until the next edit (VoiceOver announces “Saved”). A failed save is a danger banner at the top of the tab (“Couldn't save the OAuth settings.” + the reason). Validation errors sit under their field (§5.25: “That doesn't look like a Google client ID.”).
 
-**General** (a two-column grid: labels right-aligned in 140 pt, rows 40 pt, a hairline between groups): Reading font (popup: New York, SF Pro) · List density (radio: Standard, Compact) · Rows (checkbox: Show account initials in unified views; the seven-accounts caption under it, above) · Undo send (popup: 5, 10, 20 seconds) · — · Remote images (toggle “Load by default”, caption “Off: images load only when you ask, per message.”) · Notifications (toggle “New mail”; checkbox “Show sender and subject”).
+**General** (a two-column grid: labels right-aligned in 140 pt, rows 40 pt, a hairline between groups): Font (popup: New York, SF Pro; §4.4) · List density (radio: Standard, Compact) · Rows (checkbox: Show account initials in unified views; the seven-accounts caption under it, above) · Undo send (popup: 5, 10, 20 seconds) · — · Remote images (toggle “Load by default”, caption “Off: images load only when you ask, per message.”) · Notifications (toggle “New mail”; checkbox “Show sender and subject”).
 
 States per control as §5.24–5.27, Quire-drawn; validation errors inline under the field.
 
@@ -2669,7 +2670,7 @@ static func make(_ r: Role) -> NSFont {
 }
 ```
 
-Paragraph style per role: `minimumLineHeight = maximumLineHeight = lineHeight`, `baselineOffset = (lineHeight − layoutManager.defaultLineHeight(for: font)) / 2`, `lineBreakMode = .byTruncatingTail`, `allowsDefaultTighteningForTruncation = false`, `baseWritingDirection = .natural`, `alignment = .left` in left-to-right UI; `.kern` for tracking. New York coverage: `CTFontCopyCharacterSet` of the serif font, computed once; the row builder checks it and picks the twin.
+Paragraph style per role: `minimumLineHeight = maximumLineHeight = lineHeight`, `baselineOffset = (lineHeight − layoutManager.defaultLineHeight(for: font)) / 2`, `lineBreakMode = .byTruncatingTail`, `allowsDefaultTighteningForTruncation = false`, `baseWritingDirection = .natural`, `alignment = .left` in left-to-right UI; `.kern` for tracking. New York coverage: `CTFontCopyCharacterSet` of the serif font, computed once; the row builder checks it and picks the twin. **Font setting:** the app sets the choice on `QuireEnvironment` at launch, before the first window, and on every change; `QuireFont` maps each serif role to its twin under SF Pro before it looks a font up, so its caches key on the role actually set and can never hand back the other face. The choice is part of `QuireEnvironment.cacheKey(for:)`, so row strings and avatar faces rebuild, and the change is posted as `QuireEnvironment.didChangeNotification`: every view that holds a font or a laid-out string re-applies on it, and the reader toggles `html.ss-sf` and `body.ss-sans` in every pooled view through `ss.preferences`.
 
 **Drawing.** Rows draw the pip, margin rule, account ring, initial tile, count badge and tag in `draw(_:)` with `NSBezierPath`; the cached avatar face is a ring-less bitmap drawn first, and the ring is stroked over the row fill with the gap left undrawn (§5.7). Never set a layer shadow on a row. `ConversationRowView.drawSelection(in:)` reads `window?.isKeyWindow` (not first-responder state) for emphasized vs idle and suppresses hover when selected; the list's hover tracking is paused between `willStartLiveScroll` and `didEndLiveScroll`. Focus rings are drawn by the control in `draw(_:)` when it is first responder (with `focusRingType = .none`), because the system ring's alpha falls below 3:1 on paper.
 
@@ -2704,7 +2705,7 @@ Paragraph style per role: `minimumLineHeight = maximumLineHeight = lineHeight`, 
 - The generated head defines every colour as `--q-<token>` in four blocks (`:root`, `@media (prefers-color-scheme: dark)`, `@media (prefers-contrast: more)`, both) plus `html.ss-ic` copies of the IC blocks and `html.ss-graphite` blocks that redefine the accent-family variables per mode (§3.1; the app sets the class); typography as `--q-font-<role>` shorthands and `--q-track-<role>`; spacing `--q-s1…`; radii `--q-r-…`; durations `--q-dur-…`; curves `--q-ease-…`; elevation `--q-e1…`. The specimen's `<style>` head is this exact output.
 - Current variables map as: `--ss-bg` → `--q-canvas`, `--ss-card` → `--q-sheet`, `--ss-border` → `--q-rule`, `--ss-text` → `--q-ink`, `--ss-muted` → `--q-ink2` (recipients, snippets) / `--q-ink3` (dates), `--ss-accent` → `--q-accent`, `--ss-chip` → `--q-fill`, `--ss-selected` → `--q-focus`, `--ss-star` → `--q-star`.
 - Classes: `.ss-card` (expanded) → sheet (radius `r.lg`, padding per §5.14, `e1`); collapsed cards → `.ss-stack` rows joined in one sheet; `.ss-button` → `.ss-elide` toggle and link buttons; `.ss-chip` → attachment chip; `.ss-footer a` → ghost buttons; `.ss-tools` is removed (Original colors moves to the header hover actions).
-- `bodyCSS`: `body.ss-set { font: var(--q-font-reading); max-width: 576px; }` for bodies whose stored typesetting is `plain` or `unstyled` (the shell receives the flag in the render payload; it never scans the HTML); `body.ss-set.ss-sans { font: var(--q-font-readingSans) }` for the SF Pro reading setting or uncovered scripts. It also injects the Quire focus ring for links, in every body document, because WebKit's default ring falls below 3:1 and a sender's CSS must not decide focus:
+- `bodyCSS`: `body.ss-set { font: var(--q-font-reading); max-width: 576px; }` for bodies whose stored typesetting is `plain` or `unstyled` (the shell receives the flag in the render payload; it never scans the HTML); `body.ss-set.ss-sans { font: var(--q-font-readingSans) }` for the SF Pro font setting or uncovered scripts. It also injects the Quire focus ring for links, in every body document, because WebKit's default ring falls below 3:1 and a sender's CSS must not decide focus:
 
 ```css
 a:focus { outline: none; }
@@ -2772,7 +2773,7 @@ html.ss-adapt a, html.ss-adapt a * { color: var(--q-accent) !important; }
 | Spec | Current source | Change |
 |---|---|---|
 | §4.1–4.3 tokens | `List/NSColor+Hex.swift`, hex literals across views, `.systemYellow` star, `controlAccentColor` pip, `quaternaryLabelColor` badge, four avatar palettes (`List/AvatarCache.swift`, `Shell/AccountStripButton.swift`, shell `.ss-avatar`, compose tokens) | all colours from `QuireTokens.swift`; one avatar palette, one account palette |
-| §4.4 typography | font sizes set per view (10–26 pt) | `QuireFont` roles; New York subjects and reading |
+| §4.4 typography | font sizes set per view (10–26 pt) | `QuireFont` roles; New York subjects and reading; the Font setting through `QuireEnvironment` (SF Pro twins app-wide, live) |
 | §5.1 window | `Shell/MainWindowController.swift` | empty unified toolbar (`toolbarStyle = .unified`, `titlebarSeparatorStyle = .none`) so the lights sit at the 52 pt band's centre; rail width derived from the zoom button's frame (76 / 84); title-bar zone 52 |
 | §5.2 rail | `Shell/AccountStripViewController.swift`, `Shell/AccountStripButton.swift` | opaque `spine`; folder tiles at the top with a raised selection; the account group anchored above Add with its own scrolling clip; face + ring + domain monogram; margin-rule selection; accent badges with cut-out |
 | §5.3–5.6 list header | `Shell/ListPaneViewController.swift` (search field, filter, title) | one 52 pt line: masthead (the title menu only in minimal mode), search with resting edge filling the free width, compose; no filter tabs |
@@ -2793,7 +2794,7 @@ html.ss-adapt a, html.ss-adapt a * { color: var(--q-accent) !important; }
 | §6 Space | `Conversation/ConversationViewController.swift` (`handleSpace`, `openQuickLookForSelectedMessage`) | kept, acting on the target message (it uses `selectedMessageID ?? last`, the same rule) |
 | §5.35 menus | `Shell/MainMenu.swift` | symbols, shortcut text, G-sequences |
 | §5.39 welcome | `Shell/WelcomeViewController.swift`, `Shell/AppDelegate.swift` (“Adding demo account…”) | layout, copy and states; “Try the demo” kept, with the Preparing the demo and Demo failed states |
-| §5.40 settings | `Shell/SettingsWindowController.swift` (`statusText(for:)`, the OAuth `Form`), `Shell/AppSettings.swift` | system tabs; account statuses for every sync phase; the OAuth form row by row with “Saved” beside Save; Quire control styles and drawn focus rings; account group with margin-rule selection, +/−, empty and busy states; notices as banners; colour and monogram, reading font, density, account initials |
+| §5.40 settings | `Shell/SettingsWindowController.swift` (`statusText(for:)`, the OAuth `Form`), `Shell/AppSettings.swift` | system tabs; account statuses for every sync phase; the OAuth form row by row with “Saved” beside Save; Quire control styles and drawn focus rings; account group with margin-rule selection, +/−, empty and busy states; notices as banners; colour and monogram, font, density, account initials |
 | §5.43 demo | `Shell/MainWindowController.swift` (window title), `Shell/ListPaneViewController.swift`, `Shell/SettingsWindowController.swift` (demo note), `Shell/AppEnvironment.swift` | Demo tag and menu, sync-line state, Settings banner, Leave Demo |
 | §5.44 add account | `Shell/AppDelegate.swift` (provider `NSAlert`, “Finish signing in…”), `Shell/AccountStripViewController.swift` | provider pull-down menu, pending tile, sync-line waiting state with Cancel, error alerts |
 | §5.41 notifications | `Shell/NewMailNotifier.swift` | content rules; no actions |
@@ -2816,7 +2817,7 @@ Design tests live in `Tests/SSDesignTests`: the generated ones in `Tests/SSDesig
 
 ## 9. Scope decisions
 
-**In v1:** everything above. New settings are limited to Reading font, List density, Show account initials, and per-account colour and monogram (plus the one Original colors notice preference).
+**In v1:** everything above. New settings are limited to Font, List density, Show account initials, and per-account colour and monogram (plus the one Original colors notice preference).
 
 **Not in v1, deliberately:**
 

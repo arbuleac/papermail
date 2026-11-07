@@ -23,7 +23,7 @@ public struct RenderPayloadBuilder: Sendable {
     ///   - bodyStates: what stands in for each missing body (`loading` when absent); ignored once a body exists.
     ///   - subject: overrides the first non-empty message subject when the caller already has it.
     ///   - loadRemoteImages: the user's preference, passed through to the shell.
-    ///   - readingSans: the SF Pro reading font setting (spec §4.4).
+    ///   - readingSans: the Font setting is SF Pro (spec §4.4).
     ///   - colorsNoticeDismissed: the Original colors notice was dismissed for good (spec §5.16).
     ///   - pending: messages that are replies still in the outbox (`PendingSheet`), shown as sending.
     public func build(
