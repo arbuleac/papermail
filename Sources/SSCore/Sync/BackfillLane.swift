@@ -264,8 +264,15 @@ actor BackfillLane {
             // lane owns the cursor; its messages are written like any listing page's. Units for a full metadata page
             // where the provider fetches that metadata by id inside `bootstrap`.
             let metadataCost = quota.inlineMetadata ? 0 : quota.metadataCostPerMessage * Double(pageSize)
-            let head = try await request("list", cost: quota.listCost + metadataCost) {
+            let priced = quota.listCost + metadataCost
+            let head = try await request("list", cost: priced) {
                 try await self.provider.bootstrap(page: nil, limit: pageSize)
+            }
+            // A provider charged per request says what the call sent (Graph's also looks up the system folders and
+            // lists the top of the folder tree). What it sent beyond the price taken comes out of the bucket now, so
+            // the next request waits for it rather than the burst going unseen.
+            if let sent = head.requestCount {
+                await budget.recordBackfill(Double(max(0, sent)) * quota.listCost - priced)
             }
             listing = BackfillListing(ids: head.messages.map(\.id.providerID), messages: head.messages, nextPage: head.nextPage)
             state.pagesDone = 0

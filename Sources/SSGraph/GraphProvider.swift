@@ -1,4 +1,5 @@
 import Foundation
+import os
 import SSCore
 
 /// `MailProvider` over Microsoft Graph for Microsoft 365 and Outlook.com mailboxes.
@@ -24,6 +25,9 @@ public final class GraphProvider: MailProvider, Sendable {
     /// Graph caps `$top` on message lists; asking for more is a 400.
     static let maxListPageSize = 999
     static let maxSearchPageSize = 250
+    /// Says when the folder walk stopped at its depth cap or gave up on a listing, so a folder that never syncs
+    /// between reconciles can be explained from the log; counts only, never folder names.
+    static let folderLog = Logger(subsystem: "io.supersparrow.mac", category: "graph")
 
     public convenience init(accountID: AccountID, tokens: AccessTokenProvider, session: URLSession = .shared) {
         self.init(accountID: accountID, tokens: tokens, session: session, clock: { Date() })
@@ -187,35 +191,100 @@ public final class GraphProvider: MailProvider, Sendable {
         return folders
     }
 
-    /// Every folder that gets its own delta: the top level, children one level deep, and the system folders in
-    /// case the listing missed one.
-    func enumerateFolderIDs(including wellKnown: GraphWellKnownFolders) async throws -> [String] {
-        var ids: [String] = []
-        var seen: Set<String> = []
+    /// How many levels of the folder tree the walk descends, the top level being the first. Outlook allows far
+    /// deeper trees, but people file mail a handful of levels down; the cap is there so a broken listing that keeps
+    /// handing back new children cannot keep a walk going for ever (one that repeats a folder is ended by the walk's
+    /// `found` list). A folder below it gets no delta of its own: the bootstrap listing and a reconcile still cover
+    /// its mail.
+    static let maxFolderDepth = 16
+
+    /// Listing pages one step of a walk sends, whichever listings they belong to. They go one after another, about a
+    /// fifth of a second each, before the call's delta requests and the new inbox mail they carry; five keep a step
+    /// to about a second and within the seven requests a quiet poll leaves a walk step
+    /// (`GraphCursor.maxQuietVisitsPerCall`), and a tree of 60 folders with children, each listed in a page, is
+    /// walked in twelve polls, a minute while the app is active. Counted in pages rather than listings because one
+    /// folder can hold thousands of others, listed 200 a page. The step that starts a walk sends one page, after its
+    /// six system folder lookups.
+    static let maxWalkPagesPerCall = 5
+
+    /// Calls on which a failing listing is tried before the walk gives up on it. A step comes before the call's
+    /// delta requests, so a listing that fails for good (a folder that answers 500, or access denied) must not stop
+    /// the polls, and new inbox mail with them; one that failed once gets two more tries on the calls after.
+    static let maxWalkAttempts = 3
+
+    /// One step of the walk that decides which folders get a delta of their own: the whole tree, a level at a time
+    /// through `childFolders` wherever a folder reports children, down to `maxFolderDepth`. Without a walk under way
+    /// the step starts one and sends the top level's first page; otherwise it sends the next `maxWalkPagesPerCall`
+    /// pages of the listings in `pending`, keeping a listing's nextLink where the pages run out partway through it.
+    /// Returns the walk as it stands and the folders this step found, each once in the whole walk.
+    ///
+    /// A folder gone since its parent was listed (404) is skipped with its children, as the next walk would find. A
+    /// throttle, a refused token, a cancellation or a reset fails the step, as it would the call's next request. Any
+    /// other failure ends the step and leaves the listing first in `pending` for the next call to try again; after
+    /// `maxWalkAttempts` calls the walk gives up on it and goes on with the rest (`GraphFolderWalk.gaveUp`).
+    func stepFolderWalk(_ walk: GraphFolderWalk?) async throws -> (walk: GraphFolderWalk, found: [String]) {
         let query = [("$top", "200"), ("$select", "id,childFolderCount")]
-        for folder in try await listFolders(from: try GraphURL.make("/me/mailFolders", query: query)) {
-            if seen.insert(folder.id).inserted { ids.append(folder.id) }
-            guard (folder.childFolderCount ?? 0) > 0 else { continue }
-            for child in try await listFolders(from: try GraphURL.make("/me/mailFolders/\(folder.id)/childFolders", query: query))
-            where seen.insert(child.id).inserted {
-                ids.append(child.id)
+        var next = walk ?? GraphFolderWalk(found: [], pending: [.top])
+        var seen = Set(next.found)
+        var found: [String] = []
+        var cappedParents = 0
+        func meet(_ folders: [GraphFolder], depth: Int) {
+            for folder in folders where seen.insert(folder.id).inserted {
+                found.append(folder.id)
+                guard (folder.childFolderCount ?? 0) > 0 else { continue }
+                if depth < Self.maxFolderDepth {
+                    next.pending.append(GraphFolderWalk.Parent(id: folder.id, depth: depth))
+                } else {
+                    cappedParents += 1
+                }
             }
         }
-        for name in GraphWellKnownFolders.names {
-            if let id = wellKnown.id(name), seen.insert(id).inserted { ids.append(id) }
+        var pagesLeft = walk == nil ? 1 : Self.maxWalkPagesPerCall
+        listing: while pagesLeft > 0, var parent = next.pending.first {
+            next.pending.removeFirst()
+            do {
+                let path = parent.isTop ? "/me/mailFolders" : "/me/mailFolders/\(parent.id)/childFolders"
+                var url: URL? = try parent.nextLink.map(GraphURL.absolute) ?? GraphURL.make(path, query: query)
+                while let pageURL = url, pagesLeft > 0 {
+                    pagesLeft -= 1
+                    let page = try await client.json(GraphListResponse<GraphFolder>.self, for: GraphRequest(method: .get, url: pageURL))
+                    meet(page.value, depth: parent.depth + 1)
+                    parent.nextLink = page.nextLink
+                    parent.failures = nil
+                    url = try page.nextLink.map(GraphURL.absolute)
+                }
+                if parent.nextLink != nil { next.pending.insert(parent, at: 0) }
+            } catch ProviderError.notFound {
+                continue
+            } catch let error where Self.failsTheCall(error) {
+                throw error
+            } catch {
+                let failures = (parent.failures ?? 0) + 1
+                if failures < Self.maxWalkAttempts {
+                    parent.failures = failures
+                    next.pending.insert(parent, at: 0)
+                } else {
+                    next.gaveUp = true
+                    Self.folderLog.notice("folder walk gave up on a listing after \(failures, privacy: .public) failed calls: \(String(describing: error), privacy: .private)")
+                }
+                break listing
+            }
         }
-        return ids
+        if cappedParents > 0 {
+            Self.folderLog.notice("folder tree deeper than \(Self.maxFolderDepth, privacy: .public) levels: \(cappedParents, privacy: .public) folders' children get no delta")
+        }
+        next.found += found
+        return (next, found)
     }
 
-    private func listFolders(from url: URL) async throws -> [GraphFolder] {
-        var next: URL? = url
-        var all: [GraphFolder] = []
-        while let url = next {
-            let page = try await client.json(GraphListResponse<GraphFolder>.self, for: GraphRequest(method: .get, url: url))
-            all += page.value
-            next = try page.nextLink.map(GraphURL.absolute)
+    /// Failures the call's next request would meet as well, which a walk step passes on rather than holding against
+    /// the listing: the engine waits out a throttle, asks for a new sign-in, stops, or starts over.
+    static func failsTheCall(_ error: Error) -> Bool {
+        guard let error = error as? ProviderError else { return error is CancellationError }
+        switch error {
+        case .throttled, .unauthorized, .cancelled, .resetRequired: return true
+        case .notFound, .network, .decoding, .server: return false
         }
-        return all
     }
 
     static func pageSize(_ limit: Int, max: Int) -> Int {

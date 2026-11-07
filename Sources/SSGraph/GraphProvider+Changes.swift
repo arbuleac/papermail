@@ -19,19 +19,25 @@ extension GraphProvider {
     /// the engine drains it with further calls and a crash between calls loses nothing.
     ///
     /// Not every drained folder starts on every call. The priority folders and any folder partway through a round
-    /// on a `nextLink` do; the others, sitting on their delta link, join only on a full visit, at most once per
-    /// `GraphCursor.fullVisitInterval`, so a quiet 5 s poll costs three requests rather than one per folder. The
-    /// cursor stamps each full visit, and the engine's further calls while `hasMore` holds fall inside the
-    /// interval, so they continue nextLinks without re-polling the quiet folders.
+    /// on a `nextLink` do; the others, quiet on their delta link, join only during a full visit, which starts at most
+    /// once per `GraphCursor.fullVisitInterval` and is spread over calls: a call takes the next quiet folders in id
+    /// order after the last one the visit polled, `GraphCursor.quietVisitsPerSecond` for each second since the last
+    /// call and at most `GraphCursor.maxQuietVisitsPerCall`. So a 5 s poll costs three requests plus about ten during
+    /// a visit, never one per folder, however large the tree, and the engine's further calls while `hasMore` holds,
+    /// which come within a second, continue nextLinks with two quiet folders at most.
     ///
     /// Seeding folders (any other folder still in its first round) share `maxSeedPagesPerCall` pages per call,
     /// spent on the first unfinished one in `folderOrder` until it reaches its delta link, then on the next.
     /// Seeding left over on its own does not set `hasMore`: the engine's poll ends and the next poll seeds on, so
     /// the live lane is never held behind a folder's full listing.
     ///
-    /// The page reports the requests the call sent (`requestCount`): the delta GETs, a folder refresh's lookups and
-    /// a `$batch` part per removal it looked up. That is anywhere from three to well over a hundred, and the engine
-    /// paces its live lane by it.
+    /// A folder walk under way (`GraphCursor.walk`), or one due because the folder list is a day old, takes one step
+    /// first: the system folder lookups and the top level's first page to start one, a few listing pages to go on
+    /// with one. A listing that fails holds up neither the step nor the call (`stepFolderWalk`).
+    ///
+    /// The page reports the requests the call sent (`requestCount`): the delta GETs, a walk step's lookups and
+    /// listings and a `$batch` part per removal it looked up. That is anywhere from three to well over a hundred,
+    /// and the engine paces its live lane by it.
     public func changes(since cursorString: String, limit: Int) async throws -> ChangesPage {
         let (collected, sent) = try await GraphRequestTally.counting {
             try await collectChanges(since: cursorString, limit: limit)
@@ -44,8 +50,8 @@ extension GraphProvider {
     private func collectChanges(since cursorString: String, limit: Int) async throws -> ChangesPage {
         var cursor = try GraphCursor.decode(cursorString)
         let now = clock()
-        if cursor.needsFolderRefresh(at: now) {
-            try await refreshFolders(in: &cursor, at: now)
+        if cursor.walk != nil || cursor.needsFolderRefresh(at: now) {
+            try await walkFolders(in: &cursor, at: now)
         }
         let folders = GraphWellKnownFolders(ids: cursor.wellKnown)
         await folderCache.store(folders)
@@ -59,15 +65,12 @@ extension GraphProvider {
         var upsertOrder: [String] = []
         var removed: [String] = []
 
-        // The first pass visits every drained folder due this call, so one already sitting on a delta link is
-        // still polled on a full visit; later passes only continue drained folders that handed back a nextLink.
-        let fullVisit = cursor.needsFullVisit(at: now)
+        // The first pass visits every drained folder due this call, so a quiet folder whose turn in the full visit
+        // has come is polled; later passes only continue drained folders that handed back a nextLink.
+        let visiting = Self.quietFoldersDue(in: &cursor, order: folderOrder, priority: priority, at: now)
         var drained = folderOrder.filter { folderID in
             !Self.isSeeding(folderID, in: cursor, priority: priority)
-                && (fullVisit || Self.isPolledEveryCall(folderID, in: cursor, priority: priority))
-        }
-        if fullVisit {
-            cursor.fullVisitAt = GraphDate.string(now)
+                && (visiting.contains(folderID) || Self.isPolledEveryCall(folderID, in: cursor, priority: priority))
         }
         var seedPagesLeft = Self.maxSeedPagesPerCall
         while true {
@@ -154,6 +157,27 @@ extension GraphProvider {
         return ordered
     }
 
+    /// The quiet folders this call polls, moving the cursor's full visit along: one starts when none is under way
+    /// and the interval since the last has run out, and it takes the next folders in id order after the last one it
+    /// polled, as many as the time since the last call earns. Stamps the call.
+    static func quietFoldersDue(in cursor: inout GraphCursor, order: [String], priority: Set<String>, at now: Date) -> Set<String> {
+        let allowance = cursor.quietVisitAllowance(at: now)
+        cursor.polledAt = GraphDate.string(now)
+        if cursor.fullVisitAfter == nil, cursor.needsFullVisit(at: now) {
+            cursor.fullVisitAt = GraphDate.string(now)
+            cursor.fullVisitAfter = ""
+        }
+        guard let after = cursor.fullVisitAfter else { return [] }
+        let left = order.filter { folderID in
+            folderID > after
+                && !isSeeding(folderID, in: cursor, priority: priority)
+                && !isPolledEveryCall(folderID, in: cursor, priority: priority)
+        }.sorted()
+        let due = left.prefix(allowance)
+        cursor.fullVisitAfter = due.count < left.count ? (due.last ?? after) : nil
+        return Set(due)
+    }
+
     static func priorityFolderIDs(in cursor: GraphCursor) -> Set<String> {
         Set(priorityFolderNames.compactMap { cursor.wellKnown[$0] })
     }
@@ -187,17 +211,24 @@ extension GraphProvider {
         ])
     }
 
-    /// Folders created since the last look get a delta of their own; deleted ones stop being polled.
-    private func refreshFolders(in cursor: inout GraphCursor, at now: Date) async throws {
-        let wellKnown = try await resolveWellKnownFolders()
-        let ids = try await enumerateFolderIDs(including: wellKnown)
-        var folders: [String: String?] = [:]
-        for id in ids {
-            folders.updateValue(cursor.deltaLink(for: id), forKey: id)
+    /// Folders created since the last look, at any depth, get a delta of their own as the walk finds them; folders
+    /// that a second walk in a row does not find stop being polled once it ends (`GraphCursor.takeIn`). Started once
+    /// a day (`GraphCursor.folderRefreshInterval`, counted from the walk's start), not every poll: the walk costs a
+    /// request per folder with children, and a folder deleted in between drops out sooner, when its delta answers
+    /// 404. A step a call; the call that starts a walk also looks up the system folders again, and keeps the ids it
+    /// had where a lookup fails (they do not change), so the step and the polls go on.
+    private func walkFolders(in cursor: inout GraphCursor, at now: Date) async throws {
+        if cursor.walk == nil {
+            cursor.foldersResolvedAt = GraphDate.string(now)
+            do {
+                cursor.wellKnown = try await resolveWellKnownFolders().ids
+            } catch let error where Self.failsTheCall(error) {
+                throw error
+            } catch {
+                Self.folderLog.notice("system folder lookup failed; the folder walk keeps the ids it had")
+            }
         }
-        cursor.folders = folders
-        cursor.nextLinks = cursor.nextLinks.filter { folders.keys.contains($0.key) }
-        cursor.wellKnown = wellKnown.ids
-        cursor.foldersResolvedAt = GraphDate.string(now)
+        let step = try await stepFolderWalk(cursor.walk)
+        cursor.takeIn(step.walk, found: step.found)
     }
 }

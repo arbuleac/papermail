@@ -393,7 +393,8 @@ final class GraphChangesTests: GraphTestCase {
     }
 
     /// Cursors stored before polls were thinned carry no full-visit time: they decode with their delta links
-    /// intact and their next call polls every folder.
+    /// intact and their next call polls every folder. (This one carries the walked-tree marker, so the call is
+    /// about the visit alone, not the folder walk such a cursor also starts.)
     func testCursorStoredWithoutFullVisitTimeVisitsEveryFolder() async throws {
         routeSeeds([:])
         let folders = [
@@ -401,7 +402,7 @@ final class GraphChangesTests: GraphTestCase {
             #""F-INBOX":"\#(deltaLink("F-INBOX", "F-INBOX-d1"))""#,
             #""F-PROJECTS":"\#(deltaLink("F-PROJECTS", "F-PROJECTS-d1"))""#,
         ].joined(separator: ",")
-        let stored = #"{"deltaScope":"mailbox","folders":{\#(folders)},"foldersResolvedAt":"\#(nowString)","nextLinks":{},"since":"\#(nowString)","wellKnown":{"archive":"F-ARCHIVE","inbox":"F-INBOX"}}"#
+        let stored = #"{"deltaScope":"mailbox","folderScope":"tree","folders":{\#(folders)},"foldersResolvedAt":"\#(nowString)","nextLinks":{},"since":"\#(nowString)","wellKnown":{"archive":"F-ARCHIVE","inbox":"F-INBOX"}}"#
         let decoded = try GraphCursor.decode(stored)
         XCTAssertNil(decoded.fullVisitAt)
         XCTAssertEqual(decoded.deltaLink(for: "F-PROJECTS"), deltaLink("F-PROJECTS", "F-PROJECTS-d1"))
@@ -671,12 +672,12 @@ final class GraphChangesTests: GraphTestCase {
 
         let next = try GraphCursor.decode(page.cursor)
         XCTAssertEqual(next.foldersResolvedAt, nowString)
-        XCTAssertEqual(Set(next.folders.keys), ["F-INBOX", "F-NEW", "F-SENT", "F-DRAFTS", "F-TRASH", "F-JUNK", "F-ARCHIVE"])
+        XCTAssertEqual(Set(next.folders.keys), ["F-INBOX", "F-NEW", "F-SENT", "F-DRAFTS", "F-TRASH", "F-JUNK", "F-ARCHIVE", "F-GONE"])
         XCTAssertNil(next.deltaLink(for: "F-NEW"), "a new custom folder waits for the seeding folders ahead of it")
         XCTAssertEqual(next.deltaLink(for: "F-INBOX"), inboxLink2)
         XCTAssertEqual(next.wellKnown, Fixtures.folderIDs)
         XCTAssertEqual(requests(to: inboxDelta).first?.query["$deltatoken"], "inbox-d1", "a folder that survives keeps its delta link")
-        XCTAssertTrue(requests(to: "/v1.0/me/mailFolders/F-GONE/messages/delta").isEmpty)
+        XCTAssertEqual(next.missed, ["F-GONE"], "a folder the walk did not find is kept until a second walk misses it")
         XCTAssertEqual(seedPaths(), [sentDelta, deltaPath("F-DRAFTS"), deltaPath("F-TRASH")], "sent and drafts drain; trash takes the one seed page")
         XCTAssertTrue(page.upserts.isEmpty)
         XCTAssertFalse(page.hasMore)
@@ -711,7 +712,8 @@ final class GraphChangesTests: GraphTestCase {
 
     /// Cursors written before deltas tracked the whole mailbox carry deltaLinks scoped to
     /// `receivedDateTime ge <bootstrap start>`; Graph keeps that scope in the token, so they are dropped and
-    /// every folder is seeded again without a filter.
+    /// every folder is seeded again without a filter. (The walked-tree marker keeps this call about the links, not
+    /// the folder walk such a cursor also starts.)
     func testLegacyFilteredCursorIsReseededWithoutFilter() async throws {
         route { request in
             guard request.method == "GET", request.path == self.inboxDelta else { return nil }
@@ -720,7 +722,7 @@ final class GraphChangesTests: GraphTestCase {
             }
             return .json(Fixtures.list([Fixtures.message(id: "old", folder: "F-INBOX", received: "2025-01-01T09:00:00Z")], deltaLink: self.inboxLink))
         }
-        let legacy = #"{"folders":{"F-INBOX":"\#(inboxLink)"},"nextLinks":{},"wellKnown":{"inbox":"F-INBOX"},"since":"\#(nowString)","foldersResolvedAt":"\#(nowString)"}"#
+        let legacy = #"{"folderScope":"tree","folders":{"F-INBOX":"\#(inboxLink)"},"nextLinks":{},"wellKnown":{"inbox":"F-INBOX"},"since":"\#(nowString)","foldersResolvedAt":"\#(nowString)"}"#
 
         let page = try await makeProvider().changes(since: legacy, limit: 50)
 

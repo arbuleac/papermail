@@ -343,8 +343,17 @@ actor LiveLane {
         }
         // A new cursor starts a new run of changes.
         runPageCost = nil
-        await budget.recordLive(pageCost(budget.quota.listCost, messages: page.messages.count))
+        await budget.recordLive(headPageCost(page))
         return (page, cursor)
+    }
+
+    /// What a head page cost: the requests the provider says it sent where it is charged per request (Graph: the
+    /// system folder lookups, the first steps of its folder walk and the listing), otherwise the listing call plus
+    /// its metadata.
+    private func headPageCost(_ page: BootstrapPage) -> Double {
+        let quota = budget.quota
+        guard let requests = page.requestCount else { return pageCost(quota.listCost, messages: page.messages.count) }
+        return Double(max(0, requests)) * quota.listCost
     }
 
     /// A state for the backfill that `head` starts, before anything of it is written: nowhere to resume from, so

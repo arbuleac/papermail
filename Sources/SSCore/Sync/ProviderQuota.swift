@@ -9,7 +9,8 @@ struct ProviderQuota: Sendable, Equatable {
     /// The part of `unitsPerMinute` the backfill may use. The rest is headroom for the live lane, which is
     /// never paced: new mail and the user's own actions must not queue behind older mail.
     var backfillShare: Double = 2.0 / 3.0
-    /// One page of the id listing.
+    /// One page of the id listing, or one request of a first page that reports the requests it sent
+    /// (`BootstrapPage.requestCount`, Graph's).
     var listCost: Double
     /// Metadata for one message fetched by id. A listing that carries metadata inline costs only `listCost`.
     var metadataCostPerMessage: Double
@@ -22,8 +23,10 @@ struct ProviderQuota: Sendable, Equatable {
     var maxBackfillConcurrency: Int
     /// Whether the head page and change pages carry each message's metadata (Graph's list and delta pages) rather
     /// than leaving it to be fetched by id at `metadataCostPerMessage` each (Gmail's list and history). When they
-    /// do, the live lane records such a page as `listCost` or `changesCost` alone (a changes page that reports its
-    /// requests, as `changesCost` per request).
+    /// do, the live lane records such a page as `listCost` or `changesCost` alone, unless the page reports the
+    /// requests its call sent: a head page with `BootstrapPage.requestCount` is recorded as `listCost` per request
+    /// (Graph's, which also looks up the system folders and takes the first steps of its folder walk), and a changes
+    /// page with `ChangesPage.requestCount` as `changesCost` per request.
     var inlineMetadata = false
 
     static func standard(for kind: ProviderKind) -> ProviderQuota {

@@ -11,11 +11,17 @@ public struct BootstrapPage: Sendable {
     /// Returned on the first page when the provider can say it cheaply: about how many messages the
     /// enumeration covers, for “Downloading · 3,412 of 8,120”. An estimate, never a promise.
     public var estimatedTotal: Int?
-    public init(messages: [MessageMetadata], nextPage: String?, changeCursor: String?, estimatedTotal: Int? = nil) {
+    /// The counted requests this call made, for providers whose cost is per request (Graph's first page also looks up
+    /// the system folders and lists the top of the folder tree); nil means one listing call plus per-message
+    /// metadata as the quota prices it. The engine charges it to whichever lane asked.
+    public var requestCount: Int?
+    public init(messages: [MessageMetadata], nextPage: String?, changeCursor: String?, estimatedTotal: Int? = nil,
+                requestCount: Int? = nil) {
         self.messages = messages
         self.nextPage = nextPage
         self.changeCursor = changeCursor
         self.estimatedTotal = estimatedTotal
+        self.requestCount = requestCount
     }
 }
 

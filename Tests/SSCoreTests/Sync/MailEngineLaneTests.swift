@@ -628,12 +628,63 @@ final class MailEngineLaneTests: XCTestCase {
         XCTAssertEqual(graph, 0, accuracy: 0.5)
     }
 
-    private func virtualWaitForTheFirstBackfillListing(inlineMetadata: Bool) async throws -> TimeInterval {
+    /// A head page that says what its call sent is charged for every request, not as one listing call: Graph's also
+    /// looks up the system folders and lists the top of the folder tree.
+    func testAHeadPageIsChargedForEveryRequestItReports() async throws {
+        // The body (5) and three requests at 5 apiece leave -5 of the bucket's 15, so the listing's 5 takes 20 s.
+        let waited = try await virtualWaitForTheFirstBackfillListing(inlineMetadata: true, headRequests: 3)
+        XCTAssertEqual(waited, 20, accuracy: 0.5)
+    }
+
+    /// The backfill's listing from the top takes one listing page's units before it goes out. A first page that says
+    /// its call sent more has the rest taken after, so the backfill's next request waits for it.
+    func testAListingFromTheTopIsChargedForEveryRequestItReports() async throws {
+        // A bucket of 15 at 0.5 units a second: the listing takes 5 before it goes, and four requests at 5 apiece
+        // take 15 more, leaving -5, so the next page's 5 waits 20 s. A page that says nothing costs the 5 alone.
+        let counted = try await virtualWaitForTheBackfillAfterAListingFromTheTop(headRequests: 4)
+        XCTAssertEqual(counted, 20, accuracy: 0.5)
+        let uncounted = try await virtualWaitForTheBackfillAfterAListingFromTheTop(headRequests: nil)
+        XCTAssertEqual(uncounted, 0, accuracy: 0.5)
+    }
+
+    private func virtualWaitForTheBackfillAfterAListingFromTheTop(headRequests: Int?) async throws -> TimeInterval {
+        let clock = TestClock(realSleepCap: 0.01, followsRealTime: false)
+        let provider = ScriptedProvider(accountID: Fixtures.accountID)
+        var head = Fixtures.page(1...1, next: "p2", cursor: "c-ignored")
+        head.requestCount = headRequests
+        provider.bootstrapRuns = [["": .success(head), "p2": .success(Fixtures.page(2...2, next: nil))]]
+        let waited = Recorded<TimeInterval>()
+        provider.onBackfillListing = { _ in waited.append(clock.advanced) }
+        let harness = try EngineHarness(provider: provider) { tuning in
+            tuning.quota = { _ in
+                ProviderQuota(unitsPerMinute: 90, listCost: 5, metadataCostPerMessage: 5, bodyCost: 5, changesCost: 0,
+                              maxBackfillConcurrency: 2, inlineMetadata: true)
+            }
+            tuning.makeBudget = { quota in QuotaBudget(quota: quota, now: clock.now, sleep: clock.sleep) }
+            // Only the backfill's listings spend units.
+            tuning.liveHydrationLimit = 0
+            tuning.hydrationBatchSize = 0
+        }
+        // A download with nowhere to resume from: the backfill lists from the top, the live lane polls its cursor.
+        try harness.store.setSyncCursor("c0", for: Fixtures.accountID)
+        var state = BootstrapState(startedAt: Date(), pagesDone: 1, messagesSeen: 1, isComplete: false)
+        state.checkpoint = BootstrapCheckpoint(providerPage: nil, changeCursor: "c0")
+        try harness.store.setBootstrapState(state, for: Fixtures.accountID)
+        harness.engine.start()
+        try await waitUntil("the backfill's next page") { !waited.values.isEmpty }
+        await harness.shutdown()
+        XCTAssertEqual(provider.bootstrapCalls.filter { $0 == nil }.count, 1, "listed from the top once")
+        return try XCTUnwrap(waited.values.first)
+    }
+
+    private func virtualWaitForTheFirstBackfillListing(inlineMetadata: Bool, headRequests: Int? = nil) async throws -> TimeInterval {
         // Time moves only when the budget sleeps, so nothing refills on its own and the wait is exact.
         let clock = TestClock(realSleepCap: 0.01, followsRealTime: false)
         let provider = ScriptedProvider(accountID: Fixtures.accountID)
+        var head = Fixtures.page(1...1, next: "p2", cursor: "c0")
+        head.requestCount = headRequests
         provider.bootstrapRuns = [[
-            "": .success(Fixtures.page(1...1, next: "p2", cursor: "c0")),
+            "": .success(head),
             "p2": .success(Fixtures.page(2...2, next: nil)),
         ]]
         provider.changesQueue = [.success(Fixtures.changes(upserts: [Fixtures.message(3)], cursor: "c1"))]

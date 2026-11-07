@@ -163,6 +163,14 @@ actor QuotaBudget {
         }
     }
 
+    /// Records units a backfill request spent beyond what it took before going out: a call that reports it sent more
+    /// than it was priced at. Never waits, since the request has gone; the backfill's next request waits for it.
+    func recordBackfill(_ cost: Double) {
+        guard !unmetered, !cost.isNaN, cost > 0 else { return }
+        refill(to: readClock())
+        spend(cost)
+    }
+
     /// Records units the live lane spent. Never waits: the live lane carries new mail and the user's actions.
     func recordLive(_ cost: Double) {
         guard !unmetered, !cost.isNaN, cost > 0 else { return }
