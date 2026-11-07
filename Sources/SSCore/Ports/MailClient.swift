@@ -36,8 +36,21 @@ public protocol MailClient: AnyObject {
 
     /// Returns the stored body, fetching and sanitizing it first when missing.
     func ensureBody(for message: MessageID) async throws -> StoredBody
-    func attachmentData(for message: MessageID, attachmentID: String) async throws -> Data
+    /// The attachment's bytes, from this Mac's cache or downloaded once (callers asking at the same time share the
+    /// download). `expectedSize` is the size the body listed (`AttachmentInfo.sizeBytes`, 0 when unknown), which lets
+    /// a provider that streams say how far it has got; `progress` then hears fractions from 0 to 1, rising, at most
+    /// about ten a second, on no particular thread. It hears nothing for a file already cached, and nothing until
+    /// the end for a download whose size is unknown.
+    func attachmentData(for message: MessageID, attachmentID: String, expectedSize: Int,
+                        progress: (@Sendable (Double) -> Void)?) async throws -> Data
 
     /// Current status per account, delivered on the main thread, first with the current value.
     func observeStatus(onChange: @escaping @Sendable ([AccountSyncStatus]) -> Void) -> StoreObservation
+}
+
+extension MailClient {
+    /// The attachment's bytes, for a caller that shows no progress.
+    public func attachmentData(for message: MessageID, attachmentID: String) async throws -> Data {
+        try await attachmentData(for: message, attachmentID: attachmentID, expectedSize: 0, progress: nil)
+    }
 }

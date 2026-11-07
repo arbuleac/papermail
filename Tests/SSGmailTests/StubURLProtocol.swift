@@ -1,4 +1,5 @@
 import Foundation
+import os
 import SSCore
 import XCTest
 @testable import SSGmail
@@ -9,6 +10,17 @@ struct StubResponse {
     var headers: [String: String] = [:]
     var body: Data = Data()
     var error: Error?
+    /// When set, the body is sent in this many pieces a few milliseconds apart, as a slow network delivers it, so a
+    /// streaming download sees several chunks. URLSession holds back the first 512 bytes to sniff a type unless the
+    /// reply names one, so chunked replies always carry a Content-Type.
+    var chunks: Int?
+
+    /// `body` delivered in `count` pieces.
+    func chunked(_ count: Int) -> StubResponse {
+        var copy = self
+        copy.chunks = count
+        return copy
+    }
 
     static func json(_ text: String, status: Int = 200, headers: [String: String] = [:]) -> StubResponse {
         var merged = headers
@@ -187,11 +199,36 @@ final class StubURLProtocol: URLProtocol {
             return
         }
         client?.urlProtocol(self, didReceive: http, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: response.body)
-        client?.urlProtocolDidFinishLoading(self)
+        guard let pieces = response.chunks, pieces > 1, response.body.count > 1 else {
+            client?.urlProtocol(self, didLoad: response.body)
+            client?.urlProtocolDidFinishLoading(self)
+            return
+        }
+        let body = response.body
+        let size = (body.count + pieces - 1) / pieces
+        let queue = DispatchQueue(label: "StubURLProtocol.chunks")
+        var offset = 0
+        var step = 1
+        while offset < body.count {
+            let piece = body.subdata(in: offset..<min(body.count, offset + size))
+            queue.asyncAfter(deadline: .now() + .milliseconds(15 * step)) { [weak self] in
+                guard let self, !self.stopped.withLock({ $0 }) else { return }
+                self.client?.urlProtocol(self, didLoad: piece)
+            }
+            offset += size
+            step += 1
+        }
+        queue.asyncAfter(deadline: .now() + .milliseconds(15 * step)) { [weak self] in
+            guard let self, !self.stopped.withLock({ $0 }) else { return }
+            self.client?.urlProtocolDidFinishLoading(self)
+        }
     }
 
-    override func stopLoading() {}
+    private let stopped = OSAllocatedUnfairLock(initialState: false)
+
+    override func stopLoading() {
+        stopped.withLock { $0 = true }
+    }
 }
 
 /// Hands out tokens in order, advancing only when the provider invalidates one.

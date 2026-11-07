@@ -359,13 +359,48 @@ public final class GmailProvider: MailProvider, Sendable {
         return parsed.body
     }
 
+    /// In one response, for the oversized text parts a body fetch resolves; files the user opens go through
+    /// `downloadAttachment`.
     public func attachment(messageID providerID: String, attachmentID: String) async throws -> Data {
-        let resource = "messages/" + Self.pathComponent(providerID) + "/attachments/" + Self.pathComponent(attachmentID)
-        let attachment = try await http.json(GmailAttachment.self, for: try GmailRequest.get(resource, kind: .attachment))
+        let request = try GmailRequest.get(Self.attachmentResource(providerID, attachmentID), kind: .attachment)
+        let attachment = try await http.json(GmailAttachment.self, for: request)
         guard let encoded = attachment.data, let data = Base64URL.decode(encoded) else {
             throw ProviderError.decoding("Attachment payload is not base64url")
         }
         return data
+    }
+
+    /// Streams the reply, a JSON object whose `data` is the file in base64url, to a file beside `destination` (so
+    /// whatever sweeps the caller's unfinished downloads sweeps it too), then decodes it into `destination` a slice
+    /// at a time. Progress counts the reply's bytes against its Content-Length or, as Google usually sends it
+    /// chunked, against the base64 length of `expectedSize`; it stops at 99% until the file is decoded and written.
+    public func downloadAttachment(messageID providerID: String, attachmentID: String, expectedSize: Int, to destination: URL,
+                                   progress: @escaping @Sendable (Double) -> Void) async throws {
+        let request = try GmailRequest.get(Self.attachmentResource(providerID, attachmentID), kind: .attachment)
+        let meter = DownloadProgressMeter(estimatedLength: Self.replyLength(forAttachmentOf: expectedSize), report: progress)
+        let reply = destination.appendingPathExtension("reply")
+        defer { try? FileManager.default.removeItem(at: reply) }
+        meter.start()
+        try await http.download(request, to: reply) { written, response in
+            meter.received(written, of: response)
+        }
+        if Task.isCancelled { throw ProviderError.cancelled }
+        try GmailAttachmentDecoder.decode(reply: reply, to: destination)
+        meter.finish()
+    }
+
+    /// About how long the reply for an attachment of `size` bytes is: base64 takes 4 characters for every 3 bytes,
+    /// and the JSON around it (`{"size": …, "data": "…"}`, pretty-printed) a few dozen more. nil when the size is
+    /// unknown.
+    static func replyLength(forAttachmentOf size: Int) -> Int64? {
+        guard size > 0 else { return nil }
+        return Int64((size + 2) / 3) * 4 + replyOverhead
+    }
+
+    private static let replyOverhead: Int64 = 64
+
+    private static func attachmentResource(_ providerID: String, _ attachmentID: String) -> String {
+        "messages/" + pathComponent(providerID) + "/attachments/" + pathComponent(attachmentID)
     }
 
     // MARK: Changes to messages

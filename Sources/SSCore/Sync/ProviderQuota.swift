@@ -16,6 +16,8 @@ struct ProviderQuota: Sendable, Equatable {
     var metadataCostPerMessage: Double
     /// One body, with whatever else hydration fetches alongside it.
     var bodyCost: Double
+    /// One attachment the user opens or saves, recorded as live spend like an opened body.
+    var attachmentCost: Double = 1
     /// One page of changes since a cursor, or one request of it where the page reports the requests it sent
     /// (`ChangesPage.requestCount`, Graph's).
     var changesCost: Double
@@ -33,19 +35,21 @@ struct ProviderQuota: Sendable, Equatable {
         switch kind {
         case .gmail:
             // Gmail's 2026 per-user limit is 6,000 quota units a minute. The costs are Gmail's published
-            // per-method units: messages.list 5, messages.get 20 with format=metadata and 60 with format=full,
-            // history.list 2. Two requests in flight, because a Gmail batch already carries several calls and
-            // more parallel batches only reach the limit sooner.
+            // per-method units (the Gmail API's "Usage limits" page): messages.list 5, messages.get 20 with
+            // format=metadata and 60 with format=full, messages.attachments.get 5, history.list 2. Two requests in
+            // flight, because a Gmail batch already carries several calls and more parallel batches only reach the
+            // limit sooner.
             return ProviderQuota(unitsPerMinute: 6_000, listCost: 5, metadataCostPerMessage: 20, bodyCost: 60,
-                                 changesCost: 2, maxBackfillConcurrency: 2)
+                                 attachmentCost: 5, changesCost: 2, maxBackfillConcurrency: 2)
         case .microsoft:
             // Outlook allows 10,000 requests per 10 minutes per app per mailbox, so a unit is one request.
             // Graph counts each request inside a $batch against that limit on its own, so metadata fetched by id
             // costs a request per message even twenty to a $batch; a listing page that returns metadata inline is
-            // one request. A body takes the message and its attachment list. A mailbox allows 4 concurrent
-            // requests; the backfill takes 2 so the live lane always has the other 2.
+            // one request. A body takes the message and its attachment list; an attachment's bytes are one GET of
+            // its `$value`. A mailbox allows 4 concurrent requests; the backfill takes 2 so the live lane always has
+            // the other 2.
             return ProviderQuota(unitsPerMinute: 1_000, listCost: 1, metadataCostPerMessage: 1, bodyCost: 2,
-                                 changesCost: 1, maxBackfillConcurrency: 2, inlineMetadata: true)
+                                 attachmentCost: 1, changesCost: 1, maxBackfillConcurrency: 2, inlineMetadata: true)
         }
     }
 

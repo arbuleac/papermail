@@ -631,7 +631,8 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         var failures = 0
         for (part, placeholder) in zip(parts, placeholders) {
             do {
-                let data = try await client.attachmentData(for: originalID, attachmentID: part.info.id)
+                let data = try await client.attachmentData(for: originalID, attachmentID: part.info.id,
+                                                           expectedSize: part.info.sizeBytes, progress: nil)
                 guard !Task.isCancelled else { return }
                 replaceAttachment(placeholder.id) { attachment in
                     attachment.source = .data(data)

@@ -145,7 +145,7 @@ Worked out once by `HTMLSanitizer` at sync time and stored with the body, so the
 - **covered_by_new_york**: every letter (Unicode L*) and decimal digit (Nd) of the extracted text is in New York's character set; punctuation, symbols, emoji (by the Unicode Emoji property, so U+2139 ℹ️, a lowercase letter by category, is ignored too) and marks are ignored because they fall back to the same system fonts beside either face. The character set is a range table in `Render/NewYorkCoverage.swift`, measured with `CTFontCopyCharacterSet` by `scripts/tools/newyork-coverage.swift`.
 
 ### attachment_cache (file system, not SQL)
-`~/Library/Caches/SuperSparrow/attachments/<account>/<message>/<attachmentID>`; inline images keyed by content id.
+`~/Library/Caches/SuperSparrow/attachments/<account>/<message>/<attachmentID>`; inline images keyed by content id. Each path component keeps letters, digits, `-` and `_` and percent-encodes the rest (a SHA-256 in hex when that runs past 180 characters), so an entry's name never holds a dot. A download streams into `.partial/<UUID>.partial` under the cache's root (a name no account folder can have, on the same volume) and is renamed into place once complete, so a download that fails or stops never leaves a truncated entry. Gmail writes its JSON reply beside the partial file, as `<UUID>.partial.reply`, until it is decoded. Both are removed when the download ends, however it ends; what a run cut off by quitting or a crash leaves in `.partial` is deleted before the next run's first download.
 
 ## Migrations
 Applied in order by GRDB's `DatabaseMigrator`; a migration is never edited once released.

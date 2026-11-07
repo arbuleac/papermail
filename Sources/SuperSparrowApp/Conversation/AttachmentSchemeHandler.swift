@@ -23,7 +23,8 @@ final class AttachmentSchemeHandler: NSObject, WKURLSchemeHandler {
         let key = ObjectIdentifier(urlSchemeTask)
         let client = self.client
         inFlight[key] = Task { [weak self] in
-            let data = try? await client.attachmentData(for: target.message, attachmentID: target.key)
+            let data = try? await client.attachmentData(for: target.message, attachmentID: target.key,
+                                                        expectedSize: info?.sizeBytes ?? 0, progress: nil)
             guard let self, self.inFlight[key] != nil else { return }
             self.inFlight[key] = nil
             if let data {

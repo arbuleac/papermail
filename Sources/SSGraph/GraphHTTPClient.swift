@@ -21,6 +21,35 @@ final class GraphHTTPClient: Sendable {
     }
 
     func send(_ request: GraphRequest) async throws -> GraphResponse {
+        let (http, data) = try await exchange(request) { urlRequest in
+            let (data, response) = try await session.data(for: urlRequest)
+            guard let http = response as? HTTPURLResponse else {
+                throw ProviderError.network("non-HTTP response")
+            }
+            let succeeded = (200..<300).contains(http.statusCode)
+            return (http, succeeded ? nil : data, data)
+        }
+        return GraphResponse(status: http.statusCode, headers: Self.lowercasedHeaders(http), data: data)
+    }
+
+    /// Downloads `request`'s reply into `file` as it arrives instead of buffering it, with `send`'s token retry,
+    /// request tally and status mapping. `onBytes` hears the bytes written so far, with the response, after every
+    /// chunk of a 2xx body. A file error (the disk is full) is thrown as it is: it is this Mac's failure, not Graph's.
+    func download(_ request: GraphRequest, to file: URL,
+                  onBytes: @escaping @Sendable (Int64, HTTPURLResponse) -> Void) async throws {
+        _ = try await exchange(request) { urlRequest in
+            let outcome = try await HTTPDownload.run(urlRequest, session: session, to: file, onBytes: onBytes)
+            return (outcome.response, outcome.errorBody, ())
+        }
+    }
+
+    /// One request with a fresh token: a 401 invalidates the token and earns one retry, and a status outside 2xx
+    /// becomes a `ProviderError`. `attempt` sends one try and returns the response, the body when the status failed
+    /// (nil when it succeeded) and its result.
+    private func exchange<T>(
+        _ request: GraphRequest,
+        _ attempt: (URLRequest) async throws -> (response: HTTPURLResponse, errorBody: Data?, result: T)
+    ) async throws -> (HTTPURLResponse, T) {
         var retriedAuth = false
         while true {
             let token = request.authenticated ? try await tokens.accessToken(for: accountID) : nil
@@ -28,21 +57,21 @@ final class GraphHTTPClient: Sendable {
             // Every attempt counts, the one a 401 sends again included: Graph may count the refused one too, and
             // over-counting a rare retry only paces the engine a little sooner.
             GraphRequestTally.current?.add(request.countedRequests)
-            let data: Data
-            let response: URLResponse
+            let reply: (response: HTTPURLResponse, errorBody: Data?, result: T)
             do {
-                (data, response) = try await session.data(for: urlRequest)
+                reply = try await attempt(urlRequest)
             } catch let error as URLError where error.code == .cancelled {
                 throw ProviderError.cancelled
             } catch is CancellationError {
                 throw ProviderError.cancelled
+            } catch let error as ProviderError {
+                throw error
+            } catch let error as CocoaError {
+                throw error
             } catch {
                 throw ProviderError.network(error.localizedDescription)
             }
-            guard let http = response as? HTTPURLResponse else {
-                throw ProviderError.network("non-HTTP response")
-            }
-            let headers = Self.lowercasedHeaders(http)
+            let http = reply.response
             log.debug("\(request.method.rawValue, privacy: .public) \(request.url.path, privacy: .public) -> \(http.statusCode, privacy: .public)")
             if http.statusCode == 401, request.authenticated {
                 // The token looked valid when the token provider handed it out; let it refresh and try once more.
@@ -53,10 +82,10 @@ final class GraphHTTPClient: Sendable {
                 }
                 throw ProviderError.unauthorized
             }
-            guard (200..<300).contains(http.statusCode) else {
-                throw GraphErrorMapper.error(status: http.statusCode, headers: headers, data: data)
+            if let body = reply.errorBody {
+                throw GraphErrorMapper.error(status: http.statusCode, headers: Self.lowercasedHeaders(http), data: body)
             }
-            return GraphResponse(status: http.statusCode, headers: headers, data: data)
+            return (http, reply.result)
         }
     }
 

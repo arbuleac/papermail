@@ -51,27 +51,59 @@ struct GmailHTTPClient: Sendable {
         let response: URLResponse
         do {
             (data, response) = try await session.data(for: urlRequest)
-        } catch let error as URLError where error.code == .cancelled {
-            throw ProviderError.cancelled
-        } catch let error as URLError {
-            throw ProviderError.network(error.localizedDescription)
-        } catch is CancellationError {
-            throw ProviderError.cancelled
-        } catch let error as ProviderError {
-            throw error
         } catch {
-            throw ProviderError.network(String(describing: error))
+            throw Self.transportError(error)
         }
         guard let http = response as? HTTPURLResponse else {
             throw ProviderError.network("Response was not HTTP")
         }
-        if let error = Self.error(status: http.statusCode, body: data, retryAfter: http.value(forHTTPHeaderField: "Retry-After")) {
-            if case .throttled(let retryAfter) = error {
-                Self.logThrottle(ThrottleDetails(status: http.statusCode, body: data), kind: request.kind, retryAfter: retryAfter)
-            }
-            throw error
-        }
+        try Self.check(http, body: data, kind: request.kind)
         return Response(status: http.statusCode, data: data, http: http)
+    }
+
+    /// Downloads `request`'s reply into `file` as it arrives instead of buffering it, with `send`'s token retry and
+    /// status mapping. `onBytes` hears the bytes written so far, with the response, after every chunk of a 2xx
+    /// body. A file error (the disk is full) is thrown as it is: it is this Mac's failure, not the provider's.
+    func download(_ request: GmailRequest, to file: URL,
+                  onBytes: @escaping @Sendable (Int64, HTTPURLResponse) -> Void) async throws {
+        try await withAuthRetry { token in
+            let outcome: HTTPDownload.Outcome
+            do {
+                outcome = try await HTTPDownload.run(request.urlRequest(token: token), session: session, to: file, onBytes: onBytes)
+            } catch let error as CocoaError {
+                throw error
+            } catch {
+                throw Self.transportError(error)
+            }
+            if let body = outcome.errorBody {
+                try Self.check(outcome.response, body: body, kind: request.kind)
+                // `check` throws for every status outside 2xx; this only keeps a reply that is not the file from ever
+                // passing as one.
+                throw ProviderError.server(status: outcome.response.statusCode, message: Self.errorMessage(body))
+            }
+        }
+    }
+
+    /// What a failed transfer means to the engine: a cancellation, or a network failure worth retrying.
+    static func transportError(_ error: Error) -> ProviderError {
+        switch error {
+        case let error as URLError where error.code == .cancelled: return .cancelled
+        case let error as URLError: return .network(error.localizedDescription)
+        case is CancellationError: return .cancelled
+        case let error as ProviderError: return error
+        default: return .network(String(describing: error))
+        }
+    }
+
+    /// Throws the mapped error for a reply outside 2xx, logging a throttle once.
+    private static func check(_ http: HTTPURLResponse, body: Data, kind: GmailRequest.Kind) throws {
+        guard let error = error(status: http.statusCode, body: body, retryAfter: http.value(forHTTPHeaderField: "Retry-After")) else {
+            return
+        }
+        if case .throttled(let retryAfter) = error {
+            logThrottle(ThrottleDetails(status: http.statusCode, body: body), kind: kind, retryAfter: retryAfter)
+        }
+        throw error
     }
 
     static func decode<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {

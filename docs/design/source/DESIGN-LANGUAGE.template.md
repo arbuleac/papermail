@@ -878,7 +878,7 @@ Anatomy: type tile ({{layout.attachmentChip.tile}} pt, radius {{layout.attachmen
 | Hover | `sheet + hover`, edge `ruleStrong`, meta reads “Space to Quick Look” |
 | Pressed | `sheet + pressed` |
 | Focused | ring ({{border.focusRing.gap}} pt gap) |
-| Downloading | meta replaced by a determinate contrail {{layout.attachmentChip.progressWidth}} × {{layout.attachmentChip.progressHeight}} pt on a `rule` track, shown once the fetch outlasts 150 ms (a cached file never flashes it); while the size of what is arriving is unknown (today's providers fetch a file in one response) the contrail's indeterminate sweep, Reduce Motion a still segment. The meta returns when the fetch ends; a failure shows the Failed state |
+| Downloading | meta replaced by a determinate contrail {{layout.attachmentChip.progressWidth}} × {{layout.attachmentChip.progressHeight}} pt on a `rule` track, shown once the fetch outlasts 150 ms (a cached file never flashes it). Its length is the share of the file that has arrived, measured against the length the server states or, without one, the attachment's listed size, and stops just short of full until the file is decoded and stored; it moves at most about ten times a second. Only while the size of what is arriving is unknown (no listed size and no stated length) does the contrail sweep, indeterminate, Reduce Motion a still segment; a length learned later turns it determinate. The meta returns when the fetch ends; a failure shows the Failed state |
 | Error | tile glyph `exclamationmark.triangle.fill` `danger`; meta “Couldn't download · Retry” in `danger`, “Retry” in `metaStrong` `accent` |
 | Dragging out | lifts with `e2` (the only shadowed chip state) |
 

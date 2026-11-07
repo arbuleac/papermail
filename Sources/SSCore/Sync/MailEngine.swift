@@ -271,9 +271,11 @@ public final class MailEngine: MailClient, @unchecked Sendable {
         return try await context.hydrator.ensureBody(for: message)
     }
 
-    public func attachmentData(for message: MessageID, attachmentID: String) async throws -> Data {
+    public func attachmentData(for message: MessageID, attachmentID: String, expectedSize: Int,
+                               progress: (@Sendable (Double) -> Void)?) async throws -> Data {
         let context = try context(forAccountID: message.accountID)
-        return try await attachmentCache.data(for: message, attachmentID: attachmentID, provider: context.provider)
+        return try await attachmentCache.data(for: message, attachmentID: attachmentID, expectedSize: expectedSize,
+                                              provider: context.provider, budget: context.budget, progress: progress)
     }
 
     public func observeStatus(onChange: @escaping @Sendable ([AccountSyncStatus]) -> Void) -> StoreObservation {
@@ -285,7 +287,8 @@ public final class MailEngine: MailClient, @unchecked Sendable {
     private func context(for account: Account) -> AccountContext {
         if let existing = registry.context(for: account.id) { return existing }
         let provider = providerFactory(account)
-        // One budget per account, shared by both lanes and the on-demand body fetches, which count as live spend.
+        // One budget per account, shared by both lanes and the on-demand body and attachment fetches, which count as
+        // live spend.
         let budget = tuning.makeBudget(tuning.quota(provider))
         let hydrator = Hydrator(accountID: account.id, store: store, provider: provider, sanitizer: sanitizer, tuning: tuning,
                                 budget: budget)
@@ -302,7 +305,7 @@ public final class MailEngine: MailClient, @unchecked Sendable {
             budget: budget,
             isAppActive: { [weak self] in self?.isAppActive ?? true }
         )
-        let context = AccountContext(account: account, provider: provider, hydrator: hydrator, syncer: syncer)
+        let context = AccountContext(account: account, provider: provider, hydrator: hydrator, syncer: syncer, budget: budget)
         let registered = registry.insertIfAbsent(context)
         statusCenter.register(account.id)
         return registered

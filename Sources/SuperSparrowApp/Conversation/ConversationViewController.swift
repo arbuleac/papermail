@@ -88,6 +88,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     private var bodyStates: [MessageID: RenderPayload.BodyState] = [:]
     private var offlineAccounts: Set<AccountID> = []
     private var focusedAttachment: (message: MessageID, attachment: String)?
+    /// What each chip shows of its fetch.
+    private var downloads = AttachmentDownloadBoard()
     /// Messages the shell shows in Original colors this session, for View › Original Colors' checkmark.
     private var originalColorsShown: Set<MessageID> = []
     private var drafts = QuickReplyDrafts()
@@ -1125,45 +1127,63 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         onAction?(.openAttachment(messageID, info))
         let siblings = attachments(of: messageID)
         setAttachmentFailed(false, info.id, of: messageID)
-        let shown = showDownloadSoon(info.id, of: messageID)
+        let download = beginDownload(info.id, of: messageID)
         Task { [weak self] in
             guard let self else { return }
-            let opened = await self.preview.preview(info, of: messageID, siblings: siblings) { [weak self] in
-                shown.cancel()
-                self?.setAttachmentProgress(.done, info.id, of: messageID)
+            let opened = await self.preview.preview(info, of: messageID, siblings: siblings, progress: download.progress) { [weak self] in
+                self?.endDownload(download.ticket)
             }
             if !opened { self.setAttachmentFailed(true, info.id, of: messageID) }
         }
     }
 
-    /// What a chip's download shows (spec §5.17): the engine reports no byte counts yet, so a fetch sweeps the
-    /// contrail; `fraction` is ready for a provider that does.
-    enum AttachmentProgress: Equatable {
-        case sweeping
-        case fraction(Double)
-        case done
+    /// The attachment as a file, its chip showing the download while it is fetched; nil, with the chip marked,
+    /// when the fetch failed.
+    func fetchAttachmentFile(_ info: AttachmentInfo, of messageID: MessageID) async -> URL? {
+        setAttachmentFailed(false, info.id, of: messageID)
+        let download = beginDownload(info.id, of: messageID)
+        let fetched = await preview.file(for: info, of: messageID, progress: download.progress)
+        endDownload(download.ticket)
+        if fetched == nil { setAttachmentFailed(true, info.id, of: messageID) }
+        return fetched
     }
 
-    /// The chip shows its download only once the fetch outlasts a cached file (150 ms, as spinners wait), so
-    /// opening a file already on this Mac never flashes it.
-    private func showDownloadSoon(_ attachmentID: String, of messageID: MessageID) -> Task<Void, Never> {
+    /// Starts showing a fetch on its chip (spec §5.17). The chip shows it only once the fetch outlasts a cached file
+    /// (150 ms, as spinners wait), so opening a file already on this Mac never flashes it; then determinate at the
+    /// fraction the download reports, sweeping while its size is unknown. `progress` is the fetch's handler: the
+    /// engine calls it at most about ten times a second, on any thread, and it hops to the main thread.
+    private func beginDownload(_ attachmentID: String, of messageID: MessageID)
+        -> (ticket: AttachmentDownloadBoard.Ticket, progress: @Sendable (Double) -> Void) {
+        let ticket = downloads.begin(AttachmentDownloadBoard.Chip(message: messageID, attachmentID: attachmentID))
         Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(150))
-            guard !Task.isCancelled else { return }
-            self?.setAttachmentProgress(.sweeping, attachmentID, of: messageID)
+            try? await Task.sleep(for: AttachmentDownloadBoard.revealDelay)
+            guard let self, let display = self.downloads.reveal(ticket) else { return }
+            self.setAttachmentProgress(display, ticket.chip)
         }
+        let progress: @Sendable (Double) -> Void = { [weak self] fraction in
+            Task { @MainActor [weak self] in
+                guard let self, let display = self.downloads.progress(fraction, for: ticket) else { return }
+                self.setAttachmentProgress(display, ticket.chip)
+            }
+        }
+        return (ticket, progress)
     }
 
-    private func setAttachmentProgress(_ progress: AttachmentProgress, _ attachmentID: String, of messageID: MessageID) {
-        guard let current = pool.current, currentMessages.contains(where: { $0.id == messageID }) else { return }
-        let key = ConversationShellAssets.jsStringLiteral(RenderPayload.messageKey(for: messageID))
+    private func endDownload(_ ticket: AttachmentDownloadBoard.Ticket) {
+        guard let display = downloads.end(ticket) else { return }
+        setAttachmentProgress(display, ticket.chip)
+    }
+
+    private func setAttachmentProgress(_ display: AttachmentDownloadBoard.Display, _ chip: AttachmentDownloadBoard.Chip) {
+        guard let current = pool.current, currentMessages.contains(where: { $0.id == chip.message }) else { return }
+        let key = ConversationShellAssets.jsStringLiteral(RenderPayload.messageKey(for: chip.message))
         let value: String
-        switch progress {
+        switch display {
         case .sweeping: value = "null"
         case .fraction(let fraction): value = String(max(0, min(1, fraction)))
         case .done: value = "-1"
         }
-        evaluate("window.ss && window.ss.attachmentProgress(\(key), \(ConversationShellAssets.jsStringLiteral(attachmentID)), \(value))",
+        evaluate("window.ss && window.ss.attachmentProgress(\(key), \(ConversationShellAssets.jsStringLiteral(chip.attachmentID)), \(value))",
                  in: current)
     }
 
@@ -1180,18 +1200,9 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             openAttachment(info, of: messageID)
             return
         }
-        setAttachmentFailed(false, info.id, of: messageID)
         let window = view.window
-        let shown = showDownloadSoon(info.id, of: messageID)
         Task { [weak self] in
-            guard let self else { return }
-            let fetched = await self.preview.file(for: info, of: messageID)
-            shown.cancel()
-            self.setAttachmentProgress(.done, info.id, of: messageID)
-            guard let file = fetched else {
-                self.setAttachmentFailed(true, info.id, of: messageID)
-                return
-            }
+            guard let self, let file = await self.fetchAttachmentFile(info, of: messageID) else { return }
             switch command {
             case .quickLook:
                 break

@@ -31,6 +31,10 @@ final class StubURLProtocol: URLProtocol {
 
     enum Reply {
         case http(status: Int, headers: [String: String], body: Data)
+        /// The body in `pieces` parts a few milliseconds apart, as a slow network delivers it, so a streaming
+        /// download sees several chunks. URLSession holds back the first 512 bytes to sniff a type unless the reply
+        /// names one, so give it a Content-Type.
+        case chunked(status: Int, headers: [String: String], body: Data, pieces: Int)
         case failure(URLError.Code)
 
         static func json(_ string: String, status: Int = 200, headers: [String: String] = [:]) -> Reply {
@@ -112,12 +116,38 @@ final class StubURLProtocol: URLProtocol {
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
             client?.urlProtocol(self, didLoad: body)
             client?.urlProtocolDidFinishLoading(self)
+        case .chunked(let status, let headers, let body, let pieces):
+            let response = HTTPURLResponse(url: recorded.url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: headers)!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            let size = max(1, (body.count + max(1, pieces) - 1) / max(1, pieces))
+            let queue = DispatchQueue(label: "StubURLProtocol.chunks")
+            var offset = 0
+            var step = 1
+            while offset < body.count {
+                let piece = body.subdata(in: offset..<min(body.count, offset + size))
+                queue.asyncAfter(deadline: .now() + .milliseconds(15 * step)) { [weak self] in
+                    guard let self, !self.isStopped else { return }
+                    self.client?.urlProtocol(self, didLoad: piece)
+                }
+                offset += size
+                step += 1
+            }
+            queue.asyncAfter(deadline: .now() + .milliseconds(15 * step)) { [weak self] in
+                guard let self, !self.isStopped else { return }
+                self.client?.urlProtocolDidFinishLoading(self)
+            }
         case .failure(let code):
             client?.urlProtocol(self, didFailWithError: URLError(code))
         }
     }
 
-    override func stopLoading() {}
+    private let stopLock = NSLock()
+    private var stopped = false
+    private var isStopped: Bool { stopLock.withLock { stopped } }
+
+    override func stopLoading() {
+        stopLock.withLock { stopped = true }
+    }
 
     /// URLSession hands protocols the body as a stream, never as `httpBody`.
     private static func readBody(of request: URLRequest) -> Data? {

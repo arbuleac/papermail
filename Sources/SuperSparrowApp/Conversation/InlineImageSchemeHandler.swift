@@ -29,7 +29,8 @@ final class InlineImageSchemeHandler: NSObject, WKURLSchemeHandler {
         let key = ObjectIdentifier(urlSchemeTask)
         let client = self.client
         inFlight[key] = Task { [weak self] in
-            let data = try? await client.attachmentData(for: target.message, attachmentID: attachment.id)
+            let data = try? await client.attachmentData(for: target.message, attachmentID: attachment.id,
+                                                        expectedSize: attachment.sizeBytes, progress: nil)
             // WebKit raises if a task is touched after it was stopped, so the registry is the gate.
             guard let self, self.inFlight[key] != nil else { return }
             self.inFlight[key] = nil

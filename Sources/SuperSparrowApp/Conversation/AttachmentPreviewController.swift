@@ -41,14 +41,15 @@ final class AttachmentPreviewController: NSObject, @MainActor QLPreviewPanelData
     }
 
     /// Shows `attachment` and then fetches its siblings in the background so the panel's arrows work. False
-    /// when the attachment itself could not be fetched, so its chip can say so (spec §5.17). `onFetched` runs
-    /// as soon as the attachment's own fetch ends, either way, so its chip can stop showing the download.
+    /// when the attachment itself could not be fetched, so its chip can say so (spec §5.17). `progress` hears the
+    /// attachment's own download (not its siblings'), and `onFetched` runs as soon as that fetch ends, either way,
+    /// so its chip can stop showing the download.
     @discardableResult
     func preview(_ attachment: AttachmentInfo, of message: MessageID, siblings: [AttachmentInfo],
-                 onFetched: (() -> Void)? = nil) async -> Bool {
+                 progress: (@Sendable (Double) -> Void)? = nil, onFetched: (() -> Void)? = nil) async -> Bool {
         pendingBatch &+= 1
         let batch = pendingBatch
-        let fetched = await file(for: attachment, of: message)
+        let fetched = await file(for: attachment, of: message, progress: progress)
         onFetched?()
         guard let url = fetched else { return false }
         guard batch == pendingBatch else { return true }
@@ -78,11 +79,13 @@ final class AttachmentPreviewController: NSObject, @MainActor QLPreviewPanelData
     }
 
     /// The attachment as a file in the session's preview folder, fetched once; nil when the fetch failed.
-    func file(for attachment: AttachmentInfo, of message: MessageID) async -> URL? {
+    /// `progress` hears the download, when there is one and its size is known.
+    func file(for attachment: AttachmentInfo, of message: MessageID, progress: (@Sendable (Double) -> Void)? = nil) async -> URL? {
         let key = message.accountID.rawValue + "/" + message.providerID + "/" + attachment.id
         if let existing = files[key], FileManager.default.fileExists(atPath: existing.path) { return existing }
         do {
-            let data = try await client.attachmentData(for: message, attachmentID: attachment.id)
+            let data = try await client.attachmentData(for: message, attachmentID: attachment.id,
+                                                       expectedSize: attachment.sizeBytes, progress: progress)
             let folder = directory.appendingPathComponent(Self.folderName(for: key), isDirectory: true)
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             let url = folder.appendingPathComponent(Self.safeFilename(attachment.filename))

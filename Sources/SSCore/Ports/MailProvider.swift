@@ -91,7 +91,20 @@ public protocol MailProvider: Sendable {
 
     func body(for providerID: String) async throws -> MessageBody
 
+    /// The attachment's bytes in one piece. The default `downloadAttachment` builds on it, so a provider whose
+    /// files are small or already at hand (the demo) needs nothing else.
     func attachment(messageID providerID: String, attachmentID: String) async throws -> Data
+
+    /// Downloads an attachment into `destination`, a file that does not exist yet in a folder that does, reporting
+    /// through `progress` how far it has got: fractions from 0 to 1, rising, ending at 1 once the file is complete,
+    /// and nothing at all when the provider cannot tell how large the download is. `expectedSize` is the size the
+    /// body listed (`AttachmentInfo.sizeBytes`), 0 when unknown. On a throw nothing is left at `destination`. Any
+    /// working file goes beside it, named after it, and is gone when this returns; a run cut off by quitting
+    /// leaves both to the caller's sweep.
+    /// The default implementation writes `attachment(messageID:attachmentID:)` and reports nothing; providers
+    /// that stream the file from the network override it, so the whole file never sits in memory.
+    func downloadAttachment(messageID providerID: String, attachmentID: String, expectedSize: Int, to destination: URL,
+                            progress: @escaping @Sendable (Double) -> Void) async throws
 
     /// Apply a change to the given messages. Must be idempotent: applying twice is harmless.
     func apply(_ change: MetadataChange, to providerIDs: [String]) async throws
@@ -103,6 +116,12 @@ public protocol MailProvider: Sendable {
 }
 
 extension MailProvider {
+    public func downloadAttachment(messageID providerID: String, attachmentID: String, expectedSize: Int, to destination: URL,
+                                   progress: @escaping @Sendable (Double) -> Void) async throws {
+        let data = try await attachment(messageID: providerID, attachmentID: attachmentID)
+        try data.write(to: destination, options: .atomic)
+    }
+
     public func backfillListing(page: String, limit: Int) async throws -> BackfillListing {
         let listed = try await bootstrap(page: page, limit: limit)
         return BackfillListing(ids: listed.messages.map(\.id.providerID), messages: listed.messages, nextPage: listed.nextPage)

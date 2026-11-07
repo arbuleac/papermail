@@ -99,16 +99,44 @@ public final class GraphProvider: MailProvider, Sendable {
     }
 
     public func attachment(messageID providerID: String, attachmentID: String) async throws -> Data {
-        let path = "/me/messages/\(providerID)/attachments/\(attachmentID)"
+        let path = Self.attachmentPath(providerID, attachmentID)
         do {
-            var request = GraphRequest(method: .get, url: try GraphURL.make(path + "/$value"))
-            request.accept = "*/*"
-            return try await client.send(request).data
+            return try await client.send(try Self.rawAttachmentRequest(path: path)).data
         } catch ProviderError.notFound {
             return try await attachmentBytesFromJSON(path: path)
         } catch ProviderError.server(_, _) {
             return try await attachmentBytesFromJSON(path: path)
         }
+    }
+
+    /// Streams the raw bytes (`$value`) into `destination`, counting them against the response's Content-Length or,
+    /// without one, against `expectedSize`. An attachment with no `$value` (an item or reference attachment) comes
+    /// back as base64 in JSON, in one response, as `attachment` fetches it.
+    public func downloadAttachment(messageID providerID: String, attachmentID: String, expectedSize: Int, to destination: URL,
+                                   progress: @escaping @Sendable (Double) -> Void) async throws {
+        let path = Self.attachmentPath(providerID, attachmentID)
+        let meter = DownloadProgressMeter(estimatedLength: Int64(max(0, expectedSize)), report: progress)
+        meter.start()
+        do {
+            try await client.download(try Self.rawAttachmentRequest(path: path), to: destination) { written, response in
+                meter.received(written, of: response)
+            }
+        } catch ProviderError.notFound {
+            try await attachmentBytesFromJSON(path: path).write(to: destination, options: .atomic)
+        } catch ProviderError.server(_, _) {
+            try await attachmentBytesFromJSON(path: path).write(to: destination, options: .atomic)
+        }
+        meter.finish()
+    }
+
+    private static func attachmentPath(_ providerID: String, _ attachmentID: String) -> String {
+        "/me/messages/\(providerID)/attachments/\(attachmentID)"
+    }
+
+    private static func rawAttachmentRequest(path: String) throws -> GraphRequest {
+        var request = GraphRequest(method: .get, url: try GraphURL.make(path + "/$value"))
+        request.accept = "*/*"
+        return request
     }
 
     /// Raw `$value` exists for file attachments only; item and reference attachments carry their bytes inline.

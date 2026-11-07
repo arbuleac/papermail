@@ -29,6 +29,12 @@ final class ScriptedProvider: MailProvider, @unchecked Sendable {
     var sendResults: [Result<SendReceipt, Error>] = []
     /// Keyed "<messageID>/<attachmentID>".
     var attachments: [String: Data] = [:]
+    /// Fractions `downloadAttachment` reports before it writes the file, as a provider that streams does; it then
+    /// reports 1 once the file is written. Empty: it reports nothing, as for a file of unknown size.
+    var attachmentProgressSteps: [Double] = []
+    /// While set, downloads report their steps, write the file (a streaming provider's bytes are on disk while it
+    /// waits for the rest) and then wait until it is cleared (or the task is cancelled).
+    var holdAttachmentDownloads = false
     /// Bootstrap page tokens ("" for the first page) that block until `openGate` removes them.
     var gatedBootstrapPages: Set<String> = []
     /// While set, `apply` records the call and then never returns, not even on cancellation: the request a
@@ -61,6 +67,8 @@ final class ScriptedProvider: MailProvider, @unchecked Sendable {
     var sendTimes: [Date] { locked { recordedSendTimes } }
     var bodyCalls: [String] { locked { recordedBodyCalls } }
     var attachmentCalls: [(message: String, attachment: String)] { locked { recordedAttachmentCalls } }
+    /// The `expectedSize` each download was given.
+    var attachmentExpectedSizes: [Int] { locked { recordedAttachmentExpectedSizes } }
     var maxConcurrentBodyCalls: Int { locked { recordedMaxConcurrentBodyCalls } }
 
     private var recordedBootstrapCalls: [String?] = []
@@ -72,6 +80,7 @@ final class ScriptedProvider: MailProvider, @unchecked Sendable {
     private var recordedSendTimes: [Date] = []
     private var recordedBodyCalls: [String] = []
     private var recordedAttachmentCalls: [(message: String, attachment: String)] = []
+    private var recordedAttachmentExpectedSizes: [Int] = []
     private var recordedMaxConcurrentBodyCalls = 0
     private var currentBodyCalls = 0
     private var bootstrapRunIndex = 0
@@ -214,6 +223,27 @@ final class ScriptedProvider: MailProvider, @unchecked Sendable {
         }
         guard let data else { throw ProviderError.notFound }
         return data
+    }
+
+    func downloadAttachment(messageID providerID: String, attachmentID: String, expectedSize: Int, to destination: URL,
+                            progress: @escaping @Sendable (Double) -> Void) async throws {
+        let (data, steps): (Data?, [Double]) = locked {
+            recordedAttachmentCalls.append((providerID, attachmentID))
+            recordedAttachmentExpectedSizes.append(expectedSize)
+            return (attachments["\(providerID)/\(attachmentID)"], attachmentProgressSteps)
+        }
+        for step in steps { progress(step) }
+        guard let data else { throw ProviderError.notFound }
+        try data.write(to: destination)
+        do {
+            while locked({ holdAttachmentDownloads }) {
+                try await Task.sleep(for: .milliseconds(5))
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: destination)
+            throw error
+        }
+        if !steps.isEmpty { progress(1) }
     }
 
     func apply(_ change: MetadataChange, to providerIDs: [String]) async throws {
