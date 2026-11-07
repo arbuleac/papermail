@@ -65,6 +65,7 @@ SuperSparrow's look is **Quire**: New York subjects on warm paper, one blue-blac
 
 ## More
 
+- Roadmap, November 2026 to October 2027: [docs/ROADMAP.md](docs/ROADMAP.md)
 - Architecture, launch options and performance budgets: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - Design language: [docs/DESIGN-LANGUAGE.md](docs/DESIGN-LANGUAGE.md)
 - Database schema: [docs/DATA-MODEL.md](docs/DATA-MODEL.md)

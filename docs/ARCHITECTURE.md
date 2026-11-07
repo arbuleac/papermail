@@ -16,7 +16,7 @@ Sparrow's shape, Superhuman's speed:
 - Keyboard first: `j`/`k` move, `e` archive, `s` star, `u` unread, `#` trash, `r` reply, `a` reply all, `f` forward, `c` compose, `/` search, `⌘1`..`⌘9` switch account, `⌘0` unified.
 - Unread badge on the Dock icon. New-mail notifications.
 
-Out of scope for v1: rules, snooze, send later, calendar invites, S/MIME, server drafts, on-premises Exchange, IMAP, multiple windows beyond compose.
+Out of scope for v1: rules, snooze, send later, calendar invites, S/MIME, server drafts, on-premises Exchange, IMAP, multiple windows beyond compose. What comes after v1, and in what order, is `docs/ROADMAP.md`.
 
 ## Modules
 
