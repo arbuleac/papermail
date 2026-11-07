@@ -64,6 +64,23 @@ final class MailEngineSendTests: XCTestCase {
         await harness.shutdown()
     }
 
+    /// Like a user action, a send waits no longer than the live lane's cap on a provider's retry time.
+    func testALongRetryAfterOnSendWaitsNoLongerThanTheLiveCap() async throws {
+        let provider = ScriptedProvider(accountID: Fixtures.accountID)
+        provider.bootstrapRuns = [["": .success(Fixtures.page(1...1, next: nil, cursor: "c0"))]]
+        provider.sendResults = [.failure(ProviderError.throttled(retryAfter: 3_600))]
+        let harness = try EngineHarness(provider: provider) {
+            $0.sendTickInterval = 0.01
+            $0.backoffCap = 600
+            $0.liveBackoffCap = 0.3
+        }
+        harness.engine.start()
+        _ = try harness.engine.send(Fixtures.outgoing(), undoWindow: 0)
+        try await waitUntil("sent on the second attempt", timeout: 10) { provider.sendCalls.count == 2 }
+        try await waitUntil("outbox empty") { try harness.store.pendingSends().isEmpty }
+        await harness.shutdown()
+    }
+
     func testZeroRetryAfterOnSendStillBacksOff() async throws {
         let provider = ScriptedProvider(accountID: Fixtures.accountID)
         provider.bootstrapRuns = [["": .success(Fixtures.page(1...1, next: nil, cursor: "c0"))]]

@@ -179,8 +179,9 @@ enum Fixtures {
         BootstrapPage(messages: numbers.map { message($0, account: account) }, nextPage: next, changeCursor: cursor)
     }
 
-    static func changes(upserts: [MessageMetadata] = [], deleted: [String] = [], cursor: String, hasMore: Bool = false) -> ChangesPage {
-        ChangesPage(upserts: upserts, deletedIDs: deleted, cursor: cursor, hasMore: hasMore)
+    static func changes(upserts: [MessageMetadata] = [], deleted: [String] = [], cursor: String, hasMore: Bool = false,
+                        requestCount: Int? = nil) -> ChangesPage {
+        ChangesPage(upserts: upserts, deletedIDs: deleted, cursor: cursor, hasMore: hasMore, requestCount: requestCount)
     }
 
     static func outgoing(account: AccountID = accountID) -> OutgoingMessage {
@@ -197,9 +198,13 @@ enum Fixtures {
 struct WaitTimeout: Error {}
 
 /// Polls `condition` until it holds or the timeout passes; fails the test and throws on timeout.
+///
+/// The timeout is generous because a condition that holds returns at once, while a loaded machine can stall the
+/// whole process for several seconds; the condition is asked once more after the deadline, since a stall that
+/// outlasts it says nothing about whether the condition holds.
 func waitUntil(
     _ description: String,
-    timeout: TimeInterval = 5,
+    timeout: TimeInterval = 30,
     file: StaticString = #filePath,
     line: UInt = #line,
     _ condition: @escaping () throws -> Bool
@@ -209,8 +214,14 @@ func waitUntil(
         if try condition() { return }
         try await Task.sleep(for: .milliseconds(10))
     }
+    if try condition() { return }
     XCTFail("timed out waiting for \(description)", file: file, line: line)
     throw WaitTimeout()
+}
+
+/// The gaps between consecutive times, in seconds.
+func intervals(between times: [Date]) -> [TimeInterval] {
+    zip(times.dropFirst(), times).map { $0.timeIntervalSince($1) }
 }
 
 /// Every message the store holds for the test account, through the public query API.
@@ -220,7 +231,8 @@ func allMessages(_ store: MailStoring, account: AccountID = Fixtures.accountID) 
 }
 
 /// Builds an engine over in-memory doubles with short delays. By default one scripted provider serves every
-/// account; a `factory` makes one per account instead.
+/// account; a `factory` makes one per account instead. `engineStore` puts a wrapper (a `FaultyStore`) between the
+/// engine and `store`, which tests still read directly.
 final class EngineHarness {
     let store: InMemoryMailStore
     let tokenStore = SyncTestTokenStore()
@@ -235,15 +247,20 @@ final class EngineHarness {
         store: InMemoryMailStore = InMemoryMailStore(),
         provider: ScriptedProvider = ScriptedProvider(accountID: Fixtures.accountID),
         seedAccount: Bool = true,
+        engineStore: MailStoring? = nil,
         tune: (inout SyncTuning) -> Void = { _ in },
         factory: (@Sendable (Account) -> ScriptedProvider)? = nil
     ) throws {
         self.store = store
         self.provider = provider
         var tuning = SyncTuning()
+        // `activePollInterval` follows `pollInterval` down, so polls run every 0.15 s whether or not the engine
+        // thinks the app is frontmost, unless a test sets it apart.
         tuning.pollInterval = 0.15
         tuning.backoffBase = 0.1
         tuning.backoffCap = 1
+        // Nothing paced, so a test waits only for its own delays; tests about pacing set a metered quota.
+        tuning.quota = { _ in .unlimited }
         tune(&tuning)
         cacheDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("SuperSparrowSyncTests-\(UUID().uuidString)", isDirectory: true)
@@ -251,7 +268,7 @@ final class EngineHarness {
             try store.upsertAccount(Fixtures.account(id: provider.accountID))
         }
         engine = MailEngine(
-            store: store,
+            store: engineStore ?? store,
             tokenStore: tokenStore,
             tokenProvider: tokenProvider,
             authenticator: authenticator,

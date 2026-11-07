@@ -43,4 +43,14 @@ final class ListEmptyStateTests: XCTestCase {
         XCTAssertEqual(state(.inbox, finished: "Contoso"),
                        ListEmptyState(sentence: "No mail in Contoso yet", hint: "Sync finished. New mail will land here."))
     }
+
+    func testOlderMailStillDownloadingPromisesNothing() {
+        let starred = ListEmptyState.make(query: ConversationQuery(view: .starred), olderMailDownloading: true)
+        XCTAssertEqual(starred, ListEmptyState(sentence: "No starred conversations", hint: "Older mail is still downloading."))
+        let inbox = ListEmptyState.make(query: ConversationQuery(view: .inbox), olderMailDownloading: true)
+        XCTAssertEqual(inbox, ListEmptyState(sentence: "Nothing left to read.", hint: "Older mail is still downloading."),
+                       "no sparrow before inbox zero is known")
+        let search = ListEmptyState.make(query: ConversationQuery(view: .all, searchText: "lisbon"), olderMailDownloading: true)
+        XCTAssertEqual(search.sentence, "No results for “lisbon”", "search keeps its own line")
+    }
 }

@@ -1,7 +1,7 @@
 import Foundation
 
 extension Array {
-    /// Gmail caps batch gets at 50 and batchModify at 1000 ids; callers slice with this before each call.
+    /// Metadata batches carry 10 gets and batchModify 1000 ids; callers slice with this before each call.
     func chunked(into size: Int) -> [[Element]] {
         guard !isEmpty else { return [] }
         guard size > 0 else { return [self] }

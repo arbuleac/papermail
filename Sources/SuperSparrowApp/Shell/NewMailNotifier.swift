@@ -23,7 +23,14 @@ final class NewMailNotifier: NSObject, UNUserNotificationCenterDelegate {
 
     var onOpenConversation: ((ConversationID) -> Void)?
     /// Accounts in their first sync: their mail is not new to the user, so it never notifies.
-    var accountsInFirstSync: Set<AccountID> = []
+    var accountsInFirstSync: Set<AccountID> = [] {
+        didSet {
+            // The first page is the account's newest mail, and its rows can reach the inbox just after the status
+            // leaves first sync: from then on only mail dated after that moment is new, as after launch.
+            let now = Date()
+            for id in oldValue.subtracting(accountsInFirstSync) { firstSyncEndedAt[id] = now }
+        }
+    }
     /// Set while the Inbox filter is Focused: Other mail then does not notify.
     var hidesOtherMail = false
     /// The app is frontmost: notifications come without sound.
@@ -32,7 +39,9 @@ final class NewMailNotifier: NSObject, UNUserNotificationCenterDelegate {
     var conversationOpenInKeyWindow: () -> ConversationID? = { nil }
 
     private let settings: AppSettings
-    private let launchDate = Date()
+    private let launchDate: Date
+    /// When each account's first sync was seen to end this session.
+    private var firstSyncEndedAt: [AccountID: Date] = [:]
     private var seenLatest: Set<MessageID> = []
     private var seeded = false
     /// When each account's recent notifications were posted, for the summary rule.
@@ -45,10 +54,18 @@ final class NewMailNotifier: NSObject, UNUserNotificationCenterDelegate {
         return UNUserNotificationCenter.current()
     }()
 
-    init(settings: AppSettings) {
+    init(settings: AppSettings, launchDate: Date = Date()) {
         self.settings = settings
+        self.launchDate = launchDate
         super.init()
         center?.delegate = self
+    }
+
+    /// The accounts whose mail is not yet new to the user: those fetching their first page. One downloading
+    /// older mail behind that page is up to date for new mail, which notifies as usual; the older mail itself
+    /// predates that page, so its date keeps it quiet.
+    nonisolated static func accountsInFirstSync(_ statuses: [AccountSyncStatus]) -> Set<AccountID> {
+        Set(statuses.filter { $0.phase == .bootstrapping }.map(\.accountID))
     }
 
     /// Asks once, the first time an account is added, so the prompt comes with an obvious reason.
@@ -78,8 +95,10 @@ final class NewMailNotifier: NSObject, UNUserNotificationCenterDelegate {
         let open = conversationOpenInKeyWindow()
         var fresh: [ConversationSummary] = []
         for row in rows where seenLatest.insert(row.latestMessageID).inserted {
-            // Bootstrap pages land after launch too; only mail dated after launch is new to the user.
-            guard seeded, row.unreadCount > 0, row.latestDate > launchDate.addingTimeInterval(-60) else { continue }
+            // Downloaded pages land after launch too; only mail dated after launch, and after its account's first
+            // sync ended, is new to the user.
+            let newSince = max(launchDate, firstSyncEndedAt[row.id.accountID] ?? launchDate)
+            guard seeded, row.unreadCount > 0, row.latestDate > newSince.addingTimeInterval(-60) else { continue }
             guard !accountsInFirstSync.contains(row.id.accountID) else { continue }
             if hidesOtherMail, row.inboxSection == .other { continue }
             if row.id == open { continue }

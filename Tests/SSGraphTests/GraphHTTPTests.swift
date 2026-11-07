@@ -44,6 +44,21 @@ final class GraphHTTPTests: GraphTestCase {
         await expectProviderError({ try await self.makeProvider().profile() }) { $0.isThrottled && $0.retryAfter == nil }
     }
 
+    /// Graph throttles with a 503 too when the service is under load; the Retry-After is what marks it.
+    func test503WithRetryAfterIsThrottled() async {
+        route { _ in .json(#"{"error":{"code":"ServiceUnavailable","message":"busy"}}"#, status: 503, headers: ["Retry-After": "9"]) }
+        await expectProviderError({ try await self.makeProvider().profile() }) { $0.retryAfter == 9 }
+    }
+
+    func testBatchItem503WithRetryAfterIsThrottled() async {
+        route { request in
+            self.batchReply(request) { id, _ in
+                Fixtures.BatchItem(id: id, status: 503, headers: ["Retry-After": "4"], body: #"{"error":{"code":"ServiceUnavailable","message":"busy"}}"#)
+            }
+        }
+        await expectProviderError({ try await self.makeProvider().apply(.setRead(true), to: ["a"]) }) { $0.retryAfter == 4 }
+    }
+
     func test503And504AreNetwork() async {
         route { _ in .status(503) }
         await expectProviderError({ try await self.makeProvider().profile() }) { $0.isNetwork }

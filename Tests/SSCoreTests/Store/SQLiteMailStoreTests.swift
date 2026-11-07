@@ -323,6 +323,35 @@ final class SQLiteMailStoreTests: XCTestCase {
         try store.verifyFullTextIndex()
     }
 
+    func testBackfillWritesAndSweepKeepTheIndexExact() throws {
+        let store = try store(with: [accountA])
+        try store.upsertMessages([
+            message("m1", in: "c1", subject: "Quarterly plan", date: date(100)),
+            message("m2", in: "c2", subject: "Yak shaving", date: date(200)),
+        ])
+        try store.saveBody(body("budget numbers"), for: MessageID(accountID: accountA, providerID: "m1"))
+
+        // A refresh that changes indexed fields, one that changes none, and a new message, in one page.
+        XCTAssertEqual(try store.writeBackfillMessages([
+            message("m1", in: "c1", subject: "Revised plan", date: date(100)),
+            message("m2", in: "c2", subject: "Yak shaving", date: date(200), isRead: false),
+            message("m3", in: "c3", subject: "Zebra crossing", date: date(300)),
+        ], refreshExisting: true), 3)
+        XCTAssertEqual(try search("quarterly", in: store), [])
+        XCTAssertEqual(try search("revised", in: store), ["c1"])
+        XCTAssertEqual(try search("budget", in: store), ["c1"])
+        XCTAssertEqual(try search("zebra", in: store), ["c3"])
+        try store.verifyFullTextIndex()
+
+        try store.markBackfillSeen(accountID: accountA, providerIDs: ["m2"])
+        XCTAssertEqual(try store.finishBackfill(accountID: accountA, sweepUnseen: true), 2)
+        XCTAssertEqual(try search("plan", in: store), [])
+        XCTAssertEqual(try search("budget", in: store), [])
+        XCTAssertEqual(try search("zebra", in: store), [])
+        XCTAssertEqual(try search("yak", in: store), ["c2"])
+        try store.verifyFullTextIndex()
+    }
+
     func testSearchObservationFollowsNewMail() throws {
         let store = try store(with: [accountA])
         try store.upsertMessages([message("m1", in: "c1", subject: "Quarterly budget", date: date(100))])

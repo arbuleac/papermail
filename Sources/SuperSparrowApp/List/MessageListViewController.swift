@@ -71,6 +71,7 @@ final class MessageListViewController: NSViewController {
         didSet {
             guard syncStatuses != oldValue else { return }
             for status in syncStatuses where status.phase == .bootstrapping { bootstrappedThisSession.insert(status.accountID) }
+            olderMailByAccount = [:]
             if isViewLoaded { updateEmptyState() }
         }
     }
@@ -151,6 +152,10 @@ final class MessageListViewController: NSViewController {
     private var accountNames: [AccountID: String] = [:]
     private var ownAddresses: Set<String> = []
     private var bootstrappedThisSession: Set<AccountID> = []
+    /// What each account's stored download state said since the last status change, read only for an empty list
+    /// and only once per account per change: every write of that state is followed by one (progress, phase, or the
+    /// next poll's success time).
+    private var olderMailByAccount: [AccountID: OlderMail] = [:]
     private var observation: StoreObservation?
     /// Bumped on every re-subscribe so a callback from a cancelled observation cannot overwrite newer rows.
     private var subscriptionGeneration = 0
@@ -814,7 +819,8 @@ final class MessageListViewController: NSViewController {
         let state = ListEmptyState.make(
             query: query,
             isOfflineWithNothingCached: isOfflineWithNothingCached(scoped),
-            firstSyncFinishedAccount: firstSyncFinishedAccount(scoped)
+            firstSyncFinishedAccount: firstSyncFinishedAccount(scoped),
+            olderMailDownloading: scoped.contains { $0.backfillProgress != nil || olderMail(of: $0.accountID) == .listing }
         )
         emptyView.sentence = state.sentence
         emptyView.hint = state.hint.isEmpty ? [] : [.text(state.hint)]
@@ -834,11 +840,37 @@ final class MessageListViewController: NSViewController {
         return scoped.allSatisfy { $0.lastSuccessfulSyncAt == nil }
     }
 
-    /// The one account in view whose first sync this session has watched finish.
+    /// The one account in view whose first sync this session has watched finish. The head page ends
+    /// `.bootstrapping` within seconds; the sync is finished only once a poll has gone through and the stored state
+    /// says the older mail is listed too. The status alone cannot say so: it carries no backfill progress before
+    /// the backfill's first turn, nor after a head page that failed and left no state.
     private func firstSyncFinishedAccount(_ scoped: [AccountSyncStatus]) -> String? {
-        let finished = scoped.filter { bootstrappedThisSession.contains($0.accountID) && $0.phase != .bootstrapping }
+        let finished = scoped.filter {
+            bootstrappedThisSession.contains($0.accountID) && $0.phase != .bootstrapping && $0.lastSuccessfulSyncAt != nil
+                && $0.backfillProgress == nil && olderMail(of: $0.accountID) == .listed
+        }
         guard finished.count == 1, scoped.count == 1, let account = accountsByID[finished[0].accountID] else { return nil }
         return AccountLabels.name(for: account)
+    }
+
+    private enum OlderMail {
+        /// No download state (nothing left to list) or a complete one.
+        case listed
+        case listing
+        /// The store could not be read: neither "finished" nor "still downloading" is claimed.
+        case unknown
+    }
+
+    private func olderMail(of accountID: AccountID) -> OlderMail {
+        if let known = olderMailByAccount[accountID] { return known }
+        let read: OlderMail
+        do {
+            read = try store.bootstrapState(for: accountID).map { $0.isComplete ? .listed : .listing } ?? .listed
+        } catch {
+            read = .unknown
+        }
+        olderMailByAccount[accountID] = read
+        return read
     }
 
     private func setFooterPhase(_ phase: ListFooterRowView.Phase) {

@@ -7,6 +7,10 @@ import Foundation
 /// One account in the winning state is named; two or more are counted, never listed (“Sign in required ·
 /// Fabrikam” / “Sign in required · 2 accounts”). Pure, so the precedence and the copy are tested without a
 /// window.
+///
+/// A status's `phase` is the live lane's (new mail, sends). Older mail the backfill lane downloads behind it
+/// never takes the line: new mail is up to date, so the line says Up to date and how far the older mail has
+/// come, or until when the provider has paused it.
 public struct SyncLineSummary: Equatable, Sendable {
     public enum State: Int, Equatable, Sendable, CaseIterable {
         case signingIn = 1
@@ -96,7 +100,8 @@ public struct SyncLineSummary: Equatable, Sendable {
     public var action: Action?
     /// The whole line draws in `danger` (Sign in required, Error).
     public var isAlert: Bool
-    /// Determinate progress for the contrail along the top edge, while downloading with a known total.
+    /// Determinate progress for the contrail along the top edge, while downloading with a known total: the first
+    /// page (Downloading), or older mail behind Up to date.
     public var progress: Double?
     /// Every account's own state, for the tooltip.
     public var tooltip: String?
@@ -132,7 +137,8 @@ public struct SyncLineSummary: Equatable, Sendable {
         let busy = statuses.filter { isActive($0) }
         let isOffline = !input.isNetworkReachable || (!busy.isEmpty && busy.allSatisfy { $0.phase == .error && isNetworkFailure($0) })
         let tooltip = tooltipText(statuses: statuses, accounts: byID, signIn: input.signIn, isOffline: isOffline, isDemo: input.isDemo,
-                                  now: input.now, numberFormatter: numberFormatter)
+                                  isChecking: input.isChecking, now: input.now, numberFormatter: numberFormatter,
+                                  timeFormatter: checkedFormatter)
         func name(_ id: AccountID) -> String {
             byID[id].map(AccountLabels.name(for:)) ?? "an account"
         }
@@ -170,7 +176,8 @@ public struct SyncLineSummary: Equatable, Sendable {
             return SyncLineSummary(state: .offline, glyph: .offline, lead: "Offline", detail: "changes will sync when you're back",
                                    tooltip: tooltip)
         }
-        // 5. Slow or retrying: a network failure while others are online, or the server asked us to slow down.
+        // 5. Slow or retrying: a network failure while others are online, or the server asked the live lane to slow
+        // down. A throttled backfill is not here: new mail still arrives, so it reads as paused under Up to date.
         let networkFailed = statuses.filter { $0.phase == .error && isNetworkFailure($0) }
         let slow = networkFailed + statuses.filter(isRateLimited)
         if !slow.isEmpty {
@@ -186,7 +193,8 @@ public struct SyncLineSummary: Equatable, Sendable {
             let lead = input.sendingCount == 1 ? "Sending 1 message" : "Sending \(numberFormatter(input.sendingCount)) messages"
             return SyncLineSummary(state: .sending, glyph: .spinner, lead: lead, tooltip: tooltip)
         }
-        // 7. A first download. Body downloads after it never take the line.
+        // 7. A new account's first page of newest mail, before it has a change cursor. The older mail downloaded
+        // behind it (the backfill) and body downloads never take the line.
         let downloading = statuses.filter { $0.phase == .bootstrapping }
         if !downloading.isEmpty {
             let ids = downloading.map(\.accountID)
@@ -213,13 +221,44 @@ public struct SyncLineSummary: Equatable, Sendable {
         if input.isDemo {
             return SyncLineSummary(state: .demo, glyph: .info, lead: "Demo", detail: "made-up mail, nothing syncs", tooltip: tooltip)
         }
-        // 10. Up to date.
+        // 10. Up to date, and how far older mail has come while any account downloads it.
         let ids = input.accounts.map(\.id)
         var parts: [String] = []
         if !ids.isEmpty { parts.append(named(ids)) }
-        if let checked = statuses.compactMap(\.lastSuccessfulSyncAt).max() { parts.append("checked \(checkedFormatter(checked))") }
+        let older = statuses.compactMap { OlderMail($0, now: input.now) }
+        let checked = statuses.compactMap(\.lastSuccessfulSyncAt).max().map(checkedFormatter)
+        var progress: Double?
+        var fullTooltip = tooltip
+        if !older.isEmpty {
+            // The line has room for one figure and the download's is the news, so “checked 23:41” moves to the
+            // tooltip, on a line of its own after the accounts.
+            let line = olderMailLine(older, numberFormatter: numberFormatter, timeFormatter: checkedFormatter)
+            parts.append(line.words)
+            progress = line.progress
+            if let checked { fullTooltip = [tooltip, "Checked \(checked)"].compactMap { $0 }.joined(separator: "\n") }
+        } else if let checked {
+            parts.append("checked \(checked)")
+        }
         return SyncLineSummary(state: .upToDate, glyph: .upToDate, lead: "Up to date",
-                               detail: parts.isEmpty ? nil : parts.joined(separator: " · "), tooltip: tooltip)
+                               detail: parts.isEmpty ? nil : parts.joined(separator: " · "), progress: progress, tooltip: fullTooltip)
+    }
+
+    /// “older mail 3,412 of 8,120” summed over every account downloading older mail, paused ones included so the
+    /// figure does not jump when one pauses; “older mail paused until 10:42” (the soonest resume) once all of
+    /// them are paused. The fraction only while every total is known and one of them is running.
+    private static func olderMailLine(_ older: [OlderMail], numberFormatter: (Int) -> String,
+                                      timeFormatter: (Date) -> String) -> (words: String, progress: Double?) {
+        let pauses = older.compactMap(\.pausedUntil)
+        if pauses.count == older.count, let soonest = pauses.min() {
+            return ("older mail paused until \(timeFormatter(soonest))", nil)
+        }
+        let done = older.map(\.done).reduce(0, +)
+        let totals = older.compactMap(\.total)
+        let total = totals.count == older.count ? totals.reduce(0, +) : 0
+        if total > 0 {
+            return ("older mail \(numberFormatter(done)) of \(numberFormatter(total))", min(1, Double(done) / Double(total)))
+        }
+        return (done > 0 ? "older mail \(numberFormatter(done))" : "older mail…", nil)
     }
 
     // MARK: Classifying
@@ -264,10 +303,17 @@ public struct SyncLineSummary: Equatable, Sendable {
     /// “Contoso: Downloading 3,412 messages · Fabrikam: Sign in required · Gmail: Offline”. While the line says
     /// Offline, every account that has not failed for another reason says so too; demo accounts that are not
     /// doing anything read as Settings shows them, “Made up, nothing syncs”.
+    ///
+    /// A check nobody asked for (the live lane's, every 5 s while the app is frontmost) reads as idle, as Settings
+    /// shows it once the account has synced: otherwise the tooltip would flip between “Checking for mail…” and
+    /// “Up to date” with every poll while the line, rightly, stays put.
     static func tooltipText(statuses: [AccountSyncStatus], accounts: [AccountID: Account], signIn: SignIn?, isOffline: Bool,
-                            isDemo: Bool, now: Date = Date(), numberFormatter: (Int) -> String) -> String? {
-        let parts = statuses.compactMap { status -> String? in
-            guard let account = accounts[status.accountID] else { return nil }
+                            isDemo: Bool, isChecking: Bool = false, now: Date = Date(), numberFormatter: (Int) -> String,
+                            timeFormatter: (Date) -> String = timeOfDay) -> String? {
+        let parts = statuses.compactMap { original -> String? in
+            guard let account = accounts[original.accountID] else { return nil }
+            var status = original
+            if status.phase == .syncing, status.lastSuccessfulSyncAt != nil, !isChecking { status.phase = .idle }
             let words: String
             if case .reconnecting(let id)? = signIn, id == status.accountID {
                 words = "Waiting for your browser"
@@ -276,18 +322,23 @@ public struct SyncLineSummary: Equatable, Sendable {
             } else if isDemo, status.phase == .idle || (status.phase == .paused && !isRateLimited(status)) {
                 words = "Made up, nothing syncs"
             } else {
-                words = accountWords(status, now: now, numberFormatter: numberFormatter)
+                words = accountWords(status, now: now, numberFormatter: numberFormatter, timeFormatter: timeFormatter)
             }
             return "\(AccountLabels.name(for: account)): \(words)"
         }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
-    /// The per-account words Settings › Accounts uses (§5.40).
-    public static func accountWords(_ status: AccountSyncStatus, now: Date = Date(), numberFormatter: (Int) -> String = grouped) -> String {
+    /// The per-account words Settings › Accounts uses (§5.40). Up to date carries the older-mail download behind
+    /// it: “Up to date · older mail 3,412 of 8,120”, “Up to date · older mail paused until 10:42”, and once that
+    /// mail is listed, “Up to date · downloading messages…” while its bodies arrive.
+    public static func accountWords(_ status: AccountSyncStatus, now: Date = Date(), numberFormatter: (Int) -> String = grouped,
+                                    timeFormatter: (Date) -> String = timeOfDay) -> String {
         let retrying = retrySeconds(until: status.retryAt, now: now).map { "Retrying in \($0) s" } ?? "Retrying shortly"
+        let upToDate = olderMailWords(status, now: now, numberFormatter: numberFormatter, timeFormatter: timeFormatter)
+            .map { "Up to date · \($0)" } ?? (status.backfillDownloadingBodies ? "Up to date · downloading messages…" : "Up to date")
         switch status.phase {
-        case .idle: return "Up to date"
+        case .idle: return upToDate
         case .bootstrapping:
             let count = status.bootstrapProgress ?? 0
             if let total = status.bootstrapTotal, total > 0 {
@@ -296,10 +347,26 @@ public struct SyncLineSummary: Equatable, Sendable {
             return count > 0 ? "Downloading \(numberFormatter(count)) messages" : "Downloading"
         case .hydrating: return "Downloading messages…"
         case .syncing: return "Checking for mail…"
-        case .paused: return isRateLimited(status) ? retrying : "Up to date"
+        case .paused: return isRateLimited(status) ? retrying : upToDate
         case .needsReauth: return "Sign in required"
         case .error: return isNetworkFailure(status) ? retrying : "Couldn't sync"
         }
+    }
+
+    /// One account's older-mail download in words, without the lead: “older mail 3,412 of 8,120”, “older mail
+    /// 3,412” while the total is unknown, “older mail paused until 10:42” while the provider holds it back. Nil
+    /// while no backfill runs.
+    public static func olderMailWords(_ status: AccountSyncStatus, now: Date = Date(), numberFormatter: (Int) -> String = grouped,
+                                      timeFormatter: (Date) -> String = timeOfDay) -> String? {
+        guard let older = OlderMail(status, now: now) else { return nil }
+        return olderMailLine([older], numberFormatter: numberFormatter, timeFormatter: timeFormatter).words
+    }
+
+    /// The fraction of one account's older mail downloaded, for Settings' bar: only while the total is known and
+    /// the download is not paused.
+    public static func olderMailFraction(_ status: AccountSyncStatus, now: Date = Date()) -> Double? {
+        guard let older = OlderMail(status, now: now) else { return nil }
+        return olderMailLine([older], numberFormatter: grouped, timeFormatter: timeOfDay).progress
     }
 
     /// Whole seconds until `retryAt`, at least 1 while it is ahead; nil when unknown or past (“Retrying shortly”).
@@ -308,6 +375,25 @@ public struct SyncLineSummary: Equatable, Sendable {
         let interval = retryAt.timeIntervalSince(now)
         guard interval > 0 else { return nil }
         return max(1, Int(interval.rounded(.up)))
+    }
+
+    /// The backfill lane's listing for one account, as of `now`. Only while it lists: once the older mail is
+    /// listed, a throttle on its body downloads is no older mail to report (rule 7: bodies never take the line), and
+    /// counting it would also drop another account's total from the sum.
+    private struct OlderMail {
+        var done: Int
+        /// Never below `done`: the provider's figure is an estimate, and “9 of 8” would read as a mistake.
+        var total: Int?
+        /// Only while still ahead of `now`: a resume time that has passed reads as running until the engine says.
+        var pausedUntil: Date?
+
+        init?(_ status: AccountSyncStatus, now: Date) {
+            guard let done = status.backfillProgress else { return nil }
+            let pausedUntil = status.backfillPausedUntil.flatMap { $0 > now ? $0 : nil }
+            self.done = done
+            total = status.backfillTotal.map { max($0, done) }
+            self.pausedUntil = pausedUntil
+        }
     }
 
     // MARK: Formatting

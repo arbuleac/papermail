@@ -1,8 +1,13 @@
 import Foundation
+import os
 import SSCore
 
 /// Translates Graph's HTTP status codes and error bodies into the engine's `ProviderError` vocabulary.
 enum GraphErrorMapper {
+    /// Throttles are logged here, where the response is still in hand: the engine only sees `throttled`, and
+    /// Graph's error code tells a per-app limit from a per-mailbox one or a service-wide brownout.
+    private static let log = Logger(subsystem: "io.supersparrow.mac", category: "graph")
+
     /// Codes Graph uses when a delta token can no longer be honored; the only fix is a fresh enumeration.
     static let resetCodes: Set<String> = ["SyncStateNotFound", "SyncStateInvalid", "ErrorInvalidSyncStateData"]
 
@@ -27,12 +32,22 @@ enum GraphErrorMapper {
         case 410:
             return .resetRequired
         case 429:
-            return .throttled(retryAfter: retryAfter.flatMap { TimeInterval($0.trimmingCharacters(in: .whitespaces)) })
+            return throttled(status: status, retryAfter: retryAfter, code: code)
+        case 503 where retryAfter != nil:
+            // Graph also throttles with a 503 when the service itself is under load; the Retry-After marks it as
+            // a throttle to wait out rather than a failure to retry on the network backoff.
+            return throttled(status: status, retryAfter: retryAfter, code: code)
         case 503, 504:
             return .network("HTTP \(status)\(code.map { " \($0)" } ?? "")")
         default:
             return .server(status: status, message: describe(code: code, message: message))
         }
+    }
+
+    /// One notice line per throttled response. Status, code and Retry-After describe the limit, never the mail.
+    private static func throttled(status: Int, retryAfter: String?, code: String?) -> ProviderError {
+        log.notice("throttled: HTTP \(status, privacy: .public) \(code ?? "no code", privacy: .public), Retry-After \(retryAfter ?? "none", privacy: .public)")
+        return .throttled(retryAfter: retryAfter.flatMap { TimeInterval($0.trimmingCharacters(in: .whitespaces)) })
     }
 
     private static func describe(code: String?, message: String?) -> String {

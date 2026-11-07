@@ -20,6 +20,22 @@ enum GmailFixtures {
     {"messages":[{"id":"m1","threadId":"t1"},{"id":"chat1","threadId":"tc1"}],"resultSizeEstimate":2}
     """
 
+    /// A minimal metadata reply for any id, for tests about which ids are fetched rather than what they say.
+    static func metadata(id: String) -> String {
+        """
+        {"id":"\(id)","threadId":"t-\(id)","labelIds":["INBOX"],"snippet":"","internalDate":"1730462400000",\
+        "payload":{"mimeType":"text/plain","headers":[{"name":"Subject","value":"Hello"}],"body":{"size":0}}}
+        """
+    }
+
+    /// Google's per-user quota refusal, which names its refill time only in the message text.
+    static func userRateLimitError(retryAt stamp: String) -> String {
+        """
+        {"error":{"code":403,"message":"User-rate limit exceeded.  Retry after \(stamp)",\
+        "errors":[{"message":"User-rate limit exceeded.  Retry after \(stamp)","domain":"usageLimits","reason":"userRateLimitExceeded"}]}}
+        """
+    }
+
     static let searchList = """
     {"messages":[{"id":"s1","threadId":"t1"},{"id":"s2","threadId":"t2"},{"id":"s3","threadId":"t3"}],"resultSizeEstimate":3}
     """

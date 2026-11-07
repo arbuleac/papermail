@@ -121,7 +121,7 @@ actor SendRunner {
             context.syncer.wake(.poll)
         } catch ProviderError.throttled(let retryAfter) {
             let delay = Backoff.throttleDelay(
-                retryAfter: retryAfter, attempt: send.attempts, base: tuning.backoffBase, cap: tuning.backoffCap
+                retryAfter: retryAfter, attempt: send.attempts, base: tuning.backoffBase, cap: tuning.userRetryAfterCap
             )
             send.status = .scheduled
             send.sendAfter = Date().addingTimeInterval(delay)

@@ -33,7 +33,48 @@ final class SyncSupportTests: XCTestCase {
         XCTAssertEqual(Backoff.throttleDelay(retryAfter: 0, attempt: 1, base: 2, cap: 300), 2)
         XCTAssertEqual(Backoff.throttleDelay(retryAfter: 1, attempt: 3, base: 2, cap: 300), 2)
         XCTAssertEqual(Backoff.throttleDelay(retryAfter: 45, attempt: 3, base: 2, cap: 300), 45)
+        XCTAssertEqual(Backoff.throttleDelay(retryAfter: 630, attempt: 1, base: 2, cap: 60), 60, "a skewed clock's time is capped")
+        XCTAssertEqual(Backoff.throttleDelay(retryAfter: 30, attempt: 1, base: 2, cap: 1), 2, "never under the base")
         XCTAssertEqual(Backoff.throttleDelay(retryAfter: nil, attempt: 3, base: 2, cap: 300), 8)
+    }
+
+    /// An account's two lanes publish from different threads. Each writer below only raises its own field, so in
+    /// the order the snapshots were taken both fields only grow; one reaching the main thread after a newer one
+    /// would show a field going back.
+    func testStatusesReachTheMainThreadInTheOrderTheyWereTaken() {
+        final class Seen: @unchecked Sendable {
+            var last = (0, 0)
+            var regressions = 0
+            var finished = false
+        }
+        let center = SyncStatusCenter()
+        let account = Fixtures.accountID
+        center.register(account)
+        let rounds = 4_000
+        let seen = Seen()
+        let done = expectation(description: "both writers' last values delivered")
+        let observation = center.observe { statuses in
+            guard let status = statuses.first else { return }
+            let current = (status.backfillProgress ?? 0, status.bootstrapProgress ?? 0)
+            if current.0 < seen.last.0 || current.1 < seen.last.1 { seen.regressions += 1 }
+            seen.last = current
+            if current == (rounds, rounds), !seen.finished {
+                seen.finished = true
+                done.fulfill()
+            }
+        }
+        for writer in 0..<2 {
+            DispatchQueue.global().async {
+                for round in 1...rounds {
+                    center.update(account) { status in
+                        if writer == 0 { status.backfillProgress = round } else { status.bootstrapProgress = round }
+                    }
+                }
+            }
+        }
+        wait(for: [done], timeout: 60)
+        XCTAssertEqual(seen.regressions, 0, "a snapshot older than one already shown reached the observer")
+        observation.cancel()
     }
 
     func testWakerReturnsPendingSignalImmediately() async {

@@ -5,4 +5,6 @@ import os
 /// debug level; account ids are UUIDs the engine minted and are safe to log publicly.
 enum SyncLog {
     static let logger = Logger(subsystem: "io.supersparrow.mac", category: "sync")
+    /// Intervals around each live poll ("sync.poll"), so Instruments shows how long new mail takes to land.
+    static let signposter = OSSignposter(subsystem: "io.supersparrow.mac", category: "sync")
 }

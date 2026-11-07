@@ -184,6 +184,36 @@ public final class SQLiteMailStore: MailStoring, Sendable {
         }
     }
 
+    // MARK: Backfill
+
+    public func backfillSkippableIDs(accountID: AccountID, providerIDs: [String], includeStored: Bool) throws -> Set<String> {
+        guard !providerIDs.isEmpty else { return [] }
+        return try read {
+            try BackfillMarks.skippable(accountID: accountID, providerIDs: providerIDs, includeStored: includeStored, in: $0)
+        }
+    }
+
+    @discardableResult
+    public func writeBackfillMessages(_ messages: [MessageMetadata], refreshExisting: Bool) throws -> Int {
+        guard !messages.isEmpty else { return 0 }
+        return try write { try BackfillMarks.writeMessages(messages, refreshExisting: refreshExisting, in: $0) }
+    }
+
+    public func markLiveChanges(accountID: AccountID, upserted: [String], deleted: [String]) throws {
+        guard !upserted.isEmpty || !deleted.isEmpty else { return }
+        try write { try BackfillMarks.markLive(accountID: accountID, upserted: upserted, deleted: deleted, in: $0) }
+    }
+
+    public func markBackfillSeen(accountID: AccountID, providerIDs: [String]) throws {
+        guard !providerIDs.isEmpty else { return }
+        try write { try BackfillMarks.markSeen(accountID: accountID, providerIDs: providerIDs, in: $0) }
+    }
+
+    @discardableResult
+    public func finishBackfill(accountID: AccountID, sweepUnseen: Bool) throws -> Int {
+        try write { try BackfillMarks.finish(accountID: accountID, sweepUnseen: sweepUnseen, in: $0) }
+    }
+
     // MARK: Conversations
 
     public func conversations(_ query: ConversationQuery) throws -> [ConversationSummary] {

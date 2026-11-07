@@ -250,4 +250,122 @@ final class MailSchemaMigrationTests: XCTestCase {
         defer { try? reopened.close() }
         XCTAssertEqual(try reopened.accounts().first { $0.id == AccountID("acct-b") }?.inkSlot, 5)
     }
+
+    /// v8 adds two tables and changes no existing one, so the file a v7 build leaves is a v8 file without those
+    /// tables and their ledger row. The test makes one from a migrated file holding mail, an operation and sync
+    /// state, opens it with the current build, and checks that nothing was lost and the new tables work.
+    func testVersion7DatabaseGainsBackfillMarksAndKeepsItsData() throws {
+        let path = try XCTUnwrap(directory).appendingPathComponent("mail.sqlite").path
+        try writeVersion1Database(at: path)
+        let account = AccountID("acct-a")
+        let m1 = MessageID(accountID: account, providerID: "m1")
+        let m2 = MessageID(accountID: account, providerID: "m2")
+        let started = MailStoreCodec.date(base + 30_000)
+        do {
+            let store = try SQLiteMailStore(path: path)
+            try store.upsertMessages([MessageMetadata(
+                id: m2, conversationID: ConversationID(accountID: account, providerID: "c2"), subject: "Zebra report",
+                snippet: "Stripes", from: EmailAddress(name: "Ann", address: "ann@example.com"), to: [],
+                date: MailStoreCodec.date(base + 120_000), roles: [.inbox], isRead: true, isStarred: false, hasAttachments: false
+            )])
+            try store.setSyncCursor("cursor-7", for: account)
+            try store.setBootstrapState(BootstrapState(startedAt: started, nextPage: "page-2", pagesDone: 1, messagesSeen: 2), for: account)
+            try store.enqueue(Operation(id: "op-star", accountID: account, change: .setStarred(true), targets: [m1],
+                                        createdAt: MailStoreCodec.date(base + 200_000)))
+            try store.close()
+        }
+        try execute("""
+            DROP TABLE backfill_live_marks;
+            DROP TABLE backfill_seen;
+            DELETE FROM grdb_migrations WHERE identifier = 'v8-backfill-marks';
+            """, at: path)
+        XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations ORDER BY identifier", at: path).compactMap(\.first), [
+            "v1-mailbox", "v2-body-render-facts", "v3-body-typesetting", "v4-account-ink", "v5-failed-operation-mark",
+            "v6-operation-priors", "v7-body-design-facts-backfill",
+        ])
+
+        let store = try SQLiteMailStore(path: path)
+        XCTAssertEqual(try store.message(m1)?.isStarred, true)
+        XCTAssertEqual(try store.message(m2)?.subject, "Zebra report")
+        XCTAssertEqual(try store.body(for: m1)?.plainText, "Hello there")
+        XCTAssertEqual(try store.syncCursor(for: account), "cursor-7")
+        XCTAssertEqual(try store.bootstrapState(for: account), BootstrapState(startedAt: started, nextPage: "page-2", pagesDone: 1, messagesSeen: 2))
+        XCTAssertEqual(try store.pendingOperations(accountID: account, limit: 10).map(\.id), ["op-star"])
+        XCTAssertEqual(try store.conversations(ConversationQuery(view: .inbox)).map(\.id.providerID), ["c2", "c1"])
+        XCTAssertEqual(try store.conversations(ConversationQuery(view: .all, searchText: "hello")).map(\.id.providerID), ["c1"])
+        try store.verifyFullTextIndex()
+
+        // The new tables take marks, a later mark replacing an earlier one's flag, and the backfill writes read them.
+        try store.markLiveChanges(accountID: account, upserted: ["m1"], deleted: ["m9"])
+        try store.markLiveChanges(accountID: account, upserted: ["m9"], deleted: ["m1"])
+        try store.markLiveChanges(accountID: AccountID("acct-b"), upserted: ["b1"], deleted: [])
+        try store.markBackfillSeen(accountID: account, providerIDs: ["m2", "m2"])
+        XCTAssertEqual(try store.backfillSkippableIDs(accountID: account, providerIDs: ["m1", "m2", "m9"], includeStored: false), ["m1", "m9"])
+        try store.close()
+
+        XCTAssertEqual(try query("SELECT account_id, provider_id, deleted FROM backfill_live_marks ORDER BY account_id, provider_id", at: path), [
+            ["acct-a", "m1", "1"], ["acct-a", "m9", "0"], ["acct-b", "b1", "0"],
+        ])
+        XCTAssertEqual(try query("SELECT account_id, provider_id FROM backfill_seen", at: path), [["acct-a", "m2"]])
+        for table in ["backfill_live_marks", "backfill_seen"] {
+            let ddl = try XCTUnwrap(try query("SELECT sql FROM sqlite_master WHERE name = '\(table)'", at: path).first?.first ?? nil)
+            XCTAssertTrue(ddl.contains("WITHOUT ROWID"), table)
+            let keys = try query("SELECT \"table\", \"from\", on_delete FROM pragma_foreign_key_list('\(table)')", at: path)
+            XCTAssertEqual(keys, [["accounts", "account_id", "CASCADE"]], table)
+        }
+        // The foreign key itself removes an account's marks, whichever path deletes the account row.
+        try execute("PRAGMA foreign_keys = ON; DELETE FROM accounts WHERE id = 'acct-b';", at: path)
+        XCTAssertEqual(try query("SELECT COUNT(*) FROM backfill_live_marks WHERE account_id = 'acct-b'", at: path), [["0"]])
+
+        let reopened = try SQLiteMailStore(path: path)
+        defer { try? reopened.close() }
+        XCTAssertEqual(try reopened.finishBackfill(accountID: account, sweepUnseen: true), 0,
+                       "m1 carries a live mark and m2 was listed, so the sweep keeps both")
+        XCTAssertNotNil(try reopened.message(m1))
+        XCTAssertNotNil(try reopened.message(m2))
+        XCTAssertEqual(try query("SELECT COUNT(*) FROM backfill_live_marks", at: path), [["0"]])
+    }
+
+    // MARK: Raw SQLite
+
+    private func withDatabase<T>(at path: String, _ work: (OpaquePointer) throws -> T) throws -> T {
+        var handle: OpaquePointer?
+        guard sqlite3_open(path, &handle) == SQLITE_OK, let db = handle else {
+            sqlite3_close(handle)
+            throw XCTSkip("could not open the SQLite file")
+        }
+        defer { sqlite3_close(db) }
+        return try work(db)
+    }
+
+    private func execute(_ sql: String, at path: String) throws {
+        try withDatabase(at: path) { db in
+            var message: UnsafeMutablePointer<CChar>?
+            guard sqlite3_exec(db, sql, nil, nil, &message) == SQLITE_OK else {
+                let text = message.map { String(cString: $0) } ?? "unknown error"
+                sqlite3_free(message)
+                XCTFail("SQL failed: \(text)")
+                throw CancellationError()
+            }
+        }
+    }
+
+    /// Every row of `sql`, each column as text (NULL as nil).
+    private func query(_ sql: String, at path: String) throws -> [[String?]] {
+        try withDatabase(at: path) { db in
+            var statement: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK, let statement else {
+                XCTFail("SQL failed: \(String(cString: sqlite3_errmsg(db)))")
+                throw CancellationError()
+            }
+            defer { sqlite3_finalize(statement) }
+            var rows: [[String?]] = []
+            while sqlite3_step(statement) == SQLITE_ROW {
+                rows.append((0..<sqlite3_column_count(statement)).map { column in
+                    sqlite3_column_text(statement, column).map { String(cString: $0) }
+                })
+            }
+            return rows
+        }
+    }
 }

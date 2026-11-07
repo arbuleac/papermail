@@ -1,7 +1,8 @@
 import Foundation
 
-/// The `MailClient` the app talks to: one `AccountSyncer` per account, a shared `SendRunner`, the attachment
-/// cache and the status feed, wired over the ports. Every command writes the store first and only then nudges
+/// The `MailClient` the app talks to: one `AccountSyncer` (a live lane and a backfill lane) and one
+/// `QuotaBudget` per account, a shared `SendRunner`, the attachment cache and the status feed, wired over the
+/// ports. Every command writes the store first and only then nudges
 /// the network side, so the UI never waits on a provider.
 public final class MailEngine: MailClient, @unchecked Sendable {
     public let store: MailStoring
@@ -19,6 +20,7 @@ public final class MailEngine: MailClient, @unchecked Sendable {
     private let sendRunner: SendRunner
     private let stateLock = NSLock()
     private var running = false
+    private var appActive = true
 
     public convenience init(
         store: MailStoring,
@@ -74,7 +76,7 @@ public final class MailEngine: MailClient, @unchecked Sendable {
         return running
     }
 
-    /// Loads the accounts from the store and starts one syncer per account plus the send runner.
+    /// Loads the accounts from the store and starts each account's two lanes plus the send runner.
     public func start() {
         stateLock.lock()
         guard !running else { stateLock.unlock(); return }
@@ -204,6 +206,30 @@ public final class MailEngine: MailClient, @unchecked Sendable {
         }
     }
 
+    /// Every live lane checks now; one parked for sign-in stays parked (`WakeReason.check`).
+    public func checkForMail() {
+        for context in registry.all() {
+            context.syncer.wake(.check)
+        }
+    }
+
+    /// Recorded for the live lanes' poll interval; the lanes read it when they schedule their next check. Coming
+    /// to the front also checks every account, so a wait booked at the background interval does not outlast it.
+    public func setAppActive(_ isActive: Bool) {
+        stateLock.lock()
+        let wasActive = appActive
+        appActive = isActive
+        stateLock.unlock()
+        guard isActive, !wasActive else { return }
+        checkForMail()
+    }
+
+    /// Whether the app is frontmost, as last reported by `setAppActive`. Starts true: the engine starts with the app.
+    var isAppActive: Bool {
+        stateLock.lock(); defer { stateLock.unlock() }
+        return appActive
+    }
+
     // MARK: Actions
 
     public func perform(_ change: MetadataChange, on conversation: ConversationID) throws {
@@ -259,7 +285,10 @@ public final class MailEngine: MailClient, @unchecked Sendable {
     private func context(for account: Account) -> AccountContext {
         if let existing = registry.context(for: account.id) { return existing }
         let provider = providerFactory(account)
-        let hydrator = Hydrator(accountID: account.id, store: store, provider: provider, sanitizer: sanitizer, tuning: tuning)
+        // One budget per account, shared by both lanes and the on-demand body fetches, which count as live spend.
+        let budget = tuning.makeBudget(tuning.quota(provider))
+        let hydrator = Hydrator(accountID: account.id, store: store, provider: provider, sanitizer: sanitizer, tuning: tuning,
+                                budget: budget)
         let runner = OperationRunner(accountID: account.id, store: store, provider: provider, tuning: tuning)
         let syncer = AccountSyncer(
             accountID: account.id,
@@ -269,7 +298,9 @@ public final class MailEngine: MailClient, @unchecked Sendable {
             runner: runner,
             statusCenter: statusCenter,
             tokenProvider: tokenProvider,
-            tuning: tuning
+            tuning: tuning,
+            budget: budget,
+            isAppActive: { [weak self] in self?.isAppActive ?? true }
         )
         let context = AccountContext(account: account, provider: provider, hydrator: hydrator, syncer: syncer)
         let registered = registry.insertIfAbsent(context)

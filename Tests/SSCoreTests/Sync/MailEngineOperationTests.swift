@@ -43,7 +43,7 @@ final class MailEngineOperationTests: XCTestCase {
         XCTAssertFalse(try XCTUnwrap(try harness.store.conversations(ConversationQuery(view: .all)).first).hasPendingOperations)
 
         // The outbox prunes it once its retention has passed, which clears the mark, and not before.
-        try await waitUntil("expired failure pruned", timeout: 5) { try self.failedMark(harness, conversation) == nil }
+        try await waitUntil("expired failure pruned") { try self.failedMark(harness, conversation) == nil }
         XCTAssertGreaterThanOrEqual(Date().timeIntervalSince(queuedAt), 0.6)
         XCTAssertEqual(harness.provider.applyCalls.count, 1)
         await harness.shutdown()
@@ -297,6 +297,19 @@ final class MailEngineOperationTests: XCTestCase {
         try await waitUntil("retried") { harness.provider.applyCalls.count == 2 }
         let calls = harness.provider.applyCalls
         XCTAssertGreaterThanOrEqual(calls[1].at.timeIntervalSince(calls[0].at), 0.15)
+        try await waitUntil("confirmed") { try self.pendingOperations(harness).isEmpty }
+        await harness.shutdown()
+    }
+
+    /// A provider retry time is measured against this Mac's clock, which may be minutes off: a user action waits
+    /// no longer than the live lane's cap for it.
+    func testALongRetryAfterOnApplyWaitsNoLongerThanTheLiveCap() async throws {
+        let harness = try await bootstrappedHarness(
+            applyResults: [.failure(ProviderError.throttled(retryAfter: 3_600))]
+        ) { $0.backoffCap = 600; $0.liveBackoffCap = 0.3 }
+        let target = MessageID(accountID: Fixtures.accountID, providerID: "1")
+        try harness.engine.perform(.setStarred(true), on: [target])
+        try await waitUntil("retried within the cap", timeout: 10) { harness.provider.applyCalls.count == 2 }
         try await waitUntil("confirmed") { try self.pendingOperations(harness).isEmpty }
         await harness.shutdown()
     }

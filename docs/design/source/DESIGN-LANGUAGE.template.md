@@ -660,7 +660,8 @@ Centred in the pane, max width {{layout.emptyState.maxWidth}}. Line 1 is `aside`
 | Empty Drafts | — | Nothing in Drafts | Drafts you start here are kept on this Mac. |
 | Empty Trash | — | Trash is empty | Conversations you move to Trash appear here. |
 | Empty All Mail | — | No mail | Every conversation in this account appears here, archived ones too. |
-| First sync finished with no mail in the view | — | No mail in Contoso yet | Sync finished. New mail will land here. |
+| First sync finished with no mail in the view (the older mail listed too, not just the first page) | — | No mail in Contoso yet | Sync finished. New mail will land here. |
+| Older mail still being listed, nothing in the view yet (any view but search and offline) | — | the view's line 1, as above | Older mail is still downloading. |
 | Search, no results | — | No results for “lisbon flat” | Search looks at subjects, people and message text. |
 | Reader, nothing selected | — | No conversation selected | keycaps J K to move · ↩ to open |
 | Reader, conversation emptied while open (its last message deleted or moved elsewhere) | — | No messages to show | They were deleted or moved on another device. |
@@ -689,8 +690,10 @@ Only on the first sync of an account, before its first page lands, and only afte
 | State | Glyph | Copy | Extras |
 |---|---|---|---|
 | Up to date | `checkmark` `ink3` | **Up to date** · 3 accounts · checked 23:41 | — |
-| Downloading | {{layout.progress.spinner.0}} pt spinner | **Downloading mail** · Contoso · 3,412 of 8,120 | determinate contrail along the top edge |
-| Checking | {{layout.progress.spinner.0}} pt spinner | **Checking for mail…** | only for a check the user asked for (View › Check for New Mail ⇧⌘N, or reconnecting), and only once it has run {{motion.duration.spinnerDelay}} ms. The 30 s background polls and the poll on app activation never change the line except to update “checked 23:41” |
+| Up to date, downloading older mail | `checkmark` `ink3` | **Up to date** · Contoso · older mail 3,412 of 8,120 (“older mail 3,412” while the total is unknown, “older mail…” before the first count) | determinate contrail along the top edge while the total is known (never the indeterminate sweep: new mail is current); “checked 23:41” leaves the line for the tooltip's last line (“Checked 23:41”) |
+| Up to date, older mail paused | `checkmark` `ink3` | **Up to date** · Contoso · older mail paused until 10:42 | the provider is limiting the older-mail download while it is still being listed; new mail still arrives, so this is never Slow / retrying. No contrail. Once the older mail is listed, a pause of its body downloads is not older mail and never takes the line |
+| Downloading | {{layout.progress.spinner.0}} pt spinner | **Downloading mail** · Contoso · 3,412 of 8,120 | determinate contrail along the top edge. Only a new account's first page of newest mail; the older mail after it shows under Up to date |
+| Checking | {{layout.progress.spinner.0}} pt spinner | **Checking for mail…** | only for a check the user asked for (View › Check for New Mail ⇧⌘N, or reconnecting), and only once it has run {{motion.duration.spinnerDelay}} ms. The background checks, every 5 s while SuperSparrow is active and every 30 s otherwise, and the checks on app activation, on waking from sleep and when the network returns, never change the line or its tooltip (an account checked in the background reads as Settings shows it, Up to date) except to update “checked 23:41” |
 | Sending | {{layout.progress.spinner.0}} pt spinner | **Sending 1 message** | after the undo window, while the send is in flight |
 | Signing in (§5.44) | {{layout.progress.spinner.0}} pt spinner | adding: **Finish signing in in your browser** · Gmail (the provider: no account exists yet); reconnecting: **Finish signing in in your browser** · Fabrikam (the account's name) | trailing link “Cancel” |
 | Offline | `wifi.slash` `ink2` | **Offline** · changes will sync when you're back | — |
@@ -707,14 +710,14 @@ Only on the first sync of an account, before its first page lands, and only afte
 | 2 | Sign-in required | any account needs sign-in |
 | 3 | Error | any account failed with a non-network error |
 | 4 | Offline | macOS reports no network path, or every account that is not idle failed with a network error |
-| 5 | Slow / retrying | some accounts are waiting to retry: a network error while others are online, or the server asked to slow down (rate limited) |
+| 5 | Slow / retrying | some accounts are waiting to retry new mail or sends: a network error while others are online, or the server asked to slow down (rate limited). A limit on the older-mail download only pauses that download, and reads as paused under Up to date (rule 10) |
 | 6 | Sending | a send is in flight after its undo window |
-| 7 | Downloading | an account's first download (bootstrap) is running. Body downloads after it (hydration) never take the line; Settings shows them |
+| 7 | Downloading | a new account is fetching its first page of newest mail (its first download, before it can check for changes). The older mail downloaded behind it never takes the line (rule 10), nor do body downloads (hydration); Settings shows both |
 | 8 | Checking | a check the user asked for has run {{motion.duration.spinnerDelay}} ms |
 | 9 | Demo | demo mode (it replaces Up to date) |
-| 10 | Up to date | otherwise |
+| 10 | Up to date | otherwise; while any account downloads older mail, the line says how far it has come in place of “checked 23:41”, or, once every such account is paused, until when |
 
-**Copy for several accounts.** One account in the winning state is named; two or more are counted, never listed: “**Sign in required** · Fabrikam” / “**Sign in required** · 2 accounts”; “**Couldn't sync Contoso** · details” / “**Couldn't sync 2 accounts**”; “**Gmail is slow to respond** · retrying in 30 s” / “**2 accounts are slow to respond** · retrying in 30 s” (the soonest retry); “**Downloading mail** · Contoso · 3,412 of 8,120” / “**Downloading mail** · 2 accounts · 3,412 of 8,120” (summed over the downloading accounts, “3,412 messages” while a total is unknown). The trailing action follows the count: with one account “Reconnect” and “Retry” act on it; with two or more the link reads “Reconnect…” and opens Settings › Accounts, where each row has its own Reconnect, and “Retry” retries every failed account. Numbers use the locale's grouping (§4.13).
+**Copy for several accounts.** One account in the winning state is named; two or more are counted, never listed: “**Sign in required** · Fabrikam” / “**Sign in required** · 2 accounts”; “**Couldn't sync Contoso** · details” / “**Couldn't sync 2 accounts**”; “**Gmail is slow to respond** · retrying in 30 s” / “**2 accounts are slow to respond** · retrying in 30 s” (the soonest retry); “**Downloading mail** · Contoso · 3,412 of 8,120” / “**Downloading mail** · 2 accounts · 3,412 of 8,120” (summed over the downloading accounts, “3,412 messages” while a total is unknown); “**Up to date** · Contoso · older mail 3,412 of 8,120” / “**Up to date** · 3 accounts · older mail 3,412 of 8,120” (named as Up to date names the accounts shown; the figures summed over the accounts downloading older mail, a paused one included so the figure does not jump when it pauses, and “older mail 3,412” while a total is unknown), and “**Up to date** · 3 accounts · older mail paused until 10:42” once every one of them is paused (the soonest resume). The trailing action follows the count: with one account “Reconnect” and “Retry” act on it; with two or more the link reads “Reconnect…” and opens Settings › Accounts, where each row has its own Reconnect, and “Retry” retries every failed account. Numbers use the locale's grouping (§4.13).
 
 **Keyboard.** The line is a button (Space or ↩ opens Settings › Accounts) with the focus ring inset {{border.focusRing.width}} pt inside its bounds. While it carries an action (Reconnect, Retry, Cancel) it joins the Tab order after the list, always, because no other surface offers that action in place; Tab lands on the action link (ring around the link, radius `r.sm`) and ↩ runs it. Without an action it is reachable only with Full Keyboard Access. VoiceOver reads the whole line, then the action.
 
@@ -1415,9 +1418,11 @@ SwiftUI `Settings { TabView { … } }` with the **system toolbar tab style**, {{
 | Status | Glyph | Words (`snippet`) | Action |
 |---|---|---|---|
 | Up to date (idle) | `checkmark.circle.fill` `success` | “Up to date” `ink2`; tooltip “Checked 23:41” | — |
+| Up to date, downloading older mail (new mail is current; the older mail downloads behind it) | `checkmark.circle.fill` `success` | “Up to date · older mail 3,412 of 8,120” `ink2` (“Up to date · older mail 3,412” while the total is unknown, “Up to date · older mail…” before the first count); while the total is known, the Downloading row's determinate bar under the words; tooltip “Checked 23:41” | — |
+| Up to date, older mail paused (the provider is limiting the older-mail download) | `checkmark.circle.fill` `success` | “Up to date · older mail paused until 10:42” `ink2`, no bar; the tooltip adds the cause on its own line (“Gmail is limiting requests.”). Never Retrying: new mail still arrives | — |
+| Up to date, downloading messages (the older mail is listed; the bodies the backfill still lacks arrive behind it) | `checkmark.circle.fill` `success` | “Up to date · downloading messages…” `ink2`, no bar; tooltip “Checked 23:41”. A message opened before its body arrives fetches it at once. A throttle on these downloads keeps these words, never “paused until” | — |
 | Waiting to sync (added; the engine has not reached it yet) | `clock` `ink3` | “Waiting to sync” `ink3` | — |
-| Downloading (first download, bootstrap) | {{layout.progress.spinner.0}} pt `ink3` spinner | “Downloading · 3,412 of 8,120” `ink2` (“Downloading · 3,412 messages” while the total is unknown); while the total is known, a {{layout.settings.statusBarWidth}} × {{layout.progress.barHeight}} pt determinate bar (§5.37) {{layout.settings.statusBarGap}} pt under the words, trailing-aligned with them | — |
-| Downloading messages (bodies, after the first download) | spinner | “Downloading messages…” `ink2` | — |
+| Downloading (a new account's first page of newest mail, before its first check; the older mail after it reads as Up to date) | {{layout.progress.spinner.0}} pt `ink3` spinner | “Downloading · 3,412 of 8,120” `ink2` (“Downloading · 3,412 messages” while the total is unknown); while the total is known, a {{layout.settings.statusBarWidth}} × {{layout.progress.barHeight}} pt determinate bar (§5.37) {{layout.settings.statusBarGap}} pt under the words, trailing-aligned with them | — |
 | Checking (a check the user asked for) | spinner | “Checking for mail…” `ink2` | — |
 | Retrying (rate limited, or unreachable while other accounts are online) | `clock` `warning` | “Retrying in 30 s” `ink2`, or “Retrying shortly” when the server gave no time; the tooltip names the cause (“Gmail is limiting requests.”, “Couldn't reach Gmail.”) | — |
 | Offline | `wifi.slash` `ink2` | “Offline” `ink2` | — |
@@ -1473,7 +1478,7 @@ States per control as §5.24–5.27, Quire-drawn; validation errors inline under
 | Body | first line of the snippet, max {{layout.notification.bodyMaxChars}} characters | none |
 | Summary (more than {{layout.notification.summaryThreshold}} within {{layout.notification.summaryWindowSeconds}} s) | “3 new messages” · account name | same |
 
-No actions in v1. Sound: system default, off while the app is frontmost. No notification for mail that arrives while its conversation is open in a key window, for Other mail while the Inbox filter is Focused, or during an account's first sync.
+No actions in v1. Sound: system default, off while the app is frontmost. No notification for mail that arrives while its conversation is open in a key window, for Other mail while the Inbox filter is Focused, or during an account's first sync (its first page of newest mail, including mail of that page whose rows land just after it). New mail notifies while older mail downloads behind it; the older mail itself never does, since it predates the first page.
 
 ### 5.42 App icon
 

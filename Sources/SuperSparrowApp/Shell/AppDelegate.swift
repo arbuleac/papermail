@@ -46,6 +46,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var isPreparingDemo = false
     private var isTerminating = false
     private var notifierObservation: StoreObservation?
+    /// Activation, deactivation and waking from sleep, passed on to the engine.
+    private var wakeups: AppWakeups?
 
     init(options: LaunchOptions) {
         self.options = options
@@ -62,6 +64,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         default: break
         }
         if options.resetDemo { AppEnvironment.wipeDemoData() }
+        wakeups = AppWakeups(setActive: { [weak self] in self?.reportAppActive($0) },
+                             checkAll: { [weak self] in self?.environment?.engine.checkForMail() })
         if options.needsMailEnvironment {
             start(mode: options.demo ? .demo : .real)
         }
@@ -333,8 +337,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     // MARK: Lifecycle
 
-    func applicationDidBecomeActive(_ notification: Notification) {
-        environment?.engine.syncNow(accountID: nil)
+    /// For `AppWakeups`: the live lane checks every 5 s while the app is frontmost and every 30 s otherwise. A real
+    /// environment built beside the demo for a sign-in is told too: it polls the account being added until it is
+    /// swapped in.
+    private func reportAppActive(_ isActive: Bool) {
+        environment?.engine.setAppActive(isActive)
+        signIn?.replacement?.engine.setAppActive(isActive)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -395,6 +403,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// caller's to shut down.
     private func install(_ environment: AppEnvironment, replacing old: MainWindowController?) {
         self.environment = environment
+        // An engine assumes it starts frontmost; one launched in the background, or swapped in, learns otherwise
+        // here, and activation reports every change after.
+        environment.engine.setAppActive(NSApp.isActive)
         // Drafts kept on this Mac follow the mailbox on screen, so a cancelled “Replace the demo” sign-in, which
         // built a real environment beside the demo, never sends the demo's drafts to the real folder.
         ComposeDraftStore.shared.useDemoDirectory(environment.isDemo)
@@ -442,12 +453,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if environment?.isDemo == true { window.notifier.requestAuthorizationIfNeeded() }
     }
 
-    /// No notification for an account's first sync (§5.41): the notifier learns which accounts are bootstrapping.
+    /// No notification for an account's first sync (§5.41): the notifier learns which accounts are fetching their
+    /// first page. Older mail downloading behind it does not count, so new mail notifies meanwhile.
     private func observeForNotifier(_ environment: AppEnvironment) {
         notifierObservation?.cancel()
         notifierObservation = environment.engine.observeStatus { [weak self] statuses in
             MainActor.assumeIsolated {
-                self?.mainWindow?.notifier.accountsInFirstSync = Set(statuses.filter { $0.phase == .bootstrapping }.map(\.accountID))
+                self?.mainWindow?.notifier.accountsInFirstSync = NewMailNotifier.accountsInFirstSync(statuses)
             }
         }
     }

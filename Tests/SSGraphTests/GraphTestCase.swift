@@ -3,8 +3,8 @@ import SSCore
 import XCTest
 @testable import SSGraph
 
-/// Shared wiring: a provider over the stub session with a frozen clock, plus routing helpers for the folder
-/// lookups almost every call starts with.
+/// Shared wiring: a provider over the stub session with a frozen or hand-stepped clock, plus routing helpers for
+/// the folder lookups almost every call starts with.
 class GraphTestCase: XCTestCase {
     typealias Request = StubURLProtocol.Request
     typealias Reply = StubURLProtocol.Reply
@@ -29,6 +29,10 @@ class GraphTestCase: XCTestCase {
     func makeProvider(now: Date? = nil, sendLimits: GraphSendLimits = .graph) -> GraphProvider {
         let frozen = now ?? self.now
         return GraphProvider(accountID: accountID, tokens: tokens, session: StubURLProtocol.makeSession(), clock: { frozen }, sendLimits: sendLimits)
+    }
+
+    func makeProvider(clock: StepClock) -> GraphProvider {
+        GraphProvider(accountID: accountID, tokens: tokens, session: StubURLProtocol.makeSession(), clock: { clock.now })
     }
 
     var requests: [Request] { StubURLProtocol.requests }
@@ -92,13 +96,19 @@ class GraphTestCase: XCTestCase {
         }
     }
 
-    func cursor(folders: [String: String?], nextLinks: [String: String] = [:], resolvedAt: String? = nil) throws -> String {
+    func cursor(
+        folders: [String: String?],
+        nextLinks: [String: String] = [:],
+        resolvedAt: String? = nil,
+        fullVisitAt: String? = nil
+    ) throws -> String {
         try GraphCursor(
             folders: folders,
             nextLinks: nextLinks,
             wellKnown: Fixtures.folderIDs,
             since: nowString,
-            foldersResolvedAt: resolvedAt ?? nowString
+            foldersResolvedAt: resolvedAt ?? nowString,
+            fullVisitAt: fullVisitAt
         ).encoded()
     }
 }

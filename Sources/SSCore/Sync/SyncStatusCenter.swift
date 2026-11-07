@@ -4,11 +4,27 @@ import Foundation
 ///
 /// Statuses are listed in registration order, which the engine keeps equal to the store's account order, so
 /// the UI can zip them with its account strip.
+///
+/// An account's two lanes publish from different threads, and each snapshot is handed to the main queue after
+/// the lock is let go, so two can arrive in the opposite order to the one they were taken in. Each carries a
+/// number taken under the lock, and an observer never gets one older than the last it got: the last to arrive
+/// would otherwise stay on screen, older state over newer.
 final class SyncStatusCenter: @unchecked Sendable {
+    /// Main-thread state per observer; `lastDelivered` is only read and written on the main thread.
+    private final class Observer: @unchecked Sendable {
+        let onChange: @Sendable ([AccountSyncStatus]) -> Void
+        var lastDelivered: UInt64 = 0
+
+        init(_ onChange: @escaping @Sendable ([AccountSyncStatus]) -> Void) {
+            self.onChange = onChange
+        }
+    }
+
     private let lock = NSLock()
     private var order: [AccountID] = []
     private var statuses: [AccountID: AccountSyncStatus] = [:]
-    private var observers: [UUID: @Sendable ([AccountSyncStatus]) -> Void] = [:]
+    private var observers: [UUID: Observer] = [:]
+    private var sequence: UInt64 = 0
 
     func register(_ accountID: AccountID) {
         update(accountID) { _ in }
@@ -36,10 +52,11 @@ final class SyncStatusCenter: @unchecked Sendable {
         statuses[accountID] = status
         let changed = isNew || before != status
         let snapshot = changed ? snapshotLocked() : []
-        let callbacks = changed ? Array(observers.values) : []
+        let number = changed ? nextNumberLocked() : 0
+        let targets = changed ? Array(observers.values) : []
         lock.unlock()
-        guard changed, !callbacks.isEmpty else { return }
-        deliver { for callback in callbacks { callback(snapshot) } }
+        guard changed, !targets.isEmpty else { return }
+        deliver(snapshot, numbered: number, to: targets)
     }
 
     func remove(_ accountID: AccountID) {
@@ -47,18 +64,21 @@ final class SyncStatusCenter: @unchecked Sendable {
         guard statuses.removeValue(forKey: accountID) != nil else { lock.unlock(); return }
         order.removeAll { $0 == accountID }
         let snapshot = snapshotLocked()
-        let callbacks = Array(observers.values)
+        let number = nextNumberLocked()
+        let targets = Array(observers.values)
         lock.unlock()
-        deliver { for callback in callbacks { callback(snapshot) } }
+        deliver(snapshot, numbered: number, to: targets)
     }
 
     func observe(onChange: @escaping @Sendable ([AccountSyncStatus]) -> Void) -> StoreObservation {
         lock.lock()
         let token = UUID()
-        observers[token] = onChange
+        let observer = Observer(onChange)
+        observers[token] = observer
         let current = snapshotLocked()
+        let number = nextNumberLocked()
         lock.unlock()
-        deliver { onChange(current) }
+        deliver(current, numbered: number, to: [observer])
         return StoreObservation { [weak self] in
             guard let self else { return }
             self.lock.lock(); defer { self.lock.unlock() }
@@ -70,7 +90,18 @@ final class SyncStatusCenter: @unchecked Sendable {
         order.compactMap { statuses[$0] }
     }
 
-    private func deliver(_ block: @escaping @Sendable () -> Void) {
+    private func nextNumberLocked() -> UInt64 {
+        sequence += 1
+        return sequence
+    }
+
+    private func deliver(_ snapshot: [AccountSyncStatus], numbered number: UInt64, to targets: [Observer]) {
+        let block: @Sendable () -> Void = {
+            for observer in targets where number > observer.lastDelivered {
+                observer.lastDelivered = number
+                observer.onChange(snapshot)
+            }
+        }
         if Thread.isMainThread {
             block()
         } else {

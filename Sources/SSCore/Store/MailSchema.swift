@@ -61,6 +61,24 @@ enum MailSchema {
                 CREATE INDEX bodies_missing_design_facts ON bodies(account_id) WHERE typesetting IS NULL;
                 """)
         }
+        migrator.registerMigration("v8-backfill-marks") { db in
+            // Sync bookkeeping for the two lanes (docs/DATA-MODEL.md, "Backfill marks"). Keyed like `messages` so
+            // every check is a primary-key probe; a mark can name a message the store does not hold (a deletion,
+            // or one the backfill has yet to reach), so neither table references `messages`.
+            try db.execute(sql: """
+                CREATE TABLE backfill_live_marks (
+                    account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                    provider_id TEXT NOT NULL,
+                    deleted INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (account_id, provider_id)
+                ) WITHOUT ROWID;
+                CREATE TABLE backfill_seen (
+                    account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                    provider_id TEXT NOT NULL,
+                    PRIMARY KEY (account_id, provider_id)
+                ) WITHOUT ROWID;
+                """)
+        }
         return migrator
     }
 

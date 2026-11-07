@@ -163,7 +163,7 @@ struct OperationRunner: Sendable {
             case .throttled(let retryAfter):
                 operation.status = .pending
                 operation.nextAttemptAt = now.addingTimeInterval(Backoff.throttleDelay(
-                    retryAfter: retryAfter, attempt: operation.attempts, base: tuning.backoffBase, cap: tuning.backoffCap
+                    retryAfter: retryAfter, attempt: operation.attempts, base: tuning.backoffBase, cap: tuning.userRetryAfterCap
                 ))
             case .network:
                 operation.status = .pending

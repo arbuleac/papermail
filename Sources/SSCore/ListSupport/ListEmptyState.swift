@@ -28,8 +28,10 @@ public struct ListEmptyState: Hashable, Sendable {
     ///     list is empty because nothing could arrive, not because the mailbox is.
     ///   - firstSyncFinishedAccount: the name of the account whose first sync finished in this session with
     ///     nothing for this view ("No mail in Contoso yet").
+    ///   - olderMailDownloading: an account in the view is still listing its older mail, so what the view will
+    ///     hold is not known yet: the view's own sentence, without its promise about what lands here.
     public static func make(query: ConversationQuery, isOfflineWithNothingCached: Bool = false,
-                            firstSyncFinishedAccount: String? = nil) -> ListEmptyState {
+                            firstSyncFinishedAccount: String? = nil, olderMailDownloading: Bool = false) -> ListEmptyState {
         if let text = query.searchText?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty {
             return ListEmptyState(sentence: "No results for “\(text)”", hint: "Search looks at subjects, people and message text.")
         }
@@ -39,6 +41,13 @@ public struct ListEmptyState: Hashable, Sendable {
         if let account = firstSyncFinishedAccount {
             return ListEmptyState(sentence: "No mail in \(account) yet", hint: "Sync finished. New mail will land here.")
         }
+        let settled = settledState(query)
+        guard olderMailDownloading else { return settled }
+        // No sparrow either: inbox zero is not reached while older inbox mail may still be on its way.
+        return ListEmptyState(sentence: settled.sentence, hint: "Older mail is still downloading.")
+    }
+
+    private static func settledState(_ query: ConversationQuery) -> ListEmptyState {
         switch query.view {
         case .inbox:
             switch query.section {

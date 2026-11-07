@@ -26,6 +26,11 @@ struct StubResponse {
 
     /// A Gmail batch reply: one embedded HTTP response per (index, status, json) triple.
     static func batch(boundary: String = "batch_reply_boundary", parts: [(index: Int, status: Int, json: String)]) -> StubResponse {
+        batch(boundary: boundary, stubParts: parts.map { StubBatchPart(index: $0.index, status: $0.status, json: $0.json) })
+    }
+
+    /// A Gmail batch reply whose embedded responses may carry their own headers (a part's Retry-After).
+    static func batch(boundary: String = "batch_reply_boundary", stubParts parts: [StubBatchPart]) -> StubResponse {
         var body = ""
         for part in parts {
             body += "--\(boundary)\r\n"
@@ -33,12 +38,23 @@ struct StubResponse {
             body += "Content-ID: <response-item-\(part.index)>\r\n\r\n"
             body += "HTTP/1.1 \(part.status) \(part.status == 200 ? "OK" : "Error")\r\n"
             body += "Content-Type: application/json; charset=UTF-8\r\n"
+            for (name, value) in part.headers.sorted(by: { $0.key < $1.key }) {
+                body += "\(name): \(value)\r\n"
+            }
             body += "Content-Length: \(part.json.utf8.count)\r\n\r\n"
             body += part.json + "\r\n"
         }
         body += "--\(boundary)--\r\n"
         return StubResponse(status: 200, headers: ["Content-Type": "multipart/mixed; boundary=\(boundary)"], body: Data(body.utf8))
     }
+}
+
+/// One embedded response of a stubbed batch reply.
+struct StubBatchPart {
+    var index: Int
+    var status: Int
+    var json: String
+    var headers: [String: String] = [:]
 }
 
 struct RecordedRequest {
@@ -201,13 +217,54 @@ final class FakeTokenProvider: AccessTokenProvider, @unchecked Sendable {
     }
 }
 
+/// Stands in for the provider's throttle waits: records each one instead of sleeping.
+final class SleepRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [TimeInterval] = []
+
+    var delays: [TimeInterval] { lock.withLock { recorded } }
+
+    func record(_ seconds: TimeInterval) {
+        lock.withLock { recorded.append(seconds) }
+    }
+
+    /// The provider's real schedule and ceilings, with the waits recorded rather than slept.
+    func retry(delays: [TimeInterval] = GmailThrottleRetry.standard.delays,
+               maxInlineWait: TimeInterval = GmailThrottleRetry.standard.maxInlineWait,
+               maxWaitWithNothingFetched: TimeInterval = GmailThrottleRetry.standard.maxWaitWithNothingFetched) -> GmailThrottleRetry {
+        GmailThrottleRetry(delays: delays, maxInlineWait: maxInlineWait, maxWaitWithNothingFetched: maxWaitWithNothingFetched,
+                           sleep: { [self] in record($0) })
+    }
+}
+
 enum TestSupport {
     static let accountID = AccountID("acct-test")
 
-    static func makeProvider(tokens: FakeTokenProvider = FakeTokenProvider()) -> GmailProvider {
+    /// Throttled batch parts go out again at once: tests never wait on the real schedule.
+    static let instantRetry = GmailThrottleRetry(delays: [0, 0, 0], maxInlineWait: GmailThrottleRetry.standard.maxInlineWait,
+                                                 maxWaitWithNothingFetched: GmailThrottleRetry.standard.maxWaitWithNothingFetched,
+                                                 sleep: { _ in })
+
+    static func makeProvider(tokens: FakeTokenProvider = FakeTokenProvider(), throttleRetry: GmailThrottleRetry = instantRetry) -> GmailProvider {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [StubURLProtocol.self]
-        return GmailProvider(accountID: accountID, tokens: tokens, session: URLSession(configuration: configuration))
+        return GmailProvider(accountID: accountID, tokens: tokens, session: URLSession(configuration: configuration),
+                             throttleRetry: throttleRetry)
+    }
+
+    /// Registers the batch endpoint to answer each embedded get through `answer`, given which batch send
+    /// this is (0 for the first), the part's index in that send, and the id it asks for.
+    static func stubBatchRounds(_ answer: @escaping (_ round: Int, _ index: Int, _ id: String) -> StubBatchPart) {
+        let lock = NSLock()
+        var round = 0
+        StubServer.shared.on("POST", "/batch/gmail/v1") { request in
+            let current: Int = lock.withLock {
+                defer { round += 1 }
+                return round
+            }
+            let ids = batchRequestIDs(in: request.bodyText)
+            return .batch(stubParts: ids.enumerated().map { answer(current, $0.offset, $0.element) })
+        }
     }
 
     /// Registers the batch endpoint to answer each embedded metadata get from `messages`, 404 otherwise.

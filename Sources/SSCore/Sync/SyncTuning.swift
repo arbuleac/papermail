@@ -3,20 +3,48 @@ import Foundation
 /// The delays and sizes the engine's loops run on. Production uses the defaults; tests shrink the delays so
 /// a whole bootstrap-poll-retry story fits in a few hundred milliseconds.
 struct SyncTuning: Sendable {
+    /// How often the live lane checks for new mail while the app is in the background.
     var pollInterval: TimeInterval = 30
+    /// How often the live lane checks while the app is frontmost. Follows `pollInterval` down (never above it)
+    /// until set, so a test or caller that shortens the background interval shortens this one too.
+    var activePollInterval: TimeInterval {
+        get { activePollIntervalOverride ?? min(Self.defaultActivePollInterval, pollInterval) }
+        set { activePollIntervalOverride = newValue }
+    }
     /// First retry delay after a failure; doubles per consecutive failure up to `backoffCap`.
     var backoffBase: TimeInterval = 2
     var backoffCap: TimeInterval = 300
+    /// The live lane never waits longer than this between attempts, on its own schedule or on a provider's retry
+    /// time: new mail matters more than the request a failing poll costs, and a retry time hours away is more often
+    /// a skewed clock than advice.
+    var liveBackoffCap: TimeInterval = 60
+    /// The longest a user action or a send waits on a throttle: the live lane's cap, for the same reasons. The
+    /// throttle schedule without a provider time keeps to `backoffCap`, as their other retries do.
+    var userRetryAfterCap: TimeInterval { min(backoffCap, liveBackoffCap) }
     /// How often the send runner looks at the outbox when nothing is due sooner.
     var sendTickInterval: TimeInterval = 1
-    var bootstrapPageSize: Int = 200
-    var changesPageSize: Int = 200
+    /// The head page and every backfill listing page. 100 keeps a Gmail head page (a list call plus metadata for
+    /// each message) at about 2,005 of the 6,000 units a user may spend a minute.
+    var bootstrapPageSize: Int = 100
+    /// Messages per changes page. Gmail fetches metadata for each message a page names (20 units apiece), so 100
+    /// keeps a full page at about 2,000 units, the live lane's share of a minute.
+    var changesPageSize: Int = 100
+    /// Bodies the live lane fetches itself for the newest mail a poll or head page brought (new to the store, and
+    /// no more than its share of the quota pays for); the backfill lane fetches the rest, paced.
+    var liveHydrationLimit: Int = 20
+    var liveHydrationConcurrency: Int = 2
+    /// Messages per metadata request when a backfill listing returns ids only. Small, so a throttle mid-page
+    /// loses at most one chunk; the page's retry skips what was written.
+    var backfillMetadataChunk: Int = 10
+    /// How long the backfill lane sleeps with nothing to do before looking again on its own.
+    var backfillIdleInterval: TimeInterval = 300
     var hydrationBatchSize: Int = 50
     var hydrationConcurrency: Int = 4
     /// A body whose fetch failed for a non-transient reason is left alone for this long.
     var hydrationRetryDelay: TimeInterval = 600
-    /// Bodies stored before v3 whose design facts are worked out again per cycle, from the stored source: one
-    /// transaction each, on a background task, so an upgraded mailbox catches up within a few polls.
+    /// Bodies stored before v3 whose design facts are worked out again per batch, from the stored source: one
+    /// transaction each, on a background task, after every backfill body batch, so an upgraded mailbox catches up
+    /// within a few backfill turns.
     var designFactsBatchSize: Int = 200
     var maxApplyTargets: Int = 50
     /// After this many failed attempts an operation is marked `failed` instead of staying in the outbox forever.
@@ -26,6 +54,15 @@ struct SyncTuning: Sendable {
     /// How long a failed operation stays, keeping its conversation's failed mark, before it is pruned.
     var failedOperationRetention: TimeInterval = 24 * 60 * 60
     var pendingOperationsFetchLimit: Int = 500
+    /// What each account's provider allows, for its quota budget. The demo's made-up mailbox has no limit.
+    var quota: @Sendable (MailProvider) -> ProviderQuota = { provider in
+        provider is DemoMailProvider ? .unlimited : .standard(for: provider.kind)
+    }
+    /// Builds an account's budget. Tests replace it to give the budget a clock they control.
+    var makeBudget: @Sendable (ProviderQuota) -> QuotaBudget = { QuotaBudget(quota: $0) }
+
+    private var activePollIntervalOverride: TimeInterval?
+    private static let defaultActivePollInterval: TimeInterval = 5
 
     init() {}
 

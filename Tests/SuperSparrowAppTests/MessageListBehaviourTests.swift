@@ -195,6 +195,65 @@ final class MessageListBehaviourTests: XCTestCase {
         XCTAssertFalse(list.emptyView.isHidden)
     }
 
+    func testSyncFinishedWaitsForTheOlderMailToBeListed() throws {
+        let store = try Support.store(threads: 0)
+        let list = Support.host(store: store, settings: Support.settings()).list
+        list.query = ConversationQuery(view: .starred)
+        Support.spin(for: 0.05)
+        let id = Support.accountA.id
+        list.syncStatuses = [AccountSyncStatus(accountID: id, phase: .bootstrapping)]
+        // The head page is in and the backfill lists the rest: nothing is finished yet.
+        list.syncStatuses = [AccountSyncStatus(accountID: id, phase: .idle, lastSuccessfulSyncAt: Date(),
+                                               backfillProgress: 100, backfillTotal: 24_000)]
+        XCTAssertTrue(list.skeletonView.isHidden)
+        XCTAssertEqual(list.emptyView.sentence, "No starred conversations")
+        XCTAssertEqual(list.emptyView.hint, [.text("Older mail is still downloading.")])
+
+        list.syncStatuses = [AccountSyncStatus(accountID: id, phase: .idle, lastSuccessfulSyncAt: Date())]
+        XCTAssertEqual(list.emptyView.sentence, "No mail in \(AccountLabels.name(for: Support.accountA)) yet")
+        XCTAssertEqual(list.emptyView.hint, [.text("Sync finished. New mail will land here.")])
+    }
+
+    /// Between the head page and the backfill's first turn the status carries no backfill progress: during the
+    /// first changes call, and after it went through. The stored state still says the older mail is unlisted.
+    func testSyncFinishedWaitsForTheStoredListingBeforeTheBackfillReports() throws {
+        let store = try Support.store(threads: 0)
+        let list = Support.host(store: store, settings: Support.settings()).list
+        list.query = ConversationQuery(view: .starred)
+        Support.spin(for: 0.05)
+        let id = Support.accountA.id
+        list.syncStatuses = [AccountSyncStatus(accountID: id, phase: .bootstrapping)]
+        var state = BootstrapState(startedAt: Date(), pagesDone: 1, messagesSeen: 100)
+        try store.setBootstrapState(state, for: id)
+
+        list.syncStatuses = [AccountSyncStatus(accountID: id, phase: .syncing)]
+        XCTAssertEqual(list.emptyView.sentence, "No starred conversations")
+        XCTAssertEqual(list.emptyView.hint, [.text("Older mail is still downloading.")])
+        let polled = Date()
+        list.syncStatuses = [AccountSyncStatus(accountID: id, phase: .idle, lastSuccessfulSyncAt: polled)]
+        XCTAssertEqual(list.emptyView.sentence, "No starred conversations")
+        XCTAssertEqual(list.emptyView.hint, [.text("Older mail is still downloading.")])
+
+        state.isComplete = true
+        try store.setBootstrapState(state, for: id)
+        list.syncStatuses = [AccountSyncStatus(accountID: id, phase: .idle, lastSuccessfulSyncAt: polled.addingTimeInterval(5))]
+        XCTAssertEqual(list.emptyView.sentence, "No mail in \(AccountLabels.name(for: Support.accountA)) yet")
+        XCTAssertEqual(list.emptyView.hint, [.text("Sync finished. New mail will land here.")])
+    }
+
+    /// A head page the provider refused leaves no stored state and no poll that went through: nothing finished.
+    func testAThrottledHeadPageIsNoFinishedSync() throws {
+        let store = try Support.store(threads: 0)
+        let list = Support.host(store: store, settings: Support.settings()).list
+        list.query = ConversationQuery(view: .starred)
+        Support.spin(for: 0.05)
+        let id = Support.accountA.id
+        list.syncStatuses = [AccountSyncStatus(accountID: id, phase: .bootstrapping)]
+        list.syncStatuses = [AccountSyncStatus(accountID: id, phase: .paused, message: "Rate limited; retrying shortly")]
+        XCTAssertEqual(list.emptyView.sentence, "No starred conversations")
+        XCTAssertEqual(list.emptyView.hint, [.text("Press S to star one.")])
+    }
+
     func testDensitySwitchesLive() throws {
         let settings = Support.settings()
         let store = try Support.store(threads: 20)

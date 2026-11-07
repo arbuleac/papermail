@@ -1,12 +1,14 @@
 import Foundation
 
-/// What the engine must remember between bootstrap pages: the provider's next page token and the change
-/// cursor captured with the first page.
+/// What the engine must remember between enumeration pages: the provider's next page token (where the
+/// backfill lane resumes) and the change cursor captured with the head page.
 ///
-/// `BootstrapState` has no field for that cursor, and it must not become the account's sync cursor before
-/// enumeration completes (a poll from it would race the pages still being written). So the two ride together
-/// inside `BootstrapState.nextPage` as a small JSON envelope. The string is opaque to the store and the UI;
-/// only this module reads it back.
+/// The live lane stores that cursor as the sync cursor right after the head page, but writes it here first, so
+/// a crash between the two writes leaves a state whose cursor the next launch adopts. A download the
+/// single-loop engine left in progress (which kept the cursor here until enumeration completed) is adopted the
+/// same way. `BootstrapState` has no field for the cursor, so the two ride together inside
+/// `BootstrapState.nextPage` as a small JSON envelope. The string is opaque to the store and the UI; only this
+/// module reads it back.
 struct BootstrapCheckpoint: Codable, Hashable, Sendable {
     var providerPage: String?
     var changeCursor: String?
@@ -23,8 +25,8 @@ extension BootstrapState {
             guard let nextPage,
                   let data = nextPage.data(using: .utf8),
                   let decoded = try? JSONDecoder().decode(BootstrapCheckpoint.self, from: data) else {
-                // A bare token (or nothing) carries no cursor, and without one a resumed bootstrap could never
-                // finish correctly; reporting an empty checkpoint makes the syncer start over.
+                // A bare token (or nothing) carries no cursor to adopt; reporting an empty checkpoint makes an
+                // account without a sync cursor fetch a new head page.
                 return BootstrapCheckpoint()
             }
             return decoded

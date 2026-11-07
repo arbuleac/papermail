@@ -2,8 +2,14 @@ import Foundation
 
 /// Why a sync loop was woken. Reasons that arrive while the loop is busy are merged into its next wait.
 enum WakeReason: Hashable, Sendable {
-    /// Run a full cycle: outbox, changes and hydration.
+    /// Run a full cycle: outbox, changes and hydration. Someone asked (Check for New Mail, a reconnect), so an
+    /// account parked for sign-in tries its token again.
     case poll
+    /// Run a full cycle because the moment suggests new mail (the app coming to the front, the Mac waking, the
+    /// network returning), not because anyone asked. An account parked for sign-in stays parked: retrying would
+    /// bring back the keychain prompt with nobody there to answer, and the token provider waits on that prompt
+    /// for every account.
+    case check
     /// Only the outbox needs attention (a user action was queued).
     case operations
 }

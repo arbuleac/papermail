@@ -10,14 +10,19 @@ public struct BootstrapState: Hashable, Codable, Sendable {
     /// The provider's count of the mailbox when the enumeration began, if it gives one; kept so a resumed
     /// download still shows “3,412 of 8,120”. Absent in states stored before it was kept.
     public var estimatedTotal: Int?
+    /// True when this enumeration re-checks a mailbox the store already holds, after the live lane's cursor was
+    /// rejected: it refreshes stored messages instead of only adding missing ones, and when it completes it
+    /// removes stored messages it never saw. Absent (nil, read as false) for a first download.
+    public var reconciling: Bool?
     public init(startedAt: Date, nextPage: String? = nil, pagesDone: Int = 0, messagesSeen: Int = 0, isComplete: Bool = false,
-                estimatedTotal: Int? = nil) {
+                estimatedTotal: Int? = nil, reconciling: Bool? = nil) {
         self.startedAt = startedAt
         self.nextPage = nextPage
         self.pagesDone = pagesDone
         self.messagesSeen = messagesSeen
         self.isComplete = isComplete
         self.estimatedTotal = estimatedTotal
+        self.reconciling = reconciling
     }
 }
 
@@ -43,8 +48,20 @@ public struct AccountSyncStatus: Hashable, Sendable {
     /// After a failed or throttled cycle: when the engine tries again (“Retrying in 30 s”). Cleared when the
     /// next cycle starts.
     public var retryAt: Date?
+    /// While the backfill lane downloads older mail behind the live lane: how many messages its enumeration has
+    /// covered so far. Nil when no backfill enumeration is running. `phase` describes the live lane only, so an
+    /// account can be `idle` (new mail up to date) while this counts up.
+    public var backfillProgress: Int?
+    /// The provider's estimate of how many messages the backfill covers, when it gives one. Nil when unknown.
+    public var backfillTotal: Int?
+    /// Set while the provider has throttled the backfill lane: when it resumes. The live lane is unaffected.
+    public var backfillPausedUntil: Date?
+    /// True while the backfill lane, its listing done, is still downloading the bodies of mail already listed
+    /// (“Up to date · downloading messages…”). Cleared once a batch finds no body missing.
+    public var backfillDownloadingBodies: Bool
     public init(accountID: AccountID, phase: AccountSyncPhase, lastSuccessfulSyncAt: Date? = nil, bootstrapProgress: Int? = nil,
-                message: String? = nil, bootstrapTotal: Int? = nil, retryAt: Date? = nil) {
+                message: String? = nil, bootstrapTotal: Int? = nil, retryAt: Date? = nil, backfillProgress: Int? = nil,
+                backfillTotal: Int? = nil, backfillPausedUntil: Date? = nil, backfillDownloadingBodies: Bool = false) {
         self.accountID = accountID
         self.phase = phase
         self.lastSuccessfulSyncAt = lastSuccessfulSyncAt
@@ -52,5 +69,9 @@ public struct AccountSyncStatus: Hashable, Sendable {
         self.message = message
         self.bootstrapTotal = bootstrapTotal
         self.retryAt = retryAt
+        self.backfillProgress = backfillProgress
+        self.backfillTotal = backfillTotal
+        self.backfillPausedUntil = backfillPausedUntil
+        self.backfillDownloadingBodies = backfillDownloadingBodies
     }
 }

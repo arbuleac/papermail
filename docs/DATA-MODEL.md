@@ -118,6 +118,25 @@ Target rows are kept when an operation is saved again with the same targets, so 
 ### contacts
 `account_id, address (PK with account_id), name, seen_count, last_seen_ms`. Updated from from/to/cc on upsert. Suggestions order by `seen_count * recency`.
 
+### backfill_live_marks (v8)
+Sync bookkeeping for the two lanes (v8, see "Backfill marks"). No observation reads it.
+
+| column | type | notes |
+|---|---|---|
+| account_id | TEXT | FK accounts (cascade) |
+| provider_id | TEXT | a message the live lane wrote or deleted while the account's backfill runs. Not a foreign key: a deleted message, or one the backfill has not reached, is not stored |
+| deleted | INTEGER NOT NULL DEFAULT 0 | 1 when the live lane's latest change deleted the message, 0 when it wrote it. A later mark replaces the flag |
+| PRIMARY KEY (account_id, provider_id) | | `WITHOUT ROWID` |
+
+### backfill_seen (v8)
+The ids a reconciling backfill's listing has returned (v8, see "Backfill marks"). No observation reads it.
+
+| column | type | notes |
+|---|---|---|
+| account_id | TEXT | FK accounts (cascade) |
+| provider_id | TEXT | not a foreign key, like `backfill_live_marks.provider_id` |
+| PRIMARY KEY (account_id, provider_id) | | `WITHOUT ROWID` |
+
 ### Body design facts
 Worked out once by `HTMLSanitizer` at sync time and stored with the body, so the reader never scans HTML to decide how to set a message (docs/DESIGN-LANGUAGE.md §8.4, §8.5). The render payload carries them per message (`typesetting` as its name, `declaresColors`, `coveredByNewYork`, next to `hasBody`) together with the conversation account's `inkSlot`.
 - **typesetting**: `plain` when the body came from the text/plain part (no HTML part, a blank one, or one that failed to parse). `unstyled` for HTML with no author styling: no `style` attribute, body style or `<style>` element (after filtering) declaring anything beyond the neutral text-flow and spacing properties (`margin*`, `padding*`, `border*`, `direction`, `unicode-bidi`, `text-align`, `word-wrap`, `overflow-wrap`, `word-break`, `white-space`, `line-break`, `-webkit-line-break`, `-webkit-nbsp-mode`, `caret-color`, `*text-size-adjust`, plus `width`, `height`, `max-width`, `max-height` in a `style` attribute on `<img>`), so Fastmail's `<style>p.MsoNormal,p.MsoNoSpacing{margin:0}</style>` and Outlook on the web's `P {margin-top:0;margin-bottom:0;}` leave a body unstyled; no colour (so unstyled never declares colours); no `<font>` with `face` or `size`; no layout table (a `<table>` with `width`, `height`, `align`, `bgcolor`, `background`, `cellpadding`, `cellspacing` or `role="presentation"`, or a table inside a table). `styled` for every other HTML body.
@@ -130,13 +149,14 @@ Worked out once by `HTMLSanitizer` at sync time and stored with the body, so the
 
 ## Migrations
 Applied in order by GRDB's `DatabaseMigrator`; a migration is never edited once released.
-- `v1-mailbox`: the tables above as first released.
+- `v1-mailbox`: the tables above as first released, except `backfill_live_marks` and `backfill_seen` (v8).
 - `v2-body-render-facts`: `bodies.has_quoted`, `bodies.blocked_images`.
 - `v3-body-typesetting`: `bodies.typesetting`, `bodies.declares_colors`, `bodies.covered_by_new_york` (existing bodies stay NULL).
 - `v4-account-ink`: `accounts.ink_slot` (backfilled in creation order), `accounts.monogram`.
 - `v5-failed-operation-mark`: `conversations.failed_op_kind`.
 - `v6-operation-priors`: `operation_targets.prior_roles`, `prior_is_read`, `prior_is_starred` (existing rows stay NULL).
 - `v7-body-design-facts-backfill`: the partial index `bodies_missing_design_facts ON bodies(account_id) WHERE typesetting IS NULL`, for the design-facts backfill.
+- `v8-backfill-marks`: the tables `backfill_live_marks` and `backfill_seen` (empty at first), for the two sync lanes (see "Backfill marks").
 
 ## Semantics
 
@@ -153,4 +173,11 @@ Applied in order by GRDB's `DatabaseMigrator`; a migration is never edited once 
   - *Dropped*: deleting a live operation (`deleteOperation`, as a poll does with an uncertain one it has settled) changes no mark: it was never confirmed.
   - The mark lives on the summary row: a conversation with no summary row (every message spam, or none left) cannot be marked, and loses its mark when the row goes.
   - Known limits: the schema keeps no per-operation acknowledgement and no failure time, so where the rules compare a failure with another operation they use creation order. The kind shown is that of the newest failure by creation, not the last to give up. A confirmation clears the mark of every failure created before it, including one that gave up only after the confirmed operation was queued. The failure-ended rule assumes one retention for every failure; after a build shortens `SyncTuning.failedOperationRetention`, a mark can stay until the failures recorded under the longer retention expire. Writing a failed row back to pending (nothing does today) is not ordered by give-up time, so it can keep a mark the same way.
+- **Backfill marks** (`backfill_live_marks`, `backfill_seen`). Each account syncs in two lanes: the live lane owns the change cursor and applies changes as they arrive, and the backfill lane downloads older mail behind it, paced by the provider's quota. A backfill page can therefore be fetched before a live change and written after it. Both stores apply these rules, each call in one transaction:
+  - *Live marks*: while a backfill runs, the engine marks every message the live lane writes or deletes (`markLiveChanges`), and marks it before the `upsertMessages` / `deleteMessages` that applies the change, never after. The mark is its own transaction, so only a mark that commits first closes the window in which a backfill write or sweep could run between the live write and its mark: marked after, a stale page could bring back a just-deleted message or overwrite a newer one, and a sweep could delete mail that just arrived (the cursor has already moved past it). A mark whose live write then fails is harmless: the backfill skips that message, and the live lane writes it when it retries the page, because the cursor moves only after the write. A later mark replaces an earlier one's `deleted` flag; within one call an id both written and deleted is marked deleted, the order a changes page is applied in (upserts, then deletions).
+  - *Backfill writes only add*: `writeBackfillMessages` drops every message that has a live mark and, unless it is refreshing (a reconcile, below), every message already stored, then writes the rest through the same path as `upsertMessages` (full-text rows, conversation summaries, contacts, "Pending operations win"). The mark check and the write share the transaction, so a live change marked before it is written either is marked by the time the page checks (and is skipped) or is written after the page, waiting for its transaction, and overwrites it. This is why the marks exist: a page fetched before a live change must neither overwrite it (undo a read, an archive, a new label) nor bring back a message the live lane deleted. A repeated id in one page is written once, as its last copy. `backfillSkippableIDs` answers the same question before the backfill fetches metadata, so quota goes only to messages it will write; it is advisory and the write checks again.
+  - *Reconcile*: a rejected change cursor no longer wipes the mailbox. The live lane takes a fresh cursor and the newest page, and a reconciling backfill (`BootstrapState.reconciling`) lists the whole mailbox again, refreshing stored messages (`refreshExisting`, marked ones still skipped) and recording every id it lists in `backfill_seen` (`markBackfillSeen`).
+  - *Finish*: `finishBackfill` ends the account's backfill. After a reconcile that listed everything (`sweepUnseen`), it first deletes the account's messages whose id is in neither table and that no live (pending, in-flight or uncertain) operation targets (a message the live lane writes is marked before it is stored, so the sweep never sees it unmarked), through the message delete so the full-text index and conversation summaries follow: the provider no longer has them, and this removes them without wiping the mailbox. A message a live operation targets stays, since the store cannot tell whether the provider still has it; the engine asks the provider about those targets just before the sweep (`metadata(for:)`) and deletes the ones it no longer has, because a deletion in the gap the reset covers sat in the expired history, so neither a later poll nor the operation's outcome would ever remove them. Then it deletes all of the account's rows in both tables, so marks only ever describe the backfill that is running.
+  - `wipeMailData` clears both tables for the account; deleting the account removes them (the wipe, and the foreign keys).
+  - No observation reads either table, so a mark never wakes the list.
 - **Conversation key** is the provider's thread id scoped to the account. Never re-thread across accounts.

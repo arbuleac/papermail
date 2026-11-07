@@ -18,6 +18,10 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
     /// `conversations.failed_op_kind`: kept by operation writes, never derived (see `FailedOperationMarks`).
     private var failedMarks: [ConversationID: OperationKind] = [:]
     private var sends: [String: PendingSend] = [:]
+    /// `backfill_live_marks`: what the live lane wrote (false) or deleted (true) while a backfill runs.
+    private var liveMarks: [MessageID: Bool] = [:]
+    /// `backfill_seen`: what a reconciling backfill's listing has returned.
+    private var backfillSeen: Set<MessageID> = []
     private var contactCounts: [AccountID: [String: (name: String?, count: Int, lastSeen: Date)]] = [:]
     private var conversationObservers: [UUID: (ConversationQuery, ([ConversationSummary]) -> Void)] = [:]
     private var messageObservers: [UUID: (ConversationID, ([MessageMetadata]) -> Void)] = [:]
@@ -99,6 +103,7 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         cursors[accountID] = nil
         bootstraps[accountID] = nil
         contactCounts[accountID] = nil
+        clearBackfillMarksLocked(accountID)
         dropOrphanedMarksLocked()
     }
 
@@ -114,6 +119,13 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
 
     public func upsertMessages(_ messages: [MessageMetadata]) throws {
         lock.lock(); defer { lock.unlock() }
+        upsertLocked(messages)
+        notifyAll()
+    }
+
+    /// The one write path for provider metadata, shared by `upsertMessages` and `writeBackfillMessages` as
+    /// `MessageTable.upsert` is in the SQLite store.
+    private func upsertLocked(_ messages: [MessageMetadata]) {
         for incoming in messages {
             var metadata = incoming
             // Pending operations win: provider state older than a queued intent must not undo it. Each one's
@@ -126,17 +138,20 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
             recordContacts(of: metadata)
         }
         dropOrphanedMarksLocked()
-        notifyAll()
     }
 
     public func deleteMessages(_ ids: [MessageID]) throws {
         lock.lock(); defer { lock.unlock() }
+        deleteLocked(ids)
+        notifyAll()
+    }
+
+    private func deleteLocked(_ ids: [MessageID]) {
         for id in ids {
             messagesByID[id] = nil
             bodies[id] = nil
         }
         dropOrphanedMarksLocked()
-        notifyAll()
     }
 
     public func message(_ id: MessageID) throws -> MessageMetadata? {
@@ -197,6 +212,63 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
             body.coveredByNewYork = fact.coveredByNewYork
             bodies[id] = body
         }
+    }
+
+    // MARK: Backfill (the rules are written out on `BackfillMarks` and in docs/DATA-MODEL.md)
+
+    public func backfillSkippableIDs(accountID: AccountID, providerIDs: [String], includeStored: Bool) throws -> Set<String> {
+        lock.lock(); defer { lock.unlock() }
+        return Set(providerIDs.filter {
+            isBackfillSkippableLocked(MessageID(accountID: accountID, providerID: $0), includeStored: includeStored)
+        })
+    }
+
+    private func isBackfillSkippableLocked(_ id: MessageID, includeStored: Bool) -> Bool {
+        liveMarks[id] != nil || (includeStored && messagesByID[id] != nil)
+    }
+
+    @discardableResult
+    public func writeBackfillMessages(_ messages: [MessageMetadata], refreshExisting: Bool) throws -> Int {
+        lock.lock(); defer { lock.unlock() }
+        let written = BackfillMarks.lastOccurrences(messages).filter {
+            !isBackfillSkippableLocked($0.id, includeStored: !refreshExisting)
+        }
+        guard !written.isEmpty else { return 0 }
+        upsertLocked(written)
+        notifyAll()
+        return written.count
+    }
+
+    public func markLiveChanges(accountID: AccountID, upserted: [String], deleted: [String]) throws {
+        lock.lock(); defer { lock.unlock() }
+        for providerID in upserted { liveMarks[MessageID(accountID: accountID, providerID: providerID)] = false }
+        for providerID in deleted { liveMarks[MessageID(accountID: accountID, providerID: providerID)] = true }
+    }
+
+    public func markBackfillSeen(accountID: AccountID, providerIDs: [String]) throws {
+        lock.lock(); defer { lock.unlock() }
+        for providerID in providerIDs { backfillSeen.insert(MessageID(accountID: accountID, providerID: providerID)) }
+    }
+
+    @discardableResult
+    public func finishBackfill(accountID: AccountID, sweepUnseen: Bool) throws -> Int {
+        lock.lock(); defer { lock.unlock() }
+        var swept: [MessageID] = []
+        if sweepUnseen {
+            swept = messagesByID.keys.filter { id in
+                id.accountID == accountID && !backfillSeen.contains(id) && liveMarks[id] == nil
+                    && liveOperationsLocked(on: id).isEmpty
+            }
+            deleteLocked(swept)
+        }
+        clearBackfillMarksLocked(accountID)
+        if !swept.isEmpty { notifyAll() }
+        return swept.count
+    }
+
+    private func clearBackfillMarksLocked(_ accountID: AccountID) {
+        liveMarks = liveMarks.filter { $0.key.accountID != accountID }
+        backfillSeen = backfillSeen.filter { $0.accountID != accountID }
     }
 
     // MARK: Conversations

@@ -25,6 +25,9 @@ final class GraphHTTPClient: Sendable {
         while true {
             let token = request.authenticated ? try await tokens.accessToken(for: accountID) : nil
             let urlRequest = makeURLRequest(request, token: token)
+            // Every attempt counts, the one a 401 sends again included: Graph may count the refused one too, and
+            // over-counting a rare retry only paces the engine a little sooner.
+            GraphRequestTally.current?.add(request.countedRequests)
             let data: Data
             let response: URLResponse
             do {
@@ -77,7 +80,8 @@ final class GraphHTTPClient: Sendable {
             return item
         }
         let body = try GraphJSON.encode(GraphBatchEnvelope(requests: prepared))
-        let response = try await send(GraphRequest(method: .post, url: try GraphURL.make("/$batch"), body: body))
+        let response = try await send(GraphRequest(method: .post, url: try GraphURL.make("/$batch"), body: body,
+                                                   countedRequests: requests.count))
         return try GraphJSON.decode(GraphBatchResponseEnvelope.self, from: response.data).responses
     }
 

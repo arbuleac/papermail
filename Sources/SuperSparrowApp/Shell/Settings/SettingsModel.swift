@@ -123,7 +123,7 @@ final class SettingsModel: ObservableObject {
         let service = ErrorText.service(account.kind)
         switch status.phase {
         case .idle:
-            return .upToDate(checked: status.lastSuccessfulSyncAt.map { $0.formatted(date: .omitted, time: .shortened) })
+            return upToDate(status, service: service)
         case .bootstrapping:
             // The provider's figure is an estimate; the count never runs past it.
             let done = status.bootstrapProgress ?? 0
@@ -131,7 +131,7 @@ final class SettingsModel: ObservableObject {
         case .syncing:
             if userChecks.contains(account.id) { return .checking }
             if status.lastSuccessfulSyncAt == nil { return .waitingToSync }
-            return .upToDate(checked: status.lastSuccessfulSyncAt.map { $0.formatted(date: .omitted, time: .shortened) })
+            return upToDate(status, service: service)
         case .hydrating:
             return .downloadingMessages
         case .paused:
@@ -149,6 +149,24 @@ final class SettingsModel: ObservableObject {
             if busy.allSatisfy({ $0.phase == .error && ErrorText.isNetwork($0.message) }) { return .offline }
             return .retrying(inSeconds: SyncLineSummary.retrySeconds(until: status.retryAt, now: now), cause: "Couldn't reach \(service).")
         }
+    }
+
+    /// Up to date, carrying the older mail the backfill downloads behind it (§5.40): the tooltip's words and,
+    /// while the total is known, the Downloading row's bar. A throttle holds back only the older mail, so it is
+    /// named in the tooltip rather than shown as Retrying.
+    private func upToDate(_ status: AccountSyncStatus, service: String) -> QuireAccountStatus {
+        var block = QuireAccountStatus.upToDate(checked: status.lastSuccessfulSyncAt.map { $0.formatted(date: .omitted, time: .shortened) })
+        guard let older = SyncLineSummary.olderMailWords(status, now: now) else {
+            // The listing is done and the bodies of that mail are still arriving; new mail is current all the same.
+            if status.backfillDownloadingBodies { block.words = "Up to date · downloading messages…" }
+            return block
+        }
+        block.words = "Up to date · \(older)"
+        block.progress = SyncLineSummary.olderMailFraction(status, now: now)
+        if let pausedUntil = status.backfillPausedUntil, pausedUntil > now {
+            block.tooltip = [block.tooltip, "\(service) is limiting requests."].compactMap { $0 }.joined(separator: "\n")
+        }
+        return block
     }
 
     /// Runs a one-second clock while any account has a retry ahead, so “Retrying in 30 s” counts down.

@@ -17,12 +17,11 @@ enum GmailBatchError: Error, Sendable {
 /// Builds and parses the `multipart/mixed` envelope of the Gmail batch endpoint. Each part wraps a complete
 /// HTTP request or response, so the parser is a small HTTP-in-MIME reader rather than a JSON decoder.
 enum GmailBatch {
-    static let maxPartsPerBatch = 50
-
     /// Content-ID of request `index`; Google echoes it back as `response-<id>` so parts can be matched
     /// without trusting their order.
     static func contentID(for index: Int) -> String { "item-\(index)" }
 
+    /// Metadata gets are the only calls the provider batches, so the envelope is logged as one.
     static func request(paths: [String], boundary: String) throws -> GmailRequest {
         var body = ""
         for (index, path) in paths.enumerated() {
@@ -38,7 +37,8 @@ enum GmailBatch {
             method: .post,
             url: try GmailRequest.batchURL(),
             headers: ["Content-Type": "multipart/mixed; boundary=\(boundary)"],
-            body: Data(body.utf8)
+            body: Data(body.utf8),
+            kind: .batchMetadata
         )
     }
 

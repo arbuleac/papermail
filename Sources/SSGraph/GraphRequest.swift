@@ -21,6 +21,8 @@ struct GraphRequest: Sendable {
     /// False for upload-session URLs: they carry their own credential, and Graph refuses a request to them
     /// that also has a bearer token.
     var authenticated = true
+    /// What Graph counts against the mailbox's limit each time this is sent: one, or a `$batch` envelope's parts.
+    var countedRequests = 1
 }
 
 /// What came back, with header names lowercased so lookups do not depend on Graph's casing.

@@ -137,6 +137,61 @@ final class GmailProviderTests: XCTestCase {
         XCTAssertEqual(batches.map { $0.header("Authorization") }, ["Bearer token-1", "Bearer token-2"])
     }
 
+    // MARK: Backfill
+
+    func testBackfillListingListsIDsOnceWithoutMetadata() async throws {
+        server.on("GET", "/users/me/messages", .json(GmailFixtures.messageList))
+        let provider = TestSupport.makeProvider()
+
+        let listing = try await provider.backfillListing(page: "page-1", limit: 100)
+
+        XCTAssertEqual(listing.ids, ["m1", "m2"])
+        XCTAssertNil(listing.messages, "metadata is fetched by the engine, only for messages its store lacks")
+        XCTAssertEqual(listing.nextPage, "page-2")
+        XCTAssertEqual(server.requests.count, 1, "one list call: no profile read, no batch, no single gets")
+        let list = try XCTUnwrap(server.requests(to: "/users/me/messages").first)
+        XCTAssertEqual(list.method, "GET")
+        XCTAssertEqual(list.path, "/gmail/v1/users/me/messages")
+        XCTAssertEqual(list.query["q"], [GmailProvider.bootstrapQuery])
+        XCTAssertEqual(list.query["maxResults"], ["100"])
+        XCTAssertEqual(list.query["pageToken"], ["page-1"])
+    }
+
+    func testBackfillListingContinuesTheBootstrapEnumeration() async throws {
+        server.on("GET", "/users/me/profile", .json(GmailFixtures.profile))
+        server.sequence("GET", "/users/me/messages", [.json(GmailFixtures.messageList), .json(GmailFixtures.lastMessageList)])
+        TestSupport.stubBatch(messages: ["m1": GmailFixtures.metadataM1, "m2": GmailFixtures.metadataM2])
+        let provider = TestSupport.makeProvider()
+
+        let head = try await provider.bootstrap(page: nil, limit: 200)
+        let next = try XCTUnwrap(head.nextPage)
+        let batchesAfterHead = server.requests(to: "/batch/gmail/v1").count
+        let listing = try await provider.backfillListing(page: next, limit: 200)
+
+        XCTAssertEqual(listing.ids, ["m2"])
+        XCTAssertNil(listing.nextPage, "the last page ends the enumeration")
+        XCTAssertEqual(server.requests(to: "/batch/gmail/v1").count, batchesAfterHead)
+        let lists = server.requests(to: "/users/me/messages")
+        XCTAssertEqual(lists.count, 2)
+        XCTAssertEqual(lists[1].query["pageToken"], ["page-2"])
+        var headQuery = lists[0].query
+        var backfillQuery = lists[1].query
+        headQuery["pageToken"] = nil
+        backfillQuery["pageToken"] = nil
+        XCTAssertEqual(backfillQuery, headQuery, "a page token is only valid with the query and page size that made it")
+    }
+
+    func testBackfillListingClampsLimitLikeBootstrap() async throws {
+        server.on("GET", "/users/me/messages", .json("{}"))
+        let provider = TestSupport.makeProvider()
+
+        let listing = try await provider.backfillListing(page: "page-9", limit: 5000)
+
+        XCTAssertTrue(listing.ids.isEmpty)
+        XCTAssertNil(listing.nextPage)
+        XCTAssertEqual(server.requests(to: "/users/me/messages").first?.query["maxResults"], ["500"])
+    }
+
     // MARK: Changes
 
     func testChangesCollectsAddedDeletedAndRelabeledMessages() async throws {
@@ -286,16 +341,18 @@ final class GmailProviderTests: XCTestCase {
         XCTAssertEqual(messages.map(\.id.providerID), ["m1"])
     }
 
-    func testMetadataSplitsBatchesOfFifty() async throws {
-        let ids = (0..<120).map { "id\($0)" }
-        TestSupport.stubBatch(messages: [:])
+    func testMetadataSplitsBatchesOfTen() async throws {
+        let ids = (0..<25).map { "id\($0)" }
+        TestSupport.stubBatch(messages: Dictionary(uniqueKeysWithValues: ids.map { ($0, GmailFixtures.metadata(id: $0)) }))
         let provider = TestSupport.makeProvider()
 
         let messages = try await provider.metadata(for: ids)
 
-        XCTAssertTrue(messages.isEmpty)
+        XCTAssertEqual(messages.map(\.id.providerID), ids)
         let batches = server.requests(to: "/batch/gmail/v1")
-        XCTAssertEqual(batches.map { TestSupport.batchRequestIDs(in: $0.bodyText).count }, [50, 50, 20])
+        XCTAssertEqual(batches.map { TestSupport.batchRequestIDs(in: $0.bodyText) },
+                       [Array(ids[0..<10]), Array(ids[10..<20]), Array(ids[20..<25])],
+                       "20 quota units a part: 10 parts is 200 units a request, not 1,000")
     }
 
     func testBodyFetchesFullFormatAndWalksMIMETree() async throws {
@@ -600,7 +657,7 @@ final class GmailProviderTests: XCTestCase {
         let error = await TestSupport.providerError { _ = try await provider.profile() }
 
         guard case .throttled(let retryAfter)? = error else { return XCTFail("expected throttled, got \(String(describing: error))") }
-        XCTAssertNil(retryAfter)
+        XCTAssertNil(retryAfter, "the message's refill time (2024) has passed, so it says nothing")
     }
 
     func testOtherForbiddenMapsToServerError() async {

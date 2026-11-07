@@ -6,7 +6,7 @@ import SSDesign
 /// changes height. A top hairline, 16 pt padding, a 12 pt glyph or spinner, 6 pt, then the lead phrase in
 /// `metaMedium` `ink2` and the rest in `meta` `ink3` (the whole line in `danger` for Sign in required and
 /// errors), and the trailing action link in `metaStrong` `accent`. While mail downloads, a contrail runs along
-/// the top edge.
+/// the top edge; behind Up to date it shows older mail's progress only while the total is known.
 ///
 /// The line is a button: a click (or Space and Return with Full Keyboard Access, the only way it takes focus)
 /// opens Settings › Accounts, and hovering shows every account's state as a tooltip. Its action link joins the
@@ -97,7 +97,9 @@ final class SyncStatusBar: QuireControl {
         } else {
             spinner.stopAnimation()
         }
-        if summary.state == .downloading {
+        // Older mail behind Up to date shows only a known fraction: an indeterminate sweep would read as the
+        // mailbox being busy when new mail is already current.
+        if summary.state == .downloading || summary.progress != nil {
             // Set only on a change: re-setting the mode would restart the sweep on every status update.
             let mode: QuireProgressMode = summary.progress.map { .determinate($0) } ?? .indeterminate
             if contrail.mode != mode || contrail.isHidden { contrail.mode = mode }

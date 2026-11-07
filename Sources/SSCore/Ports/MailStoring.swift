@@ -37,8 +37,8 @@ public protocol MailStoring: AnyObject, Sendable {
     func setSyncCursor(_ cursor: String?, for accountID: AccountID) throws
     func bootstrapState(for accountID: AccountID) throws -> BootstrapState?
     func setBootstrapState(_ state: BootstrapState?, for accountID: AccountID) throws
-    /// Drops messages, bodies, contacts and sync state for the account but keeps the account row, its pending
-    /// operations and its pending sends: user intent the provider has not seen survives a re-bootstrap.
+    /// Drops messages, bodies, contacts, sync state and backfill marks for the account but keeps the account row,
+    /// its pending operations and its pending sends: user intent the provider has not seen survives a re-bootstrap.
     func wipeMailData(for accountID: AccountID) throws
 
     // MARK: Messages
@@ -60,6 +60,42 @@ public protocol MailStoring: AnyObject, Sendable {
     /// Writes the design facts of stored bodies in one transaction, leaving the rest of each body as it is.
     /// Messages without a stored body are skipped.
     func saveDesignFacts(_ facts: [MessageID: BodyDesignFacts]) throws
+
+    // MARK: Backfill (docs/DATA-MODEL.md, "Backfill marks")
+    // The backfill lane downloads older mail while the live lane applies changes from the cursor, and a backfill
+    // page can be fetched before a live change and written after it. These calls keep such a page from
+    // overwriting newer state or bringing a deleted message back, and let a reconciling backfill remove what the
+    // provider no longer has without wiping the mailbox. The marks are sync bookkeeping: no observation reads them.
+
+    /// Of `providerIDs`, the ones the backfill should not fetch: those the live lane wrote or deleted since the
+    /// backfill began, plus, when `includeStored`, those the account already stores. Advisory, so a backfill can
+    /// skip the metadata requests; `writeBackfillMessages` checks again in its own transaction.
+    func backfillSkippableIDs(accountID: AccountID, providerIDs: [String], includeStored: Bool) throws -> Set<String>
+    /// Writes a backfill page in one transaction: drops every message the live lane wrote or deleted since the
+    /// backfill began and, unless `refreshExisting` (a reconciling backfill), every message already stored, then
+    /// writes the rest exactly as `upsertMessages` would, pending operations winning. The check and the write
+    /// share the transaction so a live write cannot land between them. Returns how many messages it wrote.
+    @discardableResult
+    func writeBackfillMessages(_ messages: [MessageMetadata], refreshExisting: Bool) throws -> Int
+    /// Records that the live lane wrote (`upserted`) or deleted (`deleted`) these messages while a backfill
+    /// runs, so the backfill leaves them alone. A later call replaces an id's mark; within one call an id in
+    /// both lists is marked deleted, the order the live lane applies a changes page in.
+    ///
+    /// Call it before the `upsertMessages` / `deleteMessages` it describes, never after: it is its own
+    /// transaction, so only a mark that commits first guarantees a backfill write or sweep either sees it (and
+    /// skips or keeps the message) or commits before the live write (which then overwrites it). Marking after
+    /// leaves a window where a stale page brings back a just-deleted message, overwrites a newer one, or a sweep
+    /// removes just-arrived mail. A mark whose live write then fails is harmless: the backfill skips that message
+    /// and the live lane writes it when it retries the page, since its cursor moves only after the write.
+    func markLiveChanges(accountID: AccountID, upserted: [String], deleted: [String]) throws
+    /// Records ids a reconciling backfill's listing returned, which its final sweep keeps.
+    func markBackfillSeen(accountID: AccountID, providerIDs: [String]) throws
+    /// Ends the account's backfill in one transaction. With `sweepUnseen` (a reconciling backfill that listed
+    /// the whole mailbox) it first deletes every stored message of the account that the listing never returned,
+    /// the live lane never marked and no live operation targets: the provider no longer has it. Then it drops
+    /// the account's marks. Returns how many messages it deleted.
+    @discardableResult
+    func finishBackfill(accountID: AccountID, sweepUnseen: Bool) throws -> Int
 
     // MARK: Conversations
     func conversations(_ query: ConversationQuery) throws -> [ConversationSummary]

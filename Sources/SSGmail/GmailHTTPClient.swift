@@ -1,5 +1,6 @@
 import Foundation
 import SSCore
+import os
 
 /// Sends authenticated requests to Google and turns HTTP outcomes into `ProviderError`, so the provider
 /// methods above it only ever see decoded JSON or a policy-ready error.
@@ -13,6 +14,8 @@ struct GmailHTTPClient: Sendable {
     let accountID: AccountID
     let tokens: AccessTokenProvider
     let session: URLSession
+
+    private static let log = Logger(subsystem: "io.supersparrow.mac", category: "gmail")
 
     /// Runs `attempt` with a fresh token; a 401 invalidates the token and earns exactly one retry, after
     /// which the account is reported as needing re-authentication.
@@ -63,6 +66,9 @@ struct GmailHTTPClient: Sendable {
             throw ProviderError.network("Response was not HTTP")
         }
         if let error = Self.error(status: http.statusCode, body: data, retryAfter: http.value(forHTTPHeaderField: "Retry-After")) {
+            if case .throttled(let retryAfter) = error {
+                Self.logThrottle(ThrottleDetails(status: http.statusCode, body: data), kind: request.kind, retryAfter: retryAfter)
+            }
             throw error
         }
         return Response(status: http.statusCode, data: data, http: http)
@@ -86,19 +92,19 @@ struct GmailHTTPClient: Sendable {
         case 401:
             return .unauthorized
         case 403:
-            if isRateLimit(body) { return .throttled(retryAfter: parseRetryAfter(retryAfter)) }
+            if isRateLimit(body) { return .throttled(retryAfter: parseRetryAfter(retryAfter) ?? retryDelay(inBody: body)) }
             return .server(status: status, message: errorMessage(body))
         case 404:
             return .notFound
         case 429:
-            return .throttled(retryAfter: parseRetryAfter(retryAfter))
+            return .throttled(retryAfter: parseRetryAfter(retryAfter) ?? retryDelay(inBody: body))
         default:
             return .server(status: status, message: errorMessage(body))
         }
     }
 
     /// Google reports quota exhaustion as 403 with a reason code rather than 429.
-    private static func isRateLimit(_ body: Data) -> Bool {
+    static func isRateLimit(_ body: Data) -> Bool {
         guard let envelope = try? JSONDecoder().decode(GmailErrorEnvelope.self, from: body) else { return false }
         let reasons = (envelope.error.errors ?? []).compactMap(\.reason)
         if reasons.contains(where: { $0 == "rateLimitExceeded" || $0 == "userRateLimitExceeded" }) { return true }
@@ -124,5 +130,73 @@ struct GmailHTTPClient: Sendable {
         formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
         guard let date = formatter.date(from: value) else { return nil }
         return max(0, date.timeIntervalSinceNow)
+    }
+
+    /// Google's per-user quota refusals carry no Retry-After header; the refill time is only in the message
+    /// text (“User-rate limit exceeded.  Retry after 2026-11-07T10:30:00.000Z”). Checked in the top-level
+    /// message first, then in each error detail's.
+    static func retryDelay(inBody body: Data, now: Date = Date()) -> TimeInterval? {
+        guard let envelope = try? JSONDecoder().decode(GmailErrorEnvelope.self, from: body) else { return nil }
+        let messages = [envelope.error.message] + (envelope.error.errors ?? []).map(\.message)
+        for case let message? in messages {
+            if let delay = retryDelay(inMessage: message, now: now) { return delay }
+        }
+        return nil
+    }
+
+    /// Seconds from `now` until the RFC 3339 time after “Retry after” in `message`, or nil when that time
+    /// has passed. A passed time (clock skew, a stale message) says nothing about when the quota refills;
+    /// reporting it as zero would make the engine retry at its base delay instead of backing off.
+    static func retryDelay(inMessage message: String, now: Date = Date()) -> TimeInterval? {
+        guard let marker = message.range(of: "Retry after", options: .caseInsensitive) else { return nil }
+        let token = message[marker.upperBound...].drop(while: \.isWhitespace).prefix { !$0.isWhitespace }
+        // The time can end a sentence, so a trailing full stop or bracket is punctuation, not part of it.
+        let stamp = token.trimmingCharacters(in: CharacterSet(charactersIn: ".,;:)]\"'"))
+        guard !stamp.isEmpty, let date = rfc3339Date(stamp), date > now else { return nil }
+        return date.timeIntervalSince(now)
+    }
+
+    private static func rfc3339Date(_ text: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: text) { return date }
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: text)
+    }
+
+    // MARK: Throttle log
+
+    /// What Google said when it throttled a request: its reason codes and status say which limit tripped
+    /// (per-user quota, concurrency, project quota), which the mapped `ProviderError` no longer tells apart.
+    struct ThrottleDetails: Hashable, Sendable {
+        var status: Int
+        var reasons: [String]
+        var googleStatus: String?
+        var message: String?
+
+        init(status: Int, body: Data) {
+            self.status = status
+            let envelope = try? JSONDecoder().decode(GmailErrorEnvelope.self, from: body)
+            reasons = (envelope?.error.errors ?? []).compactMap(\.reason)
+            googleStatus = envelope?.error.status
+            message = envelope?.error.message
+        }
+    }
+
+    /// One notice per throttled response, or per group of alike throttled parts of one batch reply. Kinds,
+    /// reasons and statuses are Google's fixed vocabulary and public; the message text stays private because
+    /// nothing guarantees it never names the account.
+    static func logThrottle(_ details: ThrottleDetails, kind: GmailRequest.Kind, retryAfter: TimeInterval?,
+                            parts: (throttled: Int, total: Int)? = nil) {
+        let scope = parts.map { ", \($0.throttled) of \($0.total) parts" } ?? ""
+        let reasons = details.reasons.isEmpty ? "none" : details.reasons.joined(separator: ",")
+        let googleStatus = details.googleStatus ?? "none"
+        let retry = retryAfter.map { String(format: "%.0f s", $0) } ?? "none"
+        let message = details.message ?? ""
+        log.notice("""
+            Gmail throttled \(kind.rawValue, privacy: .public)\(scope, privacy: .public): HTTP \(details.status, privacy: .public), \
+            reasons \(reasons, privacy: .public), status \(googleStatus, privacy: .public), \
+            retry after \(retry, privacy: .public), message “\(message, privacy: .private)”
+            """)
     }
 }

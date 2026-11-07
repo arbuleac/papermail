@@ -43,7 +43,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     private var listItem: NSSplitViewItem!
 
     private let inboxMonitor: InboxMonitor
-    private let activity: SyncActivityMonitor
+    /// Internal so the app's tests can drive the network path without a real path monitor.
+    let activity: SyncActivityMonitor
+    /// Checks every account at once, when the network comes back; an account waiting for sign-in keeps waiting
+    /// (`MailClient.checkForMail`). Replaceable so the app's tests, whose engine never starts, can count the checks.
+    lazy var checkAllAccounts: () -> Void = { [weak self] in self?.environment.engine.checkForMail() }
     /// Drafts kept on this Mac, which the Drafts view lists and the reader shows beside the provider's.
     let localDrafts = LocalDrafts()
     let notifier: NewMailNotifier
@@ -337,6 +341,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             return self.conversation.currentConversationID
         }
         activity.onChange = { [weak self] in self?.refreshSyncLine() }
+        // Back online: check now rather than when the engine's backoff next allows.
+        activity.onNetworkReturned = { [weak self] in self?.checkAllAccounts() }
     }
 
     // MARK: Accounts and status

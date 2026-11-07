@@ -8,10 +8,24 @@ struct GmailRequest: Sendable {
         case post = "POST"
     }
 
+    /// Which Gmail call this is. Throttle logs name it: each kind costs different quota units, so the kind
+    /// Google refused says which part of sync overspent.
+    enum Kind: String, Sendable {
+        case profile
+        case list
+        case history
+        case batchMetadata = "batch metadata"
+        case message
+        case attachment
+        case send
+        case batchModify
+    }
+
     var method: Method
     var url: URL
     var headers: [String: String]
     var body: Data?
+    var kind: Kind
 
     static let apiHost = "gmail.googleapis.com"
     static let apiPathPrefix = "/gmail/v1/users/me"
@@ -25,22 +39,24 @@ struct GmailRequest: Sendable {
         "From", "To", "Cc", "Bcc", "Reply-To", "Subject", "Date", "Message-ID", "In-Reply-To", "References",
     ]
 
-    static func get(_ resource: String, query: [URLQueryItem] = []) throws -> GmailRequest {
-        GmailRequest(method: .get, url: try apiURL(resource, query: query), headers: [:], body: nil)
+    static func get(_ resource: String, query: [URLQueryItem] = [], kind: Kind) throws -> GmailRequest {
+        GmailRequest(method: .get, url: try apiURL(resource, query: query), headers: [:], body: nil, kind: kind)
     }
 
-    static func post<Body: Encodable>(_ resource: String, json body: Body) throws -> GmailRequest {
+    static func post<Body: Encodable>(_ resource: String, json body: Body, kind: Kind) throws -> GmailRequest {
         GmailRequest(
             method: .post,
             url: try apiURL(resource, query: []),
             headers: ["Content-Type": "application/json; charset=UTF-8"],
-            body: try encode(body)
+            body: try encode(body),
+            kind: kind
         )
     }
 
     /// A multipart upload (`uploadType=multipart`): the resource's JSON metadata followed by the media bytes
     /// as they are, for payloads the JSON endpoint would reject as too large.
-    static func upload<Metadata: Encodable>(_ resource: String, metadata: Metadata, media: Data, mediaType: String) throws -> GmailRequest {
+    static func upload<Metadata: Encodable>(_ resource: String, metadata: Metadata, media: Data, mediaType: String,
+                                            kind: Kind) throws -> GmailRequest {
         let boundary = "ss_upload_" + UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "")
         var body = Data()
         body.append(Data("--\(boundary)\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n".utf8))
@@ -53,7 +69,8 @@ struct GmailRequest: Sendable {
             method: .post,
             url: endpoint,
             headers: ["Content-Type": "multipart/related; boundary=\(boundary)"],
-            body: body
+            body: body,
+            kind: kind
         )
     }
 

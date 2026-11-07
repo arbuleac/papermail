@@ -9,6 +9,7 @@ public final class GmailProvider: MailProvider, Sendable {
     public let kind: ProviderKind = .gmail
 
     private let http: GmailHTTPClient
+    private let throttleRetry: GmailThrottleRetry
     private let log = Logger(subsystem: "io.supersparrow.mac", category: "gmail")
 
     /// Bootstrap excludes spam and trash so the first paint matches "All mail". Chat history (Hangouts and
@@ -26,10 +27,19 @@ public final class GmailProvider: MailProvider, Sendable {
     /// inflates them by a third (base64url on top of the MIME base64) and rejects bodies of a few MB,
     /// where the upload endpoint takes the raw bytes up to Gmail's 35 MB message limit.
     static let uploadThresholdBytes = 1 << 20
+    /// Metadata gets per batch call. Gmail takes up to 50, but each part costs 20 quota units of the user's
+    /// 6,000 a minute and Google runs the parts concurrently: 50 parts spend 1,000 units at once and trip
+    /// the concurrency limit, where 10 spend 200 and leave room for the live lane's polls beside them.
+    static let metadataBatchSize = 10
 
-    public init(accountID: AccountID, tokens: AccessTokenProvider, session: URLSession = .shared) {
+    public convenience init(accountID: AccountID, tokens: AccessTokenProvider, session: URLSession = .shared) {
+        self.init(accountID: accountID, tokens: tokens, session: session, throttleRetry: .standard)
+    }
+
+    init(accountID: AccountID, tokens: AccessTokenProvider, session: URLSession, throttleRetry: GmailThrottleRetry) {
         self.accountID = accountID
         self.http = GmailHTTPClient(accountID: accountID, tokens: tokens, session: session)
+        self.throttleRetry = throttleRetry
     }
 
     // MARK: Profile
@@ -41,7 +51,7 @@ public final class GmailProvider: MailProvider, Sendable {
     }
 
     private func fetchProfile() async throws -> GmailProfile {
-        try await http.json(GmailProfile.self, for: try GmailRequest.get("profile"))
+        try await http.json(GmailProfile.self, for: try GmailRequest.get("profile", kind: .profile))
     }
 
     // MARK: Bootstrap
@@ -51,6 +61,25 @@ public final class GmailProvider: MailProvider, Sendable {
         // read gives the mailbox's size, an estimate for “Downloading · 3,412 of 8,120” at no extra request.
         let profile: GmailProfile? = page == nil ? try await fetchProfile() : nil
         let changeCursor = profile?.historyId
+        let list = try await listMessages(page: page, limit: limit)
+        let ids = (list.messages ?? []).map(\.id)
+        let messages = try await fetchMetadata(ids: ids)
+        log.debug("bootstrap page: \(ids.count, privacy: .public) listed, \(messages.count, privacy: .public) hydrated")
+        return BootstrapPage(messages: messages, nextPage: list.nextPageToken, changeCursor: changeCursor,
+                             estimatedTotal: profile?.messagesTotal)
+    }
+
+    /// Ids only: listing costs 5 quota units a page where metadata costs 20 a message, so the engine lists
+    /// first and fetches metadata just for the messages its store lacks. Same query and page size as
+    /// `bootstrap`, so a page token from either continues the same enumeration.
+    public func backfillListing(page: String, limit: Int) async throws -> BackfillListing {
+        let list = try await listMessages(page: page, limit: limit)
+        let ids = (list.messages ?? []).map(\.id)
+        log.debug("backfill page: \(ids.count, privacy: .public) listed")
+        return BackfillListing(ids: ids, messages: nil, nextPage: list.nextPageToken)
+    }
+
+    private func listMessages(page: String?, limit: Int) async throws -> GmailMessageList {
         var query = [
             URLQueryItem(name: "q", value: Self.bootstrapQuery),
             URLQueryItem(name: "maxResults", value: String(Self.clampedLimit(limit))),
@@ -58,12 +87,7 @@ public final class GmailProvider: MailProvider, Sendable {
         if let page, !page.isEmpty {
             query.append(URLQueryItem(name: "pageToken", value: page))
         }
-        let list = try await http.json(GmailMessageList.self, for: try GmailRequest.get("messages", query: query))
-        let ids = (list.messages ?? []).map(\.id)
-        let messages = try await fetchMetadata(ids: ids)
-        log.debug("bootstrap page: \(ids.count, privacy: .public) listed, \(messages.count, privacy: .public) hydrated")
-        return BootstrapPage(messages: messages, nextPage: list.nextPageToken, changeCursor: changeCursor,
-                             estimatedTotal: profile?.messagesTotal)
+        return try await http.json(GmailMessageList.self, for: try GmailRequest.get("messages", query: query, kind: .list))
     }
 
     // MARK: Changes
@@ -157,7 +181,7 @@ public final class GmailProvider: MailProvider, Sendable {
             query.append(URLQueryItem(name: "pageToken", value: pageToken))
         }
         do {
-            return try await http.json(GmailHistoryList.self, for: try GmailRequest.get("history", query: query))
+            return try await http.json(GmailHistoryList.self, for: try GmailRequest.get("history", query: query, kind: .history))
         } catch ProviderError.notFound {
             // Gmail answers 404 when the start id has aged out of its history window.
             throw ProviderError.resetRequired
@@ -177,58 +201,132 @@ public final class GmailProvider: MailProvider, Sendable {
             .map { GmailMessageMapper.metadata(from: $0, accountID: accountID) }
     }
 
-    /// Hydrates ids in list order, 50 per batch call, dropping ids Gmail no longer knows.
+    /// Hydrates ids in list order, 10 per batch call, dropping ids Gmail no longer knows.
     private func fetchMessages(ids: [String]) async throws -> [GmailMessage] {
         guard !ids.isEmpty else { return [] }
         var byID: [String: GmailMessage] = [:]
-        for chunk in ids.chunked(into: GmailBatch.maxPartsPerBatch) {
-            for message in try await metadataChunk(chunk) {
+        for chunk in ids.chunked(into: Self.metadataBatchSize) {
+            for message in try await metadataChunk(chunk, hasFetched: !byID.isEmpty) {
                 byID[message.id] = message
             }
         }
         return ids.compactMap { byID[$0] }
     }
 
-    private func metadataChunk(_ ids: [String]) async throws -> [GmailMessage] {
-        do {
-            return try await batchMetadata(ids)
-        } catch GmailBatchError.unparseable(let reason) {
-            log.notice("Gmail batch reply unparseable (\(reason, privacy: .public)); fetching \(ids.count, privacy: .public) ids one by one")
-            return try await sequentialMetadata(ids)
+    /// One chunk, keeping every part Google answered: throttled parts go out again in a smaller batch after
+    /// a wait, parts that failed otherwise are fetched one by one once the throttled ones are in. Waits run
+    /// between sends, never inside the auth retry, so nothing is held while sleeping. `hasFetched` says
+    /// whether earlier chunks of the call returned messages, which a reported throttle would discard.
+    private func metadataChunk(_ ids: [String], hasFetched: Bool) async throws -> [GmailMessage] {
+        var messages: [GmailMessage] = []
+        var failed: [String] = []
+        var pending = ids
+        var retry = 0
+        while true {
+            let outcome: BatchOutcome
+            do {
+                outcome = try await batchMetadata(pending)
+            } catch GmailBatchError.unparseable(let reason) {
+                log.notice("Gmail batch reply unparseable (\(reason, privacy: .public)); fetching \(pending.count, privacy: .public) ids one by one")
+                failed += pending
+                break
+            }
+            messages += outcome.messages
+            failed += outcome.failed
+            guard !outcome.throttled.isEmpty else { break }
+            let delay = throttleRetry.delay(beforeRetry: retry, retryAfter: outcome.retryAfter,
+                                            hasFetched: hasFetched || !messages.isEmpty)
+            guard let delay else {
+                // Reported, not returned short: an id missing from the result reads as deleted to `changes`.
+                throw ProviderError.throttled(retryAfter: outcome.retryAfter)
+            }
+            retry += 1
+            try await throttleRetry.wait(delay)
+            pending = outcome.throttled
         }
+        if !failed.isEmpty {
+            messages += try await sequentialMetadata(failed)
+        }
+        return messages
     }
 
-    private func batchMetadata(_ ids: [String]) async throws -> [GmailMessage] {
+    /// What one batch send settled. Ids are the requested ones, matched to parts by Content-ID.
+    private struct BatchOutcome {
+        var messages: [GmailMessage] = []
+        /// Parts Google rate limited, to send again.
+        var throttled: [String] = []
+        /// The longest wait any throttled part asked for, from its Retry-After or its message.
+        var retryAfter: TimeInterval?
+        /// Parts that failed for another reason, or that the reply never answered, to fetch one by one.
+        var failed: [String] = []
+    }
+
+    private func batchMetadata(_ ids: [String]) async throws -> BatchOutcome {
         let boundary = "ss_batch_" + UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "")
         let request = try GmailBatch.request(paths: ids.map(GmailRequest.metadataPath), boundary: boundary)
         return try await http.withAuthRetry { token in
             let response = try await http.sendOnce(request, token: token)
             let parts = try GmailBatch.parse(response.data, contentType: response.http.value(forHTTPHeaderField: "Content-Type"))
-            var messages: [GmailMessage] = []
-            var retryIDs: [String] = []
+            var outcome = BatchOutcome()
+            var answered = Set<Int>()
+            // Each group keeps its own longest wait, so the log says which limit asked for it.
+            var throttleGroups: [(details: GmailHTTPClient.ThrottleDetails, count: Int, retryAfter: TimeInterval?)] = []
+            // Written however the reply ends (kept, refused or unparseable): every throttle Google sent is
+            // logged, even when the parts are then fetched another way.
+            defer {
+                for group in throttleGroups {
+                    GmailHTTPClient.logThrottle(group.details, kind: .batchMetadata, retryAfter: group.retryAfter,
+                                                parts: (group.count, ids.count))
+                }
+            }
+            // Both are thrown only once every part is read, so throttled parts after them are still seen.
+            var refusal: ProviderError?
+            var unparseable: String?
             for (position, part) in parts.enumerated() {
                 let index = part.index ?? position
+                // A part repeating an index already answered must not queue its id twice.
+                let requested = ids.indices.contains(index) && answered.insert(index).inserted ? ids[index] : nil
                 switch part.status {
                 case 200..<300:
                     guard let message = try? JSONDecoder().decode(GmailMessage.self, from: part.body) else {
-                        throw GmailBatchError.unparseable("Part \(index) is not a message")
+                        unparseable = unparseable ?? "Part \(index) is not a message"
+                        continue
                     }
-                    messages.append(message)
+                    outcome.messages.append(message)
                 case 404:
                     continue
                 case 401, 403, 429:
                     // The batch envelope itself is never rate limited or auth checked; its parts are.
-                    if let error = GmailHTTPClient.error(status: part.status, body: part.body, retryAfter: part.headers["retry-after"]) {
-                        throw error
+                    guard let error = GmailHTTPClient.error(status: part.status, body: part.body, retryAfter: part.headers["retry-after"]) else {
+                        continue
+                    }
+                    guard case .throttled(let retryAfter) = error else {
+                        refusal = refusal ?? error
+                        continue
+                    }
+                    if let requested { outcome.throttled.append(requested) }
+                    if let retryAfter { outcome.retryAfter = max(outcome.retryAfter ?? 0, retryAfter) }
+                    let details = GmailHTTPClient.ThrottleDetails(status: part.status, body: part.body)
+                    if let group = throttleGroups.firstIndex(where: { $0.details == details }) {
+                        throttleGroups[group].count += 1
+                        if let retryAfter {
+                            throttleGroups[group].retryAfter = max(throttleGroups[group].retryAfter ?? 0, retryAfter)
+                        }
+                    } else {
+                        throttleGroups.append((details, 1, retryAfter))
                     }
                 default:
-                    if ids.indices.contains(index) { retryIDs.append(ids[index]) }
+                    if let requested { outcome.failed.append(requested) }
                 }
             }
-            if !retryIDs.isEmpty {
-                messages += try await sequentialMetadata(retryIDs)
-            }
-            return messages
+            // A refused token or account wins over an unreadable part: re-fetching one by one would be
+            // refused too, where a 401 earns the whole batch a fresh token.
+            if let refusal { throw refusal }
+            if let unparseable { throw GmailBatchError.unparseable(unparseable) }
+            // An id no part answered is fetched on its own rather than dropped, which `changes` would read
+            // as a deletion.
+            outcome.failed += ids.indices.filter { !answered.contains($0) }.map { ids[$0] }
+            return outcome
         }
     }
 
@@ -245,7 +343,7 @@ public final class GmailProvider: MailProvider, Sendable {
     }
 
     private func fetchMessage(_ id: String, query: [URLQueryItem]) async throws -> GmailMessage {
-        try await http.json(GmailMessage.self, for: try GmailRequest.get("messages/" + Self.pathComponent(id), query: query))
+        try await http.json(GmailMessage.self, for: try GmailRequest.get("messages/" + Self.pathComponent(id), query: query, kind: .message))
     }
 
     // MARK: Bodies and attachments
@@ -263,7 +361,7 @@ public final class GmailProvider: MailProvider, Sendable {
 
     public func attachment(messageID providerID: String, attachmentID: String) async throws -> Data {
         let resource = "messages/" + Self.pathComponent(providerID) + "/attachments/" + Self.pathComponent(attachmentID)
-        let attachment = try await http.json(GmailAttachment.self, for: try GmailRequest.get(resource))
+        let attachment = try await http.json(GmailAttachment.self, for: try GmailRequest.get(resource, kind: .attachment))
         guard let encoded = attachment.data, let data = Base64URL.decode(encoded) else {
             throw ProviderError.decoding("Attachment payload is not base64url")
         }
@@ -281,7 +379,7 @@ public final class GmailProvider: MailProvider, Sendable {
                 addLabelIds: edit.add.isEmpty ? nil : edit.add,
                 removeLabelIds: edit.remove.isEmpty ? nil : edit.remove
             )
-            _ = try await http.send(try GmailRequest.post("messages/batchModify", json: body))
+            _ = try await http.send(try GmailRequest.post("messages/batchModify", json: body, kind: .batchModify))
         }
     }
 
@@ -316,10 +414,11 @@ public final class GmailProvider: MailProvider, Sendable {
                 "messages/send",
                 metadata: GmailUploadSendMetadata(threadId: threadID),
                 media: mime,
-                mediaType: "message/rfc822"
+                mediaType: "message/rfc822",
+                kind: .send
             )
         } else {
-            request = try GmailRequest.post("messages/send", json: GmailSendRequest(raw: Base64URL.encode(mime), threadId: threadID))
+            request = try GmailRequest.post("messages/send", json: GmailSendRequest(raw: Base64URL.encode(mime), threadId: threadID), kind: .send)
         }
         let response = try await http.json(GmailSendResponse.self, for: request)
         log.debug("sent message \(response.id, privacy: .public)")
@@ -335,7 +434,7 @@ public final class GmailProvider: MailProvider, Sendable {
             URLQueryItem(name: "q", value: trimmed),
             URLQueryItem(name: "maxResults", value: String(Self.clampedLimit(limit))),
         ]
-        let list = try await http.json(GmailMessageList.self, for: try GmailRequest.get("messages", query: query))
+        let list = try await http.json(GmailMessageList.self, for: try GmailRequest.get("messages", query: query, kind: .list))
         return (list.messages ?? []).map(\.id)
     }
 

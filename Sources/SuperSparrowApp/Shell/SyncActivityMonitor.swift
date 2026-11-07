@@ -11,6 +11,9 @@ final class SyncActivityMonitor {
     static let sendPollInterval: TimeInterval = 2
 
     var onChange: (() -> Void)?
+    /// The network path came back after being lost: once per return, so the window can check for mail at once
+    /// instead of waiting out the engine's backoff.
+    var onNetworkReturned: (() -> Void)?
 
     private(set) var isNetworkReachable = true
     private(set) var sendingCount = 0
@@ -48,10 +51,12 @@ final class SyncActivityMonitor {
         pollTimer = nil
     }
 
-    private func setReachable(_ reachable: Bool) {
+    /// Internal so the transitions are tested without a real path monitor.
+    func setReachable(_ reachable: Bool) {
         guard reachable != isNetworkReachable else { return }
         isNetworkReachable = reachable
         onChange?()
+        if reachable { onNetworkReturned?() }
     }
 
     private func pollSends() {

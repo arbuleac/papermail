@@ -47,6 +47,21 @@ final class PageFailingStore: MailStoring, @unchecked Sendable {
         try base.messageIDsMissingDesignFacts(accountID: accountID, limit: limit)
     }
     func saveDesignFacts(_ facts: [MessageID: BodyDesignFacts]) throws { try base.saveDesignFacts(facts) }
+    func backfillSkippableIDs(accountID: AccountID, providerIDs: [String], includeStored: Bool) throws -> Set<String> {
+        try base.backfillSkippableIDs(accountID: accountID, providerIDs: providerIDs, includeStored: includeStored)
+    }
+    func writeBackfillMessages(_ messages: [MessageMetadata], refreshExisting: Bool) throws -> Int {
+        try base.writeBackfillMessages(messages, refreshExisting: refreshExisting)
+    }
+    func markLiveChanges(accountID: AccountID, upserted: [String], deleted: [String]) throws {
+        try base.markLiveChanges(accountID: accountID, upserted: upserted, deleted: deleted)
+    }
+    func markBackfillSeen(accountID: AccountID, providerIDs: [String]) throws {
+        try base.markBackfillSeen(accountID: accountID, providerIDs: providerIDs)
+    }
+    func finishBackfill(accountID: AccountID, sweepUnseen: Bool) throws -> Int {
+        try base.finishBackfill(accountID: accountID, sweepUnseen: sweepUnseen)
+    }
     func observeConversations(_ query: ConversationQuery, onChange: @escaping @Sendable ([ConversationSummary]) -> Void) -> StoreObservation {
         base.observeConversations(query, onChange: onChange)
     }

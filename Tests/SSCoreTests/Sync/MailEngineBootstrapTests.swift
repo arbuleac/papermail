@@ -3,7 +3,9 @@ import XCTest
 @testable import SSCore
 
 final class MailEngineBootstrapTests: XCTestCase {
-    func testBootstrapAcrossThreePagesSetsCursorOnlyAtTheEnd() async throws {
+    /// The head page sets the cursor at once, so new mail does not wait for the whole mailbox; the backfill lane
+    /// lists the older pages behind it and the state completes when it reaches the end.
+    func testHeadPageSetsTheCursorAndTheBackfillListsTheRest() async throws {
         let provider = ScriptedProvider(accountID: Fixtures.accountID)
         provider.bootstrapRuns = [[
             "": .success(Fixtures.page(1...3, next: "p2", cursor: "c0")),
@@ -16,27 +18,33 @@ final class MailEngineBootstrapTests: XCTestCase {
         let id = Fixtures.accountID
         harness.engine.start()
 
+        try await waitUntil("cursor set by the head page") { try store.syncCursor(for: id) == "c0" }
         try await waitUntil("two pages stored") { try store.bootstrapState(for: id)?.pagesDone == 2 }
-        XCTAssertNil(try store.syncCursor(for: id))
+        XCTAssertEqual(try store.syncCursor(for: id), "c0")
         XCTAssertEqual(try allMessages(store).count, 6)
         let midway = try XCTUnwrap(try store.bootstrapState(for: id))
         XCTAssertFalse(midway.isComplete)
         XCTAssertEqual(midway.checkpoint.providerPage, "p3")
         XCTAssertEqual(midway.checkpoint.changeCursor, "c0")
+        try await waitUntil("the live lane polls while the backfill is under way") { !provider.changesCalls.isEmpty }
+        XCTAssertEqual(provider.changesCalls.first?.cursor, "c0")
 
         provider.openGate("p3")
-        try await waitUntil("cursor set") { try store.syncCursor(for: id) == "c0" }
+        try await waitUntil("backfill complete") { try store.bootstrapState(for: id)?.isComplete == true }
         XCTAssertEqual(try allMessages(store).count, 9)
         let final = try XCTUnwrap(try store.bootstrapState(for: id))
-        XCTAssertTrue(final.isComplete)
         XCTAssertNil(final.nextPage)
         XCTAssertEqual(final.messagesSeen, 9)
         XCTAssertEqual(final.pagesDone, 3)
         XCTAssertEqual(provider.bootstrapCalls, [nil, "p2", "p3"])
+        XCTAssertEqual(provider.backfillListingCalls.map(\.page), ["p2", "p3"])
+        XCTAssertEqual(try store.syncCursor(for: id), "c0")
         await harness.shutdown()
     }
 
-    func testRestartResumesFromPageTwoOnTheSameStore() async throws {
+    /// A quit mid-backfill keeps the cursor and the saved page: the next launch polls at once and the backfill
+    /// carries on from that page, never fetching the head again.
+    func testRestartResumesTheBackfillFromTheStoredPage() async throws {
         let store = InMemoryMailStore()
         let id = Fixtures.accountID
         let first = ScriptedProvider(accountID: id)
@@ -47,10 +55,11 @@ final class MailEngineBootstrapTests: XCTestCase {
         first.gatedBootstrapPages = ["p2"]
         let harness1 = try EngineHarness(store: store, provider: first)
         harness1.engine.start()
-        try await waitUntil("page one stored") { try store.bootstrapState(for: id)?.pagesDone == 1 }
+        try await waitUntil("backfill asked for page two") { first.bootstrapCalls.count == 2 }
         await harness1.shutdown()
-        XCTAssertNil(try store.syncCursor(for: id))
+        XCTAssertEqual(try store.syncCursor(for: id), "c0")
         XCTAssertEqual(try allMessages(store).count, 3)
+        XCTAssertEqual(try store.bootstrapState(for: id)?.checkpoint.providerPage, "p2")
 
         // The second provider cannot serve a first page: resuming must ask for page two directly.
         let second = ScriptedProvider(accountID: id)
@@ -60,17 +69,19 @@ final class MailEngineBootstrapTests: XCTestCase {
         ]]
         let harness2 = try EngineHarness(store: store, provider: second)
         harness2.engine.start()
-        try await waitUntil("cursor set by the resumed bootstrap") { try store.syncCursor(for: id) == "c0" }
+        try await waitUntil("resumed backfill completes") { try store.bootstrapState(for: id)?.isComplete == true }
         XCTAssertEqual(second.bootstrapCalls, ["p2", "p3"])
         XCTAssertEqual(first.bootstrapCalls, [nil, "p2"])
         XCTAssertEqual(try allMessages(store).count, 9)
-        XCTAssertEqual(try store.bootstrapState(for: id)?.isComplete, true)
+        XCTAssertEqual(try store.syncCursor(for: id), "c0")
+        XCTAssertEqual(second.changesCalls.first?.cursor, "c0")
         await harness2.shutdown()
     }
 
     /// A resume token the provider no longer honours (Gmail answers a stale pageToken with 400) must not
-    /// wedge the account in bootstrap forever: the enumeration starts over instead.
-    func testRejectedResumeTokenRestartsTheBootstrap() async throws {
+    /// wedge the backfill forever: the listing starts over from the top. The cursor saved with the old download
+    /// is kept (adopted), since the restarted listing's cursor belongs to the live lane alone.
+    func testRejectedResumeTokenRestartsTheListing() async throws {
         let store = InMemoryMailStore()
         let id = Fixtures.accountID
         try store.upsertAccount(Fixtures.account())
@@ -85,9 +96,39 @@ final class MailEngineBootstrapTests: XCTestCase {
         ]]
         let harness = try EngineHarness(store: store, provider: provider, seedAccount: false)
         harness.engine.start()
-        try await waitUntil("restarted bootstrap completes") { try store.syncCursor(for: id) == "c-new" }
+        try await waitUntil("restarted listing completes") { try store.bootstrapState(for: id)?.isComplete == true }
         XCTAssertEqual(provider.bootstrapCalls, ["stale", nil])
         XCTAssertEqual(try allMessages(store).count, 2)
+        XCTAssertEqual(try store.syncCursor(for: id), "c-old")
+        XCTAssertEqual(try store.bootstrapState(for: id)?.messagesSeen, 2, "the count starts over with the listing")
+        await harness.shutdown()
+    }
+
+    /// A head page whose state cannot be written after its rows (a full disk, or the process dying there) leaves a
+    /// state carrying that head's own cursor. The next cycle adopts it rather than fetching a newer head, so polling
+    /// covers every row of the first head, even one newer mail has pushed off the next, and the backfill lists the
+    /// mailbox from the top.
+    func testAHeadWhoseStateCannotBeWrittenIsCoveredByItsOwnCursor() async throws {
+        let base = InMemoryMailStore()
+        let store = FaultyStore(base: base)
+        let id = Fixtures.accountID
+        let provider = ScriptedProvider(accountID: id)
+        provider.bootstrapRuns = [
+            ["": .success(Fixtures.page(1...3, next: "p2", cursor: "c0"))],
+            // What the backfill's listing from the top finds; a head fetched again would take its cursor.
+            ["": .success(Fixtures.page(1...4, next: nil, cursor: "c-newer"))],
+        ]
+        // The head's own state, written after its rows, fails.
+        store.failBootstrapState { $0?.pagesDone == 1 && $0?.checkpoint.providerPage == "p2" }
+        let harness = try EngineHarness(store: base, provider: provider, engineStore: store)
+        harness.engine.start()
+        try await waitUntil("the listing from the top completes") { try base.bootstrapState(for: id)?.isComplete == true }
+        XCTAssertEqual(store.fired, [.setBootstrapState])
+        XCTAssertEqual(try base.syncCursor(for: id), "c0")
+        XCTAssertEqual(provider.changesCalls.first?.cursor, "c0", "polling starts before the first head's rows")
+        XCTAssertEqual(provider.bootstrapCalls, [nil, nil])
+        XCTAssertEqual(try allMessages(base).count, 4)
+        XCTAssertEqual(try base.bootstrapState(for: id)?.messagesSeen, 4)
         await harness.shutdown()
     }
 
@@ -186,19 +227,34 @@ final class MailEngineBootstrapTests: XCTestCase {
         await harness.shutdown()
     }
 
-    func testResetRequiredWipesAndBootstrapsAgain() async throws {
+    /// A rejected cursor no longer wipes the mailbox: a fresh head page brings a new cursor, and when that page is
+    /// the whole mailbox the reconcile finishes at once, keeping what the provider still lists (with its body)
+    /// and removing what it no longer does.
+    func testResetReconcilesInsteadOfWiping() async throws {
         let provider = ScriptedProvider(accountID: Fixtures.accountID)
         provider.bootstrapRuns = [
             ["": .success(Fixtures.page(1...3, next: nil, cursor: "c0"))],
-            ["": .success(Fixtures.page(11...13, next: nil, cursor: "c9"))],
+            ["": .success(BootstrapPage(messages: [Fixtures.message(1, isRead: true)] + (11...13).map { Fixtures.message($0) },
+                                        nextPage: nil, changeCursor: "c9"))],
         ]
         provider.changesQueue = [.failure(ProviderError.resetRequired)]
         let harness = try EngineHarness(provider: provider)
+        let store = harness.store
+        let one = MessageID(accountID: Fixtures.accountID, providerID: "1")
+        // The body is in place before the reset; a wipe would take it.
+        try store.upsertMessages([Fixtures.message(1)])
+        try store.saveBody(StoredBody(body: MessageBody(html: "<p>kept</p>", text: "kept"), renderedHTML: "<p>kept</p>", plainText: "kept"),
+                           for: one)
         harness.engine.start()
-        try await waitUntil("second bootstrap complete") { try harness.store.syncCursor(for: Fixtures.accountID) == "c9" }
-        XCTAssertEqual(Set(try allMessages(harness.store).map(\.id.providerID)), ["11", "12", "13"])
+        try await waitUntil("reconciled") { try store.syncCursor(for: Fixtures.accountID) == "c9" }
+        XCTAssertEqual(Set(try allMessages(store).map(\.id.providerID)), ["1", "11", "12", "13"])
+        XCTAssertEqual(try store.message(one)?.isRead, true, "the head page refreshes what is stored")
+        XCTAssertEqual(try store.body(for: one)?.plainText, "kept")
         XCTAssertEqual(provider.bootstrapCalls, [nil, nil])
-        XCTAssertEqual(try harness.store.bootstrapState(for: Fixtures.accountID)?.messagesSeen, 3)
+        let state = try XCTUnwrap(try store.bootstrapState(for: Fixtures.accountID))
+        XCTAssertEqual(state.messagesSeen, 4)
+        XCTAssertTrue(state.isComplete)
+        XCTAssertEqual(state.reconciling, true)
         await harness.shutdown()
     }
 
@@ -242,6 +298,8 @@ final class MailEngineBootstrapTests: XCTestCase {
         await harness.shutdown()
     }
 
+    /// The backfill lane's paced path keeps to `hydrationConcurrency` (the quota's own cap is higher here).
+    /// The live lane is told to fetch nothing so every body goes through the paced path.
     func testHydrationFetchesBodiesWithBoundedConcurrency() async throws {
         let provider = ScriptedProvider(accountID: Fixtures.accountID)
         provider.bootstrapRuns = [["": .success(Fixtures.page(1...10, next: nil, cursor: "c0"))]]
@@ -249,9 +307,9 @@ final class MailEngineBootstrapTests: XCTestCase {
             provider.bodies["\(number)"] = .success(MessageBody(html: "<p>\(number)</p>", text: "\(number)"))
         }
         provider.bodyDelay = 0.05
-        let harness = try EngineHarness(provider: provider)
+        let harness = try EngineHarness(provider: provider) { $0.liveHydrationLimit = 0 }
         harness.engine.start()
-        try await waitUntil("all bodies stored", timeout: 10) {
+        try await waitUntil("all bodies stored") {
             try (1...10).allSatisfy {
                 try harness.store.body(for: MessageID(accountID: Fixtures.accountID, providerID: "\($0)")) != nil
             }
@@ -264,6 +322,37 @@ final class MailEngineBootstrapTests: XCTestCase {
         let stored = try XCTUnwrap(try harness.store.body(for: MessageID(accountID: Fixtures.accountID, providerID: "7")))
         XCTAssertEqual(stored.renderedHTML, "<p>7</p>")
         XCTAssertEqual(stored.plainText, "7")
+        await harness.shutdown()
+    }
+
+    /// The live lane fetches the bodies of the newest mail a head page brought, at most `liveHydrationLimit` of
+    /// them and `liveHydrationConcurrency` at a time. The backfill's paced path is switched off (batches of none),
+    /// so every body fetched here is the live lane's; `testHydrationFetchesBodiesWithBoundedConcurrency` covers the
+    /// paced path that fetches the rest.
+    func testLiveLaneFetchesOnlyTheNewestBodiesUpToItsLimit() async throws {
+        let provider = ScriptedProvider(accountID: Fixtures.accountID)
+        provider.bootstrapRuns = [["": .success(Fixtures.page(1...6, next: nil, cursor: "c0"))]]
+        for number in 1...6 {
+            provider.bodies["\(number)"] = .success(MessageBody(html: nil, text: "\(number)"))
+        }
+        provider.bodyDelay = 0.05
+        // More bodies than run at once, so the concurrency bound is put to the test.
+        let harness = try EngineHarness(provider: provider) {
+            $0.liveHydrationLimit = 4
+            $0.liveHydrationConcurrency = 2
+            $0.hydrationBatchSize = 0
+        }
+        func id(_ number: Int) -> MessageID { MessageID(accountID: Fixtures.accountID, providerID: "\(number)") }
+        harness.engine.start()
+        try await waitUntil("the newest four bodies stored") {
+            try (3...6).allSatisfy { try harness.store.body(for: id($0)) != nil }
+        }
+        // Later polls bring nothing new; a fetch beyond the limit would have shown by then.
+        let polls = provider.changesCalls.count
+        try await waitUntil("two more polls") { provider.changesCalls.count >= polls + 2 }
+        XCTAssertEqual(provider.bodyCalls.sorted(), ["3", "4", "5", "6"], "the newest, up to the limit")
+        XCTAssertEqual(provider.maxConcurrentBodyCalls, 2, "two at a time, never four")
+        XCTAssertNil(try harness.store.body(for: id(2)))
         await harness.shutdown()
     }
 }

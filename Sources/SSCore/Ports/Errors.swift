@@ -7,7 +7,8 @@ public enum ProviderError: Error, Sendable {
     /// Rate limited. `retryAfter` is honored when present.
     case throttled(retryAfter: TimeInterval?)
     /// The change cursor is no longer valid (Gmail history expired, Graph delta token gone).
-    /// The engine wipes the account's local data and bootstraps again.
+    /// The engine keeps local mail, takes a fresh cursor from a new head page and reconciles the stored mail
+    /// behind the live lane (docs/DATA-MODEL.md, "Backfill marks"): a full listing of the mailbox.
     case resetRequired
     case notFound
     case network(String)
