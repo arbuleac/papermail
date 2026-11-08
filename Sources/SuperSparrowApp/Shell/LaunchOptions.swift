@@ -105,6 +105,13 @@ struct LaunchOptions: Equatable {
         snapshotPath != nil || composeSnapshotPath != nil || cheatSheetSnapshotPath != nil || hudSnapshotPath != nil
     }
 
+    /// Any snapshot at all. Such a launch neither reads nor writes what the app remembers between launches (the
+    /// main window's account scope), so a render depends on nothing but the build and never changes the user's
+    /// choice.
+    var isSnapshot: Bool {
+        snapshotPath != nil || composeSnapshotPath != nil || hasQuittingSnapshots
+    }
+
     /// The gallery, welcome and alert snapshots need no mail store of the user's (or the demo's); with nothing
     /// else asked for, launch skips opening one.
     var needsMailEnvironment: Bool {

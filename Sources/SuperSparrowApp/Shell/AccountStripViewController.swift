@@ -360,8 +360,28 @@ final class AccountStripViewController: NSViewController {
     func select(_ scope: AccountScope, notify: Bool) {
         self.scope = scope
         refreshSelection()
-        if case .account(let id) = scope, let tile = accountTiles[id] { scrollIntoView(tile) }
+        scrollSelectionIntoView()
         if notify { onSelect?(scope) }
+    }
+
+    /// A rail not yet in a window (the launch restoring the last scope) has no size: an offset worked out then
+    /// survives the window's sizing and can hide tiles above or the chosen one below. It waits for the rail to
+    /// appear, by then at the window's final frame.
+    private var scrollsSelectionOnAppear = false
+
+    override func viewDidAppear() {
+        super.viewDidAppear()
+        if scrollsSelectionOnAppear { scrollSelectionIntoView() }
+    }
+
+    private func scrollSelectionIntoView() {
+        scrollsSelectionOnAppear = false
+        guard case .account(let id) = scope, let tile = accountTiles[id] else { return }
+        guard view.window != nil else {
+            scrollsSelectionOnAppear = true
+            return
+        }
+        scrollIntoView(tile)
     }
 
     private func refreshSelection() {

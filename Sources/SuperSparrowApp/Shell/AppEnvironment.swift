@@ -128,8 +128,9 @@ final class AppEnvironment {
 
     /// A real-mode graph over an empty, throwaway store in `directory`, for the welcome-screen snapshot
     /// (`--snapshot-welcome`). Tokens stay in memory and sign-in is the demo's, so nothing here reaches the
-    /// Keychain, the network or the user's mail database. The caller deletes the directory when done.
-    static func makeScratch(in directory: URL) throws -> AppEnvironment {
+    /// Keychain, the network or the user's mail database. The caller deletes the directory when done. The app's
+    /// tests pass `.demo` for a window that behaves as the demo's over the same throwaway store.
+    static func makeScratch(in directory: URL, mode: Mode = .real) throws -> AppEnvironment {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let store = try SQLiteMailStore(path: directory.appendingPathComponent("scratch.sqlite").path)
         let service = DemoMailService()
@@ -143,7 +144,7 @@ final class AppEnvironment {
             attachmentCacheDirectory: directory.appendingPathComponent("attachments", isDirectory: true)
         )
         let configurations = ClientConfigurationStore(fileURL: directory.appendingPathComponent("oauth-clients.json"))
-        return AppEnvironment(mode: .real, store: store, engine: engine, clientConfigurations: configurations)
+        return AppEnvironment(mode: mode, store: store, engine: engine, clientConfigurations: configurations)
     }
 
     // MARK: Lifecycle

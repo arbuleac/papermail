@@ -233,7 +233,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             quittingSnapshotFinished()
             return
         }
-        let controller = MainWindowController(environment: scratch, settings: settings)
+        // A scratch store's (empty) accounts say nothing about the user's, so the saved scope is left alone.
+        let controller = MainWindowController(environment: scratch, settings: settings, remembersScope: false)
         // Detach from the real main window's saved frame before sizing, so the snapshot is always the default
         // size and never rewrites the user's frame.
         controller.window?.setFrameAutosaveName("")

@@ -69,6 +69,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     private var unreadByAccount: [AccountID: Int] = [:]
     /// Unread counts when the user last chose a scope; more than this in another account is new mail (§5.3).
     private var unreadAtScopeChange: [AccountID: Int] = [:]
+    /// The scope is saved whenever it changes and the window opens on it at the next launch (the demo's apart from
+    /// the real one). Off for snapshots, which neither read nor write it.
+    private let remembersScope: Bool
+    /// The scope an earlier launch saved, until there are accounts to check it against.
+    private var scopeToRestore: AccountScope?
+    /// A restored scope was chosen in an earlier launch, so the first unread counts this window sees stand for
+    /// the moment it was chosen: minimal mode's dot then tells of mail that came since, not of all unread mail.
+    private var scopeBaselinePending = false
 
     // Undo and toasts
     private var undoHistory = MailActionUndoHistory(grace: Quire.Motion.undoKeyGrace, coalesceWindow: Quire.Motion.toastCoalesce)
@@ -94,9 +102,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     private var debugKeyStealer: NSWindow?
     #endif
 
-    init(environment: AppEnvironment, settings: AppSettings) {
+    init(environment: AppEnvironment, settings: AppSettings, remembersScope: Bool = !LaunchOptions().isSnapshot) {
         self.environment = environment
         self.settings = settings
+        self.remembersScope = remembersScope
+        scopeToRestore = remembersScope ? settings.savedAccountScope(demo: environment.isDemo) : nil
         list = MessageListViewController(store: environment.store)
         listPane = ListPaneViewController(list: list)
         conversation = ConversationViewController(client: environment.engine)
@@ -368,10 +378,37 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             showLocalDrafts()
             inboxMonitor.updateAccounts(fresh.map(\.id))
             listPane.setSearchEnabled(!fresh.isEmpty)
+            restoreSavedScope()
             selectAddedAccount(previous: previous)
             updateScopeDetails()
         }
         updateWelcome()
+    }
+
+    /// Opens on the scope an earlier launch saved, checked against the first accounts the window reads: normally
+    /// its first read of the store, which comes before the list's first query, so the list never shows All Inboxes
+    /// first. A saved account that is not among them (removed meanwhile) leaves All Inboxes, and the saved value is
+    /// forgotten. A demo seeded after its window opens (its first launch, or after its data was wiped) always ends
+    /// that way, since the seeder gives every account a new id. The tile is selected here but scrolled into view
+    /// only when the rail appears, at the window's final size.
+    private func restoreSavedScope() {
+        guard let saved = scopeToRestore, !accounts.isEmpty else { return }
+        scopeToRestore = nil
+        guard case .account(let id) = saved else { return }
+        guard accountsByID[id] != nil else {
+            settings.saveAccountScope(nil, demo: environment.isDemo)
+            return
+        }
+        strip.select(saved, notify: false)
+        scope = saved
+        scopeBaselinePending = true
+        applyQuery()
+    }
+
+    /// Saves the scope for the next launch, the demo's under its own key.
+    private func rememberScope() {
+        guard remembersScope else { return }
+        settings.saveAccountScope(scope, demo: environment.isDemo)
     }
 
     /// A sign-in that just added an account selects it (§5.44): the pending tile becomes the account's tile.
@@ -626,6 +663,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     private func scopeChanged(_ scope: AccountScope) {
         self.scope = scope
         unreadAtScopeChange = unreadByAccount
+        // A scope chosen now wins over one still waiting to be restored.
+        scopeToRestore = nil
+        scopeBaselinePending = false
+        rememberScope()
         updateScopeDetails()
         applyQuery()
     }
@@ -644,6 +685,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     private func countsChanged(unified: Int, perAccount: [AccountID: Int]) {
         unifiedUnread = unified
         unreadByAccount = perAccount
+        if scopeBaselinePending {
+            scopeBaselinePending = false
+            unreadAtScopeChange = perAccount
+        }
         strip.setUnreadCounts(unified: unified, perAccount: perAccount)
         strip.setInboxUnread(inboxUnread)
         updateNewMailDot()
@@ -783,6 +828,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         searchText = ""
         strip.select(.unified, notify: false)
         scope = .unified
+        // The window now shows All Inboxes, so the next launch opens there too.
+        rememberScope()
         updateScopeDetails()
         mailboxView = .inbox
         applyQuery()

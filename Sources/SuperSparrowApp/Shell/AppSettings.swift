@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import SSCore
 import SSDesign
 
 /// User preferences, backed by `UserDefaults`. Observable so the SwiftUI settings window and the AppKit shell
@@ -35,7 +36,14 @@ final class AppSettings: ObservableObject {
         static let accountInitialsTurnedOnAutomatically = "accountInitialsTurnedOnAutomatically"
         static let accountInitialsChosenByUser = "accountInitialsChosenByUser"
         static let sevenAccountsNoticePending = "sevenAccountsNoticePending"
+        /// The main window's account scope: `unifiedScopeValue` or an account id's raw value.
+        static let accountScope = "accountScope"
+        /// The demo's own, so trying the demo never changes the scope the user's accounts open on.
+        static let demoAccountScope = "accountScope.demo"
     }
+
+    /// Account ids are UUIDs, so this can never be one.
+    private static let unifiedScopeValue = "unified"
 
     /// Spec §4.2: with this many accounts, colours alone can look alike, so account initials turn on once.
     static let accountInitialsThreshold = 7
@@ -133,6 +141,24 @@ final class AppSettings: ObservableObject {
         accountInitialsTurnedOnAutomatically = true
         sevenAccountsNoticePending = true
         showAccountInitials = true
+    }
+
+    /// The account scope an earlier launch left the main window on, or nil when none is saved. Not a setting: the
+    /// window saves it whenever the scope changes and opens on it at the next launch. The demo's is kept apart,
+    /// so trying the demo never changes the scope the user's own accounts open on.
+    func savedAccountScope(demo: Bool) -> AccountScope? {
+        guard let raw = defaults.string(forKey: demo ? Key.demoAccountScope : Key.accountScope), !raw.isEmpty else { return nil }
+        return raw == Self.unifiedScopeValue ? .unified : .account(AccountID(raw))
+    }
+
+    /// Saves `scope` for the next launch; nil forgets it, so the next launch opens on All Inboxes.
+    func saveAccountScope(_ scope: AccountScope?, demo: Bool) {
+        let key = demo ? Key.demoAccountScope : Key.accountScope
+        switch scope {
+        case nil: defaults.removeObject(forKey: key)
+        case .unified?: defaults.set(Self.unifiedScopeValue, forKey: key)
+        case .account(let id)?: defaults.set(id.rawValue, forKey: key)
+        }
     }
 
     var hasAskedForNotifications: Bool {
