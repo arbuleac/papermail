@@ -10,14 +10,18 @@ import SwiftUI
 @MainActor
 final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     let model: SettingsModel
+    /// General's Mail links row.
+    let defaultMailApp: DefaultMailAppModel
     private let environment: AppEnvironment
     private let tabs: SettingsTabViewController
     private var statusObservation: StoreObservation?
 
-    init(environment: AppEnvironment, settings: AppSettings) {
+    /// `mailtoHandler` answers and changes which app opens mail links: LaunchServices in the app, a fake in tests.
+    init(environment: AppEnvironment, settings: AppSettings, mailtoHandler: MailtoDefaultHandling) {
         self.environment = environment
         model = SettingsModel(isDemo: environment.isDemo, oauthFileURL: environment.clientConfigurations.fileURL)
-        tabs = SettingsTabViewController(model: model, settings: settings)
+        defaultMailApp = DefaultMailAppModel(handler: mailtoHandler)
+        tabs = SettingsTabViewController(model: model, settings: settings, defaultMailApp: defaultMailApp)
         let window = NSWindow(contentViewController: tabs)
         window.styleMask = [.titled, .closable]
         window.toolbarStyle = .preference
@@ -32,6 +36,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         window.setFrameAutosaveName("Settings")
         refreshAccounts()
         tabs.fitWindow(animate: false)
+        NotificationCenter.default.addObserver(self, selector: #selector(appDidBecomeActive(_:)),
+                                               name: NSApplication.didBecomeActiveNotification, object: nil)
         statusObservation = environment.engine.observeStatus { [weak self] statuses in
             MainActor.assumeIsolated {
                 guard let self else { return }
@@ -50,6 +56,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func tearDown() {
+        NotificationCenter.default.removeObserver(self, name: NSApplication.didBecomeActiveNotification, object: nil)
         statusObservation?.cancel()
         statusObservation = nil
         model.isWindowOpen = false
@@ -66,10 +73,18 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         if model.tab == .oauth { model.reloadOAuth() }
         let wasVisible = window?.isVisible == true
         model.isWindowOpen = true
+        // Reopened on General, the tab's view does not appear again; the default mail app may have changed meanwhile.
+        if !wasVisible, model.tab == .general { defaultMailApp.refresh() }
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate()
         if !wasVisible { tabs.clearInitialFocus() }
+    }
+
+    /// Back from another app, where the user may have chosen another mail app: General asks again while it shows.
+    @objc private func appDidBecomeActive(_ note: Notification) {
+        guard window?.isVisible == true, model.tab == .general else { return }
+        defaultMailApp.refresh()
     }
 
     /// Closing keeps the controller and its model for the next show; their retry clock stops until then.
@@ -92,7 +107,7 @@ final class SettingsTabViewController: NSTabViewController {
     private var tabObservation: AnyCancellable?
     private var isSyncingSelection = false
 
-    init(model: SettingsModel, settings: AppSettings) {
+    init(model: SettingsModel, settings: AppSettings, defaultMailApp: DefaultMailAppModel) {
         self.model = model
         super.init(nibName: nil, bundle: nil)
         tabStyle = .toolbar
@@ -101,7 +116,7 @@ final class SettingsTabViewController: NSTabViewController {
         canPropagateSelectedChildViewControllerTitle = true
         addTab(AccountsSettingsView(model: model, settings: settings), title: "Accounts", symbol: Quire.Icon.accountsTab)
         addTab(OAuthSettingsView(model: model), title: "OAuth", symbol: Quire.Icon.oauthTab)
-        addTab(GeneralSettingsView(settings: settings), title: "General", symbol: Quire.Icon.generalTab)
+        addTab(GeneralSettingsView(settings: settings, defaultMailApp: defaultMailApp), title: "General", symbol: Quire.Icon.generalTab)
         selectedTabViewItemIndex = Self.index(of: model.tab)
         tabObservation = model.$tab.removeDuplicates().sink { [weak self] tab in
             MainActor.assumeIsolated { self?.select(tab) }

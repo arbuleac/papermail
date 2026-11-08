@@ -47,7 +47,7 @@ struct OAuthSettingsView: View {
                         .disabled(!model.oauthFileExists)
                         Spacer(minLength: 0)
                         if model.oauthSaved {
-                            OAuthSavedStatus()
+                            SettingsSuccessStatus(words: "Saved")
                         }
                         Button("Save") { model.saveOAuth() }
                             .buttonStyle(.quire(.primary, size: .small))
@@ -84,25 +84,5 @@ struct OAuthSettingsView: View {
         } else if let url = URL(string: "https://developers.google.com/identity/protocols/oauth2/native-app") {
             NSWorkspace.shared.open(url)
         }
-    }
-}
-
-/// “Saved” beside Save, from a successful save until the next edit: a status, not a banner (§5.40).
-struct OAuthSavedStatus: View {
-    var body: some View {
-        let s = Quire.Layout.Settings.self
-        HStack(spacing: s.statusGlyphGap) {
-            if let glyph = QuireSymbol.image(Quire.Icon.success, size: .custom(s.statusGlyph)) {
-                Image(nsImage: glyph)
-                    .renderingMode(.template)
-                    .foregroundStyle(Color.qSuccess)
-            }
-            Text("Saved")
-                .font(.quire(.snippet))
-                .tracking(QuireFont.Role.snippet.tracking)
-                .foregroundStyle(Color.qInk2)
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Saved")
     }
 }

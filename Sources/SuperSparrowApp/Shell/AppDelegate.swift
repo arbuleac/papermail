@@ -48,6 +48,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var notifierObservation: StoreObservation?
     /// Activation, deactivation and waking from sleep, passed on to the engine.
     private var wakeups: AppWakeups?
+    /// Mail links from other apps, held until there is a main window (internal so the app's tests can deliver them).
+    let mailLinks = MailLinkInbox()
 
     init(options: LaunchOptions) {
         self.options = options
@@ -349,6 +351,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         signIn?.replacement?.engine.setAppActive(isActive)
     }
 
+    /// Mail links (`mailto:`, `CFBundleURLTypes` in Info.plist) from Safari, Contacts and every other app. A link
+    /// that launches the app can arrive before `applicationDidFinishLaunching` has built the main window, so the
+    /// inbox holds it until then.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        mailLinks.receive(urls)
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
     }
@@ -430,6 +439,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         window.onCancelSignIn = { [weak self] in self?.cancelSignIn() }
         window.onLeaveDemo = { [weak self] in self?.confirmLeavingDemo(origin: .main) }
         mainWindow = window
+        // Last, on either path below: the window is on screen, so a composer for a held link opens in front of it.
+        defer { openMailLinks(in: window) }
         observeForNotifier(environment)
         if let oldFrame { window.window?.setFrame(oldFrame, display: false) }
         guard let old, let oldWindow = old.window, let newWindow = window.window, oldWindow.isVisible else {
@@ -450,6 +461,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             oldWindow.alphaValue = 1
         })
         requestNotificationsIfDemo(window)
+    }
+
+    /// Mail links open in `window`, the main window `install` just put on screen, which has read its accounts: one that
+    /// launched the app (held until now) at once, later ones as they come, until another main window takes over. Taking
+    /// the window means no link can be handed over before there is one to open it. Internal so the app's tests can give
+    /// the delegate a window over a throwaway store.
+    func openMailLinks(in window: MainWindowController) {
+        mailLinks.receiver = { [weak window] link in window?.openMailLink(link) }
     }
 
     private func requestNotificationsIfDemo(_ window: MainWindowController) {
@@ -848,7 +867,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func openSettings(tab: SettingsModel.Tab? = nil, oauthNotice: SettingsModel.OAuthNotice? = nil) {
         guard let environment else { return }
         if settingsWindow == nil {
-            let controller = SettingsWindowController(environment: environment, settings: settings)
+            // A snapshot neither asks nor changes which app opens mail links, so its render depends only on the build.
+            let mailtoHandler: MailtoDefaultHandling = options.isSnapshot ? SnapshotMailtoHandler() : LaunchServicesMailtoHandler()
+            let controller = SettingsWindowController(environment: environment, settings: settings, mailtoHandler: mailtoHandler)
             let model = controller.model
             model.addAccount = { [weak self] kind in self?.addAccount(kind, origin: .settings) }
             model.cancelSignIn = { [weak self] in self?.cancelSignIn() }

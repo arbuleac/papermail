@@ -378,6 +378,12 @@ struct QuireGalleryGeneral: View {
             QuireSettingsRow(nil) {
                 Toggle("Show sender and subject", isOn: .constant(true)).toggleStyle(.quireCheckbox)
             }
+            QuireSettingsDivider()
+            QuireSettingsRow("Mail links") {
+                Button("Set as Default Mail App") {}.buttonStyle(.quire(.secondary, size: .small))
+            }
+            QuireSettingsCaption("Couldn't make SuperSparrow the default mail app. You can also choose it in Mail › Settings › General.",
+                                 isError: true)
             QuireSettingsSection("Account detail")
             QuireSettingsRow("Colour") {
                 QuirePopup("Colour", selection: .constant(0), options: Array(0..<10), width: Quire.Layout.Settings.colourPopupWidth,

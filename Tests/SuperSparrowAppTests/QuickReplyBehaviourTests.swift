@@ -53,6 +53,7 @@ final class QuickReplyBehaviourTests: XCTestCase {
         bar.onOpenInComposer?(bar.text, .reply)
         let composer = try XCTUnwrap(ComposeWindowRegistry.shared.openControllers.first)
         XCTAssertEqual(composer.bodyText, "Tuesday works for me", "the typed text moves to the composer")
+        MainWindowHarness.assertWritingStyle(composer.contents.body)
         XCTAssertEqual(bar.text, "", "and leaves the bar, so the reply is in one place")
         XCTAssertTrue(bar.isComposerOpen, "the bar shows its disabled state while the composer is open")
 
@@ -63,6 +64,24 @@ final class QuickReplyBehaviourTests: XCTestCase {
 
         composer.closeWithoutSaving()
         XCTAssertFalse(bar.isComposerOpen, "closing the composer gives the bar back")
+    }
+
+    /// A reply kept as a draft takes the bar's text below what it held, in the same writing style.
+    func testOpenInComposerAddsTheTextToAKeptReplyInTheWritingStyle() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        _ = try openThreeMessageThread(harness)
+        let bar = harness.reader.quickReplyBar
+        bar.onOpenInComposer?("Tuesday works for me", .reply)
+        let first = try XCTUnwrap(ComposeWindowRegistry.shared.openControllers.first)
+        try XCTUnwrap(first.window).performClose(nil)
+        ComposeDraftStore.shared.waitForWrites()
+        XCTAssertTrue(ComposeDraftStore.shared.contains(id: first.draftID), "the typed reply is kept")
+
+        bar.onOpenInComposer?("Or Wednesday", .reply)
+        let reopened = try XCTUnwrap(ComposeWindowRegistry.shared.openControllers.first)
+        XCTAssertEqual(reopened.bodyText, "Tuesday works for me\n\nOr Wednesday")
+        MainWindowHarness.assertWritingStyle(reopened.contents.body)
     }
 
     func testTheQuickReplyAnswersTheTargetMessage() throws {

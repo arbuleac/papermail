@@ -118,6 +118,12 @@ final class ComposeTextView: NSTextView {
         ]
     }
 
+    /// Plain text from outside the editor (the quick reply's, a mail link's body) in the writing style, as if typed:
+    /// the text storage gives text without a font Helvetica 12, and nothing later restyles text already there.
+    static func plainBody(_ text: String) -> NSAttributedString {
+        NSAttributedString(string: text, attributes: defaultTypingAttributes)
+    }
+
     /// The typed “\t•\t” of a list item: `ink2`, so the marker reads as structure, not words.
     static func markerAttributes(_ style: NSParagraphStyle) -> [NSAttributedString.Key: Any] {
         var attributes = defaultTypingAttributes

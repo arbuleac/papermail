@@ -1406,14 +1406,30 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         return true
     }
 
+    /// The account a new message starts from: the one the window is scoped to, else the first in rail order.
+    private var newMessageAccount: Account? {
+        if case .account(let id) = scope, let account = accountsByID[id] { return account }
+        return accounts.first
+    }
+
     func composeNew() {
-        let preferred: AccountID?
-        if case .account(let id) = scope { preferred = id } else { preferred = accounts.first?.id }
-        guard let accountID = preferred else {
+        guard let account = newMessageAccount else {
             onAddAccount?(nil)
             return
         }
-        compose(.new, accountID: accountID)
+        compose(.new, accountID: account.id)
+    }
+
+    /// A mail link another app opened (`mailto:`, spec §5.20): a new composer, filled from the link, from the account
+    /// a new message starts from. With no account the window comes forward on the welcome screen and nothing opens.
+    @discardableResult
+    func openMailLink(_ link: MailtoLink) -> ComposeWindowController? {
+        guard let account = newMessageAccount else {
+            showWindow(nil)
+            NSApp.activate()
+            return nil
+        }
+        return ComposeWindowController.present(client: environment.engine, account: account, accounts: accounts, link: link)
     }
 
     private func compose(_ mode: ComposeMode, accountID: AccountID) {

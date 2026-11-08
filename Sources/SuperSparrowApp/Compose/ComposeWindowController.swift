@@ -42,6 +42,9 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     /// The body as plain text (the app's tests read it).
     var bodyText: String { textView.string }
 
+    /// Everything the window holds, as a kept draft would (the app's tests read the fields through it).
+    var contents: ComposeDraft { currentDraft() }
+
     /// The message this composer replies to (not a forward): the reader disables its quick reply while one
     /// of its conversation's messages has a reply open here (§5.18).
     var repliesTo: MessageID? {
@@ -113,14 +116,14 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         if var kept = ComposeDraftStore.shared.keptDraft(for: mode, accounts: accounts) {
             if !typed.isEmpty {
                 let joined = NSMutableAttributedString(attributedString: kept.body)
-                if joined.length > 0 { joined.append(NSAttributedString(string: "\n\n")) }
-                joined.append(NSAttributedString(string: typed))
+                if joined.length > 0 { joined.append(ComposeTextView.plainBody("\n\n")) }
+                joined.append(ComposeTextView.plainBody(typed))
                 kept.body = joined
             }
             controller = present(client: client, accounts: accounts, draft: kept)
         } else {
             controller = ComposeWindowController(client: client, account: account, accounts: accounts, mode: mode)
-            if !typed.isEmpty { controller.textView.replaceContents(with: NSAttributedString(string: typed)) }
+            if !typed.isEmpty { controller.textView.replaceContents(with: ComposeTextView.plainBody(typed)) }
             controller.show()
             controller.beginPrefill()
         }
@@ -139,6 +142,24 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         controller.toField.addresses = [address]
         controller.show()
         controller.window?.makeFirstResponder(controller.subjectField)
+        return controller
+    }
+
+    /// A new message from a mail link another app opened (`mailto:`, spec §5.20). What the link filled in is the
+    /// window's starting point, as a reply's prefill is, so closing it untouched keeps no draft; nothing is sent
+    /// until the user sends it. Focus goes to the first of To and Subject the link left empty, else to the end of
+    /// the body.
+    @discardableResult
+    static func present(client: MailClient, account: Account, accounts: [Account], link: MailtoLink) -> ComposeWindowController {
+        let controller = ComposeWindowController(client: client, account: account, accounts: accounts, mode: .new)
+        controller.fill(from: link)
+        controller.show()
+        let subjectIsEmpty = link.subject.trimmingCharacters(in: .whitespaces).isEmpty
+        if !link.to.isEmpty, subjectIsEmpty {
+            controller.window?.makeFirstResponder(controller.subjectField)
+        } else if !link.to.isEmpty {
+            controller.textView.setSelectedRange(NSRange(location: (controller.textView.string as NSString).length, length: 0))
+        }
         return controller
     }
 
@@ -730,6 +751,22 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         updateTitle()
         updateSendEnabled()
         observeStatus()
+    }
+
+    /// A mail link's fields, in plain text: the body takes no formatting and no signature or quote (v1 has no
+    /// signatures, §9).
+    private func fill(from link: MailtoLink) {
+        toField.addresses = link.to
+        ccField.addresses = link.cc
+        bccField.addresses = link.bcc
+        if !link.cc.isEmpty { showRow(ccRow, button: ccButton) }
+        if !link.bcc.isEmpty { showRow(bccRow, button: bccButton) }
+        subjectField.stringValue = link.subject
+        subjectField.updateFont()
+        if !link.body.isEmpty { textView.replaceContents(with: ComposeTextView.plainBody(link.body)) }
+        baseline = currentDraft().fingerprint
+        updateTitle()
+        updateSendEnabled()
     }
 
     /// Content worth keeping: anything the user typed, chose or attached; at most the prefilled reply and

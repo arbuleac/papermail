@@ -2,7 +2,9 @@ import SwiftUI
 
 /// A caption in the field column of a `QuireSettingsGrid` (spec §5.40): `meta` `ink3`, at most 360 pt wide
 /// (`settings.captionMaxWidth`), 8 pt under the control above it (`settings.captionGap`), with an optional
-/// inline `accent` link after the words (the OAuth caption's “How to create these…”).
+/// inline `accent` link after the words (the OAuth caption's “How to create these…”). With `isError` it is the
+/// failure of the control above (General's “Couldn't make SuperSparrow the default mail app.”), drawn as a
+/// field's error help line (§5.25): `meta` `danger` after the error glyph, in the same place.
 ///
 /// A 24 pt control centred in its 40 pt row already ends 8 pt above the row's bottom, so the caption starts
 /// right at the row's edge; `spacingBelow` is the gap to whatever follows (the OAuth buttons sit 20 pt under
@@ -11,11 +13,13 @@ public struct QuireSettingsCaption: View {
     let text: String
     let link: (title: String, action: () -> Void)?
     let spacingBelow: CGFloat
+    let isError: Bool
 
-    public init(_ text: String, link: (title: String, action: () -> Void)? = nil, spacingBelow: CGFloat = 0) {
+    public init(_ text: String, link: (title: String, action: () -> Void)? = nil, spacingBelow: CGFloat = 0, isError: Bool = false) {
         self.text = text
         self.link = link
         self.spacingBelow = spacingBelow
+        self.isError = isError
     }
 
     /// The caption's distance from the top of its grid row: the 8 pt gap minus what the row above leaves under
@@ -32,14 +36,22 @@ public struct QuireSettingsCaption: View {
         // reserves lines it never uses. Across both columns it is measured at the full width, and
         // `quireWrapWidth` caps it at 360 pt for measuring and drawing alike.
         GridRow {
-            QuireInlineLinkText(text, link: link, role: .meta, linkRole: .meta)
-                .foregroundStyle(Color.qInk3)
+            words
                 .quireWrapWidth(s.captionMaxWidth)
                 .padding(.leading, s.labelColumn + s.labelGap)
                 .padding(.top, QuireSettingsCaption.topPadding)
                 .padding(.bottom, spacingBelow)
                 .gridCellColumns(2)
                 .gridCellAnchor(.topLeading)
+        }
+    }
+
+    @ViewBuilder private var words: some View {
+        if isError {
+            QuireFieldHelp(text: text)
+        } else {
+            QuireInlineLinkText(text, link: link, role: .meta, linkRole: .meta)
+                .foregroundStyle(Color.qInk3)
         }
     }
 }

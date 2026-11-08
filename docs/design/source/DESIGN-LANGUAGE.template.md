@@ -996,6 +996,8 @@ The quick reply is hidden in Drafts.
 
 A newer status replaces an older one, except that the warnings stay until the user edits the body, so they are read.
 
+**Mail links.** A `mailto:` link opened in another app (a link in Safari, Email in Contacts) opens a new composer, never a reply, from the account in scope: the account the main window is narrowed to, or under All Inboxes the first account in rail order. The link's To (its address part and any `to` field, combined), Cc, Bcc, Subject and body fill the fields (Cc and Bcc rows shown when filled; the body as plain text, its line breaks kept); every other field a link can carry (`In-Reply-To`, `attach`, anything else) is ignored. Focus goes to To when the link names nobody, else to Subject when it has none, else to the end of the body. What the link filled in is the window's starting point, as a reply's prefill is, so closing it untouched keeps no draft. Nothing is sent until Send. With no account the main window comes forward on the welcome screen (§5.39) and no composer opens. Settings › General says whether SuperSparrow opens mail links (§5.40).
+
 **Closing, discarding and the subject check.** Drafts are kept on this Mac and autosaved, so closing never asks.
 
 | Action | Result |
@@ -1453,7 +1455,15 @@ The group is **not** a `List(selection:)`: SwiftUI's list selection paints an ac
 
 **“Saved”** is a status beside Save, not a banner: `checkmark.circle.fill` `success` {{layout.settings.statusGlyph}} pt + “Saved” (`snippet` `ink2`), {{layout.settings.savedGap}} pt before the Save button, from a successful save until the next edit (VoiceOver announces “Saved”). A failed save is a danger banner at the top of the tab (“Couldn't save the OAuth settings.” + the reason). Validation errors sit under their field (§5.25: “That doesn't look like a Google client ID.”).
 
-**General** (a two-column grid: labels right-aligned in {{layout.settings.labelColumn}} pt, rows {{layout.settings.row}} pt, a hairline between groups): Font (popup: New York, SF Pro; §4.4) · List density (radio: Standard, Compact) · Rows (checkbox: Show account initials in unified views; the seven-accounts caption under it, above) · Undo send (popup: 5, 10, 20 seconds) · — · Remote images (toggle “Load by default”, caption “Off: images load only when you ask, per message.”) · Notifications (toggle “New mail”; checkbox “Show sender and subject”).
+**General** (a two-column grid: labels right-aligned in {{layout.settings.labelColumn}} pt, rows {{layout.settings.row}} pt, a hairline between groups): Font (popup: New York, SF Pro; §4.4) · List density (radio: Standard, Compact) · Rows (checkbox: Show account initials in unified views; the seven-accounts caption under it, above) · Undo send (popup: 5, 10, 20 seconds) · — · Remote images (toggle “Load by default”, caption “Off: images load only when you ask, per message.”) · Notifications (toggle “New mail”; checkbox “Show sender and subject”) · — · Mail links (below).
+
+**Mail links.** The last group says which app opens `mailto:` links (§5.20). LaunchServices is asked whenever the tab appears (the window reopening on it included) and whenever the app comes to the front while it shows, since the user can choose another mail app in Mail's settings meanwhile; until the first answer the row holds nothing, rather than a button that may vanish.
+
+| Mail links state | Look |
+|---|---|
+| SuperSparrow opens mail links | `checkmark.circle.fill` `success` {{layout.settings.statusGlyph}} pt, {{layout.settings.statusGlyphGap}} pt, “SuperSparrow is your default mail app.” (`snippet` `ink2`) at the field column's leading edge: the same status as OAuth's “Saved”. No button |
+| Another app opens them | “Set as Default Mail App” (small secondary, at the field column's leading edge). It asks macOS to make SuperSparrow the default; macOS confirms in its own dialog, and the button is disabled until it answers. The row then shows what LaunchServices says: the words above, or the button again when the user kept the other app, with no message (a choice, not a failure) |
+| The change failed | the button stays, enabled; under it, in the field column {{layout.settings.captionGap}} pt below the control and at most {{layout.settings.captionMaxWidth}} pt wide, a field's error help line (§5.25: `exclamationmark.triangle.fill` {{layout.textField.helpGlyph}} pt, {{layout.textField.helpGlyphGap}} pt, `meta` `danger`): “Couldn't make SuperSparrow the default mail app. You can also choose it in Mail › Settings › General.” It stays until an attempt succeeds or SuperSparrow is found to be the default: through a retry too, under the disabled button while macOS asks and after the user keeps the other app. Never an alert |
 
 States per control as §5.24–5.27, Quire-drawn; validation errors inline under the field.
 

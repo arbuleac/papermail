@@ -170,6 +170,45 @@ final class BannerAndGridTests: XCTestCase {
         host.close()
     }
 
+    /// General's Mail links failure (§5.40): a field's error help line (§5.25) in a caption's place, the error glyph
+    /// in `danger` at the field column's leading edge, the words wrapping at the caption's width.
+    func testAnErrorCaptionIsAHelpLineInTheCaptionsPlace() {
+        let s = Quire.Layout.Settings.self
+        let recorder = FrameRecorder()
+        let failure = "Couldn't make SuperSparrow the default mail app. You can also choose it in Mail › Settings › General."
+        let view = QuireSettingsGrid {
+            QuireSettingsRow("Mail links") { Text("Set as Default Mail App").recordFrame("control", in: recorder) }
+            QuireSettingsCaption(failure, isError: true)
+            QuireSettingsRow(nil) { Text("next").recordFrame("next", in: recorder) }
+        }
+        .recordFrame("grid", in: recorder)
+        .frame(width: s.width - 2 * s.padX)
+        .background(Color.qCanvas)
+        let host = SwiftUIHost(view)
+        let rep = host.render()
+        let grid = recorder["grid"]
+        let top = recorder["control"].midY + s.row / 2 + QuireSettingsCaption.topPadding
+        let lines = recorder["next"].midY - recorder["control"].midY - s.row
+        XCTAssertEqual(lines, 2 * QuireFont.Role.meta.lineHeight, accuracy: 0.5, "two lines of meta, wrapped at the caption width")
+
+        let danger = TokenResolver.resolve("danger", .light)
+        func isDanger(_ c: RGBA) -> Bool { max(abs(c.r - danger.r), abs(c.g - danger.g), abs(c.b - danger.b)) < 0.08 }
+        let fieldX = grid.minX + s.labelColumn + s.labelGap
+        let glyph = Quire.Layout.TextField.helpGlyph
+        var glyphInk = false
+        for x in stride(from: fieldX, to: fieldX + glyph, by: 0.5) {
+            for y in stride(from: top, to: top + QuireFont.Role.meta.lineHeight, by: 0.5) where isDanger(rep.srgb(at: CGPoint(x: x, y: y))) {
+                glyphInk = true
+            }
+        }
+        XCTAssertTrue(glyphInk, "the error glyph in danger at the field column's leading edge")
+        let canvas = TokenResolver.resolve("canvas", .light)
+        for x in stride(from: grid.minX, to: grid.minX + s.labelColumn, by: 2) {
+            XCTAssertEqual(rep.srgb(at: CGPoint(x: x, y: top + 4)), canvas, "nothing in the label column")
+        }
+        host.close()
+    }
+
     func testTextRowGrowsByOneLinePerExtraLineUpToItsCap() {
         let s = Quire.Layout.Settings.self
         let line = QuireFont.Role.meta.lineHeight

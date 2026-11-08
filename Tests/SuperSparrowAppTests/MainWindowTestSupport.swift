@@ -68,6 +68,20 @@ final class MainWindowHarness {
 }
 
 extension MainWindowHarness {
+    /// Every run of a composer's body in its writing font on its exact lines. Plain text handed to the editor without
+    /// them falls back to Helvetica 12, so one message would show two fonts, and a kept draft would keep both.
+    static func assertWritingStyle(_ body: NSAttributedString, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertGreaterThan(body.length, 0, file: file, line: line)
+        let whole = NSRange(location: 0, length: body.length)
+        body.enumerateAttribute(.font, in: whole) { font, range, _ in
+            XCTAssertEqual(font as? NSFont, ComposeTextView.bodyFont, "the font at \(range)", file: file, line: line)
+        }
+        body.enumerateAttribute(.paragraphStyle, in: whole) { style, range, _ in
+            XCTAssertEqual((style as? NSParagraphStyle)?.minimumLineHeight, ComposeTextView.bodyRole.lineHeight,
+                           "the line height at \(range)", file: file, line: line)
+        }
+    }
+
     /// A client over a throwaway store, for windows that need one but no main window.
     static func scratchClient(in folder: URL) throws -> MailClient {
         try AppEnvironment.makeScratch(in: folder.appendingPathComponent("client-\(UUID().uuidString)")).engine

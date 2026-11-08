@@ -353,6 +353,9 @@ PAIRS = [
  ("Settings status: download bar (selected row)", "accent", ["selWash", "fill"], U),
  ("OAuth Saved glyph on desk", "success", ["canvas"], U),
  ("OAuth Saved text on desk", "ink2", ["canvas"], T),
+ ("General Mail links status glyph on desk", "success", ["canvas"], U),
+ ("General Mail links status text on desk", "ink2", ["canvas"], T),
+ ("General Mail links failure line on desk", "danger", ["canvas"], T),
  ("OAuth section title on desk", "ink", ["canvas"], T),
  ("Mono field text", "ink", ["sheet"], T),
  # ---- welcome

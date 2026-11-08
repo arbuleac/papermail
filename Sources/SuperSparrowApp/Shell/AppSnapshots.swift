@@ -56,10 +56,11 @@ enum AppSnapshots {
         render(controller, steps: steps, completion: completion)
     }
 
-    /// The Accounts and OAuth states of §5.40 that demo mode can show. The OAuth fields are put back before the
-    /// window closes; nothing here saves.
+    /// The Accounts, OAuth and General states of §5.40 that demo mode can show. The OAuth fields are put back before
+    /// the window closes; nothing here saves, and Mail links neither asks nor changes which app opens mail links.
     static func renderSettingsStates(_ controller: SettingsWindowController, completion: @escaping (NSBitmapImageRep?) -> Void) {
         let model = controller.model
+        let defaultMailApp = controller.defaultMailApp
         let accounts = model.accounts
         let original = model.oauth
         let steps: [() -> Void] = [
@@ -74,6 +75,9 @@ enum AppSnapshots {
             { model.oauthNotice = nil; model.oauth.googleClientID = "1084-ab3f9kq2" },
             // “Saved” beside Save.
             { model.oauth = original; model.showSavedForSnapshot() },
+            // Mail links: SuperSparrow is the default, then the button's failure.
+            { model.tab = .general; defaultMailApp.showForSnapshot(.isDefault) },
+            { defaultMailApp.showForSnapshot(.failed) },
         ]
         render(controller, steps: steps) { bitmap in
             model.oauth = original
