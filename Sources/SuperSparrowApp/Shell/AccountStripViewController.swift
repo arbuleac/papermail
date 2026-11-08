@@ -19,6 +19,7 @@ enum AccountScope: Hashable {
 /// folder tiles from y = 62 (Inbox to Trash at a 44 pt pitch, a short hairline, All Mail), and at its foot the
 /// account group anchored just above Add: All Inboxes, a short hairline, the account tiles at a 50 pt pitch, then
 /// Add and Settings. The view's selection is a raised folder tile; the scope's is the margin rule at x = 0.
+/// Inbox, Starred, Trash and All Mail take rows dragged from the list; the window decides and acts.
 ///
 /// The account group rises as accounts are added until All Inboxes would come within `groupGap` of All Mail;
 /// from then on the account tiles scroll inside their own clip, which ends 12 pt above Add, so tiles never
@@ -31,6 +32,11 @@ final class AccountStripViewController: NSViewController {
     /// Add's menu picked a provider (§5.44).
     var onAddAccount: ((ProviderKind) -> Void)?
     var onOpenSettings: (() -> Void)?
+    /// Rows dragged from the list over a folder that takes drops (Inbox, Starred, Trash, All Mail; §5.2):
+    /// whether the window would act on these conversations there.
+    var acceptsDrop: ((MailboxView, [ConversationID]) -> Bool)?
+    /// The rows were dropped on that folder: act on them, true when the window took them.
+    var onDrop: ((MailboxView, [ConversationID]) -> Bool)?
 
     /// The rail's width, derived from the traffic lights by the window (76 on macOS 15, 84 from 26 on).
     var railWidth: CGFloat = Quire.Layout.Rail.width {
@@ -103,6 +109,10 @@ final class AccountStripViewController: NSViewController {
         railView.addSubview(addButton)
         railView.addSubview(settingsButton)
         railView.onLayout = { [weak self] in self?.layoutRail() }
+        // The rail, not each folder, is the drag destination (see `dropTarget(at:)`). Only the list's rows:
+        // files, text and anything else dragged in are refused before the rail is asked.
+        railView.registerForDraggedTypes([MessageListViewController.conversationPasteboardType])
+        railView.drops = self
         view = railView
     }
 
@@ -437,6 +447,71 @@ final class AccountStripViewController: NSViewController {
     @objc private func settingsClicked(_ sender: Any?) {
         onOpenSettings?()
     }
+
+    // MARK: Dropping rows (§5.2)
+
+    /// The folder under the drag and whether it takes it, asked again only when the pointer reaches another
+    /// folder: the rows and the view do not change while the pointer moves.
+    private var dropFolder: (tile: AccountStripButton, view: MailboxView, accepts: Bool)?
+
+    /// The folder taking drops (Inbox, Starred, Trash, All Mail) whose 44 pt hit square holds the drag. AppKit
+    /// routes a drag by view frames and never asks `hitTest`, and each folder's full-width frame overlaps its
+    /// neighbours' by 10 pt, so tiles registered on their own would let a drag at a square's rim land on the
+    /// next folder down. The rail routes by the square a click uses instead, and the squares abut.
+    private func dropTarget(at info: NSDraggingInfo) -> (tile: AccountStripButton, view: MailboxView)? {
+        for (entry, tile) in zip(TitleMenu.entries, folderTiles) where RailDrop.change(for: entry.view) != nil {
+            if tile.hitRect.contains(tile.convert(info.draggingLocation, from: nil)) { return (tile, entry.view) }
+        }
+        return nil
+    }
+
+    /// The conversations a drag carries, when it comes from this app's list. A drag from another app has no
+    /// source here (`draggingSource` is nil across apps), so rows from another copy of SuperSparrow, which name
+    /// conversations of a different store, are refused with the files and text.
+    private static func draggedConversations(_ info: NSDraggingInfo) -> [ConversationID] {
+        guard info.draggingSource != nil else { return [] }
+        return MessageListViewController.conversationIDs(on: info.draggingPasteboard)
+    }
+
+    /// A drag entered the rail: nothing from an earlier drag is kept.
+    fileprivate func dragEntered(_ info: NSDraggingInfo) -> NSDragOperation {
+        dragEnded()
+        return dragMoved(info)
+    }
+
+    /// The drag moved over the rail, or stood still while AppKit asked again: light the folder under it if
+    /// that folder takes it.
+    fileprivate func dragMoved(_ info: NSDraggingInfo) -> NSDragOperation {
+        let target = dropTarget(at: info)
+        if target?.tile !== dropFolder?.tile {
+            dropFolder?.tile.isDropTarget = false
+            dropFolder = target.map { target in
+                let ids = Self.draggedConversations(info)
+                return (target.tile, target.view, !ids.isEmpty && acceptsDrop?(target.view, ids) == true)
+            }
+        }
+        guard let dropFolder, dropFolder.accepts else { return [] }
+        // A drop does the same whatever modifier is held, so the cursor shows the plainest operation the list
+        // allows now: a move, or a copy while ⌥ narrows the list's mask to it. Read on every move, because the
+        // mask changes under a still pointer as modifiers are pressed; ⌘ empties it and the folder goes dark.
+        let allowed = info.draggingSourceOperationMask
+        let operation = [NSDragOperation.move, .copy].first { allowed.contains($0) } ?? []
+        dropFolder.tile.isDropTarget = !operation.isEmpty
+        return operation
+    }
+
+    /// The drag left the rail, ended, or dropped.
+    fileprivate func dragEnded() {
+        dropFolder?.tile.isDropTarget = false
+        dropFolder = nil
+    }
+
+    fileprivate func performDrop(_ info: NSDraggingInfo) -> Bool {
+        defer { dragEnded() }
+        let ids = Self.draggedConversations(info)
+        guard let target = dropTarget(at: info), !ids.isEmpty else { return false }
+        return onDrop?(target.view, ids) ?? false
+    }
 }
 
 /// The rail's own surface: opaque `spine`, the two 20 pt divider hairlines (under Trash, under All Inboxes) and
@@ -444,6 +519,8 @@ final class AccountStripViewController: NSViewController {
 @MainActor
 private final class RailView: NonDraggingView {
     var onLayout: (() -> Void)?
+    /// Routes rows dragged over the rail to the folder under them (§5.2).
+    weak var drops: AccountStripViewController?
     var dividerRects: [NSRect] = [] { didSet { if oldValue != dividerRects { needsDisplay = true } } }
     var clipEdges: (top: CGFloat?, bottom: CGFloat?) = (nil, nil) {
         didSet { if oldValue.top != clipEdges.top || oldValue.bottom != clipEdges.bottom { needsDisplay = true } }
@@ -474,6 +551,12 @@ private final class RailView: NonDraggingView {
         super.layout()
         onLayout?()
     }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { drops?.dragEntered(sender) ?? [] }
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation { drops?.dragMoved(sender) ?? [] }
+    override func draggingExited(_ sender: NSDraggingInfo?) { drops?.dragEnded() }
+    override func draggingEnded(_ sender: NSDraggingInfo) { drops?.dragEnded() }
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool { drops?.performDrop(sender) ?? false }
 
     override func draw(_ dirtyRect: NSRect) {
         NSColor.qSpine.setFill()

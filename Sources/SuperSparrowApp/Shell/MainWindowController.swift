@@ -278,6 +278,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         strip.onSelectView = { [weak self] view in self?.setView(view) }
         strip.onAddAccount = { [weak self] kind in self?.requestAddAccount(kind) }
         strip.onOpenSettings = { [weak self] in self?.onOpenSettings?() }
+        strip.acceptsDrop = { [weak self] view, ids in self?.acceptsDrop(of: ids, onto: view) ?? false }
+        strip.onDrop = { [weak self] view, ids in self?.drop(ids, onto: view) ?? false }
 
         listPane.onViewChange = { [weak self] view in self?.setView(view) }
         listPane.onSearchChange = { [weak self] text in
@@ -1119,6 +1121,31 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     @discardableResult
     private func moveSelectionToInbox() -> Bool {
         mailAction(.moveToInbox)
+    }
+
+    // MARK: Rows dropped on the rail (§5.2)
+
+    /// Whether the rail's folder `tile` takes these dragged conversations. `RailDrop` decides from the rows as
+    /// the list holds them, so a drag over the rail reads nothing from the store; the list's own query says
+    /// whether they are search results, since a blank search shows the view.
+    func acceptsDrop(of ids: [ConversationID], onto tile: MailboxView) -> Bool {
+        guard !showingWelcome else { return false }
+        let dragged = Set(ids)
+        return RailDrop.accepts(tile, rows: list.conversations.filter { dragged.contains($0.id) }, selectedView: mailboxView,
+                                isSearching: list.query.searchText != nil)
+    }
+
+    /// Rows dropped on a rail folder take the path of the key that folder stands for (⇧I, S, #, E): one change
+    /// on all of them, applied to the store and queued in one call, with that key's toast and undo. They need
+    /// not be the selection. In Drafts, Trash is Discard Draft…, asked first, as # is there (§5.12).
+    @discardableResult
+    func drop(_ ids: [ConversationID], onto tile: MailboxView) -> Bool {
+        guard acceptsDrop(of: ids, onto: tile), let change = RailDrop.change(for: tile) else { return false }
+        if change == .trash, mailboxView == .drafts {
+            confirmDiscardDrafts(ids)
+            return true
+        }
+        return mailAction(change, on: ids.filter { !LocalDraftConversation.isLocal($0) })
     }
 
     @discardableResult

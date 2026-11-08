@@ -40,6 +40,11 @@ final class AccountStripButton: QuireControl {
     /// Called with -1 or +1 when ↑ or ↓ is pressed while the tile has focus.
     var onArrow: ((Int) -> Void)?
 
+    /// Rows dragged from the list are over the tile's hit square and it takes them (§5.2): the tile draws its
+    /// pressed wash. The rail, not the tile, is the drag destination and sets this. The tile never takes focus
+    /// for it, and hovering does not switch the view (no spring-loading).
+    var isDropTarget = false { didSet { if oldValue != isDropTarget { needsDisplay = true } } }
+
     private var spinner: QuireSpinnerView?
 
     init(content: Content) {
@@ -154,7 +159,8 @@ final class AccountStripButton: QuireControl {
 
     override func draw(_ dirtyRect: NSRect) {
         let tile = tileRect
-        let state = content == .pending ? QuireDisplayState.rest : interactionState
+        // A drop target reads as the tile does under a click: what lands on it is about to act.
+        let state: QuireDisplayState = content == .pending ? .rest : isDropTarget ? .pressed : interactionState
         let wash = Quire.Radius.xl
 
         switch content {

@@ -1023,6 +1023,14 @@ extension MessageListViewController: NSTableViewDataSource {
         if let data = try? JSONEncoder().encode(summary.id) { item.setData(data, forType: Self.conversationPasteboardType) }
         return item
     }
+
+    /// The conversations a drag of rows carries, one per dragged row in the order written; none for a drag of
+    /// anything else.
+    static func conversationIDs(on pasteboard: NSPasteboard) -> [ConversationID] {
+        (pasteboard.pasteboardItems ?? []).compactMap { item in
+            item.data(forType: conversationPasteboardType).flatMap { try? JSONDecoder().decode(ConversationID.self, from: $0) }
+        }
+    }
 }
 
 extension MessageListViewController: NSTableViewDelegate {
