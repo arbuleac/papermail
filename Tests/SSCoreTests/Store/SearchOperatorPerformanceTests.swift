@@ -2,8 +2,9 @@ import SQLite3
 import XCTest
 @testable import SSCore
 
-/// The search keystroke budget (50 ms, docs/ARCHITECTURE.md) with every search operator, on the 100,000-message
-/// synthetic mailbox in a real file, and how long the v12 migration takes to rebuild that mailbox's index. Loading
+/// The search keystroke budget (50 ms, docs/ARCHITECTURE.md) with every search operator, and with what a search of
+/// the server found, on the 100,000-message synthetic mailbox in a real file, and how long the v12 and v13 migrations
+/// take to rebuild that mailbox's index. Loading
 /// the mailbox takes a while, so it only runs with `SS_PERF=1`:
 ///
 ///     SS_PERF=1 swift test --filter SearchOperatorPerformanceTests
@@ -50,12 +51,23 @@ final class SearchOperatorPerformanceTests: XCTestCase {
             report("search \(text), a one-letter prefix (\(search.value.count) rows)", search.milliseconds)
         }
 
+        // What a search of the server found (roadmap Q3.1): its 50 hits' conversations, a second test in the same scan.
+        let everything = try store.conversations(ConversationQuery(view: .all, limit: 100_000))
+        let found = Set(stride(from: 0, to: everything.count, by: max(1, everything.count / 50)).prefix(50).map { everything[$0].id })
+        for text in ["budget", "\"quarterly budget\"", "-invoice", "from:nakamura is:unread"] {
+            var withFound = query(text)
+            withFound.serverMatches = found
+            let search = try median(runs: 5) { try store.conversations(withFound) }
+            report("search \(text) with \(found.count) server matches (\(search.value.count) rows)", search.milliseconds)
+            XCTAssertLessThan(search.milliseconds, 50, "search budget for \(text) with server matches")
+        }
+
         // The migration on this mailbox: the index put back as v11 had it, then the file opened by this build.
         try store.close()
         try execute(FullTextVersion10.revertSQL, at: path)
         let start = DispatchTime.now()
         store = try SQLiteMailStore(path: path)
-        report("v12 migration, index rebuilt for \(Self.messageCount) messages",
+        report("v12 and v13 migrations, index rebuilt for \(Self.messageCount) messages",
                Double(DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000)
         XCTAssertFalse(try store.conversations(ConversationQuery(view: .all, searchText: "from:nakamura")).isEmpty)
         try store.close()

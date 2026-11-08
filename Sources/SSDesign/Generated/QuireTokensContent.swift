@@ -5,7 +5,7 @@ import CoreGraphics
 
 extension Quire {
     public static let name = "Quire"
-    public static let version = "1.6.1"
+    public static let version = "1.6.2"
 
     /// Every symbol the app draws, by action (spec §4.11). `ss.` names are custom glyphs (`QuireGlyph`).
     public enum Icon {
@@ -193,6 +193,7 @@ extension Quire {
             QuireCheatSheetRow(keys: "N P", label: "Next · previous message"),
             QuireCheatSheetRow(keys: "space", label: "Quick Look attachments"),
             QuireCheatSheetRow(keys: "/", label: "Search"),
+            QuireCheatSheetRow(keys: "⌘↩", label: "Search the server"),
         ]),
         QuireCheatSheetSection(title: "Act", rows: [
             QuireCheatSheetRow(keys: "E", label: "Archive"),

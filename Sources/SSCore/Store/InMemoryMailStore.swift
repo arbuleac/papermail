@@ -403,7 +403,8 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
             if let before = query.before, !isLater, Self.sortDate(of: summary, for: query) >= before { continue }
             guard terms.allSatisfy({ matches(summary, operator: $0, open: query.openConversationID) }) else { continue }
             if isLater { summary.snoozedUntil = snoozeRows[id]?.dueAt }
-            if !indexed.isEmpty {
+            // What a search of the server found stands in for the index terms, as in the SQLite store's hits.
+            if !indexed.isEmpty, !query.serverMatches.contains(id) {
                 let columns = messages.map { FullTextMatcher.Columns(message: $0, body: bodies[$0.id]?.plainText) }
                 let found = columns.contains { message in
                     positive.allSatisfy { FullTextMatcher.matches($0, in: message) }

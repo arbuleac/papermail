@@ -169,13 +169,23 @@ enum ConversationTable {
             // full-text match produced; the index yields the keys in order, so DISTINCT needs no sort. 27 ms for a
             // word in 73% of the 100,000-message fixture's messages, where looking each hit up in the table and
             // sorting the keys took 47. The unary plus keeps SQLite from looking each rowid up instead.
+            // What a search of the server found stands in for the match (`ConversationQuery.serverMatches`): its keys
+            // (a few dozen at most) are a second test in the same scan, so the plan, the order and the paging are the
+            // full-text hits' own, and the view, the scope and the operators below narrow them alike.
+            let found = query.serverMatches.sorted { ($0.accountID.rawValue, $0.providerID) < ($1.accountID.rawValue, $1.providerID) }
+            let alsoFound = found.isEmpty ? "" : """
+                 OR (m.account_id, m.conversation_provider_id) IN (VALUES \(Array(repeating: "(?, ?)", count: found.count).joined(separator: ", ")))
+                """
             sql += """
                  JOIN (SELECT DISTINCT m.account_id, m.conversation_provider_id AS provider_id
                        FROM messages m INDEXED BY messages_by_conversation
-                       WHERE +m.rowid \(match.inverted ? "NOT IN" : "IN") (SELECT rowid FROM message_fts WHERE message_fts MATCH ?)) hits
+                       WHERE +m.rowid \(match.inverted ? "NOT IN" : "IN") (SELECT rowid FROM message_fts WHERE message_fts MATCH ?)\(alsoFound)) hits
                    ON hits.account_id = c.account_id AND hits.provider_id = c.provider_id
                 """
             arguments.append(match.expression)
+            for id in found {
+                arguments += [id.accountID.rawValue, id.providerID]
+            }
         }
         var predicates = [viewPredicate(query.view)]
         if let accountIDs = query.accountIDs {

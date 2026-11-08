@@ -39,6 +39,23 @@ final class ListEmptyStateTests: XCTestCase {
         XCTAssertEqual(state(.inbox, search: "   ").sentence, "Nothing left to read.", "a blank query is no search")
     }
 
+    /// A search with no local results offers the server in its own words (§5.9, §5.10), then says how it went; the
+    /// line 1 keeps quoting the query.
+    func testAnEmptySearchOffersTheServer() {
+        let query = ConversationQuery(view: .all, searchText: "porto")
+        let offer = ListEmptyState.make(query: query, serverSearch: ServerSearchRow(target: .provider(.gmail), phase: .offer))
+        XCTAssertEqual(offer, ListEmptyState(sentence: "No results for “porto”", hint: "Not on this Mac?", link: "Search Gmail"))
+        let running = ListEmptyState.make(query: query, serverSearch: ServerSearchRow(target: .allAccounts, phase: .searching))
+        XCTAssertEqual(running, ListEmptyState(sentence: "No results for “porto”", hint: "Searching all accounts…"))
+        let nothing = ListEmptyState.make(query: query, serverSearch: ServerSearchRow(target: .provider(.microsoft), phase: .found(0)))
+        XCTAssertEqual(nothing.hint, "Nothing on Outlook either.")
+        XCTAssertNil(nothing.link)
+        let failed = ListEmptyState.make(query: query, serverSearch: ServerSearchRow(target: .provider(.gmail), phase: .failed(subject: "Gmail")))
+        XCTAssertEqual(failed, ListEmptyState(sentence: "No results for “porto”", hint: "Couldn't search Gmail ·", link: "Try again"))
+        let view = ListEmptyState.make(query: ConversationQuery(view: .inbox), serverSearch: ServerSearchRow(target: .provider(.gmail), phase: .offer))
+        XCTAssertNil(view.link, "only a search offers the server")
+    }
+
     func testSyncStates() {
         XCTAssertEqual(state(.inbox, offline: true),
                        ListEmptyState(sentence: "You're offline", hint: "Mail will appear when you reconnect.", glyph: .offline))

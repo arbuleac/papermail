@@ -274,6 +274,33 @@ final class SQLiteMailStoreTests: XCTestCase {
         try store.verifyFullTextIndex()
     }
 
+    /// A message without a body is indexed by its snippet (v13), so a poll that changes only the snippet re-indexes it,
+    /// and the body's arrival replaces it; the index stays exactly what the view says throughout.
+    func testUpsertReindexesAChangedSnippetUntilTheBodyArrives() throws {
+        let store = try store(with: [accountA])
+        var original = message("m1", in: "c1", subject: "Tax documents")
+        original.snippet = "Forms for the landlord"
+        try store.upsertMessages([original])
+        XCTAssertEqual(try search("landlord", in: store), ["c1"])
+
+        var changed = original
+        changed.snippet = "Forms for the accountant"
+        try store.upsertMessages([changed])
+        XCTAssertEqual(try search("landlord", in: store), [])
+        XCTAssertEqual(try search("accountant", in: store), ["c1"])
+        try store.verifyFullTextIndex()
+
+        try store.saveBody(body("both attached"), for: original.id)
+        XCTAssertEqual(try search("accountant", in: store), [])
+        XCTAssertEqual(try search("attached", in: store), ["c1"])
+        try store.verifyFullTextIndex()
+        // With the body stored the snippet no longer counts, though a change to it still re-indexes harmlessly.
+        changed.snippet = "Something else"
+        try store.upsertMessages([changed])
+        XCTAssertEqual(try search("something", in: store), [])
+        try store.verifyFullTextIndex()
+    }
+
     func testDeleteMessagesRemovesFullTextRows() throws {
         let store = try store(with: [accountA])
         try store.upsertMessages([
@@ -550,10 +577,16 @@ final class SQLiteMailStoreTests: XCTestCase {
         XCTAssertTrue(search.contains { $0.contains("VIRTUAL TABLE INDEX") }, "hits come from FTS5: \(search)")
         // The hits become conversation keys through one scan of the covering index, never a table lookup per hit,
         // whether the search keeps what matches or, all its words negated, what does not.
+        // What a search of the server found is a second test in the same scan, not a plan of its own.
+        let found: Set<ConversationID> = [ConversationID(accountID: accountA, providerID: "c"),
+                                          ConversationID(accountID: accountB, providerID: "d")]
         for text in ["budget", "-budget", "from:alice is:unread -budget"] {
-            let plan = try store.queryPlan(for: ConversationQuery(view: .inbox, searchText: text))
-            XCTAssertTrue(plan.contains { $0.contains("COVERING INDEX messages_by_conversation") }, "\(text): \(plan)")
-            XCTAssertFalse(plan.contains { $0.contains("INTEGER PRIMARY KEY") }, "\(text): \(plan)")
+            for matches in [[], found] {
+                let plan = try store.queryPlan(for: ConversationQuery(view: .inbox, searchText: text, serverMatches: matches))
+                XCTAssertTrue(plan.contains { $0.contains("COVERING INDEX messages_by_conversation") }, "\(text): \(plan)")
+                XCTAssertFalse(plan.contains { $0.contains("INTEGER PRIMARY KEY") }, "\(text): \(plan)")
+                XCTAssertEqual(plan.filter { $0.contains("USE TEMP B-TREE FOR DISTINCT") }, [], "\(text): \(plan)")
+            }
         }
     }
 }

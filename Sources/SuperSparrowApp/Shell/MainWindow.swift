@@ -65,7 +65,10 @@ final class MainWindow: NSWindow {
         let reader = readerKeyViews()
         guard let view else { return focus(forward ? shell.first : shell.last) }
 
-        if let index = shell.firstIndex(where: { view === $0 || view.isDescendant(of: $0) }) {
+        // The innermost stop holding the focus: the server row's link lives inside the table yet is a stop of its own
+        // after it, so matching the table first would keep Tab on the link and send Shift-Tab past the list.
+        let holders = shell.indices.filter { view.isDescendant(of: shell[$0]) }
+        if let index = holders.first(where: { inner in holders.allSatisfy { shell[inner].isDescendant(of: shell[$0]) } }) {
             let next = index + (forward ? 1 : -1)
             if shell.indices.contains(next) { return focus(shell[next]) }
             return focus(forward ? (reader.first ?? shell.first) : (reader.last ?? shell.last))

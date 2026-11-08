@@ -42,6 +42,15 @@ public protocol MailClient: AnyObject {
     /// True when the send was still held and is now cancelled.
     func cancelSend(id: String) throws -> Bool
 
+    /// Asks the providers of `accountIDs` (every account when nil) to search for `text` as typed, under their own search
+    /// rules (Gmail's `from:` and `subject:`, Outlook's KQL), for mail this Mac does not have yet: during a first
+    /// download, or for bodies Keep mail on this Mac evicted. Hits the store lacks are written as metadata, one
+    /// transaction per account, so they list and search like any other mail; their bodies download when opened. Hits
+    /// already stored change nothing. Charged to each account's quota as live spend. An account whose search fails is
+    /// named in the result rather than thrown, so the others' hits still arrive; cancelling the task ends the search
+    /// (throwing `CancellationError`) without changing what it already stored.
+    func searchServer(for text: String, accountIDs: [AccountID]?) async throws -> ServerSearchResult
+
     /// Returns the stored body, fetching and sanitizing it first when missing.
     func ensureBody(for message: MessageID) async throws -> StoredBody
     /// The reader is showing these messages, with a body or not: Keep mail on this Mac leaves their bodies whole until

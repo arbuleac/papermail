@@ -47,6 +47,9 @@ enum GraphURL {
         components.path += path
         if !query.isEmpty {
             components.queryItems = query.map { URLQueryItem(name: $0.0, value: $0.1) }
+            // URLComponents leaves '+' alone in query values, but Graph reads a bare '+' as a space, so a search for
+            // "c++" or "me+tag@example.com" would change meaning in transit without this.
+            components.percentEncodedQuery = components.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
         }
         guard let url = components.url else {
             throw ProviderError.network("invalid Graph URL for \(path)")

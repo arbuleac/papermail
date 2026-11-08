@@ -19,9 +19,17 @@ final class MessageListViewController: NSViewController {
         didSet {
             guard query != oldValue else { return }
             keptOpen = nil
+            // Other words or another scope are a new search: the row starts again at its offer (§5.10).
+            if Self.searchWords(of: query) != Self.searchWords(of: oldValue) || query.accountIDs != oldValue.accountIDs {
+                pendingServerSearch = false
+                serverSearch.reset()
+            }
             if isViewLoaded { subscribe() }
         }
     }
+
+    /// Searches the server when the local results have all been shown (spec §5.10). The window sets its `search`.
+    let serverSearch = ServerSearchController()
 
     private(set) var conversations: [ConversationSummary] = []
 
@@ -160,7 +168,8 @@ final class MessageListViewController: NSViewController {
     private var observation: StoreObservation?
     /// Bumped on every re-subscribe so a callback from a cancelled observation cannot overwrite newer rows.
     private var subscriptionGeneration = 0
-    private var hasReceivedFirstPage = false
+    /// Internal so tests can wait for a query's first page.
+    private(set) var hasReceivedFirstPage = false
     /// Pages fetched with `query.before` beyond the observed head, refreshed on every head update.
     private var tailPageCount = 0
     /// The rows as the store gave them (head and tail pages), before kept drafts are merged in.
@@ -181,6 +190,10 @@ final class MessageListViewController: NSViewController {
     /// result, which would be read and leave in turn, until the list had read itself empty. Apple Mail keeps the
     /// selected message in its Unread filter the same way, until another is selected.
     private var keptOpen: ConversationID?
+    /// ⌘↩ came before the query's first page: the search runs once the page shows every local result.
+    private var pendingServerSearch = false
+    /// What the row showed last, so a finished search is announced once. Internal so tests can read what was announced.
+    private(set) var announcedServerSearch: ServerSearchRow.Phase?
 
     // MARK: View lifecycle
 
@@ -270,6 +283,7 @@ final class MessageListViewController: NSViewController {
         center.addObserver(self, selector: #selector(quireEnvironmentChanged(_:)), name: QuireEnvironment.didChangeNotification,
                            object: nil)
         environmentKey = makeEnvironmentKey()
+        serverSearch.onChange = { [weak self] in self?.serverSearchDidChange() }
         subscribe()
     }
 
@@ -510,10 +524,14 @@ final class MessageListViewController: NSViewController {
 
     // MARK: Store observation
 
-    /// What the store is asked for: `query`, keeping `keptOpen` listed while the search filters on read state.
+    /// What the store is asked for: `query`, keeping `keptOpen` listed while the search filters on read state, with
+    /// what a search of the server found for these words in this scope (`ConversationQuery.serverMatches`).
     private var observedQuery: ConversationQuery {
         var observed = query
         if query.search?.filtersOnReadState == true { observed.openConversationID = keptOpen }
+        if isSearch, serverSearch.words == Self.searchWords(of: query), serverSearch.scope == query.accountIDs {
+            observed.serverMatches = serverSearch.found
+        }
         return observed
     }
 
@@ -526,8 +544,9 @@ final class MessageListViewController: NSViewController {
         if isViewLoaded { subscribe(keepingRows: true) }
     }
 
-    /// `keepingRows` re-observes the same query with another conversation kept: the rows, the pages loaded below
-    /// them and a search still waiting for its first page carry on, and the next delivery refreshes them in place.
+    /// `keepingRows` re-observes the same query with another conversation kept, or with the server's finds added: the
+    /// rows, the pages loaded below them and a search still waiting for its first page carry on, and the next delivery
+    /// refreshes them in place, so the list grows where it stands instead of starting again from its first page.
     private func subscribe(keepingRows: Bool = false) {
         observation?.cancel()
         subscriptionGeneration += 1
@@ -548,7 +567,16 @@ final class MessageListViewController: NSViewController {
             // still waiting for its rows is superseded either way, by the next search or by leaving search.
             if isSearch { searchSignpost.begin() } else { searchSignpost.supersede() }
         }
-        observation = store.observeConversations(observedQuery, onChange: { [weak self] rows in
+        let observed = observedQuery
+        // New finds keep the row searching until the rows they add are in; re-observing for the kept conversation
+        // alone leaves that as it was.
+        if !keepingRows {
+            awaitingServerRows = false
+        } else if observed.serverMatches != observedMatches {
+            awaitingServerRows = true
+        }
+        observedMatches = observed.serverMatches
+        observation = store.observeConversations(observed, onChange: { [weak self] rows in
             // The store contract delivers on the main thread; assumeIsolated turns that promise into a check.
             MainActor.assumeIsolated {
                 guard let self, self.subscriptionGeneration == generation else { return }
@@ -561,6 +589,10 @@ final class MessageListViewController: NSViewController {
             MainActor.assumeIsolated {
                 guard let self, self.subscriptionGeneration == generation else { return }
                 self.searchSignpost.fail()
+                if self.awaitingServerRows {
+                    self.awaitingServerRows = false
+                    self.apply(self.storeRows)
+                }
             }
         })
     }
@@ -570,7 +602,15 @@ final class MessageListViewController: NSViewController {
         let state = signposter.beginInterval("list.refresh")
         defer { signposter.endInterval("list.refresh", state) }
         hasReceivedFirstPage = true
+        let addsServerRows = awaitingServerRows
+        awaitingServerRows = false
         reachedEnd = rows.count < query.limit
+        if addsServerRows, !reachedEnd {
+            // Every local result was listed when the server was asked, so the list reads on through the finds too: it
+            // still ends with the row, and the row counts what was added from the whole list. There can be no more rows
+            // than those listed plus the finds, so this many pages after the head always reach a short one, the end.
+            tailPageCount = max(tailPageCount, (storeRows.count + observedMatches.count) / query.limit)
+        }
         var merged = rows
         if reachedEnd {
             tailPageCount = 0
@@ -582,6 +622,11 @@ final class MessageListViewController: NSViewController {
 
     private var isSearch: Bool {
         !(query.searchText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+    }
+
+    /// The search as typed, trimmed (`SearchQuery.text`): what the server is asked, so its own operators work there.
+    private static func searchWords(of query: ConversationQuery) -> String {
+        query.searchText ?? ""
     }
 
     private var showsLocalDrafts: Bool {
@@ -657,6 +702,9 @@ final class MessageListViewController: NSViewController {
             // Later's rows are times to come, which the past-day heads cannot describe; each row says its own.
             showsHeads: query.view != .later && RunningHead.showsHeads(conversationCount: conversations.count, isSearch: isSearch),
             showsFooter: hasReceivedFirstPage && !reachedEnd && !conversations.isEmpty,
+            showsServerSearch: ServerSearchRow.isShown(searchText: query.searchText, hasFirstPage: hasReceivedFirstPage,
+                                                       reachedEnd: reachedEnd, hasRows: !conversations.isEmpty)
+                && serverSearchRow != nil,
             reference: rowContentCache.reference,
             formatter: rowContentCache.formatter
         )
@@ -714,6 +762,8 @@ final class MessageListViewController: NSViewController {
         let setChanged = !selectionMoved && presentBefore > 0 && selectedIDs.filter { indexByID[$0] != nil }.count != presentBefore
         suppressSelectionCallbacks = false
         updateEmptyState()
+        runPendingServerSearchIfListed()
+        announceServerSearchIfFinished()
         if selectionMoved {
             selectionDidSettle()
             onSelectionChange?(selectedID)
@@ -849,6 +899,8 @@ final class MessageListViewController: NSViewController {
                 self.configure(headRow, row: row)
             case let footerRow as ListFooterRowView:
                 footerRow.phase = self.footerPhase
+            case let serverRow as ServerSearchRowView:
+                serverRow.row = self.serverSearchRow
             default:
                 break
             }
@@ -866,6 +918,102 @@ final class MessageListViewController: NSViewController {
     /// Appearance, contrast, Graphite and the Font setting: everything a row's strings and face depend on.
     private func makeEnvironmentKey() -> String {
         QuireEnvironment.cacheKey(for: view.effectiveAppearance)
+    }
+
+    // MARK: Searching the server
+
+    /// The row's state for the words and scope the list shows, or nil when the server cannot be offered (no search, no
+    /// account in scope, no engine).
+    var serverSearchRow: ServerSearchRow? {
+        guard serverSearch.search != nil, isSearch,
+              let target = ServerSearchRow.target(scope: query.accountIDs, accounts: Array(accountsByID.values)) else { return nil }
+        let current = serverSearch.words == Self.searchWords(of: query) && serverSearch.scope == query.accountIDs
+        let phase: ServerSearchRow.Phase
+        switch current ? serverSearch.state : .idle {
+        case .idle:
+            phase = .offer
+        case .searching:
+            phase = .searching
+        case .finished where awaitingServerRows, .failed where awaitingServerRows:
+            // The answer is in but the rows it adds are still being read: counting now would say “Nothing more”.
+            phase = .searching
+        case .finished:
+            phase = .found(ServerSearchRow.added(listed: conversations.map(\.id), found: serverSearch.found, before: serverSearch.before))
+        case .failed:
+            let searched = query.accountIDs?.count ?? accountsByID.count
+            phase = .failed(subject: ServerSearchRow.failureSubject(target: target, failed: serverSearch.failedAccounts.compactMap { accountsByID[$0] },
+                                                                    searched: searched))
+        }
+        return ServerSearchRow(target: target, phase: phase)
+    }
+
+    /// Whether ⌘↩ can ask for the search now: it can run, and the local results are all listed or not in yet (it then
+    /// runs once they are, if they fit on the pages read).
+    var canRequestServerSearch: Bool {
+        guard let row = serverSearchRow, row.runs else { return false }
+        return !hasReceivedFirstPage || reachedEnd
+    }
+
+    /// The row's link (the offer, or “Try again”) while it is on screen, for the window's Tab order.
+    var serverSearchLink: NSView? {
+        guard isViewLoaded, let row = layout.serverSearchRow,
+              let view = tableView.rowView(atRow: row, makeIfNecessary: false) as? ServerSearchRowView, !view.link.isHidden else { return nil }
+        return view.link
+    }
+
+    /// ⌘↩ in the search field (spec §6): runs the search now if every local result is listed, or as soon as they are.
+    func requestServerSearch() {
+        guard canRequestServerSearch else { return }
+        if hasReceivedFirstPage {
+            runServerSearch()
+        } else {
+            pendingServerSearch = true
+        }
+    }
+
+    /// The row's link, ↩ on it, the empty state's link and ⌘↩: searches the providers in scope for the words as typed.
+    func runServerSearch() {
+        guard let row = serverSearchRow, row.runs, hasReceivedFirstPage, reachedEnd else { return }
+        pendingServerSearch = false
+        announcedServerSearch = nil
+        serverSearch.run(words: Self.searchWords(of: query), scope: query.accountIDs, listed: Set(conversations.map(\.id)))
+    }
+
+    private func runPendingServerSearchIfListed() {
+        guard pendingServerSearch, hasReceivedFirstPage else { return }
+        pendingServerSearch = false
+        // A search whose local results run past the pages read keeps its offer for the end of the list.
+        if reachedEnd { runServerSearch() }
+    }
+
+    /// The search started, answered or failed: the row and the empty state follow, and found conversations join the
+    /// query, so they appear among the results in their date order.
+    private func serverSearchDidChange() {
+        guard isViewLoaded else { return }
+        if observedQuery.serverMatches != observedMatches {
+            subscribe(keepingRows: true)
+        }
+        apply(storeRows)
+    }
+
+    /// The server's finds the observation was last given, so only a change resubscribes.
+    private var observedMatches: Set<ConversationID> = []
+    /// The observation was given new finds and its first rows are not in yet.
+    private var awaitingServerRows = false
+
+    /// VoiceOver hears how a search of the server went, since its row may be off screen. Only once the list is read to
+    /// its end: before that the count would leave out finds still to load.
+    private func announceServerSearchIfFinished() {
+        guard reachedEnd, let row = serverSearchRow else { return }
+        switch row.phase {
+        case .found, .failed:
+            guard announcedServerSearch == nil, serverSearch.state != .idle, let window = view.window else { return }
+            announcedServerSearch = row.phase
+            NSAccessibility.post(element: window, notification: .announcementRequested,
+                                 userInfo: [.announcement: row.title, .priority: NSAccessibilityPriorityLevel.medium.rawValue])
+        case .offer, .searching:
+            break
+        }
     }
 
     // MARK: Empty state, skeleton and footer
@@ -890,10 +1038,18 @@ final class MessageListViewController: NSViewController {
             query: query,
             isOfflineWithNothingCached: isOfflineWithNothingCached(scoped),
             firstSyncFinishedAccount: firstSyncFinishedAccount(scoped),
-            olderMailDownloading: scoped.contains { $0.backfillProgress != nil || olderMail(of: $0.accountID) == .listing }
+            olderMailDownloading: scoped.contains { $0.backfillProgress != nil || olderMail(of: $0.accountID) == .listing },
+            serverSearch: serverSearchRow
         )
         emptyView.sentence = state.sentence
-        emptyView.hint = state.hint.isEmpty ? [] : [.text(state.hint)]
+        var hint: [QuireEmptyStateView.HintPart] = state.hint.isEmpty ? [] : [.text(state.hint)]
+        if let link = state.link {
+            hint.append(.link(link))
+            emptyView.onLink = { [weak self] in self?.runServerSearch() }
+        } else {
+            emptyView.onLink = nil
+        }
+        emptyView.hint = hint
         switch state.glyph {
         case .sparrow?: emptyView.glyph = .sparrow
         case .offline?: emptyView.glyph = .offline
@@ -1101,7 +1257,7 @@ extension MessageListViewController: NSTableViewDelegate {
         switch layout.items[row] {
         case .conversation: return compact ? Quire.Layout.RowCompact.height : Quire.Layout.Row.height
         case .head: return compact ? Quire.Layout.RunningHead.compactHeight : Quire.Layout.RunningHead.height
-        case .footer: return Quire.Layout.ListFooter.height
+        case .footer, .serverSearch: return Quire.Layout.ListFooter.height
         }
     }
 
@@ -1124,6 +1280,12 @@ extension MessageListViewController: NSTableViewDelegate {
             rowView.phase = footerPhase
             rowView.onRetry = { [weak self] in self?.loadMore() }
             return rowView
+        case .serverSearch:
+            let rowView = (tableView.makeView(withIdentifier: ServerSearchRowView.identifier, owner: nil) as? ServerSearchRowView)
+                ?? ServerSearchRowView(frame: .zero)
+            rowView.row = serverSearchRow
+            rowView.onRun = { [weak self] in self?.runServerSearch() }
+            return rowView
         }
     }
 
@@ -1135,7 +1297,7 @@ extension MessageListViewController: NSTableViewDelegate {
         return cell
     }
 
-    /// Heads and the footer are never selectable or focusable (spec §5.8, §5.10).
+    /// Heads, the footer and the server row are never selectable (spec §5.8, §5.10).
     func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
         layout.conversationIndex(atRow: row) != nil
     }

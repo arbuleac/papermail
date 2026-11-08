@@ -96,6 +96,26 @@ final class ListLayoutTests: XCTestCase {
         let result = layout([])
         XCTAssertEqual(result.rowCount, 0)
         XCTAssertNil(result.footerRow)
+        XCTAssertNil(result.serverSearchRow)
+    }
+
+    /// The end of a search (§5.10): the server row closes the rows once nothing older is left to load, and it is no
+    /// conversation, so j/k and the selection never land on it.
+    func testTheServerRowEndsTheListInsteadOfTheTail() {
+        let dates = Array(mailbox.prefix(3))
+        let ended = ListLayout.make(dates: dates, showsHeads: false, showsFooter: false, showsServerSearch: true,
+                                    reference: reference, formatter: formatting)
+        XCTAssertEqual(ended.items, [.conversation(0), .conversation(1), .conversation(2), .serverSearch])
+        XCTAssertEqual(ended.serverSearchRow, 3)
+        XCTAssertNil(ended.footerRow)
+        XCTAssertNil(ended.conversationIndex(atRow: 3))
+        let ids = dates.indices.map { ConversationID(accountID: AccountID("a"), providerID: "\($0)") }
+        XCTAssertEqual(ended.itemIDs(conversationIDs: ids).last, .serverSearch)
+
+        let paging = ListLayout.make(dates: dates, showsHeads: false, showsFooter: true, showsServerSearch: true,
+                                     reference: reference, formatter: formatting)
+        XCTAssertEqual(paging.items.last, .footer, "while older pages exist the tail ends the list, never both")
+        XCTAssertNil(paging.serverSearchRow)
     }
 
     // MARK: Performance (SS_PERF=1)

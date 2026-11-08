@@ -1,18 +1,20 @@
 import Foundation
 
-/// The rows the message list table shows: conversations, the running heads between them (spec §5.8) and the
-/// paging footer at the end (spec §5.10). Built once per refresh from the summaries' dates, without AppKit, so
+/// The rows the message list table shows: conversations, the running heads between them (spec §5.8) and, at the
+/// end, the paging footer while older pages exist or a search's server row once every result is listed (spec §5.10). Built once per refresh from the summaries' dates, without AppKit, so
 /// the grouping can be tested and timed on its own.
 ///
 /// Conversations keep their own index space (`conversations[i]` in the caller); the layout maps between those
 /// indices and table rows, so j/k, selection restore and next-unread work on conversations and simply never
-/// land on a head or the footer.
+/// land on a head, the footer or the server row.
 public struct ListLayout: Sendable {
     public enum Item: Hashable, Sendable {
         case head(RunningHead)
         /// An index into the conversations the layout was built from.
         case conversation(Int)
         case footer
+        /// “Search Gmail for more” and its states (`ServerSearchRow`).
+        case serverSearch
     }
 
     /// A row's identity across refreshes, for `ListDiff`: a head is the same row as long as its group exists.
@@ -20,6 +22,7 @@ public struct ListLayout: Sendable {
         case head(RunningHead)
         case conversation(ConversationID)
         case footer
+        case serverSearch
     }
 
     public let items: [Item]
@@ -41,13 +44,14 @@ public struct ListLayout: Sendable {
     }
 
     /// Groups `dates` (newest first, as the store orders them) under running heads when `showsHeads`, and ends
-    /// the rows with the footer when `showsFooter`. A head is emitted once, where its group starts; a date out
+    /// the rows with the footer when `showsFooter`, or else with the server row when `showsServerSearch`. A head is emitted once, where its group starts; a date out
     /// of order (a row that moved while sync ran) stays under the head already open rather than opening a
     /// second copy of an earlier one.
     public static func make(
         dates: [Date],
         showsHeads: Bool,
         showsFooter: Bool,
+        showsServerSearch: Bool = false,
         reference: DateFormatting.Reference,
         formatter: DateFormatting
     ) -> ListLayout {
@@ -89,11 +93,16 @@ public struct ListLayout: Sendable {
                 styles.append(.relative)
             }
         }
-        if showsFooter { items.append(.footer) }
+        if showsFooter {
+            items.append(.footer)
+        } else if showsServerSearch {
+            // The search is offered only once nothing older is left to load: the local results come first.
+            items.append(.serverSearch)
+        }
         return ListLayout(items: items, rowOfConversation: rows, timeStyles: styles, showsHeads: showsHeads)
     }
 
-    /// The conversation index shown at `row`, or nil for a head, the footer or a row out of range.
+    /// The conversation index shown at `row`, or nil for a head, the footer, the server row or a row out of range.
     public func conversationIndex(atRow row: Int) -> Int? {
         guard items.indices.contains(row), case .conversation(let index) = items[row] else { return nil }
         return index
@@ -110,12 +119,18 @@ public struct ListLayout: Sendable {
             case .head(let head): return .head(head)
             case .conversation(let index): return .conversation(conversationIDs[index])
             case .footer: return .footer
+            case .serverSearch: return .serverSearch
             }
         }
     }
 
     public var footerRow: Int? {
         guard case .footer? = items.last else { return nil }
+        return items.count - 1
+    }
+
+    public var serverSearchRow: Int? {
+        guard case .serverSearch? = items.last else { return nil }
         return items.count - 1
     }
 }

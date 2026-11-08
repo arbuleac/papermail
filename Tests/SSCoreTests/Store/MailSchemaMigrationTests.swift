@@ -285,7 +285,7 @@ final class MailSchemaMigrationTests: XCTestCase {
                                         createdAt: MailStoreCodec.date(base + 200_000)))
             try store.close()
         }
-        // v9, v10, v11 and v12 came after v8, so a v7 file has none of them.
+        // v9 to v12 and v13 came after v8, so a v7 file has none of them (`revertSQL` takes v12 and v13 back).
         try execute("""
             \(FullTextVersion10.revertSQL)
             DROP TABLE backfill_live_marks;
@@ -558,6 +558,54 @@ final class MailSchemaMigrationTests: XCTestCase {
         try store.close()
         XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations WHERE identifier = 'v12-search-columns'", at: path),
                        [["v12-search-columns"]])
+    }
+
+    /// v13 indexes a message without a body by its snippet. The file is a real v12 one (a v1 file taken through the
+    /// shipped migrations up to v12) holding such a message, metadata the first download or a search of the server
+    /// stored, indexed with an empty body. Opened by the current build, it is found by its snippet's words, the stored
+    /// body of another message is indexed as before, the index matches the view exactly, and a body arriving later
+    /// takes the snippet's place.
+    func testVersion12DatabaseFindsMessagesWithoutABodyByTheirSnippet() throws {
+        let path = try XCTUnwrap(directory).appendingPathComponent("mail.sqlite").path
+        try writeVersion1Database(at: path, then: """
+            INSERT INTO messages (account_id, provider_id, conversation_provider_id, references_json, subject, snippet,
+                                  from_json, to_json, cc_json, bcc_json, reply_to_json, date_ms, roles, is_read,
+                                  is_starred, inbox_section, has_attachments, label_ids_json, has_body)
+            VALUES ('acct-a', 'm2', 'c2', '[]', 'Tax documents', 'Forms for the landlord',
+                    '{"address":"ann@example.com","name":"Ann"}', '[]', '[]', '[]', '[]', \(base + 120_000), 0, 1, 0,
+                    'unknown', 0, '[]', 0);
+            INSERT INTO message_fts(rowid, subject, participants, body)
+            SELECT id, subject, participants, body FROM message_fts_content WHERE provider_id = 'm2';
+            INSERT INTO conversations (account_id, provider_id, subject, snippet, participants_json, latest_date_ms,
+                                       latest_provider_id, message_count, unread_count, is_starred, has_attachments,
+                                       in_inbox, in_sent, in_drafts, in_trash, inbox_section, has_pending_ops)
+            VALUES ('acct-a', 'c2', 'Tax documents', 'Forms for the landlord', '[{"address":"ann@example.com","name":"Ann"}]',
+                    \(base + 120_000), 'm2', 1, 0, 0, 0, 0, 0, 0, 0, 'unknown', 0);
+            """)
+        try MailSchema.migrateFile(at: path, upTo: "v12-search-columns")
+        XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations ORDER BY rowid", at: path).compactMap(\.first).last,
+                       "v12-search-columns")
+        XCTAssertEqual(try query("SELECT rowid FROM message_fts WHERE message_fts MATCH 'landlord'", at: path), [],
+                       "v12 indexed the message with an empty body")
+        func search(_ text: String, in store: SQLiteMailStore) throws -> [String] {
+            try store.conversations(ConversationQuery(view: .all, searchText: text)).map(\.id.providerID)
+        }
+
+        let store = try SQLiteMailStore(path: path)
+        XCTAssertEqual(try search("landlord", in: store), ["c2"], "found by its snippet")
+        XCTAssertEqual(try search("hello", in: store), ["c1"], "a stored body is indexed as before")
+        XCTAssertEqual(try search("from:ann", in: store), ["c2"], "its other columns as v12 indexed them")
+        try store.verifyFullTextIndex()
+
+        let text = "Both forms are attached"
+        try store.saveBody(StoredBody(body: MessageBody(html: nil, text: text, attachments: []), renderedHTML: "<div>\(text)</div>",
+                                      plainText: text), for: MessageID(accountID: AccountID("acct-a"), providerID: "m2"))
+        XCTAssertEqual(try search("attached", in: store), ["c2"])
+        XCTAssertEqual(try search("landlord", in: store), [], "the body takes the snippet's place")
+        try store.verifyFullTextIndex()
+        try store.close()
+        XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations WHERE identifier = 'v13-server-search'", at: path),
+                       [["v13-server-search"]])
     }
 
     // MARK: Raw SQLite

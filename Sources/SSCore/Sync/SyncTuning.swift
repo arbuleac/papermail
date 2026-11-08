@@ -63,6 +63,10 @@ struct SyncTuning: Sendable {
     /// A backfill counts as ended, for its optimize and sweep, when the lane goes idle after listing pages or after at
     /// least this many bodies; fewer are the bodies of a few new messages the live lane handed over, not a backfill.
     var backfillEndMinimumBodies: Int { hydrationBatchSize }
+    /// Hits a search of the server asks each provider for, and how many accounts it searches at once
+    /// (`ServerSearcher`).
+    var serverSearchLimit: Int = 50
+    var serverSearchConcurrency: Int = 2
     var maxApplyTargets: Int = 50
     /// After this many failed attempts an operation is marked `failed` instead of staying in the outbox forever.
     var maxOperationAttempts: Int = 25

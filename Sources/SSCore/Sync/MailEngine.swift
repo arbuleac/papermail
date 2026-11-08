@@ -370,6 +370,25 @@ public final class MailEngine: MailClient, @unchecked Sendable {
 
     // MARK: Fetches
 
+    /// The accounts in scope are searched two at a time (`ServerSearcher`); one the engine has not met yet gets its
+    /// context now, as `ensureBody` does, so a search works before `start()`.
+    public func searchServer(for text: String, accountIDs: [AccountID]?) async throws -> ServerSearchResult {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return ServerSearchResult() }
+        let stored = try store.accounts()
+        let accounts = accountIDs.map { ids in ids.compactMap { id in stored.first { $0.id == id } } } ?? stored
+        let signposter = SyncLog.signposter
+        let interval = signposter.beginInterval("sync.serverSearch", id: signposter.makeSignpostID())
+        defer { signposter.endInterval("sync.serverSearch", interval) }
+        let searcher = ServerSearcher(store: store, limit: tuning.serverSearchLimit, concurrency: tuning.serverSearchConcurrency)
+        let result = try await searcher.search(trimmed, in: accounts.map { context(for: $0) })
+        SyncLog.logger.info("""
+            server search: \(accounts.count, privacy: .public) accounts, \(result.downloaded, privacy: .public) messages new, \
+            \(result.failedAccounts.count, privacy: .public) failed
+            """)
+        return result
+    }
+
     public func ensureBody(for message: MessageID) async throws -> StoredBody {
         if let stored = try store.body(for: message) { return stored }
         // Someone is opening it (the reader, a reply's quote). Fetched now, perhaps from outside the Keep mail window

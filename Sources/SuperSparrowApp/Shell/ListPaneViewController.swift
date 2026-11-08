@@ -184,6 +184,14 @@ final class ListPaneViewController: NSViewController {
         onLeaveSearch?()
     }
 
+    /// Words typed less than the debounce ago that the list has not been given yet.
+    var hasPendingSearch: Bool { searchTimer != nil }
+
+    /// Gives the list the field's words now rather than when the debounce ends: ⌘↩ acts on what was typed.
+    func sendPendingSearch() {
+        if searchTimer != nil { sendQuery() }
+    }
+
     // MARK: Menus
 
     @objc private func mastheadClicked(_ sender: Any?) {
@@ -250,14 +258,17 @@ final class ListPaneViewController: NSViewController {
     }
 
     /// The pane's key views in Tab order: the masthead (minimal mode only, when it is the title menu), Demo tag,
-    /// search, compose, the list, the sync line's action (only while it carries one), the sync line itself and a
-    /// toast's action (both with Full Keyboard Access only; the window drops views that cannot take focus).
+    /// search, compose, the list, the server row's link (while a search's list ends with it), the sync line's action
+    /// (only while it carries one), the sync line itself and a toast's action (both with Full Keyboard Access only;
+    /// the window drops views that cannot take focus).
     var keyViews: [NSView] {
         var views: [NSView] = header.masthead.isMenu ? [header.masthead] : []
         if !header.demoTag.isHidden { views.append(header.demoTag) }
         views.append(header.search.textField)
         views.append(header.compose)
         if let table = Self.firstTable(in: list.view) { views.append(table) }
+        // The end of a search's results: its link (§5.10), while the row is on screen.
+        if let link = list.serverSearchLink { views.append(link) }
         if !statusBar.actionButton.isHidden { views.append(statusBar.actionButton) }
         views.append(statusBar)
         if let action = toastView.slip?.actionButton { views.append(action) }

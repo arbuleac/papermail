@@ -221,6 +221,44 @@ final class GraphMessageTests: GraphTestCase {
         XCTAssertEqual(request.query["$select"], "id")
     }
 
+    /// Graph reads a bare '+' in a query as a space, so it goes as %2B; a trailing backslash is escaped so it cannot
+    /// escape the closing quote.
+    func testSearchSendsPlusSignsAndBackslashesAsTyped() async throws {
+        route { request in
+            guard request.method == "GET", request.path == "/v1.0/me/messages" else { return nil }
+            return .json(Fixtures.list([#"{"id":"s-1"}"#]))
+        }
+
+        _ = try await makeProvider().search(#"c++ from:me+news@contoso.com foo\"#, limit: 25)
+
+        let request = try XCTUnwrap(requests.first)
+        XCTAssertEqual(request.query["$search"], #""c++ from:me+news@contoso.com foo\\""#)
+        let raw = try XCTUnwrap(URLComponents(url: request.url, resolvingAgainstBaseURL: false)?.percentEncodedQuery)
+        XCTAssertTrue(raw.hasPrefix("$search=%22c%2B%2B%20from:me%2Bnews@contoso.com%20foo%5C%5C%22&"), raw)
+        XCTAssertFalse(raw.contains("+"), raw)
+    }
+
+    /// The engine's search of the server (Q3.1) asks for 50; a larger ask is held to `$search`'s page size.
+    func testSearchHoldsTheLimitToTheSearchPageSize() async throws {
+        route { request in
+            guard request.method == "GET", request.path == "/v1.0/me/messages" else { return nil }
+            return .json(Fixtures.list([#"{"id":"s-1"}"#]))
+        }
+
+        _ = try await makeProvider().search("lisbon", limit: 5_000)
+
+        XCTAssertEqual(requests.first?.query["$top"], "250")
+    }
+
+    /// A throttled search reaches the engine as a throttle with Graph's retry time.
+    func testAThrottledSearchIsThrottledWithItsRetryAfter() async {
+        route { request in
+            guard request.path == "/v1.0/me/messages" else { return nil }
+            return .json(#"{"error":{"code":"TooManyRequests","message":"slow down"}}"#, status: 429, headers: ["Retry-After": "7"])
+        }
+        await expectProviderError({ try await self.makeProvider().search("lisbon", limit: 50) }) { $0.retryAfter == 7 }
+    }
+
     func testSearchWithBlankTextMakesNoRequest() async throws {
         let ids = try await makeProvider().search("   ", limit: 25)
         XCTAssertTrue(ids.isEmpty)

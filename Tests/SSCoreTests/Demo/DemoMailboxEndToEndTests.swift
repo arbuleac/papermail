@@ -225,6 +225,33 @@ final class DemoMailboxEndToEndTests: XCTestCase {
         await engine.stopAndWait()
     }
 
+    /// Demo mode shows what a search of the server brings (spec §5.10): its archive is older mail the download never
+    /// lists, and searching the server for it lands it in the store, searchable, with its body fetched on open.
+    func testSearchingTheServerFindsTheArchiveTheDownloadNeverListed() async throws {
+        let (engine, store, accounts) = try await seededEngine()
+        let gmail = try XCTUnwrap(accounts.first { $0.kind == .gmail })
+        let query = ConversationQuery(view: .all, searchText: "porto")
+        XCTAssertTrue(try store.conversations(query).isEmpty, "nothing on this Mac mentions it")
+
+        let result = try await engine.searchServer(for: "porto", accountIDs: nil)
+
+        XCTAssertEqual(result.failedAccounts, [])
+        XCTAssertGreaterThanOrEqual(result.downloaded, 1)
+        let found = try XCTUnwrap(result.conversations.first)
+        XCTAssertEqual(found.accountID, gmail.id)
+        let messages = try store.messages(in: found)
+        XCTAssertTrue(messages.allSatisfy { $0.subject.hasSuffix("Lisbon photos, finally") })
+        XCTAssertTrue(messages.allSatisfy { !$0.isInInbox }, "archived mail, a year and more back")
+        XCTAssertNil(try store.body(for: try XCTUnwrap(messages.last).id))
+        let body = try await engine.ensureBody(for: try XCTUnwrap(messages.last).id)
+        XCTAssertTrue(body.plainText.contains("Porto"))
+        XCTAssertEqual(try store.conversations(query).map(\.id), [found], "the body's words are searchable once it is in")
+
+        let again = try await engine.searchServer(for: "porto", accountIDs: nil)
+        XCTAssertEqual(again.downloaded, 0, "found once, stored for good")
+        await engine.stopAndWait()
+    }
+
     // MARK: Provider contract without the engine
 
     func testMailboxIsDeterministicAndPagesWithoutGapsOrDuplicates() async throws {
@@ -262,5 +289,13 @@ final class DemoMailboxEndToEndTests: XCTestCase {
 
         let hits = try await first.search("Lisbon", limit: 10)
         XCTAssertFalse(hits.isEmpty)
+        // The archive is searched like the rest and served by id, but no bootstrap page lists it.
+        let archive = try await first.search("porto", limit: 10)
+        XCTAssertEqual(archive.count, 1)
+        XCTAssertFalse(collected.contains { archive.contains($0.id.providerID) })
+        let archivedMetadata = try await first.metadata(for: archive)
+        XCTAssertEqual(archivedMetadata.map(\.subject), ["Re: Lisbon photos, finally"])
+        let archived = try await first.body(for: archive[0])
+        XCTAssertTrue(archived.text?.contains("Porto") == true)
     }
 }

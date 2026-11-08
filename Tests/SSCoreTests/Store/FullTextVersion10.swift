@@ -13,15 +13,19 @@ enum FullTextVersion10 {
         return String(v1[start..<end])
     }
 
-    /// Turns a migrated file's index back into v11's, rebuilt from the stored rows, and forgets that v12 ran, so the
-    /// next open migrates it again.
+    /// Turns a migrated file's index back into v11's, rebuilt from the stored rows, and forgets that v12 and v13 ran,
+    /// so the next open migrates it again. The index is renamed aside before the view is dropped: since v13 the view
+    /// follows the index in the schema, so SQLite reads its name as one of the index's shadow tables and, in the
+    /// defensive mode the system's SQLite opens with, refuses to drop it (`MailSchema.v13`).
     static var revertSQL: String {
         """
-        DROP TABLE message_fts;
+        ALTER TABLE message_fts RENAME TO reverted_message_fts;
         DROP VIEW message_fts_content;
+        DROP TABLE reverted_message_fts;
         \(ddl)
         INSERT INTO message_fts(message_fts) VALUES ('rebuild');
         DELETE FROM grdb_migrations WHERE identifier = 'v12-search-columns';
+        DELETE FROM grdb_migrations WHERE identifier = 'v13-server-search';
         """
     }
 }

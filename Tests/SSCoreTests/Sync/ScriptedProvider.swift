@@ -57,6 +57,10 @@ final class ScriptedProvider: MailProvider, @unchecked Sendable {
     var changesDelay: TimeInterval = 0
     /// While set, `changes` records the call and then waits until it is cleared (or the task is cancelled).
     var holdChanges = false
+    /// What `search` answers, consumed in order; once empty it finds nothing.
+    var searchResults: [Result<[String], Error>] = []
+    /// While set, `search` records the call and then waits until it is cleared (or the task is cancelled).
+    var holdSearch = false
     private var heldApplies: [CheckedContinuation<Void, Never>] = []
 
     // MARK: Recordings
@@ -75,6 +79,7 @@ final class ScriptedProvider: MailProvider, @unchecked Sendable {
     /// The `expectedSize` each download was given.
     var attachmentExpectedSizes: [Int] { locked { recordedAttachmentExpectedSizes } }
     var maxConcurrentBodyCalls: Int { locked { recordedMaxConcurrentBodyCalls } }
+    var searchCalls: [(text: String, limit: Int)] { locked { recordedSearchCalls } }
 
     private var recordedBootstrapCalls: [String?] = []
     private var recordedBackfillListingCalls: [(page: String, at: Date)] = []
@@ -87,6 +92,7 @@ final class ScriptedProvider: MailProvider, @unchecked Sendable {
     private var recordedAttachmentCalls: [(message: String, attachment: String)] = []
     private var recordedAttachmentExpectedSizes: [Int] = []
     private var recordedMaxConcurrentBodyCalls = 0
+    private var recordedSearchCalls: [(text: String, limit: Int)] = []
     private var currentBodyCalls = 0
     private var bootstrapRunIndex = 0
     private var bootstrapRunStarted = false
@@ -290,7 +296,18 @@ final class ScriptedProvider: MailProvider, @unchecked Sendable {
     }
 
     func search(_ text: String, limit: Int) async throws -> [String] {
-        []
+        locked { recordedSearchCalls.append((text, limit)) }
+        while locked({ holdSearch }) {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        // As URLSession does, which refuses a request made from a cancelled task.
+        try Task.checkCancellation()
+        let result: Result<[String], Error> = locked { searchResults.isEmpty ? .success([]) : searchResults.removeFirst() }
+        return try result.get()
+    }
+
+    func releaseSearch() {
+        locked { holdSearch = false }
     }
 
     // MARK: Locking

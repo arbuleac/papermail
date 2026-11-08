@@ -50,7 +50,7 @@ final class MessageListBehaviourTests: XCTestCase {
             switch list.layout.items[row] {
             case .conversation: expected = Quire.Layout.Row.height
             case .head: expected = Quire.Layout.RunningHead.height
-            case .footer: expected = Quire.Layout.ListFooter.height
+            case .footer, .serverSearch: expected = Quire.Layout.ListFooter.height
             }
             XCTAssertEqual(list.tableView.rect(ofRow: row).height, expected, "row \(row)")
         }

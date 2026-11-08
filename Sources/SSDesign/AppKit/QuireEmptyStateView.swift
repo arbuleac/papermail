@@ -5,7 +5,9 @@ import AppKit
 /// `ink`; the hint is `snippet` in `ink3`, 4 pt below, and may carry keycaps inline (“J K to move · ↩ to
 /// open”). A hint with keycaps is a row of commands, so it may use the whole pane rather than the sentence's
 /// 300 pt, and it wraps only between commands: a keycap never ends a line apart from the words it goes with.
-/// Inbox zero adds the sparrow, offline the `wifi.slash` glyph, 8 pt above the sentence.
+/// Inbox zero adds the sparrow, offline the `wifi.slash` glyph, 8 pt above the sentence. A hint may end with a link
+/// that acts (`HintPart.link`, the empty search's “Search Gmail”): `accent`, underlined on hover, `ink2` while pressed,
+/// clicked through `onLink`, and a button to VoiceOver.
 ///
 /// The block centres itself in the view's bounds, so the view can simply fill the pane.
 @MainActor
@@ -21,6 +23,15 @@ public final class QuireEmptyStateView: NSView {
     public var glyph: Glyph? {
         didSet { contentDidChange() }
     }
+
+    /// Runs when the hint's link is clicked or pressed with VoiceOver.
+    public var onLink: (@MainActor () -> Void)?
+
+    /// The pointer is over the link / the mouse went down on it and is still there.
+    private var isLinkHovered = false { didSet { if oldValue != isLinkHovered { needsDisplay = true } } }
+    private var isLinkPressed = false { didSet { if oldValue != isLinkPressed { needsDisplay = true } } }
+    private var trackingArea: NSTrackingArea?
+    private lazy var linkElement = QuireEmptyStateLinkElement(owner: self)
 
     public init(sentence: String, hint: [HintPart] = [], glyph: Glyph? = nil) {
         self.sentence = sentence
@@ -76,6 +87,15 @@ public final class QuireEmptyStateView: NSView {
         hint.contains { if case .keys = $0 { return true } else { return false } }
     }
 
+    /// The link's words, if the hint carries one.
+    var linkText: String? {
+        for part in hint { if case .link(let words) = part { return words } }
+        return nil
+    }
+
+    /// Marks the link's characters in the hint string, so its rect can be found again for hit testing.
+    private static let linkAttribute = NSAttributedString.Key("io.supersparrow.quire.emptyStateLink")
+
     private static let noBreakSpace = "\u{00A0}"
     private static let wordJoiner = "\u{2060}"
 
@@ -105,6 +125,16 @@ public final class QuireEmptyStateView: NSView {
             case .text(let words):
                 let text = grouped ? words.replacingOccurrences(of: " ", with: Self.noBreakSpace) : words
                 result.append(NSAttributedString(string: text, attributes: attributes))
+            case .link(let words):
+                // A link never breaks inside itself: it is one target.
+                var link = attributes
+                link[.foregroundColor] = isLinkPressed ? NSColor.qInk2 : NSColor.qAccent
+                link[Self.linkAttribute] = true
+                if isLinkHovered || isLinkPressed || QuireEnvironment.isGraphite {
+                    // Graphite draws links underlined at rest, since `accent` is then grey (§3.1).
+                    link[.underlineStyle] = NSUnderlineStyle.single.rawValue
+                }
+                result.append(NSAttributedString(string: words.replacingOccurrences(of: " ", with: Self.noBreakSpace), attributes: link))
             case .keys(let keys):
                 for (keyIndex, key) in keys.enumerated() {
                     if grouped, keyIndex > 0 { result.append(NSAttributedString(string: Self.wordJoiner, attributes: attributes)) }
@@ -176,6 +206,18 @@ public final class QuireEmptyStateView: NSView {
         return NSSize(width: width, height: blockHeight(width: width, available: QuireEmptyStateView.maxWidth))
     }
 
+    /// Where the hint is drawn in the current bounds, with its string.
+    private func hintLayout() -> (string: NSAttributedString, rect: NSRect)? {
+        guard let hint = hintString() else { return nil }
+        let width = min(blockWidth, bounds.width)
+        var y = (bounds.midY - blockHeight(width: width, available: bounds.width) / 2).rounded()
+        if let g = glyphMetrics { y += g.size + g.gap }
+        y += height(of: sentenceString(), width: width) + Quire.Layout.EmptyState.lineGap
+        let hintWidth = hintWidth(hint, block: width, available: bounds.width)
+        let hintHeight = height(of: hint, width: hintWidth)
+        return (hint, NSRect(x: (bounds.midX - hintWidth / 2).rounded(), y: y, width: hintWidth, height: hintHeight))
+    }
+
     public override func draw(_ dirtyRect: NSRect) {
         let width = min(blockWidth, bounds.width)
         let x = (bounds.midX - width / 2).rounded()
@@ -188,19 +230,80 @@ public final class QuireEmptyStateView: NSView {
         let sentence = sentenceString()
         let sentenceHeight = height(of: sentence, width: width)
         sentence.draw(with: NSRect(x: x, y: y, width: width, height: sentenceHeight), options: [.usesLineFragmentOrigin], context: nil)
-        y += sentenceHeight
-        if let hint = hintString() {
-            y += Quire.Layout.EmptyState.lineGap
-            let hintWidth = hintWidth(hint, block: width, available: bounds.width)
-            let hintHeight = height(of: hint, width: hintWidth)
-            let hintX = (bounds.midX - hintWidth / 2).rounded()
-            hint.draw(with: NSRect(x: hintX, y: y, width: hintWidth, height: hintHeight), options: [.usesLineFragmentOrigin], context: nil)
+        if let (hint, rect) = hintLayout() {
+            hint.draw(with: rect, options: [.usesLineFragmentOrigin], context: nil)
         }
+    }
+
+    // MARK: The link
+
+    /// The link's box in the view: the words' line fragment, grown to the 24 pt minimum hit (§4.14). nil without a link.
+    var linkRect: NSRect? {
+        guard linkText != nil, let (hint, rect) = hintLayout() else { return nil }
+        var range = NSRange(location: NSNotFound, length: 0)
+        hint.enumerateAttribute(Self.linkAttribute, in: NSRange(location: 0, length: hint.length)) { value, found, stop in
+            if value != nil { range = found; stop.pointee = true }
+        }
+        guard range.location != NSNotFound else { return nil }
+        // The same TextKit layout `draw(with:)` makes of the string at this width.
+        let storage = NSTextStorage(attributedString: hint)
+        let layout = NSLayoutManager()
+        let container = NSTextContainer(size: NSSize(width: rect.width, height: .greatestFiniteMagnitude))
+        container.lineFragmentPadding = 0
+        layout.addTextContainer(container)
+        storage.addLayoutManager(layout)
+        let glyphs = layout.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+        let words = layout.boundingRect(forGlyphRange: glyphs, in: container).offsetBy(dx: rect.minX, dy: rect.minY)
+        let minHit = Quire.Layout.Button.minHit
+        return words.insetBy(dx: 0, dy: min(0, (words.height - minHit) / 2))
+    }
+
+    public override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea { removeTrackingArea(trackingArea) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+                                  owner: self)
+        addTrackingArea(area)
+        trackingArea = area
+    }
+
+    private func isOverLink(_ event: NSEvent) -> Bool {
+        guard let rect = linkRect else { return false }
+        return rect.contains(convert(event.locationInWindow, from: nil))
+    }
+
+    public override func mouseMoved(with event: NSEvent) { isLinkHovered = isOverLink(event) }
+    public override func mouseEntered(with event: NSEvent) { isLinkHovered = isOverLink(event) }
+    public override func mouseExited(with event: NSEvent) { isLinkHovered = false }
+
+    public override func mouseDown(with event: NSEvent) {
+        guard isOverLink(event), let window else { return super.mouseDown(with: event) }
+        isLinkPressed = true
+        // Tracked until the button comes up, so a press dragged off the link does nothing, as buttons behave.
+        while let next = window.nextEvent(matching: [.leftMouseUp, .leftMouseDragged]) {
+            let inside = isOverLink(next)
+            isLinkPressed = inside
+            if next.type == .leftMouseUp {
+                isLinkPressed = false
+                if inside { onLink?() }
+                return
+            }
+        }
+    }
+
+    /// For VoiceOver's press and the tests: what a click on the link does.
+    public func performLink() {
+        guard linkText != nil else { return }
+        onLink?()
     }
 
     private func contentDidChange() {
         invalidateIntrinsicContentSize()
         needsDisplay = true
+        if linkText == nil {
+            isLinkHovered = false
+            isLinkPressed = false
+        }
     }
 
     /// Colours re-resolve on the redraw; a Font switch also changes the sentence's width, so the size is asked
@@ -212,7 +315,8 @@ public final class QuireEmptyStateView: NSView {
     // MARK: Accessibility
 
     public override func isAccessibilityElement() -> Bool { true }
-    public override func accessibilityRole() -> NSAccessibility.Role? { .staticText }
+    /// A group while the hint carries a link, so VoiceOver reaches the link inside it; static text never has children.
+    public override func accessibilityRole() -> NSAccessibility.Role? { linkText == nil ? .staticText : .group }
 
     public override func accessibilityLabel() -> String? {
         if let explicit = super.accessibilityLabel() { return explicit }
@@ -220,8 +324,39 @@ public final class QuireEmptyStateView: NSView {
             switch part {
             case .text(let text): return text
             case .keys(let keys): return keys.joined(separator: " ")
+            case .link(let words): return words
             }
         }
         return ([sentence] + (words.isEmpty ? [] : [words.joined(separator: " ")])).joined(separator: " ")
+    }
+
+    public override func accessibilityChildren() -> [Any]? {
+        linkText == nil ? nil : [linkElement]
+    }
+}
+
+/// The empty state's link as VoiceOver meets it: a button named by its words, pressed through `performLink`.
+@MainActor
+private final class QuireEmptyStateLinkElement: NSAccessibilityElement {
+    private weak var owner: QuireEmptyStateView?
+
+    init(owner: QuireEmptyStateView) {
+        self.owner = owner
+        super.init()
+    }
+
+    override func accessibilityRole() -> NSAccessibility.Role? { .button }
+    override func accessibilityLabel() -> String? { owner?.linkText }
+    override func accessibilityParent() -> Any? { owner }
+    override func isAccessibilityElement() -> Bool { true }
+
+    override func accessibilityFrame() -> NSRect {
+        guard let owner, let rect = owner.linkRect, let window = owner.window else { return .zero }
+        return window.convertToScreen(owner.convert(rect, to: nil))
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        owner?.performLink()
+        return owner?.linkText != nil
     }
 }

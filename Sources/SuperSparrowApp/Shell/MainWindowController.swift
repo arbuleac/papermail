@@ -364,6 +364,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             self.focusReader()
         }
         list.onRowsChange = { [weak self] in self?.listPane.listRowsDidChange() }
+        // The UI never calls a provider: the engine searches, writes what it finds, and the list reads the store.
+        let engine = environment.engine
+        list.serverSearch.search = { words, scope in try await engine.searchServer(for: words, accountIDs: scope) }
 
         conversation.onAction = { [weak self] action in self?.handle(action) }
         conversation.onQuickSendChange = { UndoSendPanel.refreshUndoKeyOwner() }
@@ -1866,6 +1869,23 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// Message › Undo (Z): the latest toast's action, never a send (§6.1).
     @objc func undoMailAction(_ sender: Any?) { performUndo(zTarget) }
     @objc func focusSearchField(_ sender: Any?) { listPane.focusSearch() }
+    /// Edit › Search Gmail for More, ⌘↩ in the search field (§5.10, §6): words still waiting out the field's debounce
+    /// go to the list first, and the search runs once their local results are all listed.
+    @objc func searchServer(_ sender: Any?) {
+        listPane.sendPendingSearch()
+        list.requestServerSearch()
+    }
+
+    /// ⌘↩ belongs to the search field, the list and the row, so the item is disabled while any other place to type, or
+    /// the reader, has focus. A disabled item still claims its key, so the quick reply takes ⌘↩ (Send) before the menu
+    /// is asked (`QuickReplyTextView.performKeyEquivalent`).
+    private var serverSearchKeyApplies: Bool {
+        guard let responder = window?.firstResponder else { return true }
+        if listPane.isSearchFocused { return true }
+        if KeyboardRouter.isTextInput(responder) { return false }
+        guard let view = responder as? NSView else { return true }
+        return !view.isDescendant(of: conversationPane.view)
+    }
 
     // The reader's menu commands (§5.35) answer from anywhere in the main window, not only while focus is in
     // the reader, whose controller is in the responder chain only then. Validation is the reader's.
@@ -1948,6 +1968,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             return !showingWelcome
         case #selector(focusSearchField(_:)):
             return !showingWelcome
+        case #selector(searchServer(_:)):
+            menuItem.title = ServerSearchRow.menuTitle(for: ServerSearchRow.target(scope: scope.accountIDs, accounts: accounts))
+            let words = !listPane.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            return !showingWelcome && words && serverSearchKeyApplies && (listPane.hasPendingSearch || list.canRequestServerSearch)
         default:
             return true
         }
@@ -1977,8 +2001,9 @@ enum PendingSignIn: Equatable {
 #if DEBUG
 extension MainWindowController {
     /// `--snapshot-state=key,notkey,minimal,narrowed,adding,reconnect,signin,toast,search,focus-rail,focus-folder,
-    /// focus-action,hover-demo,hover-masthead,many-accounts,ic,graphite,snoozed,later,back,later-menu,later-sheet` (debug
-    /// builds; `several` is applied where the first selection is made):
+    /// focus-action,hover-demo,hover-masthead,many-accounts,ic,graphite,snoozed,later,back,later-menu,later-sheet,
+    /// server-offer,server-searching,server-found,server-nothing,server-failed,server-empty` (debug builds; `several` is
+    /// applied where the first selection is made):
     /// puts the window in the named states before `--snapshot` captures it, so every state of the chrome can be
     /// compared with the specimen without a screen recording.
     fileprivate func applyDebugSnapshotStates() {
@@ -2031,6 +2056,7 @@ extension MainWindowController {
             listPane.header.search.query = "lisbon"
             listPane.header.search.onQueryChange?("lisbon")
         }
+        applyDebugServerSearchState(states)
         // Forced looks: a snapshot launched from a terminal may never become the key window, so focus rings and
         // hover are drawn by state rather than by the real first responder.
         if states.contains("focus-rail") {
@@ -2136,6 +2162,47 @@ extension MainWindowController {
         } else {
             window.makeFirstResponder(list.tableView)
             showLaterMenu()
+        }
+    }
+
+    /// `server-offer`, `server-searching`, `server-found`, `server-nothing`, `server-failed`, `server-empty`: a search
+    /// whose list ends with the server row in that state (§5.10), or the empty search's offer. `server-found` really
+    /// searches the demo's server, whose archive the download never lists; the others are shown without asking it.
+    private func applyDebugServerSearchState(_ states: Set<String>) {
+        guard let state = states.first(where: { $0.hasPrefix("server-") }) else { return }
+        let words = state == "server-empty" ? "porto" : "lisbon"
+        listPane.header.search.query = words
+        listPane.header.search.onQueryChange?(words)
+        listPane.sendPendingSearch()
+        // The search's rows arrive off the main thread; the state is set once they are in.
+        func whenListed(_ tries: Int = 0, _ then: @escaping () -> Void) {
+            if (list.hasReceivedFirstPage && list.query.searchText == words) || tries > 50 { return then() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { MainActor.assumeIsolated { whenListed(tries + 1, then) } }
+        }
+        whenListed { [weak self] in
+            guard let self else { return }
+            let listed = Set(self.list.conversations.map(\.id))
+            let scope = self.scope.accountIDs
+            switch state {
+            case "server-searching":
+                self.list.serverSearch.force(.searching, words: words, scope: scope, before: listed)
+            case "server-nothing":
+                self.list.serverSearch.force(.finished, words: words, scope: scope, before: listed)
+            case "server-failed":
+                self.list.serverSearch.force(.failed, words: words, scope: scope, before: listed,
+                                             failedAccounts: self.accounts.suffix(1).map(\.id))
+            case "server-found":
+                self.list.requestServerSearch()
+            default:
+                break
+            }
+            // The row is the list's last: a capture shows it with the results above it.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                MainActor.assumeIsolated {
+                    let rows = self.list.tableView.numberOfRows
+                    if rows > 0 { self.list.tableView.scrollRowToVisible(rows - 1) }
+                }
+            }
         }
     }
 }

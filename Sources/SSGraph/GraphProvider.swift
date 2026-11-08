@@ -186,7 +186,9 @@ public final class GraphProvider: MailProvider, Sendable {
     public func search(_ text: String, limit: Int) async throws -> [String] {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [] }
-        let escaped = trimmed.replacingOccurrences(of: "\"", with: "\\\"")
+        // `$search` takes one quoted phrase in which a backslash escapes the next character: backslashes go first, so
+        // words ending in one cannot escape the closing quote.
+        let escaped = trimmed.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
         let url = try GraphURL.make("/me/messages", query: [
             ("$search", "\"\(escaped)\""),
             ("$top", String(Self.pageSize(limit, max: Self.maxSearchPageSize))),

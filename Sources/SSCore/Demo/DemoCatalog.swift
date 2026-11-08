@@ -117,6 +117,20 @@ enum DemoCatalog {
         ]),
     ]
 
+    /// Older threads that live only on the demo's server, past the generated window: the download never lists them, so
+    /// only a search of the server finds them (spec §5.10). One answers the snapshots' “lisbon” search.
+    static let gmailArchiveScripts: [Script] = [
+        Script(subject: "Lisbon photos, finally", people: [priya], lines: [
+            "Sorry this took a year: the Lisbon photos are finally sorted. The one from the miradouro at sunset is the best of the lot.",
+            "These are wonderful. Can you send the tram 28 one at full size? I want to print it for the hallway.",
+            "Sending it now. We should do another trip like that. Porto next spring?",
+        ]),
+        Script(subject: "Tax documents for last year", people: [jordan], lines: [
+            "Found the folder with last year's tax documents. The landlord's statement is in there too if you need it for the lease.",
+            "Perfect, scan the statement when you get a chance. Everything else can wait until March.",
+        ]),
+    ]
+
     static let gmailNewsletters: [Newsletter] = [
         Newsletter(
             sender: Person(name: "The Overnight Brief", address: "brief@overnight-news.test"),
@@ -237,6 +251,18 @@ enum DemoCatalog {
             "Would you be up for doing a lunch & learn on Swift concurrency? The mobile team keeps asking about actors.",
             "Sure, I can do 30 minutes on actors, Sendable and the migration path. Thursday the 20th?",
             "Booked the big room. Pizza is on me.",
+        ]),
+    ]
+
+    /// The work account's older threads on the demo's server, found only by a search of the server (spec §5.10).
+    static let outlookArchiveScripts: [Script] = [
+        Script(subject: "Lisbon office visit: agenda", people: [elena], lines: [
+            "Here is the agenda for the Lisbon office visit: Monday is the partner workshop, Tuesday the sync engine deep dive.",
+            "Looks good. Can we move the deep dive to the morning? The afternoon flights back are the only ones with seats.",
+            "Done. Mornings it is. I'll book the room on the fourth floor with the view of the river.",
+        ]),
+        Script(subject: "Expense report: conference travel", people: [marcus], lines: [
+            "Your expense report for the conference is approved. Reimbursement goes out with the next payroll run.",
         ]),
     ]
 

@@ -602,6 +602,31 @@ final class GmailProviderTests: XCTestCase {
         XCTAssertEqual(request.rawQuery, "q=c%2B%2B%20from:x%2By@example.com&maxResults=10")
     }
 
+    /// The engine's search of the server (Q3.1) asks for 50; a larger ask is held to the listing's own maximum.
+    func testSearchHoldsTheLimitToTheListingMaximum() async throws {
+        server.on("GET", "/users/me/messages", .json(GmailFixtures.searchList))
+        let provider = TestSupport.makeProvider()
+
+        _ = try await provider.search("lisbon", limit: 5_000)
+
+        let request = try XCTUnwrap(server.requests(to: "/users/me/messages").first)
+        XCTAssertEqual(request.query["maxResults"], ["500"])
+        XCTAssertNil(request.query["includeSpamTrash"], "Gmail's own default leaves Spam and Trash out, as the list's search does")
+    }
+
+    /// A throttled search must reach the engine as a throttle, which pauses the backfill and shows “Couldn't search
+    /// Gmail” in the row, and must not be retried here.
+    func testAThrottledSearchMapsToThrottled() async {
+        server.on("GET", "/users/me/messages", .json(GmailFixtures.tooManyRequestsError, status: 429, headers: ["Retry-After": "7"]))
+        let provider = TestSupport.makeProvider()
+
+        let error = await TestSupport.providerError { _ = try await provider.search("lisbon", limit: 50) }
+
+        guard case .throttled(let retryAfter)? = error else { return XCTFail("expected throttled, got \(String(describing: error))") }
+        XCTAssertEqual(retryAfter, 7)
+        XCTAssertEqual(server.requests.count, 1)
+    }
+
     func testSearchWithBlankTextSkipsTheNetwork() async throws {
         let provider = TestSupport.makeProvider()
         let ids = try await provider.search("   ", limit: 25)

@@ -114,6 +114,9 @@ enum MailSchema {
         migrator.registerMigration("v12-search-columns") { db in
             try db.execute(sql: v12)
         }
+        migrator.registerMigration("v13-server-search") { db in
+            try db.execute(sql: v13)
+        }
         return migrator
     }
 
@@ -169,6 +172,63 @@ enum MailSchema {
         tokenize='unicode61 remove_diacritics 2'
     );
     INSERT INTO message_fts(message_fts) VALUES ('rebuild');
+    """
+
+    /// The messages v13 re-indexes: those with a snippet and no body row, the only ones whose `body` column it changes.
+    private static let v13SnippetOnly = """
+        SELECT m.rowid FROM messages m
+        WHERE m.snippet != ''
+          AND NOT EXISTS (SELECT 1 FROM bodies b WHERE b.account_id = m.account_id AND b.provider_id = m.provider_id)
+        """
+
+    /// Until its body is stored a message is indexed by its snippet (docs/DATA-MODEL.md, `message_fts`), so what a search
+    /// of the server found, or the first download has listed so far, is found again by the words the provider showed
+    /// for it, not only for the search that found it (docs/ARCHITECTURE.md, "Server search"). Only the messages without a
+    /// body are re-indexed, in the migration's transaction: their entries are deleted with the values the old view gives,
+    /// the view is redefined (otherwise v12's, restated), and they are indexed again from it. While `message_fts` exists
+    /// FTS5 reserves the name `message_fts_content` for a shadow table, so the index is renamed aside for the swap: that
+    /// keeps its entries, where dropping it would mean rebuilding every message's, as v12 did, many seconds on a large
+    /// mailbox. The new view follows the index in the schema, so from here on SQLite reads its name as one of the
+    /// index's shadow tables, which the system's SQLite, defensive by default, refuses to drop: a later migration that
+    /// replaces the view renames the index aside first, as this one does.
+    static let v13 = """
+    INSERT INTO message_fts(message_fts, rowid, subject, sender, recipients, body)
+    SELECT 'delete', id, subject, sender, recipients, body FROM message_fts_content WHERE id IN (\(v13SnippetOnly));
+
+    ALTER TABLE message_fts RENAME TO v13_message_fts;
+    DROP VIEW message_fts_content;
+    CREATE VIEW message_fts_content AS
+    SELECT m.rowid AS id,
+           m.account_id AS account_id,
+           m.provider_id AS provider_id,
+           m.subject AS subject,
+           trim(COALESCE(json_extract(m.from_json, '$.name'), '') || ' '
+                || COALESCE(json_extract(m.from_json, '$.address'), '')) AS sender,
+           trim(COALESCE((WITH RECURSIVE i(n) AS (
+                              SELECT 0 WHERE json_array_length(m.to_json) > 0
+                              UNION ALL SELECT n + 1 FROM i WHERE n + 1 < json_array_length(m.to_json))
+                          SELECT group_concat(COALESCE(json_extract(m.to_json, '$[' || n || '].name'), '') || ' '
+                                              || COALESCE(json_extract(m.to_json, '$[' || n || '].address'), ''), ' ')
+                          FROM i), '') || ' '
+                || COALESCE((WITH RECURSIVE i(n) AS (
+                                 SELECT 0 WHERE json_array_length(m.cc_json) > 0
+                                 UNION ALL SELECT n + 1 FROM i WHERE n + 1 < json_array_length(m.cc_json))
+                             SELECT group_concat(COALESCE(json_extract(m.cc_json, '$[' || n || '].name'), '') || ' '
+                                                 || COALESCE(json_extract(m.cc_json, '$[' || n || '].address'), ''), ' ')
+                             FROM i), '') || ' '
+                || COALESCE((WITH RECURSIVE i(n) AS (
+                                 SELECT 0 WHERE json_array_length(m.bcc_json) > 0
+                                 UNION ALL SELECT n + 1 FROM i WHERE n + 1 < json_array_length(m.bcc_json))
+                             SELECT group_concat(COALESCE(json_extract(m.bcc_json, '$[' || n || '].name'), '') || ' '
+                                                 || COALESCE(json_extract(m.bcc_json, '$[' || n || '].address'), ''), ' ')
+                             FROM i), '')) AS recipients,
+           COALESCE(b.plain_text, m.snippet) AS body
+    FROM messages m
+    LEFT JOIN bodies b ON b.account_id = m.account_id AND b.provider_id = m.provider_id;
+    ALTER TABLE v13_message_fts RENAME TO message_fts;
+
+    INSERT INTO message_fts(rowid, subject, sender, recipients, body)
+    SELECT id, subject, sender, recipients, body FROM message_fts_content WHERE id IN (\(v13SnippetOnly));
     """
 
     /// `auto_vacuum` is written into a database file with its first page and fixed from then on: only a full VACUUM

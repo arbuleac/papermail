@@ -35,6 +35,12 @@ public struct ConversationQuery: Hashable, Sendable {
     /// the selection to the next row, which would be read in turn. Everything else still applies to it: archiving
     /// it in an `in:inbox` search takes it out as usual. The list sets it; nil for every other caller.
     public var openConversationID: ConversationID?
+    /// Conversations a search of the server found for the search's text (`MailClient.searchServer`). They stand in for
+    /// the full-text match: listed with its hits whether or not their stored text holds the words, `from:`, `to:` and
+    /// `subject:` terms, since the server's own search rules found them and a body not downloaded yet holds what it
+    /// matched. Everything else still narrows them: the view, the account scope and the search's operators on the row
+    /// (`is:`, `has:`, `before:`, `after:`, `in:`). Ignored without a search that has index terms to stand in for.
+    public var serverMatches: Set<ConversationID>
 
     /// `searchText` is parsed as the search field's text is (`SearchQuery(parsing:)`), in the current calendar.
     public init(
@@ -44,7 +50,8 @@ public struct ConversationQuery: Hashable, Sendable {
         unreadOnly: Bool = false,
         searchText: String? = nil,
         limit: Int = 200,
-        before: Date? = nil
+        before: Date? = nil,
+        serverMatches: Set<ConversationID> = []
     ) {
         self.accountIDs = accountIDs
         self.view = view
@@ -53,6 +60,7 @@ public struct ConversationQuery: Hashable, Sendable {
         self.search = searchText.flatMap { SearchQuery(parsing: $0) }
         self.limit = limit
         self.before = before
+        self.serverMatches = serverMatches
     }
 
     /// The search as typed, trimmed; nil when there is no search.

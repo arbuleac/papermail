@@ -691,6 +691,17 @@ private final class QuickReplyTextView: NSTextView {
     var onEscape: (() -> Void)?
     var onFocusChange: ((Bool) -> Void)?
 
+    /// ⌘↩ is taken here, before the main menu sees it: a menu item carrying ⌘↩ (the composer's hidden Send, Edit ›
+    /// Search Gmail for More) claims the key even while it is hidden or disabled, so `keyDown` would never get it.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if window?.firstResponder === self,
+           ReaderShortcuts.isSend(keyCode: event.keyCode, rawModifierFlags: event.modifierFlags.rawValue) {
+            onCommandReturn?()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
     override func keyDown(with event: NSEvent) {
         if ReaderShortcuts.isSend(keyCode: event.keyCode, rawModifierFlags: event.modifierFlags.rawValue) {
             onCommandReturn?()

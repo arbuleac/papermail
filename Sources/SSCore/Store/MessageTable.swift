@@ -39,20 +39,21 @@ enum MessageTable {
         """
 
     private static let lookupSQL = """
-        SELECT rowid, conversation_provider_id, subject, from_json, to_json, cc_json, bcc_json
+        SELECT rowid, conversation_provider_id, subject, from_json, to_json, cc_json, bcc_json, snippet
         FROM messages WHERE account_id = ? AND provider_id = ?
         """
 
     /// The columns the full-text index is derived from (besides the body), compared as the stored JSON so a
     /// poll that only flips flags skips the two index writes. Every one the view reads must be here: a change the
     /// comparison missed would leave the old values indexed, and FTS5 removes an entry only with the exact values
-    /// it was indexed with.
+    /// it was indexed with. The snippet is indexed in place of a body not stored yet (v13).
     struct IndexedFields: Equatable {
         var subject: String
         var fromJSON: String?
         var toJSON: String
         var ccJSON: String
         var bccJSON: String
+        var snippet: String
 
         init(_ m: MessageMetadata) throws {
             subject = m.subject
@@ -60,6 +61,7 @@ enum MessageTable {
             toJSON = try MailStoreCodec.json(m.to)
             ccJSON = try MailStoreCodec.json(m.cc)
             bccJSON = try MailStoreCodec.json(m.bcc)
+            snippet = m.snippet
         }
 
         init(row: Row) {
@@ -68,6 +70,7 @@ enum MessageTable {
             toJSON = row[4]
             ccJSON = row[5]
             bccJSON = row[6]
+            snippet = row[7]
         }
     }
 
@@ -288,7 +291,7 @@ enum MessageTable {
             m.inReplyTo,
             try MailStoreCodec.json(m.references),
             indexed.subject,
-            m.snippet,
+            indexed.snippet,
             indexed.fromJSON,
             indexed.toJSON,
             indexed.ccJSON,

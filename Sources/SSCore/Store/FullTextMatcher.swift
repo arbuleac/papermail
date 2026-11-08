@@ -1,10 +1,11 @@
 import Foundation
 
-/// The in-memory store's stand-in for `message_fts`: the same four columns, filled the same way as the v12 view
-/// (`MailSchema.v12`), split into words where unicode61 splits them (`startsToken`, `continuesToken`), so both stores
-/// answer a search alike. Case and accents fold with Foundation, which agrees with unicode61's `remove_diacritics 2`
-/// for Latin letters; it also folds some that unicode61 keeps (Greek and Cyrillic accents, ǡ), so only there can the
-/// in-memory store find a word without its accent that the SQLite store does not.
+/// The in-memory store's stand-in for `message_fts`: the same four columns, filled the same way as the v13 view
+/// (`MailSchema.v13`: v12's columns, the snippet standing in for a body not stored yet), split into words where
+/// unicode61 splits them (`startsToken`, `continuesToken`), so both stores answer a search alike. Case and accents
+/// fold with Foundation, which agrees with unicode61's `remove_diacritics 2` for Latin letters; it also folds some
+/// that unicode61 keeps (Greek and Cyrillic accents, ǡ), so only there can the in-memory store find a word without
+/// its accent that the SQLite store does not.
 enum FullTextMatcher {
     /// One message's indexed columns, as tokens.
     struct Columns {
@@ -20,7 +21,8 @@ enum FullTextMatcher {
             subject = FullTextMatcher.tokens(message.subject)
             sender = FullTextMatcher.tokens(message.from.map { people([$0]) } ?? "")
             recipients = FullTextMatcher.tokens(people(message.to + message.cc + message.bcc))
-            self.body = FullTextMatcher.tokens(body ?? "")
+            // A message without a body is searched by its snippet, as the SQLite index does (v13).
+            self.body = FullTextMatcher.tokens(body ?? message.snippet)
         }
     }
 

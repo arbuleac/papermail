@@ -15,6 +15,9 @@ final class DemoMailbox: @unchecked Sendable {
     private let liveInterval: TimeInterval
     private let generation = String(UUID().uuidString.prefix(8))
     private var records: [String: DemoRecord] = [:]
+    /// Older mail only a search of the server finds (`DemoMailboxBuilder.buildArchive`): never in a bootstrap page,
+    /// served by search, metadata and body like the rest, and changed by `apply` like the rest once found.
+    private var archive: [String: DemoRecord] = [:]
     private var log: [String] = []
     private var lastLiveAt: Date
     private var liveCount = 0
@@ -39,6 +42,27 @@ final class DemoMailbox: @unchecked Sendable {
                 record.metadata = stored
             }
             records[record.metadata.id.providerID] = record
+        }
+        for var record in builder.buildArchive() {
+            // Found by an earlier run's search, it keeps the state the user left it in too.
+            if let stored = restore?(record.metadata.id), stored.id == record.metadata.id {
+                record.metadata = stored
+            }
+            archive[record.metadata.id.providerID] = record
+        }
+    }
+
+    /// A message the server holds, whether the download lists it or only a search finds it.
+    private func recordLocked(_ providerID: String) -> DemoRecord? {
+        records[providerID] ?? archive[providerID]
+    }
+
+    private func storeLocked(_ record: DemoRecord) {
+        let providerID = record.metadata.id.providerID
+        if archive[providerID] != nil {
+            archive[providerID] = record
+        } else {
+            records[providerID] = record
         }
     }
 
@@ -76,19 +100,19 @@ final class DemoMailbox: @unchecked Sendable {
         var seen = Set<String>()
         var upserts: [MessageMetadata] = []
         for providerID in log[start..<end] where seen.insert(providerID).inserted {
-            if let record = records[providerID] { upserts.append(record.metadata) }
+            if let record = recordLocked(providerID) { upserts.append(record.metadata) }
         }
         return ChangesPage(upserts: upserts, deletedIDs: [], cursor: "\(generation):\(end)", hasMore: end < log.count)
     }
 
     func metadata(for providerIDs: [String]) -> [MessageMetadata] {
         lock.lock(); defer { lock.unlock() }
-        return providerIDs.compactMap { records[$0]?.metadata }
+        return providerIDs.compactMap { recordLocked($0)?.metadata }
     }
 
     func body(for providerID: String) -> MessageBody? {
         lock.lock(); defer { lock.unlock() }
-        if let record = records[providerID] { return record.body }
+        if let record = recordLocked(providerID) { return record.body }
         return Self.liveIndex(of: providerID).map {
             DemoMailboxBuilder.liveRecord(profile: profile, accountID: accountID, n: $0, providerID: providerID, date: now()).body
         }
@@ -96,7 +120,7 @@ final class DemoMailbox: @unchecked Sendable {
 
     func attachment(messageID providerID: String, attachmentID: String) -> Data? {
         lock.lock()
-        let known = records[providerID]?.body.attachments.contains { $0.id == attachmentID } ?? false
+        let known = recordLocked(providerID)?.body.attachments.contains { $0.id == attachmentID } ?? false
         lock.unlock()
         guard known else { return nil }
         switch attachmentID {
@@ -110,7 +134,9 @@ final class DemoMailbox: @unchecked Sendable {
         let needle = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !needle.isEmpty else { return [] }
         lock.lock(); defer { lock.unlock() }
-        return records.values
+        // Like the real providers' search: everything but Trash and Spam, the archive the download never lists included.
+        return (Array(records.values) + Array(archive.values))
+            .filter { !$0.metadata.roles.contains(.trash) && !$0.metadata.roles.contains(.spam) }
             .filter { record in
                 let m = record.metadata
                 let haystack = [m.subject, m.snippet, m.from?.name ?? "", m.from?.address ?? "", record.body.text ?? ""]
@@ -128,7 +154,7 @@ final class DemoMailbox: @unchecked Sendable {
     func apply(_ change: MetadataChange, to providerIDs: [String]) {
         lock.lock(); defer { lock.unlock() }
         for providerID in providerIDs {
-            guard var record = records[providerID] else { continue }
+            guard var record = recordLocked(providerID) else { continue }
             let updated = applying(change, to: record.metadata)
             guard updated != record.metadata else { continue }
             record.metadata = updated
@@ -137,7 +163,7 @@ final class DemoMailbox: @unchecked Sendable {
                 record.metadata.folderID = updated.roles.contains(.trash) ? "deleteditems"
                     : updated.roles.contains(.inbox) ? "inbox" : (updated.roles.contains(.sent) ? "sentitems" : "archive")
             }
-            records[providerID] = record
+            storeLocked(record)
             log.append(providerID)
         }
     }
@@ -148,7 +174,7 @@ final class DemoMailbox: @unchecked Sendable {
         var conversation = ConversationID(accountID: accountID, providerID: "thread-" + providerID)
         var references = message.references
         var inReplyTo = message.inReplyToInternetMessageID
-        if let original = message.inReplyTo.flatMap({ records[$0.providerID] }) {
+        if let original = message.inReplyTo.flatMap({ recordLocked($0.providerID) }) {
             conversation = original.metadata.conversationID
             inReplyTo = inReplyTo ?? original.metadata.internetMessageID
             if references.isEmpty {

@@ -14,11 +14,14 @@ public struct ListEmptyState: Hashable, Sendable {
     public let sentence: String
     public let hint: String
     public let glyph: Glyph?
+    /// A link after the hint that acts: the empty search's “Search Gmail” or “Try again” (`ServerSearchRow.emptyHint`).
+    public let link: String?
 
-    public init(sentence: String, hint: String, glyph: Glyph? = nil) {
+    public init(sentence: String, hint: String, glyph: Glyph? = nil, link: String? = nil) {
         self.sentence = sentence
         self.hint = hint
         self.glyph = glyph
+        self.link = link
     }
 
     /// What an empty list says for `query`.
@@ -30,10 +33,18 @@ public struct ListEmptyState: Hashable, Sendable {
     ///     nothing for this view ("No mail in Contoso yet").
     ///   - olderMailDownloading: an account in the view is still listing its older mail, so what the view will
     ///     hold is not known yet: the view's own sentence, without its promise about what lands here.
+    ///   - serverSearch: a search with no local results can ask the server (§5.10): line 2 offers it, then says how
+    ///     it went, in the empty state's own words.
     public static func make(query: ConversationQuery, isOfflineWithNothingCached: Bool = false,
-                            firstSyncFinishedAccount: String? = nil, olderMailDownloading: Bool = false) -> ListEmptyState {
+                            firstSyncFinishedAccount: String? = nil, olderMailDownloading: Bool = false,
+                            serverSearch: ServerSearchRow? = nil) -> ListEmptyState {
         if let text = query.searchText?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty {
-            return ListEmptyState(sentence: "No results for “\(text)”", hint: "Search looks at subjects, people and message text.")
+            let sentence = "No results for “\(text)”"
+            guard let serverSearch else {
+                return ListEmptyState(sentence: sentence, hint: "Search looks at subjects, people and message text.")
+            }
+            let line = serverSearch.emptyHint
+            return ListEmptyState(sentence: sentence, hint: line.text ?? "", link: line.link)
         }
         if isOfflineWithNothingCached {
             return ListEmptyState(sentence: "You're offline", hint: "Mail will appear when you reconnect.", glyph: .offline)

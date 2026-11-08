@@ -76,6 +76,20 @@ struct DemoMailboxBuilder {
         return records
     }
 
+    /// Older mail that lives only on the demo's server (`DemoCatalog.gmailArchiveScripts`): a year and more back,
+    /// archived, never listed by the download, found only by a search of the server (spec §5.10). Call it after
+    /// `build()` on the same builder, so its ids carry on from the mailbox's and never collide with them.
+    mutating func buildArchive() -> [DemoRecord] {
+        let scripts = isGmail ? DemoCatalog.gmailArchiveScripts : DemoCatalog.outlookArchiveScripts
+        let mailbox = records
+        records = []
+        defer { records = mailbox }
+        for (index, script) in scripts.enumerated() {
+            addScript(script, startDaysAgo: 400 + Double(index) * 120, style: quoteStyle(for: script), inInbox: false)
+        }
+        return records
+    }
+
     private func quoteStyle(for script: DemoCatalog.Script) -> DemoHTML.QuoteStyle {
         let outlookPeople: Set<String> = [DemoCatalog.theo.address]
         let gmailPeople: Set<String> = [DemoCatalog.ben.address, DemoCatalog.sophie.address]
@@ -200,10 +214,11 @@ struct DemoMailboxBuilder {
         records.append(DemoRecord(metadata: metadata, body: MessageBody(html: html, text: text, attachments: attachments)))
     }
 
-    private mutating func addScript(_ script: DemoCatalog.Script, startDaysAgo: Double, style: DemoHTML.QuoteStyle) {
+    private mutating func addScript(_ script: DemoCatalog.Script, startDaysAgo: Double, style: DemoHTML.QuoteStyle,
+                                    inInbox forcedInbox: Bool? = nil) {
         let conversation = nextConversation()
         let messageDates = dates(count: script.lines.count, startDaysAgo: startDaysAgo)
-        let inInbox = staysInInbox(latest: messageDates.last ?? reference)
+        let inInbox = forcedInbox ?? staysInInbox(latest: messageDates.last ?? reference)
         let me = profile.me
         var references: [String] = []
         var quoted: DemoHTML.Quoted?

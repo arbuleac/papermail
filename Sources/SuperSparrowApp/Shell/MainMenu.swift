@@ -15,7 +15,8 @@ enum MainMenu {
         let main = MainMenuBar()
         main.addItem(submenu(appMenu(appDelegate)))
         main.addItem(submenu(fileMenu(appDelegate)))
-        main.addItem(submenu(editMenu()))
+        let edit = editMenu()
+        main.addItem(submenu(edit.menu))
         let view = viewMenu(appDelegate)
         main.addItem(submenu(view))
         let message = messageMenu()
@@ -32,7 +33,8 @@ enum MainMenu {
         let help = helpMenu(appDelegate)
         main.addItem(submenu(help))
         NSApp.helpMenu = help
-        MainMenuController.shared = MainMenuController(mainWindowItems: message.mainWindow, composerItems: message.composer,
+        MainMenuController.shared = MainMenuController(mainWindowItems: message.mainWindow + [edit.searchServer],
+                                                       composerItems: message.composer,
                                                        formatItem: format, viewMenu: view, appDelegate: appDelegate)
         return main
     }
@@ -127,7 +129,8 @@ enum MainMenu {
         return menu
     }
 
-    private static func editMenu() -> NSMenu {
+    /// `searchServer` is the main window's: hidden while a composer is key, so its ⌘↩ never stands in for Send.
+    private static func editMenu() -> (menu: NSMenu, searchServer: NSMenuItem) {
         let menu = menu("Edit")
         menu.addItem(item("Undo", NSSelectorFromString("undo:"), "z"))
         menu.addItem(item("Redo", NSSelectorFromString("redo:"), "z", [.command, .shift]))
@@ -140,6 +143,9 @@ enum MainMenu {
         menu.addItem(item("Select All", #selector(NSText.selectAll(_:)), "a"))
         menu.addItem(.separator())
         menu.addItem(item("Find…", #selector(MainWindowController.focusSearchField(_:)), "f", symbol: Quire.Icon.search))
+        // Titled by the scope when it validates (“Search Gmail for More”, §5.10); ⌘↩ in the search field.
+        let searchServer = item(ServerSearchRow.menuTitle(for: nil), #selector(MainWindowController.searchServer(_:)), "\r")
+        menu.addItem(searchServer)
         // The text system's own submenus, acting on whichever text view has focus. Without them spelling, text
         // replacement and smart quotes could be switched only from a text view's context menu. Writing Tools, AutoFill,
         // Start Dictation and Emoji & Symbols are not built here: AppKit adds them at launch to the menu titled "Edit"
@@ -148,7 +154,7 @@ enum MainMenu {
         menu.addItem(submenu(substitutionsMenu()))
         menu.addItem(submenu(transformationsMenu()))
         menu.addItem(submenu(speechMenu()))
-        return menu
+        return (menu, searchServer)
     }
 
     private static func spellingMenu() -> NSMenu {
