@@ -39,6 +39,31 @@ Each account can have a signature: select the account in **Settings → Accounts
 
 A notification for one new conversation offers **Archive**, **Mark as Read** and **Reply**; a summary of several ("4 new messages") offers none. Archive and Mark as Read leave SuperSparrow in the background and sync like the same actions in the window, but they have no Undo. Reply brings SuperSparrow forward with a reply ready in a composer window. Clicking a notification for one conversation opens it.
 
+## What the Mac provides
+
+SuperSparrow leaves these to macOS instead of building its own, and keeps them switched on:
+
+| Feature | Where it works |
+|---|---|
+| Spelling checked as you type | The message body, the quick reply and the signature field (grammar is off; **Edit → Spelling and Grammar** turns it on). Subject and recipients are checked on request, for spelling and grammar: **Edit → Spelling and Grammar → Check Document Now** (`⌘;`). |
+| Text replacements and autocorrection | The composer (body, subject, recipients), the quick reply and the signature field, as set in System Settings → Keyboard. **Edit → Substitutions → Text Replacement** and **Edit → Spelling and Grammar → Correct Spelling Automatically** turn them on or off. |
+| Writing Tools | The same places: **Edit → Writing Tools**, or right-click selected text. Needs Apple Intelligence. |
+| Dictation, Emoji & Symbols | **Edit → Start Dictation…** and **Edit → Emoji & Symbols** (fn-E), in any text field; dictation's shortcut is the one set in System Settings → Keyboard. |
+| Services | **SuperSparrow → Services**, or right-click selected text, in the composer and in a message you are reading. Services that change the selected text, such as Convert Text to Full Width, are offered in the message body too. |
+| Quick Look | Click an attachment, or press Space in the reader. |
+| Look Up, Translate, Share | Right-click selected text in the composer. A message you are reading keeps WebKit's own right-click menu, which offers them too. |
+
+Checked on macOS 27.0.1 (build 26A434), with in-process tests and a scratch build, up to the point where macOS takes over. None of them was used as a person would use it:
+
+- Spelling, text replacement and autocorrection were checked as settings, not by typing.
+- Dictation, Emoji & Symbols and Writing Tools were checked as offered (their menu items are there and enabled), not used.
+- Look Up, Translate and Share were seen in the right-click menu of the composer's message body on selected text, not used.
+- Services were checked up to handing over the selected text and taking text back; no service was run.
+- Quick Look was checked up to the files it would show after Space; the panel was not opened, and clicking an attachment was not tried.
+- The right-click menu inside a message you are reading was not opened.
+
+Not yet checked on macOS 15 or 26.
+
 ## Keyboard shortcuts
 
 | Key | Action |

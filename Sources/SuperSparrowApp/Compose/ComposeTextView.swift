@@ -258,7 +258,13 @@ final class ComposeTextView: NSTextView {
 
     // MARK: Plain pasting
 
-    override var readablePasteboardTypes: [NSPasteboard.PasteboardType] { [.string] }
+    /// Plain text's legacy pasteboard name: AppKit asks a Services requestor with it, as it asks every NSTextView.
+    static let legacyStringType = NSPasteboard.PasteboardType("NSStringPboardType")
+
+    /// Plain text only, under both of its names: `validRequestor(forSendType:returnType:)` wants the return type among
+    /// these, so with `.string` alone no service that hands text back (Convert Text to Full Width, the Chinese
+    /// converters) was offered in the body.
+    override var readablePasteboardTypes: [NSPasteboard.PasteboardType] { [.string, Self.legacyStringType] }
     override var acceptableDragTypes: [NSPasteboard.PasteboardType] { [.string] }
 
     override func paste(_ sender: Any?) {

@@ -12,6 +12,8 @@ final class AttachmentPreviewController: NSObject, @MainActor QLPreviewPanelData
     private var files: [String: URL] = [:]
     private(set) var items: [URL] = []
     private var pendingBatch: UInt64 = 0
+    /// False in the app's tests, which read what the panel would show without putting a panel on the screen.
+    var presentsPanel = true
 
     init(client: MailClient) {
         self.client = client
@@ -66,7 +68,7 @@ final class AttachmentPreviewController: NSObject, @MainActor QLPreviewPanelData
     }
 
     private func presentPanel() {
-        guard let panel = QLPreviewPanel.shared() else { return }
+        guard presentsPanel, let panel = QLPreviewPanel.shared() else { return }
         // Setting the data source directly covers the case where nothing in the responder chain claims the
         // panel (focus is in the message list); the view controller re-asserts it when it does.
         panel.dataSource = self

@@ -168,6 +168,10 @@ final class QuickReplyView: NSView {
         textView.insertionPointColor = .qAccent
         textView.isRichText = false
         textView.allowsUndo = true
+        // Spelling checked as you type, grammar not, as in the composer: a text view built in code does not check as you
+        // type, so a reply typed here went unchecked where the same reply in a composer did not.
+        textView.isContinuousSpellCheckingEnabled = true
+        textView.isGrammarCheckingEnabled = false
         textView.isAutomaticLinkDetectionEnabled = false
         textView.drawsBackground = false
         textView.focusRingType = .none

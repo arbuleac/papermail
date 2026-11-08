@@ -1287,6 +1287,9 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         evaluate("window.ss && window.ss.attachmentFailed(\(key), \(ConversationShellAssets.jsStringLiteral(attachmentID)), \(failed))", in: current)
     }
 
+    /// Quick Look's data source and delegate, for the app's tests.
+    var attachmentPreview: AttachmentPreviewController { preview }
+
     override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool {
         !preview.items.isEmpty
     }

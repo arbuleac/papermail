@@ -140,6 +140,53 @@ enum MainMenu {
         menu.addItem(item("Select All", #selector(NSText.selectAll(_:)), "a"))
         menu.addItem(.separator())
         menu.addItem(item("Find…", #selector(MainWindowController.focusSearchField(_:)), "f", symbol: Quire.Icon.search))
+        // The text system's own submenus, acting on whichever text view has focus. Without them spelling, text
+        // replacement and smart quotes could be switched only from a text view's context menu. Writing Tools, AutoFill,
+        // Start Dictation and Emoji & Symbols are not built here: AppKit adds them at launch to the menu titled "Edit"
+        // that holds Cut, Copy and Paste.
+        menu.addItem(submenu(spellingMenu()))
+        menu.addItem(submenu(substitutionsMenu()))
+        menu.addItem(submenu(transformationsMenu()))
+        menu.addItem(submenu(speechMenu()))
+        return menu
+    }
+
+    private static func spellingMenu() -> NSMenu {
+        let menu = menu("Spelling and Grammar")
+        menu.addItem(item("Show Spelling and Grammar", #selector(NSText.showGuessPanel(_:)), ":"))
+        menu.addItem(item("Check Document Now", #selector(NSText.checkSpelling(_:)), ";"))
+        menu.addItem(.separator())
+        menu.addItem(item("Check Spelling While Typing", #selector(NSTextView.toggleContinuousSpellChecking(_:))))
+        menu.addItem(item("Check Grammar With Spelling", #selector(NSTextView.toggleGrammarChecking(_:))))
+        menu.addItem(item("Correct Spelling Automatically", #selector(NSTextView.toggleAutomaticSpellingCorrection(_:))))
+        return menu
+    }
+
+    private static func substitutionsMenu() -> NSMenu {
+        let menu = menu("Substitutions")
+        menu.addItem(item("Show Substitutions", #selector(NSTextView.orderFrontSubstitutionsPanel(_:))))
+        menu.addItem(.separator())
+        menu.addItem(item("Smart Copy/Paste", #selector(NSTextView.toggleSmartInsertDelete(_:))))
+        menu.addItem(item("Smart Quotes", #selector(NSTextView.toggleAutomaticQuoteSubstitution(_:))))
+        menu.addItem(item("Smart Dashes", #selector(NSTextView.toggleAutomaticDashSubstitution(_:))))
+        menu.addItem(item("Smart Links", #selector(NSTextView.toggleAutomaticLinkDetection(_:))))
+        menu.addItem(item("Data Detectors", #selector(NSTextView.toggleAutomaticDataDetection(_:))))
+        menu.addItem(item("Text Replacement", #selector(NSTextView.toggleAutomaticTextReplacement(_:))))
+        return menu
+    }
+
+    private static func transformationsMenu() -> NSMenu {
+        let menu = menu("Transformations")
+        menu.addItem(item("Make Upper Case", #selector(NSResponder.uppercaseWord(_:))))
+        menu.addItem(item("Make Lower Case", #selector(NSResponder.lowercaseWord(_:))))
+        menu.addItem(item("Capitalize", #selector(NSResponder.capitalizeWord(_:))))
+        return menu
+    }
+
+    private static func speechMenu() -> NSMenu {
+        let menu = menu("Speech")
+        menu.addItem(item("Start Speaking", #selector(NSTextView.startSpeaking(_:))))
+        menu.addItem(item("Stop Speaking", #selector(NSTextView.stopSpeaking(_:))))
         return menu
     }
 
