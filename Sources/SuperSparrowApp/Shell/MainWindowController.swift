@@ -293,6 +293,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             view: .inbox, inboxUnread: 0, scope: .unified, showsAccounts: false, unifiedUnread: 0, accounts: []) }
         listPane.statusBar.onOpenSettings = { [weak self] in self?.openAccountsSettings() }
         listPane.statusBar.onAction = { [weak self] action in self?.syncLineAction(action) }
+        // A countdown under another line is in the tooltip alone, which nothing ticks: it is brought up to date as
+        // the pointer arrives, before the tooltip shows.
+        listPane.statusBar.onHover = { [weak self] in self?.refreshSyncLine() }
         listPane.toasts.onEnd = { [weak self] id, reason in self?.toastEnded(id, reason: reason) }
 
         list.onSelectionChange = { [weak self] _ in self?.listSelectionDidChange() }
@@ -436,7 +439,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         })
     }
 
-    private func statusesChanged(_ statuses: [AccountSyncStatus]) {
+    /// Internal so tests apply statuses as the engine reports them.
+    func statusesChanged(_ statuses: [AccountSyncStatus]) {
         self.statuses = statuses
         refreshAccounts()
         list.syncStatuses = statuses
@@ -524,18 +528,30 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             signIn: signIn, sendingCount: activity.sendingCount, isChecking: isCheckRunning, now: now
         ))
         listPane.statusBar.apply(summary)
-        // “retrying in 30 s” counts down: the line is chosen again each second while a retry is ahead.
-        let retryAhead = effective.contains { ($0.retryAt ?? .distantPast) > now }
-        if retryAhead, retryLineTimer == nil {
+        // “retrying in 30 s” counts down: the line is chosen again each second while it shows one on screen. Under
+        // Offline, Couldn't sync or Sign in required the line shows no count for a retry ahead, and during an outage
+        // one is ahead almost all the time, so those keep no timer; an occluded window catches up when seen again.
+        let countsDown = summary.countsDown && isSyncLineOnScreen
+        if countsDown, retryLineTimer == nil {
             let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
                 MainActor.assumeIsolated { self?.refreshSyncLine() }
             }
             RunLoop.main.add(timer, forMode: .common)
             retryLineTimer = timer
-        } else if !retryAhead {
+        } else if !countsDown {
             retryLineTimer?.invalidate()
             retryLineTimer = nil
         }
+    }
+
+    /// Internal so tests check that a line without a countdown keeps no timer.
+    var isCountingDownRetry: Bool { retryLineTimer != nil }
+
+    /// Tests stand in for the window server, which does not report a window parked off screen as visible.
+    var syncLineVisibilityOverride: Bool?
+
+    private var isSyncLineOnScreen: Bool {
+        syncLineVisibilityOverride ?? (window?.occlusionState.contains(.visible) == true)
     }
 
     private func syncLineAction(_ action: SyncLineSummary.Action) {
@@ -1459,6 +1475,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
     func windowDidBecomeKey(_ notification: Notification) {
         if !showingWelcome, window?.firstResponder === window { focusList() }
+    }
+
+    /// Minimised, hidden, covered or on another Space: the sync line's countdown stops, and starts again, up to date,
+    /// when the window is seen.
+    func windowDidChangeOcclusionState(_ notification: Notification) {
+        refreshSyncLine()
     }
 }
 

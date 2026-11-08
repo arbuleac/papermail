@@ -331,7 +331,9 @@ final class ConversationShellWebViewTests: XCTestCase {
         XCTAssertTrue(handler.received.contains { ($0["kind"] as? String) == "select" && ($0["messageID"] as? String) == payload.messages[1].id })
 
         // A click inside a body runs no listener there; focus moving into its frame makes that message the target.
+        // The web view has no window, so the page stands in for one with focus.
         try await waitForFramedCards(in: webView)
+        _ = try await evaluate("document.hasFocus = function () { return true; }; true", in: webView)
         _ = try await evaluate("document.querySelectorAll('.ss-card iframe')[1].focus(); window.dispatchEvent(new Event('blur'))", in: webView)
         var clicked: String?
         for _ in 0..<20 {
@@ -350,6 +352,77 @@ final class ConversationShellWebViewTests: XCTestCase {
             try await Task.sleep(nanoseconds: 100_000_000)
         }
         XCTAssertEqual(next, payload.messages[1].id)
+    }
+
+    /// The watch for focus moving between bodies runs only while the page has focus: once the window or the web
+    /// view loses it, the body stays the active element, and an interval left running would tick every 300 ms for as
+    /// long as the conversation stays open (Q1.7d). The app's `focusChanged` starts it again when focus may be back.
+    func testTheFocusWatchStopsWhenThePageLosesFocus() async throws {
+        let (webView, _) = try await loadedShell()
+        typealias F = ConversationFixtures
+        let messages = (1...3).map { F.message("m\($0)", date: F.utc(2025, 3, $0, 9, 0), isRead: $0 != 2) }
+        let bodies = Dictionary(uniqueKeysWithValues: messages.map { ($0.id, F.body(html: "<p>Body \($0.id.providerID)</p>")) })
+        let payload = F.builder.build(messages: messages, bodies: bodies, accounts: F.accounts, now: F.utc(2025, 3, 20, 9, 0))
+        _ = try await evaluate("window.ss.render(\(try payload.jsonString()))", in: webView)
+        try await waitForFramedCards(in: webView)
+        // The open bodies are the second and third messages. The web view has no window, so the page's focus is the
+        // test's, and every look the watch takes is counted.
+        let looks = { [self] in int(try await evaluate("window.ssLooks", in: webView)) ?? 0 }
+        _ = try await evaluate("""
+            window.ssPageFocused = true; window.ssLooks = 0;
+            document.hasFocus = function () { window.ssLooks++; return window.ssPageFocused; };
+            document.querySelectorAll('.ss-card iframe')[0].focus(); window.dispatchEvent(new Event('blur'))
+            """, in: webView)
+        let clicked = try await waitForTarget(payload.messages[1].id, in: webView)
+        XCTAssertEqual(clicked, payload.messages[1].id)
+        let first = try await looks()
+        let watching = try await waitForLooks(above: first + 1, in: webView)
+        XCTAssertGreaterThan(watching, first + 1, "watching while the page has focus")
+
+        // The window resigns key, or the list takes first responder: the body is still the active element. The next
+        // look stops the watch; after it nothing looks, however long the machine takes.
+        let atBlur = int(try await evaluate("window.ssPageFocused = false; window.ssLooks", in: webView)) ?? 0
+        let stopped = try await waitForLooks(above: atBlur, in: webView)
+        try await Task.sleep(nanoseconds: 1_000_000_000)
+        let idle = try await looks()
+        XCTAssertEqual(idle, stopped, "no watch while the page has no focus")
+
+        // Focus is back (the app calls focusChanged): the watch looks again, and keeps looking.
+        _ = try await evaluate("window.ssPageFocused = true; window.ss.focusChanged(); true", in: webView)
+        let resumed = try await waitForLooks(above: idle + 1, in: webView)
+        XCTAssertGreaterThan(resumed, idle + 1, "watching again")
+
+        // The window became key with focus elsewhere: one look, and the watch stops again.
+        let atLoss = int(try await evaluate("window.ssPageFocused = false; window.ssLooks", in: webView)) ?? 0
+        let stoppedAgain = try await waitForLooks(above: atLoss, in: webView)
+        let atKey = int(try await evaluate("window.ss.focusChanged(); window.ssLooks", in: webView)) ?? 0
+        XCTAssertEqual(atKey, stoppedAgain)
+        let once = try await waitForLooks(above: atKey, in: webView)
+        try await Task.sleep(nanoseconds: 1_000_000_000)
+        let after = try await looks()
+        XCTAssertEqual(once, atKey + 1)
+        XCTAssertEqual(after, once, "stopped after one look")
+    }
+
+    private func waitForTarget(_ id: String, in webView: WKWebView) async throws -> String? {
+        var target: String?
+        for _ in 0..<50 {
+            target = try await evaluate("window.ss.selectedMessageID()", in: webView) as? String
+            if target == id { break }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        return target
+    }
+
+    /// The count of the watch's looks once it has passed `count`, or as it stands after 5 s.
+    private func waitForLooks(above count: Int, in webView: WKWebView) async throws -> Int {
+        var looks = 0
+        for _ in 0..<50 {
+            looks = int(try await evaluate("window.ssLooks", in: webView)) ?? 0
+            if looks > count { break }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        return looks
     }
 
     /// Plain and unstyled bodies are set on the Quire reading page; styled ones keep their own design (§8.4).

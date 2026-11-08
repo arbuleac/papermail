@@ -70,7 +70,6 @@ final class MailEngineSendTests: XCTestCase {
         provider.bootstrapRuns = [["": .success(Fixtures.page(1...1, next: nil, cursor: "c0"))]]
         provider.sendResults = [.failure(ProviderError.throttled(retryAfter: 3_600))]
         let harness = try EngineHarness(provider: provider) {
-            $0.sendTickInterval = 0.01
             $0.backoffCap = 600
             $0.liveBackoffCap = 0.3
         }
@@ -85,8 +84,8 @@ final class MailEngineSendTests: XCTestCase {
         let provider = ScriptedProvider(accountID: Fixtures.accountID)
         provider.bootstrapRuns = [["": .success(Fixtures.page(1...1, next: nil, cursor: "c0"))]]
         provider.sendResults = [.failure(ProviderError.throttled(retryAfter: 0))]
-        // A fast tick would otherwise hide a retry scheduled for "now".
-        let harness = try EngineHarness(provider: provider) { $0.sendTickInterval = 0.01; $0.backoffBase = 0.2 }
+        // The runner waits exactly for the retry time, so a retry scheduled for "now" would show as two quick sends.
+        let harness = try EngineHarness(provider: provider) { $0.backoffBase = 0.2 }
         harness.engine.start()
         _ = try harness.engine.send(Fixtures.outgoing(), undoWindow: 0)
         try await waitUntil("sent on the second attempt") { provider.sendCalls.count == 2 }

@@ -52,6 +52,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     func tearDown() {
         statusObservation?.cancel()
         statusObservation = nil
+        model.isWindowOpen = false
         model.stopRetryClock()
         window?.orderOut(nil)
     }
@@ -64,10 +65,16 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         if let tab { model.tab = tab }
         if model.tab == .oauth { model.reloadOAuth() }
         let wasVisible = window?.isVisible == true
+        model.isWindowOpen = true
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate()
         if !wasVisible { tabs.clearInitialFocus() }
+    }
+
+    /// Closing keeps the controller and its model for the next show; their retry clock stops until then.
+    func windowWillClose(_ notification: Notification) {
+        model.isWindowOpen = false
     }
 
     /// The window the user is looking at for Settings alerts (remove, reconnect, add from +).

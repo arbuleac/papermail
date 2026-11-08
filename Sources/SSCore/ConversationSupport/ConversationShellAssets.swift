@@ -2011,15 +2011,20 @@ public enum ConversationShellAssets {
       // A click (or Tab) into a body moves focus into its frame and away from the shell. Listeners inside the
       // sandboxed body never run, so this is how the click makes that message the target (spec §5.14).
       // Focus can also move from one body straight into another, which the shell hears nothing of: while it is
-      // inside a body the shell looks again every FOCUS_WATCH_MS, and stops once it has left.
+      // inside a body the shell looks again every FOCUS_WATCH_MS, and stops once it has left. Only a page with focus
+      // can move it, so the shell also stops once the page loses focus (another window or app, the list), where the
+      // body stays the active element; the app calls `focusChanged` when the page may have focus again.
       var focusWatch = null;
       function frameFocused() {
         var active = document.activeElement;
-        if (!active || active.tagName !== 'IFRAME') {
-          if (focusWatch) { clearInterval(focusWatch); focusWatch = null; }
-          return;
+        var inBody = !!active && active.tagName === 'IFRAME';
+        if (inBody && document.hasFocus()) {
+          if (!focusWatch) { focusWatch = setInterval(frameFocused, FOCUS_WATCH_MS); }
+        } else if (focusWatch) {
+          clearInterval(focusWatch);
+          focusWatch = null;
         }
-        if (!focusWatch) { focusWatch = setInterval(frameFocused, FOCUS_WATCH_MS); }
+        if (!inBody) { return; }
         for (var i = 0; i < state.cards.length; i++) {
           var card = state.cards[i];
           if (card.iframe === active) {
@@ -2031,6 +2036,11 @@ public enum ConversationShellAssets {
         }
       }
       window.addEventListener('blur', function () { setTimeout(frameFocused, 0); });
+      // The window became key or the web view first responder. Focus going back to a body raises no event here, and
+      // WebKit may not have told the page yet, so the shell looks one watch interval later and goes on only then.
+      function focusChanged() {
+        if (!focusWatch) { focusWatch = setInterval(frameFocused, FOCUS_WATCH_MS); }
+      }
       document.addEventListener('mousedown', function () { keyboardNav = false; clearFocusRing(); }, true);
       document.addEventListener('transitionend', function (event) {
         if (event.propertyName === 'height') { settled(event.target); }
@@ -2057,6 +2067,7 @@ public enum ConversationShellAssets {
         finishAll: finishAll,
         step: step,
         target: function (id) { var card = state.byID[id]; if (card) { setTarget(card, false); } },
+        focusChanged: focusChanged,
         targetState: function () {
           var card = targetCard();
           if (!card) { return null; }

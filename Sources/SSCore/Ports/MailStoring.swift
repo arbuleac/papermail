@@ -134,6 +134,9 @@ public protocol MailStoring: AnyObject, Sendable {
     func pendingSends() throws -> [PendingSend]
     func updateSend(_ send: PendingSend) throws
     func deleteSend(id: String) throws
+    /// Every pending send as `pendingSends` lists them, after every change to the outbox. The first value is read
+    /// off the main thread like the later ones (rows carry their attachments), so it may arrive after this returns.
+    func observePendingSends(onChange: @escaping @Sendable ([PendingSend]) -> Void) -> StoreObservation
 
     // MARK: Contacts
     /// Addresses seen in from/to/cc, ranked by how often and how recently they appear. Prefix matches name or address.

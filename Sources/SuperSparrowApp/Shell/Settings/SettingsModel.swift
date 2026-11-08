@@ -36,9 +36,14 @@ final class SettingsModel: ObservableObject {
     @Published var statuses: [AccountID: AccountSyncStatus] = [:] {
         didSet { updateRetryClock() }
     }
-    /// The moment “Retrying in 30 s” counts from; ticks once a second while an account waits to retry.
+    /// The moment “Retrying in 30 s” counts from; ticks once a second while the window shows that count.
     @Published private(set) var now = Date()
     private var retryClock: Timer?
+    /// The window is open; set by its controller. A closed window keeps its model (and the status observation
+    /// feeding it), so without this the clock would tick for rows nobody sees.
+    var isWindowOpen = false {
+        didSet { if isWindowOpen != oldValue { updateRetryClock() } }
+    }
     /// The selected account's id (`AccountID.rawValue`).
     @Published var selection: String?
     /// A sign-in adding an account is waiting for the browser (the pending row).
@@ -79,7 +84,10 @@ final class SettingsModel: ObservableObject {
     // MARK: Accounts
 
     func setAccounts(_ fresh: [Account]) {
-        if fresh != accounts { accounts = fresh }
+        if fresh != accounts {
+            accounts = fresh
+            updateRetryClock()
+        }
         if selection == nil || !fresh.contains(where: { $0.id.rawValue == selection }) {
             selection = fresh.first?.id.rawValue
         }
@@ -135,19 +143,46 @@ final class SettingsModel: ObservableObject {
         case .hydrating:
             return .downloadingMessages
         case .paused:
-            // The engine pauses every account when it stops (no message); only a throttle carries one.
-            guard status.message != nil else { return .waitingToSync }
-            return .retrying(inSeconds: SyncLineSummary.retrySeconds(until: status.retryAt, now: now), cause: "\(service) is limiting requests.")
+            guard let cause = retryCause(status, service: service) else { return .waitingToSync }
+            return .retrying(inSeconds: SyncLineSummary.retrySeconds(until: status.retryAt, now: now), cause: cause)
         case .needsReauth:
             return .signInRequired
         case .error:
             guard ErrorText.isNetwork(status.message) else {
                 return .error(reason: ErrorText.sync(status.message, kind: account.kind))
             }
+            guard let cause = retryCause(status, service: service) else { return .offline }
+            return .retrying(inSeconds: SyncLineSummary.retrySeconds(until: status.retryAt, now: now), cause: cause)
+        }
+    }
+
+    /// Why the account waits to try again, when its row reads Retrying: a throttle, or a network failure while
+    /// another account gets through. Nil for every other row.
+    private func retryCause(_ status: AccountSyncStatus, service: String) -> String? {
+        switch status.phase {
+        case .paused:
+            // The engine pauses every account when it stops (no message); only a throttle carries one.
+            return status.message == nil ? nil : "\(service) is limiting requests."
+        case .error:
+            guard ErrorText.isNetwork(status.message) else { return nil }
             // Offline when every account that is not idle failed on the network; otherwise this one retries.
             let busy = statuses.values.filter { $0.phase != .idle }
-            if busy.allSatisfy({ $0.phase == .error && ErrorText.isNetwork($0.message) }) { return .offline }
-            return .retrying(inSeconds: SyncLineSummary.retrySeconds(until: status.retryAt, now: now), cause: "Couldn't reach \(service).")
+            if busy.allSatisfy({ $0.phase == .error && ErrorText.isNetwork($0.message) }) { return nil }
+            return "Couldn't reach \(service)."
+        default:
+            return nil
+        }
+    }
+
+    /// Some row counts its retry down (“Retrying in 30 s”); the guards are `status(for:)`'s earlier cases, which
+    /// show something else. A retry ahead behind Offline or Couldn't sync shows no count, and during an outage one
+    /// is ahead almost all the time.
+    private var showsCountdown: Bool {
+        guard !isDemo else { return false }
+        return accounts.contains { account in
+            guard reconnecting != account.id, let status = statuses[account.id],
+                  SyncLineSummary.retrySeconds(until: status.retryAt, now: now) != nil else { return false }
+            return retryCause(status, service: ErrorText.service(account.kind)) != nil
         }
     }
 
@@ -169,10 +204,10 @@ final class SettingsModel: ObservableObject {
         return block
     }
 
-    /// Runs a one-second clock while any account has a retry ahead, so “Retrying in 30 s” counts down.
+    /// Runs a one-second clock while the open window counts a retry down, so “Retrying in 30 s” moves.
     private func updateRetryClock() {
         now = Date()
-        let waiting = statuses.values.contains { ($0.retryAt ?? .distantPast) > now }
+        let waiting = isWindowOpen && showsCountdown
         if waiting, retryClock == nil {
             // A replaced model must not leave its clock ticking for ever: with the model gone the timer ends itself.
             let timer = Timer(timeInterval: 1, repeats: true) { [weak self] timer in
@@ -197,11 +232,14 @@ final class SettingsModel: ObservableObject {
 
     private func tickRetryClock() {
         now = Date()
-        if !statuses.values.contains(where: { ($0.retryAt ?? .distantPast) > now }) {
+        if !isWindowOpen || !showsCountdown {
             retryClock?.invalidate()
             retryClock = nil
         }
     }
+
+    /// Internal so tests check when the clock runs.
+    var isRetryClockRunning: Bool { retryClock != nil }
 
     /// The account detail's Last error, only when there is one.
     func lastError(for account: Account) -> String? {

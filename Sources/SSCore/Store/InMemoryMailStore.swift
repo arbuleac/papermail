@@ -25,6 +25,7 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
     private var contactCounts: [AccountID: [String: (name: String?, count: Int, lastSeen: Date)]] = [:]
     private var conversationObservers: [UUID: (ConversationQuery, ([ConversationSummary]) -> Void)] = [:]
     private var messageObservers: [UUID: (ConversationID, ([MessageMetadata]) -> Void)] = [:]
+    private var sendObservers: [UUID: ([PendingSend]) -> Void] = [:]
 
     public init() {}
 
@@ -52,6 +53,7 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         operations = operations.filter { $0.value.accountID != id }
         sends = sends.filter { $0.value.message.accountID != id }
         notifyAll()
+        notifySends()
     }
 
     public func setInkSlot(_ slot: Int, for accountID: AccountID) throws {
@@ -577,21 +579,41 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
     public func enqueueSend(_ send: PendingSend) throws {
         lock.lock(); defer { lock.unlock() }
         sends[send.id] = send
+        notifySends()
     }
 
     public func pendingSends() throws -> [PendingSend] {
         lock.lock(); defer { lock.unlock() }
-        return sends.values.sorted { $0.createdAt < $1.createdAt }
+        return pendingSendsLocked()
     }
 
     public func updateSend(_ send: PendingSend) throws {
         lock.lock(); defer { lock.unlock() }
         sends[send.id] = send
+        notifySends()
     }
 
     public func deleteSend(id: String) throws {
         lock.lock(); defer { lock.unlock() }
         sends[id] = nil
+        notifySends()
+    }
+
+    public func observePendingSends(onChange: @escaping @Sendable ([PendingSend]) -> Void) -> StoreObservation {
+        lock.lock(); defer { lock.unlock() }
+        let token = UUID()
+        sendObservers[token] = onChange
+        let current = pendingSendsLocked()
+        deliver { onChange(current) }
+        return StoreObservation { [weak self] in
+            guard let self else { return }
+            self.lock.lock(); defer { self.lock.unlock() }
+            self.sendObservers[token] = nil
+        }
+    }
+
+    private func pendingSendsLocked() -> [PendingSend] {
+        sends.values.sorted { $0.createdAt < $1.createdAt }
     }
 
     // MARK: Contacts
@@ -642,6 +664,16 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         deliver {
             for (callback, value) in conversationSnapshot { callback(value) }
             for (callback, value) in messageSnapshot { callback(value) }
+        }
+    }
+
+    /// Apart from `notifyAll`, as the SQLite store's observations track tables: an outbox write wakes no list.
+    private func notifySends() {
+        guard !sendObservers.isEmpty else { return }
+        let callbacks = Array(sendObservers.values)
+        let current = pendingSendsLocked()
+        deliver {
+            for callback in callbacks { callback(current) }
         }
     }
 

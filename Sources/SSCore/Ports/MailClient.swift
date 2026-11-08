@@ -18,7 +18,8 @@ public protocol MailClient: AnyObject {
 
     /// Check every account now because the moment suggests new mail (the app came to the front, the Mac woke, the
     /// network came back), not because the user asked: an account waiting for sign-in keeps waiting, so its
-    /// keychain prompt never appears unasked. Returns immediately.
+    /// keychain prompt never appears unasked. The outbox is looked at too, so a send that fell due while the Mac
+    /// slept goes at once. Returns immediately.
     func checkForMail()
 
     /// Whether the app is frontmost. The live lane checks for new mail every 5 s while it is and every 30 s

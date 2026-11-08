@@ -206,11 +206,13 @@ public final class MailEngine: MailClient, @unchecked Sendable {
         }
     }
 
-    /// Every live lane checks now; one parked for sign-in stays parked (`WakeReason.check`).
+    /// Every live lane checks now; one parked for sign-in stays parked (`WakeReason.check`). The send runner looks at
+    /// the outbox too: after the Mac slept, a send that fell due meanwhile goes now, whether or not its timer has fired.
     public func checkForMail() {
         for context in registry.all() {
             context.syncer.wake(.check)
         }
+        sendRunner.wake()
     }
 
     /// Recorded for the live lanes' poll interval; the lanes read it when they schedule their next check. Coming
@@ -253,10 +255,7 @@ public final class MailEngine: MailClient, @unchecked Sendable {
     }
 
     public func send(_ message: OutgoingMessage, undoWindow: TimeInterval) throws -> String {
-        let pending = PendingSend(message: message, sendAfter: Date().addingTimeInterval(max(0, undoWindow)))
-        try store.enqueueSend(pending)
-        sendRunner.wake()
-        return pending.id
+        try sendRunner.enqueue(message, undoWindow: undoWindow)
     }
 
     public func cancelSend(id: String) throws -> Bool {

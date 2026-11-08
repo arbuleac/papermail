@@ -27,6 +27,9 @@ final class ScriptedProvider: MailProvider, @unchecked Sendable {
     var applyResults: [Result<Void, Error>] = []
     /// Consumed in order; once empty every send succeeds.
     var sendResults: [Result<SendReceipt, Error>] = []
+    /// While set, `send` records the call and then waits until it is cleared (or the task is cancelled), as an
+    /// upload of a large attachment does.
+    var holdSends = false
     /// Keyed "<messageID>/<attachmentID>".
     var attachments: [String: Data] = [:]
     /// Downloads that fail with this error instead, keyed like `attachments`.
@@ -268,9 +271,16 @@ final class ScriptedProvider: MailProvider, @unchecked Sendable {
     }
 
     func send(_ message: OutgoingMessage) async throws -> SendReceipt {
-        let result: Result<SendReceipt, Error> = locked {
+        locked {
             recordedSendCalls.append(message)
             recordedSendTimes.append(Date())
+        }
+        while locked({ holdSends }) {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        // As URLSession does, which refuses a request made from a cancelled task.
+        try Task.checkCancellation()
+        let result: Result<SendReceipt, Error> = locked {
             if sendResults.isEmpty {
                 return .success(SendReceipt(providerMessageID: "sent-\(recordedSendCalls.count)", providerConversationID: nil))
             }

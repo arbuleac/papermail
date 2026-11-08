@@ -19,6 +19,8 @@ final class SyncStatusBar: QuireControl {
     var onOpenSettings: (() -> Void)?
     /// The trailing link was used.
     var onAction: ((SyncLineSummary.Action) -> Void)?
+    /// The pointer entered the line, before its tooltip shows.
+    var onHover: (() -> Void)?
 
     private(set) var summary = SyncLineSummary(state: .upToDate, glyph: .upToDate, lead: "Up to date")
     private var hasApplied = false
@@ -125,6 +127,11 @@ final class SyncStatusBar: QuireControl {
             actionButton.isHidden = true
         }
         needsLayout = true
+    }
+
+    override func hoverDidChange() {
+        super.hoverDidChange()
+        if isHovered { onHover?() }
     }
 
     @objc private func actionClicked(_ sender: Any?) {

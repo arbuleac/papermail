@@ -23,6 +23,12 @@ actor SyncWaker {
     private var pendingReasons: Set<WakeReason> = []
     /// Identifies the current wait so a timer left over from an earlier wait cannot end a later one.
     private var generation = 0
+    private let sleep: @Sendable (TimeInterval) async throws -> Void
+
+    /// `sleep` times the waits: the send runner's allows less slack, and tests pass one on a clock they move.
+    init(sleep: @escaping @Sendable (TimeInterval) async throws -> Void = { try await Task.sleep(for: .seconds($0)) }) {
+        self.sleep = sleep
+    }
 
     nonisolated func signal(_ reason: WakeReason) {
         Task { await self.deliver(reason) }
@@ -40,9 +46,10 @@ actor SyncWaker {
         if Task.isCancelled { return [] }
         generation += 1
         let current = generation
+        let sleep = self.sleep
         let timer: Task<Void, Never>? = timeout.map { seconds in
             Task { [weak self] in
-                try? await Task.sleep(for: .seconds(max(0, seconds)))
+                try? await sleep(max(0, seconds))
                 guard !Task.isCancelled else { return }
                 await self?.resumeWaiter(ifGeneration: current)
             }

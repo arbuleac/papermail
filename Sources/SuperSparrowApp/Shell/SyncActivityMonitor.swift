@@ -7,9 +7,6 @@ import SSCore
 /// thread; changes are delivered on it.
 @MainActor
 final class SyncActivityMonitor {
-    /// How often the outbox is looked at. A read of the small pending-sends table, off the main thread.
-    static let sendPollInterval: TimeInterval = 2
-
     var onChange: (() -> Void)?
     /// The network path came back after being lost: once per return, so the window can check for mail at once
     /// instead of waiting out the engine's backoff.
@@ -19,13 +16,20 @@ final class SyncActivityMonitor {
     private(set) var sendingCount = 0
 
     private let store: MailStoring
+    /// What a window's end is compared with; tests pass their own, so passing a window never races the wall clock.
+    private let now: () -> Date
     private let pathMonitor = NWPathMonitor()
-    private var pollTimer: Timer?
-    private var isPolling = false
+    private var isWatchingPath = false
+    private var sendsObservation: StoreObservation?
+    /// From the last outbox value: sends claimed and not settled, and when each held send's undo window ends.
+    private var claimedSends = 0
+    private var windowEnds: [Date] = []
+    private var windowTimer: Timer?
     private static let queue = DispatchQueue(label: "io.supersparrow.mac.sync-activity", qos: .utility)
 
-    init(store: MailStoring) {
+    init(store: MailStoring, now: @escaping () -> Date = Date.init) {
         self.store = store
+        self.now = now
     }
 
     func start() {
@@ -36,19 +40,36 @@ final class SyncActivityMonitor {
             }
         }
         pathMonitor.start(queue: Self.queue)
-        pollSends()
-        pollTimer = Timer.scheduledTimer(withTimeInterval: Self.sendPollInterval, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.pollSends() }
+        isWatchingPath = true
+        startObservingSends()
+    }
+
+    /// The outbox half of `start`, internal so tests count the sends without the real network path, which reports
+    /// whatever the machine running them has.
+    func startObservingSends() {
+        // Observed rather than polled, so an idle window keeps no timer.
+        sendsObservation = store.observePendingSends { [weak self] sends in
+            MainActor.assumeIsolated { self?.sendsArrived(sends) }
         }
-        // The store has no observation for sends, so this ticks for the window's life; the slack lets macOS
-        // coalesce it with other wake-ups.
-        pollTimer?.tolerance = Self.sendPollInterval / 4
     }
 
     func stop() {
-        pathMonitor.cancel()
-        pollTimer?.invalidate()
-        pollTimer = nil
+        if isWatchingPath { pathMonitor.cancel() }
+        isWatchingPath = false
+        sendsObservation?.cancel()
+        sendsObservation = nil
+        windowTimer?.invalidate()
+        windowTimer = nil
+    }
+
+    /// When the timer at the next held send's window end fires; nil with nothing held. Internal so tests check that
+    /// a window with nothing held keeps no timer, and where one is set.
+    var windowTimerFireDate: Date? { windowTimer?.fireDate }
+
+    /// Fires the window timer now, as the run loop would at its date. Internal for tests, which move their clock
+    /// past the window rather than wait for it.
+    func fireWindowTimer() {
+        windowTimer?.fire()
     }
 
     /// Internal so the transitions are tested without a real path monitor.
@@ -59,23 +80,28 @@ final class SyncActivityMonitor {
         if reachable { onNetworkReturned?() }
     }
 
-    private func pollSends() {
-        guard !isPolling else { return }
-        isPolling = true
-        let store = self.store
-        Self.queue.async { [weak self] in
-            let now = Date()
-            let sends = (try? store.pendingSends()) ?? []
-            // Past the undo window and not settled: what “Sending 1 message” counts.
-            let inFlight = sends.filter { $0.status == .sending || ($0.status == .scheduled && $0.sendAfter <= now) }.count
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated { self?.sendsArrived(inFlight) }
-            }
-        }
+    private func sendsArrived(_ sends: [PendingSend]) {
+        claimedSends = sends.filter { $0.status == .sending }.count
+        windowEnds = sends.filter { $0.status == .scheduled }.map(\.sendAfter)
+        recount()
     }
 
-    private func sendsArrived(_ count: Int) {
-        isPolling = false
+    /// Past the undo window and not settled: what “Sending 1 message” counts. A window can end without an outbox
+    /// write: the send runner delivers one send at a time, so one whose window ends while another uploads is claimed
+    /// only once that upload settles. A one-shot timer at the next window's end counts it then; with nothing held
+    /// there is none.
+    private func recount() {
+        windowTimer?.invalidate()
+        windowTimer = nil
+        let now = self.now()
+        let count = claimedSends + windowEnds.filter { $0 <= now }.count
+        if let next = windowEnds.filter({ $0 > now }).min() {
+            let timer = Timer(fire: next, interval: 0, repeats: false) { [weak self] _ in
+                MainActor.assumeIsolated { self?.recount() }
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            windowTimer = timer
+        }
         guard count != sendingCount else { return }
         sendingCount = count
         onChange?()

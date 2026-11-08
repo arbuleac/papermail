@@ -105,9 +105,12 @@ public struct SyncLineSummary: Equatable, Sendable {
     public var progress: Double?
     /// Every account's own state, for the tooltip.
     public var tooltip: String?
+    /// The line counts a retry down (“retrying in 30 s”), so it reads differently every second without a status
+    /// changing. Only Slow does: under another line a retry ahead shows no count, or one in the tooltip alone.
+    public var countsDown: Bool
 
     public init(state: State, glyph: Glyph, lead: String, detail: String? = nil, action: Action? = nil, isAlert: Bool = false,
-                progress: Double? = nil, tooltip: String? = nil) {
+                progress: Double? = nil, tooltip: String? = nil, countsDown: Bool = false) {
         self.state = state
         self.glyph = glyph
         self.lead = lead
@@ -116,6 +119,7 @@ public struct SyncLineSummary: Equatable, Sendable {
         self.isAlert = isAlert
         self.progress = progress
         self.tooltip = tooltip
+        self.countsDown = countsDown
     }
 
     /// The whole line as one sentence, for VoiceOver: “Sign in required, Fabrikam. Reconnect.”
@@ -186,7 +190,7 @@ public struct SyncLineSummary: Equatable, Sendable {
             // The soonest retry, counted down; “shortly” while the engine has not said when.
             let soonest = slow.compactMap { retrySeconds(until: $0.retryAt, now: input.now) }.min()
             let detail = soonest.map { "retrying in \($0) s" } ?? "retrying shortly"
-            return SyncLineSummary(state: .slow, glyph: .retrying, lead: lead, detail: detail, tooltip: tooltip)
+            return SyncLineSummary(state: .slow, glyph: .retrying, lead: lead, detail: detail, tooltip: tooltip, countsDown: soonest != nil)
         }
         // 6. Sending after the undo window.
         if input.sendingCount > 0 {

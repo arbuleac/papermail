@@ -221,12 +221,32 @@ final class SyncLineProgressTests: XCTestCase {
         let s = make([network, syncing], accounts: [contoso, fabrikam])
         XCTAssertEqual(s.state, .slow)
         XCTAssertEqual(s.detail, "retrying in 30 s")
+        XCTAssertTrue(s.countsDown)
         XCTAssertEqual(SyncLineSummary.accountWords(network, now: now), "Retrying in 30 s")
         XCTAssertEqual(SyncLineSummary.accountWords(network, now: now.addingTimeInterval(40)), "Retrying shortly", "past it")
         let throttled = AccountSyncStatus(accountID: contoso.id, phase: .paused, message: "Rate limited; retrying shortly")
         XCTAssertEqual(SyncLineSummary.accountWords(throttled, now: now), "Retrying shortly", "no time given")
         XCTAssertEqual(SyncLineSummary.retrySeconds(until: now.addingTimeInterval(0.2), now: now), 1)
         XCTAssertNil(SyncLineSummary.retrySeconds(until: nil, now: now))
+    }
+
+    /// Only a count on the line itself makes the window choose it again every second: during an outage a retry is
+    /// ahead almost all the time behind Offline or Couldn't sync, which show none.
+    func testOnlyACountOnTheLineCountsDown() {
+        let ahead = now.addingTimeInterval(45)
+        let offline = make([AccountSyncStatus(accountID: contoso.id, phase: .error, message: "network: offline", retryAt: ahead)],
+                           accounts: [contoso])
+        XCTAssertEqual(offline.state, .offline)
+        XCTAssertFalse(offline.countsDown)
+        let failed = make([AccountSyncStatus(accountID: contoso.id, phase: .error, message: "server 500: x", retryAt: ahead),
+                           AccountSyncStatus(accountID: fabrikam.id, phase: .error, message: "network: offline", retryAt: ahead)],
+                          accounts: [contoso, fabrikam])
+        XCTAssertEqual(failed.state, .error)
+        XCTAssertFalse(failed.countsDown, "the tooltip counts, the line does not")
+        let shortly = make([AccountSyncStatus(accountID: contoso.id, phase: .paused, message: "Rate limited; retrying shortly")],
+                           accounts: [contoso])
+        XCTAssertEqual(shortly.detail, "retrying shortly")
+        XCTAssertFalse(shortly.countsDown)
     }
 }
 

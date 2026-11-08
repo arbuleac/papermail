@@ -4,6 +4,7 @@ import AppKit
 /// front checks at once and tells the engine, whose live lane checks every 5 s while the app is frontmost and
 /// every 30 s otherwise; leaving the front tells it too. The Mac waking from sleep checks at once: polls do not
 /// run while it sleeps, and the mail that arrived meanwhile should show on waking, not when the next poll was due.
+/// The same check has the engine send a held message whose undo window ended while the Mac slept.
 /// None of these is the user asking (`MailClient.checkForMail`, not `syncNow`): an account waiting for sign-in
 /// keeps waiting, rather than bring back a keychain prompt nobody may be there to answer.
 ///

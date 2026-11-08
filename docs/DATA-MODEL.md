@@ -113,7 +113,7 @@ Columns: `subject`, `participants`, `body`. Tokenizer `unicode61 remove_diacriti
 Target rows are kept when an operation is saved again with the same targets, so the priors survive status writes.
 
 ### pending_sends
-`id TEXT PK, account_id, message_json (OutgoingMessage, attachments inline as base64), created_at, send_after, status, attempts, last_error`.
+`id TEXT PK, account_id, message_json (OutgoingMessage, attachments inline as base64), created_at, send_after, status, attempts, last_error`. Only `observePendingSends` (the sync line's sending count) observes it; no list observation reads it.
 
 ### contacts
 `account_id, address (PK with account_id), name, seen_count, last_seen_ms`. Updated from from/to/cc on upsert. Suggestions order by `seen_count * recency`.

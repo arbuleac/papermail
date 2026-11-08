@@ -310,6 +310,12 @@ public final class SQLiteMailStore: MailStoring, Sendable {
         try write { try PendingSendTable.delete(id: id, in: $0) }
     }
 
+    public func observePendingSends(onChange: @escaping @Sendable ([PendingSend]) -> Void) -> StoreObservation {
+        let observation = ValueObservation.tracking { db in try PendingSendTable.all(db) }
+        let cancellable = database.startObservation(observation, firstValueOnCallingThread: false, onError: Self.reportObservationFailure, onChange: onChange)
+        return StoreObservation { cancellable.cancel() }
+    }
+
     // MARK: Contacts
 
     public func suggestAddresses(prefix: String, limit: Int) throws -> [EmailAddress] {

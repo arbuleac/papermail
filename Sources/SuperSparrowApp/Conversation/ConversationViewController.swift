@@ -101,8 +101,9 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     /// Replies on their way out (scheduled or sending, not forwards): the open conversation shows the ones that
     /// answer it as pending sheets (spec §5.14). Read on events and on each outbox tick, never per selection.
     private var outbox: [PendingSend] = []
-    /// Ticks once a second while a send is watched or a reply is on its way; the store has no observation for
-    /// the outbox.
+    /// Ticks once a second while a send is watched or a reply is on its way, and stops as soon as neither is, so an
+    /// idle reader keeps no timer. It predates the store's outbox observation (`observePendingSends`), which could
+    /// replace it.
     private var outboxTimer: Timer?
     private var notificationTokens: [NSObjectProtocol] = []
     private var keyMonitor: Any?

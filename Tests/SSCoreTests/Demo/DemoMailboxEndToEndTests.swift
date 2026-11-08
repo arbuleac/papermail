@@ -22,7 +22,6 @@ final class DemoMailboxEndToEndTests: XCTestCase {
         tuning.pollInterval = 0.1
         tuning.backoffBase = 0.05
         tuning.backoffCap = 0.5
-        tuning.sendTickInterval = 0.05
         return MailEngine(
             store: store,
             tokenStore: InMemoryTokenStore(),

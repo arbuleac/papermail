@@ -82,5 +82,8 @@ final class PageFailingStore: MailStoring, @unchecked Sendable {
     func pendingSends() throws -> [PendingSend] { try base.pendingSends() }
     func updateSend(_ send: PendingSend) throws { try base.updateSend(send) }
     func deleteSend(id: String) throws { try base.deleteSend(id: id) }
+    func observePendingSends(onChange: @escaping @Sendable ([PendingSend]) -> Void) -> StoreObservation {
+        base.observePendingSends(onChange: onChange)
+    }
     func suggestAddresses(prefix: String, limit: Int) throws -> [EmailAddress] { try base.suggestAddresses(prefix: prefix, limit: limit) }
 }

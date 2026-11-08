@@ -21,8 +21,8 @@ struct SyncTuning: Sendable {
     /// The longest a user action or a send waits on a throttle: the live lane's cap, for the same reasons. The
     /// throttle schedule without a provider time keeps to `backoffCap`, as their other retries do.
     var userRetryAfterCap: TimeInterval { min(backoffCap, liveBackoffCap) }
-    /// How often the send runner looks at the outbox when nothing is due sooner.
-    var sendTickInterval: TimeInterval = 1
+    /// The clocks the send runner times held sends by. Tests replace it to move time by hand.
+    var sendClock = SendClock()
     /// The head page and every backfill listing page. 100 keeps a Gmail head page (a list call plus metadata for
     /// each message) at about 2,005 of the 6,000 units a user may spend a minute.
     var bootstrapPageSize: Int = 100

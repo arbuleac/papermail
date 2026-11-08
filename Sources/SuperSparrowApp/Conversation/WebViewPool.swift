@@ -256,7 +256,7 @@ final class WebViewPool: NSObject, WKScriptMessageHandler {
     // MARK: Web views
 
     private func makeWebView() -> WKWebView {
-        let webView = WKWebView(frame: .zero, configuration: configuration)
+        let webView = ReaderWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = navigation
         webView.uiDelegate = navigation
         webView.allowsBackForwardNavigationGestures = false

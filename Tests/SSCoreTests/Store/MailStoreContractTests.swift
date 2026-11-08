@@ -629,6 +629,39 @@ class MailStoreContractTests: XCTestCase {
         wait(for: [afterChange], timeout: 2)
         observation.cancel()
     }
+
+    /// The sync line's sending count reads this, so every outbox write reaches it, removing an account included.
+    func testObservePendingSendsFiresInitiallyAndAfterEveryOutboxWrite() throws {
+        let held = PendingSend(id: "s1", message: outgoing(from: accountA), createdAt: date(10), sendAfter: date(15))
+        try store.enqueueSend(held)
+        let box = ObservedValues()
+        let observation = store.observePendingSends { sends in
+            XCTAssertTrue(Thread.isMainThread)
+            box.append(sends.map { "\($0.id):\($0.status.rawValue)" })
+        }
+        func expectNext(_ value: [String], _ step: String) {
+            let deadline = Date().addingTimeInterval(2)
+            while box.values.last != value, Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+            XCTAssertEqual(box.values.last, value, step)
+        }
+        expectNext(["s1:scheduled"], "the first value")
+        var sending = held
+        sending.status = .sending
+        try store.updateSend(sending)
+        expectNext(["s1:sending"], "a claim")
+        try store.enqueueSend(PendingSend(id: "s2", message: outgoing(from: accountB), createdAt: date(20), sendAfter: date(25)))
+        expectNext(["s1:sending", "s2:scheduled"], "a queued send")
+        try store.deleteSend(id: "s1")
+        expectNext(["s2:scheduled"], "a settled send")
+        try store.deleteAccount(accountB)
+        expectNext([], "the account removed")
+
+        observation.cancel()
+        let countAfterCancel = box.values.count
+        try store.enqueueSend(PendingSend(id: "s3", message: outgoing(from: accountA), createdAt: date(30), sendAfter: date(35)))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        XCTAssertEqual(box.values.count, countAfterCancel, "no delivery after cancel")
+    }
 }
 
 /// Thread-safe collector for observation callbacks.
