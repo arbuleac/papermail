@@ -31,6 +31,25 @@ public enum MailActionCopy {
         }
     }
 
+    /// Later's command as Edit › Undo and the undo confirmation name it: the menu item is “Later…”, the act is a snooze
+    /// (“Snoozed until Tue 09:00”, the sheet's “Snooze” button), so the undo is “Undo Snooze” and “Undid Snooze”.
+    public static let snoozeCommand = "Snooze"
+
+    /// “Snoozed until Tue 09:00”, however many were snoozed (§5.45). The time is what the toast tells, and beside Undo
+    /// and Z in the default list a count does not leave room for it: “Snoozed 3 until May 26 9:00 AM” already cuts
+    /// the time off. `time` is written by `DateFormatting.dueTime(for:reference:)`.
+    public static func snoozed(until time: String) -> String {
+        "Snoozed until \(time)"
+    }
+
+    /// The snooze toast's words: `snoozed(until:)`, or “Until 20 May 2027 09:00” where `fits` says that would be cut
+    /// off beside Undo and Z (a date with a 12-hour time in a list of the default width, one eleven months ahead or more,
+    /// a narrowed list). The time is what the toast tells, so it is never what truncates.
+    public static func snoozed(until time: String, fits: (String) -> Bool) -> String {
+        let sentence = snoozed(until: time)
+        return fits(sentence) ? sentence : "Until \(time)"
+    }
+
     /// “Undid Archive”: the action-less toast an undo confirms itself with.
     public static func undoConfirmation(for change: MetadataChange) -> String {
         "Undid \(commandName(for: change))"
@@ -50,7 +69,8 @@ public enum MailActionCopy {
         switch change {
         case .archive: return view == .inbox
         case .trash: return view != .trash
-        case .moveToInbox, .restoreFromTrash: return view == .trash
+        // Out of Later too: back in the Inbox, a conversation is no longer snoozed.
+        case .moveToInbox, .restoreFromTrash: return view == .trash || view == .later
         case .setStarred(false): return view == .starred
         case .setStarred(true), .setRead: return false
         }

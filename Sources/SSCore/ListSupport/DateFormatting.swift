@@ -156,6 +156,29 @@ public struct DateFormatting: @unchecked Sendable {
         string(for: date, reference: reference(now: now), style: style)
     }
 
+    // MARK: Times ahead
+
+    /// A time to come (Later, spec §5.45): today “15:00”; within the next six days the weekday and the time, “Tue
+    /// 09:00”; later this year, or less than eleven months ahead, “16 Nov 09:00”; after that “16 Nov 2027 09:00”. A
+    /// weekday never stands for a day a week or more away, where it would read as this week's; a day and month ahead
+    /// within eleven months can only mean the coming one, and the year would cut the snooze toast's time off. What the
+    /// Later menu, its toast and the Later rows show.
+    public func dueTime(for date: Date, reference: Reference) -> String {
+        let time = timeFormatter.string(from: date)
+        if date < reference.startOfTomorrow, date >= reference.startOfToday { return time }
+        let weekAhead = calendar.date(byAdding: .day, value: 7, to: reference.startOfToday) ?? reference.startOfToday.addingTimeInterval(7 * 86_400)
+        if date >= reference.startOfToday, date < weekAhead { return weekdayFormatter.string(from: date) + " " + time }
+        let elevenMonthsAhead = calendar.date(byAdding: .month, value: 11, to: reference.startOfToday) ?? reference.startOfNextYear
+        if date >= reference.startOfYear, date < max(reference.startOfNextYear, elevenMonthsAhead) {
+            return dayMonthFormatter.string(from: date) + " " + time
+        }
+        return dayMonthYearFormatter.string(from: date) + " " + time
+    }
+
+    public func dueTime(for date: Date, now: Date = Date()) -> String {
+        dueTime(for: date, reference: reference(now: now))
+    }
+
     // MARK: Running heads
 
     /// The head a date falls under. Dates after today (a sender's clock running fast) count as today, so a

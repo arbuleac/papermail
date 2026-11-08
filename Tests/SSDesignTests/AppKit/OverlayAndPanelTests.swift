@@ -84,10 +84,13 @@ final class OverlayAndPanelTests: XCTestCase {
 
     func testHUDRowsComeFromTheCheatSheet() {
         let rows = QuireSequenceHUDView.sequenceRows()
-        XCTAssertEqual(rows.map(\.keys), ["I", "S", "T", "D", "#", "A"])
-        XCTAssertEqual(rows.map(\.label), ["Inbox", "Starred", "Sent", "Drafts", "Trash", "All Mail"])
+        XCTAssertEqual(rows.map(\.keys), ["I", "L", "S", "T", "D", "#", "A"])
+        XCTAssertEqual(rows.map(\.label), ["Inbox", "Later", "Starred", "Sent", "Drafts", "Trash", "All Mail"])
         let hud = QuireSequenceHUDView()
-        XCTAssertEqual(hud.frame.size, NSSize(width: 220, height: 190), "12 + 28 + 6 + 6 × 22 + 12")
+        XCTAssertEqual(hud.frame.size, NSSize(width: 220, height: 212), "12 + 28 + 6 + 7 × 22 + 12, Later's row included")
+        // The shell leaves Later's row out while nothing is snoozed (§5.32): the six views, 190 pt.
+        let six = QuireSequenceHUDView(rows: rows.filter { $0.keys != "L" })
+        XCTAssertEqual(six.frame.size, NSSize(width: 220, height: 190), "12 + 28 + 6 + 6 × 22 + 12")
         XCTAssertFalse(hud.acceptsFirstResponder, "not focusable")
         XCTAssertEqual(hud.accessibilityLabel()?.hasPrefix("Go to…"), true)
     }
@@ -103,11 +106,11 @@ final class OverlayAndPanelTests: XCTestCase {
     // MARK: Cheat sheet
 
     func testCheatSheetPanelMetrics() {
-        XCTAssertEqual(QuireCheatSheetPanel.naturalHeight(), 576, "24 + 28 + 16 + (22 + 8 × 28) + 20 + (22 + 7 × 28) + 24")
+        XCTAssertEqual(QuireCheatSheetPanel.naturalHeight(), 604, "24 + 28 + 16 + (22 + 9 × 28) + 20 + (22 + 7 × 28) + 24")
         let bands = QuireCheatSheetPanel.bands(of: Quire.cheatSheet)
         XCTAssertEqual(bands.map { $0.map(\.title) }, [["Move", "Act", "Go"], ["Write", "Format", "View"]])
         let panel = QuireCheatSheetPanel()
-        XCTAssertEqual(panel.frame.size, NSSize(width: 816, height: 576))
+        XCTAssertEqual(panel.frame.size, NSSize(width: 816, height: 604))
         XCTAssertFalse(panel.scrolls)
         panel.layoutSubtreeIfNeeded()
         let close = panel.closeButton.alignmentRect(forFrame: panel.closeButton.frame)
@@ -118,7 +121,7 @@ final class OverlayAndPanelTests: XCTestCase {
 
     func testOverlayPlacesThePanelUnderTheHorizon() {
         let roomy = QuireCheatSheetOverlay.panelFrame(in: NSSize(width: 1280, height: 800))
-        XCTAssertEqual(roomy, NSRect(x: 232, y: 92, width: 816, height: 576), "centred, top at 92, whole")
+        XCTAssertEqual(roomy, NSRect(x: 232, y: 92, width: 816, height: 604), "centred, top at 92, whole")
         let short = QuireCheatSheetOverlay.panelFrame(in: NSSize(width: 960, height: 600))
         XCTAssertEqual(short.minY, 92)
         XCTAssertEqual(short.height, 600 - 92 - 24, "at least 24 pt from the bottom; the bands scroll")

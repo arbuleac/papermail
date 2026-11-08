@@ -17,6 +17,23 @@ final class MailActionCopyTests: XCTestCase {
         XCTAssertEqual(MailActionCopy.undoMenuTitle(for: .archive), "Undo Archive")
     }
 
+    /// Out of Later, Move to Inbox and Move to Trash take the row away (the snooze ends), so both say so.
+    func testLeavingLaterGetsAToast() {
+        XCTAssertTrue(MailActionCopy.wantsToast(for: .moveToInbox, in: .later, isSearching: false))
+        XCTAssertTrue(MailActionCopy.wantsToast(for: .trash, in: .later, isSearching: false))
+        XCTAssertFalse(MailActionCopy.wantsToast(for: .setStarred(true), in: .later, isSearching: false))
+        XCTAssertEqual(MailActionCopy.snoozeCommand, "Snooze")
+    }
+
+    /// The snooze toast names its time whole: where the sentence would be cut off it goes without “Snoozed”.
+    func testTheSnoozeToastKeepsItsTime() {
+        XCTAssertEqual(MailActionCopy.snoozed(until: "Tue 09:00") { _ in true }, "Snoozed until Tue 09:00")
+        var asked: [String] = []
+        let short = MailActionCopy.snoozed(until: "20 May 2027 09:00") { asked.append($0); return false }
+        XCTAssertEqual(short, "Until 20 May 2027 09:00")
+        XCTAssertEqual(asked, ["Snoozed until 20 May 2027 09:00"], "the sentence is measured first")
+    }
+
     func testOnlyActionsThatTakeARowAwayGetAToast() {
         XCTAssertTrue(MailActionCopy.wantsToast(for: .archive, in: .inbox, isSearching: false))
         XCTAssertFalse(MailActionCopy.wantsToast(for: .archive, in: .starred, isSearching: false))

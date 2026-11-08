@@ -2,10 +2,11 @@ import AppKit
 import SSCore
 import SSDesign
 
-/// The title menu popped from the masthead (spec §5.4): a system `NSMenu` with the six views, each with its
-/// symbol and its G-sequence in a right-aligned `ink3` column (an attributed title, because `keyEquivalent`
-/// cannot express a sequence), a checkmark on the current view and the Inbox unread count as a system badge.
-/// In minimal mode it gains All Inboxes and the accounts, with their monograms, ⌘0…⌘9 and their counts.
+/// The title menu popped from the masthead (spec §5.4): a system `NSMenu` with the six views, and Later below Inbox
+/// while something in scope is snoozed, each with its symbol and its G-sequence in a right-aligned `ink3` column (an
+/// attributed title, because `keyEquivalent` cannot express a sequence), a checkmark on the current view and the Inbox
+/// unread count as a system badge. In minimal mode it gains All Inboxes and the accounts, with their monograms,
+/// ⌘0…⌘9 and their counts.
 @MainActor
 enum TitleMenu {
     struct AccountEntry {
@@ -23,10 +24,13 @@ enum TitleMenu {
         var showsAccounts: Bool
         var unifiedUnread: Int
         var accounts: [AccountEntry]
+        /// Something in the scope is snoozed: Later is listed below Inbox, as its rail tile shows (§5.2).
+        var showsLater = false
     }
 
     static let entries: [(view: MailboxView, title: String, symbol: String, sequence: String)] = [
         (.inbox, "Inbox", Quire.Icon.viewInbox, "G I"),
+        (.later, "Later", Quire.Icon.viewLater, "G L"),
         (.starred, "Starred", Quire.Icon.viewStarred, "G S"),
         (.sent, "Sent", Quire.Icon.viewSent, "G T"),
         (.drafts, "Drafts", Quire.Icon.viewDrafts, "G D"),
@@ -52,6 +56,7 @@ enum TitleMenu {
         style.tabStops = [NSTextTab(textAlignment: .right, location: tabStop)]
 
         for (index, entry) in entries.enumerated() {
+            if entry.view == .later, !model.showsLater { continue }
             if entry.view == .all { menu.addItem(.separator()) }
             let item = NSMenuItem(title: entry.title, action: viewAction, keyEquivalent: "")
             item.target = target

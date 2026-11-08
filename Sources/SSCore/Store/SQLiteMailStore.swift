@@ -325,6 +325,38 @@ public final class SQLiteMailStore: MailStoring, MailStoreMaintenance, Sendable 
         try read { try ConversationTable.unreadInboxCount(accountIDs: accountIDs, in: $0) }
     }
 
+    // MARK: Snoozes
+
+    public func snoozes() throws -> [Snooze] {
+        try read { try SnoozeTable.all($0) }
+    }
+
+    public func setSnoozes(_ changes: [Snooze.Change], enqueueing operations: [Operation], at now: Date) throws {
+        guard !changes.isEmpty || !operations.isEmpty else { return }
+        try write { db in
+            for operation in operations { try OperationTable.enqueue(operation, in: db) }
+            try SnoozeTable.set(changes, now: now, in: db)
+        }
+    }
+
+    @discardableResult
+    public func returnDueSnoozes(at now: Date, dueBy: [AccountID: Date], limit: Int,
+                                 operations: (ConversationID, [MessageMetadata]) -> [Operation]) throws -> [ConversationID] {
+        // The timer looks whenever the Mac wakes or the app comes forward, nearly always with nothing due; a read keeps
+        // that from queueing behind a sync batch for the writer.
+        guard limit > 0, try read({ try SnoozeTable.hasDue(at: now, in: $0) }) else { return [] }
+        return try write { try SnoozeTable.returnDue(at: now, dueBy: dueBy, limit: limit, operations: operations, in: $0) }
+    }
+
+    public func observeSnoozes(onChange: @escaping @Sendable ([Snooze]) -> Void) -> StoreObservation {
+        // It reads the summary rows too, which every sync batch writes; the snoozes are a handful of key lookups, and
+        // only a changed list is delivered.
+        let observation = ValueObservation.tracking { db in try SnoozeTable.all(db) }.removeDuplicates()
+        let cancellable = database.startObservation(observation, firstValueOnCallingThread: true, onError: Self.reportObservationFailure,
+                                                    onChange: onChange)
+        return StoreObservation { cancellable.cancel() }
+    }
+
     // GRDB error descriptions carry SQL with placeholders, never bound values, so nothing from a message can leak.
     private static let reportObservationFailure: @Sendable (Error) -> Void = { error in
         log.error("observation stopped: \(String(describing: error))")

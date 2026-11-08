@@ -14,13 +14,15 @@
         {{PY: row('Rachel Kim', 'Q4 roadmap review', 'Great work. One comment on offline mode.', '17:20', 'sea', 'RK', acct='C', state='sel', clip=True, count=2)}}
         {{PY: row('Rachel Kim', 'No subject', 'Sending the photos from Friday.', '16:02', 'sea', 'RK', acct='C', unread=True, subject_cls='phi')}}
       </div></div>
-      <div><span class="lbl">Starred · attachment · count · queued · failed · initials · Drafts · Sent</span><div class="listbox">
+      <div><span class="lbl">Starred · attachment · count · queued · failed · initials · Drafts · Sent · back from Later · in Later</span><div class="listbox">
         {{PY: row('Linda Morgan', 'Sunday dinner', 'Ha, noted. I will bring the plum cake.', '19:02', 'rose', 'LM', acct='G', star=True, clip=True, count=4, pending=True)}}
         {{PY: row('Forge', '[sparrow-sync] PR #2657', 'maya-c commented: one nit about the retry budget.', '21:48', 'stone', 'F', acct='F', failed=True)}}
         {{PY: row('Northwind Weekly', 'Issue #182: Quiet software', 'This week: the case for fewer notifications.', '08:15', 'slate', 'NW', acct='G')}}
         {{PY: row('Calendar', 'Accepted: Design review @ Thu 15:30', 'Room: Juniper (4th floor)', '13:05', 'wheat', 'C', acct='C', initial_tile=True)}}
         {{PY: row('', 'Re: Contoso rollout', 'Thanks for running the checks. I have forwarded…', '23:51', 'slate', 'BC', sender_html='<span class="me">Draft to</span> Ben Carter')}}
         {{PY: row('', 'Lisbon in March?', 'Count me in for the weekend, I will book the train.', '22:30', 'heather', 'PR', sender_html='<span class="me">To</span> Priya Raman', clip=True)}}
+        {{PY: row('Hannah Weiss', 'Lease renewal: sign by Friday', 'The new terms are attached.', '09:00', 'fern', 'HW', acct='C', unread=True, tag='Back')}}
+        {{PY: row('Diego Alvarez', 'Photos from the offsite', 'Of course. Group shot coming tomorrow.', 'Back Tue 09:00', 'clay', 'DA', acct='G', clip=True, count=3)}}
       </div></div>
       <div>
         <span class="lbl">Compact density · square account mark · with initials on, the tile replaces the square</span><div class="listbox" style="width:100%">
@@ -47,7 +49,7 @@
 
   <div class="c4 card">
     <h3>Account rail <code>layout.rail</code></h3>
-    <p class="cap">Opaque <code>spine</code>, {{layout.rail.width}} pt ({{layout.rail.width26}} from macOS 26). Tiles {{layout.rail.tile}} pt visual, {{layout.rail.tileHit}} pt hit. Folders at the top, the accounts anchored above Add. A selected folder is a raised tile with no margin rule; the selected account carries the rule. Domain monograms. A press darkens only the face, never the ring's surroundings.</p>
+    <p class="cap">Opaque <code>spine</code>, {{layout.rail.width}} pt ({{layout.rail.width26}} from macOS 26). Tiles {{layout.rail.tile}} pt visual, {{layout.rail.tileHit}} pt hit. Folders at the top, the accounts anchored above Add. A selected folder is a raised tile with no margin rule; the selected account carries the rule. Domain monograms. A press darkens only the face, never the ring's surroundings. While something in the scope is snoozed a Later tile shows below Inbox (A shows it) and the folders below it move down one pitch.</p>
     <div class="railspec">
       <div><span class="rt2"><span class="face" style="--a:var(--q-acct-1)"><span>C</span></span></span><b>Rest</b></div>
       <div><span class="rt2 hov"><span class="face" style="--a:var(--q-acct-2)"><span>G</span></span></span><b>Hover</b></div>
@@ -85,10 +87,11 @@
 
   <div class="c4 card">
     <h3>Title menu <code>NSMenu</code></h3>
-    <p class="cap">A system menu. Under the Multicolor accent its highlight is Iron Gall because the app ships it as <code>NSAccentColorName</code>; with a chosen system accent it follows the user. G-sequences sit in the shortcut column; the Inbox count is a system <code>NSMenuItemBadge</code>, numerals only.</p>
+    <p class="cap">A system menu. Under the Multicolor accent its highlight is Iron Gall because the app ships it as <code>NSAccentColorName</code>; with a chosen system accent it follows the user. G-sequences sit in the shortcut column; the Inbox count is a system <code>NSMenuItemBadge</code>, numerals only. Later is listed while something in the scope is snoozed.</p>
     <div class="mst" style="margin-bottom:4px">Inbox {{PY: s('chevron.down', 9)}}</div>
     <div class="menu">
       <div class="mi"><span class="ck">{{PY: s('checkmark', 10)}}</span>{{PY: s('tray', 14)}}Inbox<span class="mb">21</span><span class="kc">G I</span></div>
+      <div class="mi"><span class="ck"></span>{{PY: s('clock', 14)}}Later<span class="kc">G L</span></div>
       <div class="mi hi"><span class="ck"></span>{{PY: s('star', 14)}}Starred<span class="kc">G S</span></div>
       <div class="mi"><span class="ck"></span>{{PY: s('paperplane', 14)}}Sent<span class="kc">G T</span></div>
       <div class="mi"><span class="ck"></span>{{PY: s('doc', 14)}}Drafts<span class="kc">G D</span></div>

@@ -193,6 +193,17 @@ final class FaultyStore: MailStoring, @unchecked Sendable {
         base.observeConversation(id, onChange: onChange)
     }
     func unreadInboxCount(accountIDs: [AccountID]?) throws -> Int { try base.unreadInboxCount(accountIDs: accountIDs) }
+    func snoozes() throws -> [Snooze] { try base.snoozes() }
+    func setSnoozes(_ changes: [Snooze.Change], enqueueing operations: [Operation], at now: Date) throws {
+        try base.setSnoozes(changes, enqueueing: operations, at: now)
+    }
+    func returnDueSnoozes(at now: Date, dueBy: [AccountID: Date], limit: Int,
+                          operations: (ConversationID, [MessageMetadata]) -> [Operation]) throws -> [ConversationID] {
+        try base.returnDueSnoozes(at: now, dueBy: dueBy, limit: limit, operations: operations)
+    }
+    func observeSnoozes(onChange: @escaping @Sendable ([Snooze]) -> Void) -> StoreObservation {
+        base.observeSnoozes(onChange: onChange)
+    }
     func enqueue(_ operation: Operation) throws { try base.enqueue(operation) }
     func pendingOperations(accountID: AccountID, limit: Int) throws -> [Operation] {
         try base.pendingOperations(accountID: accountID, limit: limit)

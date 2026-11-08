@@ -95,6 +95,8 @@ final class NewMailNotifier {
             // sync ended, is new to the user.
             let newSince = max(launchDate, firstSyncEndedAt[row.id.accountID] ?? launchDate)
             guard seeded, row.unreadCount > 0, row.latestDate > newSince.addingTimeInterval(-60) else { continue }
+            // Back from Later is not new mail: the Inbox badge and the row's Back tag say it came back (§5.41).
+            guard row.returnedAt == nil else { continue }
             guard !accountsInFirstSync.contains(row.id.accountID) else { continue }
             if row.id == open { continue }
             fresh.append(row)

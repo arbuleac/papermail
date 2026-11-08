@@ -77,12 +77,13 @@ final class ConversationCellView: NSView {
 
     private var isCompact: Bool { density == .compact }
 
-    /// The time cluster's pieces, right to left: time, initial tile, queued or failed glyph. Rows carry no
-    /// category tag: the Focused/Other category is never shown (§5.7).
+    /// The time cluster's pieces, right to left: time, initial tile, the “Back” tag, queued or failed glyph. Rows carry
+    /// no category tag: the Focused/Other category is never shown (§5.7).
     private struct Cluster {
         var time = NSRect.zero
         var tile: NSRect?
         var square: NSRect?
+        var tag: NSRect?
         var status: NSRect?
         var leadingEdge: CGFloat = 0
     }
@@ -107,6 +108,12 @@ final class ConversationCellView: NSView {
                 x = c.square!.minX
             }
         }
+        if content.showsBackTag {
+            // In the slot the category tag had before 1.4, `tileGap` after the time or the account's tile or square.
+            let size = ConversationCellView.backTagSize
+            c.tag = NSRect(x: x - Row.tileGap - size.width, y: lineMid - size.height / 2, width: size.width, height: size.height)
+            x = c.tag!.minX
+        }
         if content.status != .none {
             let size = Row.queuedGlyph
             c.status = NSRect(x: x - Row.queuedGap - size, y: lineMid - size / 2, width: size, height: size)
@@ -114,6 +121,13 @@ final class ConversationCellView: NSView {
         }
         c.leadingEdge = x
         return c
+    }
+
+    private static let backTagSize = QuireTag.size(for: ConversationRowText.back)
+
+    /// Where the “Back” tag is drawn, nil without one; for the app's tests.
+    var backTagRect: NSRect? {
+        content.flatMap { cluster(for: $0).tag }
     }
 
     /// The specimen's compact line 2 caps the subject at this share of the line.
@@ -151,6 +165,9 @@ final class ConversationCellView: NSView {
         }
         if let square = c.square {
             QuireDraw.fill(square, radius: Compact.accountSquareRadius, .qAccount(mark.inkSlot))
+        }
+        if let tag = c.tag {
+            QuireTag.draw(ConversationRowText.back, in: tag)
         }
         if let status = c.status {
             switch content.status {
@@ -288,7 +305,7 @@ final class ConversationCellView: NSView {
             }
         }
         if let failure = content.failureText, let status = c.status {
-            // 16 pt around the 12 pt glyph: 2 pt into its 4 pt gap, so it never reaches the tile or time.
+            // 16 pt around the 12 pt glyph: 2 pt into its 4 pt gap, so it never reaches the tag, tile or time.
             regions.append((lineBox(status), failure))
         }
         // A cut sender or subject answers over its own words (§5.34), and only when it is cut: these regions

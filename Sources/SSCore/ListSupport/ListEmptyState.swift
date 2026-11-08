@@ -62,6 +62,9 @@ public struct ListEmptyState: Hashable, Sendable {
             return ListEmptyState(sentence: "Trash is empty", hint: "Conversations you move to Trash appear here.")
         case .all:
             return ListEmptyState(sentence: "No mail", hint: "Every conversation in this account appears here, archived ones too.")
+        case .later:
+            // Rarely seen: the view returns to the Inbox once nothing in scope is snoozed (§5.2).
+            return ListEmptyState(sentence: "Nothing snoozed", hint: "Press L to bring a conversation back later.")
         }
     }
 }

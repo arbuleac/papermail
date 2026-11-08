@@ -21,9 +21,9 @@ final class ContextMenuTests: XCTestCase {
         let menu = try XCTUnwrap(harness.list.contextMenu(forRow: row))
         XCTAssertEqual(harness.list.selectedConversationIDs, [second], "a right-click outside the selection selects that row")
         menu.update()
-        XCTAssertEqual(titles(menu), ["Reply", "Reply All", "Forward", "—", "Archive", menu.items[5].title, "Mark as Unread",
+        XCTAssertEqual(titles(menu), ["Reply", "Reply All", "Forward", "—", "Archive", "Later", menu.items[6].title, "Mark as Unread",
                                       "Move to Inbox", "—", "Move to Trash"])
-        XCTAssertTrue(["Star", "Unstar"].contains(menu.items[5].title))
+        XCTAssertTrue(["Star", "Unstar"].contains(menu.items[6].title))
         XCTAssertTrue(menu.items.allSatisfy { $0.isSeparatorItem || $0.image != nil }, "every item has its symbol")
         XCTAssertEqual(menu.items[4].keyEquivalent, "e", "and its shortcut")
         let moveToInbox = try XCTUnwrap(menu.items.first { $0.title == "Move to Inbox" })

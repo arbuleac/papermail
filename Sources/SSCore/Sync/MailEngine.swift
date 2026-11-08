@@ -1,7 +1,7 @@
 import Foundation
 
 /// The `MailClient` the app talks to: one `AccountSyncer` (a live lane and a backfill lane) and one
-/// `QuotaBudget` per account, a shared `SendRunner`, the attachment cache, the storage sweeper and the status feed,
+/// `QuotaBudget` per account, a shared `SendRunner` and `SnoozeRunner`, the attachment cache, the storage sweeper and the status feed,
 /// wired over the ports. Every command writes the store first and only then nudges
 /// the network side, so the UI never waits on a provider.
 public final class MailEngine: MailClient, @unchecked Sendable {
@@ -18,6 +18,9 @@ public final class MailEngine: MailClient, @unchecked Sendable {
     private let attachmentCache: AttachmentCache
     private let sendClaimLock = NSLock()
     private let sendRunner: SendRunner
+    private let snoozeRunner: SnoozeRunner
+    /// Wakes the snooze runner when the wall clock is set, which a wait slept on the continuous clock cannot see.
+    private var clockObserver: NSObjectProtocol?
     private let sweeper: StorageSweeper
     private let storageFeed = StorageChangeFeed()
     /// The Keep mail window and the bodies kept whole for this run, read by the sweeper and the hydrators.
@@ -69,6 +72,15 @@ public final class MailEngine: MailClient, @unchecked Sendable {
         self.tuning = tuning
         self.attachmentCache = AttachmentCache(root: attachmentCacheDirectory, capacity: attachmentCacheCapacity)
         self.sendRunner = SendRunner(store: store, registry: registry, claimLock: sendClaimLock, tuning: tuning)
+        // The runner reaches the lanes through the registry, not through `self`, so it keeps no engine alive. A due
+        // snooze asks its account to check (`.check`, which leaves an account parked for sign-in parked) and returns
+        // once that check has caught up.
+        let registry = registry
+        self.snoozeRunner = SnoozeRunner(store: store, clock: tuning.snoozeClock, onReturn: { accounts in
+            for account in accounts { registry.context(for: account)?.syncer.wake(.operations) }
+        }, requestCheck: { accounts in
+            for account in accounts { registry.context(for: account)?.syncer.wake(.check) }
+        })
         // The sweeper reads the window through the shared state, not through `self`, so it keeps no engine alive.
         let keepMail = keepMail
         let feed = storageFeed
@@ -103,6 +115,13 @@ public final class MailEngine: MailClient, @unchecked Sendable {
             context(for: account).syncer.start()
         }
         sendRunner.start()
+        // At launch it returns whatever fell due while the app was closed, as each account's first check catches up.
+        snoozeRunner.start()
+        let snoozeRunner = snoozeRunner
+        let observer = NotificationCenter.default.addObserver(forName: .NSSystemClockDidChange, object: nil, queue: nil) { _ in
+            snoozeRunner.wake()
+        }
+        stateLock.withLock { clockObserver = observer }
         // The attachment cache's size is unknown until measured; measured and trimmed now, off the main thread, a
         // download later only adds what it wrote.
         let cache = attachmentCache
@@ -127,6 +146,10 @@ public final class MailEngine: MailClient, @unchecked Sendable {
             }
         }
         sendRunner.stop()
+        snoozeRunner.stop()
+        if let observer = stateLock.withLock({ () -> NSObjectProtocol? in defer { clockObserver = nil }; return clockObserver }) {
+            NotificationCenter.default.removeObserver(observer)
+        }
         let sweeper = sweeper
         Task { await sweeper.stopAndWait() }
         SyncLog.logger.info("engine stopped")
@@ -139,6 +162,7 @@ public final class MailEngine: MailClient, @unchecked Sendable {
             await context.syncer.stopAndWait()
         }
         await sendRunner.stopAndWait()
+        await snoozeRunner.stopAndWait()
         // After the lanes, which may have asked for a sweep on their way out; a step under way finishes first.
         await sweeper.stopAndWait()
     }
@@ -267,12 +291,15 @@ public final class MailEngine: MailClient, @unchecked Sendable {
     }
 
     /// Every live lane checks now; one parked for sign-in stays parked (`WakeReason.check`). The send runner looks at
-    /// the outbox too: after the Mac slept, a send that fell due meanwhile goes now, whether or not its timer has fired.
+    /// the outbox too: after the Mac slept, a send that fell due meanwhile goes now, whether or not its timer has fired;
+    /// so does the snooze runner at the snoozes, which come back once their account's check has caught up.
     public func checkForMail() {
         for context in registry.all() {
             context.syncer.wake(.check)
         }
         sendRunner.wake()
+        // And a snooze that fell due while the Mac slept returns now, whether or not its timer has fired.
+        snoozeRunner.wake()
     }
 
     /// Recorded for the live lanes' poll interval; the lanes read it when they schedule their next check. Coming
@@ -300,6 +327,29 @@ public final class MailEngine: MailClient, @unchecked Sendable {
     }
 
     public func perform(_ change: MetadataChange, on messages: [MessageID]) throws {
+        for operation in Self.operations(change, on: messages, at: Date()) {
+            try store.enqueue(operation)
+            registry.context(for: operation.accountID)?.syncer.wake(.operations)
+        }
+    }
+
+    public func setSnoozes(_ changes: [Snooze.Change], performing steps: [MailActionRecord.Step]) throws {
+        let now = tuning.snoozeClock.now()
+        // A millisecond apart: the outbox replays by creation time, and an undo's steps (out of the Trash, then back to
+        // the archive) must reach the provider in the order they were applied here.
+        let operations = steps.enumerated().flatMap { index, step in
+            Self.operations(step.change, on: step.targets, at: now.addingTimeInterval(Double(index) / 1_000))
+        }
+        try store.setSnoozes(changes, enqueueing: operations, at: now)
+        var woken: Set<AccountID> = []
+        for operation in operations where woken.insert(operation.accountID).inserted {
+            registry.context(for: operation.accountID)?.syncer.wake(.operations)
+        }
+        snoozeRunner.wake()
+    }
+
+    /// One operation per account, in the order the accounts first appear: an operation targets one account's messages.
+    private static func operations(_ change: MetadataChange, on messages: [MessageID], at now: Date) -> [Operation] {
         var byAccount: [AccountID: [MessageID]] = [:]
         var order: [AccountID] = []
         var seen: Set<MessageID> = []
@@ -307,11 +357,7 @@ public final class MailEngine: MailClient, @unchecked Sendable {
             if byAccount[id.accountID] == nil { order.append(id.accountID) }
             byAccount[id.accountID, default: []].append(id)
         }
-        for accountID in order {
-            let operation = Operation(accountID: accountID, change: change, targets: byAccount[accountID] ?? [])
-            try store.enqueue(operation)
-            registry.context(for: accountID)?.syncer.wake(.operations)
-        }
+        return order.map { Operation(accountID: $0, change: change, targets: byAccount[$0] ?? [], createdAt: now) }
     }
 
     public func send(_ message: OutgoingMessage, undoWindow: TimeInterval) throws -> String {
@@ -365,6 +411,8 @@ public final class MailEngine: MailClient, @unchecked Sendable {
                                 budget: budget, evictionCutoff: { keepMail.evictionCutoff(for: $0) })
         let runner = OperationRunner(accountID: account.id, store: store, provider: provider, tuning: tuning)
         let sweeper = sweeper
+        let snoozeRunner = snoozeRunner
+        let id = account.id
         let syncer = AccountSyncer(
             accountID: account.id,
             store: store,
@@ -377,7 +425,9 @@ public final class MailEngine: MailClient, @unchecked Sendable {
             budget: budget,
             isAppActive: { [weak self] in self?.isAppActive ?? true },
             firstLiveCycleEnded: { Task { await sweeper.liveCycleEnded() } },
-            backfillEnded: { Task { await sweeper.backfillEnded() } }
+            backfillEnded: { Task { await sweeper.backfillEnded() } },
+            liveCheckStarted: { snoozeRunner.liveCheckStarted(id) },
+            liveCheckCaughtUp: { snoozeRunner.liveCheckCaughtUp(id) }
         )
         let context = AccountContext(account: account, provider: provider, hydrator: hydrator, syncer: syncer, budget: budget)
         let registered = registry.insertIfAbsent(context)

@@ -89,7 +89,37 @@ enum MailSchema {
             // keeps the hydrator from fetching it straight back; this mark is what tells the two apart.
             try db.execute(sql: "ALTER TABLE bodies ADD COLUMN evicted INTEGER NOT NULL DEFAULT 0")
         }
+        migrator.registerMigration("v11-snoozes") { db in
+            // Later (docs/DATA-MODEL.md, "Snoozes"). The snooze is keyed like `conversations`, but a conversation's
+            // summary row comes and goes with its messages (a wipe drops it), so the snooze references the account only.
+            // A rowid table, unlike the backfill marks: SQLite reports no row changes of a WITHOUT ROWID table, and the
+            // Later tile observes this one.
+            // `returned_at` lives on the summary row the Inbox already reads, and the Inbox index sorts by it, so a
+            // conversation that came back is found under today's date without a sort. The Inbox query must spell the
+            // expression the same way (`ConversationTable.inboxDate`) for SQLite to use the index.
+            try db.execute(sql: """
+                CREATE TABLE snoozes (
+                    account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                    provider_id TEXT NOT NULL,
+                    due_at INTEGER NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    PRIMARY KEY (account_id, provider_id)
+                );
+                CREATE INDEX snoozes_by_due ON snoozes(due_at);
+                ALTER TABLE conversations ADD COLUMN returned_at INTEGER;
+                DROP INDEX conversations_inbox;
+                CREATE INDEX conversations_inbox ON conversations(in_inbox, COALESCE(returned_at, latest_date_ms) DESC);
+                """)
+        }
         return migrator
+    }
+
+    /// Migrates the file at `path` up to and including the migration `identifier`, as the build that shipped it left
+    /// the file; for the migration tests, which then open it with the current store.
+    static func migrateFile(at path: String, upTo identifier: String) throws {
+        let queue = try DatabaseQueue(path: path)
+        try migrator().migrate(queue, upTo: identifier)
+        try queue.close()
     }
 
     /// `auto_vacuum` is written into a database file with its first page and fixed from then on: only a full VACUUM

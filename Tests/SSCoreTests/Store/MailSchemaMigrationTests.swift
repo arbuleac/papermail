@@ -24,6 +24,16 @@ final class MailSchemaMigrationTests: XCTestCase {
 
     private let base: Int64 = 1_767_225_600_000 // 2026-01-01T00:00:00Z in ms
 
+    /// Takes v11 back out of a migrated file, as the tests of earlier versions need: a file from before v11 has no
+    /// snoozes, no `returned_at`, and its Inbox index on the latest date.
+    private let withoutV11 = """
+        DROP TABLE snoozes;
+        DROP INDEX conversations_inbox;
+        ALTER TABLE conversations DROP COLUMN returned_at;
+        CREATE INDEX conversations_inbox ON conversations(in_inbox, latest_date_ms DESC);
+        DELETE FROM grdb_migrations WHERE identifier = 'v11-snoozes';
+        """
+
     /// Twelve accounts, inserted out of creation order, two of them created in the same millisecond so the id
     /// has to break the tie.
     private let accounts: [(id: String, addedAt: Int64)] = [
@@ -283,7 +293,7 @@ final class MailSchemaMigrationTests: XCTestCase {
             DELETE FROM grdb_migrations WHERE identifier = 'v9-account-signature';
             ALTER TABLE bodies DROP COLUMN evicted;
             DELETE FROM grdb_migrations WHERE identifier = 'v10-body-eviction';
-            """, at: path)
+            """ + withoutV11, at: path)
         XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations ORDER BY identifier", at: path).compactMap(\.first), [
             "v1-mailbox", "v2-body-render-facts", "v3-body-typesetting", "v4-account-ink", "v5-failed-operation-mark",
             "v6-operation-priors", "v7-body-design-facts-backfill",
@@ -351,7 +361,7 @@ final class MailSchemaMigrationTests: XCTestCase {
             DELETE FROM grdb_migrations WHERE identifier = 'v9-account-signature';
             ALTER TABLE bodies DROP COLUMN evicted;
             DELETE FROM grdb_migrations WHERE identifier = 'v10-body-eviction';
-            """, at: path)
+            """ + withoutV11, at: path)
         XCTAssertFalse(try query("SELECT name FROM pragma_table_info('accounts')", at: path).compactMap(\.first).contains("signature"))
 
         let store = try SQLiteMailStore(path: path)
@@ -388,7 +398,7 @@ final class MailSchemaMigrationTests: XCTestCase {
         try execute("""
             ALTER TABLE bodies DROP COLUMN evicted;
             DELETE FROM grdb_migrations WHERE identifier = 'v10-body-eviction';
-            """, at: path)
+            """ + withoutV11, at: path)
         XCTAssertFalse(try query("SELECT name FROM pragma_table_info('bodies')", at: path).compactMap(\.first).contains("evicted"))
         XCTAssertEqual(try query("PRAGMA auto_vacuum", at: path), [["0"]], "an earlier build's file has no auto_vacuum")
 
@@ -415,6 +425,70 @@ final class MailSchemaMigrationTests: XCTestCase {
         let reopened = try SQLiteMailStore(path: fresh)
         XCTAssertEqual(try reopened.autoVacuumMode(), 2, "and keeps it")
         try reopened.close()
+    }
+
+    /// v11 adds `snoozes`, `conversations.returned_at` and rebuilds `conversations_inbox` on the Inbox's own date. A
+    /// real v10 file (the v1 file brought to v10 by the migrations as they shipped) holding an Inbox conversation and an
+    /// archived one opens with nothing snoozed and nothing returned, its Inbox in the same order on the new index, and
+    /// takes snoozes and returns at once.
+    func testVersion10DatabaseGainsSnoozesAndReturnedAt() throws {
+        let path = try XCTUnwrap(directory).appendingPathComponent("mail.sqlite").path
+        try writeVersion1Database(at: path)
+        try MailSchema.migrateFile(at: path, upTo: "v10-body-eviction")
+        XCTAssertEqual(try query("SELECT COUNT(*) FROM grdb_migrations", at: path), [["10"]], "a v10 file")
+        XCTAssertTrue(try query("SELECT name FROM sqlite_master WHERE name = 'snoozes'", at: path).isEmpty)
+        // An archived conversation beside the v1 file's Inbox one, older than it.
+        try execute("""
+            INSERT INTO messages (account_id, provider_id, conversation_provider_id, references_json, subject, snippet,
+                                  from_json, to_json, cc_json, bcc_json, reply_to_json, date_ms, roles, is_read,
+                                  is_starred, inbox_section, has_attachments, label_ids_json, has_body)
+            VALUES ('acct-a', 'm2', 'c2', '[]', 'Invoice', 'Due Friday', '{"address":"ann@example.com","name":"Ann"}',
+                    '[]', '[]', '[]', '[]', \(base + 30_000), 0, 1, 0, 'unknown', 0, '[]', 0);
+            INSERT INTO conversations (account_id, provider_id, subject, snippet, participants_json, latest_date_ms,
+                                       latest_provider_id, message_count, unread_count, is_starred, has_attachments,
+                                       in_inbox, in_sent, in_drafts, in_trash, inbox_section, has_pending_ops)
+            VALUES ('acct-a', 'c2', 'Invoice', 'Due Friday', '[{"address":"ann@example.com","name":"Ann"}]',
+                    \(base + 30_000), 'm2', 1, 0, 0, 0, 0, 0, 0, 0, 'unknown', 0);
+            """, at: path)
+
+        let store = try SQLiteMailStore(path: path)
+        XCTAssertTrue(try store.snoozes().isEmpty)
+        XCTAssertEqual(try store.conversations(ConversationQuery(view: .inbox)).map(\.id.providerID), ["c1"])
+        XCTAssertNil(try store.conversations(ConversationQuery(view: .inbox)).first?.returnedAt)
+        XCTAssertEqual(try store.conversations(ConversationQuery(view: .all)).map(\.id.providerID), ["c1", "c2"])
+        XCTAssertTrue(try store.queryPlan(for: ConversationQuery(view: .inbox)).contains { $0.contains("USING INDEX conversations_inbox") })
+
+        let c2 = ConversationID(accountID: AccountID("acct-a"), providerID: "c2")
+        let due = MailStoreCodec.date(base + 90_000)
+        try store.setSnoozes([Snooze.Change(conversationID: c2, until: due)], enqueueing: [], at: MailStoreCodec.date(base + 40_000))
+        XCTAssertEqual(try store.conversations(ConversationQuery(view: .later)).map(\.snoozedUntil), [due])
+        let back = MailStoreCodec.date(base + 100_000)
+        try store.returnDueSnoozes(at: back, limit: 10) { id, messages in
+            [Operation(accountID: id.accountID, change: .moveToInbox, targets: messages.map(\.id), createdAt: back)]
+        }
+        XCTAssertEqual(try store.conversations(ConversationQuery(view: .inbox)).map(\.id.providerID), ["c2", "c1"],
+                       "back from Later, it sorts above newer mail")
+        try store.close()
+
+        XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations WHERE identifier = 'v11-snoozes'", at: path), [["v11-snoozes"]])
+        XCTAssertEqual(try query("SELECT type, \"notnull\", dflt_value FROM pragma_table_info('conversations') WHERE name = 'returned_at'", at: path),
+                       [["INTEGER", "0", nil]], "INTEGER NULL with no default")
+        XCTAssertEqual(try query("SELECT returned_at FROM conversations WHERE provider_id = 'c1'", at: path), [[nil]], "nothing came back before v11")
+        XCTAssertEqual(try query("SELECT \"table\", \"from\", on_delete FROM pragma_foreign_key_list('snoozes')", at: path),
+                       [["accounts", "account_id", "CASCADE"]])
+        let index = try XCTUnwrap(try query("SELECT sql FROM sqlite_master WHERE name = 'conversations_inbox'", at: path).first?.first ?? nil)
+        XCTAssertTrue(index.contains("COALESCE(returned_at, latest_date_ms) DESC"), index)
+        // The foreign key removes an account's snoozes, whichever path deletes the account row.
+        try execute("""
+            PRAGMA foreign_keys = ON;
+            INSERT INTO snoozes (account_id, provider_id, due_at, created_at) VALUES ('acct-b', 'cb', 1, 0);
+            DELETE FROM accounts WHERE id = 'acct-b';
+            """, at: path)
+        XCTAssertEqual(try query("SELECT COUNT(*) FROM snoozes WHERE account_id = 'acct-b'", at: path), [["0"]])
+
+        let reopened = try SQLiteMailStore(path: path)
+        defer { try? reopened.close() }
+        XCTAssertEqual(try reopened.conversations(ConversationQuery(view: .inbox)).first?.returnedAt, back, "kept across a reopen")
     }
 
     // MARK: Raw SQLite

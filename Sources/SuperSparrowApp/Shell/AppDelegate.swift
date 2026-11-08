@@ -117,6 +117,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                         self.captureReader(webView) { image in
                             if let main { self.writeWindowSnapshot(to: main, reader: image.map { ($0, webView) }) }
                             if let compose { self.writeComposeSnapshot(to: compose) }
+                            #if DEBUG
+                            // The Later menu and Pick a Date… are the system's own windows, which no window snapshot
+                            // holds: they are opened on screen afterwards, for a screen capture.
+                            if let main { self.mainWindow?.openDebugLaterSurfaces(besides: main) }
+                            #endif
                         }
                     }
                 }
@@ -581,6 +586,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// The accounts in rail order, for the View menu's ⌘1…⌘9 titles.
     var menuAccounts: [Account] {
         ((try? environment?.store.accounts()) ?? []).sorted { $0.addedAt < $1.addedAt }
+    }
+
+    /// Whether the View menu lists Later: while the main window's rail shows its tile (§5.2).
+    var menuShowsLater: Bool {
+        mainWindow?.showsLater ?? false
     }
 
     private func originForMainWindow() -> Origin {

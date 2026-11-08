@@ -85,6 +85,33 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     private var undoHistory = MailActionUndoHistory(grace: Quire.Motion.undoKeyGrace, coalesceWindow: Quire.Motion.toastCoalesce)
     /// How the history's external steps are reverted (a discarded draft reopens its composer), by group id.
     private var externalUndos: [Int: () -> Void] = [:]
+    /// The snoozes each E in Later ended, with their times, by group id: presses that coalesced share a group, and its
+    /// one undo puts all of them back.
+    private var laterArchiveRestores: [Int: [Snooze.Change]] = [:]
+    /// The groups recorded in Later, which an undo returns to when Later emptied meanwhile and the view went back to
+    /// the Inbox: the restored rows are in Later, and the undo selects them there.
+    private var groupsFromLater: Set<Int> = []
+    /// The window left Later for the Inbox because Later emptied, and the user has not picked a view or a scope since:
+    /// only then does an undo of a step taken in Later bring Later back (§5.45). Anywhere the user went themselves, an
+    /// undo leaves them there, as every other undo does.
+    private var leftLaterAsItEmptied = false
+
+    // Later (§5.45)
+    /// Every snooze the store holds, from its observation; the Later tile, G L and the title menu go by those in scope.
+    private(set) var snoozes: [Snooze] = []
+    private var snoozeObservation: StoreObservation?
+    /// Shows the Later menu at a point in a view. A popped menu tracks until it is dismissed, so tests replace it.
+    lazy var popUpLaterMenu: (NSMenu, NSPoint, NSView) -> Void = { menu, point, view in
+        menu.popUp(positioning: nil, at: point, in: view)
+    }
+    /// Shows Pick a Date…; tests replace it to answer the sheet.
+    lazy var presentLaterDatePicker: (LaterDatePicker, NSWindow?, @escaping @MainActor (Date?) -> Void) -> Void = { picker, window, done in
+        picker.present(on: window, completion: done)
+    }
+    /// The clock the Later menu and its sheet read; tests fix it.
+    var laterNow: () -> Date = { Date() }
+    /// Writes the Later menu's times and the snooze toast's, as the rows write times.
+    private let laterFormatter = DateFormatting()
     /// What the reader was last asked to show, so the list's two selection callbacks show it once.
     private var shownSelection: [ConversationID] = []
 
@@ -168,6 +195,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         }
         inboxMonitor.start(accounts: accounts.map(\.id))
         activity.start()
+        snoozeObservation = environment.store.observeSnoozes { [weak self] snoozes in
+            MainActor.assumeIsolated { self?.snoozesChanged(snoozes) }
+        }
         let router = KeyboardRouter(target: self)
         router.install()
         self.router = router
@@ -207,6 +237,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         router = nil
         statusObservation?.cancel()
         statusObservation = nil
+        snoozeObservation?.cancel()
+        snoozeObservation = nil
         stripCollapseObservation?.invalidate()
         stripCollapseObservation = nil
         inboxMonitor.stop()
@@ -670,6 +702,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         scopeBaselinePending = false
         rememberScope()
         updateScopeDetails()
+        // The user chose this scope; an undo leaves them in it, even when the scope took Later away.
+        leftLaterAsItEmptied = false
         applyQuery()
     }
 
@@ -682,6 +716,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         }
         strip.setInboxUnread(inboxUnread)
         updateNewMailDot()
+        applyLaterAvailability()
     }
 
     private func countsChanged(unified: Int, perAccount: [AccountID: Int]) {
@@ -717,14 +752,17 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         let monograms = AccountLabels.monograms(for: accounts)
         return TitleMenu.Model(
             view: mailboxView, inboxUnread: inboxUnread, scope: scope, showsAccounts: isMinimal, unifiedUnread: unifiedUnread,
-            accounts: accounts.map { TitleMenu.AccountEntry(account: $0, monogram: monograms[$0.id] ?? "?", unread: unreadByAccount[$0.id] ?? 0) }
+            accounts: accounts.map { TitleMenu.AccountEntry(account: $0, monogram: monograms[$0.id] ?? "?", unread: unreadByAccount[$0.id] ?? 0) },
+            showsLater: showsLater
         )
     }
 
     /// Picking a mailbox means "show me that mailbox", so it also ends a search that would otherwise keep
-    /// overriding the view.
+    /// overriding the view. Later only while it shows: G L and the View menu's Later do nothing otherwise.
     private func setView(_ view: MailboxView) {
+        guard view != .later || showsLater else { return }
         mailboxView = view
+        leftLaterAsItEmptied = false
         endSearch()
         applyQuery()
     }
@@ -870,6 +908,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         rememberScope()
         updateScopeDetails()
         mailboxView = .inbox
+        leftLaterAsItEmptied = false
         applyQuery()
         list.selectedConversationID = id
         present(selection: [id])
@@ -976,7 +1015,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             list.onOpen?(id)
             return true
         case .archive:
-            return mailAction(.archive)
+            return archive()
         case .toggleStar:
             guard let change = starChangeForSelection else { return false }
             return mailAction(change)
@@ -1015,6 +1054,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             return escape()
         case .moveToInbox:
             return moveSelectionToInbox()
+        case .later:
+            return showLaterMenu()
         case .undo:
             // The router acts only outside text, so typing is never ⌘Z's target here; Z never cancels a send.
             let commandZ = NSApp.currentEvent?.modifierFlags.contains(.command) == true
@@ -1083,14 +1124,38 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// conversation that is gone, or that the change would leave as it is, has none.
     private func actionRecords(_ change: MetadataChange, on ids: [ConversationID]) -> [MailActionRecord] {
         let store = environment.store
+        // Back in the Inbox or in the Trash a conversation is no longer snoozed (the store ends it); out of the Inbox it
+        // no longer sorts as back from Later (the refresh ends the mark). The undo puts either back.
+        let endsSnooze = [.moveToInbox, .restoreFromTrash, .trash].contains(change)
+        let snoozed = endsSnooze ? snoozedUntil : [:]
+        let returned = [.archive, .trash].contains(change) ? returnMarks(of: ids) : [:]
         var records: [MailActionRecord] = []
         for id in ids {
             guard let all = try? store.messages(in: id), !all.isEmpty else { continue }
             let kind = accountsByID[id.accountID]?.kind ?? .gmail
-            let messages = MailActionRecord.targets(for: change, in: all, kind: kind)
-            if let record = MailActionRecord.make(change, on: messages, conversation: id) { records.append(record) }
+            // A snoozed conversation moved to the Inbox (⇧I, a drop on Inbox) comes back now as it would at its time:
+            // the mail the snooze put away, not a deleted message Move to Inbox's own rule would take out of the Trash.
+            let messages = change == .moveToInbox && snoozed[id] != nil
+                ? MailActionRecord.returnTargets(in: all, kind: kind)
+                : MailActionRecord.targets(for: change, in: all, kind: kind)
+            if var record = MailActionRecord.make(change, on: messages, conversation: id) {
+                record.snoozedUntil = snoozed[id]
+                record.returnedAt = returned[id]
+                records.append(record)
+            }
         }
         return records
+    }
+
+    /// When each of `ids` came back from Later, as the list's rows say (`returnedAt`): Archive, Move to Trash and Snooze
+    /// take the mark away with the conversation's place under Today, and their undo puts it back.
+    private func returnMarks(of ids: [ConversationID]) -> [ConversationID: Date] {
+        let wanted = Set(ids)
+        var marks: [ConversationID: Date] = [:]
+        for row in list.conversations where wanted.contains(row.id) {
+            if let returnedAt = row.returnedAt { marks[row.id] = returnedAt }
+        }
+        return marks
     }
 
     /// A toast's Undo reverts the group that toast offers, whatever happened since; Z and ⌘Z follow
@@ -1109,6 +1174,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         // No toast for a change the row itself shows; Z still reaches it for the grace period.
         let toasted = MailActionCopy.wantsToast(for: change, in: mailboxView, isSearching: !searchText.isEmpty, count: records.count)
         let id = undoHistory.add(records, at: now, toasted: toasted)
+        rememberLaterGroup(id)
         guard toasted else { return }
         let toastID = toasts.show(MailActionCopy.toast(for: change, count: records.count), kind: .undoable, symbol: symbol(for: change),
                                   actionTitle: "Undo", keycap: "Z") { [weak self] in self?.undo(groupID: id) }
@@ -1116,9 +1182,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     }
 
     /// A step that is not a mail action, offered by its own toast and reverted by `revert` (§5.20).
-    private func recordExternalUndo(command: String, toast message: String, symbol: String, revert: @escaping () -> Void) {
+    @discardableResult
+    private func recordExternalUndo(command: String, toast message: String, symbol: String, revert: @escaping () -> Void) -> Int {
         let id = undoHistory.addExternal(command: command, at: Date(), toasted: true)
         externalUndos[id] = revert
+        rememberLaterGroup(id)
         let toastID = listPane.toasts.show(message, kind: .undoable, symbol: symbol, actionTitle: "Undo", keycap: "Z") { [weak self] in
             self?.undo(groupID: id)
         }
@@ -1126,7 +1194,16 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         // Groups that fell out of the history no longer need their reverts.
         let live = Set(undoHistory.groups.map(\.id))
         externalUndos = externalUndos.filter { live.contains($0.key) }
+        laterArchiveRestores = laterArchiveRestores.filter { live.contains($0.key) }
         UndoSendPanel.refreshUndoKeyOwner()
+        return id
+    }
+
+    /// Remembers a group taken in Later outside a search, and forgets those that fell out of the history.
+    private func rememberLaterGroup(_ id: Int) {
+        let live = Set(undoHistory.groups.map(\.id))
+        groupsFromLater = groupsFromLater.filter { live.contains($0) }
+        if mailboxView == .later, searchText.isEmpty { groupsFromLater.insert(id) }
     }
 
     /// A toast stopped being visible: Z and ⌘Z reach its action for 10000 ms more (§6.1), and an undo-send
@@ -1215,6 +1292,212 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         mailAction(.moveToInbox)
     }
 
+    // MARK: Later (§5.45)
+
+    private func snoozesChanged(_ snoozes: [Snooze]) {
+        self.snoozes = snoozes
+        applyLaterAvailability()
+    }
+
+    /// The snoozes in the current scope: what the Later tile, G L, the title menu and the View menu go by.
+    private var snoozesInScope: [Snooze] {
+        guard case .account(let id) = scope else { return snoozes }
+        return snoozes.filter { $0.conversationID.accountID == id }
+    }
+
+    /// Something in the scope is snoozed: Later shows in the rail, the title menu and the View menu (§5.2).
+    var showsLater: Bool { !snoozesInScope.isEmpty }
+
+    /// Each snoozed conversation's due time.
+    private var snoozedUntil: [ConversationID: Date] {
+        Dictionary(snoozes.map { ($0.conversationID, $0.dueAt) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    private func applyLaterAvailability() {
+        let shows = showsLater
+        strip.setShowsLater(shows)
+        // The last snooze in view ended while Later was shown, or the scope moved to an account with none: nothing is
+        // left to show there, so the window goes back to the Inbox (§5.2). A search the user typed stays: it shows all
+        // mail whatever the view, so its results, selection and reader stay too, and clearing it lands in the Inbox.
+        if mailboxView == .later, !shows {
+            mailboxView = .inbox
+            leftLaterAsItEmptied = true
+            applyQuery()
+        }
+    }
+
+    /// What L acts on: the selection, less drafts kept on this Mac, which the store does not hold.
+    private var snoozableSelection: [ConversationID] {
+        selectedIDs.filter { !LocalDraftConversation.isLocal($0) }
+    }
+
+    /// Nothing is snoozed from the Trash (a trashed conversation ends its snooze) or from Drafts.
+    private var canSnoozeSelection: Bool {
+        !showingWelcome && mailboxView != .trash && mailboxView != .drafts && !snoozableSelection.isEmpty
+    }
+
+    /// The conversations of `ids` a snooze would hold, judged as snoozing leaves them (archived) by the store's own rule
+    /// (`Snooze.canHold`). One whose mail from others is all in the Trash (on Microsoft # leaves the user's own copies in
+    /// Sent Items and Drafts, so it still lists there, in All Mail and in a search) has nothing to bring back: the store
+    /// would drop its snooze, and a toast saying it was snoozed would promise a return that never comes.
+    private func snoozable(_ ids: [ConversationID]) -> [(id: ConversationID, messages: [MessageMetadata])] {
+        ids.compactMap { id in
+            guard let messages = try? environment.store.messages(in: id),
+                  Snooze.canHold(messages.map { applying(.archive, to: $0) }) else { return nil }
+            return (id, messages)
+        }
+    }
+
+    /// L and Message › Later…: the Later menu, hung from the selected row, or from the reader's header when focus is not
+    /// in the list. In the Trash and in Drafts it beeps, as archiving in the Trash does.
+    @discardableResult
+    func showLaterMenu() -> Bool {
+        guard !selectedIDs.isEmpty, !showingWelcome else { return false }
+        guard canSnoozeSelection, !snoozable(snoozableSelection).isEmpty else {
+            NSSound.beep()
+            return true
+        }
+        let menu = LaterMenu.build(now: laterNow(), formatter: laterFormatter, target: self,
+                                   presetAction: #selector(snoozeSelectionUntil(_:)), pickAction: #selector(pickSnoozeDate(_:)))
+        let anchor = laterMenuAnchor()
+        popUpLaterMenu(menu, anchor.point, anchor.view)
+        return true
+    }
+
+    /// The menu's top-leading corner, `layout.menu.titleMenuOffsetY` below what it hangs from: the lead row's text
+    /// column under the row, or the reader header's Archive button.
+    func laterMenuAnchor() -> (point: NSPoint, view: NSView) {
+        let offset = Quire.Layout.Menu.titleMenuOffsetY
+        let listFocused = window?.firstResponder === list.tableView
+        if listFocused || !isReaderFocused, let id = list.selectedConversationID, let row = list.revealedRowRect(of: id) {
+            let x = (settings.listDensity == .compact ? Quire.Layout.RowCompact.textX : Quire.Layout.Row.textX)
+            return (NSPoint(x: x, y: row.maxY + offset), list.tableView)
+        }
+        let anchor = conversation.header.menuAnchor
+        return (NSPoint(x: anchor.minX, y: anchor.maxY + offset), conversation.header)
+    }
+
+    /// The context menu's Later submenu: the same presets and Pick a Date…, for the selection.
+    private func laterSubmenuItem() -> NSMenuItem {
+        let item = NSMenuItem(title: "Later", action: nil, keyEquivalent: "")
+        item.image = QuireSymbol.image(Quire.Icon.later, size: .inText, accessibilityDescription: nil)
+        let submenu = LaterMenu.build(now: laterNow(), formatter: laterFormatter, target: self,
+                                      presetAction: #selector(snoozeSelectionUntil(_:)), pickAction: #selector(pickSnoozeDate(_:)))
+        item.submenu = submenu
+        item.isEnabled = canSnoozeSelection && !snoozable(snoozableSelection).isEmpty
+        return item
+    }
+
+    /// Snoozes `ids` until `date` as one step: one store transaction writes the snoozes and archives what is in the
+    /// Inbox (a conversation already out of it just gets its snooze), the rows leave the Inbox as after E, and the toast
+    /// says when they come back. Its undo ends the snoozes, or puts back the times they had (a reschedule from Later), and
+    /// moves the archived messages back through archive's own inverse. A conversation with nothing to put away is left
+    /// as it is; with none to snooze it beeps, as E does when it changes nothing.
+    func snooze(_ ids: [ConversationID], until date: Date) {
+        let candidates = ids.filter { !LocalDraftConversation.isLocal($0) }
+        let held = mailboxView == .trash || mailboxView == .drafts ? [] : snoozable(candidates)
+        guard !held.isEmpty else {
+            NSSound.beep()
+            return
+        }
+        let ids = held.map(\.id)
+        let prior = snoozedUntil
+        // Archive's own records, from the messages just read: what is in the Inbox, and its inverse for the undo.
+        let archived = held.compactMap { id, messages in
+            MailActionRecord.make(.archive, on: MailActionRecord.targets(for: .archive, in: messages, kind: accountsByID[id.accountID]?.kind ?? .gmail),
+                                  conversation: id)
+        }
+        // A conversation back from Later loses its mark as it is archived; the undo puts the mark back with it. Read from
+        // the rows before the write, which may take them out of the list.
+        let returned = returnMarks(of: ids)
+        do {
+            try environment.engine.setSnoozes(ids.map { Snooze.Change(conversationID: $0, until: date) },
+                                              performing: archived.map { MailActionRecord.Step(change: .archive, targets: $0.targets) })
+        } catch {
+            Self.log.error("snooze failed: \(String(describing: error), privacy: .public)")
+            NSSound.beep()
+            return
+        }
+        let restore = ids.map { Snooze.Change(conversationID: $0, until: prior[$0], returnedAt: returned[$0]) }
+        let inverse = archived.reversed().flatMap(\.inverse)
+        let time = laterFormatter.dueTime(for: date, reference: laterFormatter.reference(now: laterNow()))
+        let toasts = listPane.toasts
+        let toast = MailActionCopy.snoozed(until: time) { toasts.fits($0, symbol: Quire.Icon.later, actionTitle: "Undo", keycap: "Z") }
+        let fromLater = mailboxView == .later && searchText.isEmpty
+        let engine = environment.engine
+        recordExternalUndo(command: MailActionCopy.snoozeCommand, toast: toast, symbol: Quire.Icon.later) { [weak self] in
+            do {
+                try engine.setSnoozes(restore, performing: inverse)
+            } catch {
+                Self.log.error("undoing a snooze failed: \(String(describing: error), privacy: .public)")
+                NSSound.beep()
+                return
+            }
+            self?.confirmUndo(of: MailActionCopy.snoozeCommand)
+            self?.reselect(ids, inLater: fromLater)
+        }
+    }
+
+    /// E and Archive: in Later, where everything is archived already, it ends the snoozes and leaves the conversations
+    /// archived; everywhere else the ordinary archive.
+    @discardableResult
+    private func archive(_ ids: [ConversationID]? = nil) -> Bool {
+        guard mailboxView == .later, searchText.isEmpty else { return mailAction(.archive, on: ids) }
+        let targets = (ids ?? selectedIDs).filter { snoozedUntil[$0] != nil }
+        guard !targets.isEmpty else { return mailAction(.archive, on: ids) }
+        let prior = snoozedUntil
+        do {
+            try environment.engine.setSnoozes(targets.map { Snooze.Change(conversationID: $0, until: nil) }, performing: [])
+        } catch {
+            Self.log.error("ending a snooze failed: \(String(describing: error), privacy: .public)")
+            NSSound.beep()
+            return true
+        }
+        recordLaterArchive(targets.map { Snooze.Change(conversationID: $0, until: prior[$0]) })
+        return true
+    }
+
+    /// E in Later's toast and undo. Another E within the coalescing window while its toast shows joins that step, as E does
+    /// everywhere (§5.30): the toast counts every conversation, and one Z puts back every snooze the presses ended.
+    private func recordLaterArchive(_ restore: [Snooze.Change]) {
+        let command = MailActionCopy.commandName(for: .archive)
+        let toasts = listPane.toasts
+        guard let group = undoHistory.coalesceExternal(command: command, at: Date(), visibleToastID: toasts.visibleID) else {
+            let id = recordExternalUndo(command: command, toast: MailActionCopy.toast(for: .archive, count: restore.count),
+                                        symbol: Quire.Icon.archive, revert: laterArchiveRevert(restore))
+            laterArchiveRestores[id] = restore
+            return
+        }
+        let id = group.id
+        let all = laterArchiveRestores[id, default: []] + restore
+        laterArchiveRestores[id] = all
+        externalUndos[id] = laterArchiveRevert(all)
+        toasts.show(MailActionCopy.toast(for: .archive, count: all.count), kind: .undoable, symbol: Quire.Icon.archive,
+                    actionTitle: "Undo", keycap: "Z", updating: group.toastID) { [weak self] in self?.undo(groupID: id) }
+        UndoSendPanel.refreshUndoKeyOwner()
+    }
+
+    /// Puts back the snoozes E ended in Later, in one write, and selects their conversations there again.
+    private func laterArchiveRevert(_ restore: [Snooze.Change]) -> () -> Void {
+        let engine = environment.engine
+        return { [weak self] in
+            do {
+                try engine.setSnoozes(restore, performing: [])
+            } catch {
+                Self.log.error("undoing an archive in Later failed: \(String(describing: error), privacy: .public)")
+                NSSound.beep()
+                return
+            }
+            self?.confirmUndo(of: MailActionCopy.commandName(for: .archive))
+            self?.reselect(restore.map(\.conversationID), inLater: true)
+        }
+    }
+
+    /// “Undid Snooze”: the confirmation an undo of a Later step shows, as a mail action's does.
+    private func confirmUndo(of command: String) {
+        listPane.toasts.show("Undid \(command)", kind: .confirmation, symbol: Quire.Icon.undone)
+    }
+
     // MARK: Rows dropped on the rail (§5.2)
 
     /// Whether the rail's folder `tile` takes these dragged conversations. `RailDrop` decides from the rows as
@@ -1248,14 +1531,27 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         }
         defer { UndoSendPanel.refreshUndoKeyOwner() }
         guard let change = group.change else {
+            groupsFromLater.remove(groupID)
             externalUndos.removeValue(forKey: groupID)?()
             return true
         }
+        let fromLater = groupsFromLater.remove(groupID) != nil
         do {
-            for record in group.records.reversed() {
-                for step in record.inverse {
-                    try environment.engine.perform(step.change, on: step.targets)
+            // A Move to Inbox or Move to Trash that ended a snooze puts it back with the inverse steps, in one transaction,
+            // so the conversation never shows in the Inbox between the two; an Archive or Move to Trash of a conversation
+            // back from Later puts its return mark back, so the row returns under Today with its Back tag.
+            let snoozes = group.records.compactMap { record -> Snooze.Change? in
+                guard let id = record.conversation, record.snoozedUntil != nil || record.returnedAt != nil else { return nil }
+                return Snooze.Change(conversationID: id, until: record.snoozedUntil, returnedAt: record.returnedAt)
+            }
+            if snoozes.isEmpty {
+                for record in group.records.reversed() {
+                    for step in record.inverse {
+                        try environment.engine.perform(step.change, on: step.targets)
+                    }
                 }
+            } else {
+                try environment.engine.setSnoozes(snoozes, performing: group.records.reversed().flatMap(\.inverse))
             }
         } catch {
             Self.log.error("undo failed: \(String(describing: error), privacy: .public)")
@@ -1266,10 +1562,23 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         let restored = group.records.compactMap(\.conversation)
         if !restored.isEmpty, [.archive, .trash, .moveToInbox, .restoreFromTrash].contains(change) {
             // The rows come back; put the selection on them so the user sees what was restored.
-            list.selectConversations(restored, lead: restored.last)
-            present(selection: restored.count > 1 ? restored : [restored[0]])
+            reselect(restored, inLater: fromLater)
         }
         return true
+    }
+
+    /// Puts the selection on conversations an undo brought back. Back in Later when the action was taken there and Later
+    /// emptied meanwhile, sending the window to the Inbox: the snooze is restored, so Later shows again. Not when the user
+    /// has since picked a view or a scope, or typed a search, which the undo leaves as they are.
+    private func reselect(_ restored: [ConversationID], inLater: Bool) {
+        guard !restored.isEmpty else { return }
+        if inLater, leftLaterAsItEmptied, mailboxView != .later, searchText.isEmpty {
+            // Read now rather than on the observation's next delivery, so the tile and the view agree at once.
+            if let current = try? environment.store.snoozes() { snoozesChanged(current) }
+            setView(.later)
+        }
+        list.selectConversations(restored, lead: restored.last)
+        present(selection: restored.count > 1 ? restored : [restored[0]])
     }
 
     /// The provider refused an action and the store put the row back (§5.7): say so.
@@ -1299,7 +1608,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         case .forward(let id):
             compose(.forward(id), accountID: id.accountID)
         case .archive(let id):
-            mailAction(.archive, on: [id])
+            archive([id])
         case .star(let id, let starred):
             mailAction(.setStarred(starred), on: [id])
         case .trash(let id):
@@ -1307,7 +1616,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         case .moveToInbox(let id):
             mailAction(.moveToInbox, on: [id])
         case .applyToSelection(let change, let ids):
-            mailAction(change, on: ids)
+            if change == .archive { archive(ids) } else { mailAction(change, on: ids) }
         case .openAttachment:
             // The reader already opened Quick Look.
             break
@@ -1487,8 +1796,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
     // MARK: Context menu (§5.35)
 
-    /// Rows and messages share one menu acting on the selection: Reply · Reply All · Forward · — · Archive ·
-    /// Star · Mark as Unread · Move to Inbox · — · Move to Trash, each with its symbol and shortcut. Items
+    /// Rows and messages share one menu acting on the selection: Reply · Reply All · Forward · — · Archive · Later ›
+    /// · Star · Mark as Unread · Move to Inbox · — · Move to Trash, each with its symbol and shortcut. Items
     /// that do not apply stay visible, disabled, through the same validation as the Message menu, so the two
     /// never disagree.
     func selectionContextMenu() -> NSMenu {
@@ -1499,6 +1808,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             MainMenu.item("Forward", #selector(forwardSelection(_:)), "f", [], symbol: Quire.Icon.forward, target: self),
             .separator(),
             MainMenu.item("Archive", #selector(archiveSelection(_:)), "e", [], symbol: Quire.Icon.archive, target: self),
+            laterSubmenuItem(),
             MainMenu.item("Star", #selector(toggleStarSelection(_:)), "s", [], symbol: Quire.Icon.star, target: self),
             MainMenu.item("Mark as Unread", #selector(markSelectionUnread(_:)), "u", [], symbol: Quire.Icon.markUnread, target: self),
             MainMenu.item("Move to Inbox", #selector(moveSelectionToInbox(_:)), "I", [.shift], symbol: Quire.Icon.moveToInbox, target: self),
@@ -1511,7 +1821,28 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
     // MARK: Menu actions (first responder)
 
-    @objc func archiveSelection(_ sender: Any?) { mailAction(.archive) }
+    @objc func archiveSelection(_ sender: Any?) { archive() }
+    /// Message › Later… (L): the Later menu at the selection, as the key shows it.
+    @objc func laterSelection(_ sender: Any?) { showLaterMenu() }
+    /// A preset of the Later menu, or of the context menu's Later submenu: its time is the item's.
+    @objc func snoozeSelectionUntil(_ sender: Any?) {
+        guard let item = sender as? NSMenuItem, let date = LaterMenu.date(of: item) else { return }
+        snooze(selectedIDs, until: date)
+    }
+    /// Pick a Date…: the sheet, for the conversations selected now.
+    @objc func pickSnoozeDate(_ sender: Any?) {
+        // The sheet counts what would be snoozed (“these 3”), not a conversation with nothing to put away.
+        let ids = snoozable(snoozableSelection).map(\.id)
+        guard !ids.isEmpty else {
+            if !snoozableSelection.isEmpty { NSSound.beep() }
+            return
+        }
+        let picker = LaterDatePicker(count: ids.count, now: laterNow)
+        presentLaterDatePicker(picker, window) { [weak self] date in
+            guard let self, let date else { return }
+            self.snooze(ids, until: date)
+        }
+    }
     @objc func trashSelection(_ sender: Any?) { mailAction(.trash) }
     @objc func moveSelectionToInbox(_ sender: Any?) { moveSelectionToInbox() }
     @objc func toggleStarSelection(_ sender: Any?) {
@@ -1572,6 +1903,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         case #selector(archiveSelection(_:)):
             // Plain-letter and ⌘⌫ equivalents must not fire while the user is typing.
             return !showingWelcome && !typing && list.selectedConversationID != nil
+        case #selector(laterSelection(_:)), #selector(snoozeSelectionUntil(_:)), #selector(pickSnoozeDate(_:)):
+            // Nothing is snoozed from the Trash or Drafts (§5.45).
+            return !showingWelcome && !typing && canSnoozeSelection
         case #selector(toggleStarSelection(_:)):
             if case .setStarred(let star)? = starChangeForSelection { menuItem.title = star ? "Star" : "Unstar" }
             return !showingWelcome && !typing && list.selectedConversationID != nil
@@ -1598,6 +1932,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             return !showingWelcome && (menuItem.tag == 0 || menuItem.tag <= accounts.count)
         case #selector(goToMailboxView(_:)):
             menuItem.state = MailboxView.allCases.indices.contains(menuItem.tag) && MailboxView.allCases[menuItem.tag] == mailboxView ? .on : .off
+            if MailboxView.allCases.indices.contains(menuItem.tag), MailboxView.allCases[menuItem.tag] == .later { return !showingWelcome && showsLater }
             return !showingWelcome
         case #selector(toggleAccountStrip(_:)):
             menuItem.title = stripItem.isCollapsed ? "Show Account Rail" : "Hide Account Rail"
@@ -1633,14 +1968,15 @@ enum PendingSignIn: Equatable {
 #if DEBUG
 extension MainWindowController {
     /// `--snapshot-state=key,notkey,minimal,narrowed,adding,reconnect,signin,toast,search,focus-rail,focus-folder,
-    /// focus-action,hover-demo,hover-masthead,many-accounts,ic,graphite` (debug builds; `several` is applied where the
-    /// first selection is made):
+    /// focus-action,hover-demo,hover-masthead,many-accounts,ic,graphite,snoozed,later,back,later-menu,later-sheet` (debug
+    /// builds; `several` is applied where the first selection is made):
     /// puts the window in the named states before `--snapshot` captures it, so every state of the chrome can be
     /// compared with the specimen without a screen recording.
     fileprivate func applyDebugSnapshotStates() {
         guard let argument = CommandLine.arguments.first(where: { $0.hasPrefix("--snapshot-state=") }) else { return }
         let states = Set(argument.dropFirst("--snapshot-state=".count).split(separator: ",").map(String.init))
         let second = accounts.dropFirst().first
+        applyDebugLaterStates(states)
         if states.contains("ic") || states.contains("graphite") {
             QuireEnvironment.shared.setOverrides(QuireEnvironment.Overrides(
                 isGraphite: states.contains("graphite") ? true : nil, increaseContrast: states.contains("ic") ? true : nil))
@@ -1714,6 +2050,11 @@ extension MainWindowController {
             forceKey(listPane.header)
             forceKey(listPane.statusBar)
         }
+        if states.contains("later-menu") || states.contains("later-sheet") {
+            // The menu and the sheet open over this window once it is written; it must be on screen and in front.
+            window?.orderFrontRegardless()
+            NSApp.activate()
+        }
         if states.contains("notkey") {
             // A borderless window far off screen takes key, so this one draws its not-key marks.
             let stealer = NSWindow(contentRect: NSRect(x: -10_000, y: -10_000, width: 10, height: 10), styleMask: [.titled],
@@ -1721,6 +2062,71 @@ extension MainWindowController {
             stealer.isReleasedWhenClosed = false
             stealer.makeKeyAndOrderFront(nil)
             debugKeyStealer = stealer
+        }
+    }
+
+    /// `back`: an older Inbox conversation came back from Later just now, so it sorts under Today with its Back tag.
+    /// `snoozed`: three Inbox conversations are snoozed (Later Today or This Evening, Tomorrow, Next Week), so the
+    /// Later tile shows. `later`: the same, in the Later view. Written to the demo store through its own calls, as the
+    /// window and the snooze runner write them, before the first selection.
+    fileprivate func applyDebugLaterStates(_ states: Set<String>) {
+        let wantsSnoozes = states.contains("snoozed") || states.contains("later") || states.contains("later-menu")
+            || states.contains("later-sheet")
+        guard states.contains("back") || wantsSnoozes else { return }
+        let store = environment.store
+        let now = Date()
+        func archive(_ id: ConversationID) -> [SSCore.Operation] {
+            let targets = ((try? store.messages(in: id)) ?? []).filter(\.isInInbox).map(\.id)
+            return targets.isEmpty ? [] : [SSCore.Operation(accountID: id.accountID, change: .archive, targets: targets, createdAt: now)]
+        }
+        if states.contains("back") {
+            let inbox = list.conversations
+            if inbox.count > 6 {
+                let id = inbox[6].id
+                try? store.setSnoozes([Snooze.Change(conversationID: id, until: now.addingTimeInterval(-60))], enqueueing: archive(id),
+                                      at: now.addingTimeInterval(-3_600))
+                _ = try? store.returnDueSnoozes(at: now, limit: 1) { conversation, messages in
+                    var operations = [SSCore.Operation(accountID: conversation.accountID, change: .moveToInbox, targets: messages.map(\.id),
+                                                       createdAt: now)]
+                    if let latest = messages.last {
+                        operations.append(SSCore.Operation(accountID: conversation.accountID, change: .setRead(false), targets: [latest.id],
+                                                           createdAt: now))
+                    }
+                    return operations
+                }
+            }
+        }
+        if wantsSnoozes {
+            let inbox = list.conversations.filter { $0.returnedAt == nil }
+            let times = LaterPreset.offered(at: now, calendar: .autoupdatingCurrent).map(\.date)
+            for (index, row) in inbox.dropFirst(1).prefix(3).enumerated() {
+                let due = times.indices.contains(index + 1) ? times[index + 1] : now.addingTimeInterval(Double(index + 1) * 86_400)
+                try? store.setSnoozes([Snooze.Change(conversationID: row.id, until: due)], enqueueing: archive(row.id), at: now)
+            }
+        }
+        // The observation would bring these on the next turn; the first selection is made now.
+        if let current = try? store.snoozes() { snoozesChanged(current) }
+        if states.contains("later") { setView(.later) }
+    }
+
+    /// `later-menu` and `later-sheet`, once `path`'s window snapshot is written: opens the Later menu at the first row,
+    /// or Pick a Date…, on screen, and writes the window's frame in screen points from the top-left (`x y w h`) to
+    /// `path` + `.rect`, so `screencapture -R` can take the window with the system's menu or sheet over it.
+    func openDebugLaterSurfaces(besides path: String) {
+        guard let argument = CommandLine.arguments.first(where: { $0.hasPrefix("--snapshot-state=") }) else { return }
+        let states = Set(argument.dropFirst("--snapshot-state=".count).split(separator: ",").map(String.init))
+        guard states.contains("later-menu") || states.contains("later-sheet"), let window else { return }
+        window.orderFrontRegardless()
+        NSApp.activate()
+        let screenHeight = NSScreen.screens.first?.frame.height ?? window.frame.maxY
+        let frame = window.frame
+        let rect = "\(Int(frame.minX)) \(Int(screenHeight - frame.maxY)) \(Int(frame.width)) \(Int(frame.height))\n"
+        try? rect.write(toFile: path + ".rect", atomically: true, encoding: .utf8)
+        if states.contains("later-sheet") {
+            pickSnoozeDate(nil)
+        } else {
+            window.makeFirstResponder(list.tableView)
+            showLaterMenu()
         }
     }
 }

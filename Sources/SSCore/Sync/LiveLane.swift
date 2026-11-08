@@ -66,6 +66,10 @@ actor LiveLane {
     private let isAppActive: @Sendable () -> Bool
     /// Told once, after this lane's first cycle: the moment the engine's per-launch storage sweep waits for.
     private let firstCycleEnded: @Sendable () -> Void
+    /// Told as each full cycle begins, and when one ends with its poll caught up: the snooze runner holds a due return
+    /// until a check that began after its time has brought in what came meanwhile (`SnoozeRunner`).
+    private let checkStarted: @Sendable () -> Void
+    private let checkCaughtUp: @Sendable () -> Void
     private var reportedFirstCycle = false
     private var phase: AccountSyncPhase = .idle
     private var consecutiveFailures = 0
@@ -101,7 +105,9 @@ actor LiveLane {
         budget: QuotaBudget,
         link: LaneLink,
         isAppActive: @escaping @Sendable () -> Bool,
-        firstCycleEnded: @escaping @Sendable () -> Void = {}
+        firstCycleEnded: @escaping @Sendable () -> Void = {},
+        checkStarted: @escaping @Sendable () -> Void = {},
+        checkCaughtUp: @escaping @Sendable () -> Void = {}
     ) {
         self.accountID = accountID
         self.store = store
@@ -115,6 +121,8 @@ actor LiveLane {
         self.link = link
         self.isAppActive = isAppActive
         self.firstCycleEnded = firstCycleEnded
+        self.checkStarted = checkStarted
+        self.checkCaughtUp = checkCaughtUp
     }
 
     // MARK: Loop
@@ -233,6 +241,7 @@ actor LiveLane {
     }
 
     private func runCycle(full: Bool, requested: Bool) async -> CycleOutcome {
+        if full { checkStarted() }
         do {
             if try store.syncCursor(for: accountID) == nil, try !adoptCheckpointCursor(), full {
                 try await fetchHead()
@@ -247,7 +256,9 @@ actor LiveLane {
                 }
             }
             // A poll held back has not caught up: "checked" would claim it had.
-            setPhase(.idle, markSuccess: full && pollAfter == nil)
+            let caughtUp = full && pollAfter == nil
+            setPhase(.idle, markSuccess: caughtUp)
+            if caughtUp { checkCaughtUp() }
             return .completed(nextAttemptAt: nextAttemptAt, pollAfter: pollAfter)
         } catch is CancellationError {
             return .cancelled

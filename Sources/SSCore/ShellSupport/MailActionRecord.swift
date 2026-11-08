@@ -20,6 +20,13 @@ public struct MailActionRecord: Sendable {
     public var targets: [MessageID]
     public var inverse: [Step]
     public var conversation: ConversationID?
+    /// The conversation's snooze before the action, when it had one: Move to Inbox and Move to Trash end a snooze, and
+    /// their undo puts it back with the inverse steps, in one transaction (`MailClient.setSnoozes`).
+    public var snoozedUntil: Date?
+    /// When the conversation came back from Later, when it had (`ConversationSummary.returnedAt`): Archive and Move to
+    /// Trash take it out of the Inbox, which ends the mark, and their undo puts it back with the inverse steps, so the
+    /// row returns under Today with its Back tag rather than under its old date.
+    public var returnedAt: Date?
 
     /// The messages of a conversation that a conversation-level action should touch.
     ///
@@ -45,6 +52,14 @@ public struct MailActionRecord: Sendable {
         default:
             return messages
         }
+    }
+
+    /// The messages a snoozed conversation's return moves to the Inbox, at its time (`SnoozeRunner`) or now (⇧I or a drop
+    /// on the Inbox tile while it is snoozed): the mail the snooze put away. Never a message in the Trash or Spam, which
+    /// Move to Inbox's own rule would bring back alone (“from the Trash”), leaving the snoozed mail archived; on
+    /// Microsoft not the user's own copies in Sent Items and Drafts either, as Move to Inbox leaves them.
+    public static func returnTargets(in messages: [MessageMetadata], kind: ProviderKind) -> [MessageMetadata] {
+        targets(for: .moveToInbox, in: messages.filter { $0.roles.isDisjoint(with: [.trash, .spam]) }, kind: kind)
     }
 
     /// The messages the action actually changes and the steps that restore them, or nil when it changes nothing.
@@ -84,7 +99,9 @@ public struct MailActionRecord: Sendable {
         return MailActionRecord(title: title, change: change, targets: ids, inverse: inverse, conversation: conversation)
     }
 
-    private static func isOwnFolderCopy(_ message: MessageMetadata) -> Bool {
+    /// The user's own sent message or draft in Sent Items or Drafts, which Microsoft's trash and move-to-inbox leave
+    /// there. A snooze and its return count it out too (`Snooze.canHold`, `SnoozeTable`, `returnTargets`).
+    static func isOwnFolderCopy(_ message: MessageMetadata) -> Bool {
         !message.roles.contains(.inbox) && (message.roles.contains(.sent) || message.roles.contains(.drafts))
     }
 }

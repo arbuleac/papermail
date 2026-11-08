@@ -26,6 +26,12 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
     /// `backfill_seen`: what a reconciling backfill's listing has returned.
     private var backfillSeen: Set<MessageID> = []
     private var contactCounts: [AccountID: [String: (name: String?, count: Int, lastSeen: Date)]] = [:]
+    /// `snoozes`: kept when a wipe drops the conversation, as the SQLite store keeps them (the rules are written out on
+    /// `SnoozeTable`). Dates are held to the millisecond, as that store keeps them.
+    private var snoozeRows: [ConversationID: Snooze] = [:]
+    /// `conversations.returned_at`: what a refresh keeps, so it is checked whenever a conversation is touched.
+    private var returnedMarks: [ConversationID: Date] = [:]
+    private var snoozeObservers: [UUID: SnoozeObserver] = [:]
     private var conversationObservers: [UUID: (ConversationQuery, ([ConversationSummary]) -> Void)] = [:]
     private var messageObservers: [UUID: (ConversationID, ([MessageMetadata]) -> Void)] = [:]
     private var sendObservers: [UUID: ([PendingSend]) -> Void] = [:]
@@ -53,6 +59,8 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         accountRows[id] = nil
         wipeLocked(id)
+        // The foreign key removes them in the SQLite store; a wipe alone keeps them.
+        snoozeRows = snoozeRows.filter { $0.key.accountID != id }
         for operation in operations.values where operation.accountID == id { priors[operation.id] = nil }
         operations = operations.filter { $0.value.accountID != id }
         sends = sends.filter { $0.value.message.accountID != id }
@@ -119,6 +127,8 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         contactCounts[accountID] = nil
         clearBackfillMarksLocked(accountID)
         dropOrphanedMarksLocked()
+        // The summary rows go with the wipe, and the return mark lives on them; the snoozes stay.
+        returnedMarks = returnedMarks.filter { $0.key.accountID != accountID }
     }
 
     /// The SQLite store keeps the mark on the summary row, which goes when a conversation has no non-spam
@@ -140,6 +150,7 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
     /// The one write path for provider metadata, shared by `upsertMessages` and `writeBackfillMessages` as
     /// `MessageTable.upsert` is in the SQLite store.
     private func upsertLocked(_ messages: [MessageMetadata]) {
+        var touched: Set<ConversationID> = []
         for incoming in messages {
             var metadata = incoming
             // Pending operations win: provider state older than a queued intent must not undo it. Each one's
@@ -148,10 +159,15 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
                 priors[op.id, default: [:]][incoming.id] = Prior(metadata)
                 metadata = applying(op.change, to: metadata)
             }
+            let previous = messagesByID[incoming.id]
+            if let previous { touched.insert(previous.conversationID) }
             messagesByID[incoming.id] = metadata
+            touched.insert(metadata.conversationID)
+            if previous == nil { endSnoozeForArrivalLocked(of: metadata) }
             recordContacts(of: metadata)
         }
         dropOrphanedMarksLocked()
+        applySnoozeRulesLocked(touched: touched)
     }
 
     public func deleteMessages(_ ids: [MessageID]) throws {
@@ -161,12 +177,15 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
     }
 
     private func deleteLocked(_ ids: [MessageID]) {
+        var touched: Set<ConversationID> = []
         for id in ids {
+            if let message = messagesByID[id] { touched.insert(message.conversationID) }
             messagesByID[id] = nil
             bodies[id] = nil
             evicted.remove(id)
         }
         dropOrphanedMarksLocked()
+        applySnoozeRulesLocked(touched: touched)
     }
 
     public func message(_ id: MessageID) throws -> MessageMetadata? {
@@ -363,6 +382,7 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
     }
 
     private func conversationsLocked(_ query: ConversationQuery) -> [ConversationSummary] {
+        let isLater = query.view == .later
         var grouped: [ConversationID: [MessageMetadata]] = [:]
         for message in messagesByID.values {
             if let ids = query.accountIDs, !ids.contains(message.id.accountID) { continue }
@@ -371,11 +391,12 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         let search = query.searchText?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
         var result: [ConversationSummary] = []
         for (id, messages) in grouped {
-            guard let summary = summarize(id: id, messages: messages) else { continue }
+            guard var summary = summarize(id: id, messages: messages) else { continue }
             guard matches(summary, view: query.view) else { continue }
             if let section = query.section, summary.inboxSection != section { continue }
             if query.unreadOnly, summary.unreadCount == 0 { continue }
-            if let before = query.before, summary.latestDate >= before { continue }
+            if let before = query.before, !isLater, Self.sortDate(of: summary, in: query.view) >= before { continue }
+            if isLater { summary.snoozedUntil = snoozeRows[id]?.dueAt }
             if !search.isEmpty {
                 let haystack = ([summary.subject] + summary.participants.map { ($0.name ?? "") + " " + $0.address }
                     + messages.compactMap { bodies[$0.id]?.plainText }).joined(separator: " ").lowercased()
@@ -383,8 +404,23 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
             }
             result.append(summary)
         }
-        result.sort { ($0.latestDate, $0.id.providerID) > ($1.latestDate, $1.id.providerID) }
+        if isLater {
+            // Soonest first, as the SQLite store orders `snoozes.due_at`.
+            result.sort { lhs, rhs in
+                let left = (MailStoreCodec.milliseconds(lhs.snoozedUntil ?? .distantFuture), lhs.id.accountID.rawValue, lhs.id.providerID)
+                let right = (MailStoreCodec.milliseconds(rhs.snoozedUntil ?? .distantFuture), rhs.id.accountID.rawValue, rhs.id.providerID)
+                return left < right
+            }
+        } else {
+            let view = query.view
+            result.sort { (Self.sortDate(of: $0, in: view), $0.id.providerID) > (Self.sortDate(of: $1, in: view), $1.id.providerID) }
+        }
         return Array(result.prefix(query.limit))
+    }
+
+    /// The date a view sorts and pages by: the Inbox's own (`inboxDate`), every other view's the latest message's.
+    private static func sortDate(of summary: ConversationSummary, in view: MailboxView) -> Date {
+        view == .inbox ? summary.inboxDate : summary.latestDate
     }
 
     private func matches(_ summary: ConversationSummary, view: MailboxView) -> Bool {
@@ -395,6 +431,7 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         case .drafts: return summaryFlags[summary.id]?.inDrafts == true && !summaryIsTrash(summary)
         case .trash: return summaryIsTrash(summary)
         case .all: return summary.messageCount > 0 && !summaryIsTrash(summary)
+        case .later: return snoozeRows[summary.id] != nil
         }
     }
 
@@ -444,8 +481,14 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
             inboxSection: section,
             latestMessageID: latest.id,
             hasPendingOperations: pending,
-            failedOperation: failedMarks[id]
+            failedOperation: failedMarks[id],
+            returnedAt: returnedMarks[id]
         )
+    }
+
+    /// The conversation's summary as a refresh would leave it, or nil when it has none (no message outside Spam).
+    private func summaryLocked(_ id: ConversationID) -> ConversationSummary? {
+        summarize(id: id, messages: messagesLocked(in: id))
     }
 
     public func observeConversations(_ query: ConversationQuery, onChange: @escaping @Sendable ([ConversationSummary]) -> Void) -> StoreObservation {
@@ -480,10 +523,140 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
             .reduce(0) { $0 + $1.unreadCount }
     }
 
+    // MARK: Snoozes (the rules are written out on `SnoozeTable`)
+
+    private struct SnoozeObserver {
+        var last: [Snooze]?
+        var callback: ([Snooze]) -> Void
+    }
+
+    public func snoozes() throws -> [Snooze] {
+        lock.lock(); defer { lock.unlock() }
+        return snoozesLocked()
+    }
+
+    /// Only those whose conversation has a summary, soonest first, as the SQLite store joins and orders them.
+    private func snoozesLocked() -> [Snooze] {
+        snoozeRows.values
+            .filter { summaryLocked($0.conversationID) != nil }
+            .sorted { lhs, rhs in
+                (MailStoreCodec.milliseconds(lhs.dueAt), lhs.conversationID.accountID.rawValue, lhs.conversationID.providerID)
+                    < (MailStoreCodec.milliseconds(rhs.dueAt), rhs.conversationID.accountID.rawValue, rhs.conversationID.providerID)
+            }
+    }
+
+    public func setSnoozes(_ changes: [Snooze.Change], enqueueing operations: [Operation], at now: Date) throws {
+        lock.lock(); defer { lock.unlock() }
+        guard !changes.isEmpty || !operations.isEmpty else { return }
+        for operation in operations { enqueueLocked(operation) }
+        let created = Self.storedDate(now)
+        for change in changes {
+            let id = change.conversationID
+            if let returnedAt = change.returnedAt { markReturnedLocked(id, at: returnedAt) }
+            guard let until = change.until else {
+                snoozeRows[id] = nil
+                continue
+            }
+            guard holdsSnoozeLocked(id) else { continue }
+            snoozeRows[id] = Snooze(conversationID: id, dueAt: Self.storedDate(until), createdAt: created)
+        }
+        notifyAll()
+    }
+
+    /// `SnoozeTable.markReturned`: only a conversation in the Inbox whose newest mail is older takes the mark.
+    private func markReturnedLocked(_ id: ConversationID, at date: Date) {
+        guard let summary = summaryLocked(id), summary.inInbox,
+              MailStoreCodec.milliseconds(summary.latestDate) < MailStoreCodec.milliseconds(date) else { return }
+        returnedMarks[id] = Self.storedDate(date)
+    }
+
+    @discardableResult
+    public func returnDueSnoozes(at now: Date, dueBy: [AccountID: Date], limit: Int,
+                                 operations: (ConversationID, [MessageMetadata]) -> [Operation]) throws -> [ConversationID] {
+        lock.lock(); defer { lock.unlock() }
+        let nowMS = MailStoreCodec.milliseconds(now)
+        let due = snoozeRows.values
+            .filter { snooze in
+                let dueMS = MailStoreCodec.milliseconds(snooze.dueAt)
+                return dueMS <= nowMS && dueBy[snooze.conversationID.accountID].map { dueMS <= MailStoreCodec.milliseconds($0) } ?? true
+            }
+            .sorted { lhs, rhs in
+                (MailStoreCodec.milliseconds(lhs.dueAt), lhs.conversationID.accountID.rawValue, lhs.conversationID.providerID)
+                    < (MailStoreCodec.milliseconds(rhs.dueAt), rhs.conversationID.accountID.rawValue, rhs.conversationID.providerID)
+            }
+            .prefix(max(0, limit))
+        guard !due.isEmpty else { return [] }
+        var returned: [ConversationID] = []
+        for snooze in due {
+            let id = snooze.conversationID
+            snoozeRows[id] = nil
+            let messages = messagesLocked(in: id)
+            guard !messages.isEmpty else { continue }
+            for operation in operations(id, messages) where !operation.targets.isEmpty { enqueueLocked(operation) }
+            returned.append(id)
+        }
+        for id in returned { markReturnedLocked(id, at: now) }
+        notifyAll()
+        return returned
+    }
+
+    public func observeSnoozes(onChange: @escaping @Sendable ([Snooze]) -> Void) -> StoreObservation {
+        lock.lock(); defer { lock.unlock() }
+        let token = UUID()
+        let current = snoozesLocked()
+        snoozeObservers[token] = SnoozeObserver(last: current, callback: onChange)
+        deliver { onChange(current) }
+        return StoreObservation { [weak self] in
+            guard let self else { return }
+            self.lock.lock(); defer { self.lock.unlock() }
+            self.snoozeObservers[token] = nil
+        }
+    }
+
+    /// Mail new to the store arrived: a snooze set before it was received ends, unless it is the user's own or spam.
+    private func endSnoozeForArrivalLocked(of message: MessageMetadata) {
+        guard message.roles.isDisjoint(with: [.sent, .drafts, .spam]), let snooze = snoozeRows[message.conversationID],
+              MailStoreCodec.milliseconds(snooze.createdAt) < MailStoreCodec.milliseconds(message.date) else { return }
+        snoozeRows[message.conversationID] = nil
+    }
+
+    /// What the SQLite store's summary refresh does for the conversations a write touched: a snooze ends once its
+    /// conversation no longer holds mail put away (in the Inbox, in the Trash or gone), and the return mark stays only
+    /// while the conversation is in the Inbox and its newest mail is older.
+    private func applySnoozeRulesLocked(touched: Set<ConversationID>) {
+        guard !snoozeRows.isEmpty || !returnedMarks.isEmpty else { return }
+        for id in touched where snoozeRows[id] != nil || returnedMarks[id] != nil {
+            let summary = summaryLocked(id)
+            if let returned = returnedMarks[id],
+               !(summary.map { $0.inInbox && MailStoreCodec.milliseconds(returned) > MailStoreCodec.milliseconds($0.latestDate) } ?? false) {
+                returnedMarks[id] = nil
+            }
+            if snoozeRows[id] != nil, !holdsSnoozeLocked(id) {
+                snoozeRows[id] = nil
+            }
+        }
+    }
+
+    /// `SnoozeTable.holdsSnooze`, in the words of `Snooze.canHold`: the conversation is stored, out of the Inbox and out
+    /// of the Trash, and its mail other than the user's own copies is not all in the Trash.
+    private func holdsSnoozeLocked(_ id: ConversationID) -> Bool {
+        Snooze.canHold(messagesLocked(in: id))
+    }
+
+    /// A date as the SQLite store reads it back: to the millisecond.
+    private static func storedDate(_ date: Date) -> Date {
+        MailStoreCodec.date(MailStoreCodec.milliseconds(date))
+    }
+
     // MARK: Operations
 
     public func enqueue(_ operation: Operation) throws {
         lock.lock(); defer { lock.unlock() }
+        enqueueLocked(operation)
+        notifyAll()
+    }
+
+    private func enqueueLocked(_ operation: Operation) {
         for target in operation.targets {
             if let current = messagesByID[target] {
                 priors[operation.id, default: [:]][target] = Prior(current)
@@ -493,7 +666,7 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         let previous = operations[operation.id]?.status
         operations[operation.id] = operation
         operationWrittenLocked(operation, previousStatus: previous)
-        notifyAll()
+        applySnoozeRulesLocked(touched: conversationsLocked(targetedBy: operation))
     }
 
     public func pendingOperations(accountID: AccountID, limit: Int) throws -> [Operation] {
@@ -511,6 +684,7 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         operations[operation.id] = operation
         if operation.status == .failed, let previous, previous.isLive { giveBackLocked(operation) }
         operationWrittenLocked(operation, previousStatus: previous)
+        applySnoozeRulesLocked(touched: conversationsLocked(targetedBy: operation))
         notifyAll()
     }
 
@@ -555,7 +729,10 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
 
     private func removeOperationLocked(id: String) -> Operation? {
         priors[id] = nil
-        return operations.removeValue(forKey: id)
+        let removed = operations.removeValue(forKey: id)
+        // The SQLite store refreshes the conversations of a removed operation's targets, which runs the snooze rules.
+        if let removed { applySnoozeRulesLocked(touched: conversationsLocked(targetedBy: removed)) }
+        return removed
     }
 
     // MARK: Giving up (the rules are written out on `OperationTable.giveBack`)
@@ -743,9 +920,19 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         let messageSnapshot = messageObservers.values.map { (id, callback) in
             (callback, messagesLocked(in: id))
         }
+        // Only a changed list, as the SQLite store's observation removes duplicates.
+        var snoozeSnapshot: [(([Snooze]) -> Void, [Snooze])] = []
+        if !snoozeObservers.isEmpty {
+            let current = snoozesLocked()
+            for (token, observer) in snoozeObservers where observer.last != current {
+                snoozeObservers[token]?.last = current
+                snoozeSnapshot.append((observer.callback, current))
+            }
+        }
         deliver {
             for (callback, value) in conversationSnapshot { callback(value) }
             for (callback, value) in messageSnapshot { callback(value) }
+            for (callback, value) in snoozeSnapshot { callback(value) }
         }
     }
 

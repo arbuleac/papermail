@@ -386,4 +386,49 @@ final class ConversationRowTextTests: XCTestCase {
             )
         }
     }
+
+    // MARK: Later
+
+    /// In the Inbox a conversation back from Later shows when it came back and carries “Back” while unread; Later's rows
+    /// read “Back” and when; every other view shows the latest message's time and no tag.
+    func testBackFromLaterAndLatersTimes() {
+        let lastWeek = now.addingTimeInterval(-8 * 86_400)
+        let cameBack = now.addingTimeInterval(-3_600) // 13:05 today
+        var back = summary(date: lastWeek, unreadCount: 1)
+        back.returnedAt = cameBack
+        let inbox = text(back, .init(timeStyle: .timeOfDay, timeSource: .inbox))
+        XCTAssertEqual(inbox.timeText, "13:05")
+        XCTAssertTrue(inbox.showsBackTag)
+        XCTAssertTrue(inbox.accessibilityLabel.hasPrefix("Unread. Back from Later."), inbox.accessibilityLabel)
+        XCTAssertEqual(back.inboxDate, cameBack)
+
+        var read = back
+        read.unreadCount = 0
+        XCTAssertFalse(text(read, .init(timeStyle: .timeOfDay, timeSource: .inbox)).showsBackTag, "read: no tag")
+        XCTAssertEqual(text(read, .init(timeStyle: .timeOfDay, timeSource: .inbox)).timeText, "13:05", "but still the time it came back")
+        let all = text(back, .init(timeSource: .latestMessage))
+        XCTAssertFalse(all.showsBackTag, "only the Inbox shows it")
+        XCTAssertEqual(all.timeText, "26 Feb")
+
+        // A return older than newer mail is no return: the mail's own date, no tag.
+        var overtaken = summary(date: now.addingTimeInterval(-60), unreadCount: 1)
+        overtaken.returnedAt = now.addingTimeInterval(-600)
+        XCTAssertEqual(overtaken.inboxDate, overtaken.latestDate)
+        XCTAssertFalse(text(overtaken, .init(timeSource: .inbox)).showsBackTag)
+
+        var snoozed = summary(date: lastWeek)
+        snoozed.snoozedUntil = now.addingTimeInterval(86_400 - 5 * 3_600 - 300) // tomorrow 09:00
+        let later = text(snoozed, .init(timeSource: .snoozeEnd))
+        XCTAssertEqual(later.timeText, "Back Fri 09:00")
+        XCTAssertTrue(later.accessibilityLabel.contains("Back Fri 09:00."), later.accessibilityLabel)
+        snoozed.snoozedUntil = now.addingTimeInterval(3_600 - 300) // 15:00 today
+        XCTAssertEqual(text(snoozed, .init(timeSource: .snoozeEnd)).timeText, "Back 15:00")
+
+        // The cache key moves with the return, the snooze and the source.
+        let plain = ConversationRowText.cacheKey(for: summary(date: lastWeek, unreadCount: 1), dayStamp: 1, context: .init(), environment: "e")
+        XCTAssertNotEqual(plain, ConversationRowText.cacheKey(for: back, dayStamp: 1, context: .init(), environment: "e"))
+        XCTAssertNotEqual(ConversationRowText.cacheKey(for: back, dayStamp: 1, context: .init(timeSource: .inbox), environment: "e"),
+                          ConversationRowText.cacheKey(for: back, dayStamp: 1, context: .init(), environment: "e"))
+    }
+
 }

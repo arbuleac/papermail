@@ -29,7 +29,9 @@ final class AccountSyncer: Sendable {
         budget: QuotaBudget,
         isAppActive: @escaping @Sendable () -> Bool,
         firstLiveCycleEnded: @escaping @Sendable () -> Void = {},
-        backfillEnded: @escaping @Sendable () -> Void = {}
+        backfillEnded: @escaping @Sendable () -> Void = {},
+        liveCheckStarted: @escaping @Sendable () -> Void = {},
+        liveCheckCaughtUp: @escaping @Sendable () -> Void = {}
     ) {
         self.accountID = accountID
         live = LiveLane(
@@ -44,7 +46,9 @@ final class AccountSyncer: Sendable {
             budget: budget,
             link: link,
             isAppActive: isAppActive,
-            firstCycleEnded: firstLiveCycleEnded
+            firstCycleEnded: firstLiveCycleEnded,
+            checkStarted: liveCheckStarted,
+            checkCaughtUp: liveCheckCaughtUp
         )
         backfill = BackfillLane(
             accountID: accountID,

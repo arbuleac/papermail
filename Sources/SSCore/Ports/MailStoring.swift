@@ -141,6 +141,32 @@ public protocol MailStoring: AnyObject, Sendable {
     func observeConversation(_ id: ConversationID, onChange: @escaping @Sendable ([MessageMetadata]) -> Void) -> StoreObservation
     func unreadInboxCount(accountIDs: [AccountID]?) throws -> Int
 
+    // MARK: Snoozes (docs/DATA-MODEL.md, "Snoozes")
+    // Later archives a conversation now and moves it back to the Inbox at a time. The two halves are ordinary
+    // operations; the store keeps the timer (`snoozes`) and ends a snooze on its own when the conversation is back in
+    // the Inbox, in the Trash or gone, or when mail arrives in it after it was snoozed.
+
+    /// Every snooze whose conversation is stored, soonest first.
+    func snoozes() throws -> [Snooze]
+    /// In one transaction: applies and queues `operations` as `enqueue` does, then writes each change: a date snoozes
+    /// the conversation (or moves its time), nil ends its snooze, and a `returnedAt` puts back a return mark (an undo)
+    /// where the conversation is now in the Inbox with older mail. A date is kept only for a conversation whose messages,
+    /// once the operations are applied, stand for mail put away (`Snooze.canHold`: stored, out of the Inbox, out of the
+    /// Trash, and its mail from others not all in the Trash); the window asks the same of its selection first, so it
+    /// never offers a snooze this would drop. `now` is its `createdAt`.
+    func setSnoozes(_ changes: [Snooze.Change], enqueueing operations: [Operation], at now: Date) throws
+    /// Brings back, in one transaction, up to `limit` conversations whose snooze is due by `now`, soonest first: each
+    /// snooze is deleted, the operations `operations` makes from the conversation's messages (oldest first) are applied
+    /// and queued, and the conversation, once back in the Inbox, is marked returned at `now` (`returned_at`). An account
+    /// in `dueBy` brings back only its snoozes due by that date (the engine holds back a time its account has not checked
+    /// for mail past yet). A due snooze whose conversation is gone is just deleted. Returns the conversations it brought
+    /// back.
+    @discardableResult
+    func returnDueSnoozes(at now: Date, dueBy: [AccountID: Date], limit: Int,
+                          operations: (ConversationID, [MessageMetadata]) -> [Operation]) throws -> [ConversationID]
+    /// `snoozes()` after every change to it, delivered on the main thread, the current value first.
+    func observeSnoozes(onChange: @escaping @Sendable ([Snooze]) -> Void) -> StoreObservation
+
     // MARK: Operations (outbox)
     /// In one transaction: apply `operation.change` to every target locally, insert the operation as pending,
     /// and record what it replaced on each target, which a give-up puts back (see `updateOperation`).
@@ -182,6 +208,13 @@ public protocol MailStoring: AnyObject, Sendable {
 }
 
 extension MailStoring {
+    /// `returnDueSnoozes(at:dueBy:limit:operations:)` holding nothing back.
+    @discardableResult
+    public func returnDueSnoozes(at now: Date, limit: Int,
+                                 operations: (ConversationID, [MessageMetadata]) -> [Operation]) throws -> [ConversationID] {
+        try returnDueSnoozes(at: now, dueBy: [:], limit: limit, operations: operations)
+    }
+
     /// One batch of `evictBodies(from:limit:rules:)` from the oldest message, with fixed rules.
     @discardableResult
     public func evictBodies(receivedBefore cutoff: Date, excluding: Set<MessageID>, limit: Int) throws -> Int {

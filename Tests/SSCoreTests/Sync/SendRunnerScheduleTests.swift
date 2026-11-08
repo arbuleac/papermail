@@ -306,9 +306,10 @@ final class SendRunnerScheduleTests: XCTestCase {
     }
 }
 
-/// Time the test moves by hand, for the send runner: the wall clock, the continuous clock beside it, and sleeps that
-/// end only when `advance` carries the continuous clock past them, or their task is cancelled.
-private final class HandClock: @unchecked Sendable {
+/// Time the test moves by hand, for the send runner and the snooze runner (`SnoozeRunnerTests`): the wall clock, the
+/// continuous clock beside it, and sleeps that end only when `advance` carries the continuous clock past them, or their
+/// task is cancelled.
+final class HandClock: @unchecked Sendable {
     private struct Sleeper {
         let deadline: TimeInterval
         let continuation: CheckedContinuation<Void, Error>
@@ -317,6 +318,8 @@ private final class HandClock: @unchecked Sendable {
     private let lock = NSLock()
     private var wall: Date
     private var continuous: TimeInterval = 1_000
+    /// Awake time, which stands still while the Mac sleeps (`sleepThrough`).
+    private var awakeTime: TimeInterval = 1_000
     private var sleepers: [UUID: Sleeper] = [:]
     private var requested: [TimeInterval] = []
 
@@ -326,11 +329,12 @@ private final class HandClock: @unchecked Sendable {
     }
 
     var sendClock: SendClock {
-        SendClock(now: { self.now }, uptime: { self.uptime }, sleep: { try await self.sleep($0) })
+        SendClock(now: { self.now }, uptime: { self.uptime }, sleep: { try await self.sleep($0) }, awake: { self.awake })
     }
 
     var now: Date { lock.withLock { wall } }
     var uptime: TimeInterval { lock.withLock { continuous } }
+    var awake: TimeInterval { lock.withLock { awakeTime } }
     /// Every timed wait the runner has begun, in order.
     var sleeps: [TimeInterval] { lock.withLock { requested } }
 
@@ -339,6 +343,7 @@ private final class HandClock: @unchecked Sendable {
     func advance(_ seconds: TimeInterval) -> Int {
         let due: [CheckedContinuation<Void, Error>] = lock.withLock {
             continuous += seconds
+            awakeTime += seconds
             wall = wall.addingTimeInterval(seconds)
             let ids = sleepers.filter { $0.value.deadline <= continuous }.map(\.key)
             return ids.compactMap { sleepers.removeValue(forKey: $0)?.continuation }
@@ -347,7 +352,7 @@ private final class HandClock: @unchecked Sendable {
         return due.count
     }
 
-    /// The Mac slept: both clocks moved on, and no timer has fired yet.
+    /// The Mac slept: the wall and continuous clocks moved on (not awake time), and no timer has fired yet.
     func sleepThrough(_ seconds: TimeInterval) {
         lock.withLock {
             continuous += seconds

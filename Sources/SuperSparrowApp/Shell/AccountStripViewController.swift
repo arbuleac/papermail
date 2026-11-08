@@ -19,7 +19,9 @@ enum AccountScope: Hashable {
 /// folder tiles from y = 62 (Inbox to Trash at a 44 pt pitch, a short hairline, All Mail), and at its foot the
 /// account group anchored just above Add: All Inboxes, a short hairline, the account tiles at a 50 pt pitch, then
 /// Add and Settings. The view's selection is a raised folder tile; the scope's is the margin rule at x = 0.
-/// Inbox, Starred, Trash and All Mail take rows dragged from the list; the window decides and acts.
+/// Inbox, Starred, Trash and All Mail take rows dragged from the list; the window decides and acts. While something in
+/// the scope is snoozed a Later tile shows directly below Inbox, and every folder below it, the hairline and All Mail
+/// included, moves down one pitch; it takes no drop.
 ///
 /// The account group rises as accounts are added until All Inboxes would come within `groupGap` of All Mail;
 /// from then on the account tiles scroll inside their own clip, which ends 12 pt above Add, so tiles never
@@ -46,6 +48,8 @@ final class AccountStripViewController: NSViewController {
     private(set) var accounts: [Account] = []
     private(set) var scope: AccountScope = .unified
     private(set) var mailboxView: MailboxView = .inbox
+    /// Something in the scope is snoozed: the Later tile shows below Inbox (§5.2). The window decides.
+    private(set) var showsLater = false
 
     private let railView = RailView()
     private let zone = TitleBarZoneView()
@@ -82,6 +86,7 @@ final class AccountStripViewController: NSViewController {
             tile.toolTip = "\(entry.title)  \(entry.sequence)"
             tile.setAccessibilityLabel(entry.title)
             tile.isSelected = entry.view == mailboxView
+            tile.isHidden = entry.view == .later && !showsLater
             tile.target = self
             tile.action = #selector(folderClicked(_:))
             let view = entry.view
@@ -118,11 +123,19 @@ final class AccountStripViewController: NSViewController {
 
     // MARK: Layout
 
-    /// The top edge of folder tile `index` (0 is Inbox): Inbox to Trash at the folder pitch, All Mail below the
-    /// folders' hairline.
-    static func folderTop(at index: Int) -> CGFloat {
+    /// The top edge of `view`'s folder tile: Inbox, then Later while it shows, then Starred to Trash at the folder
+    /// pitch, and All Mail below the folders' hairline, which moves down with them while Later shows.
+    static func folderTop(for view: MailboxView, showsLater: Bool = false) -> CGFloat {
         let r = Quire.Layout.Rail.self
-        return index == TitleMenu.entries.count - 1 ? r.allMailTop : r.folderTop + CGFloat(index) * r.folderPitch
+        if view == .all { return r.allMailTop + laterShift(showsLater) }
+        let visible = TitleMenu.entries.filter { $0.view != .all && ($0.view != .later || showsLater) }
+        let position = visible.firstIndex { $0.view == view } ?? 0
+        return r.folderTop + CGFloat(position) * r.folderPitch
+    }
+
+    /// How far the folders below Inbox, the hairline and All Mail move down while the Later tile shows: one pitch.
+    static func laterShift(_ showsLater: Bool) -> CGFloat {
+        showsLater ? Quire.Layout.Rail.folderPitch : 0
     }
 
     /// Where the account group sits in a rail `railHeight` tall with `tileCount` tiles (accounts and the pending
@@ -139,15 +152,16 @@ final class AccountStripViewController: NSViewController {
         var scrolls: Bool { contentHeight > clipBottom - clipTop + 0.5 }
     }
 
-    static func accountGroupLayout(railHeight: CGFloat, tileCount: Int) -> AccountGroupLayout {
+    static func accountGroupLayout(railHeight: CGFloat, tileCount: Int, showsLater: Bool = false) -> AccountGroupLayout {
         let r = Quire.Layout.Rail.self
+        let allMailTop = r.allMailTop + laterShift(showsLater)
         let clipBottom = railHeight - r.addTopFromBottom - r.stackBottomGap
         let others = CGFloat(max(0, tileCount - 1)) * r.accountPitch
         // Anchored above Add: the last tile ends `stackInset` inside the clip's bottom.
         let naturalFirstTop = clipBottom - r.stackInset - r.tile - others
         let naturalUnifiedTop = naturalFirstTop - r.accountGap - r.dividerGap - r.tile
         // …but never closer than `groupGap` to All Mail: from there on the tiles scroll.
-        let unifiedTop = max(r.allMailTop + r.tile + r.groupGap, naturalUnifiedTop)
+        let unifiedTop = max(allMailTop + r.tile + r.groupGap, naturalUnifiedTop)
         let dividerY = unifiedTop + r.tile + r.dividerGap
         let clipTop = dividerY + r.accountGap - r.stackInset
         let content = tileCount == 0 ? 0 : 2 * r.stackInset + others + r.tile
@@ -163,8 +177,10 @@ final class AccountStripViewController: NSViewController {
         let r = Quire.Layout.Rail.self
         let margin = AccountStripButton.verticalMargin
         zone.frame = NSRect(x: 0, y: 0, width: width, height: Quire.Layout.Window.titlebarZone)
-        for (index, tile) in folderTiles.enumerated() {
-            tile.frame = NSRect(x: 0, y: Self.folderTop(at: index) - margin, width: width, height: AccountStripButton.height)
+        for (entry, tile) in zip(TitleMenu.entries, folderTiles) {
+            tile.isHidden = entry.view == .later && !showsLater
+            tile.frame = NSRect(x: 0, y: Self.folderTop(for: entry.view, showsLater: showsLater) - margin, width: width,
+                                height: AccountStripButton.height)
         }
 
         let utility = r.utility
@@ -175,7 +191,7 @@ final class AccountStripViewController: NSViewController {
                                                                           width: utility, height: utility))
 
         let tiles = orderedTiles
-        let group = Self.accountGroupLayout(railHeight: height, tileCount: tiles.count)
+        let group = Self.accountGroupLayout(railHeight: height, tileCount: tiles.count, showsLater: showsLater)
         unifiedTile.frame = NSRect(x: 0, y: group.unifiedTop - margin, width: width, height: AccountStripButton.height)
         let clipHeight = group.clipBottom - group.clipTop
         scrollView.frame = NSRect(x: 0, y: group.clipTop, width: width, height: clipHeight)
@@ -185,7 +201,7 @@ final class AccountStripViewController: NSViewController {
             tile.frame = NSRect(x: 0, y: top - margin, width: width, height: AccountStripButton.height)
         }
         let dividerX = ((width - r.dividerWidth) / 2).rounded()
-        railView.dividerRects = [NSRect(x: dividerX, y: r.folderDividerY, width: r.dividerWidth, height: 1),
+        railView.dividerRects = [NSRect(x: dividerX, y: r.folderDividerY + Self.laterShift(showsLater), width: r.dividerWidth, height: 1),
                                  NSRect(x: dividerX, y: group.dividerY, width: r.dividerWidth, height: 1)]
         updateClipEdges()
     }
@@ -196,6 +212,12 @@ final class AccountStripViewController: NSViewController {
     /// Account tiles in rail order, then the pending tile.
     private var orderedTiles: [AccountStripButton] {
         accounts.compactMap { accountTiles[$0.id] } + (pendingTile.map { [$0] } ?? [])
+    }
+
+    /// The hairline between Trash and All Mail, in rail coordinates (the app's tests check it moves with Later).
+    var folderDividerRect: NSRect {
+        view.layoutSubtreeIfNeeded()
+        return railView.dividerRects.first ?? .zero
     }
 
     /// The account tiles' clip, in rail coordinates (the app's tests check what it shows).
@@ -266,6 +288,22 @@ final class AccountStripViewController: NSViewController {
     /// The Inbox tile's badge: the unread Inbox count of the current scope, as the title menu's Inbox item shows.
     func setInboxUnread(_ count: Int) {
         folderTiles.first?.unreadCount = count
+    }
+
+    /// Shows or hides the Later tile below Inbox (§5.2); the folders below it move by one pitch, instantly, as the
+    /// rail moves everything.
+    func setShowsLater(_ shows: Bool) {
+        guard shows != showsLater else { return }
+        showsLater = shows
+        guard isViewLoaded else { return }
+        // AppKit hands a hidden first responder's focus to the window, leaving no ring and dead arrows. The keyboard goes
+        // to the Inbox tile instead, the view the window turns to as Later goes.
+        if !shows, let window = view.window, let later = zip(TitleMenu.entries, folderTiles).first(where: { $0.0.view == .later })?.1,
+           window.firstResponder === later, let inbox = folderTiles.first {
+            window.makeFirstResponder(inbox)
+        }
+        view.needsLayout = true
+        view.layoutSubtreeIfNeeded()
     }
 
     func setUnreadCounts(unified: Int, perAccount: [AccountID: Int]) {
@@ -339,13 +377,16 @@ final class AccountStripViewController: NSViewController {
         if notify { onSelectView?(view) }
     }
 
-    /// ↑/↓ on a focused folder: choose the neighbour view and keep the keyboard on its tile.
+    /// ↑/↓ on a focused folder: choose the neighbour view and keep the keyboard on its tile. A hidden Later tile is
+    /// stepped over.
     private func moveView(from current: MailboxView, by delta: Int) {
-        guard let index = TitleMenu.entries.firstIndex(where: { $0.view == current }) else { return }
-        let next = index + delta
-        guard TitleMenu.entries.indices.contains(next) else { return }
-        selectView(TitleMenu.entries[next].view, notify: true)
-        view.window?.makeFirstResponder(folderTiles[next])
+        let visible = TitleMenu.entries.indices.filter { TitleMenu.entries[$0].view != .later || showsLater }
+        guard let position = visible.firstIndex(where: { TitleMenu.entries[$0].view == current }) else { return }
+        let next = position + delta
+        guard visible.indices.contains(next) else { return }
+        let index = visible[next]
+        selectView(TitleMenu.entries[index].view, notify: true)
+        view.window?.makeFirstResponder(folderTiles[index])
     }
 
     /// ⌘0 is All Inboxes; ⌘1…⌘9 are accounts in rail order.
@@ -479,7 +520,8 @@ final class AccountStripViewController: NSViewController {
     /// neighbours' by 10 pt, so tiles registered on their own would let a drag at a square's rim land on the
     /// next folder down. The rail routes by the square a click uses instead, and the squares abut.
     private func dropTarget(at info: NSDraggingInfo) -> (tile: AccountStripButton, view: MailboxView)? {
-        for (entry, tile) in zip(TitleMenu.entries, folderTiles) where RailDrop.change(for: entry.view) != nil {
+        // Later takes no drop (`RailDrop`); its square only pushes the folders below it down.
+        for (entry, tile) in zip(TitleMenu.entries, folderTiles) where RailDrop.change(for: entry.view) != nil && !tile.isHidden {
             if tile.hitRect.contains(tile.convert(info.draggingLocation, from: nil)) { return (tile, entry.view) }
         }
         return nil

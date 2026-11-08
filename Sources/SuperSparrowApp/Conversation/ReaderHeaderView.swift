@@ -169,6 +169,18 @@ final class ReaderHeaderView: NSView {
 
     // MARK: Layout
 
+    /// Where a menu for the header's conversation hangs from (the Later menu, §5.45): the Archive button's square, or,
+    /// with no Archive shown, the first action's; below the kicker at the text column when no action shows.
+    var menuAnchor: NSRect {
+        layoutSubtreeIfNeeded()
+        let shown = content.actions.primary + content.actions.replies
+        if let action = ([.archive] + shown).first(where: { shown.contains($0) }), let button = buttons[action], !button.isHidden {
+            return button.alignmentRect(forFrame: button.frame)
+        }
+        let column = ReaderColumn.frame(readerWidth: bounds.width)
+        return NSRect(x: column.x, y: Quire.Layout.ReaderHeader.actionsTop, width: 0, height: Quire.Layout.ReaderHeader.actionSize)
+    }
+
     override func layout() {
         super.layout()
         let metrics = Quire.Layout.ReaderHeader.self

@@ -10,6 +10,9 @@ public enum MailboxView: String, Codable, Sendable, CaseIterable {
     case trash
     /// Everything except trash and spam ("All mail").
     case all
+    /// Snoozed conversations (Later), soonest due first. Last, so the other views keep their `allCases` positions,
+    /// which the menus use as tags.
+    case later
 }
 
 public struct ConversationQuery: Hashable, Sendable {
@@ -22,7 +25,8 @@ public struct ConversationQuery: Hashable, Sendable {
     /// Full-text search over subject, participants and body text. nil or empty means no search.
     public var searchText: String?
     public var limit: Int
-    /// Paging: only conversations whose latest date is strictly before this.
+    /// Paging: only conversations whose latest date (in the Inbox, `ConversationSummary.inboxDate`) is strictly
+    /// before this. Later is never paged: it holds what the user snoozed, read whole.
     public var before: Date?
 
     public init(
@@ -65,6 +69,18 @@ public struct ConversationSummary: Hashable, Sendable, Identifiable {
     /// cleared by `MailStoring.acknowledgeFailedOperation(conversationID:)`, by a later operation on the
     /// conversation being confirmed, or by the failed row being pruned (docs/DATA-MODEL.md, `failed_op_kind`).
     public var failedOperation: OperationKind?
+    /// When a snooze brought it back to the Inbox, while it is still there and no newer mail has come
+    /// (docs/DATA-MODEL.md, `returned_at`): the Inbox sorts it by this time, and its row says “Back” while unread.
+    public var returnedAt: Date?
+    /// When its snooze ends; set only in the Later view, whose rows read “Back Tue 09:00”.
+    public var snoozedUntil: Date?
+
+    /// The date the Inbox sorts, pages and groups by, and its rows show: the latest message's, or the return's when
+    /// that came later, so mail that comes back lands under Today rather than under the day it first arrived.
+    public var inboxDate: Date {
+        guard let returnedAt, returnedAt > latestDate else { return latestDate }
+        return returnedAt
+    }
 
     public init(
         id: ConversationID,
@@ -80,7 +96,9 @@ public struct ConversationSummary: Hashable, Sendable, Identifiable {
         inboxSection: InboxSection,
         latestMessageID: MessageID,
         hasPendingOperations: Bool,
-        failedOperation: OperationKind? = nil
+        failedOperation: OperationKind? = nil,
+        returnedAt: Date? = nil,
+        snoozedUntil: Date? = nil
     ) {
         self.id = id
         self.subject = subject
@@ -96,5 +114,7 @@ public struct ConversationSummary: Hashable, Sendable, Identifiable {
         self.latestMessageID = latestMessageID
         self.hasPendingOperations = hasPendingOperations
         self.failedOperation = failedOperation
+        self.returnedAt = returnedAt
+        self.snoozedUntil = snoozedUntil
     }
 }

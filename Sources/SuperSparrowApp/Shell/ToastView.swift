@@ -24,9 +24,12 @@ final class ToastView: NonDraggingView {
 
     // MARK: Layout
 
+    /// The widest a slip may be: the list less 16 pt a side. A wider one truncates its message.
+    var slipRoom: CGFloat { max(0, bounds.width - 2 * Quire.Layout.Toast.sideMargin) }
+
     private func frame(for slip: QuireSlipView) -> NSRect {
         let t = Quire.Layout.Toast.self
-        let width = min(slip.intrinsicContentSize.width, max(0, bounds.width - 2 * t.sideMargin))
+        let width = min(slip.intrinsicContentSize.width, slipRoom)
         return NSRect(x: ((bounds.width - width) / 2).rounded(), y: bounds.height - t.aboveSyncLine - t.height,
                       width: width, height: t.height)
     }

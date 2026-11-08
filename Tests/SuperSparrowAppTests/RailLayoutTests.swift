@@ -32,11 +32,15 @@ final class RailLayoutTests: XCTestCase {
         defer { harness.close() }
         let strip = layOut(harness)
         XCTAssertEqual(strip.folderTiles.map(\.content), TitleMenu.entries.map { .folder(symbol: $0.symbol) })
-        XCTAssertEqual(TitleMenu.entries.map(\.symbol), ["tray", "star", "paperplane", "doc", "trash", "archivebox"])
-        XCTAssertEqual(strip.folderTiles.map(\.toolTip), ["Inbox  G I", "Starred  G S", "Sent  G T", "Drafts  G D", "Trash  G #", "All Mail  G A"])
-        // Inbox at 62, then a 44 pt pitch to Trash; All Mail below the folders' hairline at 294.
-        XCTAssertEqual(strip.folderTiles.map { tileRect($0, in: strip).minY }, [62, 106, 150, 194, 238, 294])
-        for tile in strip.folderTiles {
+        XCTAssertEqual(TitleMenu.entries.map(\.symbol), ["tray", "clock", "star", "paperplane", "doc", "trash", "archivebox"])
+        XCTAssertEqual(strip.folderTiles.map(\.toolTip), ["Inbox  G I", "Later  G L", "Starred  G S", "Sent  G T", "Drafts  G D", "Trash  G #",
+                                                         "All Mail  G A"])
+        // Nothing is snoozed: Later is hidden and the six views keep their places. Inbox at 62, then a 44 pt pitch to
+        // Trash; All Mail below the folders' hairline at 294.
+        let shown = strip.folderTiles.filter { !$0.isHidden }
+        XCTAssertTrue(strip.folderTiles[1].isHidden)
+        XCTAssertEqual(shown.map { tileRect($0, in: strip).minY }, [62, 106, 150, 194, 238, 294])
+        for tile in shown {
             let rect = tileRect(tile, in: strip)
             XCTAssertEqual(rect.size, NSSize(width: 38, height: 38))
             XCTAssertEqual(rect.midX, strip.railWidth / 2, accuracy: 0.5, "centred on the whole rail")
@@ -47,15 +51,15 @@ final class RailLayoutTests: XCTestCase {
         let harness = try MainWindowHarness()
         defer { harness.close() }
         let strip = layOut(harness)
-        XCTAssertEqual(strip.folderTiles.map(\.isSelected), [true, false, false, false, false, false], "the Inbox to start")
+        XCTAssertEqual(strip.folderTiles.map(\.isSelected), [true, false, false, false, false, false, false], "the Inbox to start")
         harness.controller.listPane.header.search.query = "project"
         harness.controller.listPane.header.search.onQueryChange?("project")
 
-        strip.folderTiles[2].performClick(nil)
+        strip.folderTiles[3].performClick(nil)
         XCTAssertEqual(harness.list.query.view, .sent)
         XCTAssertNil(harness.list.query.searchText, "picking a mailbox ends the search, as the title menu does")
         XCTAssertEqual(harness.controller.listPane.header.masthead.title, "Sent")
-        XCTAssertEqual(strip.folderTiles.map(\.isSelected), [false, false, true, false, false, false])
+        XCTAssertEqual(strip.folderTiles.map(\.isSelected), [false, false, false, true, false, false, false])
         // The search field follows the masthead's new width.
         let header = harness.controller.listPane.header
         header.layoutSubtreeIfNeeded()
@@ -66,7 +70,7 @@ final class RailLayoutTests: XCTestCase {
         // The G-sequences are unchanged and move the folder selection with them.
         XCTAssertTrue(harness.controller.perform(.goTo(.all)))
         XCTAssertEqual(harness.list.query.view, .all)
-        XCTAssertEqual(strip.folderTiles.map(\.isSelected), [false, false, false, false, false, true])
+        XCTAssertEqual(strip.folderTiles.map(\.isSelected), [false, false, false, false, false, false, true])
         strip.folderTiles[0].performClick(nil)
         XCTAssertEqual(harness.list.query.view, .inbox)
         XCTAssertEqual(harness.controller.listPane.header.masthead.title, "Inbox")
@@ -80,7 +84,7 @@ final class RailLayoutTests: XCTestCase {
         harness.spin { unified.unreadCount > 0 && strip.folderTiles[0].unreadCount == unified.unreadCount }
         XCTAssertGreaterThan(strip.folderTiles[0].unreadCount, 0)
         XCTAssertEqual(strip.folderTiles[0].unreadCount, unified.unreadCount, "all accounts: the unified Inbox count")
-        XCTAssertEqual(strip.folderTiles.dropFirst().map(\.unreadCount), [0, 0, 0, 0, 0], "only Inbox carries a count")
+        XCTAssertEqual(strip.folderTiles.dropFirst().map(\.unreadCount), [0, 0, 0, 0, 0, 0], "only Inbox carries a count; Later never does")
 
         strip.selectShortcut(2)
         let account = try XCTUnwrap(strip.tile(for: .account(ListTestSupport.accountB.id)))
@@ -120,7 +124,7 @@ final class RailLayoutTests: XCTestCase {
         XCTAssertTrue(strip.keyViews[1] === strip.tile(for: .unified))
         XCTAssertEqual(strip.keyViews.count, 4, "folder, account, Add, Settings")
         _ = harness.controller.perform(.goTo(.drafts))
-        XCTAssertTrue(strip.keyViews[0] === strip.folderTiles[3], "one Tab stop for the folders: the current view's")
+        XCTAssertTrue(strip.keyViews[0] === strip.folderTiles[4], "one Tab stop for the folders: the current view's")
     }
 
     // MARK: Accounts
@@ -148,13 +152,20 @@ final class RailLayoutTests: XCTestCase {
         XCTAssertNil(strip.clipEdges.bottom, "two accounts fit: nothing is clipped")
     }
 
-    /// Without scrolling: one account at the 600 pt minimum, five at the default 800 pt, seven at 900 pt.
+    /// Without scrolling: one account at the 600 pt minimum, five at the default 800 pt, seven at 900 pt; while the
+    /// Later tile shows, All Mail sits one pitch lower and each figure is one fewer.
     func testCapacityBeforeTheStackScrolls() {
-        let layout = AccountStripViewController.accountGroupLayout(railHeight:tileCount:)
+        let layout = { AccountStripViewController.accountGroupLayout(railHeight: $0, tileCount: $1) }
         for (height, fits) in [(CGFloat(600), 1), (800, 5), (900, 7)] {
             XCTAssertFalse(layout(height, fits).scrolls, "\(fits) at \(height)")
             XCTAssertTrue(layout(height, fits + 1).scrolls, "\(fits + 1) at \(height)")
         }
+        let withLater = { AccountStripViewController.accountGroupLayout(railHeight: $0, tileCount: $1, showsLater: true) }
+        for (height, fits) in [(CGFloat(600), 0), (800, 4), (900, 6)] {
+            XCTAssertFalse(withLater(height, fits).scrolls, "\(fits) at \(height) with Later")
+            XCTAssertTrue(withLater(height, fits + 1).scrolls, "\(fits + 1) at \(height) with Later")
+        }
+        XCTAssertEqual(withLater(600, 3).unifiedTop, 396, "All Inboxes stays 20 pt under All Mail's lower place (338 + 38)")
         let r = Quire.Layout.Rail.self
         let floor = r.allMailTop + r.tile + r.groupGap
         XCTAssertEqual(floor, 352)

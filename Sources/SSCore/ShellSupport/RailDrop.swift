@@ -2,7 +2,8 @@ import Foundation
 
 /// What a rail folder tile does with conversation rows dragged onto it from the list (spec §5.2): Inbox moves
 /// them to the inbox, Trash trashes them, Starred stars them and All Mail archives them, as ⇧I, #, S and E do;
-/// Sent and Drafts take nothing. Pure, so which drops a tile takes is decided and tested without windows.
+/// Sent, Drafts and Later take nothing (a snooze needs a time, which a drop cannot give). Pure, so which drops a
+/// tile takes is decided and tested without windows.
 public enum RailDrop {
     /// The change a drop on `tile` makes, or nil for a tile that takes no drop. Starred only ever stars: a drop
     /// has no all-starred toggle, so dragging onto Starred never takes a star away.
@@ -12,7 +13,7 @@ public enum RailDrop {
         case .starred: return .setStarred(true)
         case .trash: return .trash
         case .all: return .archive
-        case .sent, .drafts: return nil
+        case .sent, .drafts, .later: return nil
         }
     }
 
@@ -39,7 +40,7 @@ public enum RailDrop {
         case .inbox: return mail.contains { !$0.inInbox }
         case .starred: return mail.contains { !$0.isStarred }
         case .all: return mail.contains(where: \.inInbox)
-        case .trash, .sent, .drafts: return false
+        case .trash, .sent, .drafts, .later: return false
         }
     }
 }

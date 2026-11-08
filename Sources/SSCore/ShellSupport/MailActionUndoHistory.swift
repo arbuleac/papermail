@@ -81,10 +81,23 @@ public struct MailActionUndoHistory: Sendable {
 
     /// Starts a group for a step the caller reverts itself (the composer's “Draft discarded”), named by its
     /// command (“Discard Draft”). It sits in the same history as the mail actions, so Z and ⌘Z reach
-    /// whichever came last, and it never coalesces.
+    /// whichever came last, and it coalesces only when its caller asks (`coalesceExternal`).
     @discardableResult
     public mutating func addExternal(command: String, at now: Date, toasted: Bool) -> Int {
         append(records: [], change: nil, externalCommand: command, at: now, toasted: toasted)
+    }
+
+    /// One more external step of `command` joins the latest group on the terms `coalesce` sets for mail actions: that
+    /// group is a step of the same command, its toast is still the visible one and the last step was within the
+    /// coalescing window. E in Later ends snoozes rather than archiving, so it is no mail action, yet it coalesces as E
+    /// does everywhere. Returns the grown group, whose revert the caller extends, or nil when the step must start a group
+    /// of its own.
+    public mutating func coalesceExternal(command: String, at now: Date, visibleToastID: Int?) -> Group? {
+        guard var last = groups.last, last.externalCommand == command, let toastID = last.toastID, toastID == visibleToastID,
+              now.timeIntervalSince(last.lastActionAt) <= coalesceWindow else { return nil }
+        last.lastActionAt = now
+        groups[groups.count - 1] = last
+        return last
     }
 
     private mutating func append(records: [MailActionRecord], change: MetadataChange?, externalCommand: String?, at now: Date,

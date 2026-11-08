@@ -13,6 +13,10 @@ struct SendClock: Sendable {
     var sleep: @Sendable (TimeInterval) async throws -> Void = { seconds in
         try await Task.sleep(for: .seconds(seconds), tolerance: .milliseconds(100))
     }
+    /// Seconds the Mac has been awake, which stop while it sleeps, unlike `uptime`. The snooze runner measures by it how
+    /// long it has held a return back for its account's check, so a hold the Mac slept through does not run out at wake,
+    /// before the network is back and the account has looked.
+    var awake: @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
 
     private static let origin = ContinuousClock.now
 

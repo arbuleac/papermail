@@ -193,12 +193,16 @@ enum MainMenu {
     private static func viewMenu(_ delegate: AppDelegate) -> NSMenu {
         let menu = menu("View")
         let views: [(MailboxView, String, String, String)] = [
-            (.inbox, "Inbox", "G I", Quire.Icon.viewInbox), (.starred, "Starred", "G S", Quire.Icon.viewStarred),
+            (.inbox, "Inbox", "G I", Quire.Icon.viewInbox), (.later, "Later", "G L", Quire.Icon.viewLater),
+            (.starred, "Starred", "G S", Quire.Icon.viewStarred),
             (.sent, "Sent", "G T", Quire.Icon.viewSent), (.drafts, "Drafts", "G D", Quire.Icon.viewDrafts),
             (.trash, "Trash", "G #", Quire.Icon.viewTrash), (.all, "All Mail", "G A", Quire.Icon.viewAllMail),
         ]
         for (view, title, keys, symbol) in views {
-            menu.addItem(sequenceItem(title, keys: keys, symbol: symbol, tag: MailboxView.allCases.firstIndex(of: view) ?? 0))
+            let item = sequenceItem(title, keys: keys, symbol: symbol, tag: MailboxView.allCases.firstIndex(of: view) ?? 0)
+            // Listed only while something in the main window's scope is snoozed (MainMenuController), as the rail's tile.
+            item.isHidden = view == .later
+            menu.addItem(item)
         }
         menu.addItem(.separator())
         menu.addItem(item("All Inboxes", #selector(MainWindowController.selectAccountShortcut(_:)), "0", symbol: Quire.Icon.unifiedInbox,
@@ -236,6 +240,7 @@ enum MainMenu {
             item("Forward", #selector(MainWindowController.forwardSelection(_:)), "f", [], symbol: Quire.Icon.forward),
             .separator(),
             item("Archive", #selector(MainWindowController.archiveSelection(_:)), "e", [], symbol: Quire.Icon.archive),
+            item("Later…", #selector(MainWindowController.laterSelection(_:)), "l", [], symbol: Quire.Icon.later),
             item("Move to Trash", #selector(MainWindowController.trashSelection(_:)), "#", [], symbol: Quire.Icon.trash),
             item("Move to Inbox", #selector(MainWindowController.moveSelectionToInbox(_:)), "I", [.shift], symbol: Quire.Icon.moveToInbox),
             item("Star", #selector(MainWindowController.toggleStarSelection(_:)), "s", [], symbol: Quire.Icon.star),
@@ -365,7 +370,8 @@ final class MainMenuBar: NSMenu {
 }
 
 /// Keeps the menus in step with the key window and the accounts: the Message menu's composer items and the
-/// Format menu show only while a composer is key, and View's ⌘1…⌘9 items carry the accounts' names.
+/// Format menu show only while a composer is key, View's ⌘1…⌘9 items carry the accounts' names, and View's Later
+/// shows while the rail's Later tile does.
 @MainActor
 final class MainMenuController: NSObject, NSMenuDelegate {
     static var shared: MainMenuController?
@@ -400,6 +406,10 @@ final class MainMenuController: NSObject, NSMenuDelegate {
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
+        let laterTag = MailboxView.allCases.firstIndex(of: .later)
+        for item in menu.items where item.action == #selector(MainWindowController.goToMailboxView(_:)) && item.tag == laterTag {
+            item.isHidden = !(appDelegate?.menuShowsLater ?? false)
+        }
         let accounts = appDelegate?.menuAccounts ?? []
         for item in menu.items where item.action == #selector(MainWindowController.selectAccountShortcut(_:)) && item.tag > 0 {
             let index = item.tag - 1

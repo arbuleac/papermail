@@ -104,6 +104,7 @@ enum MessageTable {
             try ConversationTable.touch(metadata.conversationID, in: db)
             if existing == nil {
                 try ContactTable.record(metadata, in: db)
+                try SnoozeTable.endForArrival(of: metadata, in: db)
             }
         }
         try ConversationTable.refreshTouched(db)

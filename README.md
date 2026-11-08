@@ -64,6 +64,10 @@ Checked on macOS 27.0.1 (build 26A434), with in-process tests and a scratch buil
 
 Not yet checked on macOS 15 or 26.
 
+## Later
+
+Press `l` (or **Message → Later…**, or **Later** in a conversation's right-click menu) to put the selected conversations away until **Later Today**, **This Evening**, **Tomorrow**, **Next Week** or a date you pick. They are archived now and come back to the Inbox at that time, their latest message unread, at the top under Today with a **Back** tag until you read them. While anything is snoozed a **Later** folder shows in the rail below Inbox (`g` then `l`), listing what comes back when, soonest first; there `l` picks a new time, `e` keeps a conversation archived and stops its return, `⇧I` brings it back now and `#` moves it to the Trash. A reply from someone else, or moving the conversation back to the Inbox yourself (here or on another device), ends the snooze early. Both halves are the ordinary archive and move to Inbox, so your phone and the web show the same state; only the timer lives on this Mac, so mail comes back while SuperSparrow is running, or as soon as it next opens or the Mac wakes, once it has checked for anything that came in the meantime. Gmail's and Outlook's own snooze cannot be reached through their APIs, so mail snoozed there does not show in Later.
+
 ## Keep mail on this Mac
 
 **Settings → General → Keep mail on this Mac** chooses how far back messages keep their full content on your Mac: **Everything** (the default), **1 year** or **3 months**, with the space your mail takes beside it ("292 MB"). Older messages stay in the list and in search; their full content is removed from this Mac (older mail arriving during the first download is never stored in full) and downloads again when you open one (so opening old mail needs a connection); mail you have opened keeps its content until you quit. Choosing a shorter time cleans up at once; choosing a longer one removes nothing more and downloads nothing back. Drafts, messages waiting to send and changes still syncing are never touched. Attachments you open are cached up to 1 GB, the least recently used going first.
@@ -75,6 +79,7 @@ Not yet checked on macOS 15 or 26.
 | `j` / `k`, `↓` / `↑` | Next / previous conversation |
 | `Return` | Open the conversation in the reader |
 | `e` | Archive |
+| `l` | Later: snooze until a time |
 | `s` | Star / unstar |
 | `u` | Mark read / unread |
 | `#`, `⌘⌫` | Move to Trash |
@@ -84,6 +89,7 @@ Not yet checked on macOS 15 or 26.
 | `c`, `⌘N` | New message |
 | `/`, `⌘F` | Search (`Esc` clears, in the search field or the list) |
 | `g` then `i` / `s` / `t` / `a` | Go to Inbox / Starred / Sent / All Mail |
+| `g` then `l` | Go to Later, while something is snoozed |
 | `⌘0` | All inboxes |
 | `⌘1` … `⌘9` | One account |
 | `⌃⌘S` | Hide / show the account strip |

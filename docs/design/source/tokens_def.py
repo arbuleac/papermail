@@ -2,7 +2,7 @@
 and the rendered DESIGN-LANGUAGE.md. Colour order: light, dark, lightHC, darkHC."""
 
 NAME = "Quire"
-VERSION = "1.5.2"
+VERSION = "1.6.0"
 
 # (token, light, dark, lightHC, darkHC, group, use)
 COLOR = [
@@ -273,6 +273,7 @@ ICON = {
  "file": "doc", "fileText": "doc.richtext", "fileImage": "photo", "fileSheet": "tablecells", "fileArchive": "doc.zipper", "fileVideo": "film",
  "more": "ellipsis", "accountsTab": "person.crop.circle", "oauthTab": "key", "generalTab": "gearshape",
  "viewInbox": "tray", "viewStarred": "star", "viewSent": "paperplane", "viewDrafts": "doc", "viewTrash": "trash", "viewAllMail": "archivebox",
+ "viewLater": "clock", "later": "clock",
  "moveToInbox": "tray.and.arrow.down", "privacy": "lock", "success": "checkmark.circle.fill", "info": "info.circle", "warning": "exclamationmark.triangle.fill",
  "brand": "ss.sparrow", "keyboard": "keyboard", "dismiss": "xmark",
  "removeAccount": "minus", "bold": "bold", "italic": "italic", "underline": "underline", "bulletedList": "list.bullet", "numberedList": "list.number",
@@ -314,10 +315,10 @@ GRAPHITE = {
 CHEAT_SHEET = [
  ("Move", [("J K", "Next · previous"), ("⇧J ⇧K", "Extend the selection"), ("↩", "Open"), ("esc", "Back to the list"),
            ("N P", "Next · previous message"), ("space", "Quick Look attachments"), ("/", "Search")]),
- ("Act", [("E", "Archive"), ("#", "Move to Trash"), ("⇧I", "Move to Inbox"), ("S", "Star · unstar"), ("U", "Mark as unread · read"),
-          ("Z", "Undo"), (".", "Show · hide quoted text")]),
- ("Go", [("G then I", "Inbox"), ("G then S", "Starred"), ("G then T", "Sent"), ("G then D", "Drafts"), ("G then #", "Trash"),
-         ("G then A", "All Mail"), ("⌘0", "All Inboxes"), ("⌘1 … ⌘9", "One account")]),
+ ("Act", [("E", "Archive"), ("L", "Snooze until later"), ("#", "Move to Trash"), ("⇧I", "Move to Inbox"), ("S", "Star · unstar"),
+          ("U", "Mark as unread · read"), ("Z", "Undo"), (".", "Show · hide quoted text")]),
+ ("Go", [("G then I", "Inbox"), ("G then L", "Later"), ("G then S", "Starred"), ("G then T", "Sent"), ("G then D", "Drafts"),
+         ("G then #", "Trash"), ("G then A", "All Mail"), ("⌘0", "All Inboxes"), ("⌘1 … ⌘9", "One account")]),
  ("Write", [("C", "New message"), ("R", "Reply"), ("A", "Reply all"), ("F", "Forward"), ("⇧⌘R", "Open in composer"), ("⌘↩", "Send"), ("⇧⌘A", "Attach files")]),
  ("Format", [("⇧⌘T", "Format row"), ("⌘B ⌘I ⌘U", "Bold · italic · underline"), ("⇧⌘8 ⇧⌘7", "Bulleted · numbered list"), ("⌘'", "Quote"),
              ("⌘K", "Add link"), ("⇧⌘C ⇧⌘B", "Cc · Bcc field")]),

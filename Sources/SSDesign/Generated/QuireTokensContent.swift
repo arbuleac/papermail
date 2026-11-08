@@ -5,7 +5,7 @@ import CoreGraphics
 
 extension Quire {
     public static let name = "Quire"
-    public static let version = "1.5.2"
+    public static let version = "1.6.0"
 
     /// Every symbol the app draws, by action (spec §4.11). `ss.` names are custom glyphs (`QuireGlyph`).
     public enum Icon {
@@ -60,6 +60,8 @@ extension Quire {
         public static let viewDrafts = "doc"
         public static let viewTrash = "trash"
         public static let viewAllMail = "archivebox"
+        public static let viewLater = "clock"
+        public static let later = "clock"
         public static let moveToInbox = "tray.and.arrow.down"
         public static let privacy = "lock"
         public static let success = "checkmark.circle.fill"
@@ -194,6 +196,7 @@ extension Quire {
         ]),
         QuireCheatSheetSection(title: "Act", rows: [
             QuireCheatSheetRow(keys: "E", label: "Archive"),
+            QuireCheatSheetRow(keys: "L", label: "Snooze until later"),
             QuireCheatSheetRow(keys: "#", label: "Move to Trash"),
             QuireCheatSheetRow(keys: "⇧I", label: "Move to Inbox"),
             QuireCheatSheetRow(keys: "S", label: "Star · unstar"),
@@ -203,6 +206,7 @@ extension Quire {
         ]),
         QuireCheatSheetSection(title: "Go", rows: [
             QuireCheatSheetRow(keys: "G then I", label: "Inbox"),
+            QuireCheatSheetRow(keys: "G then L", label: "Later"),
             QuireCheatSheetRow(keys: "G then S", label: "Starred"),
             QuireCheatSheetRow(keys: "G then T", label: "Sent"),
             QuireCheatSheetRow(keys: "G then D", label: "Drafts"),

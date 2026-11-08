@@ -29,6 +29,8 @@ final class ConversationRowContent {
     let isUnread: Bool
     let isStarred: Bool
     let hasAttachments: Bool
+    /// The “Back” tag before the time: an Inbox row back from Later, while unread (spec §5.7).
+    let showsBackTag: Bool
     let status: ConversationRowText.Status
     /// The failed row's tooltip: “Couldn't archive”.
     let failureText: String?
@@ -51,6 +53,7 @@ final class ConversationRowContent {
         isUnread = unread
         isStarred = text.isStarred
         hasAttachments = text.hasAttachments
+        showsBackTag = text.showsBackTag
         status = text.status
         if case .failed(let kind) = text.status {
             failureText = ConversationRowText.failureText(for: kind)

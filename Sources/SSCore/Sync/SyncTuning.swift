@@ -23,6 +23,9 @@ struct SyncTuning: Sendable {
     var userRetryAfterCap: TimeInterval { min(backoffCap, liveBackoffCap) }
     /// The clocks the send runner times held sends by. Tests replace it to move time by hand.
     var sendClock = SendClock()
+    /// The clocks the snooze runner times Later by: the wall clock the due times are written in, and the continuous
+    /// clock it sleeps on. Tests replace it to move time by hand.
+    var snoozeClock = SendClock()
     /// The head page and every backfill listing page. 100 keeps a Gmail head page (a list call plus metadata for
     /// each message) at about 2,005 of the 6,000 units a user may spend a minute.
     var bootstrapPageSize: Int = 100

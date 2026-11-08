@@ -11,6 +11,9 @@ public struct ConversationRowText: Hashable, Sendable {
     public static let me = "me"
     /// Enough names to see who is in a thread without turning the line into a list of everyone who ever replied.
     public static let maxSenderNames = 3
+    /// The tag on an Inbox row that came back from Later, while it is unread (spec §5.7), and the word before a Later
+    /// row's time (“Back Tue 09:00”).
+    public static let back = "Back"
 
     /// Which sender line a row gets: the senders, or, in Drafts and Sent, the people the mail is going to.
     public enum Kind: Int, Hashable, Sendable {
@@ -30,6 +33,17 @@ public struct ConversationRowText: Hashable, Sendable {
         case failed(OperationKind)
     }
 
+    /// Which date a row's time slot shows (spec §5.7).
+    public enum TimeSource: Int, Hashable, Sendable {
+        /// The latest message's: every view but the two below.
+        case latestMessage
+        /// The Inbox's own (`ConversationSummary.inboxDate`), so a conversation back from Later shows when it came
+        /// back, under the head it sorts under; and its “Back” tag while it is unread.
+        case inbox
+        /// When the snooze ends, in Later: “Back Tue 09:00”.
+        case snoozeEnd
+    }
+
     /// Everything about the row's surroundings the strings depend on.
     public struct Context: Hashable, Sendable {
         public var kind: Kind
@@ -43,6 +57,7 @@ public struct ConversationRowText: Hashable, Sendable {
         public var recipients: [EmailAddress]
         /// The account's name for VoiceOver, which ends every row label with it (spec §4.2).
         public var accountName: String?
+        public var timeSource: TimeSource
 
         public init(
             kind: Kind = .received,
@@ -50,7 +65,8 @@ public struct ConversationRowText: Hashable, Sendable {
             ownAddresses: Set<String> = [],
             latestSender: EmailAddress? = nil,
             recipients: [EmailAddress] = [],
-            accountName: String? = nil
+            accountName: String? = nil,
+            timeSource: TimeSource = .latestMessage
         ) {
             self.kind = kind
             self.timeStyle = timeStyle
@@ -58,6 +74,7 @@ public struct ConversationRowText: Hashable, Sendable {
             self.latestSender = latestSender
             self.recipients = recipients
             self.accountName = accountName
+            self.timeSource = timeSource
         }
     }
 
@@ -79,6 +96,8 @@ public struct ConversationRowText: Hashable, Sendable {
     public let isUnread: Bool
     public let isStarred: Bool
     public let hasAttachments: Bool
+    /// The Inbox row came back from Later and is unread: it carries the “Back” tag before the time (spec §5.7).
+    public let showsBackTag: Bool
     public let status: Status
     /// What VoiceOver reads for the row (spec §4.14).
     public let accessibilityLabel: String
@@ -118,7 +137,18 @@ public struct ConversationRowText: Hashable, Sendable {
                 isSenderPlaceholder = false
             }
         }
-        timeText = formatter.string(for: summary.latestDate, reference: reference, style: context.timeStyle)
+        switch context.timeSource {
+        case .latestMessage:
+            timeText = formatter.string(for: summary.latestDate, reference: reference, style: context.timeStyle)
+        case .inbox:
+            timeText = formatter.string(for: summary.inboxDate, reference: reference, style: context.timeStyle)
+        case .snoozeEnd:
+            if let due = summary.snoozedUntil {
+                timeText = ConversationRowText.back + " " + formatter.dueTime(for: due, reference: reference)
+            } else {
+                timeText = formatter.string(for: summary.latestDate, reference: reference, style: context.timeStyle)
+            }
+        }
         let subject = ConversationRowText.singleLine(summary.subject)
         isSubjectPlaceholder = subject.isEmpty
         subjectText = subject.isEmpty ? ConversationRowText.noSubject : subject
@@ -132,6 +162,7 @@ public struct ConversationRowText: Hashable, Sendable {
         isUnread = summary.unreadCount > 0
         isStarred = summary.isStarred
         hasAttachments = summary.hasAttachments
+        showsBackTag = context.timeSource == .inbox && summary.unreadCount > 0 && summary.inboxDate != summary.latestDate
         if let failed = summary.failedOperation {
             status = .failed(failed)
         } else if summary.hasPendingOperations {
@@ -143,6 +174,7 @@ public struct ConversationRowText: Hashable, Sendable {
         var parts: [String] = []
         if isUnread { parts.append("Unread") }
         if isStarred { parts.append("Starred") }
+        if showsBackTag { parts.append("Back from Later") }
         let names = senderNames
         if isSenderPlaceholder {
             parts.append(ConversationRowText.noSender)
@@ -303,6 +335,7 @@ public struct ConversationRowText: Hashable, Sendable {
             hasher.combine(person.address)
         }
         hasher.combine(context.accountName ?? "")
+        hasher.combine(context.timeSource.rawValue)
         hasher.combine(environment)
         return hasher.finalized
     }
@@ -318,6 +351,8 @@ public struct ConversationRowText: Hashable, Sendable {
         hasher.combine(summary.hasAttachments)
         hasher.combine(summary.hasPendingOperations)
         hasher.combine(summary.failedOperation?.rawValue ?? "")
+        hasher.combine(summary.returnedAt ?? .distantPast)
+        hasher.combine(summary.snoozedUntil ?? .distantPast)
         hasher.combine(summary.subject)
         hasher.combine(summary.snippet)
         hasher.combine(summary.participants.count)

@@ -133,7 +133,28 @@ final class MailActionUndoHistoryGroupTests: XCTestCase {
         XCTAssertTrue(history.groups.isEmpty)
     }
 
-    func testAnExternalStepIsReachableAndNeverCoalesces() {
+    /// E in Later: an external step joins the latest group only when asked, and only on a mail action's terms: the same
+    /// command, its toast still the visible one, within the window.
+    func testAnExternalStepCoalescesWithItsOwnCommandWhenAsked() {
+        var history = MailActionUndoHistory()
+        let id = history.addExternal(command: "Archive", at: t0, toasted: true)
+        history.bindToast(1, to: id)
+        XCTAssertNil(history.coalesceExternal(command: "Snooze", at: t0.addingTimeInterval(0.2), visibleToastID: 1), "another command")
+        XCTAssertNil(history.coalesceExternal(command: "Archive", at: t0.addingTimeInterval(0.2), visibleToastID: 2), "toast replaced")
+        XCTAssertNil(history.coalesceExternal(command: "Archive", at: t0.addingTimeInterval(0.2), visibleToastID: nil), "toast gone")
+        XCTAssertNil(history.coalesceExternal(command: "Archive", at: t0.addingTimeInterval(1.2), visibleToastID: 1), "too late")
+        XCTAssertNil(history.coalesce(record(.archive, 1), at: t0.addingTimeInterval(0.2), visibleToastID: 1), "a mail action never joins it")
+        let grown = history.coalesceExternal(command: "Archive", at: t0.addingTimeInterval(0.8), visibleToastID: 1)
+        XCTAssertEqual(grown?.id, id)
+        XCTAssertEqual(grown?.toastID, 1)
+        // The window runs from the latest press, as for mail actions.
+        XCTAssertEqual(history.coalesceExternal(command: "Archive", at: t0.addingTimeInterval(1.7), visibleToastID: 1)?.id, id)
+        XCTAssertEqual(history.groups.count, 1)
+        XCTAssertEqual(history.target(at: t0.addingTimeInterval(1.8), visibleToastID: 1)?.id, id)
+        XCTAssertNil(history.coalesceExternal(command: "Discard Draft", at: t0.addingTimeInterval(1.8), visibleToastID: 1))
+    }
+
+    func testAnExternalStepIsReachableAndNoMailActionJoinsIt() {
         var history = MailActionUndoHistory()
         let archive = history.add(record(.archive, 1), at: t0, toasted: true)
         history.bindToast(1, to: archive)

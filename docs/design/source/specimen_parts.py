@@ -26,19 +26,23 @@ def g(name, pt=15, cls=''):
 ACCT_IDX = {'C': 1, 'G': 2, 'F': 3}
 FOLDERS = [('tray', 'Inbox  G I'), ('star', 'Starred  G S'), ('paperplane', 'Sent  G T'), ('doc', 'Drafts  G D'), ('trash', 'Trash  G #'),
            ('archivebox', 'All Mail  G A')]
-def rail_folders(selected=0, badge=None):
+def rail_folders(selected=0, badge=None, later=False):
     """The rail's folder tiles (spec §5.2): Inbox to Trash at the folder pitch, a hairline, All Mail. The selected
-    folder is a raised tile with no margin rule; Inbox carries the scope's unread count."""
+    folder is a raised tile with no margin rule; Inbox carries the scope's unread count. With `later` (something in the
+    scope is snoozed) the Later tile shows below Inbox and everything below it moves down one pitch."""
     R = T.LAYOUT['rail']
+    shift = R['folderPitch'] if later else 0
     out = []
     for i, (sym, tip) in enumerate(FOLDERS):
-        top = R['allMailTop'] if i == 5 else R['folderTop'] + i * R['folderPitch']
+        top = R['allMailTop'] + shift if i == 5 else R['folderTop'] + i * R['folderPitch'] + (shift if i > 0 else 0)
         b = '<span class="badge">%s</span>' % badge if i == 0 and badge else ''
         out.append('<span class="rt%s" style="top:%dpx" title="%s">%s%s</span>' % (' sel' if i == selected else '', top, tip, s(sym, R['folderGlyph']), b))
+        if i == 0 and later:
+            out.append('<span class="rt" style="top:%dpx" title="Later  G L">%s</span>' % (R['folderTop'] + R['folderPitch'], s(T.ICON['viewLater'], R['folderGlyph'])))
         if i == 4:
-            out.append('<i class="rdiv" style="top:%dpx"></i>' % R['folderDividerY'])
+            out.append('<i class="rdiv" style="top:%dpx"></i>' % (R['folderDividerY'] + shift))
     return ''.join(out)
-def rail_accounts(height, tiles, unified='sel', unified_badge=None, scroll_end=False):
+def rail_accounts(height, tiles, unified='sel', unified_badge=None, scroll_end=False, later=False):
     """The account group anchored above Add in a window `height` tall (spec §5.2): All Inboxes, its hairline, then
     `tiles` (each a (classes, inner html, title) triple). Where the group would come closer than groupGap to All Mail
     it stops there and the tiles scroll in their own clip; scroll_end shows the clip scrolled to its end."""
@@ -47,7 +51,8 @@ def rail_accounts(height, tiles, unified='sel', unified_badge=None, scroll_end=F
     clip_bottom = height - R['addTopFromBottom'] - R['stackBottomGap']
     n = len(tiles)
     natural_first = clip_bottom - inset - tile - (n - 1) * pitch
-    unified_top = max(R['allMailTop'] + tile + R['groupGap'], natural_first - R['accountGap'] - R['dividerGap'] - tile)
+    all_mail = R['allMailTop'] + (R['folderPitch'] if later else 0)
+    unified_top = max(all_mail + tile + R['groupGap'], natural_first - R['accountGap'] - R['dividerGap'] - tile)
     divider = unified_top + tile + R['dividerGap']
     first = divider + R['accountGap']
     clip_top = first - inset

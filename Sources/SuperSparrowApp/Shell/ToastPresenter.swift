@@ -97,6 +97,13 @@ final class ToastPresenter {
         return currentID
     }
 
+    /// Whether an undoable toast of `message` shows it whole in the list as it is now, beside the action if it has one.
+    func fits(_ message: String, symbol: String?, actionTitle: String?, keycap: String?) -> Bool {
+        let slip = QuireSlipView(kind: .undoable, message: message, symbolName: symbol)
+        if let actionTitle { slip.setAction(actionTitle, keycap: keycap) }
+        return slip.intrinsicContentSize.width <= host.slipRoom
+    }
+
     /// Esc: the toast goes; its undo keeps working for the grace period (§6.1).
     func dismiss() {
         guard slip != nil else { return }

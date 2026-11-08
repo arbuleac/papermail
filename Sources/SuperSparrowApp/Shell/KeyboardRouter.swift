@@ -23,6 +23,8 @@ enum KeyCommand: Equatable {
     case clearSearch
     /// Back to the inbox, out of the trash or the archive.
     case moveToInbox
+    /// L: the Later menu for the selection (spec §5.45).
+    case later
     case undo
     case goTo(MailboxView)
 }
@@ -38,19 +40,22 @@ protocol KeyboardRouterTarget: AnyObject {
     var sequenceHUDHost: NSView? { get }
     /// The HUD is about to show. It replaces a visible toast, which does not come back.
     func sequenceHUDWillAppear()
+    /// Later's tile is in the rail, so G L goes there and the HUD lists it (§5.2, §5.32).
+    var showsLater: Bool { get }
 }
 
 extension KeyboardRouterTarget {
     var sequenceHUDHost: NSView? { keyboardWindow?.contentView }
     func sequenceHUDWillAppear() {}
+    var showsLater: Bool { false }
 }
 
 /// A local key monitor for the main window. It only acts when the main window is key and the first responder
 /// is not a place to type, so `e` in the search field or the quick reply stays an `e`.
 ///
 /// Every key press first finishes running animations (`Quire.Motion.finishAll()`, spec §4.10), so held keys
-/// never queue motion. G arms a sequence for 2000 ms (§5.32): I, S, T, D, # or A completes it, any other key
-/// (Esc included) disarms it and is consumed, and the HUD shows from 500 ms until the sequence ends. ? opens
+/// never queue motion. G arms a sequence for 2000 ms (§5.32): I, S, T, D, # or A completes it, and L while Later shows;
+/// any other key (Esc included) disarms it and is consumed, and the HUD shows from 500 ms until the sequence ends. ? opens
 /// the keyboard cheat sheet; while it is open every key goes to it.
 ///
 /// ⌘-shortcuts are left to the main menu (which disables mail actions while typing), except ⌘⌫ and ⌘Z, which
@@ -145,6 +150,7 @@ final class KeyboardRouter {
     static func sequenceView(characters: String) -> MailboxView? {
         switch characters.lowercased() {
         case "i": return .inbox
+        case "l": return .later
         case "s": return .starred
         case "t": return .sent
         case "d": return .drafts
@@ -214,6 +220,7 @@ final class KeyboardRouter {
         case "a": return (.replyAll, false)
         case "f": return (.forward, false)
         case "c": return (.compose, false)
+        case "l": return (.later, false)
         case "/": return (.search, false)
         case "z": return (.undo, false)
         case "g": return (nil, true)
@@ -264,7 +271,9 @@ final class KeyboardRouter {
         hudTimer = nil
         guard sequenceArmed, hud == nil, let target, let host = target.sequenceHUDHost, force || host.window?.isKeyWindow == true else { return }
         target.sequenceHUDWillAppear()
-        let view = QuireSequenceHUDView()
+        // Later's row only while its tile is there: otherwise G L does nothing, like any key the HUD does not list.
+        let rows = QuireSequenceHUDView.sequenceRows().filter { target.showsLater || $0.keys != "L" }
+        let view = QuireSequenceHUDView(rows: rows)
         place(view, in: host)
         host.addSubview(view, positioned: .above, relativeTo: nil)
         hud = view

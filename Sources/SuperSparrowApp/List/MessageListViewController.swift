@@ -312,6 +312,14 @@ final class MessageListViewController: NSViewController {
         }
     }
 
+    /// The row of conversation `id` in the table's coordinates, scrolled into view first; nil when it is not listed.
+    /// Where the Later menu hangs from (§5.45).
+    func revealedRowRect(of id: ConversationID) -> NSRect? {
+        guard let index = indexByID[id], let row = layout.row(ofConversation: index) else { return nil }
+        scrollToRow(row)
+        return tableView.rect(ofRow: row)
+    }
+
     /// What a right-click on `row` shows (internal so the app's tests can ask for it).
     func contextMenu(forRow row: Int) -> NSMenu? {
         guard let rowMenu, let index = layout.conversationIndex(atRow: row), conversations.indices.contains(index) else { return nil }
@@ -347,7 +355,7 @@ final class MessageListViewController: NSViewController {
     /// observation keeps delivering, so a later refresh re-reads the tail pages to keep every row live.
     func loadMore() {
         // The cursor is the store's last row: a kept draft merged in below it says nothing about the store's pages.
-        guard !isLoadingMore, !reachedEnd, hasReceivedFirstPage, let cursor = storeRows.last?.latestDate else { return }
+        guard !isLoadingMore, !reachedEnd, hasReceivedFirstPage, let cursor = storeRows.last.map(listDate(of:)) else { return }
         isLoadingMore = true
         setFooterPhase(.loading)
         var pageQuery = query
@@ -560,7 +568,7 @@ final class MessageListViewController: NSViewController {
     private func fetchTails(after head: [ConversationSummary], pages: Int) -> [ConversationSummary] {
         var tail: [ConversationSummary] = []
         var seen = Set(head.map(\.id))
-        var cursor = head.last?.latestDate
+        var cursor = head.last.map(listDate(of:))
         for _ in 0..<pages {
             guard let before = cursor else { break }
             var pageQuery = query
@@ -579,9 +587,15 @@ final class MessageListViewController: NSViewController {
                 reachedEnd = true
                 break
             }
-            cursor = page.last?.latestDate
+            cursor = page.last.map(listDate(of:))
         }
         return tail
+    }
+
+    /// The date the list sorts, pages, groups and shows a row by: the Inbox's own, which a conversation back from Later
+    /// takes from its return (`ConversationSummary.inboxDate`); every other view's the latest message's.
+    private func listDate(of summary: ConversationSummary) -> Date {
+        query.view == .inbox && !isSearch ? summary.inboxDate : summary.latestDate
     }
 
     private func finishLoadMore(_ page: [ConversationSummary]?, generation: Int) {
@@ -603,8 +617,9 @@ final class MessageListViewController: NSViewController {
 
     private func makeLayout() -> ListLayout {
         return ListLayout.make(
-            dates: conversations.map(\.latestDate),
-            showsHeads: RunningHead.showsHeads(conversationCount: conversations.count, isSearch: isSearch),
+            dates: conversations.map(listDate(of:)),
+            // Later's rows are times to come, which the past-day heads cannot describe; each row says its own.
+            showsHeads: query.view != .later && RunningHead.showsHeads(conversationCount: conversations.count, isSearch: isSearch),
             showsFooter: hasReceivedFirstPage && !reachedEnd && !conversations.isEmpty,
             reference: rowContentCache.reference,
             formatter: rowContentCache.formatter
@@ -718,7 +733,16 @@ final class MessageListViewController: NSViewController {
         switch query.view {
         case .sent: return .sent
         case .drafts: return .draft
-        case .inbox, .starred, .trash, .all: return .received
+        case .inbox, .starred, .trash, .all, .later: return .received
+        }
+    }
+
+    private var timeSource: ConversationRowText.TimeSource {
+        guard !isSearch else { return .latestMessage }
+        switch query.view {
+        case .inbox: return .inbox
+        case .later: return .snoozeEnd
+        case .starred, .sent, .drafts, .trash, .all: return .latestMessage
         }
     }
 
@@ -734,7 +758,8 @@ final class MessageListViewController: NSViewController {
             kind: rowKind,
             timeStyle: layout.timeStyles.indices.contains(index) ? layout.timeStyles[index] : .relative,
             ownAddresses: ownAddresses,
-            accountName: accountNames[summary.id.accountID]
+            accountName: accountNames[summary.id.accountID],
+            timeSource: timeSource
         )
     }
 

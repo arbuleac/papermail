@@ -28,8 +28,9 @@ final class RailDropTests: XCTestCase {
         XCTAssertNil(RailDrop.change(for: .drafts))
     }
 
-    func testSentAndDraftsTakeNothing() {
-        for tile in [MailboxView.sent, .drafts] {
+    func testSentDraftsAndLaterTakeNothing() {
+        XCTAssertNil(RailDrop.change(for: .later), "a snooze needs a time, which a drop cannot give")
+        for tile in [MailboxView.sent, .drafts, .later] {
             XCTAssertFalse(RailDrop.accepts(tile, rows: [row("1", inInbox: false)], selectedView: .all, isSearching: false))
         }
     }

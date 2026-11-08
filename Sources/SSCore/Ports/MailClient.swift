@@ -30,6 +30,13 @@ public protocol MailClient: AnyObject {
     func perform(_ change: MetadataChange, on conversation: ConversationID) throws
     func perform(_ change: MetadataChange, on messages: [MessageID]) throws
 
+    /// Snoozes, reschedules or ends snoozes (Later; `Snooze.Change.until` nil ends one) together with `steps`, in one
+    /// store transaction: the steps are applied and queued as operations, as `perform` queues them, and the snooze timer
+    /// looks again. Snoozing archives (the caller passes the archive step); ending a snooze from Later may move the
+    /// conversation back (⇧I) or leave it archived (E); an undo passes the inverse steps with the snoozes and return
+    /// marks the action ended (`Snooze.Change.returnedAt`). Local state updates before this returns.
+    func setSnoozes(_ changes: [Snooze.Change], performing steps: [MailActionRecord.Step]) throws
+
     /// Queue a send held for `undoWindow` seconds. Returns the pending send id.
     func send(_ message: OutgoingMessage, undoWindow: TimeInterval) throws -> String
     /// True when the send was still held and is now cancelled.

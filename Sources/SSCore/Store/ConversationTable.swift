@@ -22,6 +22,8 @@ enum ConversationTable {
     static func refreshTouched(_ db: Database) throws {
         try db.cachedStatement(sql: refreshSQL).execute()
         try db.cachedStatement(sql: pruneSQL).execute()
+        // A snooze ends once its conversation is back in the Inbox, in the Trash or gone, whatever put it there.
+        try SnoozeTable.endForTouched(in: db)
         try db.cachedStatement(sql: "DELETE FROM \(touched)").execute()
     }
 
@@ -57,7 +59,7 @@ enum ConversationTable {
         INSERT OR REPLACE INTO conversations (
             account_id, provider_id, subject, snippet, participants_json, latest_date_ms, latest_provider_id,
             message_count, unread_count, is_starred, has_attachments, in_inbox, in_sent, in_drafts, in_trash,
-            inbox_section, has_pending_ops, failed_op_kind
+            inbox_section, has_pending_ops, failed_op_kind, returned_at
         )
         SELECT b.account_id, b.cid,
             COALESCE((SELECT s.subject FROM msgs s
@@ -92,7 +94,13 @@ enum ConversationTable {
                       AND o.status IN \(OperationTable.liveStatusList)),
             -- The failed mark is not derived from the messages; it is kept by the operation writes
             -- (FailedOperationMarks), and REPLACE would otherwise reset it on every refresh.
-            (SELECT c.failed_op_kind FROM conversations c WHERE c.account_id = b.account_id AND c.provider_id = b.cid)
+            (SELECT c.failed_op_kind FROM conversations c WHERE c.account_id = b.account_id AND c.provider_id = b.cid),
+            -- So is the return mark (SnoozeTable.returnDue). It stays while the conversation is in the Inbox and its
+            -- newest mail is older, so reading it moves no row; leaving the Inbox or newer mail ends it.
+            CASE WHEN MAX((b.roles & \(MailStoreCodec.inboxBit)) != 0 AND b.trashed = 0) THEN
+                (SELECT c.returned_at FROM conversations c
+                 WHERE c.account_id = b.account_id AND c.provider_id = b.cid AND c.returned_at > l.date_ms)
+            END
         FROM basis b
         JOIN latest l ON l.account_id = b.account_id AND l.cid = b.cid
         GROUP BY b.account_id, b.cid
@@ -113,8 +121,18 @@ enum ConversationTable {
     private static let summaryColumns = """
         c.account_id, c.provider_id, c.subject, c.snippet, c.participants_json, c.latest_date_ms, \
         c.latest_provider_id, c.message_count, c.unread_count, c.is_starred, c.has_attachments, c.in_inbox, \
-        c.inbox_section, c.has_pending_ops, c.failed_op_kind
+        c.inbox_section, c.has_pending_ops, c.failed_op_kind, c.returned_at
         """
+
+    /// The Inbox's sort key, `ConversationSummary.inboxDate`: the refresh keeps `returned_at` only while it is later
+    /// than the newest mail, so this is the later of the two. Spelled as `conversations_inbox` spells it (v11), which
+    /// is what lets SQLite read the Inbox in index order.
+    static let inboxDate = "COALESCE(c.returned_at, c.latest_date_ms)"
+
+    /// The date column a view sorts and pages by.
+    private static func sortKey(_ view: MailboxView) -> String {
+        view == .inbox ? inboxDate : "c.latest_date_ms"
+    }
 
     static func fetch(_ query: ConversationQuery, in db: Database) throws -> [ConversationSummary] {
         let (sql, arguments, isSearch) = statement(for: query)
@@ -136,7 +154,12 @@ enum ConversationTable {
     /// `isSearch` says whether the statement reads the full-text index, which only a query with indexable text does.
     private static func statement(for query: ConversationQuery)
         -> (sql: String, arguments: [(any DatabaseValueConvertible)?], isSearch: Bool) {
-        var sql = "SELECT \(summaryColumns) FROM conversations c"
+        let isLater = query.view == .later
+        // Later reads the snooze with each row, for its “Back Tue 09:00”; every other view has none to read.
+        var sql = "SELECT \(summaryColumns), \(isLater ? "s.due_at" : "NULL") FROM conversations c"
+        if isLater {
+            sql += " JOIN snoozes s ON s.account_id = c.account_id AND s.provider_id = c.provider_id"
+        }
         var arguments: [(any DatabaseValueConvertible)?] = []
         let match = FullTextIndex.matchExpression(for: query.searchText)
         if let match {
@@ -161,12 +184,16 @@ enum ConversationTable {
         if query.unreadOnly {
             predicates.append("c.unread_count > 0")
         }
-        if let before = query.before {
-            predicates.append("c.latest_date_ms < ?")
+        if let before = query.before, !isLater {
+            predicates.append("\(sortKey(query.view)) < ?")
             arguments.append(MailStoreCodec.milliseconds(before))
         }
         sql += " WHERE " + predicates.joined(separator: " AND ")
-        sql += " ORDER BY c.latest_date_ms DESC, c.provider_id DESC LIMIT ?"
+        if isLater {
+            sql += " ORDER BY s.due_at, c.account_id, c.provider_id LIMIT ?"
+        } else {
+            sql += " ORDER BY \(sortKey(query.view)) DESC, c.provider_id DESC LIMIT ?"
+        }
         arguments.append(query.limit)
         return (sql, arguments, match != nil)
     }
@@ -188,6 +215,8 @@ enum ConversationTable {
         case .drafts: return "c.in_drafts = 1 AND c.in_trash = 0"
         case .trash: return "c.in_trash = 1"
         case .all: return "c.message_count > 0 AND c.in_trash = 0"
+        // The join to `snoozes` is the filter: a snoozed conversation is never in the Inbox or the Trash.
+        case .later: return "1"
         }
     }
 
@@ -197,10 +226,12 @@ enum ConversationTable {
         return "c.account_id IN (" + Array(repeating: "?", count: ids.count).joined(separator: ", ") + ")"
     }
 
-    /// Expects the column order of `summaryColumns`.
+    /// Expects the column order of `summaryColumns`, then the snooze's due time (NULL outside Later).
     private static func summary(from row: Row) throws -> ConversationSummary {
         let accountID = AccountID(row[0])
         let failedKind: String? = row[14]
+        let returnedAt: Int64? = row[15]
+        let snoozedUntil: Int64? = row[16]
         return ConversationSummary(
             id: ConversationID(accountID: accountID, providerID: row[1]),
             subject: row[2],
@@ -215,7 +246,9 @@ enum ConversationTable {
             inboxSection: InboxSection(rawValue: row[12]) ?? .unknown,
             latestMessageID: MessageID(accountID: accountID, providerID: row[6]),
             hasPendingOperations: row[13],
-            failedOperation: failedKind.flatMap(OperationKind.init(rawValue:))
+            failedOperation: failedKind.flatMap(OperationKind.init(rawValue:)),
+            returnedAt: returnedAt.map(MailStoreCodec.date),
+            snoozedUntil: snoozedUntil.map(MailStoreCodec.date)
         )
     }
 }

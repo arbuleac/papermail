@@ -536,8 +536,9 @@ final class SQLiteMailStoreTests: XCTestCase {
         XCTAssertEqual(inbox.filter { $0.hasPrefix("SEARCH") || $0.hasPrefix("SCAN") }.count, 1, "one indexed select: \(inbox)")
         XCTAssertTrue(inbox.contains { $0.contains("USING INDEX conversations_inbox") }, "\(inbox)")
 
+        // Paged by the Inbox's own date (v11), the expression the index is built on, so the page is a range read on it.
         let filtered = try store.queryPlan(for: ConversationQuery(accountIDs: [accountA], view: .inbox, section: .focused, unreadOnly: true, before: date(0)))
-        XCTAssertTrue(filtered.contains { $0.contains("USING INDEX conversations_inbox") && $0.contains("latest_date_ms<?") }, "\(filtered)")
+        XCTAssertTrue(filtered.contains { $0.contains("USING INDEX conversations_inbox") && $0.contains("<expr><?") }, "\(filtered)")
 
         XCTAssertTrue(try store.queryPlan(for: ConversationQuery(view: .starred)).contains { $0.contains("USING INDEX conversations_starred") })
         XCTAssertTrue(try store.queryPlan(for: ConversationQuery(view: .sent)).contains { $0.contains("USING INDEX conversations_sent") })
