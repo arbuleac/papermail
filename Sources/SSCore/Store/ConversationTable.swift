@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import os
 
 /// SQL for the denormalized `conversations` summary rows: the aggregate refresh and the list queries.
 enum ConversationTable {
@@ -116,21 +117,29 @@ enum ConversationTable {
         """
 
     static func fetch(_ query: ConversationQuery, in db: Database) throws -> [ConversationSummary] {
-        let (sql, arguments) = statement(for: query)
+        let (sql, arguments, isSearch) = statement(for: query)
+        // Only a full-text read is worth an interval: the other views are one indexed select. The search's first
+        // page is read off the main thread by the observation, but paging reads it on the caller's thread.
+        let signposter = StoreSignposts.signposter
+        let interval = isSearch ? signposter.beginInterval(StoreSignposts.search, id: signposter.makeSignpostID()) : nil
+        defer { if let interval { signposter.endInterval(StoreSignposts.search, interval) } }
         let statement = try db.cachedStatement(sql: sql)
         return try Row.fetchAll(statement, arguments: StatementArguments(arguments)).map(summary(from:))
     }
 
     static func explain(_ query: ConversationQuery, in db: Database) throws -> [String] {
-        let (sql, arguments) = statement(for: query)
+        let (sql, arguments, _) = statement(for: query)
         return try Row.fetchAll(db, sql: "EXPLAIN QUERY PLAN " + sql, arguments: StatementArguments(arguments))
             .map { $0["detail"] }
     }
 
-    private static func statement(for query: ConversationQuery) -> (sql: String, arguments: [(any DatabaseValueConvertible)?]) {
+    /// `isSearch` says whether the statement reads the full-text index, which only a query with indexable text does.
+    private static func statement(for query: ConversationQuery)
+        -> (sql: String, arguments: [(any DatabaseValueConvertible)?], isSearch: Bool) {
         var sql = "SELECT \(summaryColumns) FROM conversations c"
         var arguments: [(any DatabaseValueConvertible)?] = []
-        if let match = FullTextIndex.matchExpression(for: query.searchText) {
+        let match = FullTextIndex.matchExpression(for: query.searchText)
+        if let match {
             // Hits are collapsed to conversation keys once, then joined to the summary rows the list needs,
             // so the result carries the same denormalized columns as every other view.
             sql += """
@@ -159,7 +168,7 @@ enum ConversationTable {
         sql += " WHERE " + predicates.joined(separator: " AND ")
         sql += " ORDER BY c.latest_date_ms DESC, c.provider_id DESC LIMIT ?"
         arguments.append(query.limit)
-        return (sql, arguments)
+        return (sql, arguments, match != nil)
     }
 
     static func unreadInboxCount(accountIDs: [AccountID]?, in db: Database) throws -> Int {

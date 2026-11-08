@@ -100,6 +100,14 @@ public protocol MailStoring: AnyObject, Sendable {
     // MARK: Conversations
     func conversations(_ query: ConversationQuery) throws -> [ConversationSummary]
     func observeConversations(_ query: ConversationQuery, onChange: @escaping @Sendable ([ConversationSummary]) -> Void) -> StoreObservation
+    /// As above, and `onError` runs on the main thread if a read fails, which stops the observation: no
+    /// `onChange` follows. For a subscriber that would otherwise wait for rows that never come (the list's
+    /// `list.search` interval). A store whose reads cannot fail keeps the default, which never calls it.
+    func observeConversations(
+        _ query: ConversationQuery,
+        onChange: @escaping @Sendable ([ConversationSummary]) -> Void,
+        onError: @escaping @Sendable (Error) -> Void
+    ) -> StoreObservation
     func observeConversation(_ id: ConversationID, onChange: @escaping @Sendable ([MessageMetadata]) -> Void) -> StoreObservation
     func unreadInboxCount(accountIDs: [AccountID]?) throws -> Int
 
@@ -141,4 +149,14 @@ public protocol MailStoring: AnyObject, Sendable {
     // MARK: Contacts
     /// Addresses seen in from/to/cc, ranked by how often and how recently they appear. Prefix matches name or address.
     func suggestAddresses(prefix: String, limit: Int) throws -> [EmailAddress]
+}
+
+extension MailStoring {
+    public func observeConversations(
+        _ query: ConversationQuery,
+        onChange: @escaping @Sendable ([ConversationSummary]) -> Void,
+        onError: @escaping @Sendable (Error) -> Void
+    ) -> StoreObservation {
+        observeConversations(query, onChange: onChange)
+    }
 }

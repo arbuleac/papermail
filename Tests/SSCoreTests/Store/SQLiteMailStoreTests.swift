@@ -1,3 +1,4 @@
+import SQLite3
 import XCTest
 @testable import SSCore
 
@@ -419,6 +420,41 @@ final class SQLiteMailStoreTests: XCTestCase {
         wait(for: [changed], timeout: 2)
         XCTAssertEqual(box.values.count, 2, "body saves that leave every row as it was must not re-deliver: \(box.values)")
         observation.cancel()
+    }
+
+    /// A search whose read fails (the full-text table dropped behind the store's back, standing in for a damaged
+    /// index or an I/O error) stops, and says so to its subscriber, which would otherwise wait for rows that never
+    /// come: the list's `list.search` interval ends on it.
+    func testSearchObservationReportsAFailedRead() throws {
+        let path = try temporaryPath("mail.sqlite")
+        let store = try SQLiteMailStore(path: path)
+        try seedAccounts(in: store, [accountA])
+        try store.upsertMessages([message("m1", in: "c1", subject: "Quarterly budget", date: date(100))])
+        try dropFullTextTable(inFileAt: path)
+
+        let box = ObservedValues()
+        let failed = expectation(description: "error")
+        let observation = store.observeConversations(
+            ConversationQuery(view: .inbox, searchText: "budg"),
+            onChange: { box.append($0.map(\.id.providerID)) },
+            onError: { _ in
+                XCTAssertTrue(Thread.isMainThread)
+                failed.fulfill()
+            }
+        )
+        wait(for: [failed], timeout: 2)
+        XCTAssertTrue(box.values.isEmpty, "a failed read delivers no rows: \(box.values)")
+        observation.cancel()
+        try store.close()
+    }
+
+    private func dropFullTextTable(inFileAt path: String) throws {
+        var handle: OpaquePointer?
+        defer { sqlite3_close(handle) }
+        guard sqlite3_open(path, &handle) == SQLITE_OK,
+              sqlite3_exec(handle, "DROP TABLE message_fts", nil, nil, nil) == SQLITE_OK else {
+            return XCTFail("could not drop the full-text table: \(String(cString: sqlite3_errmsg(handle)))")
+        }
     }
 
     func testRenderFactsRoundTrip() throws {

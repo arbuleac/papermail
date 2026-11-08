@@ -124,6 +124,8 @@ final class MessageListViewController: NSViewController {
     private let focusOverlay = ListFocusRingOverlay()
     let rowContentCache: RowContentCache
     private let signposter = ListSignposts.signposter
+    /// Internal so tests can watch a search's interval begin and end.
+    let searchSignpost = ListSearchSignpost()
     private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "SuperSparrow", category: "list")
 
     /// Screens of rows left below the viewport before the next page is requested (spec §5.10: two).
@@ -500,13 +502,24 @@ final class MessageListViewController: NSViewController {
         reachedEnd = false
         isLoadingMore = false
         footerPhase = .idle
-        observation = store.observeConversations(query) { [weak self] rows in
+        // Begun before the store is asked, since a store may hand over the first page inside the call. A search
+        // still waiting for its rows is superseded either way, by the next search or by leaving search.
+        if isSearch { searchSignpost.begin() } else { searchSignpost.supersede() }
+        observation = store.observeConversations(query, onChange: { [weak self] rows in
             // The store contract delivers on the main thread; assumeIsolated turns that promise into a check.
             MainActor.assumeIsolated {
                 guard let self, self.subscriptionGeneration == generation else { return }
                 self.handleHeadUpdate(rows)
+                // A query set by a callback while the rows were applied has an interval of its own.
+                if self.subscriptionGeneration == generation { self.searchSignpost.finish() }
             }
-        }
+        }, onError: { [weak self] _ in
+            // The store has logged the error; the list keeps the rows it shows, and its search stops waiting.
+            MainActor.assumeIsolated {
+                guard let self, self.subscriptionGeneration == generation else { return }
+                self.searchSignpost.fail()
+            }
+        })
     }
 
     /// Internal so the refresh budget can be timed on its own.
@@ -522,6 +535,10 @@ final class MessageListViewController: NSViewController {
             merged += fetchTails(after: rows, pages: tailPageCount)
         }
         apply(merged)
+    }
+
+    private var isSearch: Bool {
+        !(query.searchText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
     }
 
     private var showsLocalDrafts: Bool {
@@ -585,7 +602,6 @@ final class MessageListViewController: NSViewController {
     // MARK: Applying rows
 
     private func makeLayout() -> ListLayout {
-        let isSearch = !(query.searchText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
         return ListLayout.make(
             dates: conversations.map(\.latestDate),
             showsHeads: RunningHead.showsHeads(conversationCount: conversations.count, isSearch: isSearch),
@@ -798,7 +814,6 @@ final class MessageListViewController: NSViewController {
         let scope = Set(query.accountIDs ?? Array(accountsByID.keys))
         let scoped = syncStatuses.filter { scope.contains($0.accountID) }
         let firstSyncRunning = scoped.contains { $0.phase == .bootstrapping && $0.lastSuccessfulSyncAt == nil }
-        let isSearch = !(query.searchText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
         if isEmpty, firstSyncRunning, !isSearch {
             emptyView.isHidden = true
             skeletonView.density = density

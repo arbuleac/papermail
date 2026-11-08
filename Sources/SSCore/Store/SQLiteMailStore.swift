@@ -224,6 +224,14 @@ public final class SQLiteMailStore: MailStoring, Sendable {
         _ query: ConversationQuery,
         onChange: @escaping @Sendable ([ConversationSummary]) -> Void
     ) -> StoreObservation {
+        observeConversations(query, onChange: onChange, onError: { _ in })
+    }
+
+    public func observeConversations(
+        _ query: ConversationQuery,
+        onChange: @escaping @Sendable ([ConversationSummary]) -> Void,
+        onError: @escaping @Sendable (Error) -> Void
+    ) -> StoreObservation {
         // Identical rows are not delivered again: hydration rewrites a message's full-text row with every
         // body it saves, which invalidates a search without changing a single result.
         let observation = ValueObservation.tracking { db in try ConversationTable.fetch(query, in: db) }.removeDuplicates()
@@ -233,7 +241,10 @@ public final class SQLiteMailStore: MailStoring, Sendable {
         let cancellable = database.startObservation(
             observation,
             firstValueOnCallingThread: !isSearch,
-            onError: Self.reportObservationFailure,
+            onError: { error in
+                Self.reportObservationFailure(error)
+                onError(error)
+            },
             onChange: onChange
         )
         return StoreObservation { cancellable.cancel() }
