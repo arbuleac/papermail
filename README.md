@@ -31,6 +31,10 @@ SuperSparrow signs in through your browser with OAuth clients you register yours
 
 Once SuperSparrow is your default mail app, a `mailto:` link (an address in Safari, **Email** in Contacts, a link in any other app) opens a new message with its recipients, subject and body filled in, from the account you are looking at (the first account under All Inboxes). Nothing is sent until you click Send. To make it the default, click **Set as Default Mail App** in **Settings → General → Mail links** and confirm in the dialog macOS shows; you can also choose it in Mail under **Settings → General → Default email reader**.
 
+## Notifications
+
+A notification for one new conversation offers **Archive**, **Mark as Read** and **Reply**; a summary of several ("4 new messages") offers none. Archive and Mark as Read leave SuperSparrow in the background and sync like the same actions in the window, but they have no Undo. Reply brings SuperSparrow forward with a reply ready in a composer window. Clicking a notification for one conversation opens it.
+
 ## Keyboard shortcuts
 
 | Key | Action |

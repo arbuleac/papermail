@@ -346,7 +346,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             self.notifier.inboxDidChange(rows, accounts: self.accountsByID)
         }
         inboxMonitor.onFailures = { [weak self] failures in self?.operationsFailed(failures) }
-        notifier.onOpenConversation = { [weak self] id in self?.reveal(id) }
         notifier.conversationOpenInKeyWindow = { [weak self] in
             guard let self, self.window?.isKeyWindow == true else { return nil }
             return self.conversation.currentConversationID
@@ -821,6 +820,41 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         composeReply(all: false)
     }
 
+    // MARK: Notifications (§5.41)
+
+    /// A click on a new-mail notification, or one of its actions, once this window has read its accounts. A click
+    /// opens and selects the conversation. Archive and Mark as Read are the window's own changes, applied to the
+    /// store and queued in one call, but with no toast and nothing in the undo history: the user is elsewhere, and
+    /// an undo they never saw offered would only surprise them later. Reply opens a reply composer to the
+    /// conversation's latest message from its account. An action on an account this window does not show (a
+    /// demo notification once the real accounts are back, or the other way round), on a conversation that is
+    /// gone, or one the change would leave as it is, does nothing.
+    func answer(_ response: NewMailNotificationResponse) {
+        switch response {
+        case .open(let id):
+            if let id { reveal(id) }
+        case .archive(let id):
+            notificationAction(.archive, on: id)
+        case .markRead(let id):
+            notificationAction(.setRead(true), on: id)
+        case .reply(let id):
+            guard let account = accountsByID[id.accountID], let latest = (try? environment.store.messages(in: id))?.last else { return }
+            ComposeWindowController.present(client: environment.engine, account: account, accounts: accounts,
+                                            mode: .reply(latest.id, all: false))
+        }
+    }
+
+    private func notificationAction(_ change: MetadataChange, on id: ConversationID) {
+        guard accountsByID[id.accountID] != nil else { return }
+        let targets = actionRecords(change, on: [id]).flatMap(\.targets)
+        guard !targets.isEmpty else { return }
+        do {
+            try environment.engine.perform(change, on: targets)
+        } catch {
+            Self.log.error("notification action failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
     /// Brings a conversation on screen from outside the list (a notification click).
     func reveal(_ id: ConversationID) {
         showWindow(nil)
@@ -1023,14 +1057,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     private func mailAction(_ change: MetadataChange, on ids: [ConversationID]? = nil) -> Bool {
         let targets = ids ?? selectedIDs
         guard !targets.isEmpty else { return false }
-        let store = environment.store
-        var records: [MailActionRecord] = []
-        for id in targets {
-            guard let all = try? store.messages(in: id), !all.isEmpty else { continue }
-            let kind = accountsByID[id.accountID]?.kind ?? .gmail
-            let messages = MailActionRecord.targets(for: change, in: all, kind: kind)
-            if let record = MailActionRecord.make(change, on: messages, conversation: id) { records.append(record) }
-        }
+        let records = actionRecords(change, on: targets)
         guard !records.isEmpty else {
             // Archive in the Trash, star on nothing: say so rather than appear to ignore the key.
             NSSound.beep()
@@ -1046,6 +1073,20 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         }
         recordUndo(records, change: change)
         return true
+    }
+
+    /// What `change` does to each of `ids`, read from the store: one record per conversation it changes, so a
+    /// conversation that is gone, or that the change would leave as it is, has none.
+    private func actionRecords(_ change: MetadataChange, on ids: [ConversationID]) -> [MailActionRecord] {
+        let store = environment.store
+        var records: [MailActionRecord] = []
+        for id in ids {
+            guard let all = try? store.messages(in: id), !all.isEmpty else { continue }
+            let kind = accountsByID[id.accountID]?.kind ?? .gmail
+            let messages = MailActionRecord.targets(for: change, in: all, kind: kind)
+            if let record = MailActionRecord.make(change, on: messages, conversation: id) { records.append(record) }
+        }
+        return records
     }
 
     /// A toast's Undo reverts the group that toast offers, whatever happened since; Z and ⌘Z follow

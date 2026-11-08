@@ -1478,7 +1478,17 @@ States per control as §5.24–5.27, Quire-drawn; validation errors inline under
 | Body | first line of the snippet, max {{layout.notification.bodyMaxChars}} characters | none |
 | Summary (more than {{layout.notification.summaryThreshold}} within {{layout.notification.summaryWindowSeconds}} s) | “3 new messages” · account name | same |
 
-No actions in v1. Sound: system default, off while the app is frontmost. No notification for mail that arrives while its conversation is open in a key window, or during an account's first sync (its first page of newest mail, including mail of that page whose rows land just after it). New mail notifies while older mail downloads behind it; the older mail itself never does, since it predates the first page.
+Sound: system default, off while the app is frontmost. No notification for mail that arrives while its conversation is open in a key window, or during an account's first sync (its first page of newest mail, including mail of that page whose rows land just after it). New mail notifies while older mail downloads behind it; the older mail itself never does, since it predates the first page.
+
+**Actions.** A notification for one conversation offers three actions (one category, registered at launch), which macOS lists in this order. The summary offers none: it names no conversation to act on, and a click on it only brings the app forward.
+
+| Action | Copy | What it does |
+|---|---|---|
+| Archive | “Archive” | archives the conversation, as E does; the app stays where it is |
+| Mark as Read | “Mark as Read” | marks every message of the conversation read; the app stays where it is |
+| Reply | “Reply” | brings the app forward with a reply composer (§5.20) to the conversation's latest message, from the conversation's account, as R opens one; a button, not a text field in the notification |
+
+Archive and Mark as Read are the window's own changes, applied on this Mac at once and queued to sync exactly as the keys apply them. Taken from a notification they show no toast and leave nothing for Z or ⌘Z: the undo history belongs to the window (§6.1), and the user acted elsewhere. The row leaves the inbox, or loses its unread mark, as a change synced from another device would. An action on a conversation that is gone, on one the change would leave as it is (already archived, already read), or on an account that is not open (a demo notification once the real accounts are back, or the other way round) does nothing, silently. An action that launches the app waits until the main window has read its accounts.
 
 ### 5.42 App icon
 
@@ -1801,7 +1811,7 @@ html.ss-adapt a, html.ss-adapt a * { color: var(--q-accent) !important; }
 | §5.40 settings | `Shell/SettingsWindowController.swift` (`statusText(for:)`, the OAuth `Form`), `Shell/AppSettings.swift` | system tabs; account statuses for every sync phase; the OAuth form row by row with “Saved” beside Save; Quire control styles and drawn focus rings; account group with margin-rule selection, +/−, empty and busy states; notices as banners; colour and monogram, font, density, account initials |
 | §5.43 demo | `Shell/MainWindowController.swift` (window title), `Shell/ListPaneViewController.swift`, `Shell/SettingsWindowController.swift` (demo note), `Shell/AppEnvironment.swift` | Demo tag and menu, sync-line state, Settings banner, Leave Demo |
 | §5.44 add account | `Shell/AppDelegate.swift` (provider `NSAlert`, “Finish signing in…”), `Shell/AccountStripViewController.swift` | provider pull-down menu, pending tile, sync-line waiting state with Cancel, error alerts |
-| §5.41 notifications | `Shell/NewMailNotifier.swift` | content rules; no actions |
+| §5.41 notifications | `Shell/NewMailNotifier.swift`, `Shell/NewMailNotificationAction.swift`, `Shell/NewMailNotificationResponder.swift`, `Shell/MainWindowController.swift` (`answer`) | content rules; the category and its three actions; a response held until there is a main window; actions with no toast and no undo |
 | §4.11 reader symbols | `Conversation/PooledConversationView.swift`, `Conversation/WebViewPool.swift` | rasterise symbols once per pool, inject `symbolCSS` |
 
 ### 8.7 Tests
@@ -1825,7 +1835,6 @@ Design tests live in `Tests/SSDesignTests`: the generated ones in `Tests/SSDesig
 
 **Not in v1, deliberately:**
 
-- **Notification actions** (Archive, Reply, Mark as Read). Notifications carry content only.
 - **A Text size setting.** macOS has no app text-size preference; if the team adds one later, it applies {{deferred.textSize.deltas}} pt to every role and steps standard rows {{deferred.textSize.rowHeights}} pt (compact rows by the same amounts). Nothing in this language depends on it.
 - **Row animations** of any kind: no slide-out on archive, no gap closing, no star pop, no dot shrink.
 - **Sticky date headers** and date headers in search results.

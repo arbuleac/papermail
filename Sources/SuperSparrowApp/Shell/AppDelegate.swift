@@ -50,6 +50,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var wakeups: AppWakeups?
     /// Mail links from other apps, held until there is a main window (internal so the app's tests can deliver them).
     let mailLinks = MailLinkInbox()
+    /// Clicks and actions on new-mail notifications, held until there is a main window (internal for the same reason).
+    let notificationResponses = NewMailNotificationResponder()
 
     init(options: LaunchOptions) {
         self.options = options
@@ -57,6 +59,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     // MARK: NSApplicationDelegate
+
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        // An action that launches the app reaches only a center delegate set before launch ends; it waits in the
+        // responder until `install` has a main window to apply it.
+        if let center = NewMailNotifier.systemCenter { notificationResponses.connect(to: center) }
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Before the first window or menu image is drawn: the Font setting decides every New York role (§4.4).
@@ -439,8 +447,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         window.onCancelSignIn = { [weak self] in self?.cancelSignIn() }
         window.onLeaveDemo = { [weak self] in self?.confirmLeavingDemo(origin: .main) }
         mainWindow = window
-        // Last, on either path below: the window is on screen, so a composer for a held link opens in front of it.
-        defer { openMailLinks(in: window) }
+        // Last, on either path below: the window is on screen, so a composer for a held link or a notification's
+        // Reply opens in front of it.
+        defer {
+            openMailLinks(in: window)
+            answerNotifications(in: window)
+        }
         observeForNotifier(environment)
         if let oldFrame { window.window?.setFrame(oldFrame, display: false) }
         guard let old, let oldWindow = old.window, let newWindow = window.window, oldWindow.isVisible else {
@@ -469,6 +481,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// the delegate a window over a throwaway store.
     func openMailLinks(in window: MainWindowController) {
         mailLinks.receiver = { [weak window] link in window?.openMailLink(link) }
+    }
+
+    /// Notification clicks and actions are answered by `window`, the main window `install` just put on screen, which
+    /// has read its accounts: one that launched the app (held until now) at once, later ones as they come, until
+    /// another main window takes over. Internal so the app's tests can give the delegate a window over a throwaway store.
+    func answerNotifications(in window: MainWindowController) {
+        notificationResponses.receiver = { [weak window] response in window?.answer(response) }
     }
 
     private func requestNotificationsIfDemo(_ window: MainWindowController) {

@@ -3,12 +3,13 @@ import SSCore
 import UserNotifications
 import os
 
-/// Posts a notification for unread inbox conversations that arrive after launch, and routes a click on one back
-/// to that conversation (spec §5.41). macOS draws them; the words come from `NewMailNotificationContent`. No
-/// actions in v1. While the app is frontmost they come without sound, and never for the conversation open in
-/// a key window, which the user is already reading.
+/// Posts a notification for unread inbox conversations that arrive after launch (spec §5.41). macOS draws them; the
+/// words come from `NewMailNotificationContent`, and each one for a single conversation offers Archive, Mark as
+/// Read and Reply (`NewMailNotificationAction`); `NewMailNotificationResponder` answers a click or an action. While
+/// the app is frontmost they come without sound, and never for the conversation open in a key window, which the
+/// user is already reading.
 @MainActor
-final class NewMailNotifier: NSObject, UNUserNotificationCenterDelegate {
+final class NewMailNotifier {
     /// One notification to post.
     struct Post: Equatable {
         var id: String
@@ -18,10 +19,7 @@ final class NewMailNotifier: NSObject, UNUserNotificationCenterDelegate {
         var playsSound: Bool
     }
     nonisolated private static let log = Logger(subsystem: "io.supersparrow.mac", category: "notifications")
-    nonisolated private static let accountKey = "account"
-    nonisolated private static let conversationKey = "conversation"
 
-    var onOpenConversation: ((ConversationID) -> Void)?
     /// Accounts in their first sync: their mail is not new to the user, so it never notifies.
     var accountsInFirstSync: Set<AccountID> = [] {
         didSet {
@@ -45,18 +43,18 @@ final class NewMailNotifier: NSObject, UNUserNotificationCenterDelegate {
     /// When each account's recent notifications were posted, for the summary rule.
     private var recentPosts: [AccountID: [Date]] = [:]
 
-    /// UNUserNotificationCenter raises an exception in a process without a bundle (`swift run`); notifications
-    /// are simply off there.
-    private let center: UNUserNotificationCenter? = {
+    /// UNUserNotificationCenter raises an exception in a process without a bundle (`swift run`, the tests);
+    /// notifications are simply off there.
+    static var systemCenter: UNUserNotificationCenter? {
         guard Bundle.main.bundleURL.pathExtension == "app", Bundle.main.bundleIdentifier != nil else { return nil }
         return UNUserNotificationCenter.current()
-    }()
+    }
+
+    private let center = NewMailNotifier.systemCenter
 
     init(settings: AppSettings, launchDate: Date = Date()) {
         self.settings = settings
         self.launchDate = launchDate
-        super.init()
-        center?.delegate = self
     }
 
     /// The accounts whose mail is not yet new to the user: those fetching their first page. One downloading
@@ -126,55 +124,28 @@ final class NewMailNotifier: NSObject, UNUserNotificationCenterDelegate {
     }
 
     private func post(_ post: Post, to center: UNUserNotificationCenter) {
+        center.add(Self.request(for: post)) { error in
+            if let error { Self.log.notice("could not post notification: \(error.localizedDescription, privacy: .public)") }
+        }
+    }
+
+    /// The request `post` becomes. Internal so the app's tests check what is posted without a notification center.
+    static func request(for post: Post) -> UNNotificationRequest {
         let made = post.content
-        let account = post.account
-        let conversation = post.conversation
-        let id = post.id
         let content = UNMutableNotificationContent()
         content.title = made.title
         content.subtitle = made.subtitle
         if let body = made.body { content.body = body }
         // Off while the app is frontmost (§5.41); the banner still shows (`willPresent`).
         content.sound = post.playsSound ? .default : nil
-        // Grouped per account; a click opens and selects the conversation.
-        content.threadIdentifier = account.rawValue
-        if let conversation {
+        // Grouped per account.
+        content.threadIdentifier = post.account.rawValue
+        if let conversation = post.conversation {
+            // A click opens and selects the conversation, and its actions act on it; the summary has neither.
             content.targetContentIdentifier = conversation.providerID
-            content.userInfo = [Self.accountKey: conversation.accountID.rawValue, Self.conversationKey: conversation.providerID]
+            content.userInfo = NewMailNotificationResponse.userInfo(for: conversation)
+            content.categoryIdentifier = NewMailNotificationAction.categoryIdentifier
         }
-        center.add(UNNotificationRequest(identifier: id, content: content, trigger: nil)) { error in
-            if let error { Self.log.notice("could not post notification: \(error.localizedDescription, privacy: .public)") }
-        }
-    }
-
-    // MARK: UNUserNotificationCenterDelegate
-
-    nonisolated func userNotificationCenter(
-        _ center: UNUserNotificationCenter,
-        willPresent notification: UNNotification,
-        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
-    ) {
-        // The app is in front: the notification shows, without sound (§5.41). The conversation open in a key
-        // window never got one.
-        completionHandler([.banner, .list])
-    }
-
-    nonisolated func userNotificationCenter(
-        _ center: UNUserNotificationCenter,
-        didReceive response: UNNotificationResponse,
-        withCompletionHandler completionHandler: @escaping () -> Void
-    ) {
-        let info = response.notification.request.content.userInfo
-        let account = info[Self.accountKey] as? String
-        let conversation = info[Self.conversationKey] as? String
-        DispatchQueue.main.async {
-            MainActor.assumeIsolated {
-                NSApp.activate()
-                if let account, let conversation {
-                    self.onOpenConversation?(ConversationID(accountID: AccountID(account), providerID: conversation))
-                }
-            }
-            completionHandler()
-        }
+        return UNNotificationRequest(identifier: post.id, content: content, trigger: nil)
     }
 }
