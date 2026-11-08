@@ -193,6 +193,19 @@ public enum ConversationShellAssets {
     .ss-sheet:hover .ss-addr, .ss-sheet:focus-within .ss-addr, .ss-sheet.ss-focus .ss-addr {
       opacity: 1; transition: opacity var(--q-dur-quick) var(--q-ease-settle);
     }
+    /* Unsubscribe beside the sender (spec §5.14): a link in the recipients line's type and colour, underlined like
+       the header's other link ("and 24 more"), at rest as well, since it is the only way to tell it from the name
+       line's text; it never shrinks, the name truncates first. */
+    .ss-unsub {
+      flex: none; margin-left: 6px; padding: 0; border: 0; background: none; border-radius: 3px;
+      font: var(--q-font-snippet); line-height: 16px; color: var(--q-ink2);
+      text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px;
+    }
+    .ss-unsub:hover, .ss-unsub:active { color: var(--q-ink); }
+    .ss-unsub:focus-visible { box-shadow: 0 0 0 1px var(--q-sheet), 0 0 0 calc(1px + var(--ss-ring)) var(--q-focus); }
+    /* The link takes room the name line had; the address, which shows nothing at rest, gives its share up before the
+       name gives any, and the line still does not reflow on hover. */
+    .ss-unsub + .ss-addr { flex-shrink: 1000; }
     .ss-rc {
       display: block; max-width: 100%; padding: 0; border: 0; background: none; border-radius: 3px; text-align: start;
       font: var(--q-font-snippet); line-height: 16px; color: var(--q-ink2);
@@ -992,7 +1005,8 @@ public enum ConversationShellAssets {
       // MARK: Headers
 
       function headerKey(m) {
-        return JSON.stringify([m.from, m.to, m.cc, m.recipients, m.snippet, m.dateDisplay, m.dateISO, m.isUnread, m.isStarred, m.isDraft]);
+        return JSON.stringify([m.from, m.to, m.cc, m.recipients, m.snippet, m.dateDisplay, m.dateISO, m.isUnread, m.isStarred, m.isDraft,
+          !!m.unsubscribe]);
       }
 
       function nameNode(m, cls) {
@@ -1099,6 +1113,19 @@ public enum ConversationShellAssets {
         line.appendChild(el('i', 'ss-pip7'));
         line.appendChild(nameNode(m, 'ss-name'));
         if (m.isStarred) { line.appendChild(sym('star.fill', 'ss-nstar')); }
+        // Before the address, which takes its place at rest without showing: after it, the link would float.
+        if (m.unsubscribe) {
+          var unsubscribe = button('ss-unsub', 'Unsubscribe', 'Unsubscribe  ⇧⌘U');
+          unsubscribe.addEventListener('click', function (event) {
+            stop(event);
+            // A double-click's second click is no second request, even where the archive has already put the next
+            // conversation's link under the pointer (event.detail is 0 from the keyboard, 1 for a single click).
+            if (event.detail > 1) { return; }
+            setTarget(card, true);
+            action('unsubscribe', card);
+          });
+          line.appendChild(unsubscribe);
+        }
         if (m.from && m.from.address && m.from.address !== m.from.name) { line.appendChild(el('span', 'ss-addr', m.from.address)); }
         var parts = [line];
         if (recipientsOpen[m.id] && (m.recipients || []).length) {

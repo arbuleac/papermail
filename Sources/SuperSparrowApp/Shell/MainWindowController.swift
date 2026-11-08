@@ -51,6 +51,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// Checks every account at once, when the network comes back; an account waiting for sign-in keeps waiting
     /// (`MailClient.checkForMail`). Replaceable so the app's tests, whose engine never starts, can count the checks.
     lazy var checkAllAccounts: () -> Void = { [weak self] in self?.environment.engine.checkForMail() }
+    /// Opens an unsubscribe page in the browser. Tests replace it, so no test opens a browser.
+    var openUnsubscribePage: (URL) -> Void = { NSWorkspace.shared.open($0) }
     /// Drafts kept on this Mac, which the Drafts view lists and the reader shows beside the provider's.
     let localDrafts = LocalDrafts()
     let notifier: NewMailNotifier
@@ -99,6 +101,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// only then does an undo of a step taken in Later bring Later back (§5.45). Anywhere the user went themselves, an
     /// undo leaves them there, as every other undo does.
     private var leftLaterAsItEmptied = false
+    /// What an unsubscribe's Undo confirms itself with, by group id: the request it leaves sent (§5.30).
+    private var unsubscribeUndoConfirmations: [Int: String] = [:]
+    /// The latest unsubscribe's request and the toast reporting it. While that toast is up, the same request asked
+    /// again (a double-click's second click, ⇧⌘U again where the archived row stays listed) is not sent twice and
+    /// leaves the toast, with its Undo, in place.
+    private var shownUnsubscribe: (accountID: AccountID, method: UnsubscribeMethod, toastID: Int)?
 
     // Later (§5.45)
     /// Every snooze the store holds, from its observation; the Later tile, G L and the title menu go by those in scope.
@@ -844,7 +852,19 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         #if DEBUG
         applyDebugSnapshotStates()
         #endif
-        guard let first = list.conversations.first?.id else { return nil }
+        guard let newest = list.conversations.first?.id else { return nil }
+        #if DEBUG
+        var first = newest
+        if CommandLine.arguments.contains(where: { $0.hasPrefix("--snapshot-state=") && $0.contains("newsletter") }) {
+            // The newest conversation whose sender offers Unsubscribe, so a render shows the link (§5.14).
+            let store = environment.store
+            first = list.conversations.first { row in
+                ((try? store.messages(in: row.id)) ?? []).contains { UnsubscribeMethod(message: $0) != nil }
+            }?.id ?? newest
+        }
+        #else
+        let first = newest
+        #endif
         list.selectedConversationID = first
         present(selection: [first])
         #if DEBUG
@@ -1189,6 +1209,84 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         undoHistory.bindToast(toastID, to: id)
     }
 
+    // MARK: Unsubscribe (§5.14)
+
+    /// Unsubscribes with what `messageID`'s list headers offer, in one click and without asking: the request (a
+    /// one-click POST or a mailto request, which the engine sends) and the conversation's archive go to the store in
+    /// one transaction; a page is opened in the browser at once, the archive stored all the same. A snoozed
+    /// conversation (in Later, or a search's result) is archived already: its snooze ends instead, as E ends it in
+    /// Later, so the list's mail never comes back to the Inbox at its time. The toast says what became of the request
+    /// and offers Undo for the archive or the snooze, which brings the row back; the request stays sent, so the group
+    /// never takes in a later archive, nor E in Later (its toast would lose the request's words). Nothing to archive
+    /// (the conversation already out of the Inbox and not snoozed) leaves the request's words alone, with nothing to
+    /// undo. The undo's own confirmation says the request stays sent, which the undoable toast has no room for. The same
+    /// request asked again while its toast is up does nothing (`shownUnsubscribe`).
+    @discardableResult
+    func unsubscribe(from messageID: MessageID) -> Bool {
+        guard !showingWelcome, accountsByID[messageID.accountID] != nil,
+              let message = try? environment.store.message(messageID), let method = UnsubscribeMethod(message: message) else {
+            NSSound.beep()
+            return false
+        }
+        let toasts = listPane.toasts
+        if let shown = shownUnsubscribe, shown.toastID == toasts.visibleID, shown.accountID == messageID.accountID,
+           shown.method == method {
+            return true
+        }
+        let conversationID = message.conversationID
+        let snoozedAt = snoozedUntil[conversationID]
+        let records = snoozedAt == nil ? actionRecords(.archive, on: [conversationID]) : []
+        do {
+            try environment.engine.unsubscribe(method, accountID: messageID.accountID, archiving: records.flatMap(\.targets),
+                                               endingSnoozesOf: snoozedAt == nil ? [] : [conversationID])
+        } catch {
+            Self.log.error("unsubscribe failed: \(String(describing: error), privacy: .public)")
+            NSSound.beep()
+            return false
+        }
+        if case .browser(let page) = method { openUnsubscribePage(page) }
+        let archived = !records.isEmpty || snoozedAt != nil
+        let words = MailActionCopy.unsubscribeToast(for: method, archived: archived)
+        defer { UndoSendPanel.refreshUndoKeyOwner() }
+        guard archived else {
+            // Nothing was archived, so the glyph is the request's own: sent, or a page opened.
+            let toastID = toasts.show(words, kind: .confirmation, symbol: method.isRequest ? Quire.Icon.send : Quire.Icon.link)
+            shownUnsubscribe = (messageID.accountID, method, toastID)
+            return true
+        }
+        let confirmation = MailActionCopy.unsubscribeUndoConfirmation(for: method)
+        let id: Int
+        if let snoozedAt {
+            // Named Archive, as E in Later is, so Edit › Undo reads “Undo Archive” either way.
+            id = undoHistory.addExternal(command: MailActionCopy.commandName(for: .archive), at: Date(), toasted: true, coalesces: false)
+            externalUndos[id] = laterArchiveRevert([Snooze.Change(conversationID: conversationID, until: snoozedAt)],
+                                                   inLater: listView == .later, confirmation: confirmation)
+        } else {
+            id = undoHistory.add(records, at: Date(), toasted: true, coalesces: false)
+            unsubscribeUndoConfirmations[id] = confirmation
+        }
+        rememberLaterGroup(id)
+        let live = Set(undoHistory.groups.map(\.id))
+        externalUndos = externalUndos.filter { live.contains($0.key) }
+        laterArchiveRestores = laterArchiveRestores.filter { live.contains($0.key) }
+        unsubscribeUndoConfirmations = unsubscribeUndoConfirmations.filter { live.contains($0.key) }
+        let toastID = toasts.show(words, kind: .undoable, symbol: symbol(for: .archive), actionTitle: "Undo", keycap: "Z") { [weak self] in
+            self?.undo(groupID: id)
+        }
+        undoHistory.bindToast(toastID, to: id)
+        shownUnsubscribe = (messageID.accountID, method, toastID)
+        return true
+    }
+
+    /// Message › Unsubscribe (⇧⌘U): the open conversation's latest message that offers it.
+    @objc func unsubscribeFromConversation(_ sender: Any?) {
+        guard let target = conversation.unsubscribeTarget else {
+            NSSound.beep()
+            return
+        }
+        unsubscribe(from: target)
+    }
+
     /// A step that is not a mail action, offered by its own toast and reverted by `revert` (§5.20).
     @discardableResult
     private func recordExternalUndo(command: String, toast message: String, symbol: String, revert: @escaping () -> Void) -> Int {
@@ -1487,8 +1585,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         UndoSendPanel.refreshUndoKeyOwner()
     }
 
-    /// Puts back the snoozes E ended in Later, in one write, and selects their conversations there again.
-    private func laterArchiveRevert(_ restore: [Snooze.Change]) -> () -> Void {
+    /// Puts back the snoozes E ended in Later (or an unsubscribe ended, `inLater` false when it was a search's result),
+    /// in one write, confirms the undo, and selects their conversations again.
+    private func laterArchiveRevert(_ restore: [Snooze.Change], inLater: Bool = true,
+                                    confirmation: String = MailActionCopy.undoConfirmation(for: .archive)) -> () -> Void {
         let engine = environment.engine
         return { [weak self] in
             do {
@@ -1498,8 +1598,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
                 NSSound.beep()
                 return
             }
-            self?.confirmUndo(of: MailActionCopy.commandName(for: .archive))
-            self?.reselect(restore.map(\.conversationID), inLater: true)
+            self?.listPane.toasts.show(confirmation, kind: .confirmation, symbol: Quire.Icon.undone)
+            self?.reselect(restore.map(\.conversationID), inLater: inLater)
         }
     }
 
@@ -1570,7 +1670,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             NSSound.beep()
             return true
         }
-        listPane.toasts.show(MailActionCopy.undoConfirmation(for: change), kind: .confirmation, symbol: Quire.Icon.undone)
+        let words = unsubscribeUndoConfirmations.removeValue(forKey: groupID) ?? MailActionCopy.undoConfirmation(for: change)
+        listPane.toasts.show(words, kind: .confirmation, symbol: Quire.Icon.undone)
         let restored = group.records.compactMap(\.conversation)
         if !restored.isEmpty, [.archive, .trash, .moveToInbox, .restoreFromTrash].contains(change) {
             // The rows come back; put the selection on them so the user sees what was restored.
@@ -1607,6 +1708,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         case .setRead(true): return Quire.Icon.markRead
         case .setRead(false): return Quire.Icon.markUnread
         case .setStarred: return Quire.Icon.star
+        // Its toast offers Undo for the archive beside it, so it wears the archive's symbol.
+        case .unsubscribe: return Quire.Icon.archive
         }
     }
 
@@ -1650,6 +1753,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
                 guard let self else { return }
                 ComposeWindowController.present(client: engine, accounts: self.accounts, draft: draft)
             }
+        case .unsubscribe(let id):
+            unsubscribe(from: id)
         case .escapeQuickReply:
             // §6.1: a visible toast takes the first Esc; the next returns to the list, the bar keeping its text.
             if listPane.toasts.isVisible {
@@ -1811,7 +1916,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// Rows and messages share one menu acting on the selection: Reply · Reply All · Forward · — · Archive · Later ›
     /// · Star · Mark as Unread · Move to Inbox · — · Move to Trash, each with its symbol and shortcut. Items
     /// that do not apply stay visible, disabled, through the same validation as the Message menu, so the two
-    /// never disagree.
+    /// never disagree. Unsubscribe follows, after a separator, only when the open conversation offers it (§5.14):
+    /// most mail is not a list's, and a right-click on a row selects and opens it first, so the reader knows.
     func selectionContextMenu() -> NSMenu {
         let menu = NSMenu(title: "Conversation")
         let items: [NSMenuItem] = [
@@ -1828,6 +1934,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             MainMenu.item("Move to Trash", #selector(trashSelection(_:)), "#", [], symbol: Quire.Icon.trash, target: self),
         ]
         items.forEach(menu.addItem)
+        if !isSeveralSelected, conversation.unsubscribeTarget != nil {
+            menu.addItem(.separator())
+            menu.addItem(MainMenu.item("Unsubscribe", #selector(unsubscribeFromConversation(_:)), "u", [.command, .shift], target: self))
+        }
         return menu
     }
 
@@ -1972,6 +2082,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             menuItem.title = ServerSearchRow.menuTitle(for: ServerSearchRow.target(scope: scope.accountIDs, accounts: accounts))
             let words = !listPane.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             return !showingWelcome && words && serverSearchKeyApplies && (listPane.hasPendingSearch || list.canRequestServerSearch)
+        case #selector(unsubscribeFromConversation(_:)):
+            // One conversation open, whose messages offer it; the reader knows without a store read.
+            return !showingWelcome && !isSeveralSelected && conversation.unsubscribeTarget != nil
         default:
             return true
         }

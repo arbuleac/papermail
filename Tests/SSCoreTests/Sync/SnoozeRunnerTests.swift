@@ -72,6 +72,17 @@ final class SnoozeRunnerTests: XCTestCase {
         try store.pendingOperations(accountID: account ?? self.account, limit: 10).map(\.change)
     }
 
+    /// Waits until the runner sleeps toward a snooze `seconds` away. How many waits it has begun by then is not fixed: its
+    /// first look, from `start`, can already find the snooze, and the wake `setSnoozes` sends (delivered on a task of its
+    /// own) then ends that wait and begins the same one again, so the count can pass 1 between two looks at it. A wake
+    /// still on its way lands before this returns, so the clock the test moves next is not read by a late look.
+    private func waitForTheTimer(_ clock: HandClock, _ seconds: TimeInterval, file: StaticString = #filePath,
+                                 line: UInt = #line) async throws {
+        try await waitUntil("waiting", file: file, line: line) { !clock.sleeps.isEmpty }
+        await settle()
+        XCTAssertTrue(clock.sleeps.allSatisfy { abs($0 - seconds) < 0.001 }, "\(clock.sleeps)", file: file, line: line)
+    }
+
     /// Lets the runner's actor run whatever a wake handed it.
     private func settle() async {
         for _ in 0..<20 { await Task.yield() }
@@ -223,7 +234,7 @@ final class SnoozeRunnerTests: XCTestCase {
         let clock = HandClock()
         let harness = try harness(clock) { try self.seed($0) }
         try snooze(harness, until: clock.now.addingTimeInterval(600))
-        try await waitUntil("waiting") { clock.sleeps.count == 1 }
+        try await waitForTheTimer(clock, 600)
         clock.sleepThrough(3_600)
         await settle()
         XCTAssertFalse(try isBack(harness), "the timer has not fired")
@@ -356,7 +367,7 @@ final class SnoozeRunnerTests: XCTestCase {
         let clock = HandClock()
         let harness = try harness(clock) { try self.seed($0) }
         try snooze(harness, until: clock.now.addingTimeInterval(3_600))
-        try await waitUntil("waiting") { clock.sleeps.count == 1 }
+        try await waitForTheTimer(clock, 3_600)
         clock.setWallClock(by: 7_200)
         NotificationCenter.default.post(name: .NSSystemClockDidChange, object: nil)
         try await waitUntil("back once the clock is set") { try self.isBack(harness) }
@@ -381,7 +392,7 @@ final class SnoozeRunnerTests: XCTestCase {
         let clock = HandClock()
         let harness = try harness(clock) { try self.seed($0) }
         try snooze(harness, until: clock.now.addingTimeInterval(60))
-        try await waitUntil("waiting") { clock.sleeps.count == 1 }
+        try await waitForTheTimer(clock, 60)
         await harness.engine.stopAndWait()
         clock.advance(120)
         await settle()

@@ -171,6 +171,9 @@ public protocol MailStoring: AnyObject, Sendable {
     /// In one transaction: apply `operation.change` to every target locally, insert the operation as pending,
     /// and record what it replaced on each target, which a give-up puts back (see `updateOperation`).
     func enqueue(_ operation: Operation) throws
+    /// Enqueues every operation as `enqueue(_:)` does, in order and in one transaction, so a user action made of
+    /// several (an unsubscribe request and the archive beside it) is stored whole or not at all.
+    func enqueue(_ operations: [Operation]) throws
     func pendingOperations(accountID: AccountID, limit: Int) throws -> [Operation]
     /// Saves the operation. Writing a live (pending, in-flight or uncertain) operation as `failed` gives it up,
     /// in one transaction: each target it changed goes back to the state the change replaced (as last reported
@@ -213,6 +216,12 @@ extension MailStoring {
     public func returnDueSnoozes(at now: Date, limit: Int,
                                  operations: (ConversationID, [MessageMetadata]) -> [Operation]) throws -> [ConversationID] {
         try returnDueSnoozes(at: now, dueBy: [:], limit: limit, operations: operations)
+    }
+
+    /// One at a time, for a store that cannot do better (the test doubles that wrap a real store); both stores
+    /// override it with one transaction.
+    public func enqueue(_ operations: [Operation]) throws {
+        for operation in operations { try enqueue(operation) }
     }
 
     /// One batch of `evictBodies(from:limit:rules:)` from the oldest message, with fixed rules.

@@ -23,6 +23,10 @@ public struct RenderInputs: Hashable, Sendable {
         public var isStarred: Bool
         /// False when the card was rendered with the snippet fallback.
         public var hasBody: Bool
+        /// The list headers behind the sheet's Unsubscribe link: a Gmail message fetched again can bring them with no
+        /// other change, and the link must then appear.
+        public var listUnsubscribe: String?
+        public var listUnsubscribePost: String?
 
         public init(_ metadata: MessageMetadata, hasBody: Bool) {
             id = metadata.id
@@ -37,6 +41,8 @@ public struct RenderInputs: Hashable, Sendable {
             isRead = metadata.isRead
             isStarred = metadata.isStarred
             self.hasBody = hasBody
+            listUnsubscribe = metadata.listUnsubscribe
+            listUnsubscribePost = metadata.listUnsubscribePost
         }
     }
 

@@ -32,6 +32,10 @@ final class RenderInputsTests: XCTestCase {
         XCTAssertNotEqual(rendered, RenderInputs(messages: [base]) { _ in false }, "a body arriving")
         XCTAssertNotEqual(rendered, RenderInputs(messages: [base, F.message("m2")]) { _ in true }, "a new message")
         XCTAssertNotEqual(rendered, RenderInputs(messages: [F.message("m1", subject: "Re: Engines", isRead: false)]) { _ in true })
+        var listed = base
+        listed.listUnsubscribe = "<https://news.example.com/u>"
+        XCTAssertNotEqual(rendered, RenderInputs(messages: [listed]) { _ in true }, "the Unsubscribe link")
+        XCTAssertNil(rendered.flagPatches(to: RenderInputs(messages: [listed]) { _ in true }), "a header change needs a payload, not a flag patch")
         var blind = base
         blind.bcc = [F.carol]
         XCTAssertNotEqual(rendered, RenderInputs(messages: [blind]) { _ in true }, "Bcc shows in the expanded recipients")

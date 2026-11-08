@@ -12,6 +12,10 @@ public enum MetadataChange: Hashable, Codable, Sendable {
     case trash
     /// Gmail: remove TRASH, add INBOX. Graph: move to Inbox.
     case restoreFromTrash
+    /// Ask a mailing list to stop (a one-click POST or a mailto request, never `browser`, which the app opens at
+    /// once). Changes nothing locally and is never sent to the provider as a change: the engine sends the request
+    /// itself (`OperationRunner`). Queued with no targets, beside the ordinary archive of the conversation.
+    case unsubscribe(UnsubscribeMethod)
 }
 
 /// The local effect of a change. This is the single source of truth for optimistic state; providers
@@ -36,6 +40,8 @@ public func applying(_ change: MetadataChange, to metadata: MessageMetadata) -> 
     case .restoreFromTrash:
         m.roles.remove(.trash)
         m.roles.insert(.inbox)
+    case .unsubscribe:
+        break
     }
     return m
 }

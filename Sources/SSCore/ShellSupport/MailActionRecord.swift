@@ -95,6 +95,9 @@ public struct MailActionRecord: Sendable {
         case .setStarred(let starred):
             title = starred ? "Starred" : "Unstarred"
             inverse = [Step(change: .setStarred(!starred), targets: ids)]
+        case .unsubscribe:
+            // Changes no message, so `changed` is empty above; the request it sends cannot be taken back.
+            return nil
         }
         return MailActionRecord(title: title, change: change, targets: ids, inverse: inverse, conversation: conversation)
     }

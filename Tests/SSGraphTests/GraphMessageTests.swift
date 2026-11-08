@@ -125,6 +125,31 @@ final class GraphMessageTests: GraphTestCase {
         XCTAssertEqual(attachmentRequest.query["$select"], "id,name,contentType,size,isInline,microsoft.graph.fileAttachment/contentId")
     }
 
+    /// The body fetch is Graph's only way to the list headers (roadmap Q2.4): they come back with the body, trimmed, for
+    /// the store to write on the message. A body whose message has none carries none, and metadata never does.
+    func testTheBodyFetchCapturesTheListHeaders() async throws {
+        route { request in
+            switch request.path {
+            case "/v1.0/me/messages/M-3": return .json(Fixtures.newsletterBody)
+            case "/v1.0/me/messages/M-3/attachments", "/v1.0/me/messages/M-1/attachments": return .json(Fixtures.list([]))
+            case "/v1.0/me/messages/M-1": return .json(Fixtures.htmlBody)
+            default: return nil
+            }
+        }
+        let body = try await makeProvider().body(for: "M-3")
+        XCTAssertEqual(body.html, "<p>This week</p>")
+        XCTAssertEqual(body.listUnsubscribe, "<mailto:leave@news.example.com?subject=unsubscribe>, <https://news.example.com/u/7>")
+        XCTAssertEqual(body.listUnsubscribePost, "List-Unsubscribe=One-Click")
+        XCTAssertEqual(UnsubscribeMethod(listUnsubscribe: body.listUnsubscribe, post: body.listUnsubscribePost),
+                       .oneClick(URL(string: "https://news.example.com/u/7")!))
+        XCTAssertEqual(try XCTUnwrap(requests(to: "/v1.0/me/messages/M-3").first).query["$select"], "body,uniqueBody,internetMessageHeaders")
+
+        let other = try await makeProvider().body(for: "M-1")
+        XCTAssertNil(other.listUnsubscribe, "headers without the list ones")
+        XCTAssertNil(other.listUnsubscribePost)
+        XCTAssertFalse(GraphProvider.metadataSelect.contains("internetMessageHeaders"), "list calls cannot carry them")
+    }
+
     func testBodyTextOnly() async throws {
         route { request in
             switch request.path {

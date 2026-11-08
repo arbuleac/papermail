@@ -181,7 +181,8 @@ struct DemoMailboxBuilder {
         previous: [String],
         html: String,
         text: String,
-        attachments: [AttachmentInfo]
+        attachments: [AttachmentInfo],
+        listUnsubscribe: String? = nil
     ) {
         let fromMe = from.address == profile.email
         var roles: Set<MailboxRole> = []
@@ -209,7 +210,9 @@ struct DemoMailboxBuilder {
             labelIDs: flags.labels,
             folderID: flags.folder,
             providerVersion: "1",
-            sizeBytes: html.utf8.count + attachments.reduce(0) { $0 + $1.sizeBytes }
+            sizeBytes: html.utf8.count + attachments.reduce(0) { $0 + $1.sizeBytes },
+            listUnsubscribe: listUnsubscribe,
+            listUnsubscribePost: listUnsubscribe == nil ? nil : UnsubscribeMethod.oneClickPostValue
         )
         records.append(DemoRecord(metadata: metadata, body: MessageBody(html: html, text: text, attachments: attachments)))
     }
@@ -279,12 +282,16 @@ struct DemoMailboxBuilder {
         let rendered = DemoHTML.newsletter(letter, issue: issue, date: date, stories: stories)
         let (id, internetID) = nextIDs()
         let subject = "\(letter.title) #\(issue): \(stories[0].0)"
+        // A list's headers as real senders write them: a one-click URI first, a mailto beside it. The demo's senders
+        // have no server, so the engine sends nothing for them (`OperationRunner`).
+        let domain = letter.sender.address.split(separator: "@").last.map(String.init) ?? "demo.test"
         append(
             id: id, internetID: internetID, conversation: conversation, subject: subject,
             from: letter.sender.email, to: [profile.me], date: date,
             inInbox: staysInInbox(latest: date), read: isRead(date: date, fromMe: false, bulk: true),
             starred: false, section: .other, bulk: true, previous: [],
-            html: rendered.html, text: rendered.text, attachments: []
+            html: rendered.html, text: rendered.text, attachments: [],
+            listUnsubscribe: "<https://\(domain)/unsubscribe/\(id.providerID)>, <mailto:unsubscribe@\(domain)?subject=unsubscribe>"
         )
     }
 

@@ -35,6 +35,14 @@ final class MailSchemaMigrationTests: XCTestCase {
         DELETE FROM grdb_migrations WHERE identifier = 'v11-snoozes';
         """
 
+    /// Takes v14 back out of a migrated file, for the tests that build a file from before it by reverting a current one:
+    /// a file from before v14 has no list headers on its messages.
+    private let withoutV14 = """
+        ALTER TABLE messages DROP COLUMN list_unsubscribe;
+        ALTER TABLE messages DROP COLUMN list_unsubscribe_post;
+        DELETE FROM grdb_migrations WHERE identifier = 'v14-list-unsubscribe';
+        """
+
     /// Twelve accounts, inserted out of creation order, two of them created in the same millisecond so the id
     /// has to break the tie.
     private let accounts: [(id: String, addedAt: Int64)] = [
@@ -285,8 +293,8 @@ final class MailSchemaMigrationTests: XCTestCase {
                                         createdAt: MailStoreCodec.date(base + 200_000)))
             try store.close()
         }
-        // v9 to v12 and v13 came after v8, so a v7 file has none of them (`revertSQL` takes v12 and v13 back).
-        try execute("""
+        // v9 to v14 came after v8, so a v7 file has none of them (`revertSQL` takes v12 and v13 back).
+        try execute(withoutV14 + """
             \(FullTextVersion10.revertSQL)
             DROP TABLE backfill_live_marks;
             DROP TABLE backfill_seen;
@@ -358,7 +366,7 @@ final class MailSchemaMigrationTests: XCTestCase {
             try store.setSyncCursor("cursor-8", for: a)
             try store.close()
         }
-        try execute("""
+        try execute(withoutV14 + """
             \(FullTextVersion10.revertSQL)
             ALTER TABLE accounts DROP COLUMN signature;
             DELETE FROM grdb_migrations WHERE identifier = 'v9-account-signature';
@@ -398,7 +406,7 @@ final class MailSchemaMigrationTests: XCTestCase {
             try store.setSignature("<div><p>Alex</p></div>", for: AccountID("acct-a"))
             try store.close()
         }
-        try execute("""
+        try execute(withoutV14 + """
             \(FullTextVersion10.revertSQL)
             ALTER TABLE bodies DROP COLUMN evicted;
             DELETE FROM grdb_migrations WHERE identifier = 'v10-body-eviction';
@@ -606,6 +614,53 @@ final class MailSchemaMigrationTests: XCTestCase {
         try store.close()
         XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations WHERE identifier = 'v13-server-search'", at: path),
                        [["v13-server-search"]])
+    }
+
+    /// v14 adds `messages.list_unsubscribe` and `list_unsubscribe_post` and nothing else. The file is a real v13 one (a v1
+    /// file taken through the shipped migrations up to v13 and no further). Opened by the current build, every message it
+    /// holds reads with no headers (nothing fetches them back) and offers no way to unsubscribe, the rest reads as before
+    /// with the index untouched, and the columns take the headers a later fetch brings, kept across a write that carries
+    /// none.
+    func testVersion13DatabaseGainsEmptyListHeadersAndKeepsItsMail() throws {
+        let path = try XCTUnwrap(directory).appendingPathComponent("mail.sqlite").path
+        try writeVersion1Database(at: path)
+        try MailSchema.migrateFile(at: path, upTo: "v13-server-search")
+        try execute("UPDATE accounts SET signature = '<div><p>Alex</p></div>' WHERE id = 'acct-a'", at: path)
+        let account = AccountID("acct-a")
+        let m1 = MessageID(accountID: account, providerID: "m1")
+        XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations ORDER BY rowid", at: path).compactMap(\.first).last,
+                       "v13-server-search")
+        let columns = try query("SELECT name FROM pragma_table_info('messages')", at: path).compactMap(\.first)
+        XCTAssertFalse(columns.contains("list_unsubscribe"))
+
+        let store = try SQLiteMailStore(path: path)
+        let stored = try XCTUnwrap(try store.message(m1))
+        XCTAssertEqual(stored.subject, "Hello", "the mail stored before v14 reads as before")
+        XCTAssertNil(stored.listUnsubscribe, "with no headers: nothing fetches them back")
+        XCTAssertNil(stored.listUnsubscribePost)
+        XCTAssertNil(UnsubscribeMethod(message: stored), "so it offers no way to unsubscribe")
+        XCTAssertEqual(try store.body(for: m1)?.plainText, "Hello there")
+        XCTAssertEqual(try store.accounts().first { $0.id == account }?.signature, "<div><p>Alex</p></div>")
+        XCTAssertEqual(try store.conversations(ConversationQuery(view: .all, searchText: "hello")).map(\.id.providerID), ["c1"])
+        try store.verifyFullTextIndex()
+
+        var fetchedAgain = stored
+        fetchedAgain.listUnsubscribe = "<mailto:leave@example.com>"
+        fetchedAgain.listUnsubscribePost = "List-Unsubscribe=One-Click"
+        try store.upsertMessages([fetchedAgain])
+        try store.upsertMessages([stored])
+        XCTAssertEqual(try store.message(m1)?.listUnsubscribe, "<mailto:leave@example.com>", "kept across a write without them")
+        try store.verifyFullTextIndex()
+        try store.close()
+
+        for column in ["list_unsubscribe", "list_unsubscribe_post"] {
+            XCTAssertEqual(try query("SELECT type, \"notnull\", dflt_value FROM pragma_table_info('messages') WHERE name = '\(column)'", at: path),
+                           [["TEXT", "0", nil]], "\(column): TEXT NULL with no default")
+        }
+        XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations ORDER BY rowid", at: path).compactMap(\.first).last,
+                       "v14-list-unsubscribe")
+        XCTAssertEqual(try query("SELECT list_unsubscribe_post FROM messages WHERE provider_id = 'm1'", at: path),
+                       [["List-Unsubscribe=One-Click"]])
     }
 
     // MARK: Raw SQLite

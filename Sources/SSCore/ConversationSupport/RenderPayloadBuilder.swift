@@ -49,6 +49,7 @@ public struct RenderPayloadBuilder: Sendable {
             let design = Self.design(for: message, body: body, stored: stored)
             let isFromMe = message.from.map { ownAddresses.contains($0.address.lowercased()) } ?? false
             let isDraft = message.roles.contains(.drafts)
+            let isPending = pending.contains(message.id)
             let date = isDraft
                 ? draftDateDisplay(for: message.date, now: now, formatters: formatters)
                 : dateDisplay(for: message.date, now: now, formatters: formatters)
@@ -64,7 +65,7 @@ public struct RenderPayloadBuilder: Sendable {
                 isUnread: !message.isRead,
                 isStarred: message.isStarred,
                 isDraft: isDraft,
-                isPending: pending.contains(message.id),
+                isPending: isPending,
                 hasBody: body != nil,
                 bodyState: body != nil ? .ready : (bodyStates[message.id] ?? .loading),
                 html: html,
@@ -85,7 +86,8 @@ public struct RenderPayloadBuilder: Sendable {
                     },
                 typesetting: design.typesetting,
                 declaresColors: design.declaresColors,
-                coveredByNewYork: design.coveredByNewYork
+                coveredByNewYork: design.coveredByNewYork,
+                unsubscribe: !isDraft && !isPending && UnsubscribeMethod(message: message) != nil
             )
         }
         let resolvedSubject = subject ?? Self.subject(of: visible)

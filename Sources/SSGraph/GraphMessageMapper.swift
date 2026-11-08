@@ -32,11 +32,20 @@ struct GraphMessageMapper: Sendable {
 
     static func body(from message: GraphMessage, attachments: [GraphAttachment]) -> MessageBody {
         let isHTML = message.body?.contentType?.lowercased() == "html"
+        // List and delta calls cannot select internet headers, so the body fetch is where the list headers arrive.
+        let listUnsubscribe = UnsubscribeMethod.capturedHeader(header("List-Unsubscribe", in: message))
         return MessageBody(
             html: isHTML ? message.body?.content : nil,
             text: isHTML ? nil : message.body?.content,
-            attachments: attachments.map(attachmentInfo)
+            attachments: attachments.map(attachmentInfo),
+            listUnsubscribe: listUnsubscribe,
+            listUnsubscribePost: listUnsubscribe == nil ? nil : UnsubscribeMethod.capturedHeader(header("List-Unsubscribe-Post", in: message))
         )
+    }
+
+    /// The first internet header of that name, in any case.
+    static func header(_ name: String, in message: GraphMessage) -> String? {
+        message.internetMessageHeaders?.first { $0.name?.caseInsensitiveCompare(name) == .orderedSame }?.value
     }
 
     static func attachmentInfo(_ attachment: GraphAttachment) -> AttachmentInfo {

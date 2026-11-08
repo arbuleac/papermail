@@ -71,6 +71,32 @@ enum GmailFixtures {
     }
     """
 
+    /// A list's message as Gmail returns the metadata get: the list headers among the rest, as the sender folded them,
+    /// a comment and both a one-click https and a mailto address included.
+    static let metadataNewsletter = """
+    {
+      "id": "n1",
+      "threadId": "tn1",
+      "labelIds": ["INBOX", "CATEGORY_PROMOTIONS"],
+      "snippet": "This week",
+      "historyId": "8675002",
+      "internalDate": "1730376000000",
+      "payload": {
+        "partId": "",
+        "mimeType": "text/html",
+        "filename": "",
+        "headers": [
+          {"name": "From", "value": "Frontend Weekly <hello@frontendweekly.test>"},
+          {"name": "To", "value": "ada@example.com"},
+          {"name": "Subject", "value": "Frontend Weekly #128"},
+          {"name": "list-unsubscribe", "value": " (one click) <https://frontendweekly.test/u/abc?l=1>,\\r\\n <mailto:leave@frontendweekly.test?subject=unsubscribe> "},
+          {"name": "List-Unsubscribe-Post", "value": "List-Unsubscribe=One-Click"}
+        ],
+        "body": {"size": 0}
+      }
+    }
+    """
+
     /// Read, Promotions tab, no attachments. 2024-10-31T12:00:00Z.
     static let metadataM2 = """
     {

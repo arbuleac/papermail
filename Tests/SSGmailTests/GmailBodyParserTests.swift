@@ -18,6 +18,17 @@ final class GmailBodyParserTests: XCTestCase {
         return message
     }
 
+    /// The full format carries every header, so a body fetch brings the list headers too: a message stored before the
+    /// metadata asked for them learns them when its body is fetched again.
+    func testTheBodyCarriesTheListHeadersWhenTheMessageHasThem() throws {
+        let newsletter = GmailBodyParser.body(from: try decode(GmailFixtures.metadataNewsletter))
+        XCTAssertEqual(newsletter.listUnsubscribe?.hasPrefix("(one click) <https://frontendweekly.test/u/abc?l=1>"), true)
+        XCTAssertEqual(newsletter.listUnsubscribePost, "List-Unsubscribe=One-Click")
+        let plain = GmailBodyParser.body(from: try decode(GmailFixtures.fullMessage))
+        XCTAssertNil(plain.listUnsubscribe)
+        XCTAssertNil(plain.listUnsubscribePost)
+    }
+
     func testParsesAlternativeWithInlineImageAndPDF() throws {
         let body = GmailBodyParser.body(from: try decode(GmailFixtures.fullMessage))
 

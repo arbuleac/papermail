@@ -117,6 +117,14 @@ enum MailSchema {
         migrator.registerMigration("v13-server-search") { db in
             try db.execute(sql: v13)
         }
+        migrator.registerMigration("v14-list-unsubscribe") { db in
+            // NULL for every message stored so far: their headers were never asked for, and nothing fetches them back
+            // just for this. A message learns them when its metadata (Gmail) or its body (both) is fetched again.
+            try db.execute(sql: """
+                ALTER TABLE messages ADD COLUMN list_unsubscribe TEXT;
+                ALTER TABLE messages ADD COLUMN list_unsubscribe_post TEXT;
+                """)
+        }
         return migrator
     }
 

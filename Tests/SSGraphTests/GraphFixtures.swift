@@ -107,6 +107,15 @@ enum Fixtures {
     {"id":"M-1","body":{"contentType":"html","content":"<html><body><p>Hi <img src=\\"cid:img1@example.com\\"></p></body></html>"},"uniqueBody":{"contentType":"html","content":"<p>Hi</p>"},"internetMessageHeaders":[{"name":"In-Reply-To","value":"<parent@example.com>"}]}
     """
 
+    /// A list's message as the body fetch returns it: list and delta calls cannot select headers, so this is where the
+    /// list headers arrive, in whatever case the sender wrote their names.
+    static let newsletterBody = """
+    {"id":"M-3","body":{"contentType":"html","content":"<p>This week</p>"},"internetMessageHeaders":[\
+    {"name":"Received","value":"from mx.example.com"},\
+    {"name":"LIST-UNSUBSCRIBE","value":" <mailto:leave@news.example.com?subject=unsubscribe>, <https://news.example.com/u/7> "},\
+    {"name":"List-Unsubscribe-Post","value":"List-Unsubscribe=One-Click"}]}
+    """
+
     static let textBody = """
     {"id":"M-2","body":{"contentType":"text","content":"Plain words only"},"uniqueBody":{"contentType":"text","content":"Plain words only"}}
     """

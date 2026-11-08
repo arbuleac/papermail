@@ -68,6 +68,10 @@ Not yet checked on macOS 15 or 26.
 
 Press `l` (or **Message → Later…**, or **Later** in a conversation's right-click menu) to put the selected conversations away until **Later Today**, **This Evening**, **Tomorrow**, **Next Week** or a date you pick. They are archived now and come back to the Inbox at that time, their latest message unread, at the top under Today with a **Back** tag until you read them. While anything is snoozed a **Later** folder shows in the rail below Inbox (`g` then `l`), listing what comes back when, soonest first; there `l` picks a new time, `e` keeps a conversation archived and stops its return, `⇧I` brings it back now and `#` moves it to the Trash. A reply from someone else, or moving the conversation back to the Inbox yourself (here or on another device), ends the snooze early. Both halves are the ordinary archive and move to Inbox, so your phone and the web show the same state; only the timer lives on this Mac, so mail comes back while SuperSparrow is running, or as soon as it next opens or the Mac wakes, once it has checked for anything that came in the meantime. Gmail's and Outlook's own snooze cannot be reached through their APIs, so mail snoozed there does not show in Later.
 
+## Unsubscribe
+
+A newsletter or other list mail that says how to leave its list shows **Unsubscribe** beside the sender's name in the reader. One click, or `⇧⌘U` (**Message → Unsubscribe**), asks to stop it and archives the conversation, without a confirmation: SuperSparrow uses the one-click request the sender offers (RFC 8058), otherwise sends the unsubscribe email the sender asks for from your account (it appears in Sent), otherwise opens the sender's unsubscribe page in your browser. On a conversation in **Later**, it stops the conversation's return instead, as `e` does there, and it stays archived. **Undo** in the toast brings the conversation back (to Later, if it was there); the request itself cannot be taken back. Mail downloaded before this version shows no link until it is downloaded again.
+
 ## Keep mail on this Mac
 
 **Settings → General → Keep mail on this Mac** chooses how far back messages keep their full content on your Mac: **Everything** (the default), **1 year** or **3 months**, with the space your mail takes beside it ("292 MB"). Older messages stay in the list and in search; their full content is removed from this Mac (older mail arriving during the first download is never stored in full) and downloads again when you open one (so opening old mail needs a connection); mail you have opened keeps its content until you quit. Choosing a shorter time cleans up at once; choosing a longer one removes nothing more and downloads nothing back. Drafts, messages waiting to send and changes still syncing are never touched. Attachments you open are cached up to 1 GB, the least recently used going first.
@@ -104,6 +108,7 @@ Operators combine (`from:ben is:unread after:2026-01-01 -invoice`), ignore case,
 | `#`, `⌘⌫` | Move to Trash |
 | `⇧I`, `⇧⌘I` | Move to Inbox (restores from the Trash) |
 | `z`, `⌘Z` | Undo the last mail action (last 20 are kept) |
+| `⇧⌘U` | Unsubscribe from the open conversation's list, then archive it |
 | `r` / `a` / `f` | Reply / reply all / forward |
 | `c`, `⌘N` | New message |
 | `/`, `⌘F` | Search (`Esc` clears, in the search field or the list) |
@@ -126,6 +131,7 @@ SuperSparrow's look is **Quire**: New York subjects on warm paper, one blue-blac
 - Your mail is stored only on this Mac, in `~/Library/Application Support/SuperSparrow/mail.sqlite` (mode 0600). Attachments are cached in `~/Library/Caches/SuperSparrow/attachments` (up to 1 GB).
 - Sign-in tokens live in the login Keychain. SuperSparrow never sees your password.
 - Mail content goes only to Google, Microsoft and this machine. No analytics, no crash reporting, no third-party services.
+- Apart from remote images you choose to load, **Unsubscribe** is the only time SuperSparrow contacts anyone but Google, Microsoft and this Mac: it contacts the sender's server with the sender's own one-click request (the address the sender chose, which can identify you, and no cookies or credentials), or opens the sender's unsubscribe page in your browser. An unsubscribe email goes from your account through Google or Microsoft like any other mail. Nothing is sent unless you click Unsubscribe or press `⇧⌘U`.
 - Remote images are blocked by default (they can tell senders you opened a message). You can change that in Settings → General.
 - New-mail notifications show sender and subject by default; turn off **Show sender and subject** in Settings → General to keep notifications content-free.
 

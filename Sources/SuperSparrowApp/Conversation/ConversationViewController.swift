@@ -986,6 +986,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             case "dismissColorsNotice":
                 AppSettings.shared.originalColorsNoticeDismissed = true
                 broadcastPreferences()
+            case "unsubscribe":
+                onAction?(.unsubscribe(messageID))
             case "continueDraft":
                 onAction?(.continueDraft(messageID))
             case "discardDraft":
@@ -1022,7 +1024,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
                 imagesBlocked: state["imagesBlocked"] as? Bool ?? false,
                 offersOriginal: state["offersOriginal"] as? Bool ?? false,
                 showsOriginal: state["original"] as? Bool ?? false,
-                hasSenderAddress: !(message?.from?.address ?? "").isEmpty
+                hasSenderAddress: !(message?.from?.address ?? "").isEmpty,
+                canUnsubscribe: message.map(Self.offersUnsubscribe) ?? false
             )
             self.moreMenu.menu(options).popUp(positioning: nil, at: point, in: slot.webView)
         }
@@ -1050,11 +1053,28 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             evaluate("window.ss.loadImages(null)", in: current)
         case .toggleOriginal:
             evaluate("window.ss.toggleOriginal()", in: current)
+        case .unsubscribe:
+            onAction?(.unsubscribe(id))
         case .copySenderAddress:
             guard let address = currentMessages.first(where: { $0.id == id })?.from?.address else { return }
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(address, forType: .string)
         }
+    }
+
+    // MARK: Unsubscribe
+
+    /// What Message › Unsubscribe (⇧⌘U) acts on: the open conversation's latest message whose list headers offer a
+    /// way to unsubscribe (spec §5.14). Nil with nothing or several selected, and in a conversation with none, which
+    /// is how the menu item knows to be disabled without reading the store.
+    var unsubscribeTarget: MessageID? {
+        guard case .one = selection else { return nil }
+        return currentMessages.last(where: Self.offersUnsubscribe)?.id
+    }
+
+    /// The rule the shell's link follows (`RenderPayload.Message.unsubscribe`), drafts left out.
+    private static func offersUnsubscribe(_ message: MessageMetadata) -> Bool {
+        !message.roles.contains(.drafts) && UnsubscribeMethod(message: message) != nil
     }
 
     // MARK: Header actions

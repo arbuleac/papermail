@@ -253,6 +253,8 @@ enum MainMenu {
             item("Mark as Unread", #selector(MainWindowController.markSelectionUnread(_:)), "u", [], symbol: Quire.Icon.markUnread),
             item("Undo", #selector(MainWindowController.undoMailAction(_:)), "z", [], symbol: Quire.Icon.undo),
             .separator(),
+            item("Unsubscribe", #selector(MainWindowController.unsubscribeFromConversation(_:)), "u", [.command, .shift]),
+            .separator(),
             item("Next Message", #selector(MainWindowController.nextMessage(_:)), "n", []),
             item("Previous Message", #selector(MainWindowController.previousMessage(_:)), "p", []),
         ]

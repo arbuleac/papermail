@@ -153,6 +153,12 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         var touched: Set<ConversationID> = []
         for incoming in messages {
             var metadata = incoming
+            // Headers never change, and a path that cannot carry them (a Graph listing) says nil: one already stored
+            // stays (`MessageTable.upsertSQL`).
+            if metadata.listUnsubscribe == nil, let stored = messagesByID[incoming.id] {
+                metadata.listUnsubscribe = stored.listUnsubscribe
+                metadata.listUnsubscribePost = stored.listUnsubscribePost
+            }
             // Pending operations win: provider state older than a queued intent must not undo it. Each one's
             // prior follows the report, so a give-up puts back what the provider last said.
             for op in liveOperationsLocked(on: incoming.id) {
@@ -206,24 +212,42 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
 
     public func saveBody(_ body: StoredBody, for id: MessageID) throws {
         lock.lock(); defer { lock.unlock() }
-        bodies[id] = body
+        bodies[id] = Self.kept(body)
         evicted.remove(id)
+        takeHeadersLocked(of: body, for: id)
         notifyAll()
     }
 
     @discardableResult
     public func saveBody(_ body: StoredBody, for id: MessageID, evictingIfReceivedBefore cutoff: Date) throws -> Bool {
         lock.lock(); defer { lock.unlock() }
+        takeHeadersLocked(of: body, for: id)
         guard let message = messagesByID[id], evictableLocked(message, before: cutoff) else {
-            bodies[id] = body
+            bodies[id] = Self.kept(body)
             evicted.remove(id)
             notifyAll()
             return false
         }
-        bodies[id] = Self.evictedForm(of: body)
+        bodies[id] = Self.evictedForm(of: Self.kept(body))
         evicted.insert(id)
         notifyAll()
         return true
+    }
+
+    /// The headers a body fetch brought go on the message, as `MessageTable.saveBody` writes them.
+    private func takeHeadersLocked(of body: StoredBody, for id: MessageID) {
+        guard let list = body.body.listUnsubscribe, var message = messagesByID[id] else { return }
+        message.listUnsubscribe = list
+        message.listUnsubscribePost = body.body.listUnsubscribePost
+        messagesByID[id] = message
+    }
+
+    /// What the bodies table keeps: the headers live on the message, so a body read back has none.
+    private static func kept(_ body: StoredBody) -> StoredBody {
+        var kept = body
+        kept.body.listUnsubscribe = nil
+        kept.body.listUnsubscribePost = nil
+        return kept
     }
 
     public func body(for id: MessageID) throws -> StoredBody? {
@@ -684,8 +708,12 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
     // MARK: Operations
 
     public func enqueue(_ operation: Operation) throws {
+        try enqueue([operation])
+    }
+
+    public func enqueue(_ operations: [Operation]) throws {
         lock.lock(); defer { lock.unlock() }
-        enqueueLocked(operation)
+        for operation in operations { enqueueLocked(operation) }
         notifyAll()
     }
 

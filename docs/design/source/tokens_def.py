@@ -2,7 +2,7 @@
 and the rendered DESIGN-LANGUAGE.md. Colour order: light, dark, lightHC, darkHC."""
 
 NAME = "Quire"
-VERSION = "1.6.2"
+VERSION = "1.6.3"
 
 # (token, light, dark, lightHC, darkHC, group, use)
 COLOR = [
@@ -321,7 +321,8 @@ CHEAT_SHEET = [
  ("Move", [("J K", "Next · previous"), ("⇧J ⇧K", "Extend the selection"), ("↩", "Open"), ("esc", "Back to the list"),
            ("N P", "Next · previous message"), ("space", "Quick Look attachments"), ("/", "Search"), ("⌘↩", "Search the server")]),
  ("Act", [("E", "Archive"), ("L", "Snooze until later"), ("#", "Move to Trash"), ("⇧I", "Move to Inbox"), ("S", "Star · unstar"),
-          ("U", "Mark as unread · read"), ("Z", "Undo"), (".", "Show · hide quoted text")]),
+          ("U", "Mark as unread · read"), ("⇧⌘U", "Unsubscribe"), ("Z", "Undo"),
+          (".", "Show · hide quoted text")]),
  ("Go", [("G then I", "Inbox"), ("G then L", "Later"), ("G then S", "Starred"), ("G then T", "Sent"), ("G then D", "Drafts"),
          ("G then #", "Trash"), ("G then A", "All Mail"), ("⌘0", "All Inboxes"), ("⌘1 … ⌘9", "One account")]),
  ("Write", [("C", "New message"), ("R", "Reply"), ("A", "Reply all"), ("F", "Forward"), ("⇧⌘R", "Open in composer"), ("⌘↩", "Send"), ("⇧⌘A", "Attach files")]),

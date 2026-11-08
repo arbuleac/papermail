@@ -119,6 +119,9 @@ public struct RenderPayload: Hashable, Codable, Sendable {
         public var declaresColors: Bool
         /// The stored `SanitizedBody.coveredByNewYork`; false when unknown.
         public var coveredByNewYork: Bool
+        /// The message's list headers offer a way to unsubscribe (`UnsubscribeMethod`): its sheet header shows the
+        /// Unsubscribe link beside the sender (spec §5.14). Never on a draft or a pending reply.
+        public var unsubscribe: Bool
 
         public init(
             id: String,
@@ -141,7 +144,8 @@ public struct RenderPayload: Hashable, Codable, Sendable {
             attachments: [Attachment],
             typesetting: BodyTypesetting = .styled,
             declaresColors: Bool = true,
-            coveredByNewYork: Bool = false
+            coveredByNewYork: Bool = false,
+            unsubscribe: Bool = false
         ) {
             self.id = id
             self.from = from
@@ -164,6 +168,7 @@ public struct RenderPayload: Hashable, Codable, Sendable {
             self.typesetting = typesetting
             self.declaresColors = declaresColors
             self.coveredByNewYork = coveredByNewYork
+            self.unsubscribe = unsubscribe
         }
     }
 

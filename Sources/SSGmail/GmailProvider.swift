@@ -406,8 +406,8 @@ public final class GmailProvider: MailProvider, Sendable {
     // MARK: Changes to messages
 
     public func apply(_ change: MetadataChange, to providerIDs: [String]) async throws {
-        guard !providerIDs.isEmpty else { return }
         let edit = GmailLabelEdit(change)
+        guard !providerIDs.isEmpty, !(edit.add.isEmpty && edit.remove.isEmpty) else { return }
         for chunk in providerIDs.chunked(into: Self.batchModifyChunk) {
             let body = GmailBatchModifyRequest(
                 ids: chunk,

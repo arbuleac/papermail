@@ -33,4 +33,7 @@ enum ConversationAction {
     case quickReplyFailed(ComposeDraft)
     /// Esc in the quick reply: the main window applies §6.1 (a toast first, then back to the list).
     case escapeQuickReply
+    /// Unsubscribe, from the link beside a sender or the message's More menu (spec §5.14): the request `message`'s
+    /// list headers describe, and the conversation archived.
+    case unsubscribe(MessageID)
 }

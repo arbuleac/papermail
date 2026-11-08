@@ -37,6 +37,14 @@ public protocol MailClient: AnyObject {
     /// marks the action ended (`Snooze.Change.returnedAt`). Local state updates before this returns.
     func setSnoozes(_ changes: [Snooze.Change], performing steps: [MailActionRecord.Step]) throws
 
+    /// Unsubscribes as the user asked (spec §5.14), in one transaction: archives `messages` (the conversation's
+    /// messages the archive changes; empty when it changes none), ends the snoozes of `snoozed` (a snoozed conversation
+    /// is archived already, and unsubscribing leaves it so rather than bringing it back at its time, as E does in Later)
+    /// and, for a one-click or mailto method, queues the request, which the engine sends. A `browser` method queues no
+    /// request: the app opens the page itself. Local state updates before this returns.
+    func unsubscribe(_ method: UnsubscribeMethod, accountID: AccountID, archiving messages: [MessageID],
+                     endingSnoozesOf snoozed: [ConversationID]) throws
+
     /// Queue a send held for `undoWindow` seconds. Returns the pending send id.
     func send(_ message: OutgoingMessage, undoWindow: TimeInterval) throws -> String
     /// True when the send was still held and is now cancelled.
@@ -71,6 +79,11 @@ public protocol MailClient: AnyObject {
 }
 
 extension MailClient {
+    /// `unsubscribe(_:accountID:archiving:endingSnoozesOf:)` for a conversation that is not snoozed.
+    public func unsubscribe(_ method: UnsubscribeMethod, accountID: AccountID, archiving messages: [MessageID]) throws {
+        try unsubscribe(method, accountID: accountID, archiving: messages, endingSnoozesOf: [])
+    }
+
     /// The attachment's bytes, for a caller that shows no progress.
     public func attachmentData(for message: MessageID, attachmentID: String) async throws -> Data {
         try await attachmentData(for: message, attachmentID: attachmentID, expectedSize: 0, progress: nil)

@@ -15,7 +15,25 @@ public enum MailActionCopy {
         case .setRead(false): return count > 1 ? "Marked \(n) as unread" : "Marked as unread"
         case .setStarred(true): return count > 1 ? "Starred \(n) conversations" : "Starred"
         case .setStarred(false): return count > 1 ? "Unstarred \(n) conversations" : "Unstarred"
+        case .unsubscribe: return "Unsubscribe sent"
         }
+    }
+
+    /// The toast an unsubscribe leaves (spec §5.30): what became of the request, then the archive, which is what the
+    /// toast's Undo takes back (the request cannot be). “Unsubscribe sent · Archived” for a one-click or mailto
+    /// request, “Opened in browser · Archived” for a page opened in the browser; without the archive (the
+    /// conversation was already out of the Inbox) the first half alone, with nothing to undo.
+    public static func unsubscribeToast(for method: UnsubscribeMethod, archived: Bool) -> String {
+        let request = method.isRequest ? "Unsubscribe sent" : "Opened in browser"
+        return archived ? request + " \u{00B7} " + toast(for: .archive) : request
+    }
+
+    /// What an unsubscribe's Undo confirms itself with (spec §5.30): the archive it took back and, for a request, that
+    /// the request was not, which the undoable toast before it has no room to say. “Undid Archive · Unsubscribe stays
+    /// sent”; “Undid Archive” after a page, which sent nothing.
+    public static func unsubscribeUndoConfirmation(for method: UnsubscribeMethod) -> String {
+        let undone = undoConfirmation(for: .archive)
+        return method.isRequest ? undone + " \u{00B7} Unsubscribe stays sent" : undone
     }
 
     /// The command as the menus name it, which Edit › Undo and the confirmation toast repeat.
@@ -28,6 +46,7 @@ public enum MailActionCopy {
         case .setRead(false): return "Mark as Unread"
         case .setStarred(true): return "Star"
         case .setStarred(false): return "Unstar"
+        case .unsubscribe: return "Unsubscribe"
         }
     }
 
@@ -94,6 +113,8 @@ public enum MailActionCopy {
         case .moveToInbox, .restoreFromTrash: return view == .trash || view == .later
         case .setStarred(false): return view == .starred
         case .setStarred(true), .setRead: return false
+        // The request goes somewhere the row cannot show, so it is always said.
+        case .unsubscribe: return true
         }
     }
 
@@ -108,6 +129,7 @@ public enum MailActionCopy {
         case .star: return "Couldn't star. Restored."
         case .unstar: return "Couldn't unstar. Restored."
         case .trash: return "Couldn't move to Trash. Restored."
+        case .unsubscribe: return "Couldn't unsubscribe."
         }
     }
 }

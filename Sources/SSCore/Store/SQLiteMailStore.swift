@@ -368,6 +368,12 @@ public final class SQLiteMailStore: MailStoring, MailStoreMaintenance, Sendable 
         try write { try OperationTable.enqueue(operation, in: $0) }
     }
 
+    public func enqueue(_ operations: [Operation]) throws {
+        try write { db in
+            for operation in operations { try OperationTable.enqueue(operation, in: db) }
+        }
+    }
+
     public func pendingOperations(accountID: AccountID, limit: Int) throws -> [Operation] {
         try read { try OperationTable.pending(accountID: accountID, limit: limit, in: $0) }
     }

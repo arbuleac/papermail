@@ -81,6 +81,9 @@ struct SyncTuning: Sendable {
     }
     /// Builds an account's budget. Tests replace it to give the budget a clock they control.
     var makeBudget: @Sendable (ProviderQuota) -> QuotaBudget = { QuotaBudget(quota: $0) }
+    /// The session a one-click unsubscribe goes out on (`Unsubscriber.configuration()`). Tests replace it with one
+    /// whose stub protocol answers, so no test reaches a sender's server.
+    var unsubscribeConfiguration: @Sendable () -> URLSessionConfiguration = { Unsubscriber.configuration() }
 
     private var activePollIntervalOverride: TimeInterval?
     private static let defaultActivePollInterval: TimeInterval = 5

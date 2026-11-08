@@ -30,6 +30,21 @@ final class MailActionUndoHistoryTests: XCTestCase {
         XCTAssertEqual(history.groups.count, 1)
     }
 
+    /// An unsubscribe's archive (spec §5.30): its toast also names the request, so a later archive within the window
+    /// starts a toast of its own instead of renaming it, and neither does the unsubscribe join an earlier archive's.
+    func testAGroupThatDoesNotCoalesceKeepsItsToast() {
+        var history = MailActionUndoHistory()
+        let unsubscribe = history.add([record(.archive, 1)], at: t0, toasted: true, coalesces: false)
+        history.bindToast(7, to: unsubscribe)
+        XCTAssertNil(history.coalesce(record(.archive, 2), at: t0.addingTimeInterval(0.2), visibleToastID: 7))
+        let archive = history.add(record(.archive, 2), at: t0.addingTimeInterval(0.2), toasted: true)
+        XCTAssertNotEqual(archive, unsubscribe)
+        XCTAssertEqual(history.groups.map(\.records.count), [1, 1])
+        XCTAssertEqual(history.groups.first?.change, .archive, "Undo reverts an archive, so Edit › Undo reads Undo Archive")
+        XCTAssertFalse(history.groups[0].coalesces)
+        XCTAssertTrue(history.groups[1].coalesces)
+    }
+
     func testCoalescingNeedsTheSameActionTheVisibleToastAndTheWindow() {
         var history = MailActionUndoHistory()
         let id = history.add(record(.archive, 1), at: t0, toasted: true)
@@ -152,6 +167,21 @@ final class MailActionUndoHistoryGroupTests: XCTestCase {
         XCTAssertEqual(history.groups.count, 1)
         XCTAssertEqual(history.target(at: t0.addingTimeInterval(1.8), visibleToastID: 1)?.id, id)
         XCTAssertNil(history.coalesceExternal(command: "Discard Draft", at: t0.addingTimeInterval(1.8), visibleToastID: 1))
+    }
+
+    /// An unsubscribe in Later ends a snooze, as E there does, and is named Archive like it, yet its toast also names the
+    /// request: an E in Later within the window starts a toast of its own, and the next E joins that one as E always does.
+    func testAnExternalStepThatDoesNotCoalesceKeepsItsToastFromTheSameCommand() {
+        var history = MailActionUndoHistory()
+        let unsubscribe = history.addExternal(command: "Archive", at: t0, toasted: true, coalesces: false)
+        history.bindToast(1, to: unsubscribe)
+        XCTAssertNil(history.coalesceExternal(command: "Archive", at: t0.addingTimeInterval(0.2), visibleToastID: 1))
+        let archive = history.addExternal(command: "Archive", at: t0.addingTimeInterval(0.2), toasted: true)
+        history.bindToast(2, to: archive)
+        XCTAssertEqual(history.coalesceExternal(command: "Archive", at: t0.addingTimeInterval(0.5), visibleToastID: 2)?.id, archive)
+        XCTAssertEqual(history.groups.map(\.id), [unsubscribe, archive])
+        XCTAssertEqual(history.groups.map(\.externalCommand), ["Archive", "Archive"], "Edit › Undo reads Undo Archive for both")
+        XCTAssertEqual(history.groups.map(\.coalesces), [false, true])
     }
 
     func testAnExternalStepIsReachableAndNoMailActionJoinsIt() {

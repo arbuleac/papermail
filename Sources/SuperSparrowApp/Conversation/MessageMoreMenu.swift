@@ -12,10 +12,12 @@ final class MessageMoreMenu: NSObject {
         var offersOriginal: Bool
         var showsOriginal: Bool
         var hasSenderAddress: Bool
+        /// The message's list headers offer a way to unsubscribe (its sheet shows the link).
+        var canUnsubscribe = false
     }
 
     enum Command {
-        case reply, replyAll, forward, toggleStar, markUnreadFromHere, loadImages, toggleOriginal, copySenderAddress
+        case reply, replyAll, forward, toggleStar, markUnreadFromHere, loadImages, toggleOriginal, unsubscribe, copySenderAddress
     }
 
     private let perform: (Command) -> Void
@@ -47,9 +49,15 @@ final class MessageMoreMenu: NSObject {
                     key: "o", modifiers: [.command, .shift], to: menu)
             }
         }
-        if options.hasSenderAddress {
+        if options.hasSenderAddress || options.canUnsubscribe {
             menu.addItem(.separator())
-            add(.copySenderAddress, "Copy Sender Address", nil, key: "", to: menu)
+            // Beside the sender's other item: both are about who sent it.
+            if options.canUnsubscribe {
+                add(.unsubscribe, "Unsubscribe", nil, key: "u", modifiers: [.command, .shift], to: menu)
+            }
+            if options.hasSenderAddress {
+                add(.copySenderAddress, "Copy Sender Address", nil, key: "", to: menu)
+            }
         }
         return menu
     }

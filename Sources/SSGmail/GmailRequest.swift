@@ -34,9 +34,11 @@ struct GmailRequest: Sendable {
     static let batchHost = "www.googleapis.com"
     static let batchPath = "/batch/gmail/v1"
 
-    /// The header set every metadata fetch asks for; kept in one place so batch and single gets agree.
+    /// The header set every metadata fetch asks for; kept in one place so batch and single gets agree. The list
+    /// headers cost nothing extra: a metadata get is priced per call, not per header.
     static let metadataHeaderNames = [
         "From", "To", "Cc", "Bcc", "Reply-To", "Subject", "Date", "Message-ID", "In-Reply-To", "References",
+        "List-Unsubscribe", "List-Unsubscribe-Post",
     ]
 
     static func get(_ resource: String, query: [URLQueryItem] = [], kind: Kind) throws -> GmailRequest {

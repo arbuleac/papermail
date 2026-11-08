@@ -32,6 +32,12 @@ enum GmailBodyParser {
         var parsed = Parsed(body: MessageBody(html: nil, text: nil, attachments: []), deferred: [])
         if let payload = message.payload {
             walk(payload, into: &parsed)
+            // The full format carries every header; a message stored before the metadata asked for these learns them
+            // when its body is fetched again, as a Microsoft message does.
+            parsed.body.listUnsubscribe = UnsubscribeMethod.capturedHeader(payload.header("List-Unsubscribe"))
+            if parsed.body.listUnsubscribe != nil {
+                parsed.body.listUnsubscribePost = UnsubscribeMethod.capturedHeader(payload.header("List-Unsubscribe-Post"))
+            }
         }
         return parsed
     }

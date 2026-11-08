@@ -7,6 +7,7 @@ enum GmailMessageMapper {
         let labels = message.labelIds ?? []
         let payload = message.payload
         let header: (String) -> String? = { payload?.header($0) }
+        let listUnsubscribe = UnsubscribeMethod.capturedHeader(header("List-Unsubscribe"))
 
         return MessageMetadata(
             id: MessageID(accountID: accountID, providerID: message.id),
@@ -32,7 +33,9 @@ enum GmailMessageMapper {
             labelIDs: labels,
             folderID: nil,
             providerVersion: message.historyId,
-            sizeBytes: message.sizeEstimate
+            sizeBytes: message.sizeEstimate,
+            listUnsubscribe: listUnsubscribe,
+            listUnsubscribePost: listUnsubscribe == nil ? nil : UnsubscribeMethod.capturedHeader(header("List-Unsubscribe-Post"))
         )
     }
 

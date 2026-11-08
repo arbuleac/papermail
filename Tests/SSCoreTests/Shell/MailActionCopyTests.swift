@@ -10,6 +10,30 @@ final class MailActionCopyTests: XCTestCase {
         XCTAssertEqual(MailActionCopy.toast(for: .setStarred(false)), "Unstarred")
     }
 
+    /// The request first, then the archive the toast's Undo takes back (spec §5.30, §4.13).
+    func testUnsubscribeToastsNameTheRequestThenTheArchive() {
+        let page = UnsubscribeMethod.browser(URL(string: "https://news.example.com/u")!)
+        let post = UnsubscribeMethod.oneClick(URL(string: "https://news.example.com/u")!)
+        let mail = UnsubscribeMethod.mailto(URL(string: "mailto:leave@news.example.com")!)
+        XCTAssertEqual(MailActionCopy.unsubscribeToast(for: post, archived: true), "Unsubscribe sent \u{00B7} Archived")
+        XCTAssertEqual(MailActionCopy.unsubscribeToast(for: mail, archived: true), "Unsubscribe sent \u{00B7} Archived")
+        XCTAssertEqual(MailActionCopy.unsubscribeToast(for: page, archived: true), "Opened in browser \u{00B7} Archived")
+        XCTAssertEqual(MailActionCopy.unsubscribeToast(for: post, archived: false), "Unsubscribe sent")
+        XCTAssertEqual(MailActionCopy.unsubscribeToast(for: page, archived: false), "Opened in browser")
+        XCTAssertEqual(MailActionCopy.commandName(for: .unsubscribe(post)), "Unsubscribe")
+    }
+
+    /// The undo of an unsubscribe's archive says what it did not take back (roadmap Q2.4: the request cannot be
+    /// unsent, and the toast says so).
+    func testAnUnsubscribesUndoSaysTheRequestStaysSent() {
+        let post = UnsubscribeMethod.oneClick(URL(string: "https://news.example.com/u")!)
+        let mail = UnsubscribeMethod.mailto(URL(string: "mailto:leave@news.example.com")!)
+        let page = UnsubscribeMethod.browser(URL(string: "https://news.example.com/u")!)
+        XCTAssertEqual(MailActionCopy.unsubscribeUndoConfirmation(for: post), "Undid Archive \u{00B7} Unsubscribe stays sent")
+        XCTAssertEqual(MailActionCopy.unsubscribeUndoConfirmation(for: mail), "Undid Archive \u{00B7} Unsubscribe stays sent")
+        XCTAssertEqual(MailActionCopy.unsubscribeUndoConfirmation(for: page), "Undid Archive", "a page sent nothing")
+    }
+
     func testUndoConfirmationNamesTheCommand() {
         XCTAssertEqual(MailActionCopy.undoConfirmation(for: .archive), "Undid Archive")
         XCTAssertEqual(MailActionCopy.undoConfirmation(for: .trash), "Undid Move to Trash")

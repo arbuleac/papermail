@@ -101,6 +101,26 @@ final class RenderPayloadBuilderTests: XCTestCase {
         XCTAssertEqual(payload.messages[0].dateDisplay, "Edited 09:30")
     }
 
+    /// The sheet header's Unsubscribe link (spec §5.14) shows on a message whose list headers offer a way out, and
+    /// never on one without them (stored before they were kept, or sent with none), a draft, or a pending reply.
+    func testTheUnsubscribeLinkFollowsTheListHeaders() {
+        var newsletter = F.message("n1", date: F.utc(2025, 3, 1))
+        newsletter.listUnsubscribe = "<https://news.example.com/u/1>"
+        newsletter.listUnsubscribePost = "List-Unsubscribe=One-Click"
+        var mailtoOnly = F.message("n2", date: F.utc(2025, 3, 2))
+        mailtoOnly.listUnsubscribe = "<mailto:leave@news.example.com>"
+        var unusable = F.message("n3", date: F.utc(2025, 3, 3))
+        unusable.listUnsubscribe = "<ftp://news.example.com/u>"
+        let plain = F.message("n4", date: F.utc(2025, 3, 4))
+        var draft = F.message("d1", from: F.me, to: [F.ada], date: F.utc(2025, 3, 5), roles: [.drafts])
+        draft.listUnsubscribe = "<mailto:leave@news.example.com>"
+        var pending = F.message("p1", from: F.me, date: F.utc(2025, 3, 6))
+        pending.listUnsubscribe = "<mailto:leave@news.example.com>"
+        let payload = builder.build(messages: [newsletter, mailtoOnly, unusable, plain, draft, pending], bodies: [:],
+                                    accounts: F.accounts, pending: [pending.id], now: now)
+        XCTAssertEqual(payload.messages.map(\.unsubscribe), [true, true, false, false, false, false])
+    }
+
     func testMissingBodiesCarryTheirFetchState() {
         let loading = F.message("m1")
         let offline = F.message("m2", date: F.utc(2025, 1, 4))

@@ -6,6 +6,11 @@ import Foundation
 /// `apply` call, so archiving twenty conversations costs one request. An operation waiting on a backoff holds
 /// back every later operation that touches one of its messages, so the provider never sees a later intent
 /// before an earlier one on the same message.
+///
+/// Unsubscribe requests (`MetadataChange.unsubscribe`) are no change to the provider's mail: they go after the rest,
+/// each on its own (`Unsubscriber`), and neither wait behind nor hold back anything. One the sender refuses, or one
+/// that keeps failing, is dropped quietly: the conversation's archive beside it has already gone its own way, and the
+/// request is not something the row can show as failed.
 struct OperationRunner: Sendable {
     struct Outcome: Sendable {
         /// A throttled apply, and the retry time the provider named, if any.
@@ -35,6 +40,7 @@ struct OperationRunner: Sendable {
     let store: MailStoring
     let provider: MailProvider
     let tuning: SyncTuning
+    var unsubscriber = Unsubscriber()
 
     /// Applies every due operation in order and stops at the first failure, leaving the rest for later.
     func drain() async -> Outcome {
@@ -58,7 +64,16 @@ struct OperationRunner: Sendable {
         let now = Date()
         var blocked: Set<MessageID> = []
         var eligible: [Operation] = []
+        var requests: [Operation] = []
         for operation in operations {
+            if case .unsubscribe = operation.change {
+                if let nextAttemptAt = operation.nextAttemptAt, nextAttemptAt > now {
+                    outcome.nextAttemptAt = Self.earlier(outcome.nextAttemptAt, nextAttemptAt)
+                } else {
+                    requests.append(operation)
+                }
+                continue
+            }
             if let nextAttemptAt = operation.nextAttemptAt, nextAttemptAt > now {
                 blocked.formUnion(operation.targets)
                 outcome.nextAttemptAt = Self.earlier(outcome.nextAttemptAt, nextAttemptAt)
@@ -71,6 +86,16 @@ struct OperationRunner: Sendable {
             eligible.append(operation)
         }
 
+        await applyGroups(of: eligible, into: &outcome)
+        // After the provider's operations, so a slow sender's server never holds back the archive queued beside it.
+        for operation in requests {
+            if Task.isCancelled || outcome.needsReauth { break }
+            await send(operation, into: &outcome)
+        }
+        return outcome
+    }
+
+    private func applyGroups(of eligible: [Operation], into outcome: inout Outcome) async {
         for group in Self.groups(of: eligible, maxTargets: tuning.maxApplyTargets) {
             if Task.isCancelled { break }
             switch await apply(group) {
@@ -79,20 +104,134 @@ struct OperationRunner: Sendable {
             case .deferred(let until):
                 // The provider is unhappy; later operations would fail the same way and must keep their order.
                 outcome.nextAttemptAt = Self.earlier(outcome.nextAttemptAt, until)
-                return outcome
+                return
             case .throttled(let until, let retryAfter):
                 outcome.nextAttemptAt = Self.earlier(outcome.nextAttemptAt, until)
                 outcome.throttle = Outcome.Throttle(retryAfter: retryAfter)
-                return outcome
+                return
             case .uncertain(let until):
                 if let until { outcome.nextAttemptAt = Self.earlier(outcome.nextAttemptAt, until) }
-                return outcome
+                return
             case .needsReauth:
                 outcome.needsReauth = true
-                return outcome
+                return
             }
         }
-        return outcome
+    }
+
+    // MARK: Unsubscribe requests
+
+    /// Sends one unsubscribe request. Written ahead as "retry after the backoff", like `apply`'s operations, so a crash
+    /// mid-request leaves a row the next launch sends again: an unsubscribe asked twice is harmless. The one-click POST
+    /// goes to a server nobody vouches for, so it runs off this cycle (`Unsubscriber.detach`) and a slow one never
+    /// holds back the poll; its row is written ahead past the request's whole timeout, so no later drain sends it
+    /// twice. The mailto request is the provider's own send, waited for like any other provider call.
+    private func send(_ operation: Operation, into outcome: inout Outcome) async {
+        guard case .unsubscribe(let method) = operation.change else { return }
+        var operation = operation
+        operation.status = .pending
+        operation.attempts += 1
+        operation.nextAttemptAt = Date().addingTimeInterval(backoff(for: operation))
+        switch method {
+        case .oneClick(let url):
+            // The demo's senders are made up and have no server: nothing leaves this Mac for them.
+            if provider is DemoMailProvider {
+                Self.record(.sent, for: operation, store: store, tuning: tuning).apply(to: &outcome)
+                return
+            }
+            operation.nextAttemptAt = operation.nextAttemptAt?.addingTimeInterval(Unsubscriber.resourceTimeout)
+            Self.save(operation, store: store)
+            let (store, tuning, unsubscriber) = (store, tuning, unsubscriber)
+            let written = operation
+            unsubscriber.detach(operation.id) {
+                let result = await unsubscriber.postOneClick(to: url)
+                _ = Self.record(result, for: written, store: store, tuning: tuning)
+            }
+            if let next = operation.nextAttemptAt { outcome.nextAttemptAt = Self.earlier(outcome.nextAttemptAt, next) }
+        case .mailto:
+            Self.save(operation, store: store)
+            let result = await unsubscriber.sendMail(method, from: accountID, via: provider)
+            Self.record(result, for: operation, store: store, tuning: tuning).apply(to: &outcome)
+        case .browser:
+            // The app opens a page itself and never queues one; a row that says otherwise has nothing to send.
+            Self.record(.refused("a page, not a request"), for: operation, store: store, tuning: tuning).apply(to: &outcome)
+        }
+    }
+
+    /// What a request's result asks of the cycle that sent it: a detached POST's is dropped, since its cycle has moved on.
+    private struct RequestEffect {
+        var applied = 0
+        var needsReauth = false
+        var throttle: Outcome.Throttle?
+        var nextAttemptAt: Date?
+
+        func apply(to outcome: inout Outcome) {
+            outcome.applied += applied
+            if needsReauth { outcome.needsReauth = true }
+            if let throttle { outcome.throttle = throttle }
+            if let nextAttemptAt { outcome.nextAttemptAt = OperationRunner.earlier(outcome.nextAttemptAt, nextAttemptAt) }
+        }
+    }
+
+    /// Writes what became of a request: confirmed when it went; deleted, quietly, when the sender or the provider
+    /// refused it or a failing server used up its attempts; otherwise kept for another try. Never written as failed:
+    /// that would mark the conversation with a failure the user can do nothing about, and give back nothing, since the
+    /// request changed nothing locally.
+    private static func record(_ result: Unsubscriber.Outcome, for operation: Operation, store: MailStoring,
+                               tuning: SyncTuning) -> RequestEffect {
+        guard case .unsubscribe(let method) = operation.change else { return RequestEffect() }
+        SyncLog.logger.debug("unsubscribe: \(String(describing: result), privacy: .public) for \(method.url.absoluteString, privacy: .private)")
+        var operation = operation
+        var effect = RequestEffect()
+        switch result {
+        case .sent:
+            settle(operation, dropped: false, store: store)
+            effect.applied = 1
+        case .refused(let reason):
+            // Asking again would get the same answer.
+            SyncLog.logger.notice("unsubscribe: request refused (\(reason, privacy: .public)), dropped")
+            settle(operation, dropped: true, store: store)
+        case .needsReauth:
+            operation.nextAttemptAt = nil
+            operation.lastError = SyncErrorDescription.describe(ProviderError.unauthorized)
+            save(operation, store: store)
+            effect.needsReauth = true
+        case .retry(let counted, let retryAfter):
+            if counted, operation.attempts >= tuning.maxOperationAttempts {
+                SyncLog.logger.notice("unsubscribe: request failed \(operation.attempts, privacy: .public) times, dropped")
+                settle(operation, dropped: true, store: store)
+                return effect
+            }
+            operation.nextAttemptAt = Date().addingTimeInterval(retryAfter.map {
+                Backoff.throttleDelay(retryAfter: $0, attempt: operation.attempts, base: tuning.backoffBase, cap: tuning.userRetryAfterCap)
+            } ?? Backoff.delay(attempt: operation.attempts, base: tuning.backoffBase, cap: tuning.backoffCap))
+            // A throttle on the mailto send spends the same quota as the backfill, which pauses for it.
+            if let retryAfter, case .mailto = method { effect.throttle = Outcome.Throttle(retryAfter: retryAfter) }
+            operation.lastError = counted ? "unsubscribe request failed" : "unsubscribe request waiting"
+            save(operation, store: store)
+            effect.nextAttemptAt = operation.nextAttemptAt
+        }
+        return effect
+    }
+
+    private static func settle(_ operation: Operation, dropped: Bool, store: MailStoring) {
+        do {
+            if dropped {
+                try store.deleteOperation(id: operation.id)
+            } else {
+                try store.confirmOperation(id: operation.id)
+            }
+        } catch {
+            SyncLog.logger.error("unsubscribe: could not settle the request: \(String(describing: error), privacy: .private)")
+        }
+    }
+
+    private static func save(_ operation: Operation, store: MailStoring) {
+        do {
+            try store.updateOperation(operation)
+        } catch {
+            SyncLog.logger.error("unsubscribe: could not record the attempt: \(String(describing: error), privacy: .private)")
+        }
     }
 
     /// Adjacent operations with the same change are merged while their distinct targets fit one apply call.
@@ -225,7 +364,7 @@ struct OperationRunner: Sendable {
         Backoff.delay(attempt: operation.attempts, base: tuning.backoffBase, cap: tuning.backoffCap)
     }
 
-    private static func earlier(_ a: Date?, _ b: Date) -> Date {
+    fileprivate static func earlier(_ a: Date?, _ b: Date) -> Date {
         guard let a else { return b }
         return min(a, b)
     }

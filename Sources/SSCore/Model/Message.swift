@@ -60,6 +60,13 @@ public struct MessageMetadata: Hashable, Codable, Sendable {
     /// Gmail historyId or Graph changeKey of this observation.
     public var providerVersion: String?
     public var sizeBytes: Int?
+    /// The `List-Unsubscribe` header as sent (RFC 2369), nil when the message has none or the provider did not
+    /// say: Gmail reports it with the metadata, Graph only with the body (`MessageBody.listUnsubscribe`), so a
+    /// Microsoft message learns it when its body is fetched. Headers never change, so a nil from a path that cannot
+    /// carry it never clears one already stored. `UnsubscribeMethod` reads it.
+    public var listUnsubscribe: String?
+    /// The `List-Unsubscribe-Post` header as sent (RFC 8058); kept only beside a `listUnsubscribe`.
+    public var listUnsubscribePost: String?
 
     public init(
         id: MessageID,
@@ -83,7 +90,9 @@ public struct MessageMetadata: Hashable, Codable, Sendable {
         labelIDs: [String] = [],
         folderID: String? = nil,
         providerVersion: String? = nil,
-        sizeBytes: Int? = nil
+        sizeBytes: Int? = nil,
+        listUnsubscribe: String? = nil,
+        listUnsubscribePost: String? = nil
     ) {
         self.id = id
         self.conversationID = conversationID
@@ -107,6 +116,8 @@ public struct MessageMetadata: Hashable, Codable, Sendable {
         self.folderID = folderID
         self.providerVersion = providerVersion
         self.sizeBytes = sizeBytes
+        self.listUnsubscribe = listUnsubscribe
+        self.listUnsubscribePost = listUnsubscribePost
     }
 
     /// True when the message belongs in the unified inbox.
@@ -140,10 +151,18 @@ public struct MessageBody: Hashable, Codable, Sendable {
     public var text: String?
     /// All parts, inline ones included.
     public var attachments: [AttachmentInfo]
-    public init(html: String?, text: String?, attachments: [AttachmentInfo] = []) {
+    /// The message's `List-Unsubscribe` and `List-Unsubscribe-Post` headers when the body fetch carries them (Graph's
+    /// list and delta calls cannot select headers, so they arrive here). Not kept with the body: the store writes them
+    /// on the message (`MessageMetadata.listUnsubscribe`), so a body read back from the store has none.
+    public var listUnsubscribe: String?
+    public var listUnsubscribePost: String?
+    public init(html: String?, text: String?, attachments: [AttachmentInfo] = [], listUnsubscribe: String? = nil,
+                listUnsubscribePost: String? = nil) {
         self.html = html
         self.text = text
         self.attachments = attachments
+        self.listUnsubscribe = listUnsubscribe
+        self.listUnsubscribePost = listUnsubscribePost
     }
 }
 

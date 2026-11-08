@@ -29,6 +29,10 @@ struct GmailLabelEdit: Equatable, Sendable {
         case .restoreFromTrash:
             add = ["INBOX"]
             remove = ["TRASH"]
+        case .unsubscribe:
+            // Not a label change: the engine sends the request itself, and `apply` sends nothing for an empty edit.
+            add = []
+            remove = []
         }
     }
 }

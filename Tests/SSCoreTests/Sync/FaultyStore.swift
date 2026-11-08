@@ -13,6 +13,8 @@ final class FaultyStore: MailStoring, @unchecked Sendable {
         case upsertMessages
         case markBackfillSeen
         case finishBackfill
+        /// Either form of `enqueue`: one call, whether it carries one operation or several.
+        case enqueue
     }
 
     let base: InMemoryMailStore
@@ -204,7 +206,15 @@ final class FaultyStore: MailStoring, @unchecked Sendable {
     func observeSnoozes(onChange: @escaping @Sendable ([Snooze]) -> Void) -> StoreObservation {
         base.observeSnoozes(onChange: onChange)
     }
-    func enqueue(_ operation: Operation) throws { try base.enqueue(operation) }
+    func enqueue(_ operation: Operation) throws {
+        try check(.enqueue)
+        try base.enqueue(operation)
+    }
+    /// One call, as both stores make it one transaction: a fault fails the whole batch and stores none of it.
+    func enqueue(_ operations: [Operation]) throws {
+        try check(.enqueue)
+        try base.enqueue(operations)
+    }
     func pendingOperations(accountID: AccountID, limit: Int) throws -> [Operation] {
         try base.pendingOperations(accountID: accountID, limit: limit)
     }

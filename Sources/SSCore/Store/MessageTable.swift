@@ -6,14 +6,15 @@ enum MessageTable {
     static let columns = """
         account_id, provider_id, conversation_provider_id, internet_message_id, in_reply_to, references_json, \
         subject, snippet, from_json, to_json, cc_json, bcc_json, reply_to_json, date_ms, roles, is_read, is_starred, \
-        inbox_section, has_attachments, label_ids_json, folder_id, provider_version, size_bytes
+        inbox_section, has_attachments, label_ids_json, folder_id, provider_version, size_bytes, \
+        list_unsubscribe, list_unsubscribe_post
         """
 
     // The upsert form keeps the rowid (which the FTS index and the bodies foreign key hang off) where
     // INSERT OR REPLACE would delete and re-insert the row.
     private static let upsertSQL = """
         INSERT INTO messages (\(columns), has_body)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
         ON CONFLICT(account_id, provider_id) DO UPDATE SET
             conversation_provider_id = excluded.conversation_provider_id,
             internet_message_id = excluded.internet_message_id,
@@ -35,7 +36,12 @@ enum MessageTable {
             label_ids_json = excluded.label_ids_json,
             folder_id = excluded.folder_id,
             provider_version = excluded.provider_version,
-            size_bytes = excluded.size_bytes
+            size_bytes = excluded.size_bytes,
+            -- Headers never change, and a path that cannot carry them (a Graph listing) writes NULL: the pair already
+            -- stored (from the body fetch) stays.
+            list_unsubscribe_post = CASE WHEN excluded.list_unsubscribe IS NULL
+                THEN list_unsubscribe_post ELSE excluded.list_unsubscribe_post END,
+            list_unsubscribe = COALESCE(excluded.list_unsubscribe, list_unsubscribe)
         """
 
     private static let lookupSQL = """
@@ -241,6 +247,11 @@ enum MessageTable {
                 evicted,
             ])
         try db.cachedStatement(sql: "UPDATE messages SET has_body = 1 WHERE rowid = ?").execute(arguments: [rowid])
+        // The headers a body fetch carries (Graph's only way to them) go on the message, not in `bodies`.
+        if let list = body.body.listUnsubscribe {
+            try db.cachedStatement(sql: "UPDATE messages SET list_unsubscribe = ?, list_unsubscribe_post = ? WHERE rowid = ?")
+                .execute(arguments: [list, body.body.listUnsubscribePost, rowid])
+        }
         try FullTextIndex.insert(rowid: rowid, in: db)
         return true
     }
@@ -307,6 +318,8 @@ enum MessageTable {
             m.folderID,
             m.providerVersion,
             m.sizeBytes,
+            m.listUnsubscribe,
+            m.listUnsubscribe == nil ? nil : m.listUnsubscribePost,
         ]
     }
 
@@ -336,7 +349,9 @@ enum MessageTable {
             labelIDs: try MailStoreCodec.decode([String].self, from: row[19]),
             folderID: row[20],
             providerVersion: row[21],
-            sizeBytes: row[22]
+            sizeBytes: row[22],
+            listUnsubscribe: row[23],
+            listUnsubscribePost: row[24]
         )
     }
 }

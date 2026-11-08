@@ -26,6 +26,10 @@ public struct MailActionUndoHistory: Sendable {
         public fileprivate(set) var toastID: Int?
         /// Once its toast has gone, or from the start when it never had one: Z reaches it until then.
         public fileprivate(set) var expiresAt: Date?
+        /// False for a step whose toast says more than its action (the archive of an unsubscribe, whose toast also
+        /// names the request): a later action of the same kind starts a toast of its own rather than renaming it. An
+        /// external step joins one only through `coalesceExternal`, which asks this too.
+        public let coalesces: Bool
     }
 
     public static let capacity = 20
@@ -56,7 +60,8 @@ public struct MailActionUndoHistory: Sendable {
     /// the same terms as a single record, so “Archived 3 conversations” can grow to 4 with one more E.
     public mutating func coalesce(_ records: [MailActionRecord], at now: Date, visibleToastID: Int?) -> Group? {
         guard let change = records.first?.change, records.allSatisfy({ $0.change == change }),
-              var last = groups.last, last.change == .some(change), let toastID = last.toastID, toastID == visibleToastID,
+              var last = groups.last, last.coalesces, last.change == .some(change), let toastID = last.toastID,
+              toastID == visibleToastID,
               now.timeIntervalSince(last.lastActionAt) <= coalesceWindow else { return nil }
         last.records.append(contentsOf: records)
         last.lastActionAt = now
@@ -72,19 +77,22 @@ public struct MailActionUndoHistory: Sendable {
     }
 
     /// Starts one group for an action on several conversations at once: one toast, one undo (spec §5.19).
-    /// `records` must be non-empty and of one kind of action.
+    /// `records` must be non-empty and of one kind of action. With `coalesces` false nothing joins the group later
+    /// (`Group.coalesces`).
     @discardableResult
-    public mutating func add(_ records: [MailActionRecord], at now: Date, toasted: Bool) -> Int {
+    public mutating func add(_ records: [MailActionRecord], at now: Date, toasted: Bool, coalesces: Bool = true) -> Int {
         precondition(!records.isEmpty, "a group holds at least one action")
-        return append(records: records, change: records[0].change, externalCommand: nil, at: now, toasted: toasted)
+        return append(records: records, change: records[0].change, externalCommand: nil, at: now, toasted: toasted,
+                      coalesces: coalesces)
     }
 
     /// Starts a group for a step the caller reverts itself (the composer's “Draft discarded”), named by its
     /// command (“Discard Draft”). It sits in the same history as the mail actions, so Z and ⌘Z reach
-    /// whichever came last, and it coalesces only when its caller asks (`coalesceExternal`).
+    /// whichever came last, and it coalesces only when its caller asks (`coalesceExternal`) and `coalesces` allows it:
+    /// an unsubscribe in Later is named Archive, as E there is, yet takes in no later E.
     @discardableResult
-    public mutating func addExternal(command: String, at now: Date, toasted: Bool) -> Int {
-        append(records: [], change: nil, externalCommand: command, at: now, toasted: toasted)
+    public mutating func addExternal(command: String, at now: Date, toasted: Bool, coalesces: Bool = true) -> Int {
+        append(records: [], change: nil, externalCommand: command, at: now, toasted: toasted, coalesces: coalesces)
     }
 
     /// One more external step of `command` joins the latest group on the terms `coalesce` sets for mail actions: that
@@ -93,19 +101,19 @@ public struct MailActionUndoHistory: Sendable {
     /// does everywhere. Returns the grown group, whose revert the caller extends, or nil when the step must start a group
     /// of its own.
     public mutating func coalesceExternal(command: String, at now: Date, visibleToastID: Int?) -> Group? {
-        guard var last = groups.last, last.externalCommand == command, let toastID = last.toastID, toastID == visibleToastID,
-              now.timeIntervalSince(last.lastActionAt) <= coalesceWindow else { return nil }
+        guard var last = groups.last, last.coalesces, last.externalCommand == command, let toastID = last.toastID,
+              toastID == visibleToastID, now.timeIntervalSince(last.lastActionAt) <= coalesceWindow else { return nil }
         last.lastActionAt = now
         groups[groups.count - 1] = last
         return last
     }
 
     private mutating func append(records: [MailActionRecord], change: MetadataChange?, externalCommand: String?, at now: Date,
-                                 toasted: Bool) -> Int {
+                                 toasted: Bool, coalesces: Bool) -> Int {
         let id = nextID
         nextID += 1
         groups.append(Group(id: id, records: records, change: change, externalCommand: externalCommand, lastActionAt: now,
-                            toastID: nil, expiresAt: toasted ? nil : now.addingTimeInterval(grace)))
+                            toastID: nil, expiresAt: toasted ? nil : now.addingTimeInterval(grace), coalesces: coalesces))
         if groups.count > Self.capacity { groups.removeFirst(groups.count - Self.capacity) }
         return id
     }

@@ -23,6 +23,8 @@ public final class MailEngine: MailClient, @unchecked Sendable {
     private var clockObserver: NSObjectProtocol?
     private let sweeper: StorageSweeper
     private let storageFeed = StorageChangeFeed()
+    /// Sends the outbox's unsubscribe requests for every account; one-click ones run off the live cycle.
+    private let unsubscriber: Unsubscriber
     /// The Keep mail window and the bodies kept whole for this run, read by the sweeper and the hydrators.
     private let keepMail = KeepMailState()
     private let stateLock = NSLock()
@@ -81,6 +83,7 @@ public final class MailEngine: MailClient, @unchecked Sendable {
         }, requestCheck: { accounts in
             for account in accounts { registry.context(for: account)?.syncer.wake(.check) }
         })
+        self.unsubscriber = Unsubscriber(configuration: tuning.unsubscribeConfiguration)
         // The sweeper reads the window through the shared state, not through `self`, so it keeps no engine alive.
         let keepMail = keepMail
         let feed = storageFeed
@@ -150,6 +153,7 @@ public final class MailEngine: MailClient, @unchecked Sendable {
         if let observer = stateLock.withLock({ () -> NSObjectProtocol? in defer { clockObserver = nil }; return clockObserver }) {
             NotificationCenter.default.removeObserver(observer)
         }
+        unsubscriber.cancelAll()
         let sweeper = sweeper
         Task { await sweeper.stopAndWait() }
         SyncLog.logger.info("engine stopped")
@@ -163,6 +167,7 @@ public final class MailEngine: MailClient, @unchecked Sendable {
         }
         await sendRunner.stopAndWait()
         await snoozeRunner.stopAndWait()
+        await unsubscriber.waitForAll()
         // After the lanes, which may have asked for a sweep on their way out; a step under way finishes first.
         await sweeper.stopAndWait()
     }
@@ -360,6 +365,36 @@ public final class MailEngine: MailClient, @unchecked Sendable {
         return order.map { Operation(accountID: $0, change: change, targets: byAccount[$0] ?? [], createdAt: now) }
     }
 
+    public func unsubscribe(_ method: UnsubscribeMethod, accountID: AccountID, archiving messages: [MessageID],
+                            endingSnoozesOf snoozed: [ConversationID]) throws {
+        var seen: Set<MessageID> = []
+        var seenSnoozes: Set<ConversationID> = []
+        // A conversation never spans accounts; anything else is not this request's to archive, or to bring out of Later.
+        let targets = messages.filter { $0.accountID == accountID && seen.insert($0).inserted }
+        let ended = snoozed.filter { $0.accountID == accountID && seenSnoozes.insert($0).inserted }
+        let now = Date()
+        var operations: [Operation] = []
+        if !targets.isEmpty {
+            operations.append(Operation(accountID: accountID, change: .archive, targets: targets, createdAt: now))
+        }
+        if method.isRequest {
+            // No targets: it changes no message, so it never holds back, or waits behind, another operation on them.
+            // A millisecond after the archive, so the outbox lists the two in the order the user asked for them.
+            operations.append(Operation(accountID: accountID, change: .unsubscribe(method), targets: [],
+                                        createdAt: now.addingTimeInterval(0.001)))
+        }
+        if !ended.isEmpty {
+            // The snoozes end in the request's transaction, so the conversation never leaves Later without it queued.
+            try store.setSnoozes(ended.map { Snooze.Change(conversationID: $0, until: nil) }, enqueueing: operations,
+                                 at: tuning.snoozeClock.now())
+            snoozeRunner.wake()
+        } else {
+            guard !operations.isEmpty else { return }
+            try store.enqueue(operations)
+        }
+        if !operations.isEmpty { registry.context(for: accountID)?.syncer.wake(.operations) }
+    }
+
     public func send(_ message: OutgoingMessage, undoWindow: TimeInterval) throws -> String {
         try sendRunner.enqueue(message, undoWindow: undoWindow)
     }
@@ -428,7 +463,8 @@ public final class MailEngine: MailClient, @unchecked Sendable {
         let keepMail = keepMail
         let hydrator = Hydrator(accountID: account.id, store: store, provider: provider, sanitizer: sanitizer, tuning: tuning,
                                 budget: budget, evictionCutoff: { keepMail.evictionCutoff(for: $0) })
-        let runner = OperationRunner(accountID: account.id, store: store, provider: provider, tuning: tuning)
+        let runner = OperationRunner(accountID: account.id, store: store, provider: provider, tuning: tuning,
+                                     unsubscriber: unsubscriber)
         let sweeper = sweeper
         let snoozeRunner = snoozeRunner
         let id = account.id

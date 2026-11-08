@@ -290,6 +290,99 @@ final class ConversationShellWebViewTests: XCTestCase {
         XCTAssertEqual(marker, "kept", "the body frame is left alone")
     }
 
+    // MARK: Unsubscribe (spec §5.14)
+
+    /// The link shows beside the sender of a message that offers it, after the name and before the address, and on no
+    /// other sheet; a click asks the app, naming the message; a store change that takes the headers away removes it.
+    func testTheUnsubscribeLinkShowsBesideTheSenderOnlyWhereItIsOffered() async throws {
+        let (webView, handler) = try await loadedShell()
+        typealias F = ConversationFixtures
+        var newsletter = F.message("m1", date: F.utc(2025, 3, 6, 9, 0), isRead: false)
+        newsletter.listUnsubscribe = "<https://news.example.com/u/1>"
+        newsletter.listUnsubscribePost = "List-Unsubscribe=One-Click"
+        let plain = F.message("m2", from: F.bob, date: F.utc(2025, 3, 7, 9, 0), isRead: false)
+        let bodies = [newsletter.id: F.body(html: "<p>Issue</p>"), plain.id: F.body(html: "<p>Hi</p>")]
+        let now = F.utc(2025, 3, 20, 9, 0)
+        let payload = F.builder.build(messages: [newsletter, plain], bodies: bodies, accounts: F.accounts, now: now)
+        _ = try await evaluate("window.ss.render(\(try payload.jsonString()))", in: webView)
+        try await waitForFrames(count: 2, in: webView)
+
+        let links = try await count(".ss-unsub", in: webView)
+        XCTAssertEqual(links, 1, "only the message that offers it")
+        let owner = try await evaluate("document.querySelector('.ss-unsub').closest('.ss-card').dataset.id", in: webView) as? String
+        XCTAssertEqual(owner, payload.messages[0].id)
+        let line = try await evaluate(
+            "Array.prototype.map.call(document.querySelector('.ss-unsub').parentNode.children, function (n) { return n.className; }).join(',')",
+            in: webView) as? String
+        XCTAssertEqual(line, "ss-pip7,ss-name,ss-unsub,ss-addr", "beside the sender: after the name, before the address")
+        let text = try await evaluate("document.querySelector('.ss-unsub').textContent", in: webView) as? String
+        XCTAssertEqual(text, "Unsubscribe")
+        let tag = try await evaluate("document.querySelector('.ss-unsub').tagName", in: webView) as? String
+        XCTAssertEqual(tag, "BUTTON", "a control VoiceOver reads as a button, drawn as a link")
+        let title = try await evaluate("document.querySelector('.ss-unsub').title", in: webView) as? String
+        XCTAssertEqual(title, "Unsubscribe  \u{21E7}\u{2318}U")
+        let underline = try await evaluate("getComputedStyle(document.querySelector('.ss-unsub')).textDecorationLine", in: webView) as? String
+        XCTAssertEqual(underline, "underline")
+
+        // A double-click's second click (detail 2) asks nothing: it may land on the next conversation's link.
+        _ = try await evaluate("document.querySelector('.ss-unsub').dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 2 }))",
+                               in: webView)
+        _ = try await evaluate("document.querySelector('.ss-unsub').click()", in: webView)
+        var asked = false
+        for _ in 0..<50 where !asked {
+            asked = handler.received.contains {
+                ($0["kind"] as? String) == "action" && ($0["type"] as? String) == "unsubscribe" && ($0["messageID"] as? String) == payload.messages[0].id
+            }
+            if !asked { try await Task.sleep(nanoseconds: 20_000_000) }
+        }
+        XCTAssertTrue(asked, "a click asks the app to unsubscribe from that message")
+        let asks = handler.received.filter { ($0["kind"] as? String) == "action" && ($0["type"] as? String) == "unsubscribe" }
+        XCTAssertEqual(asks.count, 1, "the second click of a double-click is not a second request")
+
+        newsletter.listUnsubscribe = nil
+        let without = F.builder.build(messages: [newsletter, plain], bodies: bodies, accounts: F.accounts, now: now)
+        _ = try await evaluate("window.ss.update(\(try without.jsonString()))", in: webView)
+        let after = try await count(".ss-unsub", in: webView)
+        XCTAssertEqual(after, 0, "an update redraws the header")
+    }
+
+    /// At the minimum window's reader (520 pt) the link takes its room from the address, which shows nothing at rest,
+    /// before the name gives any; in a wider reader the name is whole and the address keeps what is left for hover
+    /// (spec §5.14).
+    func testTheLinkTakesItsRoomFromTheHiddenAddressBeforeTheName() async throws {
+        let (webView, _) = try await loadedShell(width: 520)
+        typealias F = ConversationFixtures
+        var newsletter = F.message("m1", from: EmailAddress(name: "The New York Times Opinion Today", address: "nytdirect@nytimes.com"),
+                                   date: F.utc(2025, 3, 6, 9, 0), isRead: false)
+        newsletter.listUnsubscribe = "<https://news.example.com/u/1>"
+        let payload = F.builder.build(messages: [newsletter], bodies: [newsletter.id: F.body(html: "<p>Issue</p>")], accounts: F.accounts,
+                                      now: F.utc(2025, 3, 20, 9, 0))
+        _ = try await evaluate("window.ss.render(\(try payload.jsonString()))", in: webView)
+        try await waitForFrames(count: 1, in: webView)
+        let measure = """
+            (function () { var n = document.querySelector('.ss-name'), a = document.querySelector('.ss-addr');
+              return [n.clientWidth, n.scrollWidth, a.clientWidth, a.scrollWidth, document.querySelector('.ss-nl').clientWidth]; })()
+            """
+        let narrow = numbers(try await evaluate(measure, in: webView))
+        XCTAssertEqual(narrow.count, 5)
+        guard narrow.count == 5 else { return }
+        XCTAssertGreaterThan(narrow[1], narrow[0], "the name is cut at this width: \(narrow)")
+        XCTAssertEqual(narrow[2], 0, "so the hidden address holds no room beside the link: \(narrow)")
+
+        webView.setFrameSize(NSSize(width: 800, height: 600))
+        var wide: [Double] = []
+        for _ in 0..<50 {
+            wide = numbers(try await evaluate(measure, in: webView))
+            if wide.count == 5, wide[4] > narrow[4] { break }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTAssertEqual(wide.count, 5)
+        guard wide.count == 5 else { return }
+        XCTAssertGreaterThan(wide[4], narrow[4], "the line widened with the reader: \(wide)")
+        XCTAssertEqual(wide[0], wide[1], "the name whole: \(wide)")
+        XCTAssertGreaterThan(wide[2], 0, "and the address keeps what is left, for hover: \(wide)")
+    }
+
     // MARK: Quire reader (spec §5.13–5.19)
 
     /// More than six collapsed messages keep the first and the last two and fold the rest into one row.
@@ -720,7 +813,7 @@ final class ConversationShellWebViewTests: XCTestCase {
     }
 
     /// The shell in a web view, once it has signalled ready. Skips unless `SS_UI_TESTS=1`.
-    private func loadedShell(dark: Bool = false) async throws -> (WKWebView, ShellMessages) {
+    private func loadedShell(dark: Bool = false, width: CGFloat = 800) async throws -> (WKWebView, ShellMessages) {
         guard ProcessInfo.processInfo.environment["SS_UI_TESTS"] == "1" else {
             throw XCTSkip("Set SS_UI_TESTS=1 to drive WebKit")
         }
@@ -732,7 +825,7 @@ final class ConversationShellWebViewTests: XCTestCase {
         configuration.userContentController.add(handler, name: ConversationShellAssets.messageHandlerName)
         self.configuration = configuration
 
-        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 800, height: 600), configuration: configuration)
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: width, height: 600), configuration: configuration)
         webView.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         webView.navigationDelegate = handler
         webView.loadHTMLString(ConversationShellAssets.html, baseURL: ConversationShellAssets.baseURL)

@@ -4,6 +4,8 @@ import SSCore
 extension GraphProvider {
     /// Replays a local change as PATCHes and moves, 20 messages per `$batch` round trip.
     public func apply(_ change: MetadataChange, to providerIDs: [String]) async throws {
+        // Not a change to messages: the engine sends an unsubscribe request itself.
+        if case .unsubscribe = change { return }
         var seen: Set<String> = []
         let unique = providerIDs.filter { seen.insert($0).inserted }
         for chunk in unique.chunks(of: GraphBatch.maxRequests) {
@@ -45,6 +47,9 @@ extension GraphProvider {
             return move(messageID: messageID, to: "archive", requestID: requestID)
         case .moveToInbox, .restoreFromTrash:
             return move(messageID: messageID, to: "inbox", requestID: requestID)
+        case .unsubscribe:
+            // Never sent (`apply` returns first); a read of the message changes nothing if it ever were.
+            return GraphBatchRequest(id: requestID, method: "GET", url: path + "?$select=id")
         case .trash:
             return move(messageID: messageID, to: "deleteditems", requestID: requestID)
         }

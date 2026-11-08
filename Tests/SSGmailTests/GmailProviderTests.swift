@@ -60,7 +60,7 @@ final class GmailProviderTests: XCTestCase {
         XCTAssertEqual(batch.header("Authorization"), "Bearer token-1")
         XCTAssertEqual(TestSupport.batchRequestIDs(in: batch.bodyText), ["m1", "m2"])
         XCTAssertTrue(batch.bodyText.contains("Content-Type: application/http"))
-        XCTAssertTrue(batch.bodyText.contains("GET /gmail/v1/users/me/messages/m1?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Bcc&metadataHeaders=Reply-To&metadataHeaders=Subject&metadataHeaders=Date&metadataHeaders=Message-ID&metadataHeaders=In-Reply-To&metadataHeaders=References HTTP/1.1"))
+        XCTAssertTrue(batch.bodyText.contains("GET /gmail/v1/users/me/messages/m1?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Bcc&metadataHeaders=Reply-To&metadataHeaders=Subject&metadataHeaders=Date&metadataHeaders=Message-ID&metadataHeaders=In-Reply-To&metadataHeaders=References&metadataHeaders=List-Unsubscribe&metadataHeaders=List-Unsubscribe-Post HTTP/1.1"))
     }
 
     func testBootstrapLaterPagePassesTokenAndCapturesNoCursor() async throws {
@@ -116,7 +116,9 @@ final class GmailProviderTests: XCTestCase {
         XCTAssertEqual(page.messages.map(\.id.providerID), ["m1", "m2"])
         let single = try XCTUnwrap(server.requests(to: "/users/me/messages/m1").first)
         XCTAssertEqual(single.query["format"], ["metadata"])
-        XCTAssertEqual(single.query["metadataHeaders"]?.count, 10)
+        XCTAssertEqual(single.query["metadataHeaders"]?.count, 12)
+        XCTAssertEqual(single.query["metadataHeaders"]?.suffix(2), ["List-Unsubscribe", "List-Unsubscribe-Post"],
+                       "the list headers ride on every metadata get, single ones included")
     }
 
     func testBatchInnerUnauthorizedInvalidatesTokenAndRetries() async throws {
@@ -339,6 +341,26 @@ final class GmailProviderTests: XCTestCase {
         let messages = try await provider.metadata(for: ["gone", "m1"])
 
         XCTAssertEqual(messages.map(\.id.providerID), ["m1"])
+    }
+
+    /// The list headers come with every metadata get (roadmap Q2.4): stored trimmed, as sent, for `UnsubscribeMethod`
+    /// to read; a message without them has none.
+    func testMetadataCapturesTheListHeaders() async throws {
+        TestSupport.stubBatch(messages: ["n1": GmailFixtures.metadataNewsletter, "m1": GmailFixtures.metadataM1])
+        let provider = TestSupport.makeProvider()
+
+        let messages = try await provider.metadata(for: ["n1", "m1"])
+
+        let newsletter = try XCTUnwrap(messages.first { $0.id.providerID == "n1" })
+        XCTAssertEqual(newsletter.listUnsubscribe,
+                       "(one click) <https://frontendweekly.test/u/abc?l=1>,\r\n <mailto:leave@frontendweekly.test?subject=unsubscribe>")
+        XCTAssertEqual(newsletter.listUnsubscribePost, "List-Unsubscribe=One-Click")
+        XCTAssertEqual(UnsubscribeMethod(message: newsletter), .oneClick(URL(string: "https://frontendweekly.test/u/abc?l=1")!))
+        let plain = try XCTUnwrap(messages.first { $0.id.providerID == "m1" })
+        XCTAssertNil(plain.listUnsubscribe)
+        XCTAssertNil(plain.listUnsubscribePost)
+        let batch = try XCTUnwrap(server.requests(to: "/batch/gmail/v1").first)
+        XCTAssertTrue(batch.bodyText.contains("&metadataHeaders=List-Unsubscribe&metadataHeaders=List-Unsubscribe-Post"))
     }
 
     func testMetadataSplitsBatchesOfTen() async throws {
