@@ -64,6 +64,9 @@ actor LiveLane {
     private let budget: QuotaBudget
     private let link: LaneLink
     private let isAppActive: @Sendable () -> Bool
+    /// Told once, after this lane's first cycle: the moment the engine's per-launch storage sweep waits for.
+    private let firstCycleEnded: @Sendable () -> Void
+    private var reportedFirstCycle = false
     private var phase: AccountSyncPhase = .idle
     private var consecutiveFailures = 0
     private var consecutiveResets = 0
@@ -97,7 +100,8 @@ actor LiveLane {
         tuning: SyncTuning,
         budget: QuotaBudget,
         link: LaneLink,
-        isAppActive: @escaping @Sendable () -> Bool
+        isAppActive: @escaping @Sendable () -> Bool,
+        firstCycleEnded: @escaping @Sendable () -> Void = {}
     ) {
         self.accountID = accountID
         self.store = store
@@ -110,6 +114,7 @@ actor LiveLane {
         self.budget = budget
         self.link = link
         self.isAppActive = isAppActive
+        self.firstCycleEnded = firstCycleEnded
     }
 
     // MARK: Loop
@@ -139,6 +144,11 @@ actor LiveLane {
             let full = requested || pollIsDue
             let outcome = await runCycle(full: full, requested: requested)
             if Task.isCancelled { break }
+            if !reportedFirstCycle {
+                // Whatever the outcome: the sweep is local, and offline or parked it is as useful.
+                reportedFirstCycle = true
+                firstCycleEnded()
+            }
             let timeout: TimeInterval?
             switch outcome {
             case .completed(let nextAttemptAt, let pollAfter):

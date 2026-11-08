@@ -27,7 +27,9 @@ final class AccountSyncer: Sendable {
         tokenProvider: AccessTokenProvider,
         tuning: SyncTuning,
         budget: QuotaBudget,
-        isAppActive: @escaping @Sendable () -> Bool
+        isAppActive: @escaping @Sendable () -> Bool,
+        firstLiveCycleEnded: @escaping @Sendable () -> Void = {},
+        backfillEnded: @escaping @Sendable () -> Void = {}
     ) {
         self.accountID = accountID
         live = LiveLane(
@@ -41,7 +43,8 @@ final class AccountSyncer: Sendable {
             tuning: tuning,
             budget: budget,
             link: link,
-            isAppActive: isAppActive
+            isAppActive: isAppActive,
+            firstCycleEnded: firstLiveCycleEnded
         )
         backfill = BackfillLane(
             accountID: accountID,
@@ -51,7 +54,8 @@ final class AccountSyncer: Sendable {
             statusCenter: statusCenter,
             tuning: tuning,
             budget: budget,
-            link: link
+            link: link,
+            backfillEnded: backfillEnded
         )
     }
 

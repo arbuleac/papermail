@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SSCore
 import SSGmail
 import SSGraph
@@ -18,18 +19,29 @@ final class AppEnvironment {
     let store: MailStoring
     let engine: MailEngine
     let clientConfigurations: ClientConfigurationStore
+    /// The files Settings › General counts as the mailbox's size on disk.
+    let databasePath: String
+    let attachmentDirectory: URL
+    /// What `shutdown` runs `PRAGMA optimize` through before it closes the store; the store itself, except in the
+    /// test that checks quitting does it while the store is still open.
+    var storeMaintenance: MailStoreMaintenance
     private let sqliteStore: SQLiteMailStore
+    private var keepMailObservation: AnyCancellable?
 
     private static let log = Logger(subsystem: "io.supersparrow.mac", category: "shell")
 
     var isDemo: Bool { mode == .demo }
 
-    private init(mode: Mode, store: SQLiteMailStore, engine: MailEngine, clientConfigurations: ClientConfigurationStore) {
+    private init(mode: Mode, store: SQLiteMailStore, engine: MailEngine, clientConfigurations: ClientConfigurationStore,
+                 databasePath: String, attachmentDirectory: URL) {
         self.mode = mode
         self.sqliteStore = store
         self.store = store
+        self.storeMaintenance = store
         self.engine = engine
         self.clientConfigurations = clientConfigurations
+        self.databasePath = databasePath
+        self.attachmentDirectory = attachmentDirectory
     }
 
     // MARK: Paths
@@ -70,10 +82,27 @@ final class AppEnvironment {
     /// one is built beside the demo while its first sign-in runs. `AppDelegate.install` points the drafts at the
     /// environment that is actually shown.
     static func make(mode: Mode, settings: AppSettings) throws -> AppEnvironment {
+        let environment: AppEnvironment
         switch mode {
-        case .real: return try makeReal(settings: settings)
-        case .demo: return try makeDemo(settings: settings)
+        case .real: environment = try makeReal(settings: settings)
+        case .demo: environment = try makeDemo(settings: settings)
         }
+        // Before the engine starts, so its launch sweep keeps to the saved window.
+        environment.follow(settings)
+        return environment
+    }
+
+    /// Keeps the engine's Keep mail window on the setting for as long as this environment lives, starting with the
+    /// value it has now. An environment built beside the shown one (the demo's sign-in) follows it too.
+    func follow(_ settings: AppSettings) {
+        keepMailObservation = settings.$keepMail.removeDuplicates().sink { [engine] retention in
+            engine.setMailRetention(retention)
+        }
+    }
+
+    /// The mailbox's size on disk: measured off the main thread by the caller (Settings › General).
+    nonisolated static func footprint(databasePath: String, attachmentDirectory: URL) -> Int64 {
+        MailboxFootprint.bytes(databasePath: databasePath, attachmentDirectory: attachmentDirectory)
     }
 
     private static func makeReal(settings: AppSettings) throws -> AppEnvironment {
@@ -103,7 +132,8 @@ final class AppEnvironment {
             },
             attachmentCacheDirectory: attachmentCacheDirectory
         )
-        return AppEnvironment(mode: .real, store: store, engine: engine, clientConfigurations: configurations)
+        return AppEnvironment(mode: .real, store: store, engine: engine, clientConfigurations: configurations,
+                              databasePath: SQLiteMailStore.defaultPath, attachmentDirectory: attachmentCacheDirectory)
     }
 
     private static func makeDemo(settings: AppSettings) throws -> AppEnvironment {
@@ -123,7 +153,8 @@ final class AppEnvironment {
         )
         // Demo mode never reads it, but Settings → OAuth still shows the real file.
         let configurations = ClientConfigurationStore(fileURL: ClientConfigurationStore.defaultFileURL())
-        return AppEnvironment(mode: .demo, store: store, engine: engine, clientConfigurations: configurations)
+        return AppEnvironment(mode: .demo, store: store, engine: engine, clientConfigurations: configurations,
+                              databasePath: demoDatabasePath, attachmentDirectory: demoAttachmentCacheDirectory)
     }
 
     /// A real-mode graph over an empty, throwaway store in `directory`, for the welcome-screen snapshot
@@ -132,7 +163,9 @@ final class AppEnvironment {
     /// tests pass `.demo` for a window that behaves as the demo's over the same throwaway store.
     static func makeScratch(in directory: URL, mode: Mode = .real) throws -> AppEnvironment {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let store = try SQLiteMailStore(path: directory.appendingPathComponent("scratch.sqlite").path)
+        let databasePath = directory.appendingPathComponent("scratch.sqlite").path
+        let attachments = directory.appendingPathComponent("attachments", isDirectory: true)
+        let store = try SQLiteMailStore(path: databasePath)
         let service = DemoMailService()
         let engine = MailEngine(
             store: store,
@@ -141,10 +174,11 @@ final class AppEnvironment {
             authenticator: DemoAuthenticator(),
             sanitizer: PreferenceSanitizer(),
             providerFactory: { service.provider(for: $0) },
-            attachmentCacheDirectory: directory.appendingPathComponent("attachments", isDirectory: true)
+            attachmentCacheDirectory: attachments
         )
         let configurations = ClientConfigurationStore(fileURL: directory.appendingPathComponent("oauth-clients.json"))
-        return AppEnvironment(mode: mode, store: store, engine: engine, clientConfigurations: configurations)
+        return AppEnvironment(mode: mode, store: store, engine: engine, clientConfigurations: configurations,
+                              databasePath: databasePath, attachmentDirectory: attachments)
     }
 
     // MARK: Lifecycle
@@ -170,9 +204,18 @@ final class AppEnvironment {
         try await DemoSeeder.seedIfNeeded(engine)
     }
 
-    /// Stops sync and waits for in-flight work so another environment can take over cleanly.
+    /// Stops sync and waits for in-flight work so another environment can take over cleanly. Quitting comes through
+    /// here (`AppDelegate.prepareToQuit`), so this is where the store gets SQLite's advice for a connection about to
+    /// close, `PRAGMA optimize`: after the engine's last write and before the close.
     func shutdown() async {
         await engine.stopAndWait()
+        // On a background task: it may analyze a table or two, and the main thread never waits on the disk.
+        let maintenance = storeMaintenance
+        do {
+            try await Task.detached(priority: .userInitiated) { try maintenance.optimize() }.value
+        } catch {
+            Self.log.error("PRAGMA optimize failed: \(String(describing: error), privacy: .public)")
+        }
         try? sqliteStore.close()
     }
 }

@@ -232,7 +232,8 @@ func allMessages(_ store: MailStoring, account: AccountID = Fixtures.accountID) 
 
 /// Builds an engine over in-memory doubles with short delays. By default one scripted provider serves every
 /// account; a `factory` makes one per account instead. `engineStore` puts a wrapper (a `FaultyStore`) between the
-/// engine and `store`, which tests still read directly.
+/// engine and `store`, which tests still read directly. `maintenance` stands in for the SQLite store's housekeeping,
+/// which the in-memory store has none of.
 final class EngineHarness {
     let store: InMemoryMailStore
     let tokenStore = SyncTestTokenStore()
@@ -248,6 +249,9 @@ final class EngineHarness {
         provider: ScriptedProvider = ScriptedProvider(accountID: Fixtures.accountID),
         seedAccount: Bool = true,
         engineStore: MailStoring? = nil,
+        maintenance: MailStoreMaintenance? = nil,
+        cacheDirectory: URL? = nil,
+        cacheCapacity: Int64 = AttachmentCache.capacityBytes,
         tune: (inout SyncTuning) -> Void = { _ in },
         factory: (@Sendable (Account) -> ScriptedProvider)? = nil
     ) throws {
@@ -262,7 +266,7 @@ final class EngineHarness {
         // Nothing paced, so a test waits only for its own delays; tests about pacing set a metered quota.
         tuning.quota = { _ in .unlimited }
         tune(&tuning)
-        cacheDirectory = FileManager.default.temporaryDirectory
+        self.cacheDirectory = cacheDirectory ?? FileManager.default.temporaryDirectory
             .appendingPathComponent("SuperSparrowSyncTests-\(UUID().uuidString)", isDirectory: true)
         if seedAccount {
             try store.upsertAccount(Fixtures.account(id: provider.accountID))
@@ -275,7 +279,9 @@ final class EngineHarness {
             sanitizer: sanitizer,
             providerFactory: { account in factory?(account) ?? provider },
             tuning: tuning,
-            attachmentCacheDirectory: cacheDirectory
+            attachmentCacheDirectory: self.cacheDirectory,
+            attachmentCacheCapacity: cacheCapacity,
+            maintenance: maintenance
         )
     }
 

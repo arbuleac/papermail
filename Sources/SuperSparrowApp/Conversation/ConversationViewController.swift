@@ -679,6 +679,11 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
 
     /// The payload for one render and the inputs it was built from. The only place bodies are read in bulk.
     private func prepare(_ messages: [MessageMetadata]) -> (payload: RenderPayload, inputs: RenderInputs) {
+        // What this renders stays whole for the run, marked before any body is read: a Keep mail clean-up reads the marks
+        // inside its write, so it leaves the bodies on screen, and a backfill fetching a message shown without one
+        // stores it whole, so the next refresh shows it.
+        let shown = messages.map(\.id).filter { !LocalDraftConversation.isLocal($0) }
+        if !shown.isEmpty { client.keepBodies(of: shown) }
         var bodies: [MessageID: StoredBody] = [:]
         var states = bodyStates
         for message in messages {
@@ -734,10 +739,14 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     private func conversationDidChange(_ id: ConversationID, messages: [MessageMetadata]) {
         guard currentConversationID == id else { return }
         let visible = RenderPayloadBuilder.visibleMessages(messages)
+        let known = Set(currentMessages.map(\.id))
         applyMessages(visible, for: id)
         // Emptied while open (its last message deleted or moved elsewhere): the desk says so (spec §5.9).
         guard !visible.isEmpty else { return }
         refreshCurrentIfStale(visible, id: id)
+        // A message that joins the open conversation without a body (an older one the backfill lists) is fetched at
+        // once, as opening the conversation would have.
+        requestMissingBodies(visible.filter { !known.contains($0.id) }, rendered: pool.current?.renderedInputs)
     }
 
     private func refreshCurrentIfStale(_ messages: [MessageMetadata], id: ConversationID) {
@@ -812,6 +821,12 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         default:
             return false
         }
+    }
+
+    /// What stands in for the message's body, nil once it has one or when none was asked for; internal so the app's
+    /// tests can see a fetch start.
+    func bodyState(of id: MessageID) -> RenderPayload.BodyState? {
+        bodyStates[id]
     }
 
     private func setBodyState(_ state: RenderPayload.BodyState, for id: MessageID) {
@@ -1097,7 +1112,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     @discardableResult
     func openQuickLookForSelectedMessage() -> Bool {
         let messageID = selectedMessageID ?? currentMessages.last?.id
-        var parts = messageID.flatMap { (try? client.store.body(for: $0))?.body.attachments } ?? []
+        var parts = messageID.flatMap { try? client.store.attachments(of: $0) } ?? []
         if let focused = focusedAttachment, focused.message == messageID,
            let index = parts.firstIndex(where: { $0.id == focused.attachment }) {
             parts.insert(parts.remove(at: index), at: 0)
@@ -1115,8 +1130,9 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         }
     }
 
+    /// Read apart from the body, which a clean-up may have evicted in the instant this conversation went on screen.
     private func attachments(of messageID: MessageID) -> [AttachmentInfo] {
-        ((try? client.store.body(for: messageID))?.body.attachments ?? []).filter { !$0.isInline }
+        ((try? client.store.attachments(of: messageID)) ?? []).filter { !$0.isInline }
     }
 
     private func openAttachment(id attachmentID: String, of messageID: MessageID) {

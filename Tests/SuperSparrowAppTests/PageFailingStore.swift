@@ -40,7 +40,15 @@ final class PageFailingStore: MailStoring, @unchecked Sendable {
     func message(_ id: MessageID) throws -> MessageMetadata? { try base.message(id) }
     func messages(in conversation: ConversationID) throws -> [MessageMetadata] { try base.messages(in: conversation) }
     func saveBody(_ body: StoredBody, for id: MessageID) throws { try base.saveBody(body, for: id) }
+    func saveBody(_ body: StoredBody, for id: MessageID, evictingIfReceivedBefore cutoff: Date) throws -> Bool {
+        try base.saveBody(body, for: id, evictingIfReceivedBefore: cutoff)
+    }
     func body(for id: MessageID) throws -> StoredBody? { try base.body(for: id) }
+    func attachments(of id: MessageID) throws -> [AttachmentInfo]? { try base.attachments(of: id) }
+    func evictBodies(from start: Date?, limit: Int,
+                     rules: () -> (cutoff: Date, excluding: Set<MessageID>)?) throws -> (evicted: Int, next: Date?) {
+        try base.evictBodies(from: start, limit: limit, rules: rules)
+    }
     func messageIDsMissingBodies(accountID: AccountID, limit: Int) throws -> [MessageID] {
         try base.messageIDsMissingBodies(accountID: accountID, limit: limit)
     }

@@ -21,8 +21,9 @@ final class InlineImageSchemeHandler: NSObject, WKURLSchemeHandler {
             urlSchemeTask.didFailWithError(URLError(.badURL))
             return
         }
-        let stored = try? client.store.body(for: target.message)
-        guard let attachment = SchemeURLSupport.inlineAttachment(matching: target.key, in: stored?.body.attachments ?? []) else {
+        // The attachment list, not the body: a clean-up may have evicted the body in the instant the page rendered it.
+        let attachments = (try? client.store.attachments(of: target.message)) ?? []
+        guard let attachment = SchemeURLSupport.inlineAttachment(matching: target.key, in: attachments) else {
             SchemeURLSupport.respondNotFound(urlSchemeTask, url: url)
             return
         }

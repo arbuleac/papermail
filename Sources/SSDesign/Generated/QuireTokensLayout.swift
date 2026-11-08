@@ -686,6 +686,7 @@ extension Quire {
             public static let lastErrorMaxLines: CGFloat = 3
             public static let signatureLines: CGFloat = 3
             public static let signatureFieldHeight: CGFloat = 66
+            public static let mailboxSizeGap: CGFloat = 12
         }
         public enum Menu {
             public static let titleMenuOffsetY: CGFloat = 4

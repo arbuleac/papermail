@@ -11,6 +11,9 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
     private var bootstraps: [AccountID: BootstrapState] = [:]
     private var messagesByID: [MessageID: MessageMetadata] = [:]
     private var bodies: [MessageID: StoredBody] = [:]
+    /// `bodies.evicted`: these keep their entry in `bodies` (plain text for search, so the message is not "missing")
+    /// with the source and rendered HTML cleared, and `body(for:)` answers nil for them.
+    private var evicted: Set<MessageID> = []
     private var operations: [String: Operation] = [:]
     /// `operation_targets.prior_*`: per operation and target, the flags its change replaced, which a give-up
     /// puts back. Recorded at enqueue and refreshed by every upsert that replays the operation.
@@ -110,6 +113,7 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
     private func wipeLocked(_ accountID: AccountID) {
         messagesByID = messagesByID.filter { $0.key.accountID != accountID }
         bodies = bodies.filter { $0.key.accountID != accountID }
+        evicted = evicted.filter { $0.accountID != accountID }
         cursors[accountID] = nil
         bootstraps[accountID] = nil
         contactCounts[accountID] = nil
@@ -160,6 +164,7 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         for id in ids {
             messagesByID[id] = nil
             bodies[id] = nil
+            evicted.remove(id)
         }
         dropOrphanedMarksLocked()
     }
@@ -183,12 +188,81 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
     public func saveBody(_ body: StoredBody, for id: MessageID) throws {
         lock.lock(); defer { lock.unlock() }
         bodies[id] = body
+        evicted.remove(id)
         notifyAll()
+    }
+
+    @discardableResult
+    public func saveBody(_ body: StoredBody, for id: MessageID, evictingIfReceivedBefore cutoff: Date) throws -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard let message = messagesByID[id], evictableLocked(message, before: cutoff) else {
+            bodies[id] = body
+            evicted.remove(id)
+            notifyAll()
+            return false
+        }
+        bodies[id] = Self.evictedForm(of: body)
+        evicted.insert(id)
+        notifyAll()
+        return true
     }
 
     public func body(for id: MessageID) throws -> StoredBody? {
         lock.lock(); defer { lock.unlock() }
-        return bodies[id]
+        return evicted.contains(id) ? nil : bodies[id]
+    }
+
+    public func attachments(of id: MessageID) throws -> [AttachmentInfo]? {
+        lock.lock(); defer { lock.unlock() }
+        return bodies[id]?.body.attachments
+    }
+
+    @discardableResult
+    public func evictBodies(from start: Date?, limit: Int,
+                            rules: () -> (cutoff: Date, excluding: Set<MessageID>)?) throws -> (evicted: Int, next: Date?) {
+        lock.lock(); defer { lock.unlock() }
+        // One lock covers the look and the eviction, so the rules are asked once, as the SQLite store's write asks them.
+        guard limit > 0, let rules = rules() else { return (0, nil) }
+        let candidates = bodies.keys
+            .compactMap { id -> MessageMetadata? in
+                guard !evicted.contains(id), let message = messagesByID[id] else { return nil }
+                if let start, message.date < start { return nil }
+                return evictableLocked(message, before: rules.cutoff) ? message : nil
+            }
+            .sorted { ($0.date, $0.id.providerID) < ($1.date, $1.id.providerID) }
+        var chosen: [MessageMetadata] = []
+        var reached: Date?
+        for message in candidates where chosen.count < limit {
+            reached = message.date
+            if !rules.excluding.contains(message.id) { chosen.append(message) }
+        }
+        for message in chosen {
+            guard let body = bodies[message.id] else { continue }
+            bodies[message.id] = Self.evictedForm(of: body)
+            evicted.insert(message.id)
+        }
+        // Nothing an observation reads changed, as in the SQLite store, whose observations never read `bodies`.
+        return (chosen.count, chosen.count < limit ? nil : reached)
+    }
+
+    /// `BodyEviction`'s rules: received before the cutoff, not a draft, no live operation targets it.
+    private func evictableLocked(_ message: MessageMetadata, before cutoff: Date) -> Bool {
+        message.date < cutoff && !message.roles.contains(.drafts) && liveOperationsLocked(on: message.id).isEmpty
+    }
+
+    /// What an eviction leaves: the plain text, attachment list and design facts, no source or rendered HTML.
+    private static func evictedForm(of body: StoredBody) -> StoredBody {
+        var body = body
+        body.body.html = nil
+        body.body.text = nil
+        body.renderedHTML = ""
+        return body
+    }
+
+    /// Whether the body is held in the evicted state, for tests.
+    func isEvicted(_ id: MessageID) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return evicted.contains(id)
     }
 
     public func messageIDsMissingBodies(accountID: AccountID, limit: Int) throws -> [MessageID] {
@@ -206,7 +280,7 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
     public func messageIDsMissingDesignFacts(accountID: AccountID, limit: Int) throws -> [MessageID] {
         lock.lock(); defer { lock.unlock() }
         return bodies
-            .filter { $0.key.accountID == accountID && $0.value.typesetting == nil }
+            .filter { $0.key.accountID == accountID && $0.value.typesetting == nil && !evicted.contains($0.key) }
             .map(\.key)
             .sorted { ($0.accountID.rawValue, $0.providerID) < ($1.accountID.rawValue, $1.providerID) }
             .prefix(max(0, limit))

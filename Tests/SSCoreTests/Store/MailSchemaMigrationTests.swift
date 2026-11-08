@@ -281,6 +281,8 @@ final class MailSchemaMigrationTests: XCTestCase {
             DELETE FROM grdb_migrations WHERE identifier = 'v8-backfill-marks';
             ALTER TABLE accounts DROP COLUMN signature;
             DELETE FROM grdb_migrations WHERE identifier = 'v9-account-signature';
+            ALTER TABLE bodies DROP COLUMN evicted;
+            DELETE FROM grdb_migrations WHERE identifier = 'v10-body-eviction';
             """, at: path)
         XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations ORDER BY identifier", at: path).compactMap(\.first), [
             "v1-mailbox", "v2-body-render-facts", "v3-body-typesetting", "v4-account-ink", "v5-failed-operation-mark",
@@ -347,6 +349,8 @@ final class MailSchemaMigrationTests: XCTestCase {
         try execute("""
             ALTER TABLE accounts DROP COLUMN signature;
             DELETE FROM grdb_migrations WHERE identifier = 'v9-account-signature';
+            ALTER TABLE bodies DROP COLUMN evicted;
+            DELETE FROM grdb_migrations WHERE identifier = 'v10-body-eviction';
             """, at: path)
         XCTAssertFalse(try query("SELECT name FROM pragma_table_info('accounts')", at: path).compactMap(\.first).contains("signature"))
 
@@ -366,6 +370,51 @@ final class MailSchemaMigrationTests: XCTestCase {
         XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations WHERE identifier = 'v9-account-signature'", at: path), [["v9-account-signature"]])
         XCTAssertEqual(try query("SELECT type, \"notnull\", dflt_value FROM pragma_table_info('accounts') WHERE name = 'signature'", at: path),
                        [["TEXT", "0", nil]], "TEXT NULL with no default")
+    }
+
+    /// v10 adds `bodies.evicted` and nothing else, so the file a v9 build leaves is a v10 file without that column and
+    /// its ledger row. Opened by the current build, every body is whole (0), the store reads them as before, and the
+    /// file keeps the `auto_vacuum` it was created with: switching an existing file to INCREMENTAL takes a full VACUUM,
+    /// which the store never runs, so incremental vacuum steps do nothing there. A new file is created INCREMENTAL.
+    func testVersion9DatabaseGainsTheEvictedMarkAndKeepsItsVacuumMode() throws {
+        let path = try XCTUnwrap(directory).appendingPathComponent("mail.sqlite").path
+        try writeVersion1Database(at: path)
+        let m1 = MessageID(accountID: AccountID("acct-a"), providerID: "m1")
+        do {
+            let store = try SQLiteMailStore(path: path)
+            try store.setSignature("<div><p>Alex</p></div>", for: AccountID("acct-a"))
+            try store.close()
+        }
+        try execute("""
+            ALTER TABLE bodies DROP COLUMN evicted;
+            DELETE FROM grdb_migrations WHERE identifier = 'v10-body-eviction';
+            """, at: path)
+        XCTAssertFalse(try query("SELECT name FROM pragma_table_info('bodies')", at: path).compactMap(\.first).contains("evicted"))
+        XCTAssertEqual(try query("PRAGMA auto_vacuum", at: path), [["0"]], "an earlier build's file has no auto_vacuum")
+
+        let store = try SQLiteMailStore(path: path)
+        XCTAssertEqual(try store.body(for: m1)?.plainText, "Hello there", "the body stored before v10 reads as before")
+        XCTAssertEqual(try store.bodyRowState(for: m1)?.evicted, false)
+        XCTAssertEqual(try store.accounts().first { $0.id == AccountID("acct-a") }?.signature, "<div><p>Alex</p></div>")
+        XCTAssertEqual(try store.autoVacuumMode(), 0, "the migration does not change auto_vacuum")
+        XCTAssertNil(try store.reclaimFreePages(upTo: 16), "so incremental vacuum steps do nothing on this file")
+        try store.deleteMessages([m1])
+        XCTAssertNil(try store.reclaimFreePages(upTo: 16), "even with free pages to hand back")
+        try store.close()
+        XCTAssertEqual(try query("SELECT type, \"notnull\", dflt_value FROM pragma_table_info('bodies') WHERE name = 'evicted'", at: path),
+                       [["INTEGER", "1", "0"]], "INTEGER NOT NULL DEFAULT 0")
+        XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations WHERE identifier = 'v10-body-eviction'", at: path),
+                       [["v10-body-eviction"]])
+        XCTAssertEqual(try query("PRAGMA auto_vacuum", at: path), [["0"]], "never a full VACUUM behind the user's back")
+
+        let fresh = try XCTUnwrap(directory).appendingPathComponent("fresh.sqlite").path
+        let created = try SQLiteMailStore(path: fresh)
+        XCTAssertEqual(try created.autoVacuumMode(), 2, "a new file is created for incremental vacuum")
+        try created.close()
+        XCTAssertEqual(try query("PRAGMA auto_vacuum", at: fresh), [["2"]])
+        let reopened = try SQLiteMailStore(path: fresh)
+        XCTAssertEqual(try reopened.autoVacuumMode(), 2, "and keeps it")
+        try reopened.close()
     }
 
     // MARK: Raw SQLite

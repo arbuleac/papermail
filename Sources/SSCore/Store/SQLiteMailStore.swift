@@ -8,7 +8,7 @@ import os
 /// Every mutating call is one transaction, and every call that touches messages or operations recomputes the
 /// summary rows of the affected conversations with aggregate SQL before it commits, so the list queries are
 /// single indexed selects over `conversations` and observers see each transaction exactly once.
-public final class SQLiteMailStore: MailStoring, Sendable {
+public final class SQLiteMailStore: MailStoring, MailStoreMaintenance, Sendable {
     private let database: any StoreDatabase
     private static let log = Logger(subsystem: "io.3it.supersparrow", category: "SQLiteMailStore")
 
@@ -28,7 +28,7 @@ public final class SQLiteMailStore: MailStoring, Sendable {
         if !fileManager.fileExists(atPath: path) {
             _ = fileManager.createFile(atPath: path, contents: nil, attributes: [.posixPermissions: 0o600])
         }
-        var configuration = Configuration()
+        var configuration = Self.configuration()
         // Readers never wait on the writer in WAL mode; the timeout only matters if another process holds the file.
         configuration.busyMode = .timeout(5)
         let pool = try DatabasePool(path: path, configuration: configuration)
@@ -39,7 +39,7 @@ public final class SQLiteMailStore: MailStoring, Sendable {
 
     /// A private in-memory database with the same schema and semantics, for tests and previews.
     public static func inMemory() throws -> SQLiteMailStore {
-        let queue = try DatabaseQueue(path: ":memory:")
+        let queue = try DatabaseQueue(path: ":memory:", configuration: configuration())
         try MailSchema.migrator().migrate(queue)
         return SQLiteMailStore(database: queue)
     }
@@ -53,6 +53,14 @@ public final class SQLiteMailStore: MailStoring, Sendable {
 
     private init(database: any StoreDatabase) {
         self.database = database
+    }
+
+    /// What every connection shares. GRDB prepares the writer before it switches the file to WAL, which writes the
+    /// first page, so a new file is still empty here and takes incremental vacuum (`MailSchema.prepareAutoVacuum`).
+    private static func configuration() -> Configuration {
+        var configuration = Configuration()
+        configuration.prepareDatabase { db in try MailSchema.prepareAutoVacuum(db) }
+        return configuration
     }
 
     /// Closes the underlying connections. Every later call throws; observations stop.
@@ -159,6 +167,14 @@ public final class SQLiteMailStore: MailStoring, Sendable {
         try write { _ = try MessageTable.saveBody(body, for: id, in: $0) }
     }
 
+    @discardableResult
+    public func saveBody(_ body: StoredBody, for id: MessageID, evictingIfReceivedBefore cutoff: Date) throws -> Bool {
+        try write { db in
+            let evicted = try BodyEviction.isEligible(id, receivedBefore: cutoff, in: db)
+            return try MessageTable.saveBody(body, for: id, evicted: evicted, in: db) && evicted
+        }
+    }
+
     /// Stores several bodies in one transaction, so a hydration round costs one WAL commit instead of one per message.
     public func saveBodies(_ entries: [(id: MessageID, body: StoredBody)]) throws {
         guard !entries.isEmpty else { return }
@@ -175,6 +191,48 @@ public final class SQLiteMailStore: MailStoring, Sendable {
 
     public func messageIDsMissingBodies(accountID: AccountID, limit: Int) throws -> [MessageID] {
         try read { try MessageTable.missingBodies(accountID: accountID, limit: limit, in: $0) }
+    }
+
+    public func attachments(of id: MessageID) throws -> [AttachmentInfo]? {
+        try read { try MessageTable.attachments(of: id, in: $0) }
+    }
+
+    @discardableResult
+    public func evictBodies(from start: Date?, limit: Int,
+                            rules: () -> (cutoff: Date, excluding: Set<MessageID>)?) throws -> (evicted: Int, next: Date?) {
+        guard limit > 0, let looking = rules() else { return (0, nil) }
+        // Candidates come from a reader, so once the window is reached a sweep costs a read and never takes the
+        // writer. Excluded messages (often thousands by late in a run, mostly recent) take no place in the batch: a page
+        // of them is read past only when they fill it, so the usual batch reads `limit` rows, not that many more.
+        let found = try read { db -> (chosen: [(rowid: Int64, id: MessageID)], reached: Int64?, isLast: Bool) in
+            var chosen: [(rowid: Int64, id: MessageID)] = []
+            var reached: Int64?
+            var offset = 0
+            while true {
+                let page = try BodyEviction.candidates(receivedBefore: looking.cutoff, from: start, limit: limit,
+                                                       offset: offset, in: db)
+                for candidate in page where chosen.count < limit {
+                    reached = candidate.dateMS
+                    if !looking.excluding.contains(candidate.id) { chosen.append((candidate.rowid, candidate.id)) }
+                }
+                if chosen.count == limit { return (chosen, reached, false) }
+                // A short page, every row of it looked at, reached the cutoff: nothing is left after this batch.
+                if page.count < limit { return (chosen, reached, true) }
+                offset += page.count
+            }
+        }
+        let chosen = found.chosen
+        let next = found.isLast ? nil : found.reached.map(MailStoreCodec.date)
+        guard !chosen.isEmpty else { return (0, next) }
+        let evicted = try write { db -> Int in
+            // Asked again here, holding the writer: a message the reader marked kept while the candidates were read, or
+            // a window widened (Everything: nil) meanwhile, is left alone. The write checks every store rule again too,
+            // so a body saved or an operation queued in between is left alone.
+            guard let now = rules() else { return 0 }
+            let rowids = chosen.filter { !now.excluding.contains($0.id) }.map(\.rowid)
+            return try BodyEviction.evict(rowids, receivedBefore: now.cutoff, in: db)
+        }
+        return (evicted, next)
     }
 
     public func messageIDsMissingDesignFacts(accountID: AccountID, limit: Int) throws -> [MessageID] {
@@ -337,12 +395,82 @@ public final class SQLiteMailStore: MailStoring, Sendable {
         try read { try ContactTable.suggest(prefix: prefix, limit: limit, now: Date(), in: $0) }
     }
 
+    // MARK: Maintenance
+
+    public func optimize() throws {
+        try write { try $0.execute(sql: "PRAGMA optimize") }
+    }
+
+    public func mergeFullTextIndex(pages: Int, startingOver: Bool) throws -> Bool {
+        // FTS5's own 'optimize' rewrites the whole index in one statement, holding the writer for as long as that takes
+        // on a large mailbox. 'merge' does the same work a bounded number of pages at a time: the first step, negative,
+        // starts a merge of every b-tree; the later ones, positive, carry that merge on even when live writes add new
+        // b-trees meanwhile. A step that changes fewer than two rows found nothing to merge (FTS5's documented test).
+        let pages = max(1, pages)
+        return try write { db in
+            let before = db.totalChangesCount
+            try db.execute(sql: "INSERT INTO message_fts(message_fts, rank) VALUES ('merge', ?)",
+                           arguments: [startingOver ? -pages : pages])
+            return db.totalChangesCount - before >= 2
+        }
+    }
+
+    public func reclaimFreePages(upTo pages: Int) throws -> Int? {
+        guard try autoVacuumMode() == 2 else { return nil }
+        // A read first, so an idle moment with nothing free never takes the writer.
+        guard pages > 0, try read({ try Self.freePages($0) }) > 0 else { return 0 }
+        return try write { db in
+            let before = try Self.freePages(db)
+            try db.execute(sql: "PRAGMA incremental_vacuum(\(pages))")
+            return before - (try Self.freePages(db))
+        }
+    }
+
+    private static func freePages(_ db: Database) throws -> Int {
+        try Int.fetchOne(db, sql: "PRAGMA freelist_count") ?? 0
+    }
+
+    /// The file's `auto_vacuum`: 0 none, 1 full, 2 incremental. Fixed when the file was created.
+    func autoVacuumMode() throws -> Int {
+        try read { try Int.fetchOne($0, sql: "PRAGMA auto_vacuum") } ?? 0
+    }
+
     // MARK: Diagnostics
+
+    /// The file's pages and how many of them are free, for tests.
+    func pageCounts() throws -> (pages: Int, free: Int) {
+        try read { db in
+            (pages: try Int.fetchOne(db, sql: "PRAGMA page_count") ?? 0, free: try Self.freePages(db))
+        }
+    }
+
+    /// Calls `onCommit` after every committed transaction that changed `bodies`, for tests that count transactions.
+    func observeBodyCommits(_ onCommit: @escaping @Sendable () -> Void) throws -> AnyDatabaseCancellable {
+        guard let writer = database as? any DatabaseWriter else { throw StoreError.underlying("no database writer") }
+        return DatabaseRegionObservation(tracking: Table("bodies")).start(in: writer, onError: { _ in }, onChange: { _ in onCommit() })
+    }
+
+    /// What an evicted body row still holds, for tests: whether it is marked, which source columns are left, the size
+    /// of its rendered HTML and its plain text. Nil when the message has no body row.
+    func bodyRowState(for id: MessageID) throws -> (evicted: Bool, hasHTML: Bool, hasText: Bool, renderedBytes: Int, plainText: String)? {
+        try read { db in
+            guard let row = try Row.fetchOne(db, sql: """
+                SELECT evicted, html IS NOT NULL, text IS NOT NULL, length(rendered_html), plain_text FROM bodies
+                WHERE account_id = ? AND provider_id = ?
+                """, arguments: [id.accountID.rawValue, id.providerID]) else { return nil }
+            return (evicted: row[0], hasHTML: row[1], hasText: row[2], renderedBytes: row[3], plainText: row[4])
+        }
+    }
 
     /// Checks the full-text index against the messages and bodies it was built from, throwing when they
     /// disagree. It walks the whole index, so it is for tests, not for the app's launch path.
     func verifyFullTextIndex() throws {
         try write { try FullTextIndex.verify($0) }
+    }
+
+    /// SQLite's plan for a sweep's candidate read, one line per step, so tests can pin it to its range.
+    func evictionCandidatesPlan() throws -> [String] {
+        try read { try BodyEviction.explainCandidates(in: $0) }
     }
 
     /// SQLite's plan for a list query, one line per step, so tests can pin the inbox to its index.

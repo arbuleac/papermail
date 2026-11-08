@@ -152,7 +152,8 @@ enum MessageTable {
     }
 
     /// Inbox first, newest first, so hydration follows what the user will open. Two indexed scans that each stop
-    /// at the limit beat one query that has to sort every body-less message of a fresh account.
+    /// at the limit beat one query that has to sort every body-less message of a fresh account. An evicted body keeps
+    /// its row and `has_body`, so neither lane fetches it back.
     static func missingBodies(accountID: AccountID, limit: Int, in db: Database) throws -> [MessageID] {
         guard limit > 0 else { return [] }
         let inInbox = "(roles & \(MailStoreCodec.inboxBit)) != 0 AND (roles & \(MailStoreCodec.trashBit)) = 0"
@@ -176,9 +177,10 @@ enum MessageTable {
     /// and a finished backfill costs nothing.
     static func missingDesignFacts(accountID: AccountID, limit: Int, in db: Database) throws -> [MessageID] {
         guard limit > 0 else { return [] }
+        // An evicted body has no source left to work them out from; it gets them when it is fetched again.
         let ids = try String.fetchAll(db, sql: """
             SELECT provider_id FROM bodies INDEXED BY bodies_missing_design_facts
-            WHERE account_id = ? AND typesetting IS NULL LIMIT ?
+            WHERE account_id = ? AND typesetting IS NULL AND evicted = 0 LIMIT ?
             """, arguments: [accountID.rawValue, limit])
         return ids.map { MessageID(accountID: accountID, providerID: $0) }
     }
@@ -196,7 +198,9 @@ enum MessageTable {
     // MARK: Bodies
 
     /// Returns false when the message is unknown, which happens when a poll deleted it while its body was in flight.
-    static func saveBody(_ body: StoredBody, for id: MessageID, in db: Database) throws -> Bool {
+    /// `evicted` stores it as an eviction leaves a body (`BodyEviction`): no source, an empty rendered HTML, the rest
+    /// kept, so its source is never written only to be cleared again.
+    static func saveBody(_ body: StoredBody, for id: MessageID, evicted: Bool = false, in db: Database) throws -> Bool {
         guard let rowid = try Int64.fetchOne(
             db,
             sql: "SELECT rowid FROM messages WHERE account_id = ? AND provider_id = ?",
@@ -205,19 +209,19 @@ enum MessageTable {
         try FullTextIndex.remove(rowid: rowid, in: db)
         try db.cachedStatement(sql: """
             INSERT INTO bodies (account_id, provider_id, html, text, rendered_html, plain_text, attachments_json,
-                                has_quoted, blocked_images, typesetting, declares_colors, covered_by_new_york)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                has_quoted, blocked_images, typesetting, declares_colors, covered_by_new_york, evicted)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(account_id, provider_id) DO UPDATE SET
                 html = excluded.html, text = excluded.text, rendered_html = excluded.rendered_html,
                 plain_text = excluded.plain_text, attachments_json = excluded.attachments_json,
                 has_quoted = excluded.has_quoted, blocked_images = excluded.blocked_images,
                 typesetting = excluded.typesetting, declares_colors = excluded.declares_colors,
-                covered_by_new_york = excluded.covered_by_new_york
+                covered_by_new_york = excluded.covered_by_new_york, evicted = excluded.evicted
             """).execute(arguments: [
                 id.accountID.rawValue, id.providerID,
-                try body.body.html.map(MailStoreCodec.compress),
-                try body.body.text.map(MailStoreCodec.compress),
-                try MailStoreCodec.compress(body.renderedHTML),
+                try evicted ? nil : body.body.html.map(MailStoreCodec.compress),
+                try evicted ? nil : body.body.text.map(MailStoreCodec.compress),
+                try evicted ? Data() : MailStoreCodec.compress(body.renderedHTML),
                 body.plainText,
                 try MailStoreCodec.json(body.body.attachments),
                 body.hasQuotedContent,
@@ -225,17 +229,26 @@ enum MessageTable {
                 body.typesetting.map(MailStoreCodec.typesettingCode),
                 body.declaresColors,
                 body.coveredByNewYork,
+                evicted,
             ])
         try db.cachedStatement(sql: "UPDATE messages SET has_body = 1 WHERE rowid = ?").execute(arguments: [rowid])
         try FullTextIndex.insert(rowid: rowid, in: db)
         return true
     }
 
+    /// The attachment list of the stored body, which an eviction keeps; nil when there is no body.
+    static func attachments(of id: MessageID, in db: Database) throws -> [AttachmentInfo]? {
+        let statement = try db.cachedStatement(sql: "SELECT attachments_json FROM bodies WHERE account_id = ? AND provider_id = ?")
+        guard let json = try String.fetchOne(statement, arguments: [id.accountID.rawValue, id.providerID]) else { return nil }
+        return try MailStoreCodec.decode([AttachmentInfo].self, from: json)
+    }
+
+    /// Nil for an evicted body as for a missing one: either way the reader fetches it (`MailClient.ensureBody`).
     static func body(for id: MessageID, in db: Database) throws -> StoredBody? {
         let statement = try db.cachedStatement(sql: """
             SELECT html, text, rendered_html, plain_text, attachments_json, has_quoted, blocked_images,
                    typesetting, declares_colors, covered_by_new_york FROM bodies
-            WHERE account_id = ? AND provider_id = ?
+            WHERE account_id = ? AND provider_id = ? AND evicted = 0
             """)
         guard let row = try Row.fetchOne(statement, arguments: [id.accountID.rawValue, id.providerID]) else { return nil }
         let html: Data? = row[0]

@@ -84,7 +84,21 @@ enum MailSchema {
             // never one read from the provider.
             try db.execute(sql: "ALTER TABLE accounts ADD COLUMN signature TEXT")
         }
+        migrator.registerMigration("v10-body-eviction") { db in
+            // Every body stored so far is whole. An evicted body keeps its row (and `messages.has_body`), which is what
+            // keeps the hydrator from fetching it straight back; this mark is what tells the two apart.
+            try db.execute(sql: "ALTER TABLE bodies ADD COLUMN evicted INTEGER NOT NULL DEFAULT 0")
+        }
         return migrator
+    }
+
+    /// `auto_vacuum` is written into a database file with its first page and fixed from then on: only a full VACUUM
+    /// (twice the disk, the writer held throughout) changes it. So a new file is created for incremental vacuum here,
+    /// before its first page exists, and a file an earlier build created keeps `NONE`, reusing its free pages rather
+    /// than giving them back. Runs on every connection; only a writer meeting an empty file acts.
+    static func prepareAutoVacuum(_ db: Database) throws {
+        guard !db.configuration.readonly, try Int.fetchOne(db, sql: "PRAGMA page_count") == 0 else { return }
+        try db.execute(sql: "PRAGMA auto_vacuum = INCREMENTAL")
     }
 
     /// Scratch table for the summary refresh. It lives in the temp schema so it never reaches the file and never

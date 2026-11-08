@@ -1,8 +1,8 @@
 import Foundation
 
 /// The `MailClient` the app talks to: one `AccountSyncer` (a live lane and a backfill lane) and one
-/// `QuotaBudget` per account, a shared `SendRunner`, the attachment cache and the status feed, wired over the
-/// ports. Every command writes the store first and only then nudges
+/// `QuotaBudget` per account, a shared `SendRunner`, the attachment cache, the storage sweeper and the status feed,
+/// wired over the ports. Every command writes the store first and only then nudges
 /// the network side, so the UI never waits on a provider.
 public final class MailEngine: MailClient, @unchecked Sendable {
     public let store: MailStoring
@@ -18,6 +18,10 @@ public final class MailEngine: MailClient, @unchecked Sendable {
     private let attachmentCache: AttachmentCache
     private let sendClaimLock = NSLock()
     private let sendRunner: SendRunner
+    private let sweeper: StorageSweeper
+    private let storageFeed = StorageChangeFeed()
+    /// The Keep mail window and the bodies kept whole for this run, read by the sweeper and the hydrators.
+    private let keepMail = KeepMailState()
     private let stateLock = NSLock()
     private var running = false
     private var appActive = true
@@ -52,7 +56,9 @@ public final class MailEngine: MailClient, @unchecked Sendable {
         sanitizer: BodySanitizing,
         providerFactory: @escaping @Sendable (Account) -> MailProvider,
         tuning: SyncTuning,
-        attachmentCacheDirectory: URL
+        attachmentCacheDirectory: URL,
+        attachmentCacheCapacity: Int64 = AttachmentCache.capacityBytes,
+        maintenance: MailStoreMaintenance? = nil
     ) {
         self.store = store
         self.tokenStore = tokenStore
@@ -61,8 +67,13 @@ public final class MailEngine: MailClient, @unchecked Sendable {
         self.sanitizer = sanitizer
         self.providerFactory = providerFactory
         self.tuning = tuning
-        self.attachmentCache = AttachmentCache(root: attachmentCacheDirectory)
+        self.attachmentCache = AttachmentCache(root: attachmentCacheDirectory, capacity: attachmentCacheCapacity)
         self.sendRunner = SendRunner(store: store, registry: registry, claimLock: sendClaimLock, tuning: tuning)
+        // The sweeper reads the window through the shared state, not through `self`, so it keeps no engine alive.
+        let keepMail = keepMail
+        let feed = storageFeed
+        self.sweeper = StorageSweeper(store: store, maintenance: maintenance ?? (store as? MailStoreMaintenance), tuning: tuning,
+                                      retention: { keepMail.retention }, kept: { keepMail.kept }, changed: { feed.publish() })
     }
 
     deinit {
@@ -92,6 +103,13 @@ public final class MailEngine: MailClient, @unchecked Sendable {
             context(for: account).syncer.start()
         }
         sendRunner.start()
+        // The attachment cache's size is unknown until measured; measured and trimmed now, off the main thread, a
+        // download later only adds what it wrote.
+        let cache = attachmentCache
+        let feed = storageFeed
+        Task(priority: .utility) {
+            if await cache.trim() > 0 { feed.publish() }
+        }
         SyncLog.logger.info("engine started with \(accounts.count, privacy: .public) accounts")
     }
 
@@ -109,6 +127,8 @@ public final class MailEngine: MailClient, @unchecked Sendable {
             }
         }
         sendRunner.stop()
+        let sweeper = sweeper
+        Task { await sweeper.stopAndWait() }
         SyncLog.logger.info("engine stopped")
     }
 
@@ -119,6 +139,46 @@ public final class MailEngine: MailClient, @unchecked Sendable {
             await context.syncer.stopAndWait()
         }
         await sendRunner.stopAndWait()
+        // After the lanes, which may have asked for a sweep on their way out; a step under way finishes first.
+        await sweeper.stopAndWait()
+    }
+
+    // MARK: Storage
+
+    /// Settings › General › Keep mail on this Mac (docs/ARCHITECTURE.md, "Storage bounds"). Narrowing the window
+    /// sweeps at once while the engine runs (otherwise the launch sweep after the first live cycle does). Widening it,
+    /// back to Everything included, evicts nothing more (a sweep under way reads the window before each batch, so it
+    /// goes on to the new cutoff or stops) and fetches nothing back: those bodies return as their messages are opened.
+    public func setMailRetention(_ retention: MailRetention) {
+        stateLock.lock()
+        let previous = keepMail.setRetention(retention)
+        let isRunning = running
+        stateLock.unlock()
+        guard isRunning, retention.isNarrower(than: previous) else { return }
+        let sweeper = sweeper
+        Task { await sweeper.request([.evict, .reclaim]) }
+    }
+
+    /// The Keep mail window the engine sweeps to.
+    public var mailRetention: MailRetention {
+        keepMail.retention
+    }
+
+    /// Called on the main thread after a sweep evicted bodies, merged the full-text index or gave pages back, and after
+    /// the attachment cache deleted files to stay under its cap: the moments the mailbox's size on disk changes by more
+    /// than mail arriving. Settings measures the size again then.
+    public func observeStorageChanges(onChange: @escaping @Sendable () -> Void) -> StoreObservation {
+        storageFeed.observe(onChange)
+    }
+
+    /// Returns once no sweep is under way, for tests.
+    func waitForStorageWork() async {
+        await sweeper.waitUntilIdle()
+    }
+
+    /// The messages whose bodies stay whole for this run, for tests.
+    var keptBodies: Set<MessageID> {
+        keepMail.kept
     }
 
     // MARK: Accounts
@@ -266,15 +326,26 @@ public final class MailEngine: MailClient, @unchecked Sendable {
 
     public func ensureBody(for message: MessageID) async throws -> StoredBody {
         if let stored = try store.body(for: message) { return stored }
+        // Someone is opening it (the reader, a reply's quote). Fetched now, perhaps from outside the Keep mail window
+        // after an eviction, it is kept whole until a later launch's sweep, so opening old mail never thrashes. Marked
+        // before the fetch, so a backfill fetch this joins stores it whole too (one that read the window before the
+        // mark is saved whole again by `Hydrator.ensureBody`).
+        keepMail.keep([message])
         let context = try context(forAccountID: message.accountID)
         return try await context.hydrator.ensureBody(for: message)
+    }
+
+    public func keepBodies(of messages: [MessageID]) {
+        keepMail.keep(messages)
     }
 
     public func attachmentData(for message: MessageID, attachmentID: String, expectedSize: Int,
                                progress: (@Sendable (Double) -> Void)?) async throws -> Data {
         let context = try context(forAccountID: message.accountID)
-        return try await attachmentCache.data(for: message, attachmentID: attachmentID, expectedSize: expectedSize,
-                                              provider: context.provider, budget: context.budget, progress: progress)
+        let fetched = try await attachmentCache.data(for: message, attachmentID: attachmentID, expectedSize: expectedSize,
+                                                     provider: context.provider, budget: context.budget, progress: progress)
+        if fetched.trimmed { storageFeed.publish() }
+        return fetched.data
     }
 
     public func observeStatus(onChange: @escaping @Sendable ([AccountSyncStatus]) -> Void) -> StoreObservation {
@@ -289,9 +360,11 @@ public final class MailEngine: MailClient, @unchecked Sendable {
         // One budget per account, shared by both lanes and the on-demand body and attachment fetches, which count as
         // live spend.
         let budget = tuning.makeBudget(tuning.quota(provider))
+        let keepMail = keepMail
         let hydrator = Hydrator(accountID: account.id, store: store, provider: provider, sanitizer: sanitizer, tuning: tuning,
-                                budget: budget)
+                                budget: budget, evictionCutoff: { keepMail.evictionCutoff(for: $0) })
         let runner = OperationRunner(accountID: account.id, store: store, provider: provider, tuning: tuning)
+        let sweeper = sweeper
         let syncer = AccountSyncer(
             accountID: account.id,
             store: store,
@@ -302,7 +375,9 @@ public final class MailEngine: MailClient, @unchecked Sendable {
             tokenProvider: tokenProvider,
             tuning: tuning,
             budget: budget,
-            isAppActive: { [weak self] in self?.isAppActive ?? true }
+            isAppActive: { [weak self] in self?.isAppActive ?? true },
+            firstLiveCycleEnded: { Task { await sweeper.liveCycleEnded() } },
+            backfillEnded: { Task { await sweeper.backfillEnded() } }
         )
         let context = AccountContext(account: account, provider: provider, hydrator: hydrator, syncer: syncer, budget: budget)
         let registered = registry.insertIfAbsent(context)

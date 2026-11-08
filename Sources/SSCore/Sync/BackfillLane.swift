@@ -38,6 +38,11 @@ actor BackfillLane {
     private let tuning: SyncTuning
     private let budget: QuotaBudget
     private let link: LaneLink
+    /// Told when the lane goes idle after a backfill: the engine optimizes the full-text index and sweeps then.
+    private let backfillEnded: @Sendable () -> Void
+    /// Listing pages and paced bodies since the lane was last idle, to tell a backfill from a few handed-over bodies.
+    private var pagesSinceIdle = 0
+    private var bodiesSinceIdle = 0
     private var consecutiveFailures = 0
     private var consecutiveThrottles = 0
     /// The last page token the provider handed this lane. A stored token it has not seen accepted may have
@@ -58,7 +63,8 @@ actor BackfillLane {
         statusCenter: SyncStatusCenter,
         tuning: SyncTuning,
         budget: QuotaBudget,
-        link: LaneLink
+        link: LaneLink,
+        backfillEnded: @escaping @Sendable () -> Void = {}
     ) {
         self.accountID = accountID
         self.store = store
@@ -68,6 +74,7 @@ actor BackfillLane {
         self.tuning = tuning
         self.budget = budget
         self.link = link
+        self.backfillEnded = backfillEnded
     }
 
     // MARK: Loop
@@ -106,6 +113,7 @@ actor BackfillLane {
                 case .idle(let interval):
                     consecutiveFailures = 0
                     consecutiveThrottles = 0
+                    reportIdle()
                     _ = await waker.wait(timeout: interval)
                 }
             } catch is StaleBackfill {
@@ -124,6 +132,16 @@ actor BackfillLane {
             }
         }
         SyncLog.logger.info("backfill lane stopped for \(id, privacy: .public)")
+    }
+
+    /// Nothing is left to fetch. After listing pages, or at least a batch of bodies, that was a backfill ending
+    /// (a first download, a reconcile, or the bodies a quit left for this launch); the few bodies of new mail the live
+    /// lane hands over are not, so the index is not rewritten after every busy poll.
+    private func reportIdle() {
+        let ended = pagesSinceIdle > 0 || bodiesSinceIdle >= tuning.backfillEndMinimumBodies
+        pagesSinceIdle = 0
+        bodiesSinceIdle = 0
+        if ended { backfillEnded() }
     }
 
     private func handle(_ error: ProviderError) async {
@@ -191,6 +209,7 @@ actor BackfillLane {
         if let state, !state.isComplete {
             publishProgress(state)
             try await enumerate(state, generation: generation)
+            pagesSinceIdle += 1
             try await hydrateBatch()
             await hydrator.backfillDesignFacts()
             return .worked
@@ -217,6 +236,7 @@ actor BackfillLane {
     private func hydrateBatch() async throws -> Hydrator.Outcome {
         let link = link
         let outcome = await hydrator.hydratePaced(while: { !link.isParked })
+        bodiesSinceIdle += outcome.fetched
         try Task.checkCancellation()
         if let blocking = outcome.blocking {
             currentCall = "body"

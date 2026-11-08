@@ -101,7 +101,74 @@ final class FaultyStore: MailStoring, @unchecked Sendable {
     func message(_ id: MessageID) throws -> MessageMetadata? { try base.message(id) }
     func messages(in conversation: ConversationID) throws -> [MessageMetadata] { try base.messages(in: conversation) }
     func saveBody(_ body: StoredBody, for id: MessageID) throws { try base.saveBody(body, for: id) }
-    func body(for id: MessageID) throws -> StoredBody? { try base.body(for: id) }
+    func saveBody(_ body: StoredBody, for id: MessageID, evictingIfReceivedBefore cutoff: Date) throws -> Bool {
+        let hook = lock.withLock { evictingSaveHook }
+        hook?(false)
+        let evicted = try base.saveBody(body, for: id, evictingIfReceivedBefore: cutoff)
+        hook?(true)
+        return evicted
+    }
+    func body(for id: MessageID) throws -> StoredBody? {
+        lock.withLock { bodyReadCount += 1 }
+        return try base.body(for: id)
+    }
+    func attachments(of id: MessageID) throws -> [AttachmentInfo]? { try base.attachments(of: id) }
+    func evictBodies(from start: Date?, limit: Int,
+                     rules: () -> (cutoff: Date, excluding: Set<MessageID>)?) throws -> (evicted: Int, next: Date?) {
+        let (call, during) = lock.withLock {
+            evictionCallCount += 1
+            evictionStarts.append(start)
+            return (evictionCallCount, duringEvictionHook)
+        }
+        during?(call)
+        let batch = try base.evictBodies(from: start, limit: limit, rules: rules)
+        let hook = lock.withLock {
+            evictedBySweeps += batch.evicted
+            return afterEvictionHook
+        }
+        hook?(call)
+        return batch
+    }
+
+    /// Runs after each eviction batch with its number, counting from 1, before the batch returns: a test acting there
+    /// acts between two batches of a sweep.
+    func afterEviction(_ hook: @escaping @Sendable (Int) -> Void) {
+        lock.withLock { afterEvictionHook = hook }
+    }
+    /// Runs as each eviction batch begins, with its number, after the caller handed over its rules and before the store
+    /// reads them: a test acting there acts while the batch is under way.
+    func duringEviction(_ hook: @escaping @Sendable (Int) -> Void) {
+        lock.withLock { duringEvictionHook = hook }
+    }
+    /// Where each eviction batch started (`evictBodies(from:)`), in order.
+    var evictionBatchStarts: [Date?] {
+        lock.withLock { evictionStarts }
+    }
+    private var duringEvictionHook: (@Sendable (Int) -> Void)?
+    private var evictionStarts: [Date?] = []
+    /// Runs on the saving thread just before (false) and just after (true) each evicting body save, so a test can hold
+    /// the backfill's save at either moment.
+    func aroundEvictingSaves(_ hook: @escaping @Sendable (_ saved: Bool) -> Void) {
+        lock.withLock { evictingSaveHook = hook }
+    }
+    /// How many times a body was read.
+    var bodyReads: Int {
+        lock.withLock { bodyReadCount }
+    }
+    private var afterEvictionHook: (@Sendable (Int) -> Void)?
+    private var evictingSaveHook: (@Sendable (Bool) -> Void)?
+    private var bodyReadCount = 0
+
+    /// How many times the engine asked for an eviction batch.
+    var evictionCalls: Int {
+        lock.withLock { evictionCallCount }
+    }
+    /// How many bodies those batches evicted.
+    var sweptBodies: Int {
+        lock.withLock { evictedBySweeps }
+    }
+    private var evictionCallCount = 0
+    private var evictedBySweeps = 0
     func messageIDsMissingBodies(accountID: AccountID, limit: Int) throws -> [MessageID] {
         try base.messageIDsMissingBodies(accountID: accountID, limit: limit)
     }

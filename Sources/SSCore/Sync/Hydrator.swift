@@ -7,6 +7,10 @@ import Foundation
 /// spent; the paced path serves the backfill lane, and every fetch on it first takes a backfill slot and its
 /// units from the account's `QuotaBudget`. `ensureBody` serves the UI's on-demand fetches as live spend. A throttle on
 /// live spend pauses the backfill (`QuotaBudget.liveThrottled`).
+///
+/// The paced path stores a body older than the Keep mail window already evicted (`evictionCutoff`), so a backfill never
+/// grows the store past what the window keeps (docs/ARCHITECTURE.md, "Storage bounds"). The live path stores whole:
+/// its bodies are new mail and messages about to be read.
 actor Hydrator {
     struct Outcome: Sendable {
         var fetched = 0
@@ -32,6 +36,7 @@ actor Hydrator {
     private let provider: MailProvider
     private let sanitizer: BodySanitizing
     private let tuning: SyncTuning
+    private let evictionCutoff: @Sendable (MessageID) -> Date?
     private var inFlight: [MessageID: Task<StoredBody, Error>] = [:]
     /// Bodies whose fetch failed for a reason a retry will not fix soon (decoding, not found, server errors)
     /// wait here so they do not occupy the whole batch every time.
@@ -45,7 +50,8 @@ actor Hydrator {
         provider: MailProvider,
         sanitizer: BodySanitizing,
         tuning: SyncTuning,
-        budget: QuotaBudget = QuotaBudget(quota: .unlimited)
+        budget: QuotaBudget = QuotaBudget(quota: .unlimited),
+        evictionCutoff: @escaping @Sendable (MessageID) -> Date? = { _ in nil }
     ) {
         self.accountID = accountID
         self.store = store
@@ -53,6 +59,7 @@ actor Hydrator {
         self.sanitizer = sanitizer
         self.tuning = tuning
         self.budget = budget
+        self.evictionCutoff = evictionCutoff
     }
 
     /// The live lane's path: fetches these bodies now, `liveHydrationConcurrency` at a time, and records each
@@ -120,7 +127,7 @@ actor Hydrator {
         // throttle may have stopped the batch.
         guard proceed() else { throw Halted() }
         try Task.checkCancellation()
-        _ = try await fetchTask(for: id, chargesLive: false).value
+        _ = try await fetchTask(for: id, chargesLive: false, evictsOld: true).value
         return true
     }
 
@@ -174,7 +181,13 @@ actor Hydrator {
     /// counts as live spend: the user is waiting for it.
     func ensureBody(for id: MessageID) async throws -> StoredBody {
         if let stored = try store.body(for: id) { return stored }
-        return try await fetchTask(for: id, chargesLive: true).value
+        let joins = inFlight[id] != nil
+        let fetched = try await fetchTask(for: id, chargesLive: true).value
+        // A paced fetch this joined may have read the Keep mail window before the caller marked the message kept, and
+        // stored it evicted. The reader reads the body back from the store, so it is stored whole here; otherwise the
+        // message would stay on its skeleton with nothing left to fetch it again.
+        if joins, try store.body(for: id) == nil { try store.saveBody(fetched, for: id) }
+        return fetched
     }
 
     func cancelAll() {
@@ -253,13 +266,17 @@ actor Hydrator {
     }
 
     /// The fetch of `id`, joined when one is already in flight. `chargesLive` records the body's cost as live
-    /// spend when this call starts the request; the paced path has already acquired it.
-    private func fetchTask(for id: MessageID, chargesLive: Bool) -> Task<StoredBody, Error> {
+    /// spend when this call starts the request; the paced path has already acquired it. `evictsOld` (the paced path)
+    /// stores a body older than the Keep mail window already evicted; the window and whether someone has asked for the
+    /// message since (`MailEngine.ensureBody` marks it before joining) are read just before the save, which may then
+    /// wait for the writer, so `ensureBody` stores whole what a join finds evicted.
+    private func fetchTask(for id: MessageID, chargesLive: Bool, evictsOld: Bool = false) -> Task<StoredBody, Error> {
         if let existing = inFlight[id] { return existing }
         let provider = provider
         let sanitizer = sanitizer
         let store = store
         let budget = budget
+        let evictionCutoff = evictionCutoff
         let cost = budget.quota.bodyCost
         // Detached so sanitizing (HTML parsing) runs off this actor and fetches overlap freely.
         let task = Task.detached(priority: .utility) { () throws -> StoredBody in
@@ -290,7 +307,11 @@ actor Hydrator {
                 declaresColors: sanitized.declaresColors,
                 coveredByNewYork: sanitized.coveredByNewYork
             )
-            try store.saveBody(stored, for: id)
+            if evictsOld, let cutoff = evictionCutoff(id) {
+                try store.saveBody(stored, for: id, evictingIfReceivedBefore: cutoff)
+            } else {
+                try store.saveBody(stored, for: id)
+            }
             return stored
         }
         inFlight[id] = task

@@ -46,6 +46,20 @@ struct SyncTuning: Sendable {
     /// transaction each, on a background task, after every backfill body batch, so an upgraded mailbox catches up
     /// within a few backfill turns.
     var designFactsBatchSize: Int = 200
+    /// Bodies evicted per transaction by a Keep mail sweep: a few milliseconds of the writer each, so a user action
+    /// written meanwhile waits for one batch at most (docs/ARCHITECTURE.md, "Storage bounds").
+    var evictionBatchSize: Int = 200
+    /// Full-text index pages merged per step of the optimize that follows a backfill (about 256 KB each), and the most
+    /// steps one optimize takes: far more than a large mailbox's index needs, it only stops a merge that never settles.
+    var fullTextMergePagesPerStep: Int = 64
+    var fullTextMergeMaxSteps: Int = 4096
+    /// Free pages handed back to the file system per incremental vacuum step (1 MiB at 4 KiB pages), and the most
+    /// steps one idle moment takes; what is left waits for the next one.
+    var vacuumPagesPerStep: Int = 256
+    var vacuumMaxSteps: Int = 1024
+    /// A backfill counts as ended, for its optimize and sweep, when the lane goes idle after listing pages or after at
+    /// least this many bodies; fewer are the bodies of a few new messages the live lane handed over, not a backfill.
+    var backfillEndMinimumBodies: Int { hydrationBatchSize }
     var maxApplyTargets: Int = 50
     /// After this many failed attempts an operation is marked `failed` instead of staying in the outbox forever.
     var maxOperationAttempts: Int = 25

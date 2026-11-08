@@ -49,6 +49,9 @@ enum AppSnapshots {
 
     // MARK: Settings
 
+    /// The mailbox size Settings › General shows in a snapshot, so the render never depends on the Mac's mail.
+    static let mailboxSize: @Sendable () -> Int64 = { 292_000_000 }
+
     /// Accounts, OAuth and General, one under the other.
     static func renderSettingsTabs(_ controller: SettingsWindowController, completion: @escaping (NSBitmapImageRep?) -> Void) {
         let model = controller.model

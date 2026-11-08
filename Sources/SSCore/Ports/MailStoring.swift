@@ -53,10 +53,37 @@ public protocol MailStoring: AnyObject, Sendable {
     func message(_ id: MessageID) throws -> MessageMetadata?
     /// Messages of a conversation, oldest first.
     func messages(in conversation: ConversationID) throws -> [MessageMetadata]
+    /// Stores the body render-ready. A body that was evicted is whole again: it leaves the evicted state.
     func saveBody(_ body: StoredBody, for id: MessageID) throws
+    /// Stores the body as `saveBody` does, except that one `evictBodies` would take for `cutoff` (the message received
+    /// before it, not a draft, no live operation targeting it) is stored already evicted: its plain text, attachment
+    /// list, design facts and full-text row, never its source or rendered HTML. For the backfill, so bodies outside the
+    /// Keep mail window never take their full size on disk. Returns whether it stored the body evicted.
+    @discardableResult
+    func saveBody(_ body: StoredBody, for id: MessageID, evictingIfReceivedBefore cutoff: Date) throws -> Bool
+    /// The stored body; nil when there is none or it was evicted (`evictBodies`), which both mean "fetch it".
     func body(for id: MessageID) throws -> StoredBody?
-    /// Messages without a stored body, inbox and newest first, so hydration follows what the user will open.
+    /// The attachment list of the stored body, evicted or not (an eviction keeps it); nil when there is no body. What
+    /// the reader's chips, Quick Look and scheme handlers read: a page renders from the body it read, so a body evicted
+    /// in the instant it went on screen must still answer them.
+    func attachments(of id: MessageID) throws -> [AttachmentInfo]?
+    /// Messages without a stored body, inbox and newest first, so hydration follows what the user will open. An
+    /// evicted body still has its row, so it is never offered again: it comes back only when the message is opened.
     func messageIDsMissingBodies(accountID: AccountID, limit: Int) throws -> [MessageID]
+    /// Evicts, in one transaction, up to `limit` bodies of messages received before the cutoff and not before `start`,
+    /// oldest first (docs/DATA-MODEL.md, `bodies.evicted`): their source and rendered HTML go, while their plain text,
+    /// attachment list and full-text row stay, so the list, snippets and search are unchanged. Drafts, messages a live
+    /// (pending, in-flight or uncertain) operation targets, and the messages `rules` excludes are left alone.
+    ///
+    /// `rules` gives the cutoff and the messages to leave alone, or nil to evict nothing. The store asks it again
+    /// inside the write transaction, just before the bodies go, so a message marked kept or a window widened while the
+    /// batch looked for candidates is honoured. Returns how many bodies it evicted and `next`, the `start` of the next
+    /// batch of the same sweep (nil once nothing is left to look at): a sweep walks the mailbox once, never again from
+    /// the oldest message for every batch. The caller asks batch by batch, so live writes never wait behind one long
+    /// transaction.
+    @discardableResult
+    func evictBodies(from start: Date?, limit: Int,
+                     rules: () -> (cutoff: Date, excluding: Set<MessageID>)?) throws -> (evicted: Int, next: Date?)
     /// Stored bodies without design facts (saved before v3 kept them), newest first: the engine works them out
     /// again from the stored source, off the main thread, and writes them with `saveDesignFacts`.
     func messageIDsMissingDesignFacts(accountID: AccountID, limit: Int) throws -> [MessageID]
@@ -155,6 +182,12 @@ public protocol MailStoring: AnyObject, Sendable {
 }
 
 extension MailStoring {
+    /// One batch of `evictBodies(from:limit:rules:)` from the oldest message, with fixed rules.
+    @discardableResult
+    public func evictBodies(receivedBefore cutoff: Date, excluding: Set<MessageID>, limit: Int) throws -> Int {
+        try evictBodies(from: nil, limit: limit) { (cutoff, excluding) }.evicted
+    }
+
     public func observeConversations(
         _ query: ConversationQuery,
         onChange: @escaping @Sendable ([ConversationSummary]) -> Void,

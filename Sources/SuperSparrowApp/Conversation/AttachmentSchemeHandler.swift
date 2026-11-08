@@ -18,8 +18,7 @@ final class AttachmentSchemeHandler: NSObject, WKURLSchemeHandler {
             urlSchemeTask.didFailWithError(URLError(.badURL))
             return
         }
-        let stored = try? client.store.body(for: target.message)
-        let info = stored?.body.attachments.first { $0.id == target.key }
+        let info = (try? client.store.attachments(of: target.message))?.first { $0.id == target.key }
         let key = ObjectIdentifier(urlSchemeTask)
         let client = self.client
         inFlight[key] = Task { [weak self] in

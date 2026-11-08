@@ -12,16 +12,26 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     let model: SettingsModel
     /// General's Mail links row.
     let defaultMailApp: DefaultMailAppModel
+    /// The size beside General's Keep mail on this Mac.
+    let mailboxSize: MailboxSizeModel
     private let environment: AppEnvironment
     private let tabs: SettingsTabViewController
     private var statusObservation: StoreObservation?
+    private var storageObservation: StoreObservation?
 
     /// `mailtoHandler` answers and changes which app opens mail links: LaunchServices in the app, a fake in tests.
-    init(environment: AppEnvironment, settings: AppSettings, mailtoHandler: MailtoDefaultHandling) {
+    /// `measureMailbox` reads the mailbox's size on disk (on a background task); by default, the environment's files.
+    init(environment: AppEnvironment, settings: AppSettings, mailtoHandler: MailtoDefaultHandling,
+         measureMailbox: (@Sendable () -> Int64)? = nil) {
         self.environment = environment
         model = SettingsModel(isDemo: environment.isDemo, oauthFileURL: environment.clientConfigurations.fileURL)
         defaultMailApp = DefaultMailAppModel(handler: mailtoHandler)
-        tabs = SettingsTabViewController(model: model, settings: settings, defaultMailApp: defaultMailApp)
+        let databasePath = environment.databasePath
+        let attachments = environment.attachmentDirectory
+        mailboxSize = MailboxSizeModel(measure: measureMailbox ?? {
+            AppEnvironment.footprint(databasePath: databasePath, attachmentDirectory: attachments)
+        })
+        tabs = SettingsTabViewController(model: model, settings: settings, defaultMailApp: defaultMailApp, mailboxSize: mailboxSize)
         let window = NSWindow(contentViewController: tabs)
         window.styleMask = [.titled, .closable]
         window.toolbarStyle = .preference
@@ -49,6 +59,16 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
                 self.refreshAccounts()
             }
         }
+        storageObservation = environment.engine.observeStorageChanges { [weak self] in
+            MainActor.assumeIsolated { self?.mailboxMayHaveChanged() }
+        }
+    }
+
+    /// The engine swept or trimmed, which changes the size by more than mail arriving: measured again only while the
+    /// window shows, since opening it measures anyway.
+    func mailboxMayHaveChanged() {
+        guard window?.isVisible == true else { return }
+        mailboxSize.refresh()
     }
 
     required init?(coder: NSCoder) {
@@ -59,6 +79,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         NotificationCenter.default.removeObserver(self, name: NSApplication.didBecomeActiveNotification, object: nil)
         statusObservation?.cancel()
         statusObservation = nil
+        storageObservation?.cancel()
+        storageObservation = nil
         model.isWindowOpen = false
         model.stopRetryClock()
         window?.orderOut(nil)
@@ -73,8 +95,12 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         if model.tab == .oauth { model.reloadOAuth() }
         let wasVisible = window?.isVisible == true
         model.isWindowOpen = true
-        // Reopened on General, the tab's view does not appear again; the default mail app may have changed meanwhile.
-        if !wasVisible, model.tab == .general { defaultMailApp.refresh() }
+        // Reopened on General, the tab's view does not appear again; the default mail app and the mailbox's size may
+        // have changed meanwhile.
+        if !wasVisible, model.tab == .general {
+            defaultMailApp.refresh()
+            mailboxSize.refresh()
+        }
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate()
@@ -113,7 +139,7 @@ final class SettingsTabViewController: NSTabViewController {
     private var tabObservation: AnyCancellable?
     private var isSyncingSelection = false
 
-    init(model: SettingsModel, settings: AppSettings, defaultMailApp: DefaultMailAppModel) {
+    init(model: SettingsModel, settings: AppSettings, defaultMailApp: DefaultMailAppModel, mailboxSize: MailboxSizeModel) {
         self.model = model
         super.init(nibName: nil, bundle: nil)
         tabStyle = .toolbar
@@ -122,7 +148,8 @@ final class SettingsTabViewController: NSTabViewController {
         canPropagateSelectedChildViewControllerTitle = true
         addTab(AccountsSettingsView(model: model, settings: settings), title: "Accounts", symbol: Quire.Icon.accountsTab)
         addTab(OAuthSettingsView(model: model), title: "OAuth", symbol: Quire.Icon.oauthTab)
-        addTab(GeneralSettingsView(settings: settings, defaultMailApp: defaultMailApp), title: "General", symbol: Quire.Icon.generalTab)
+        addTab(GeneralSettingsView(settings: settings, defaultMailApp: defaultMailApp, mailboxSize: mailboxSize),
+               title: "General", symbol: Quire.Icon.generalTab)
         selectedTabViewItemIndex = Self.index(of: model.tab)
         tabObservation = model.$tab.removeDuplicates().sink { [weak self] tab in
             MainActor.assumeIsolated { self?.select(tab) }

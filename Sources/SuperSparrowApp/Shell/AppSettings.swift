@@ -40,6 +40,7 @@ final class AppSettings: ObservableObject {
         static let accountScope = "accountScope"
         /// The demo's own, so trying the demo never changes the scope the user's accounts open on.
         static let demoAccountScope = "accountScope.demo"
+        static let keepMail = "keepMail"
     }
 
     /// Account ids are UUIDs, so this can never be one.
@@ -65,6 +66,24 @@ final class AppSettings: ObservableObject {
         didSet {
             defaults.set(loadRemoteImages, forKey: Key.remoteImages)
             applyRemoteImages()
+        }
+    }
+
+    /// Spec §5.40 General › Keep mail on this Mac: how far back bodies stay whole on this Mac. Each environment's engine
+    /// follows it (`AppEnvironment.follow`), sweeping at once when it narrows; Everything is the default.
+    @Published var keepMail: MailRetention {
+        didSet { defaults.set(keepMail.rawValue, forKey: Key.keepMail) }
+    }
+
+    /// The popup's choices, in the order it lists them.
+    static let keepMailChoices: [MailRetention] = [.everything, .oneYear, .threeMonths]
+
+    /// The words the popup shows for each choice (§5.40).
+    static func title(for retention: MailRetention) -> String {
+        switch retention {
+        case .everything: return "Everything"
+        case .oneYear: return "1 year"
+        case .threeMonths: return "3 months"
         }
     }
 
@@ -180,10 +199,12 @@ final class AppSettings: ObservableObject {
             Key.accountInitialsTurnedOnAutomatically: false,
             Key.accountInitialsChosenByUser: false,
             Key.sevenAccountsNoticePending: false,
+            Key.keepMail: MailRetention.everything.rawValue,
         ])
         notificationsEnabled = defaults.bool(forKey: Key.notifications)
         showPreviews = defaults.bool(forKey: Key.previews)
         loadRemoteImages = defaults.bool(forKey: Key.remoteImages)
+        keepMail = MailRetention(rawValue: defaults.string(forKey: Key.keepMail) ?? "") ?? .everything
         let stored = defaults.double(forKey: Key.undoSend)
         undoSendDelay = AppSettings.undoSendChoices.contains(stored) ? stored : 5
         // Not pushed into QuireEnvironment here: the app does that at launch (a `--font` override may win), and

@@ -1,11 +1,14 @@
 import SSDesign
 import SwiftUI
 
-/// Settings › General (spec §5.40): a two-column grid, hairlines between the reading group, the mail group and Mail
-/// links. Font applies live across the app (spec §4.4).
+/// Settings › General (spec §5.40): a two-column grid, hairlines between the reading group, the mail group, Keep mail on
+/// this Mac and Mail links. Font applies live across the app (spec §4.4).
 struct GeneralSettingsView: View {
+    static let keepMailCaption = "Older mail stays in the list and in search, and downloads again when you open it."
+
     @ObservedObject var settings: AppSettings
     @ObservedObject var defaultMailApp: DefaultMailAppModel
+    @ObservedObject var mailboxSize: MailboxSizeModel
 
     var body: some View {
         QuireSettingsGrid {
@@ -45,6 +48,11 @@ struct GeneralSettingsView: View {
                     .disabled(!settings.notificationsEnabled)
             }
             QuireSettingsDivider()
+            QuireSettingsRow("Keep mail on this Mac") {
+                KeepMailControl(settings: settings, mailboxSize: mailboxSize)
+            }
+            QuireSettingsCaption(Self.keepMailCaption)
+            QuireSettingsDivider()
             QuireSettingsRow("Mail links") {
                 DefaultMailAppControl(model: defaultMailApp)
             }
@@ -54,8 +62,11 @@ struct GeneralSettingsView: View {
         }
         .settingsTabContent()
         // The user can pick another mail app in Mail's settings while this tab is away; the window asks again as it
-        // reopens on this tab and as the app comes back to the front.
-        .onAppear { defaultMailApp.refresh() }
+        // reopens on this tab and as the app comes back to the front. The mailbox's size is measured again as well.
+        .onAppear {
+            defaultMailApp.refresh()
+            mailboxSize.refresh()
+        }
     }
 
     /// The user's own choice ends the seven-accounts automatic state for good (§5.40).
@@ -79,6 +90,29 @@ struct DefaultMailAppControl: View {
                 .disabled(!row.isButtonEnabled)
         } else {
             Color.clear.frame(width: 1, height: 1).accessibilityHidden(true)
+        }
+    }
+}
+
+/// Keep mail on this Mac's control (§5.40): the popup, and after it the mailbox's size on disk once measured. Nothing
+/// stands in for the number before the first answer, so no placeholder flashes.
+struct KeepMailControl: View {
+    @ObservedObject var settings: AppSettings
+    @ObservedObject var mailboxSize: MailboxSizeModel
+
+    var body: some View {
+        HStack(spacing: Quire.Layout.Settings.mailboxSizeGap) {
+            QuirePopup("Keep mail on this Mac", selection: $settings.keepMail, options: AppSettings.keepMailChoices) { retention in
+                AppSettings.title(for: retention)
+            }
+            if let size = mailboxSize.label {
+                Text(size)
+                    .font(.quire(.meta))
+                    .tracking(QuireFont.Role.meta.tracking)
+                    .foregroundStyle(Color.qInk2)
+                    .help("The mail database and the attachment cache on this Mac")
+                    .accessibilityLabel("\(size) on this Mac")
+            }
         }
     }
 }

@@ -37,6 +37,11 @@ public protocol MailClient: AnyObject {
 
     /// Returns the stored body, fetching and sanitizing it first when missing.
     func ensureBody(for message: MessageID) async throws -> StoredBody
+    /// The reader is showing these messages, with a body or not: Keep mail on this Mac leaves their bodies whole until
+    /// the app quits, so a conversation on screen keeps its body when a clean-up runs and a backfill fetching one stores
+    /// it whole. Call it before reading the bodies: a clean-up batch reads the marks inside its write. Cheap and
+    /// synchronous.
+    func keepBodies(of messages: [MessageID])
     /// The attachment's bytes, from this Mac's cache or downloaded once (callers asking at the same time share the
     /// download). `expectedSize` is the size the body listed (`AttachmentInfo.sizeBytes`, 0 when unknown), which lets
     /// a provider that streams say how far it has got; `progress` then hears fractions from 0 to 1, rising, at most

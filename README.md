@@ -64,6 +64,10 @@ Checked on macOS 27.0.1 (build 26A434), with in-process tests and a scratch buil
 
 Not yet checked on macOS 15 or 26.
 
+## Keep mail on this Mac
+
+**Settings → General → Keep mail on this Mac** chooses how far back messages keep their full content on your Mac: **Everything** (the default), **1 year** or **3 months**, with the space your mail takes beside it ("292 MB"). Older messages stay in the list and in search; their full content is removed from this Mac (older mail arriving during the first download is never stored in full) and downloads again when you open one (so opening old mail needs a connection); mail you have opened keeps its content until you quit. Choosing a shorter time cleans up at once; choosing a longer one removes nothing more and downloads nothing back. Drafts, messages waiting to send and changes still syncing are never touched. Attachments you open are cached up to 1 GB, the least recently used going first.
+
 ## Keyboard shortcuts
 
 | Key | Action |
@@ -93,7 +97,7 @@ SuperSparrow's look is **Quire**: New York subjects on warm paper, one blue-blac
 
 ## Privacy
 
-- Your mail is stored only on this Mac, in `~/Library/Application Support/SuperSparrow/mail.sqlite` (mode 0600). Attachments are cached in `~/Library/Caches/SuperSparrow/attachments`.
+- Your mail is stored only on this Mac, in `~/Library/Application Support/SuperSparrow/mail.sqlite` (mode 0600). Attachments are cached in `~/Library/Caches/SuperSparrow/attachments` (up to 1 GB).
 - Sign-in tokens live in the login Keychain. SuperSparrow never sees your password.
 - Mail content goes only to Google, Microsoft and this machine. No analytics, no crash reporting, no third-party services.
 - Remote images are blocked by default (they can tell senders you opened a message). You can change that in Settings → General.
