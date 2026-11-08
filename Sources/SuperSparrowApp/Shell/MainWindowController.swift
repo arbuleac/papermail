@@ -1710,6 +1710,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         case .setStarred: return Quire.Icon.star
         // Its toast offers Undo for the archive beside it, so it wears the archive's symbol.
         case .unsubscribe: return Quire.Icon.archive
+        case .answerInvitation: return Quire.Icon.invitation
         }
     }
 
@@ -1762,6 +1763,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             } else {
                 focusList()
             }
+        case .reconnect(let id):
+            // The engine adds the permission the account waits for to the sign-in it starts (§5.44).
+            if let account = accountsByID[id] { requestReconnect(account) }
         }
     }
 

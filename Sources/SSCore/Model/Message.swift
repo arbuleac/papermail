@@ -67,6 +67,10 @@ public struct MessageMetadata: Hashable, Codable, Sendable {
     public var listUnsubscribe: String?
     /// The `List-Unsubscribe-Post` header as sent (RFC 8058); kept only beside a `listUnsubscribe`.
     public var listUnsubscribePost: String?
+    /// The user's answer to the invitation this message carries, as given in the reader on this Mac; nil until they
+    /// answer here. Local state, like the effect of a pending operation: providers never set it, and the store keeps
+    /// the recorded value through every provider upsert (docs/DATA-MODEL.md, `messages.invitation_reply`).
+    public var invitationReply: InvitationResponse?
 
     public init(
         id: MessageID,
@@ -92,7 +96,8 @@ public struct MessageMetadata: Hashable, Codable, Sendable {
         providerVersion: String? = nil,
         sizeBytes: Int? = nil,
         listUnsubscribe: String? = nil,
-        listUnsubscribePost: String? = nil
+        listUnsubscribePost: String? = nil,
+        invitationReply: InvitationResponse? = nil
     ) {
         self.id = id
         self.conversationID = conversationID
@@ -118,6 +123,7 @@ public struct MessageMetadata: Hashable, Codable, Sendable {
         self.sizeBytes = sizeBytes
         self.listUnsubscribe = listUnsubscribe
         self.listUnsubscribePost = listUnsubscribePost
+        self.invitationReply = invitationReply
     }
 
     /// True when the message belongs in the unified inbox.
@@ -156,13 +162,20 @@ public struct MessageBody: Hashable, Codable, Sendable {
     /// on the message (`MessageMetadata.listUnsubscribe`), so a body read back from the store has none.
     public var listUnsubscribe: String?
     public var listUnsubscribePost: String?
+    /// The message's text/calendar part as fetched (Gmail), which the engine reads into `invitation` when it stores
+    /// the body. Not stored itself: the invitation keeps the text it needs.
+    public var calendar: String?
+    /// An invitation the provider read itself (Microsoft's event message), stored as it is.
+    public var invitation: CalendarInvitation?
     public init(html: String?, text: String?, attachments: [AttachmentInfo] = [], listUnsubscribe: String? = nil,
-                listUnsubscribePost: String? = nil) {
+                listUnsubscribePost: String? = nil, calendar: String? = nil, invitation: CalendarInvitation? = nil) {
         self.html = html
         self.text = text
         self.attachments = attachments
         self.listUnsubscribe = listUnsubscribe
         self.listUnsubscribePost = listUnsubscribePost
+        self.calendar = calendar
+        self.invitation = invitation
     }
 }
 
@@ -183,6 +196,8 @@ public struct StoredBody: Hashable, Codable, Sendable {
     public var typesetting: BodyTypesetting?
     public var declaresColors: Bool?
     public var coveredByNewYork: Bool?
+    /// The calendar invitation the message carries, read at sync time; nil for every other message (spec §5.14).
+    public var invitation: CalendarInvitation?
 
     public init(
         body: MessageBody,
@@ -192,7 +207,8 @@ public struct StoredBody: Hashable, Codable, Sendable {
         blockedRemoteImageCount: Int? = nil,
         typesetting: BodyTypesetting? = nil,
         declaresColors: Bool? = nil,
-        coveredByNewYork: Bool? = nil
+        coveredByNewYork: Bool? = nil,
+        invitation: CalendarInvitation? = nil
     ) {
         self.body = body
         self.renderedHTML = renderedHTML
@@ -202,5 +218,6 @@ public struct StoredBody: Hashable, Codable, Sendable {
         self.typesetting = typesetting
         self.declaresColors = declaresColors
         self.coveredByNewYork = coveredByNewYork
+        self.invitation = invitation
     }
 }

@@ -61,6 +61,21 @@ final class ScriptedProvider: MailProvider, @unchecked Sendable {
     var searchResults: [Result<[String], Error>] = []
     /// While set, `search` records the call and then waits until it is cleared (or the task is cancelled).
     var holdSearch = false
+    /// The permission an invitation answer waits for, as a provider whose token lacks the scope reports it.
+    var permissionNeeded: AccountPermission? {
+        get { locked { scriptedPermission } }
+        set { locked { scriptedPermission = newValue } }
+    }
+    private var scriptedPermission: AccountPermission?
+    /// When set, the permission is granted once this many checks have been answered: a reconnect landing mid-drain.
+    var permissionGrantedAfterChecks: Int? {
+        get { locked { scriptedGrantAfter } }
+        set { locked { scriptedGrantAfter = newValue } }
+    }
+    private var scriptedGrantAfter: Int?
+    /// How often the runner asked whether a change may go out.
+    var permissionChecks: Int { locked { recordedPermissionChecks } }
+    private var recordedPermissionChecks = 0
     private var heldApplies: [CheckedContinuation<Void, Never>] = []
 
     // MARK: Recordings
@@ -274,6 +289,15 @@ final class ScriptedProvider: MailProvider, @unchecked Sendable {
             }
         }
         try result.get()
+    }
+
+    func missingPermission(for change: MetadataChange) async -> AccountPermission? {
+        locked {
+            recordedPermissionChecks += 1
+            guard case .answerInvitation = change else { return nil }
+            if let after = scriptedGrantAfter, recordedPermissionChecks > after { return nil }
+            return scriptedPermission
+        }
     }
 
     func send(_ message: OutgoingMessage) async throws -> SendReceipt {

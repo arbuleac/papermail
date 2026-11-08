@@ -80,5 +80,12 @@ public struct QuireAccountStatus: Equatable, Sendable {
                            actionTitle: "Retry")
     }
 
+    /// Mail is up to date, but an invitation the user answered waits for permission to update the calendar
+    /// (spec §5.40, §5.14): Reconnect signs in again asking for it.
+    public static let calendarPermission = QuireAccountStatus(
+        mark: .glyph(Quire.Icon.invitation, .ink2), words: "Calendar permission needed", wordsColor: .ink2,
+        tooltip: "Answer invitations: SuperSparrow needs permission to update your calendar.", actionTitle: "Reconnect"
+    )
+
     public static let demo = QuireAccountStatus(mark: .glyph(Quire.Icon.demo, .ink3), words: "Made up, nothing syncs", wordsColor: .ink3)
 }

@@ -4,10 +4,23 @@ import SSCore
 /// Serializes an `OutgoingMessage` as an RFC 5322 message for `messages.send`.
 ///
 /// Layout: `multipart/mixed` holding a `multipart/alternative` (text/plain, then the HTML, which becomes
-/// `multipart/related` when inline images are present) followed by the regular attachments. Every body
-/// and attachment is base64 so the output is 7-bit clean regardless of content. Lines end in CRLF.
+/// `multipart/related` when inline images are present, then an iCalendar part when the message answers an
+/// invitation) followed by the regular attachments. Every body and attachment is base64 so the output is 7-bit clean
+/// regardless of content. Lines end in CRLF.
 public struct MIMEBuilder: Sendable {
+    /// An iMIP calendar alternative (RFC 6047): `text/calendar` with the iTIP method as a parameter.
+    public struct CalendarPart: Sendable, Equatable {
+        public var method: String
+        public var text: String
+
+        public init(method: String, text: String) {
+            self.method = method
+            self.text = text
+        }
+    }
+
     public var message: OutgoingMessage
+    public var calendar: CalendarPart?
     /// Gmail fills `From` from the account when omitted, so it is optional here.
     public var from: EmailAddress?
     public var messageID: String
@@ -19,9 +32,11 @@ public struct MIMEBuilder: Sendable {
         from: EmailAddress? = nil,
         messageID: String? = nil,
         date: Date = Date(),
-        timeZone: TimeZone = .current
+        timeZone: TimeZone = .current,
+        calendar: CalendarPart? = nil
     ) {
         self.message = message
+        self.calendar = calendar
         self.from = from
         self.messageID = messageID ?? Self.makeMessageID(domain: Self.domain(of: from?.address))
         self.date = date
@@ -147,7 +162,7 @@ public struct MIMEBuilder: Sendable {
         return formatter.string(from: date)
     }
 
-    private static func domain(of address: String?) -> String {
+    static func domain(of address: String?) -> String {
         guard let address, let at = address.lastIndex(of: "@") else { return "supersparrow.local" }
         let domain = address[address.index(after: at)...].trimmingCharacters(in: .whitespaces)
         return domain.isEmpty ? "supersparrow.local" : domain
@@ -167,6 +182,12 @@ public struct MIMEBuilder: Sendable {
         } else {
             output += relatedPart(inline: inline)
         }
+        if let calendar {
+            // Last, as the richest alternative: a calendar-aware client acts on it, any other shows the text.
+            let method = Self.sanitizeHeaderText(calendar.method).filter { $0.isLetter }.uppercased()
+            output += "--\(boundary)\r\n"
+            output += Self.textPart(calendar.text, type: "text/calendar", parameters: "; method=\(method)")
+        }
         output += "--\(boundary)--\r\n"
         return output
     }
@@ -184,8 +205,8 @@ public struct MIMEBuilder: Sendable {
         return output
     }
 
-    private static func textPart(_ text: String, type: String) -> String {
-        var output = "Content-Type: \(type); charset=\"UTF-8\"\r\n"
+    private static func textPart(_ text: String, type: String, parameters: String = "") -> String {
+        var output = "Content-Type: \(type); charset=\"UTF-8\"\(parameters)\r\n"
         output += "Content-Transfer-Encoding: base64\r\n\r\n"
         output += base64Lines(Data(text.utf8))
         return output

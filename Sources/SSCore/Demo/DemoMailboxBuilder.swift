@@ -55,6 +55,10 @@ struct DemoMailboxBuilder {
             let day = index < 3 ? Double(index) * 0.6 : random.unit() * Double(Self.historyDays - 5)
             addScript(script, startDaysAgo: day, style: quoteStyle(for: script))
         }
+        // Invitations are the newest mail, so the inbox opens on a card (spec §5.14).
+        for invitation in DemoInvitations.invitations(for: profile, reference: reference) {
+            addInvitation(invitation)
+        }
         // Newsletters arrive weekly, on a fixed weekday per sender.
         for (letterIndex, letter) in letters.enumerated() {
             for week in 0..<9 {
@@ -182,7 +186,8 @@ struct DemoMailboxBuilder {
         html: String,
         text: String,
         attachments: [AttachmentInfo],
-        listUnsubscribe: String? = nil
+        listUnsubscribe: String? = nil,
+        calendar: String? = nil
     ) {
         let fromMe = from.address == profile.email
         var roles: Set<MailboxRole> = []
@@ -214,7 +219,19 @@ struct DemoMailboxBuilder {
             listUnsubscribe: listUnsubscribe,
             listUnsubscribePost: listUnsubscribe == nil ? nil : UnsubscribeMethod.oneClickPostValue
         )
-        records.append(DemoRecord(metadata: metadata, body: MessageBody(html: html, text: text, attachments: attachments)))
+        records.append(DemoRecord(metadata: metadata, body: MessageBody(html: html, text: text, attachments: attachments, calendar: calendar)))
+    }
+
+    private mutating func addInvitation(_ invitation: DemoInvitations.Invitation) {
+        let rendered = DemoHTML.personal(text: invitation.text, style: isGmail ? .gmail : .outlook, quoted: nil, inlineImageCID: nil)
+        let (id, internetID) = nextIDs()
+        append(
+            id: id, internetID: internetID, conversation: nextConversation(), subject: invitation.subject,
+            from: invitation.organizer.email, to: [profile.me] + invitation.guests.map(\.email),
+            date: reference.addingTimeInterval(-invitation.minutesAgo * 60), inInbox: true, read: false, starred: false,
+            section: .focused, bulk: false, previous: [], html: rendered.html, text: rendered.text, attachments: [],
+            calendar: invitation.calendar
+        )
     }
 
     private mutating func addScript(_ script: DemoCatalog.Script, startDaysAgo: Double, style: DemoHTML.QuoteStyle,

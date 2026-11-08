@@ -59,6 +59,60 @@ final class TokenManagerTests: XCTestCase {
         }
     }
 
+    /// What a provider reads before replaying an answer, without a request: the scopes stored with the token.
+    func testGrantedScopesComeFromTheStoredTokens() async {
+        let (manager, _) = makeManager(tokens: tokens(expiringIn: 3_600))
+        let scopes = await manager.grantedScopes(for: accountID)
+        XCTAssertEqual(scopes, "scope-1")
+        let (empty, _) = makeManager(tokens: nil)
+        let none = await empty.grantedScopes(for: accountID)
+        XCTAssertNil(none)
+    }
+
+    /// A reconnect that added the calendar scope saves its tokens through the manager; the cached token of a healthy
+    /// account would otherwise stand for up to an hour, and the answer waiting for the scope with it.
+    func testTokensAReconnectStoredCountAtOnce() async throws {
+        installRefreshReply()
+        let (manager, store) = makeManager(tokens: tokens(expiringIn: 3_600))
+        await assertAccessToken(manager, equals: "at-1")
+        let granted = OAuthTokens(accessToken: "at-new", refreshToken: "rt-new", expiresAt: issuedAt.addingTimeInterval(3_600),
+                                  scope: "scope-1 calendar")
+        try store.save(granted, for: accountID)
+        let cached = await manager.grantedScopes(for: accountID)
+        XCTAssertEqual(cached, "scope-1", "a write the manager did not make is not seen while it has a cached token")
+
+        // Through the protocol, as the engine calls it: the manager's own method, not the protocol's default.
+        let provider: AccessTokenProvider = manager
+        try await provider.replaceTokens(for: accountID) { try store.save(granted, for: self.accountID) }
+        let scopes = await provider.grantedScopes(for: accountID)
+        XCTAssertEqual(scopes, "scope-1 calendar")
+        await assertAccessToken(manager, equals: "at-new")
+        XCTAssertEqual(StubURLProtocol.requestCount, 0, "the new token is used as it is, without a refresh")
+    }
+
+    /// A refresh that started with the old refresh token is still answered to its callers (failing them would read as a
+    /// cancelled sync and stop the lane), but it never writes the old grant over the new one.
+    func testARefreshRunningWhenTokensAreReplacedNeitherFailsItsCallersNorOverwritesTheNewGrant() async throws {
+        installRefreshReply(delay: 0.3)
+        let (manager, store) = makeManager(tokens: tokens(expiringIn: 10))
+        let inFlight = Task { try await manager.accessToken(for: self.accountID) }
+        let deadline = Date().addingTimeInterval(10)
+        while StubURLProtocol.requestCount == 0, Date() < deadline { try await Task.sleep(for: .milliseconds(5)) }
+        XCTAssertEqual(StubURLProtocol.requestCount, 1, "the refresh is under way")
+
+        let granted = OAuthTokens(accessToken: "at-new", refreshToken: "rt-new", expiresAt: issuedAt.addingTimeInterval(3_600),
+                                  scope: "scope-1 calendar")
+        try await manager.replaceTokens(for: accountID) { try store.save(granted, for: self.accountID) }
+        let answered = try await inFlight.value
+        XCTAssertEqual(answered, "at-2", "the caller that waited gets the token it asked for")
+
+        XCTAssertEqual(try store.tokens(for: accountID), granted, "the new grant stays in the store")
+        await assertAccessToken(manager, equals: "at-new")
+        let scopes = await manager.grantedScopes(for: accountID)
+        XCTAssertEqual(scopes, "scope-1 calendar")
+        XCTAssertEqual(StubURLProtocol.requestCount, 1)
+    }
+
     func testReturnsCachedTokenWhenFarFromExpiry() async throws {
         installRefreshReply()
         let (manager, _) = makeManager(tokens: tokens(expiringIn: 3600))
@@ -286,6 +340,53 @@ final class TokenManagerTests: XCTestCase {
         XCTAssertEqual(StubURLProtocol.requestCount, 1)
     }
 
+    /// A reconnect saves its new grant, and the manager must stop trusting a refresh of the old one. That refresh can
+    /// land at any moment of the reconnect, here right after the keychain write: it must never write the old grant over
+    /// the new one there, so the save is made through the manager, with no moment between it and the manager's knowing.
+    func testARefreshLandingAsAReconnectSavesItsTokensNeverWritesTheOldGrantOverTheNew() async throws {
+        installRefreshReply(delay: 0.3)
+        let account = Fixtures.account()
+        let store = SaveHookTokenStore()
+        try store.save(tokens(expiringIn: 10), for: account.id)
+        let now = issuedAt
+        let manager = TokenManager(tokenStore: store, configurations: configurations, kinds: { _ in .gmail },
+                                   session: StubURLProtocol.makeSession(), now: { now })
+        let granted = OAuthTokens(accessToken: "at-new", refreshToken: "rt-new", expiresAt: issuedAt.addingTimeInterval(3_600),
+                                  scope: "scope-1 calendar")
+        let authenticator = StubAuthenticator()
+        authenticator.result = .success(granted)
+        let cache = FileManager.default.temporaryDirectory.appending(path: "ss-reconnect-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: cache) }
+        let engine = MailEngine(store: InMemoryMailStore(), tokenStore: store, tokenProvider: manager, authenticator: authenticator,
+                                sanitizer: RecordingSanitizer(), providerFactory: { _ in ScriptedProvider(accountID: account.id) },
+                                attachmentCacheDirectory: cache)
+
+        // A request found the old token about to expire: its refresh, with the old refresh token, is under way.
+        let refreshed = DispatchSemaphore(value: 0)
+        let inFlight = Task {
+            defer { refreshed.signal() }
+            return try await manager.accessToken(for: account.id)
+        }
+        let deadline = Date().addingTimeInterval(10)
+        while StubURLProtocol.requestCount == 0, Date() < deadline { try await Task.sleep(for: .milliseconds(5)) }
+        XCTAssertEqual(StubURLProtocol.requestCount, 1, "the refresh is under way")
+        // The refresh's reply is let in right after the new grant reaches the keychain, if anything lets it in then.
+        store.afterSaving = { tokens, id in
+            guard id == account.id, tokens.refreshToken == "rt-new" else { return }
+            _ = refreshed.wait(timeout: .now() + 1)
+        }
+
+        _ = try await engine.reconnect(account)
+        let answered = try await inFlight.value
+        XCTAssertEqual(answered, "at-2", "the caller that waited still gets the token it asked for")
+        XCTAssertEqual(try store.tokens(for: account.id), granted, "the new grant stays in the keychain")
+        let token = try await manager.accessToken(for: account.id)
+        XCTAssertEqual(token, "at-new")
+        let scopes = await manager.grantedScopes(for: account.id)
+        XCTAssertEqual(scopes, "scope-1 calendar")
+        await engine.stopAndWait()
+    }
+
     func testUnknownAccountKindIsNotFound() async {
         installRefreshReply()
         let store = InMemoryTokenStore()
@@ -341,5 +442,31 @@ private final class GatedTokenStore: TokenStore, @unchecked Sendable {
     private func record(_ entry: String) {
         lock.lock(); defer { lock.unlock() }
         recordedWrites.append(entry)
+    }
+}
+
+/// A token store that runs `afterSaving` once a save has written, on the saving thread: a test parks that thread there
+/// to hold whatever made the save at that moment.
+private final class SaveHookTokenStore: TokenStore, @unchecked Sendable {
+    private let inner = InMemoryTokenStore()
+    private let lock = NSLock()
+    private var hook: (@Sendable (OAuthTokens, AccountID) -> Void)?
+
+    var afterSaving: (@Sendable (OAuthTokens, AccountID) -> Void)? {
+        get { lock.withLock { hook } }
+        set { lock.withLock { hook = newValue } }
+    }
+
+    func tokens(for accountID: AccountID) throws -> OAuthTokens? {
+        try inner.tokens(for: accountID)
+    }
+
+    func save(_ tokens: OAuthTokens, for accountID: AccountID) throws {
+        try inner.save(tokens, for: accountID)
+        afterSaving?(tokens, accountID)
+    }
+
+    func delete(for accountID: AccountID) throws {
+        try inner.delete(for: accountID)
     }
 }

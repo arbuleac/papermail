@@ -73,6 +73,13 @@ struct GraphMessage: Decodable, Sendable {
     var internetMessageHeaders: [GraphInternetHeader]?
     /// Present on delta items that left the folder (deleted or moved).
     var removed: GraphRemoved?
+    /// The derived type of an event message (`#microsoft.graph.eventMessageRequest`, `#microsoft.graph.eventMessage`),
+    /// which Graph names on every instance that is not a plain message.
+    var odataType: String?
+    /// Event messages only: `meetingRequest`, `meetingCancelled`, or a response to the organizer.
+    var meetingMessageType: String?
+    /// Event messages only, when expanded (`$expand=microsoft.graph.eventMessage/event`).
+    var event: GraphEvent?
 
     private enum CodingKeys: String, CodingKey {
         case id, conversationId, internetMessageId, subject, bodyPreview, from
@@ -80,7 +87,80 @@ struct GraphMessage: Decodable, Sendable {
         case inferenceClassification, parentFolderId, hasAttachments, changeKey, isDraft
         case body, uniqueBody, internetMessageHeaders
         case removed = "@removed"
+        case odataType = "@odata.type"
+        case meetingMessageType, event
     }
+
+    /// An event message: a meeting request, a cancellation, or a response the organizer receives.
+    var isEventMessage: Bool {
+        odataType?.lowercased().contains("eventmessage") ?? false
+    }
+}
+
+/// A date and time in a named zone, as Graph writes an event's start and end.
+struct GraphDateTimeZone: Decodable, Sendable {
+    var dateTime: String?
+    var timeZone: String?
+}
+
+struct GraphResponseStatus: Decodable, Sendable {
+    var response: String?
+}
+
+struct GraphAttendee: Decodable, Sendable {
+    var type: String?
+    var status: GraphResponseStatus?
+    var emailAddress: GraphEmailAddress?
+}
+
+struct GraphLocation: Decodable, Sendable {
+    var displayName: String?
+}
+
+struct GraphOnlineMeeting: Decodable, Sendable {
+    var joinUrl: String?
+}
+
+struct GraphRecurrencePattern: Decodable, Sendable {
+    var type: String?
+    var interval: Int?
+    var month: Int?
+    var dayOfMonth: Int?
+    var daysOfWeek: [String]?
+    var index: String?
+}
+
+struct GraphRecurrenceRange: Decodable, Sendable {
+    var type: String?
+    var startDate: String?
+    var endDate: String?
+    var numberOfOccurrences: Int?
+}
+
+struct GraphPatternedRecurrence: Decodable, Sendable {
+    var pattern: GraphRecurrencePattern?
+    var range: GraphRecurrenceRange?
+}
+
+/// The calendar event an event message is about.
+struct GraphEvent: Decodable, Sendable {
+    var id: String?
+    var iCalUId: String?
+    var subject: String?
+    var isAllDay: Bool?
+    var isCancelled: Bool?
+    var isOrganizer: Bool?
+    var type: String?
+    var start: GraphDateTimeZone?
+    var end: GraphDateTimeZone?
+    var originalStart: String?
+    var originalStartTimeZone: String?
+    var location: GraphLocation?
+    var organizer: GraphRecipient?
+    var attendees: [GraphAttendee]?
+    var responseStatus: GraphResponseStatus?
+    var recurrence: GraphPatternedRecurrence?
+    var onlineMeeting: GraphOnlineMeeting?
 }
 
 struct GraphFolder: Decodable, Sendable {

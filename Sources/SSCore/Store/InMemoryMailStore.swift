@@ -159,6 +159,9 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
                 metadata.listUnsubscribe = stored.listUnsubscribe
                 metadata.listUnsubscribePost = stored.listUnsubscribePost
             }
+            // The answer to an invitation is recorded here and never reported by a provider (as the SQLite upsert never
+            // writes `invitation_reply`).
+            metadata.invitationReply = messagesByID[incoming.id]?.invitationReply
             // Pending operations win: provider state older than a queued intent must not undo it. Each one's
             // prior follows the report, so a give-up puts back what the provider last said.
             for op in liveOperationsLocked(on: incoming.id) {
@@ -299,6 +302,7 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         body.body.html = nil
         body.body.text = nil
         body.renderedHTML = ""
+        body.invitation = nil
         return body
     }
 
@@ -811,8 +815,14 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
             guard let current = messagesByID[target] else { continue }
             var state = current
             prior.apply(to: &state)
+            let isAnswer = operation.change.kind == .answerInvitation
+            if case .answerInvitation(let answer) = operation.change { state.invitationReply = answer.previous }
             for newer in liveOperationsLocked(on: target) where Self.isOlder(operation, than: newer) {
                 priors[newer.id, default: [:]][target] = Prior(state)
+                if isAnswer, case .answerInvitation(var answer) = newer.change, answer.previous != state.invitationReply {
+                    answer.previous = state.invitationReply
+                    operations[newer.id]?.change = .answerInvitation(answer)
+                }
                 state = applying(newer.change, to: state)
             }
             messagesByID[target] = state

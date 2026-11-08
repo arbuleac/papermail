@@ -237,9 +237,16 @@ final class FakeTokenProvider: AccessTokenProvider, @unchecked Sendable {
     private let tokens: [String]
     private var index = 0
     private(set) var invalidations = 0
+    /// The scopes the token endpoint listed for the account; nil when unknown.
+    private let scopes: String?
 
-    init(tokens: [String] = ["token-1", "token-2", "token-3"]) {
+    init(tokens: [String] = ["token-1", "token-2", "token-3"], scopes: String? = nil) {
         self.tokens = tokens
+        self.scopes = scopes
+    }
+
+    func grantedScopes(for accountID: AccountID) async -> String? {
+        scopes
     }
 
     func accessToken(for accountID: AccountID) async throws -> String {

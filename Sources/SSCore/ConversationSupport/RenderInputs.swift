@@ -27,6 +27,8 @@ public struct RenderInputs: Hashable, Sendable {
         /// other change, and the link must then appear.
         public var listUnsubscribe: String?
         public var listUnsubscribePost: String?
+        /// The answer the invitation card shows chosen; answering re-renders the card.
+        public var invitationReply: InvitationResponse?
 
         public init(_ metadata: MessageMetadata, hasBody: Bool) {
             id = metadata.id
@@ -43,6 +45,7 @@ public struct RenderInputs: Hashable, Sendable {
             self.hasBody = hasBody
             listUnsubscribe = metadata.listUnsubscribe
             listUnsubscribePost = metadata.listUnsubscribePost
+            invitationReply = metadata.invitationReply
         }
     }
 

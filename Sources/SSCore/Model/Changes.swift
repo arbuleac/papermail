@@ -16,6 +16,10 @@ public enum MetadataChange: Hashable, Codable, Sendable {
     /// once). Changes nothing locally and is never sent to the provider as a change: the engine sends the request
     /// itself (`OperationRunner`). Queued with no targets, beside the ordinary archive of the conversation.
     case unsubscribe(UnsubscribeMethod)
+    /// Answer the invitation the message carries. Locally it records the answer on the message
+    /// (`MessageMetadata.invitationReply`). Gmail: an iMIP reply mailed to the organizer and the user's Google
+    /// Calendar copy marked; Graph: accept, tentatively accept or decline the event. Needs `AccountPermission.calendar`.
+    case answerInvitation(InvitationAnswer)
 }
 
 /// The local effect of a change. This is the single source of truth for optimistic state; providers
@@ -42,6 +46,8 @@ public func applying(_ change: MetadataChange, to metadata: MessageMetadata) -> 
         m.roles.insert(.inbox)
     case .unsubscribe:
         break
+    case .answerInvitation(let answer):
+        m.invitationReply = answer.response
     }
     return m
 }

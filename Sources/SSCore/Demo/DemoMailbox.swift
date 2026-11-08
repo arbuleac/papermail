@@ -152,6 +152,8 @@ final class DemoMailbox: @unchecked Sendable {
     // MARK: Writes
 
     func apply(_ change: MetadataChange, to providerIDs: [String]) {
+        // An answer goes to the organizer, not into the message: the made-up mailbox has nobody to tell.
+        if case .answerInvitation = change { return }
         lock.lock(); defer { lock.unlock() }
         for providerID in providerIDs {
             guard var record = recordLocked(providerID) else { continue }

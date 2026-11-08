@@ -812,6 +812,147 @@ final class ConversationShellWebViewTests: XCTestCase {
         XCTFail("frames never measured: \(heights)")
     }
 
+    /// The invitation card (spec §5.14, `layout.invitation`): at the body indent inside the measure, above the body;
+    /// small answer buttons with the chosen one marked; a click posts the answer and marks it at once; cancelled and
+    /// waiting-for-permission states; and a patch that changes only the card.
+    func testTheInvitationCardSitsAboveTheBodyAndShowsItsStates() async throws {
+        typealias F = ConversationFixtures
+        let (webView, handler) = try await loadedShell()
+        var message = F.message("m1", date: F.utc(2025, 3, 7, 14, 5))
+        var body = F.body(html: "<p>Ben has invited you.</p>")
+        // Teams links run to hundreds of characters.
+        let teams = "https://teams.microsoft.com/l/meetup-join/" + String(repeating: "19%3ameeting_NjE2ZDk", count: 16)
+        body.invitation = CalendarInvitation(
+            method: .request, uid: "uid-1", title: "Design review", start: F.utc(2025, 3, 11, 15), end: F.utc(2025, 3, 11, 16),
+            location: "https://meet.example.com/abc", conferenceURL: teams,
+            organizer: CalendarInvitation.Person(name: "Ben Carter", address: "ben@example.com"),
+            attendees: [CalendarInvitation.Person(address: "me@example.com", response: .needsAction)], repeats: "Every week on Tuesday",
+            userAddress: "me@example.com", userResponse: .needsAction, calendarText: "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n")
+        func payload(reply: InvitationResponse?, waiting: Bool = false, cancelled: Bool = false) throws -> String {
+            message.invitationReply = reply
+            var stored = body
+            if cancelled { stored.invitation?.method = .cancel }
+            return try F.builder.build(messages: [message], bodies: [message.id: stored], accounts: F.accounts,
+                                       invitationPermissionNeeded: waiting ? [F.accountID] : [], now: F.utc(2025, 3, 7, 15)).jsonString()
+        }
+        _ = try await evaluate("window.ss.render(\(try payload(reply: nil)))", in: webView)
+        try await waitForFrames(count: 1, in: webView)
+
+        let geometry = numbers(try await evaluate("""
+            (function () {
+              var card = document.querySelector('.ss-invite'), head = document.querySelector('.ss-head');
+              var body = document.querySelector('.ss-body'), button = document.querySelector('.ss-ans');
+              var c = card.getBoundingClientRect(), h = head.getBoundingClientRect(), b = body.getBoundingClientRect();
+              return [c.left - h.left, c.width, c.top - h.bottom, b.top - c.bottom, button.getBoundingClientRect().height];
+            })()
+            """, in: webView))
+        XCTAssertEqual(geometry.count, 5)
+        XCTAssertEqual(geometry[0], 48, accuracy: 0.5, "at the body indent")
+        XCTAssertLessThanOrEqual(geometry[1], 576.5, "inside the measure")
+        XCTAssertEqual(geometry[2], 18, accuracy: 0.5, "where the body would start")
+        XCTAssertEqual(geometry[3], 16, accuracy: 0.5, "the body 16 below it")
+        XCTAssertEqual(geometry[4], 22, accuracy: 0.5, "small buttons")
+        let answers = try await count(".ss-invite .ss-ans", in: webView)
+        XCTAssertEqual(answers, 3)
+        let links = try await count(".ss-invite .ss-ilink", in: webView)
+        XCTAssertEqual(links, 2, "a web address is a link: the location and the meeting link")
+        let teamsLink = numbers(try await evaluate("""
+            (function () {
+              var link = document.querySelectorAll('.ss-invite .ss-ilink')[1];
+              return [link.getBoundingClientRect().height, link.scrollWidth - link.clientWidth, link.title.length];
+            })()
+            """, in: webView))
+        XCTAssertEqual(teamsLink.count, 3)
+        XCTAssertLessThanOrEqual(teamsLink[0], 17, "a long link keeps to one line")
+        XCTAssertGreaterThan(teamsLink[1], 0, "cut with an ellipsis")
+        XCTAssertEqual(teamsLink[2], Double(teams.count), "the whole address is its tooltip")
+        let when = try await evaluate("document.querySelector('.ss-invite .ss-iwhen').textContent", in: webView) as? String
+        XCTAssertEqual(when, "Tue 11 Mar · 15:00 – 16:00")
+
+        _ = try await evaluate("document.querySelector('.ss-ans[data-response=\"declined\"]').click()", in: webView)
+        let chosen = try await evaluate("document.querySelector('.ss-ans.ss-chosen').dataset.response", in: webView) as? String
+        XCTAssertEqual(chosen, "declined", "marked at once, before the store answers")
+        let posted = handler.received.last { ($0["type"] as? String) == "answerInvitation" }
+        XCTAssertEqual(posted?["value"] as? String, "declined")
+        XCTAssertEqual(posted?["messageID"] as? String, RenderPayload.messageKey(for: message.id))
+
+        _ = try await evaluate("window.ss.update(\(try payload(reply: .declined, waiting: true)))", in: webView)
+        let notices = try await count(".ss-invite .ss-banner.ss-info", in: webView)
+        XCTAssertEqual(notices, 1, "the card asks for permission")
+        let stillChosen = try await evaluate("document.querySelector('.ss-ans.ss-chosen').dataset.response", in: webView) as? String
+        XCTAssertEqual(stillChosen, "declined")
+
+        _ = try await evaluate("window.ss.update(\(try payload(reply: .declined, cancelled: true)))", in: webView)
+        let cancelledCards = try await count(".ss-invite.ss-cancelled", in: webView)
+        XCTAssertEqual(cancelledCards, 1)
+        let answersOnCancelled = try await count(".ss-invite .ss-ans", in: webView)
+        XCTAssertEqual(answersOnCancelled, 0, "nothing to answer")
+        let openLinks = try await count(".ss-invite .ss-iopen", in: webView)
+        XCTAssertEqual(openLinks, 1)
+        let decoration = try await evaluate("getComputedStyle(document.querySelector('.ss-ititle')).textDecorationLine", in: webView) as? String
+        XCTAssertEqual(decoration, "line-through", "the title is struck through, not only greyed")
+    }
+
+    /// One sheet can carry both: an invitation sent through a mailing list shows the Unsubscribe link beside its sender
+    /// and the card above its body, each posting its own action; an update that changes the one leaves the other.
+    func testTheUnsubscribeLinkAndTheInvitationCardShareASheet() async throws {
+        typealias F = ConversationFixtures
+        let (webView, handler) = try await loadedShell()
+        var message = F.message("m1", date: F.utc(2025, 3, 7, 14, 5))
+        message.listUnsubscribe = "<https://club.example.com/u/1>"
+        var body = F.body(html: "<p>Club night is on.</p>")
+        body.invitation = CalendarInvitation(
+            method: .request, uid: "uid-club", title: "Club night", start: F.utc(2025, 3, 11, 19), end: F.utc(2025, 3, 11, 21),
+            organizer: CalendarInvitation.Person(name: "Ben Carter", address: "ben@example.com"),
+            attendees: [CalendarInvitation.Person(address: "me@example.com", response: .needsAction)],
+            userAddress: "me@example.com", userResponse: .needsAction, calendarText: "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n")
+        func payload(listed: Bool, invited: Bool) throws -> RenderPayload {
+            var shown = message
+            if !listed { shown.listUnsubscribe = nil }
+            var stored = body
+            if !invited { stored.invitation = nil }
+            return F.builder.build(messages: [shown], bodies: [shown.id: stored], accounts: F.accounts, now: F.utc(2025, 3, 7, 15))
+        }
+        let both = try payload(listed: true, invited: true)
+        _ = try await evaluate("window.ss.render(\(try both.jsonString()))", in: webView)
+        try await waitForFrames(count: 1, in: webView)
+
+        let links = try await count(".ss-head .ss-unsub", in: webView)
+        XCTAssertEqual(links, 1, "the link beside the sender")
+        let cards = try await count(".ss-invite:not([hidden])", in: webView)
+        XCTAssertEqual(cards, 1, "the card above the body")
+        let order = try await evaluate("""
+            (function () { var c = document.querySelector('.ss-card'); var u = c.querySelector('.ss-unsub'), i = c.querySelector('.ss-invite');
+              var b = c.querySelector('.ss-body');
+              return [u.compareDocumentPosition(i) & Node.DOCUMENT_POSITION_FOLLOWING ? 1 : 0,
+                      i.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? 1 : 0].join(','); })()
+            """, in: webView) as? String
+        XCTAssertEqual(order, "1,1", "the header's link, then the card, then the body")
+
+        _ = try await evaluate("document.querySelector('.ss-ans[data-response=\"accepted\"]').click()", in: webView)
+        _ = try await evaluate("document.querySelector('.ss-unsub').click()", in: webView)
+        var types: [String] = []
+        for _ in 0..<50 {
+            types = handler.received.compactMap { ($0["kind"] as? String) == "action" ? $0["type"] as? String : nil }
+            if types.contains("unsubscribe"), types.contains("answerInvitation") { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertEqual(types.filter { $0 == "answerInvitation" }.count, 1, "the answer posts once: \(types)")
+        XCTAssertEqual(types.filter { $0 == "unsubscribe" }.count, 1, "and the link its own action: \(types)")
+
+        _ = try await evaluate("window.ss.update(\(try payload(listed: true, invited: false).jsonString()))", in: webView)
+        let linksWithoutCard = try await count(".ss-head .ss-unsub", in: webView)
+        XCTAssertEqual(linksWithoutCard, 1, "the card going leaves the link")
+        let hidden = try await evaluate("document.querySelector('.ss-invite').hidden", in: webView) as? Bool
+        XCTAssertEqual(hidden, true)
+
+        _ = try await evaluate("window.ss.update(\(try payload(listed: false, invited: true).jsonString()))", in: webView)
+        let linksGone = try await count(".ss-head .ss-unsub", in: webView)
+        XCTAssertEqual(linksGone, 0, "the headers going take the link")
+        let cardBack = try await count(".ss-invite:not([hidden]) .ss-ans", in: webView)
+        XCTAssertEqual(cardBack, 3, "and leave the card answerable")
+    }
+
     /// The shell in a web view, once it has signalled ready. Skips unless `SS_UI_TESTS=1`.
     private func loadedShell(dark: Bool = false, width: CGFloat = 800) async throws -> (WKWebView, ShellMessages) {
         guard ProcessInfo.processInfo.environment["SS_UI_TESTS"] == "1" else {

@@ -15,6 +15,7 @@ public enum OperationKind: String, Codable, Sendable, CaseIterable {
     case restoreFromTrash
     /// Never stored as a mark: an unsubscribe request that cannot go is dropped quietly, never written as failed.
     case unsubscribe
+    case answerInvitation
 
     public init(_ change: MetadataChange) {
         switch change {
@@ -25,6 +26,7 @@ public enum OperationKind: String, Codable, Sendable, CaseIterable {
         case .trash: self = .trash
         case .restoreFromTrash: self = .restoreFromTrash
         case .unsubscribe: self = .unsubscribe
+        case .answerInvitation: self = .answerInvitation
         }
     }
 }

@@ -26,7 +26,7 @@ public enum ConversationShellAssets {
     public static let symbols: [String] = [
         "star", "star.fill", "arrowshape.turn.up.left", "arrowshape.turn.up.left.2", "arrowshape.turn.up.right",
         "ellipsis", "circle.lefthalf.filled", "xmark", "photo", "exclamationmark.triangle.fill", "wifi.slash",
-        "doc", "doc.richtext", "tablecells", "doc.zipper", "film",
+        "doc", "doc.richtext", "tablecells", "doc.zipper", "film", "calendar", "checkmark", "info.circle",
     ]
 
     /// The custom property a rasterised symbol travels in: `star.fill` → `--sym-star-fill`.
@@ -306,6 +306,71 @@ public enum ConversationShellAssets {
       display: inline-flex; align-items: center; justify-content: center; color: var(--q-ink2); font-size: 9px;
     }
     .ss-bx:hover { background: var(--q-hover); color: var(--q-ink); }
+
+    .ss-banner.ss-info { background: var(--q-infoWash); }
+    .ss-banner.ss-info > .ss-sym { color: var(--q-info); }
+    .ss-banner.ss-wrap { align-items: flex-start; }
+    .ss-banner.ss-wrap > .ss-sym { margin-top: 9px; }
+    .ss-banner.ss-wrap .ss-btxt { white-space: normal; }
+    .ss-banner.ss-wrap > .ss-link { align-self: flex-end; margin-bottom: 4px; }
+
+    /* The invitation card (spec §5.14, layout.invitation): above the body at the indent, inside the measure; the
+       chosen answer is an accentWash button with a checkmark, the others small secondary buttons. */
+    .ss-invite {
+      margin: 18px 0 0 48px; max-width: 576px; padding: 12px 16px; border-radius: var(--q-r-lg); background: var(--q-sheet);
+      box-shadow: inset 0 0 0 var(--ss-hair) var(--q-rule);
+    }
+    html.ss-ic .ss-invite { box-shadow: inset 0 0 0 1px var(--q-ruleStrong); }
+    @media (prefers-contrast: more) { .ss-invite { box-shadow: inset 0 0 0 1px var(--q-ruleStrong); } }
+    .ss-invite:not([hidden]) + .ss-body { margin-top: 16px; }
+    .ss-ikick {
+      display: flex; align-items: center; gap: 6px; font: var(--q-font-runningHead); letter-spacing: var(--q-track-runningHead);
+      text-transform: uppercase; color: var(--q-ink3);
+    }
+    .ss-ikick > .ss-sym { font-size: 14px; width: 14px; height: 14px; }
+    .ss-invite.ss-cancelled .ss-ikick { color: var(--q-danger); }
+    .ss-ititle { margin-top: 6px; font: var(--q-font-title); letter-spacing: var(--q-track-title); color: var(--q-ink); overflow-wrap: anywhere; }
+    .ss-ititle.ss-ph { font-style: italic; color: var(--q-ink3); }
+    .ss-invite.ss-cancelled .ss-ititle { color: var(--q-ink2); text-decoration: line-through; text-decoration-thickness: 1px; }
+    .ss-iwhen { margin-top: 2px; font: var(--q-font-body); letter-spacing: var(--q-track-body); color: var(--q-ink); }
+    .ss-ielse { font: var(--q-font-snippet); letter-spacing: var(--q-track-snippet); color: var(--q-ink3); }
+    .ss-irep { margin-top: 2px; font: var(--q-font-snippet); letter-spacing: var(--q-track-snippet); color: var(--q-ink2); }
+    .ss-idet {
+      margin: 8px 0 0; display: grid; grid-template-columns: 72px minmax(0, 1fr); row-gap: 2px;
+      font: var(--q-font-snippet); letter-spacing: var(--q-track-snippet); line-height: 16px;
+    }
+    .ss-idet dt { color: var(--q-ink3); }
+    .ss-idet dd { margin: 0; color: var(--q-ink2); overflow-wrap: anywhere; }
+    /* One line, cut with an ellipsis: a Teams link runs to hundreds of characters. The whole address is the tooltip. */
+    .ss-idet .ss-ilink {
+      display: block; max-width: 100%; padding: 0; height: auto; border: 0; background: none; font: inherit;
+      color: var(--q-accent); text-align: start; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      border-radius: var(--q-r-xs);
+    }
+    .ss-idet .ss-ilink:hover { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; }
+    .ss-idet .ss-ilink:active { text-decoration: underline; color: var(--q-ink2); }
+    html.ss-graphite .ss-idet .ss-ilink { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; }
+    .ss-idet .ss-ilink:focus-visible { box-shadow: 0 0 0 1px var(--q-sheet), 0 0 0 calc(1px + var(--ss-ring)) var(--q-focus); }
+    .ss-iacts {
+      margin-top: 12px; padding-top: 10px; border-top: var(--ss-hair) solid var(--q-rule);
+      display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+    }
+    .ss-iacts .ss-iopen { margin-left: auto; }
+    .ss-ans {
+      height: 22px; padding: 0 9px; border: 0; border-radius: var(--q-r-sm); background: var(--q-raised);
+      box-shadow: inset 0 0 0 1px var(--q-ruleStrong); display: inline-flex; align-items: center; gap: 6px;
+      font: var(--q-font-label); color: var(--q-ink); white-space: nowrap;
+    }
+    .ss-ans > .ss-sym { display: none; font-size: 12px; width: 12px; height: 12px; }
+    .ss-ans:hover { background: linear-gradient(var(--q-hover), var(--q-hover)), var(--q-raised); }
+    .ss-ans:active { background: linear-gradient(var(--q-pressed), var(--q-pressed)), var(--q-raised); }
+    .ss-ans:focus-visible { box-shadow: inset 0 0 0 1px var(--q-ruleStrong), 0 0 0 1px var(--q-sheet), 0 0 0 calc(1px + var(--ss-ring)) var(--q-focus); }
+    .ss-ans.ss-chosen { background: var(--q-accentWash); box-shadow: none; color: var(--q-accent); font: var(--q-font-labelStrong); padding-left: 7px; }
+    .ss-ans.ss-chosen > .ss-sym { display: inline-block; }
+    .ss-ans.ss-chosen:hover { background: var(--q-accentWashHover); }
+    .ss-ans.ss-chosen:active { background: var(--q-accentWashPressed); }
+    .ss-ans.ss-chosen:focus-visible { box-shadow: 0 0 0 1px var(--q-sheet), 0 0 0 calc(1px + var(--ss-ring)) var(--q-focus); }
+    .ss-invite > .ss-banner { margin: 10px 0 0; }
 
     /* The elision mark (spec §5.15). */
     .ss-qrow { margin-top: 12px; }
@@ -1002,6 +1067,124 @@ public enum ConversationShellAssets {
         refitCard(card);
       }
 
+      // MARK: Invitation card (spec §5.14)
+
+      var ANSWERS = [['accepted', 'Accept'], ['tentative', 'Tentative'], ['declined', 'Decline']];
+
+      function inviteRow(list, label, content) {
+        list.appendChild(el('dt', null, label));
+        var value = el('dd');
+        if (typeof content === 'string') { value.textContent = content; } else { value.appendChild(content); }
+        list.appendChild(value);
+      }
+
+      function inviteLink(card, url, key) {
+        var link = button('ss-ilink', url, url);
+        link.dataset.ifocus = key;
+        link.addEventListener('click', function (event) {
+          stop(event);
+          setTarget(card, true);
+          post('ss', { kind: 'action', type: 'openInvitationLink', messageID: card.message.id, attachmentID: null, value: url });
+        });
+        return link;
+      }
+
+      function chooseAnswer(card, response) {
+        var buttons = card.invite.querySelectorAll('.ss-ans');
+        for (var i = 0; i < buttons.length; i++) {
+          var on = buttons[i].dataset.response === response;
+          buttons[i].classList.toggle('ss-chosen', on);
+          buttons[i].setAttribute('aria-pressed', on ? 'true' : 'false');
+        }
+      }
+
+      // The store renders the card again after an answer and when the permission notice comes or goes, which
+      // rebuilds it: the control that had focus takes it again (each carries data-ifocus), or the sheet when that
+      // control is gone, so a keyboard or VoiceOver user keeps their place.
+      function refocusInvite(card, key) {
+        var node = (key && card.invite.querySelector('[data-ifocus="' + CSS.escape(key) + '"]')) || card.element;
+        try { node.focus({ preventScroll: true }); } catch (e) { node.focus(); }
+      }
+
+      function fillInvitation(card) {
+        var m = card.message;
+        var inv = m.invitation;
+        var active = document.activeElement;
+        var refocus = active && active !== card.invite && card.invite.contains(active) ? (active.dataset.ifocus || '') : null;
+        if (!inv) {
+          card.invite.hidden = true;
+          card.invite.replaceChildren();
+          card.invite.classList.remove('ss-cancelled');
+          if (refocus !== null) { refocusInvite(card, null); }
+          return;
+        }
+        card.invite.hidden = false;
+        card.invite.classList.toggle('ss-cancelled', !!inv.isCancelled);
+        card.invite.setAttribute('aria-label', (inv.isCancelled ? 'Cancelled event: ' : 'Invitation: ') + (inv.title || 'No title'));
+        var parts = [];
+        var kicker = el('div', 'ss-ikick');
+        kicker.appendChild(sym(inv.isCancelled ? 'exclamationmark.triangle.fill' : 'calendar'));
+        kicker.appendChild(el('span', null, inv.isCancelled ? 'Cancelled' : 'Invitation'));
+        parts.push(kicker);
+        parts.push(el('div', 'ss-ititle' + (inv.title ? '' : ' ss-ph'), inv.title || 'No title'));
+        parts.push(el('div', 'ss-iwhen', inv.when));
+        if (inv.whenElsewhere) { parts.push(el('div', 'ss-ielse', inv.whenElsewhere)); }
+        if (inv.repeats) { parts.push(el('div', 'ss-irep', inv.repeats)); }
+        var details = el('dl', 'ss-idet');
+        if (inv.location) { inviteRow(details, 'Where', inv.locationURL ? inviteLink(card, inv.locationURL, 'where') : inv.location); }
+        if (inv.conferenceURL) { inviteRow(details, inv.location ? '' : 'Where', inviteLink(card, inv.conferenceURL, 'meeting')); }
+        if (inv.organizer) { inviteRow(details, 'Organizer', inv.organizer); }
+        if (inv.guests) { inviteRow(details, 'Guests', inv.guests); }
+        if (details.childNodes.length) { parts.push(details); }
+        var actions = el('div', 'ss-iacts');
+        if (inv.canAnswer && !inv.isCancelled) {
+          for (var i = 0; i < ANSWERS.length; i++) {
+            (function (response, label) {
+              var answer = button('ss-ans', null);
+              answer.dataset.response = response;
+              answer.dataset.ifocus = response;
+              answer.appendChild(sym('checkmark'));
+              answer.appendChild(el('span', null, label));
+              answer.addEventListener('click', function (event) {
+                stop(event);
+                setTarget(card, true);
+                if (answer.classList.contains('ss-chosen')) { return; }
+                chooseAnswer(card, response);
+                post('ss', { kind: 'action', type: 'answerInvitation', messageID: m.id, attachmentID: null, value: response });
+              });
+              actions.appendChild(answer);
+            })(ANSWERS[i][0], ANSWERS[i][1]);
+          }
+        }
+        if (inv.canOpen) {
+          var open = button('ss-link ss-iopen', 'Open in Calendar');
+          open.dataset.ifocus = 'open';
+          open.addEventListener('click', function (event) {
+            stop(event);
+            setTarget(card, true);
+            post('ss', { kind: 'action', type: 'openInCalendar', messageID: m.id, attachmentID: null });
+          });
+          actions.appendChild(open);
+        }
+        if (actions.childNodes.length) { parts.push(actions); }
+        if (inv.needsPermission) {
+          var notice = bannerNode('ss-info ss-wrap', 'info.circle', 'Answer invitations: SuperSparrow needs permission to update your calendar.');
+          var reconnect = button('ss-link', 'Reconnect');
+          reconnect.dataset.ifocus = 'reconnect';
+          reconnect.addEventListener('click', function (event) {
+            stop(event);
+            setTarget(card, true);
+            post('ss', { kind: 'action', type: 'reconnectForInvitation', messageID: m.id, attachmentID: null });
+          });
+          notice.appendChild(reconnect);
+          parts.push(notice);
+        }
+        card.invite.replaceChildren.apply(card.invite, parts);
+        chooseAnswer(card, inv.response || null);
+        if (refocus !== null) { refocusInvite(card, refocus); }
+        refitCard(card);
+      }
+
       // MARK: Headers
 
       function headerKey(m) {
@@ -1445,6 +1628,10 @@ public enum ConversationShellAssets {
           applyBodyState(card, m.bodyState);
         }
         if (JSON.stringify(previous.attachments) !== JSON.stringify(m.attachments)) { fillAttachments(card); }
+        // A click marks its answer before the store has it; one the store refused or gave up leaves the card's facts as
+        // they were, so the mark is put back to the store's answer even when nothing else changed.
+        if (JSON.stringify(previous.invitation || null) !== JSON.stringify(m.invitation || null)) { fillInvitation(card); }
+        else if (m.invitation) { chooseAnswer(card, m.invitation.response || null); }
       }
 
       function fit(card, animate) {
@@ -1457,7 +1644,7 @@ public enum ConversationShellAssets {
       function buildCard(m) {
         var card = {
           message: m, element: null, row: null, inner: null, head: null, avatar: null, who: null, meta: null,
-          banners: null, frameWrap: null, qrow: null, atts: null, foot: null, iframe: null, observer: null,
+          invite: null, banners: null, frameWrap: null, qrow: null, atts: null, foot: null, iframe: null, observer: null,
           expanded: false, folded: false, imagesLoaded: loadRemote, liveRemote: 0, quotesShown: false, height: 0,
           measured: false, measureTimer: null, collapseTimer: null, imageLoad: null, imageFailures: 0, zoom: 1,
           wide: false, typeset: false, animateFit: false, sizeObserver: null
@@ -1489,6 +1676,9 @@ public enum ConversationShellAssets {
         head.appendChild(avatar);
         head.appendChild(who);
         head.appendChild(meta);
+        var invite = el('section', 'ss-invite');
+        invite.setAttribute('role', 'group');
+        invite.hidden = true;
         var body = el('div', 'ss-body');
         var banners = el('div', 'ss-banners');
         var frameWrap = el('div', 'ss-frame');
@@ -1498,6 +1688,7 @@ public enum ConversationShellAssets {
         var atts = el('div', 'ss-atts ss-ind');
         var foot = el('footer', 'ss-foot ss-ind');
         inner.appendChild(head);
+        inner.appendChild(invite);
         inner.appendChild(body);
         inner.appendChild(qrow);
         inner.appendChild(atts);
@@ -1537,6 +1728,7 @@ public enum ConversationShellAssets {
         card.avatar = avatar;
         card.who = who;
         card.meta = meta;
+        card.invite = invite;
         card.banners = banners;
         card.frameWrap = frameWrap;
         card.qrow = qrow;
@@ -1544,6 +1736,7 @@ public enum ConversationShellAssets {
         card.foot = foot;
         markDesign(card);
         fillHeader(card);
+        fillInvitation(card);
         renderBanners(card);
         fillQuote(card);
         fillAttachments(card);

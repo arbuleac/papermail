@@ -43,6 +43,14 @@ final class MailSchemaMigrationTests: XCTestCase {
         DELETE FROM grdb_migrations WHERE identifier = 'v14-list-unsubscribe';
         """
 
+    /// Takes v15 back out of a migrated file, as `withoutV14` takes v14: a file from before v15 has no invitation stored
+    /// with its bodies and no answer recorded on its messages.
+    private let withoutV15 = """
+        ALTER TABLE bodies DROP COLUMN invitation_json;
+        ALTER TABLE messages DROP COLUMN invitation_reply;
+        DELETE FROM grdb_migrations WHERE identifier = 'v15-calendar-invitations';
+        """
+
     /// Twelve accounts, inserted out of creation order, two of them created in the same millisecond so the id
     /// has to break the tie.
     private let accounts: [(id: String, addedAt: Int64)] = [
@@ -293,8 +301,8 @@ final class MailSchemaMigrationTests: XCTestCase {
                                         createdAt: MailStoreCodec.date(base + 200_000)))
             try store.close()
         }
-        // v9 to v14 came after v8, so a v7 file has none of them (`revertSQL` takes v12 and v13 back).
-        try execute(withoutV14 + """
+        // v9 to v15 came after v8, so a v7 file has none of them (`revertSQL` takes v12 and v13 back).
+        try execute(withoutV15 + withoutV14 + """
             \(FullTextVersion10.revertSQL)
             DROP TABLE backfill_live_marks;
             DROP TABLE backfill_seen;
@@ -366,7 +374,7 @@ final class MailSchemaMigrationTests: XCTestCase {
             try store.setSyncCursor("cursor-8", for: a)
             try store.close()
         }
-        try execute(withoutV14 + """
+        try execute(withoutV15 + withoutV14 + """
             \(FullTextVersion10.revertSQL)
             ALTER TABLE accounts DROP COLUMN signature;
             DELETE FROM grdb_migrations WHERE identifier = 'v9-account-signature';
@@ -406,7 +414,7 @@ final class MailSchemaMigrationTests: XCTestCase {
             try store.setSignature("<div><p>Alex</p></div>", for: AccountID("acct-a"))
             try store.close()
         }
-        try execute(withoutV14 + """
+        try execute(withoutV15 + withoutV14 + """
             \(FullTextVersion10.revertSQL)
             ALTER TABLE bodies DROP COLUMN evicted;
             DELETE FROM grdb_migrations WHERE identifier = 'v10-body-eviction';
@@ -657,10 +665,43 @@ final class MailSchemaMigrationTests: XCTestCase {
             XCTAssertEqual(try query("SELECT type, \"notnull\", dflt_value FROM pragma_table_info('messages') WHERE name = '\(column)'", at: path),
                            [["TEXT", "0", nil]], "\(column): TEXT NULL with no default")
         }
-        XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations ORDER BY rowid", at: path).compactMap(\.first).last,
-                       "v14-list-unsubscribe")
+        XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations WHERE identifier = 'v14-list-unsubscribe'", at: path),
+                       [["v14-list-unsubscribe"]])
         XCTAssertEqual(try query("SELECT list_unsubscribe_post FROM messages WHERE provider_id = 'm1'", at: path),
                        [["List-Unsubscribe=One-Click"]])
+    }
+
+    /// v15 adds `bodies.invitation_json` and `messages.invitation_reply` and nothing else, both NULL for what is already
+    /// stored: a body stored before shows no card until it is fetched again, and nobody has answered an invitation here
+    /// yet. The file is a real v14 one (a v1 file taken through the shipped migrations up to v14 and no further) whose
+    /// message carries the list headers v14 stores. Opened by the current build, its mail reads as before, headers
+    /// included, with no invitation and no answer, and the new columns are TEXT NULL.
+    func testVersion14DatabaseGainsTheInvitationColumnsAndKeepsItsData() throws {
+        let path = try XCTUnwrap(directory).appendingPathComponent("mail.sqlite").path
+        try writeVersion1Database(at: path)
+        try MailSchema.migrateFile(at: path, upTo: "v14-list-unsubscribe")
+        try execute("UPDATE messages SET list_unsubscribe = '<mailto:leave@example.com>' WHERE provider_id = 'm1'", at: path)
+        XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations ORDER BY rowid", at: path).compactMap(\.first).last,
+                       "v14-list-unsubscribe")
+        XCTAssertFalse(try query("SELECT name FROM pragma_table_info('bodies')", at: path).compactMap(\.first).contains("invitation_json"))
+        XCTAssertFalse(try query("SELECT name FROM pragma_table_info('messages')", at: path).compactMap(\.first).contains("invitation_reply"))
+
+        let m1 = MessageID(accountID: AccountID("acct-a"), providerID: "m1")
+        let store = try SQLiteMailStore(path: path)
+        XCTAssertEqual(try store.body(for: m1)?.plainText, "Hello there", "the body stored before v15 reads as before")
+        XCTAssertNil(try store.body(for: m1)?.invitation, "with no card until it is fetched again")
+        let stored = try XCTUnwrap(try store.message(m1))
+        XCTAssertNil(stored.invitationReply, "nobody has answered here yet")
+        XCTAssertEqual(stored.listUnsubscribe, "<mailto:leave@example.com>", "v14's headers read beside the new column")
+        XCTAssertEqual(try store.conversations(ConversationQuery(view: .all, searchText: "hello")).map(\.id.providerID), ["c1"])
+        try store.verifyFullTextIndex()
+        try store.close()
+        XCTAssertEqual(try query("SELECT type, \"notnull\", dflt_value FROM pragma_table_info('bodies') WHERE name = 'invitation_json'", at: path),
+                       [["TEXT", "0", nil]], "TEXT NULL with no default")
+        XCTAssertEqual(try query("SELECT type, \"notnull\", dflt_value FROM pragma_table_info('messages') WHERE name = 'invitation_reply'", at: path),
+                       [["TEXT", "0", nil]], "TEXT NULL with no default")
+        XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations ORDER BY rowid", at: path).compactMap(\.first).last,
+                       "v15-calendar-invitations")
     }
 
     // MARK: Raw SQLite

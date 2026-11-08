@@ -98,6 +98,10 @@ public struct MailActionRecord: Sendable {
         case .unsubscribe:
             // Changes no message, so `changed` is empty above; the request it sends cannot be taken back.
             return nil
+        case .answerInvitation:
+            // An answer is mailed or sent to the organizer and cannot be called back; the user changes it by answering
+            // again on the card, so it keeps no undo.
+            title = "Answered"
         }
         return MailActionRecord(title: title, change: change, targets: ids, inverse: inverse, conversation: conversation)
     }

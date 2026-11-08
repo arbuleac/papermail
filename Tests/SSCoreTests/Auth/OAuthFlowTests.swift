@@ -115,6 +115,21 @@ final class OAuthFlowTests: XCTestCase {
         XCTAssertEqual(PKCE.challenge(for: verifier), authorization["code_challenge"])
     }
 
+    /// A reconnect that adds the calendar asks for it beside mail, through the browser's own request.
+    func testASignInAskingForTheCalendarAddsItsScope() async throws {
+        installTokenReply(expectedURL: OAuthEndpoints.googleTokenURL)
+        let (opener, opened) = Self.makeOpener()
+        _ = try await makeFlow(opener: opener).signIn(kind: .gmail, loginHint: "ada@example.com", permissions: [.calendar])
+        var iterator = opened.makeAsyncIterator()
+        let nextOpened = await iterator.next()
+        let (authorizationURL, browser) = try XCTUnwrap(nextOpened)
+        _ = try await browser.value
+        let authorization = Self.queryItems(of: authorizationURL)
+        XCTAssertEqual(authorization["scope"], OAuthEndpoints.googleScope + " " + OAuthEndpoints.googleCalendarScope)
+        XCTAssertEqual(authorization["include_granted_scopes"], "true")
+        XCTAssertEqual(authorization["login_hint"], "ada@example.com")
+    }
+
     func testMicrosoftSignInUsesLocalhostRedirectAndNoSecret() async throws {
         installTokenReply(expectedURL: OAuthEndpoints.microsoftTokenURL(tenant: "common"), json: #"{"access_token":"ms-at","refresh_token":"ms-rt","expires_in":4000}"#)
         let (opener, opened) = Self.makeOpener()

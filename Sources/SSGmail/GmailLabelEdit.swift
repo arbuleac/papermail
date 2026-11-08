@@ -33,6 +33,10 @@ struct GmailLabelEdit: Equatable, Sendable {
             // Not a label change: the engine sends the request itself, and `apply` sends nothing for an empty edit.
             add = []
             remove = []
+        case .answerInvitation:
+            // Answered by mail and through the Calendar API (`GmailProvider.answer`), never with labels.
+            add = []
+            remove = []
         }
     }
 }

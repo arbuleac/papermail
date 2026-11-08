@@ -698,7 +698,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         let payload = builder.build(
             messages: all, bodies: bodies, accounts: accountsByID, bodyStates: states,
             loadRemoteImages: Self.loadRemoteImages, readingSans: QuireEnvironment.typeface == .sfPro,
-            colorsNoticeDismissed: settings.originalColorsNoticeDismissed, pending: Set(sheets.map(\.metadata.id))
+            colorsNoticeDismissed: settings.originalColorsNoticeDismissed, pending: Set(sheets.map(\.metadata.id)),
+            invitationPermissionNeeded: invitationPermissionNeeded
         )
         return (payload, RenderInputs(messages: all) { bodies[$0] != nil })
     }
@@ -848,8 +849,14 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         evaluate("window.ss && window.ss.bodyStates(\(String(decoding: data, as: UTF8.self)))", in: slot)
     }
 
-    /// When the connection returns, bodies that waited for it start by themselves (spec §5.14).
+    /// When the connection returns, bodies that waited for it start by themselves (spec §5.14). An account starting or
+    /// ending a wait for calendar permission changes what invitation cards say: shown again from the store.
     private func statusesChanged(_ statuses: [AccountSyncStatus]) {
+        let needingPermission = Set(statuses.filter { $0.permissionsNeeded.contains(.calendar) }.map(\.accountID))
+        if needingPermission != invitationPermissionNeeded {
+            invitationPermissionNeeded = needingPermission
+            invitationsMayHaveChanged()
+        }
         let stillOffline = Set(statuses.filter { $0.phase == .error && ($0.message ?? "").hasPrefix("network") }.map(\.accountID))
         let back = offlineAccounts.subtracting(stillOffline)
         guard !back.isEmpty else { return }
@@ -954,7 +961,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             focusedAttachment = (id, attachment)
         case let .originalColors(id, on):
             if on { originalColorsShown.insert(id) } else { originalColorsShown.remove(id) }
-        case let .action(type, messageID, attachmentID, on, point):
+        case let .action(type, messageID, attachmentID, on, point, value):
             guard let messageID else { return }
             selectedMessageID = messageID
             switch type {
@@ -992,11 +999,70 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
                 onAction?(.continueDraft(messageID))
             case "discardDraft":
                 if let id = currentConversationID { onAction?(.discardDrafts([id])) }
+            case "answerInvitation":
+                guard let response = value.flatMap(InvitationResponse.init(rawValue:)) else { return }
+                answerInvitation(response, messageID)
+            case "openInCalendar":
+                openInCalendar(messageID)
+            case "openInvitationLink":
+                if let value { openInvitationLink(value) }
+            case "reconnectForInvitation":
+                onAction?(.reconnect(messageID.accountID))
             default:
                 ConversationSignposts.log.debug("unknown shell action \(type, privacy: .public)")
             }
         }
     }
+
+    // MARK: Invitations (spec §5.14)
+
+    /// Recorded in the store at once and queued for the engine; the card re-renders from the store, already showing the
+    /// answer the shell marked as chosen.
+    private func answerInvitation(_ response: InvitationResponse, _ id: MessageID) {
+        do {
+            try client.answerInvitation(response, to: id)
+        } catch {
+            ConversationSignposts.log.error("answering an invitation failed: \(String(describing: error), privacy: .public)")
+            NSSound.beep()
+            // The shell marked the answer before asking; the store's state puts the card back.
+            invitationsMayHaveChanged()
+        }
+    }
+
+    /// The cards of the conversation on screen are brought up to the store and the accounts' permissions; pre-rendered
+    /// neighbours are dropped, as they were built with the old state.
+    private func invitationsMayHaveChanged() {
+        pool.clearAll(except: pool.current)
+        guard let id = currentConversationID, let current = pool.current, current.renderedID == id else { return }
+        let prepared = prepare(currentMessages)
+        pool.refresh(prepared.payload, inputs: prepared.inputs, id: id, into: current)
+    }
+
+    /// Hands the invitation's calendar file to Calendar, which shows it and offers to add it: no EventKit, so no
+    /// calendar permission. The file is written to this run's own temporary folder, off the main thread.
+    private func openInCalendar(_ id: MessageID) {
+        guard let text = (try? client.store.body(for: id))?.invitation?.calendarText else {
+            NSSound.beep()
+            return
+        }
+        let subject = currentMessages.first { $0.id == id }?.subject
+        Task.detached(priority: .userInitiated) {
+            let file = InvitationFiles.write(text, named: subject)
+            await MainActor.run {
+                guard let file else { return NSSound.beep() }
+                InvitationFiles.openInCalendar(file)
+            }
+        }
+    }
+
+    /// A location or meeting link on the card: only web addresses, in the browser.
+    private func openInvitationLink(_ value: String) {
+        guard let url = CalendarInvitationReader.webAddress(value) else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    /// The accounts whose answered invitations wait for permission to update the calendar, as the cards show them.
+    private var invitationPermissionNeeded: Set<AccountID> = []
 
     private func performOnMessage(_ change: MetadataChange, _ id: MessageID) {
         // A kept draft lives only on this Mac: there is nothing to star or mark on a provider.

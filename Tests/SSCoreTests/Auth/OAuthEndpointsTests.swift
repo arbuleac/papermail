@@ -82,4 +82,40 @@ final class OAuthEndpointsTests: XCTestCase {
         XCTAssertFalse(url.absoluteString.contains("+"))
         XCTAssertTrue(url.absoluteString.contains("Mail.ReadWrite%20"), url.absoluteString)
     }
+
+    // MARK: Permissions beyond mail (invitations)
+
+    func testThePermissionsAddTheirScopesAfterMails() {
+        XCTAssertEqual(OAuthEndpoints.scope(for: .gmail, permissions: []), OAuthEndpoints.googleScope)
+        XCTAssertEqual(OAuthEndpoints.scope(for: .gmail, permissions: [.calendar]),
+                       "https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/calendar.events")
+        XCTAssertEqual(OAuthEndpoints.scope(for: .microsoft, permissions: [.calendar]),
+                       OAuthEndpoints.microsoftScope + " https://graph.microsoft.com/Calendars.ReadWrite")
+        let url = OAuthEndpoints.authorizationRequestURL(
+            configuration: OAuthClientConfiguration(kind: .microsoft, clientID: "id"), redirectURI: "http://localhost:1",
+            state: "s", codeChallenge: "c", permissions: [.calendar])
+        XCTAssertTrue(queryItems(of: url)["scope"]?.hasSuffix("Calendars.ReadWrite") ?? false)
+        XCTAssertNil(queryItems(of: url)["include_granted_scopes"], "Entra keeps what was consented without it")
+    }
+
+    /// Google keeps the scopes an account granted before when asked to: a reconnect for mail never drops the calendar.
+    func testGoogleSignInsKeepWhatWasGrantedBefore() {
+        let url = OAuthEndpoints.authorizationRequestURL(
+            configuration: OAuthClientConfiguration(kind: .gmail, clientID: "abc.apps.googleusercontent.com"),
+            redirectURI: OAuthEndpoints.redirectURI(for: .gmail, port: 1), state: "s", codeChallenge: "c")
+        XCTAssertEqual(queryItems(of: url)["include_granted_scopes"], "true")
+    }
+
+    func testWhatATokensScopesGrant() {
+        let google = OAuthEndpoints.googleScope + " " + OAuthEndpoints.googleCalendarScope
+        XCTAssertTrue(OAuthEndpoints.grants(google, .calendar, kind: .gmail))
+        XCTAssertFalse(OAuthEndpoints.grants(OAuthEndpoints.googleScope, .calendar, kind: .gmail))
+        XCTAssertFalse(OAuthEndpoints.grants("https://www.googleapis.com/auth/calendar.events.readonly", .calendar, kind: .gmail))
+        XCTAssertFalse(OAuthEndpoints.grants(nil, .calendar, kind: .gmail), "unknown grants nothing")
+        XCTAssertTrue(OAuthEndpoints.grants("Mail.ReadWrite calendars.readwrite", .calendar, kind: .microsoft), "Microsoft's short, any case")
+        XCTAssertTrue(OAuthEndpoints.grants("https://graph.microsoft.com/Calendars.ReadWrite", .calendar, kind: .microsoft))
+        XCTAssertFalse(OAuthEndpoints.grants("Calendars.Read", .calendar, kind: .microsoft))
+        XCTAssertEqual(OAuthEndpoints.permissions(grantedBy: google, kind: .gmail), [.calendar])
+        XCTAssertEqual(OAuthEndpoints.permissions(grantedBy: OAuthEndpoints.googleScope, kind: .gmail), [])
+    }
 }

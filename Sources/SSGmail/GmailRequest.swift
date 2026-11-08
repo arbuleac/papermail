@@ -6,6 +6,7 @@ struct GmailRequest: Sendable {
     enum Method: String, Sendable {
         case get = "GET"
         case post = "POST"
+        case patch = "PATCH"
     }
 
     /// Which Gmail call this is. Throttle logs name it: each kind costs different quota units, so the kind
@@ -19,6 +20,9 @@ struct GmailRequest: Sendable {
         case attachment
         case send
         case batchModify
+        /// The Google Calendar API, which marks the user's own copy of an invitation they answered. Its quota is the
+        /// Calendar API's own, not Gmail's.
+        case calendar
     }
 
     var method: Method
@@ -33,6 +37,9 @@ struct GmailRequest: Sendable {
     static let uploadPathPrefix = "/upload/gmail/v1/users/me"
     static let batchHost = "www.googleapis.com"
     static let batchPath = "/batch/gmail/v1"
+    /// The user's primary calendar, where Google Calendar keeps the copy of an invitation sent to them.
+    static let calendarHost = "www.googleapis.com"
+    static let calendarEventsPath = "/calendar/v3/calendars/primary/events"
 
     /// The header set every metadata fetch asks for; kept in one place so batch and single gets agree. The list
     /// headers cost nothing extra: a metadata get is priced per call, not per header.
@@ -52,6 +59,19 @@ struct GmailRequest: Sendable {
             headers: ["Content-Type": "application/json; charset=UTF-8"],
             body: try encode(body),
             kind: kind
+        )
+    }
+
+    /// A Calendar API call on the primary calendar's events: `resource` is empty for the collection, or an event id.
+    static func calendarEvents(_ resource: String = "", method: Method = .get, query: [URLQueryItem] = [],
+                               json body: Data? = nil) throws -> GmailRequest {
+        let path = resource.isEmpty ? calendarEventsPath : calendarEventsPath + "/" + resource
+        return GmailRequest(
+            method: method,
+            url: try url(host: calendarHost, path: path, query: query),
+            headers: body == nil ? [:] : ["Content-Type": "application/json; charset=UTF-8"],
+            body: body,
+            kind: .calendar
         )
     }
 

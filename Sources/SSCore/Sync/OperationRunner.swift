@@ -26,6 +26,9 @@ struct OperationRunner: Sendable {
         /// Set when the provider throttled an apply. The operations already wait for it; the live lane pauses the
         /// backfill with it, since the outbox spends the same quota.
         var throttle: Throttle?
+        /// Permissions the account has not granted that due operations wait for: they stay pending, untried, and the
+        /// account asks to reconnect with them. Complete for the operations read, whatever the drain met after.
+        var permissionsNeeded: Set<AccountPermission> = []
     }
 
     private enum GroupResult {
@@ -52,17 +55,23 @@ struct OperationRunner: Sendable {
         } catch {
             SyncLog.logger.error("outbox: could not prune failed operations: \(String(describing: error), privacy: .private)")
         }
-        let operations: [Operation]
+        let fetched: [Operation]
         do {
-            operations = try store.pendingOperations(accountID: accountID, limit: tuning.pendingOperationsFetchLimit)
+            fetched = try store.pendingOperations(accountID: accountID, limit: tuning.pendingOperationsFetchLimit)
         } catch {
             SyncLog.logger.error("outbox: could not read pending operations: \(String(describing: error), privacy: .private)")
             return outcome
         }
+        let operations = droppingReplacedAnswers(from: fetched)
         guard !operations.isEmpty else { return outcome }
 
         let now = Date()
         var blocked: Set<MessageID> = []
+        // The messages of operations waiting for the user's permission, by kind. Such a wait lasts until the user
+        // reconnects, perhaps never, so it holds back only later operations of its own kind on those messages (a
+        // second answer is never heard before the first, even if the grant lands mid-drain). An archive, a trash or a
+        // read change goes on: an answer never moves the message (Gmail answers by UID, Graph by the event).
+        var waitingForPermission: [OperationKind: Set<MessageID>] = [:]
         var eligible: [Operation] = []
         var requests: [Operation] = []
         for operation in operations {
@@ -81,6 +90,18 @@ struct OperationRunner: Sendable {
             }
             if operation.targets.contains(where: blocked.contains) {
                 blocked.formUnion(operation.targets)
+                continue
+            }
+            let kind = OperationKind(operation.change)
+            if let waiting = waitingForPermission[kind], operation.targets.contains(where: waiting.contains) {
+                waitingForPermission[kind, default: []].formUnion(operation.targets)
+                continue
+            }
+            // Asked without a request: an operation waiting for the user's permission is never tried, so it spends no
+            // attempt and is never given up.
+            if let permission = await provider.missingPermission(for: operation.change) {
+                outcome.permissionsNeeded.insert(permission)
+                waitingForPermission[kind, default: []].formUnion(operation.targets)
                 continue
             }
             eligible.append(operation)
@@ -234,6 +255,78 @@ struct OperationRunner: Sendable {
         }
     }
 
+    /// The organizer hears only the user's latest answer to an invitation, never each one they changed their mind
+    /// through while an earlier one waited (for the permission, a backoff, the network). So an answer that a newer
+    /// answer to the same message replaces is dropped before anything is sent: deleted, which keeps the local answer
+    /// (the newer one's). Dropping it is right whether or not it went out, since the newer answer is what must reach
+    /// the organizer last either way. The newest takes over the answer the first dropped one replaced
+    /// (`InvitationAnswer.previous`), so a give-up still puts back the last one recorded before this run of changes.
+    /// When nothing dropped was ever tried and the newest repeats that answer, the organizer already has it, so the
+    /// newest goes too. An answer names one message (`MailEngine.answerInvitation`).
+    ///
+    /// The newest is saved first and the dropped ones deleted after it: an interruption in between leaves an outbox
+    /// the next drain prunes the same way, never a lone stale answer. A write that fails keeps that operation queued.
+    private func droppingReplacedAnswers(from operations: [Operation]) -> [Operation] {
+        var newest: [MessageID: Int] = [:]
+        for (index, operation) in operations.enumerated() where operation.change.kind == .answerInvitation {
+            guard operation.targets.count == 1 else { continue }
+            newest[operation.targets[0]] = index
+        }
+        // By the index of the answer that replaces them: the answer the first replaced one replaced, and whether none
+        // of them was ever tried.
+        var takenOver: [Int: (previous: InvitationResponse?, untried: Bool)] = [:]
+        var replaced: [Int: [Operation]] = [:]
+        for (index, operation) in operations.enumerated() {
+            guard case .answerInvitation(let answer) = operation.change, operation.targets.count == 1,
+                  let latest = newest[operation.targets[0]], latest > index else { continue }
+            let untried = operation.attempts == 0
+            if let carried = takenOver[latest] {
+                takenOver[latest] = (carried.previous, carried.untried && untried)
+            } else {
+                takenOver[latest] = (answer.previous, untried)
+            }
+            replaced[latest, default: []].append(operation)
+        }
+        guard !replaced.isEmpty else { return operations }
+
+        var removed: Set<String> = []
+        var rewritten: [String: Operation] = [:]
+        for (latest, carried) in takenOver.sorted(by: { $0.key < $1.key }) {
+            guard case .answerInvitation(var answer) = operations[latest].change else { continue }
+            var survivor = operations[latest]
+            answer.previous = carried.previous
+            survivor.change = .answerInvitation(answer)
+            do {
+                try store.updateOperation(survivor)
+            } catch {
+                // Without the answer it replaced on the newest, a give-up would restore one that never went out.
+                SyncLog.logger.error("outbox: could not take over a replaced answer: \(String(describing: error), privacy: .private)")
+                continue
+            }
+            rewritten[survivor.id] = survivor
+            var deletedAll = true
+            for old in replaced[latest] ?? [] {
+                do {
+                    try store.deleteOperation(id: old.id)
+                    removed.insert(old.id)
+                } catch {
+                    deletedAll = false
+                    SyncLog.logger.error("outbox: could not drop a replaced answer: \(String(describing: error), privacy: .private)")
+                }
+            }
+            guard deletedAll, carried.untried, survivor.attempts == 0, answer.response == carried.previous else { continue }
+            do {
+                try store.deleteOperation(id: survivor.id)
+                removed.insert(survivor.id)
+            } catch {
+                SyncLog.logger.error("outbox: could not drop a repeated answer: \(String(describing: error), privacy: .private)")
+            }
+        }
+        let count = removed.count
+        SyncLog.logger.debug("outbox: dropped \(count, privacy: .public) replaced answers")
+        return operations.compactMap { removed.contains($0.id) ? nil : (rewritten[$0.id] ?? $0) }
+    }
+
     /// Adjacent operations with the same change are merged while their distinct targets fit one apply call.
     /// An operation larger than the limit forms its own group and is chunked when applied.
     static func groups(of operations: [Operation], maxTargets: Int) -> [[Operation]] {
@@ -323,6 +416,13 @@ struct OperationRunner: Sendable {
             case .unauthorized:
                 operation.status = .pending
                 operation.nextAttemptAt = nil
+            case .notFound where operation.change.kind == .answerInvitation:
+                // The event, or the message naming it, is gone and the provider said nothing went out (a provider that
+                // calls a vanished target done returns normally instead). No retry can answer it, so it is given up
+                // now: the card puts the previous answer back and the conversation shows the failure.
+                operation.status = .failed
+                operation.nextAttemptAt = now.addingTimeInterval(tuning.failedOperationRetention)
+                givenUp += 1
             default:
                 // Timeouts, server errors, decoding failures, cancellation: the provider may or may not have
                 // applied the change. The row stays so local state keeps winning until a poll settles it, and

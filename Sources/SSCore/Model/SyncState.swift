@@ -61,9 +61,14 @@ public struct AccountSyncStatus: Hashable, Sendable {
     /// True while the backfill lane, its listing done, is still downloading the bodies of mail already listed
     /// (“Up to date · downloading messages…”). Cleared once a batch finds no body missing.
     public var backfillDownloadingBodies: Bool
+    /// Permissions the account has not granted that queued work waits for (an invitation answered without
+    /// permission to update the calendar): the account asks to reconnect with them. Empty once the work can go out,
+    /// as of the outbox's last look.
+    public var permissionsNeeded: Set<AccountPermission>
     public init(accountID: AccountID, phase: AccountSyncPhase, lastSuccessfulSyncAt: Date? = nil, bootstrapProgress: Int? = nil,
                 message: String? = nil, bootstrapTotal: Int? = nil, retryAt: Date? = nil, backfillProgress: Int? = nil,
-                backfillTotal: Int? = nil, backfillPausedUntil: Date? = nil, backfillDownloadingBodies: Bool = false) {
+                backfillTotal: Int? = nil, backfillPausedUntil: Date? = nil, backfillDownloadingBodies: Bool = false,
+                permissionsNeeded: Set<AccountPermission> = []) {
         self.accountID = accountID
         self.phase = phase
         self.lastSuccessfulSyncAt = lastSuccessfulSyncAt
@@ -75,5 +80,6 @@ public struct AccountSyncStatus: Hashable, Sendable {
         self.backfillTotal = backfillTotal
         self.backfillPausedUntil = backfillPausedUntil
         self.backfillDownloadingBodies = backfillDownloadingBodies
+        self.permissionsNeeded = permissionsNeeded
     }
 }

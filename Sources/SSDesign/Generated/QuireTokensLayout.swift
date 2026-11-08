@@ -290,6 +290,27 @@ extension Quire {
             public static let padY: CGFloat = 8
             public static let dismissGlyph: CGFloat = 9
         }
+        public enum Invitation {
+            public static let radius: CGFloat = 8
+            public static let padX: CGFloat = 16
+            public static let padTop: CGFloat = 12
+            public static let padBottom: CGFloat = 12
+            public static let kickerGlyph: CGFloat = 14
+            public static let kickerGap: CGFloat = 6
+            public static let titleTop: CGFloat = 6
+            public static let whenTop: CGFloat = 2
+            public static let detailsTop: CGFloat = 8
+            public static let labelColumn: CGFloat = 72
+            public static let rowGap: CGFloat = 2
+            public static let actionsTop: CGFloat = 12
+            public static let actionsPad: CGFloat = 10
+            public static let answerGap: CGFloat = 4
+            public static let answerSize: String = "small"
+            public static let answerGlyph: CGFloat = 12
+            public static let attendeesMax: CGFloat = 4
+            public static let noticeTop: CGFloat = 10
+            public static let gapBelow: CGFloat = 16
+        }
         public enum AttachmentChip {
             public static let height: CGFloat = 44
             public static let minWidth: CGFloat = 196

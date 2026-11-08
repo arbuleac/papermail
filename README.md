@@ -19,7 +19,7 @@ scripts/test.sh                   # the generated design files' check, then the 
 
 ### Demo mode
 
-`--demo` opens two made-up mailboxes (`alex@demo-gmail.test` on "Gmail" and `alex@demo-outlook.test` on "Microsoft") with about 400 messages over the last 60 days: threads, newsletters, notifications, a Gmail-style and an Outlook-style quoted reply, an inline image and a PDF attachment. A new message arrives roughly every 45 seconds while the app runs. Archive, star, reply and send all work; nothing leaves your Mac.
+`--demo` opens two made-up mailboxes (`alex@demo-gmail.test` on "Gmail" and `alex@demo-outlook.test` on "Microsoft") with about 400 messages over the last 60 days: threads, newsletters, notifications, calendar invitations, a Gmail-style and an Outlook-style quoted reply, an inline image and a PDF attachment. A new message arrives roughly every 45 seconds while the app runs. Archive, star, reply and send all work; nothing leaves your Mac.
 
 Demo mode uses its own database (`~/Library/Application Support/SuperSparrow/demo.sqlite`) and never touches your real mail or the Keychain. `--reset-demo` wipes it and starts over. With no accounts set up, the welcome screen also has a **Try the demo** button.
 
@@ -71,6 +71,14 @@ Press `l` (or **Message → Later…**, or **Later** in a conversation's right-c
 ## Unsubscribe
 
 A newsletter or other list mail that says how to leave its list shows **Unsubscribe** beside the sender's name in the reader. One click, or `⇧⌘U` (**Message → Unsubscribe**), asks to stop it and archives the conversation, without a confirmation: SuperSparrow uses the one-click request the sender offers (RFC 8058), otherwise sends the unsubscribe email the sender asks for from your account (it appears in Sent), otherwise opens the sender's unsubscribe page in your browser. On a conversation in **Later**, it stops the conversation's return instead, as `e` does there, and it stays archived. **Undo** in the toast brings the conversation back (to Later, if it was there); the request itself cannot be taken back. Mail downloaded before this version shows no link until it is downloaded again.
+
+## Invitations
+
+A message with a calendar invitation opens with a card above it: the event's title, when it is (in your time zone, and in the organizer's when that differs), how it repeats, where, who organized it and who else is invited. **Accept**, **Tentative** and **Decline** answer the organizer; your answer shows on the card at once and goes out in the background, and you can change it by choosing another (change it before it has gone out, and only your last answer is sent). On Gmail, SuperSparrow mails the organizer your answer and marks the event in your Google Calendar, so your phone agrees; on Microsoft 365 and Outlook.com it answers the event in your Outlook calendar. A cancelled event is marked **Cancelled**; an event you organized offers no answers, and neither does an invitation that does not name the account it came to (one forwarded to you, or sent to another of your addresses): answer it where it was sent. **Open in Calendar** hands the invitation to the Mac's Calendar app, which shows it and offers to add it; SuperSparrow never asks for access to your Mac's calendars.
+
+The first time you answer, the account needs permission to update your calendar, which it did not ask for when you signed in: the card says "Answer invitations: SuperSparrow needs permission to update your calendar." with **Reconnect**, and Settings → Accounts reads "Calendar permission needed". Reconnect signs you in again in your browser, asking for that permission too; your answer waits and goes out as soon as it is granted. Your OAuth clients need the Google Calendar API and the calendar scope, or the Microsoft permission `Calendars.ReadWrite` (see [docs/OAUTH-SETUP.md](docs/OAUTH-SETUP.md)).
+
+In demo mode the newest mail in each mailbox is an invitation: one to answer, an updated one you already accepted that repeats in another time zone, a cancelled one, and a weekly Teams meeting on the Outlook side.
 
 ## Keep mail on this Mac
 
@@ -132,6 +140,7 @@ SuperSparrow's look is **Quire**: New York subjects on warm paper, one blue-blac
 - Sign-in tokens live in the login Keychain. SuperSparrow never sees your password.
 - Mail content goes only to Google, Microsoft and this machine. No analytics, no crash reporting, no third-party services.
 - Apart from remote images you choose to load, **Unsubscribe** is the only time SuperSparrow contacts anyone but Google, Microsoft and this Mac: it contacts the sender's server with the sender's own one-click request (the address the sender chose, which can identify you, and no cookies or credentials), or opens the sender's unsubscribe page in your browser. An unsubscribe email goes from your account through Google or Microsoft like any other mail. Nothing is sent unless you click Unsubscribe or press `⇧⌘U`.
+- Your calendar is reached only to answer an invitation, and the permission is asked for only then: the first answer asks you to reconnect, granting Google's `calendar.events` or Microsoft's `Calendars.ReadWrite`, which SuperSparrow uses to find that event and mark your answer on it. The answer reaches the organizer through Google or Microsoft. **Open in Calendar** hands the invitation to the Mac's Calendar app; SuperSparrow never reads or writes your Mac's calendars.
 - Remote images are blocked by default (they can tell senders you opened a message). You can change that in Settings → General.
 - New-mail notifications show sender and subject by default; turn off **Show sender and subject** in Settings → General to keep notifications content-free.
 

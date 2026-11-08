@@ -342,7 +342,8 @@ public struct SyncLineSummary: Equatable, Sendable {
         let upToDate = olderMailWords(status, now: now, numberFormatter: numberFormatter, timeFormatter: timeFormatter)
             .map { "Up to date · \($0)" } ?? (status.backfillDownloadingBodies ? "Up to date · downloading messages…" : "Up to date")
         switch status.phase {
-        case .idle: return upToDate
+        // Mail is current, but an answered invitation waits for the user (spec §5.40): Settings asks to reconnect.
+        case .idle: return status.permissionsNeeded.isEmpty ? upToDate : "Calendar permission needed"
         case .bootstrapping:
             let count = status.bootstrapProgress ?? 0
             if let total = status.bootstrapTotal, total > 0 {

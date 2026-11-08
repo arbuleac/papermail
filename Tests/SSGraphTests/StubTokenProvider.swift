@@ -7,9 +7,16 @@ final class StubTokenProvider: AccessTokenProvider, @unchecked Sendable {
     private var queue: [String]
     private(set) var invalidations = 0
     private(set) var requests = 0
+    /// The scopes the token endpoint listed for the account; nil when unknown.
+    var scopes: String?
 
-    init(tokens: [String] = ["token-1"]) {
+    init(tokens: [String] = ["token-1"], scopes: String? = nil) {
         queue = tokens
+        self.scopes = scopes
+    }
+
+    func grantedScopes(for accountID: AccountID) async -> String? {
+        lock.withLock { scopes }
     }
 
     func accessToken(for accountID: AccountID) async throws -> String {

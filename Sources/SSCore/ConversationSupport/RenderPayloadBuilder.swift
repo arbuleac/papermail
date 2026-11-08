@@ -26,6 +26,8 @@ public struct RenderPayloadBuilder: Sendable {
     ///   - readingSans: the Font setting is SF Pro (spec §4.4).
     ///   - colorsNoticeDismissed: the Original colors notice was dismissed for good (spec §5.16).
     ///   - pending: messages that are replies still in the outbox (`PendingSheet`), shown as sending.
+    ///   - invitationPermissionNeeded: accounts whose answered invitations wait for permission to update the calendar
+    ///     (`AccountSyncStatus.permissionsNeeded`): their cards ask to reconnect.
     public func build(
         messages: [MessageMetadata],
         bodies: [MessageID: StoredBody],
@@ -36,11 +38,15 @@ public struct RenderPayloadBuilder: Sendable {
         readingSans: Bool = false,
         colorsNoticeDismissed: Bool = false,
         pending: Set<MessageID> = [],
+        invitationPermissionNeeded: Set<AccountID> = [],
         now: Date = Date()
     ) -> RenderPayload {
         let visible = Self.visibleMessages(messages)
         let formatters = makeFormatters()
         let ownAddresses = Set(accounts.values.map { $0.email.lowercased() })
+        let cards = InvitationCardText(calendar: calendar, locale: locale, timeZone: timeZone)
+        // Every revision of an invitation the conversation shows, so an earlier one offers no answer.
+        let revisions = visible.compactMap { bodies[$0.id]?.invitation }
         let rendered = visible.map { message -> RenderPayload.Message in
             let body = bodies[message.id]
             let html = Self.html(for: message, body: body)
@@ -87,7 +93,15 @@ public struct RenderPayloadBuilder: Sendable {
                 typesetting: design.typesetting,
                 declaresColors: design.declaresColors,
                 coveredByNewYork: design.coveredByNewYork,
-                unsubscribe: !isDraft && !isPending && UnsubscribeMethod(message: message) != nil
+                unsubscribe: !isDraft && !isPending && UnsubscribeMethod(message: message) != nil,
+                // A draft or a reply on its way out is the user's own writing, never an invitation to answer.
+                // “You” is the account the invitation came to, which is whom an answer speaks for, never another account.
+                invitation: isDraft || isPending ? nil : body?.invitation.map { invitation in
+                    cards.card(for: invitation, reply: message.invitationReply,
+                               ownAddresses: Set(accounts[message.id.accountID].map { [$0.email.lowercased()] } ?? []),
+                               needsPermission: invitationPermissionNeeded.contains(message.id.accountID),
+                               superseded: revisions.contains { $0.supersedes(invitation) }, now: now)
+                }
             )
         }
         let resolvedSubject = subject ?? Self.subject(of: visible)

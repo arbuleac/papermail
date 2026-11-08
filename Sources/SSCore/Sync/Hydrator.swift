@@ -305,7 +305,8 @@ actor Hydrator {
                 blockedRemoteImageCount: RenderPayloadBuilder.blockedRemoteImageCount(in: sanitized.html),
                 typesetting: sanitized.typesetting,
                 declaresColors: sanitized.declaresColors,
-                coveredByNewYork: sanitized.coveredByNewYork
+                coveredByNewYork: sanitized.coveredByNewYork,
+                invitation: Self.invitation(in: body, for: id, store: store)
             )
             if evictsOld, let cutoff = evictionCutoff(id) {
                 try store.saveBody(stored, for: id, evictingIfReceivedBefore: cutoff)
@@ -320,6 +321,22 @@ actor Hydrator {
             await self?.finish(id, task: task)
         }
         return task
+    }
+
+    /// The invitation the body carries, read now, at sync time, so opening the message never reads iCalendar: the one
+    /// the provider read itself (Graph), or its text/calendar part read for the user. Nil for every other body.
+    ///
+    /// The user is the account's address alone. The address a message was sent to is not known to be theirs: a lone
+    /// recipient can be a mailing list, the colleague whose mailbox forwards here, or whoever the user forwarded the
+    /// invitation to, and taking it would show them as "You" and answer in their name. With no match the card states no
+    /// answer and offers none, unless a group the user may be on was invited (`CalendarInvitation.answersAsAccount`),
+    /// when the answer goes out as the account's address; Gmail names the alias the user was invited as when their own
+    /// Google Calendar copy confirms it, at answer time.
+    static func invitation(in body: MessageBody, for id: MessageID, store: MailStoring) -> CalendarInvitation? {
+        if let invitation = body.invitation { return invitation }
+        guard let text = body.calendar else { return nil }
+        let account = try? store.accounts().first(where: { $0.id == id.accountID })
+        return CalendarInvitationReader.invitation(fromICS: text, userAddresses: account.map { [$0.email] } ?? [])
     }
 
     private func finish(_ id: MessageID, task: Task<StoredBody, Error>) {

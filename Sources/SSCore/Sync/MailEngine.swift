@@ -224,7 +224,8 @@ public final class MailEngine: MailClient, @unchecked Sendable {
         }) {
             // Signing in to an account that is already here is how the user recovers from `needsReauth`:
             // keep the new tokens, drop the duplicate id, and let the existing syncer try again.
-            try tokenStore.save(tokens, for: known.id)
+            let tokenStore = tokenStore
+            try await tokenProvider.replaceTokens(for: known.id) { try tokenStore.save(tokens, for: known.id) }
             try? tokenStore.delete(for: id)
             registry.context(for: known.id)?.syncer.wake(.poll)
             SyncLog.logger.info("engine: refreshed tokens for existing account \(known.id.rawValue, privacy: .public)")
@@ -246,20 +247,34 @@ public final class MailEngine: MailClient, @unchecked Sendable {
     }
 
     public func reconnect(_ account: Account) async throws -> Account {
-        let (tokens, id, profile) = try await signIn(kind: account.kind, loginHint: account.email)
+        let (tokens, id, profile) = try await signIn(kind: account.kind, loginHint: account.email,
+                                                     permissions: permissionsToAsk(for: account))
         defer { try? tokenStore.delete(for: id) }
         guard profile.email.caseInsensitiveCompare(account.email) == .orderedSame else {
             throw AuthError.wrongAccount(expected: account.email, actual: profile.email)
         }
-        try tokenStore.save(tokens, for: account.id)
+        // Through the token provider: it may hold the old token, valid for up to an hour and without a scope this
+        // sign-in added, and a refresh of the old grant may land at any moment of the save.
+        let tokenStore = tokenStore
+        try await tokenProvider.replaceTokens(for: account.id) { try tokenStore.save(tokens, for: account.id) }
         registry.context(for: account.id)?.syncer.wake(.poll)
         SyncLog.logger.info("engine: reconnected account \(account.id.rawValue, privacy: .public)")
         return account
     }
 
+    /// What a reconnect asks for beyond mail: the permissions queued work waits for (an answered invitation), and those
+    /// the account granted before, so signing in again never takes one away. Reading the old grant is a keychain read on
+    /// the reconnect's own path, which already writes the new tokens; one that fails just leaves the old grant out.
+    private func permissionsToAsk(for account: Account) -> Set<AccountPermission> {
+        let waiting = statusCenter.status(for: account.id)?.permissionsNeeded ?? []
+        let granted = OAuthEndpoints.permissions(grantedBy: (try? tokenStore.tokens(for: account.id))??.scope, kind: account.kind)
+        return waiting.union(granted)
+    }
+
     /// Browser sign-in plus a profile read under a provisional id, whose tokens the caller keeps or drops.
-    private func signIn(kind: ProviderKind, loginHint: String?) async throws -> (OAuthTokens, AccountID, AccountProfile) {
-        let tokens = try await authenticator.signIn(kind: kind, loginHint: loginHint)
+    private func signIn(kind: ProviderKind, loginHint: String?,
+                        permissions: Set<AccountPermission> = []) async throws -> (OAuthTokens, AccountID, AccountProfile) {
+        let tokens = try await authenticator.signIn(kind: kind, loginHint: loginHint, permissions: permissions)
         let id = AccountID(UUID().uuidString)
         try tokenStore.save(tokens, for: id)
         let provisional = Account(id: id, kind: kind, email: "", displayName: "", addedAt: Date())
@@ -393,6 +408,30 @@ public final class MailEngine: MailClient, @unchecked Sendable {
             try store.enqueue(operations)
         }
         if !operations.isEmpty { registry.context(for: accountID)?.syncer.wake(.operations) }
+    }
+
+    public func answerInvitation(_ response: InvitationResponse, to message: MessageID) throws {
+        guard let metadata = try store.message(message), let invitation = try store.body(for: message)?.invitation else {
+            throw StoreError.notFound
+        }
+        let account = try store.accounts().first { $0.id == message.accountID }
+        guard let account else { throw StoreError.notFound }
+        // Only the latest revision in the conversation is answered: an answer from an earlier one would repeat a SEQUENCE
+        // and times the organizer replaced. The messages the reader shows, so the card never offers what this refuses.
+        let shown = RenderPayloadBuilder.visibleMessages(try store.messages(in: metadata.conversationID))
+        for other in shown where other.id != message {
+            if let later = try store.body(for: other.id)?.invitation, later.supersedes(invitation) {
+                throw StoreError.conflict("A later invitation replaces this one")
+            }
+        }
+        guard let answer = InvitationAnswer(response, to: invitation, accountEmail: account.email,
+                                            accountName: account.displayName.isEmpty ? nil : account.displayName,
+                                            previous: metadata.invitationReply) else {
+            throw StoreError.conflict("This invitation can't be answered")
+        }
+        // The same answer again changes nothing and sends nothing.
+        guard metadata.invitationReply != response else { return }
+        try perform(.answerInvitation(answer), on: [message])
     }
 
     public func send(_ message: OutgoingMessage, undoWindow: TimeInterval) throws -> String {

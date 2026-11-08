@@ -70,6 +70,58 @@ public struct RenderPayload: Hashable, Codable, Sendable {
         }
     }
 
+    /// The invitation card above a message's body (spec §5.14), every line display-ready.
+    public struct Invitation: Hashable, Codable, Sendable {
+        public var title: String
+        /// “Tue 10 Nov · 15:00 – 16:00”, in this Mac's zone (or as written, for all-day and floating events).
+        public var when: String
+        /// The same in the event's own zone with its name, when that zone is at another offset: “Tue 10 Nov · 09:00 –
+        /// 10:00 Eastern Time”.
+        public var whenElsewhere: String?
+        /// The repeat rule in words.
+        public var repeats: String?
+        public var location: String?
+        /// The location again, when it is exactly a web address: drawn as a link.
+        public var locationURL: String?
+        /// A meeting link the invitation names apart from its location.
+        public var conferenceURL: String?
+        /// The organizer's name, or “You”.
+        public var organizer: String?
+        /// “You, Ada Lovelace, Sam Lee, Tom Hughes +3 more”: the first four, then a count.
+        public var guests: String?
+        /// The organizer called it off: marked Cancelled, no answer buttons.
+        public var isCancelled: Bool
+        /// Accept · Tentative · Decline are offered (not cancelled, not the user's own event, an organizer to answer, and
+        /// no later revision in the conversation).
+        public var canAnswer: Bool
+        /// The user's answer as the card shows it chosen (`accepted`, `tentative`, `declined`); nil for none yet.
+        public var response: InvitationResponse?
+        /// The answer waits for permission to update the calendar: the card asks to reconnect.
+        public var needsPermission: Bool
+        /// Open in Calendar is offered: the message has calendar text to hand over.
+        public var canOpen: Bool
+
+        public init(title: String, when: String, whenElsewhere: String? = nil, repeats: String? = nil, location: String? = nil,
+                    locationURL: String? = nil, conferenceURL: String? = nil, organizer: String? = nil, guests: String? = nil,
+                    isCancelled: Bool = false, canAnswer: Bool = false, response: InvitationResponse? = nil,
+                    needsPermission: Bool = false, canOpen: Bool = false) {
+            self.title = title
+            self.when = when
+            self.whenElsewhere = whenElsewhere
+            self.repeats = repeats
+            self.location = location
+            self.locationURL = locationURL
+            self.conferenceURL = conferenceURL
+            self.organizer = organizer
+            self.guests = guests
+            self.isCancelled = isCancelled
+            self.canAnswer = canAnswer
+            self.response = response
+            self.needsPermission = needsPermission
+            self.canOpen = canOpen
+        }
+    }
+
     /// What the reader shows where a body belongs (spec §5.14, §8.4).
     public enum BodyState: String, Codable, Sendable, CaseIterable {
         /// The stored body is in `html`.
@@ -122,6 +174,8 @@ public struct RenderPayload: Hashable, Codable, Sendable {
         /// The message's list headers offer a way to unsubscribe (`UnsubscribeMethod`): its sheet header shows the
         /// Unsubscribe link beside the sender (spec §5.14). Never on a draft or a pending reply.
         public var unsubscribe: Bool
+        /// The invitation card above the body; nil (and absent from the JSON) for every message without one.
+        public var invitation: Invitation?
 
         public init(
             id: String,
@@ -145,7 +199,8 @@ public struct RenderPayload: Hashable, Codable, Sendable {
             typesetting: BodyTypesetting = .styled,
             declaresColors: Bool = true,
             coveredByNewYork: Bool = false,
-            unsubscribe: Bool = false
+            unsubscribe: Bool = false,
+            invitation: Invitation? = nil
         ) {
             self.id = id
             self.from = from
@@ -169,6 +224,7 @@ public struct RenderPayload: Hashable, Codable, Sendable {
             self.declaresColors = declaresColors
             self.coveredByNewYork = coveredByNewYork
             self.unsubscribe = unsubscribe
+            self.invitation = invitation
         }
     }
 

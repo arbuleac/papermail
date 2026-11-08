@@ -45,6 +45,15 @@ public protocol MailClient: AnyObject {
     func unsubscribe(_ method: UnsubscribeMethod, accountID: AccountID, archiving messages: [MessageID],
                      endingSnoozesOf snoozed: [ConversationID]) throws
 
+    /// Answer the invitation `message` carries: the answer is recorded on the message at once (the card shows it) and
+    /// queued as an operation the engine replays to the provider. Throws `StoreError.notFound` when the message has no
+    /// stored invitation and `StoreError.conflict` when it cannot be answered (a cancellation, the user's own event, an
+    /// invitation that does not name the account, one a later message in the conversation updates). An answer changed
+    /// before the earlier one went out replaces it: only the latest reaches the organizer.
+    /// An account without permission to update its calendar keeps the answer waiting and asks to reconnect
+    /// (`AccountSyncStatus.permissionsNeeded`); once granted, the answer goes out.
+    func answerInvitation(_ response: InvitationResponse, to message: MessageID) throws
+
     /// Queue a send held for `undoWindow` seconds. Returns the pending send id.
     func send(_ message: OutgoingMessage, undoWindow: TimeInterval) throws -> String
     /// True when the send was still held and is now cancelled.

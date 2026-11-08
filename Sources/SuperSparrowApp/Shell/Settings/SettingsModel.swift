@@ -134,7 +134,7 @@ final class SettingsModel: ObservableObject {
         let service = ErrorText.service(account.kind)
         switch status.phase {
         case .idle:
-            return upToDate(status, service: service)
+            return status.permissionsNeeded.isEmpty ? upToDate(status, service: service) : .calendarPermission
         case .bootstrapping:
             // The provider's figure is an estimate; the count never runs past it.
             let done = status.bootstrapProgress ?? 0
@@ -142,7 +142,7 @@ final class SettingsModel: ObservableObject {
         case .syncing:
             if userChecks.contains(account.id) { return .checking }
             if status.lastSuccessfulSyncAt == nil { return .waitingToSync }
-            return upToDate(status, service: service)
+            return status.permissionsNeeded.isEmpty ? upToDate(status, service: service) : .calendarPermission
         case .hydrating:
             return .downloadingMessages
         case .paused:
@@ -260,6 +260,9 @@ final class SettingsModel: ObservableObject {
         switch statuses[account.id]?.phase {
         case .needsReauth?: reconnect(account)
         case .error?: retry(account)
+        case .idle?, .syncing?:
+            // Calendar permission needed: the reconnect asks for it on top of mail.
+            if statuses[account.id]?.permissionsNeeded.isEmpty == false { reconnect(account) }
         default: break
         }
     }

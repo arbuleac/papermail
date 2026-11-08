@@ -16,6 +16,8 @@ public enum MailActionCopy {
         case .setStarred(true): return count > 1 ? "Starred \(n) conversations" : "Starred"
         case .setStarred(false): return count > 1 ? "Unstarred \(n) conversations" : "Unstarred"
         case .unsubscribe: return "Unsubscribe sent"
+        // The invitation card shows the answer itself; no toast names it.
+        case .answerInvitation: return "Answered"
         }
     }
 
@@ -47,6 +49,7 @@ public enum MailActionCopy {
         case .setStarred(true): return "Star"
         case .setStarred(false): return "Unstar"
         case .unsubscribe: return "Unsubscribe"
+        case .answerInvitation: return "Answer Invitation"
         }
     }
 
@@ -115,6 +118,8 @@ public enum MailActionCopy {
         case .setStarred(true), .setRead: return false
         // The request goes somewhere the row cannot show, so it is always said.
         case .unsubscribe: return true
+        // The card shows the answer as chosen, so nothing leaves the view.
+        case .answerInvitation: return false
         }
     }
 
@@ -130,6 +135,7 @@ public enum MailActionCopy {
         case .unstar: return "Couldn't unstar. Restored."
         case .trash: return "Couldn't move to Trash. Restored."
         case .unsubscribe: return "Couldn't unsubscribe."
+        case .answerInvitation: return "Couldn't answer the invitation. Restored."
         }
     }
 }

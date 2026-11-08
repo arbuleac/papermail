@@ -6,8 +6,8 @@ import SSCore
 enum ConversationScriptMessage: Equatable {
     case ready
     /// A button in a sheet. `on` is the state a toggle asks for (star); `point` is where a menu opens (More),
-    /// in the web view's coordinates.
-    case action(type: String, messageID: MessageID?, attachmentID: String?, on: Bool?, point: CGPoint?)
+    /// in the web view's coordinates; `value` is what the button names (an invitation's answer, a link).
+    case action(type: String, messageID: MessageID?, attachmentID: String?, on: Bool?, point: CGPoint?, value: String?)
     /// The target message changed: R, A, F and Space act on it.
     case select(MessageID)
     /// An attachment chip took keyboard focus: Space previews from it.
@@ -33,7 +33,8 @@ enum ConversationScriptMessage: Equatable {
                x.isFinite, y.isFinite {
                 point = CGPoint(x: x, y: y)
             }
-            self = .action(type: type, messageID: messageID, attachmentID: attachmentID, on: dictionary["on"] as? Bool, point: point)
+            self = .action(type: type, messageID: messageID, attachmentID: attachmentID, on: dictionary["on"] as? Bool, point: point,
+                           value: dictionary["value"] as? String)
         case "select":
             guard let messageID else { return nil }
             self = .select(messageID)

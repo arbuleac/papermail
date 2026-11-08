@@ -36,4 +36,7 @@ enum ConversationAction {
     /// Unsubscribe, from the link beside a sender or the message's More menu (spec §5.14): the request `message`'s
     /// list headers describe, and the conversation archived.
     case unsubscribe(MessageID)
+    /// The invitation card's Reconnect: the account signs in again, asking for permission to update its calendar
+    /// (spec §5.14, §5.44).
+    case reconnect(AccountID)
 }

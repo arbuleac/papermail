@@ -30,8 +30,9 @@ enum GmailBodyParser {
 
     static func parse(_ message: GmailMessage) -> Parsed {
         var parsed = Parsed(body: MessageBody(html: nil, text: nil, attachments: []), deferred: [])
+        var calendarFile: DeferredText?
         if let payload = message.payload {
-            walk(payload, into: &parsed)
+            walk(payload, into: &parsed, calendarFile: &calendarFile)
             // The full format carries every header; a message stored before the metadata asked for these learns them
             // when its body is fetched again, as a Microsoft message does.
             parsed.body.listUnsubscribe = UnsubscribeMethod.capturedHeader(payload.header("List-Unsubscribe"))
@@ -39,14 +40,34 @@ enum GmailBodyParser {
                 parsed.body.listUnsubscribePost = UnsubscribeMethod.capturedHeader(payload.header("List-Unsubscribe-Post"))
             }
         }
+        // A sender that attaches only an .ics file (no text/calendar alternative) still sent an invitation: its bytes
+        // are fetched with the body, as an oversized text part is, and it stays listed as an attachment too.
+        if parsed.body.calendar == nil, !parsed.deferred.contains(where: { $0.mimeType == calendarType }), let calendarFile {
+            parsed.deferred.append(calendarFile)
+        }
         return parsed
     }
 
-    private static func walk(_ part: GmailPart, into parsed: inout Parsed) {
+    static let calendarType = "text/calendar"
+
+    /// A file that is an iCalendar object by its type or name.
+    private static func isCalendarFile(mimeType: String, filename: String) -> Bool {
+        mimeType == calendarType || mimeType == "application/ics" || filename.lowercased().hasSuffix(".ics")
+    }
+
+    /// Whether a calendar Gmail keeps behind an attachment id is worth a request with the body: no larger than the
+    /// reader reads (a calendar export or a term's timetable is no invitation, and would be downloaded whole only to be
+    /// dropped), and, when Gmail states no size, typed as a calendar rather than only named like one.
+    private static func isWorthFetching(_ part: GmailPart, mimeType: String) -> Bool {
+        guard let size = part.body?.size, size > 0 else { return mimeType == calendarType || mimeType == "application/ics" }
+        return size <= CalendarInvitationReader.maximumLength
+    }
+
+    private static func walk(_ part: GmailPart, into parsed: inout Parsed, calendarFile: inout DeferredText?) {
         let mimeType = (part.mimeType ?? "").lowercased()
         if mimeType.hasPrefix("multipart/") {
             for child in part.parts ?? [] {
-                walk(child, into: &parsed)
+                walk(child, into: &parsed, calendarFile: &calendarFile)
             }
             return
         }
@@ -57,6 +78,21 @@ enum GmailBodyParser {
         // A named text part, or one the sender marked as an attachment, is a file the user attached
         // (notes.txt), not a rendering of the message.
         let isNamedOrAttached = !filename.isEmpty || (disposition?.hasPrefix("attachment") ?? false)
+
+        // An invitation's text/calendar alternative (Google, Outlook): read at sync time into the stored invitation,
+        // never shown as a file.
+        if mimeType == calendarType, !isNamedOrAttached {
+            if let encoded = part.body?.data, let bytes = Base64URL.decode(encoded) {
+                append(decodeText(bytes, contentType: part.header("Content-Type")), mimeType: mimeType, to: &parsed.body)
+            } else if let attachmentID = part.body?.attachmentId, isWorthFetching(part, mimeType: mimeType) {
+                parsed.deferred.append(DeferredText(mimeType: mimeType, attachmentID: attachmentID, contentType: part.header("Content-Type")))
+            }
+            return
+        }
+        if calendarFile == nil, isCalendarFile(mimeType: mimeType, filename: filename), let attachmentID = part.body?.attachmentId,
+           isWorthFetching(part, mimeType: mimeType) {
+            calendarFile = DeferredText(mimeType: calendarType, attachmentID: attachmentID, contentType: part.header("Content-Type"))
+        }
 
         if isTextBody, !isNamedOrAttached {
             if let encoded = part.body?.data, let bytes = Base64URL.decode(encoded) {
@@ -75,6 +111,11 @@ enum GmailBodyParser {
 
     /// Several bodies of one kind (forwarded digests, mailer quirks) read best concatenated in order.
     static func append(_ text: String, mimeType: String, to body: inout MessageBody) {
+        if mimeType == calendarType {
+            // One invitation per message: the first calendar part is it.
+            if body.calendar == nil { body.calendar = text }
+            return
+        }
         if mimeType == "text/html" {
             body.html = (body.html ?? "") + text
         } else {

@@ -95,7 +95,35 @@ public final class GraphProvider: MailProvider, Sendable {
         let message = try await client.json(GraphMessage.self, for: request)
         // `hasAttachments` is false for inline-only images, so the attachment list is always fetched.
         let attachments = try await attachments(for: providerID)
-        return GraphMessageMapper.body(from: message, attachments: attachments)
+        var body = GraphMessageMapper.body(from: message, attachments: attachments)
+        if message.isEventMessage {
+            body.invitation = try await invitation(forEventMessage: providerID)
+        }
+        return body
+    }
+
+    /// The invitation of an event message, read from its expanded event: one more request, only for meeting mail.
+    /// Times come in UTC (`outlook.timezone`), the zone the event was written in from `originalStartTimeZone`. A
+    /// failure the next request would meet too (a throttle, a refused token, the network) fails the body fetch so it is
+    /// tried again; any other leaves the message without a card rather than without a body.
+    func invitation(forEventMessage providerID: String) async throws -> CalendarInvitation? {
+        do {
+            return GraphInvitationMapper.invitation(from: try await eventMessage(providerID))
+        } catch let error where Self.failsTheCall(error) {
+            throw error
+        } catch ProviderError.network(let message) {
+            throw ProviderError.network(message)
+        } catch {
+            Self.folderLog.notice("invitation: event not read: \(String(describing: error), privacy: .private)")
+            return nil
+        }
+    }
+
+    /// The event message with its event (`$expand=microsoft.graph.eventMessage/event`), the documented way to reach it.
+    func eventMessage(_ providerID: String) async throws -> GraphMessage {
+        let url = try GraphURL.make("/me/messages/\(providerID)", query: [("$expand", "microsoft.graph.eventMessage/event")])
+        let request = GraphRequest(method: .get, url: url, prefer: ["outlook.timezone=\"UTC\"", "outlook.body-content-type=\"text\""])
+        return try await client.json(GraphMessage.self, for: request)
     }
 
     public func attachment(messageID providerID: String, attachmentID: String) async throws -> Data {

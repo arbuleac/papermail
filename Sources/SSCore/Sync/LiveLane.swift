@@ -402,6 +402,8 @@ actor LiveLane {
 
     private func drainOutbox() async throws -> Date? {
         let outcome = await runner.drain()
+        // Recorded on every drain, so the ask goes away as soon as the work it waited for can go out.
+        statusCenter.update(accountID) { $0.permissionsNeeded = outcome.permissionsNeeded }
         if outcome.needsReauth { throw ProviderError.unauthorized }
         // The operations wait on their own schedule and the cycle goes on to poll; the backfill pauses, since the
         // outbox spends the same quota.
@@ -585,11 +587,16 @@ actor LiveLane {
     /// Once a poll has reported those targets and the operation is old enough for any in-flight request to
     /// have landed, the provider's state is the truth: the row goes before that state is written. It is
     /// deleted, not confirmed, because it may never have landed, so it settles no failure mark.
+    ///
+    /// An invitation's answer is never settled this way: it is a mail and a calendar call, which no report of the
+    /// message's labels and flags shows, so deleting it would drop an answer that never went out while the card
+    /// still shows it chosen. It retries until it is confirmed or given up, and a give-up puts the previous one back.
     private func settleUncertainOperations(observed: Set<MessageID>) {
         guard !observed.isEmpty else { return }
         let cutoff = Date().addingTimeInterval(-tuning.uncertainSettleAge)
         let operations = (try? store.pendingOperations(accountID: accountID, limit: tuning.pendingOperationsFetchLimit)) ?? []
-        for operation in operations where operation.status == .uncertain && operation.createdAt < cutoff {
+        for operation in operations where operation.status == .uncertain && operation.createdAt < cutoff
+            && OperationKind(operation.change) != .answerInvitation {
             guard operation.targets.contains(where: observed.contains) else { continue }
             try? store.deleteOperation(id: operation.id)
         }

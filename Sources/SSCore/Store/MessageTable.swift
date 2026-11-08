@@ -10,6 +10,10 @@ enum MessageTable {
         list_unsubscribe, list_unsubscribe_post
         """
 
+    /// What a read selects: the provider's columns, then the local answer to an invitation (v15), which the upsert
+    /// never writes, so a provider report cannot undo it.
+    static let selectColumns = columns + ", invitation_reply"
+
     // The upsert form keeps the rowid (which the FTS index and the bodies foreign key hang off) where
     // INSERT OR REPLACE would delete and re-insert the row.
     private static let upsertSQL = """
@@ -143,9 +147,10 @@ enum MessageTable {
     /// Writes only the fields `applying(_:to:)` can change, for local operations.
     static func updateFlags(_ metadata: MessageMetadata, in db: Database) throws {
         try db.cachedStatement(sql: """
-            UPDATE messages SET roles = ?, is_read = ?, is_starred = ? WHERE account_id = ? AND provider_id = ?
+            UPDATE messages SET roles = ?, is_read = ?, is_starred = ?, invitation_reply = ?
+            WHERE account_id = ? AND provider_id = ?
             """).execute(arguments: [
-                MailStoreCodec.roleBits(metadata.roles), metadata.isRead, metadata.isStarred,
+                MailStoreCodec.roleBits(metadata.roles), metadata.isRead, metadata.isStarred, metadata.invitationReply?.rawValue,
                 metadata.id.accountID.rawValue, metadata.id.providerID,
             ])
     }
@@ -153,13 +158,13 @@ enum MessageTable {
     // MARK: Reads
 
     static func fetch(_ id: MessageID, in db: Database) throws -> MessageMetadata? {
-        let statement = try db.cachedStatement(sql: "SELECT \(columns) FROM messages WHERE account_id = ? AND provider_id = ?")
+        let statement = try db.cachedStatement(sql: "SELECT \(selectColumns) FROM messages WHERE account_id = ? AND provider_id = ?")
         return try Row.fetchOne(statement, arguments: [id.accountID.rawValue, id.providerID]).map(metadata(from:))
     }
 
     static func fetch(in conversation: ConversationID, db: Database) throws -> [MessageMetadata] {
         let statement = try db.cachedStatement(sql: """
-            SELECT \(columns) FROM messages WHERE account_id = ? AND conversation_provider_id = ?
+            SELECT \(selectColumns) FROM messages WHERE account_id = ? AND conversation_provider_id = ?
             ORDER BY date_ms, provider_id
             """)
         return try Row.fetchAll(statement, arguments: [conversation.accountID.rawValue, conversation.providerID])
@@ -224,14 +229,16 @@ enum MessageTable {
         try FullTextIndex.remove(rowid: rowid, in: db)
         try db.cachedStatement(sql: """
             INSERT INTO bodies (account_id, provider_id, html, text, rendered_html, plain_text, attachments_json,
-                                has_quoted, blocked_images, typesetting, declares_colors, covered_by_new_york, evicted)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                has_quoted, blocked_images, typesetting, declares_colors, covered_by_new_york, evicted,
+                                invitation_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(account_id, provider_id) DO UPDATE SET
                 html = excluded.html, text = excluded.text, rendered_html = excluded.rendered_html,
                 plain_text = excluded.plain_text, attachments_json = excluded.attachments_json,
                 has_quoted = excluded.has_quoted, blocked_images = excluded.blocked_images,
                 typesetting = excluded.typesetting, declares_colors = excluded.declares_colors,
-                covered_by_new_york = excluded.covered_by_new_york, evicted = excluded.evicted
+                covered_by_new_york = excluded.covered_by_new_york, evicted = excluded.evicted,
+                invitation_json = excluded.invitation_json
             """).execute(arguments: [
                 id.accountID.rawValue, id.providerID,
                 try evicted ? nil : body.body.html.map(MailStoreCodec.compress),
@@ -245,6 +252,8 @@ enum MessageTable {
                 body.declaresColors,
                 body.coveredByNewYork,
                 evicted,
+                // Its calendar text is source, which an evicted body keeps none of; fetching it again reads it again.
+                try evicted ? nil : body.invitation.map { try MailStoreCodec.json($0) },
             ])
         try db.cachedStatement(sql: "UPDATE messages SET has_body = 1 WHERE rowid = ?").execute(arguments: [rowid])
         // The headers a body fetch carries (Graph's only way to them) go on the message, not in `bodies`.
@@ -267,7 +276,7 @@ enum MessageTable {
     static func body(for id: MessageID, in db: Database) throws -> StoredBody? {
         let statement = try db.cachedStatement(sql: """
             SELECT html, text, rendered_html, plain_text, attachments_json, has_quoted, blocked_images,
-                   typesetting, declares_colors, covered_by_new_york FROM bodies
+                   typesetting, declares_colors, covered_by_new_york, invitation_json FROM bodies
             WHERE account_id = ? AND provider_id = ? AND evicted = 0
             """)
         guard let row = try Row.fetchOne(statement, arguments: [id.accountID.rawValue, id.providerID]) else { return nil }
@@ -275,6 +284,7 @@ enum MessageTable {
         let text: Data? = row[1]
         let rendered: Data = row[2]
         let attachmentsJSON: String = row[4]
+        let invitationJSON: String? = row[10]
         return StoredBody(
             body: MessageBody(
                 html: try html.map(MailStoreCodec.decompress),
@@ -287,7 +297,10 @@ enum MessageTable {
             blockedRemoteImageCount: row[6],
             typesetting: MailStoreCodec.typesetting(row[7]),
             declaresColors: row[8],
-            coveredByNewYork: row[9]
+            coveredByNewYork: row[9],
+            // An invitation that no longer decodes (a later build changed its shape) shows no card rather than failing
+            // the whole body.
+            invitation: invitationJSON.flatMap { try? MailStoreCodec.decode(CalendarInvitation.self, from: $0) }
         )
     }
 
@@ -323,10 +336,11 @@ enum MessageTable {
         ]
     }
 
-    /// Expects the column order of `columns`.
+    /// Expects the column order of `selectColumns`.
     static func metadata(from row: Row) throws -> MessageMetadata {
         let accountID = AccountID(row[0])
         let fromJSON: String? = row[8]
+        let reply: String? = row[25]
         return MessageMetadata(
             id: MessageID(accountID: accountID, providerID: row[1]),
             conversationID: ConversationID(accountID: accountID, providerID: row[2]),
@@ -351,7 +365,8 @@ enum MessageTable {
             providerVersion: row[21],
             sizeBytes: row[22],
             listUnsubscribe: row[23],
-            listUnsubscribePost: row[24]
+            listUnsubscribePost: row[24],
+            invitationReply: reply.flatMap(InvitationResponse.init(rawValue:))
         )
     }
 }

@@ -109,6 +109,11 @@ public protocol MailProvider: Sendable {
     /// Apply a change to the given messages. Must be idempotent: applying twice is harmless.
     func apply(_ change: MetadataChange, to providerIDs: [String]) async throws
 
+    /// The permission `change` needs that the account has not granted, or nil when it can go out. Asked before every
+    /// replay without a request (the granted scopes come with the token), so a change waiting for the user's
+    /// permission costs nothing while it waits. The default needs none.
+    func missingPermission(for change: MetadataChange) async -> AccountPermission?
+
     func send(_ message: OutgoingMessage) async throws -> SendReceipt
 
     /// Server-side search returning provider message ids, newest first.
@@ -116,6 +121,10 @@ public protocol MailProvider: Sendable {
 }
 
 extension MailProvider {
+    public func missingPermission(for change: MetadataChange) async -> AccountPermission? {
+        nil
+    }
+
     public func downloadAttachment(messageID providerID: String, attachmentID: String, expectedSize: Int, to destination: URL,
                                    progress: @escaping @Sendable (Double) -> Void) async throws {
         let data = try await attachment(messageID: providerID, attachmentID: attachmentID)

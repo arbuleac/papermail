@@ -62,7 +62,7 @@ enum BodyEviction {
     /// since the read is left alone). Returns how many it evicted.
     static func evict(_ rowids: [Int64], receivedBefore cutoff: Date, in db: Database) throws -> Int {
         let statement = try db.cachedStatement(sql: """
-            UPDATE bodies SET html = NULL, text = NULL, rendered_html = X'', evicted = 1
+            UPDATE bodies SET html = NULL, text = NULL, rendered_html = X'', invitation_json = NULL, evicted = 1
             WHERE rowid = ? AND evicted = 0
               AND EXISTS (SELECT 1 FROM messages m
                           WHERE m.account_id = bodies.account_id AND m.provider_id = bodies.provider_id

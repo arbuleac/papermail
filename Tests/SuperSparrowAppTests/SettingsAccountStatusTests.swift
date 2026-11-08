@@ -91,4 +91,28 @@ final class SettingsAccountStatusTests: XCTestCase {
         let status = model(AccountSyncStatus(accountID: account.id, phase: .idle, lastSuccessfulSyncAt: checked)).status(for: account)
         XCTAssertEqual(status, .upToDate(checked: checked.formatted(date: .omitted, time: .shortened)))
     }
+
+    // MARK: Calendar permission (invitations, spec §5.14, §5.40)
+
+    /// Mail is current, but an invitation the user answered waits for permission to update the calendar: the row asks
+    /// with Reconnect, and the reconnect it starts is the one that adds the scope.
+    func testAnAnswerWaitingForCalendarPermissionAsksToReconnect() throws {
+        let waiting = AccountSyncStatus(accountID: account.id, phase: .idle, lastSuccessfulSyncAt: Date(), permissionsNeeded: [.calendar])
+        let settings = model(waiting)
+        let status = settings.status(for: account)
+        XCTAssertEqual(status, .calendarPermission)
+        XCTAssertEqual(status.words, "Calendar permission needed")
+        XCTAssertEqual(status.actionTitle, "Reconnect")
+        XCTAssertEqual(status.tooltip, "Answer invitations: SuperSparrow needs permission to update your calendar.")
+        XCTAssertNil(status.addressReplacement, "the account still syncs: its address stays")
+
+        var reconnected: [AccountID] = []
+        settings.reconnect = { reconnected.append($0.id) }
+        settings.performRowAction(try XCTUnwrap(settings.rows.first))
+        XCTAssertEqual(reconnected, [account.id])
+
+        XCTAssertEqual(model(AccountSyncStatus(accountID: account.id, phase: .needsReauth, permissionsNeeded: [.calendar])).status(for: account),
+                       .signInRequired, "signing in again comes first, and asks for the calendar with it")
+        XCTAssertEqual(SyncLineSummary.accountWords(waiting), "Calendar permission needed", "the sync line's tooltip says it too")
+    }
 }

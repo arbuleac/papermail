@@ -125,6 +125,14 @@ enum MailSchema {
                 ALTER TABLE messages ADD COLUMN list_unsubscribe_post TEXT;
                 """)
         }
+        migrator.registerMigration("v15-calendar-invitations") { db in
+            // Both NULL for every existing row: an invitation is read when a body is fetched, so bodies stored before
+            // show no card until they are fetched again, and nobody has answered one here yet.
+            try db.execute(sql: """
+                ALTER TABLE bodies ADD COLUMN invitation_json TEXT;
+                ALTER TABLE messages ADD COLUMN invitation_reply TEXT;
+                """)
+        }
         return migrator
     }
 

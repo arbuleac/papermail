@@ -2,7 +2,7 @@
 and the rendered DESIGN-LANGUAGE.md. Colour order: light, dark, lightHC, darkHC."""
 
 NAME = "Quire"
-VERSION = "1.6.3"
+VERSION = "1.6.4"
 
 # (token, light, dark, lightHC, darkHC, group, use)
 COLOR = [
@@ -205,6 +205,9 @@ LAYOUT = {
  "textStyle": {"quoteBar": 2, "quoteIndent": 12, "linkUnderline": 1, "linkUnderlineOffset": 2, "listIndent": 24, "listMarkerGap": 6},
  "quotedToggle": {"height": 24, "radius": 6, "padLeft": 6, "padRight": 9, "gap": 6, "glyph": 14, "composerChip": 22},
  "banner": {"height": 32, "radius": 6, "padLeft": 10, "padRight": 6, "gap": 8, "glyph": 14, "narrowBreakpoint": 420, "padY": 8, "dismissGlyph": 9},
+ "invitation": {"radius": 8, "padX": 16, "padTop": 12, "padBottom": 12, "kickerGlyph": 14, "kickerGap": 6, "titleTop": 6, "whenTop": 2,
+                "detailsTop": 8, "labelColumn": 72, "rowGap": 2, "actionsTop": 12, "actionsPad": 10, "answerGap": 4, "answerSize": "small",
+                "answerGlyph": 12, "attendeesMax": 4, "noticeTop": 10, "gapBelow": 16},
  "attachmentChip": {"height": 44, "minWidth": 196, "maxWidth": 264, "radius": 8, "padLeft": 8, "padRight": 14, "gap": 10, "tile": 28, "tileRadius": 5,
                     "tileGlyph": 15, "progressWidth": 120, "progressHeight": 2, "chipGap": 8},
  "quickReply": {"rest": 60, "barPadY": 11, "field": 38, "fieldRadius": 8, "fieldPadTop": 9, "fieldPadBottom": 8,
@@ -280,7 +283,7 @@ ICON = {
  "removeAccount": "minus", "bold": "bold", "italic": "italic", "underline": "underline", "bulletedList": "list.bullet", "numberedList": "list.number",
  "blockQuote": "text.quote", "link": "link", "undone": "arrow.uturn.backward", "demo": "info.circle",
  "addAccountProvider": "envelope", "attention": "exclamationmark", "waitingToSync": "clock", "discardDraft": "trash",
- "reveal": "eye", "conceal": "eye.slash",
+ "reveal": "eye", "conceal": "eye.slash", "invitation": "calendar", "answered": "checkmark",
 }
 GLYPHS = {
  "ss.quire": {"grid": 16, "stroke": 1.5, "paths": ["M2.75 6.25h10.5a1 1 0 0 1 1 1v5.5a1 1 0 0 1-1 1H2.75a1 1 0 0 1-1-1v-5.5a1 1 0 0 1 1-1z", "M2.1 7 8 10.6 13.9 7", "M3.5 3.75h9", "M5.25 1.5h5.5"], "fills": [], "meaning": "All Inboxes: a gathering of letters"},
@@ -291,7 +294,7 @@ GLYPHS = {
 }
 READER_SYMBOLS = ["star", "star.fill", "arrowshape.turn.up.left", "arrowshape.turn.up.left.2", "arrowshape.turn.up.right", "ellipsis",
                   "circle.lefthalf.filled", "xmark", "photo", "exclamationmark.triangle.fill", "wifi.slash",
-                  "doc", "doc.richtext", "tablecells", "doc.zipper", "film"]
+                  "doc", "doc.richtext", "tablecells", "doc.zipper", "film", "calendar", "checkmark", "info.circle"]
 
 # Graphite system accent (§3.1): every accent-family token, mapped to the neutral ramp. A value is a token or a stack
 # (composited left to right). Tokens not listed are unchanged, including selWashIdle, selRuleIdle and every account ink.

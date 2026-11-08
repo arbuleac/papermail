@@ -25,6 +25,8 @@ public actor TokenManager: AccessTokenProvider {
     private var invalidated: Set<AccountID> = []
     private var refreshes: [AccountID: Refresh] = [:]
     private var refreshGeneration = 0
+    /// Refreshes still running that a sign-in replaced (`replaceTokens`): their replies are handed to their callers only.
+    private var superseded: Set<Int> = []
 
     /// `kinds` resolves an account to its provider so the right endpoint and client registration are used.
     public init(
@@ -70,6 +72,28 @@ public actor TokenManager: AccessTokenProvider {
         invalidated.insert(accountID)
     }
 
+    /// From the cached tokens, else the store; a refresh keeps the scope the reply lists (or the previous one).
+    public func grantedScopes(for accountID: AccountID) async -> String? {
+        (try? currentTokens(for: accountID))??.scope
+    }
+
+    /// A healthy account keeps its cached token for up to an hour, so without this a reconnect that added a scope
+    /// would leave answers waiting on the old grant. A refresh still in flight was started with the old refresh
+    /// token: its callers still get the token it brings (failing them would read as a cancelled sync), but it is
+    /// neither saved nor cached, so it cannot write the old grant over the new, and later callers read the store.
+    /// The save runs here, with no suspension around it: a refresh's reply, whose save also runs on this actor, lands
+    /// wholly before it (and is overwritten) or wholly after (and is dropped), never between the keychain write and
+    /// the bookkeeping. Declared `async`: a synchronous one would lose overload resolution to the protocol's default.
+    public func replaceTokens(for accountID: AccountID, saving save: @Sendable () throws -> Void) async throws {
+        try save()
+        if let inFlight = refreshes[accountID] {
+            superseded.insert(inFlight.generation)
+            refreshes[accountID] = nil
+        }
+        cache[accountID] = nil
+        invalidated.remove(accountID)
+    }
+
     // MARK: Store coordination
 
     /// Persists tokens from a fresh sign-in and primes the cache, so the first request after adding an
@@ -111,6 +135,8 @@ public actor TokenManager: AccessTokenProvider {
         let task = Task { [self] in
             defer { finishRefresh(for: accountID, generation: generation) }
             let tokens = try await performRefresh(for: accountID)
+            // A sign-in stored new tokens meanwhile (`replaceTokens`): this reply belongs to the old grant.
+            if superseded.contains(generation), !Task.isCancelled { return tokens }
             // The reply can land after `removeTokens` ran while the actor was busy elsewhere: the slot is then
             // gone (or a newer refresh owns it) and saving would put the deleted credentials back in the Keychain.
             guard !Task.isCancelled, refreshes[accountID]?.generation == generation else {
@@ -128,6 +154,7 @@ public actor TokenManager: AccessTokenProvider {
     /// Clears only this refresh's slot: `removeTokens` may already have dropped it and a newer refresh may
     /// have taken its place.
     private func finishRefresh(for accountID: AccountID, generation: Int) {
+        superseded.remove(generation)
         guard refreshes[accountID]?.generation == generation else { return }
         refreshes[accountID] = nil
     }

@@ -10,8 +10,8 @@ final class MetricDriftTests: XCTestCase {
     private let file = DesignTokensFile.shared
 
     func testEveryMetricIsCovered() {
-        // tokens.json had 646 leaves under layout, border and platform when this file was generated.
-        XCTAssertEqual(file.leafCount(under: ["layout", "border", "platform"]), 646, "regenerate with swift scripts/tools/quire-tokens.swift")
+        // tokens.json had 665 leaves under layout, border and platform when this file was generated.
+        XCTAssertEqual(file.leafCount(under: ["layout", "border", "platform"]), 665, "regenerate with swift scripts/tools/quire-tokens.swift")
     }
 
     func testLayoutWindow() {
@@ -312,6 +312,28 @@ final class MetricDriftTests: XCTestCase {
         number(Quire.Layout.Banner.narrowBreakpoint, "layout.banner.narrowBreakpoint")
         number(Quire.Layout.Banner.padY, "layout.banner.padY")
         number(Quire.Layout.Banner.dismissGlyph, "layout.banner.dismissGlyph")
+    }
+
+    func testLayoutInvitation() {
+        number(Quire.Layout.Invitation.radius, "layout.invitation.radius")
+        number(Quire.Layout.Invitation.padX, "layout.invitation.padX")
+        number(Quire.Layout.Invitation.padTop, "layout.invitation.padTop")
+        number(Quire.Layout.Invitation.padBottom, "layout.invitation.padBottom")
+        number(Quire.Layout.Invitation.kickerGlyph, "layout.invitation.kickerGlyph")
+        number(Quire.Layout.Invitation.kickerGap, "layout.invitation.kickerGap")
+        number(Quire.Layout.Invitation.titleTop, "layout.invitation.titleTop")
+        number(Quire.Layout.Invitation.whenTop, "layout.invitation.whenTop")
+        number(Quire.Layout.Invitation.detailsTop, "layout.invitation.detailsTop")
+        number(Quire.Layout.Invitation.labelColumn, "layout.invitation.labelColumn")
+        number(Quire.Layout.Invitation.rowGap, "layout.invitation.rowGap")
+        number(Quire.Layout.Invitation.actionsTop, "layout.invitation.actionsTop")
+        number(Quire.Layout.Invitation.actionsPad, "layout.invitation.actionsPad")
+        number(Quire.Layout.Invitation.answerGap, "layout.invitation.answerGap")
+        string(Quire.Layout.Invitation.answerSize, "layout.invitation.answerSize")
+        number(Quire.Layout.Invitation.answerGlyph, "layout.invitation.answerGlyph")
+        number(Quire.Layout.Invitation.attendeesMax, "layout.invitation.attendeesMax")
+        number(Quire.Layout.Invitation.noticeTop, "layout.invitation.noticeTop")
+        number(Quire.Layout.Invitation.gapBelow, "layout.invitation.gapBelow")
     }
 
     func testLayoutAttachmentChip() {

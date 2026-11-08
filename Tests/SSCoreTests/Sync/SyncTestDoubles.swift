@@ -47,10 +47,28 @@ final class StubAccessTokenProvider: AccessTokenProvider, @unchecked Sendable {
         record(accountID)
     }
 
+    private var replaced: [AccountID] = []
+
+    /// The accounts a sign-in stored new tokens for, in order.
+    var replacements: [AccountID] {
+        lock.lock(); defer { lock.unlock() }
+        return replaced
+    }
+
+    func replaceTokens(for accountID: AccountID, saving save: @Sendable () throws -> Void) async throws {
+        try save()
+        recordReplacement(accountID)
+    }
+
     // Locking happens in a synchronous helper because NSLock may not be held across a suspension point.
     private func record(_ accountID: AccountID) {
         lock.lock(); defer { lock.unlock() }
         invalidated.append(accountID)
+    }
+
+    private func recordReplacement(_ accountID: AccountID) {
+        lock.lock(); defer { lock.unlock() }
+        replaced.append(accountID)
     }
 }
 
@@ -62,6 +80,13 @@ final class StubAuthenticator: AccountAuthenticator, @unchecked Sendable {
     )
 
     private var hints: [String?] = []
+    private var asked: [Set<AccountPermission>] = []
+
+    /// The permissions each sign-in asked for beyond mail.
+    var permissions: [Set<AccountPermission>] {
+        lock.lock(); defer { lock.unlock() }
+        return asked
+    }
 
     var signIns: [ProviderKind] {
         lock.lock(); defer { lock.unlock() }
@@ -74,13 +99,18 @@ final class StubAuthenticator: AccountAuthenticator, @unchecked Sendable {
     }
 
     func signIn(kind: ProviderKind, loginHint: String?) async throws -> OAuthTokens {
-        try recordSignIn(kind, loginHint: loginHint).get()
+        try recordSignIn(kind, loginHint: loginHint, permissions: []).get()
     }
 
-    private func recordSignIn(_ kind: ProviderKind, loginHint: String?) -> Result<OAuthTokens, Error> {
+    func signIn(kind: ProviderKind, loginHint: String?, permissions: Set<AccountPermission>) async throws -> OAuthTokens {
+        try recordSignIn(kind, loginHint: loginHint, permissions: permissions).get()
+    }
+
+    private func recordSignIn(_ kind: ProviderKind, loginHint: String?, permissions: Set<AccountPermission>) -> Result<OAuthTokens, Error> {
         lock.lock(); defer { lock.unlock() }
         kinds.append(kind)
         hints.append(loginHint)
+        asked.append(permissions)
         return result
     }
 }

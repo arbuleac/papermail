@@ -144,6 +144,64 @@
     </div>
   </div>
 
+  <div class="c12 card deskbg">
+    <h3>Invitation card <code>layout.invitation · §5.14</code></h3>
+    <p class="cap" style="max-width:none">Above the body, at the indent, inside the measure. Read when the body was fetched, never when it opens. The answer is recorded at once and goes out in the background; an answer that needs permission to update the calendar waits and asks to reconnect. Cancelled shows the word and strikes the title; an event the user organized and an invitation that could not be read whole offer nothing to answer (the latter shows no card at all).</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start">
+      <div style="display:grid;gap:6px">
+        <span class="lbl">Open · in another zone · repeating</span>
+        <div class="inv">
+          <div class="ik">{{PY: s('calendar', 14)}}<span>Invitation</span></div>
+          <div class="it">Design critique</div>
+          <div class="iw">Tue 11 Nov · 19:00 – 20:00</div>
+          <div class="ie">Tue 11 Nov · 10:00 – 11:00 Pacific Time</div>
+          <div class="ir">Every week on Tuesday, 12 times</div>
+          <dl><dt>Where</dt><dd>Bay 4</dd><dt></dt><dd><span class="lk">https://teams.microsoft.com/l/meetup-join/…</span></dd><dt>Organizer</dt><dd>Rachel Kim</dd><dt>Guests</dt><dd>You, Marcus Bell, Aisha Patel</dd></dl>
+          <div class="ia"><span class="ans">Accept</span><span class="ans foc">Tentative</span><span class="ans">Decline</span><span class="btn linkb">Open in Calendar</span></div>
+        </div>
+        <span class="ann">Tentative focused (Tab); no answer chosen yet.</span>
+      </div>
+      <div style="display:grid;gap:6px">
+        <span class="lbl">Answered · waiting for calendar permission</span>
+        <div class="inv">
+          <div class="ik">{{PY: s('calendar', 14)}}<span>Invitation</span></div>
+          <div class="it">Sam’s birthday dinner</div>
+          <div class="iw">Sat 15 Nov · 19:30 – 22:00</div>
+          <dl><dt>Where</dt><dd>Casa Lisboa, 24 Valencia Street</dd><dt>Organizer</dt><dd>Sam Okafor</dd><dt>Guests</dt><dd>You, Priya Raman, Jordan Lee, Diego Alvarez +2 more</dd></dl>
+          <div class="ia"><span class="ans on">{{PY: s('checkmark', 12)}}Accept</span><span class="ans">Tentative</span><span class="ans">Decline</span><span class="btn linkb">Open in Calendar</span></div>
+          <div class="banner info">{{PY: s('info.circle', 14)}}<span class="txt">Answer invitations: SuperSparrow needs permission to update your calendar.</span><span class="btn linkb">Reconnect</span></div>
+        </div>
+        <span class="ann">Accept chosen: <code>accentWash</code>, the checkmark and Semibold carry it.</span>
+      </div>
+      <div style="display:grid;gap:6px">
+        <span class="lbl">Cancelled</span>
+        <div class="inv cxl">
+          <div class="ik">{{PY: s('exclamationmark.triangle.fill', 14)}}<span>Cancelled</span></div>
+          <div class="it">Climbing night</div>
+          <div class="iw">Fri 14 Nov · 19:00 – 21:00</div>
+          <dl><dt>Where</dt><dd>Mission Cliffs</dd><dt>Organizer</dt><dd>Jordan Lee</dd><dt>Guests</dt><dd>You, Sam Okafor</dd></dl>
+          <div class="ia"><span class="btn linkb">Open in Calendar</span></div>
+        </div>
+      </div>
+      <div style="display:grid;gap:6px">
+        <span class="lbl">Answered elsewhere · all day · the user's own event (no answers)</span>
+        <div class="inv">
+          <div class="ik">{{PY: s('calendar', 14)}}<span>Invitation</span></div>
+          <div class="it">Offsite</div>
+          <div class="iw">Wed 12 Nov – Thu 13 Nov · All day</div>
+          <div class="ia"><span class="ans">Accept</span><span class="ans">Tentative</span><span class="ans on">{{PY: s('checkmark', 12)}}Decline</span><span class="btn linkb">Open in Calendar</span></div>
+        </div>
+        <div class="inv">
+          <div class="ik">{{PY: s('calendar', 14)}}<span>Invitation</span></div>
+          <div class="it">Team lunch</div>
+          <div class="iw">Mon 10 Nov · 12:00 – 13:00</div>
+          <dl><dt>Organizer</dt><dd>You</dd><dt>Guests</dt><dd>Ben Carter, Tom Hughes</dd></dl>
+          <div class="ia"><span class="btn linkb">Open in Calendar</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="c6 card">
     <h3>List paging and row times <code>layout.listFooter · runningHead</code></h3>
     <p class="cap">Each running head sets the row time below it: the time under Today and Yesterday, the weekday this week, day and month under older heads. The tail footer appears only when the next page takes longer than {{motion.duration.spinnerDelay}} ms.</p>

@@ -5,7 +5,7 @@ import CoreGraphics
 
 extension Quire {
     public static let name = "Quire"
-    public static let version = "1.6.3"
+    public static let version = "1.6.4"
 
     /// Every symbol the app draws, by action (spec §4.11). `ss.` names are custom glyphs (`QuireGlyph`).
     public enum Icon {
@@ -86,6 +86,8 @@ extension Quire {
         public static let discardDraft = "trash"
         public static let reveal = "eye"
         public static let conceal = "eye.slash"
+        public static let invitation = "calendar"
+        public static let answered = "checkmark"
     }
 
     /// The custom glyphs (spec §4.11): SVG path data in grid units, y down.
@@ -181,6 +183,9 @@ extension Quire {
         "tablecells",
         "doc.zipper",
         "film",
+        "calendar",
+        "checkmark",
+        "info.circle",
     ]
 
     /// The keyboard cheat sheet's content (spec §5.32), band by band, left to right.

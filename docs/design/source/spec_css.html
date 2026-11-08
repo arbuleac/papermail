@@ -600,6 +600,25 @@ code{font:11px/14px var(--q-mono)}
   .nlx,.nlx *{color:var(--q-ink)!important;background:transparent!important;background-image:none!important;border-color:var(--q-rule)!important}
   .nlnote{display:flex}
 }
+/* the invitation card (§5.14, layout.invitation): content on the sheet, like a chip */
+.inv{background:var(--q-sheet);border-radius:{{layout.invitation.radius}}px;box-shadow:inset 0 0 0 1px var(--q-rule);padding:{{layout.invitation.padTop}}px {{layout.invitation.padX}}px {{layout.invitation.padBottom}}px}
+.inv .ik{display:flex;align-items:center;gap:{{layout.invitation.kickerGap}}px;font:var(--q-font-runningHead);letter-spacing:var(--q-track-runningHead);text-transform:uppercase;color:var(--q-ink3)}
+.inv.cxl .ik{color:var(--q-danger)}
+.inv .it{margin-top:{{layout.invitation.titleTop}}px;font:var(--q-font-title);color:var(--q-ink)}
+.inv.cxl .it{color:var(--q-ink2);text-decoration:line-through;text-decoration-thickness:1px}
+.inv .iw{margin-top:{{layout.invitation.whenTop}}px;font:var(--q-font-body);color:var(--q-ink)}
+.inv .ie{font:var(--q-font-snippet);color:var(--q-ink3)}
+.inv .ir{margin-top:{{layout.invitation.whenTop}}px;font:var(--q-font-snippet);color:var(--q-ink2)}
+.inv dl{margin:{{layout.invitation.detailsTop}}px 0 0;display:grid;grid-template-columns:{{layout.invitation.labelColumn}}px minmax(0,1fr);row-gap:{{layout.invitation.rowGap}}px;font:var(--q-font-snippet);line-height:16px}
+.inv dt{color:var(--q-ink3)}.inv dd{margin:0;color:var(--q-ink2)}.inv dd .lk{color:var(--q-accent)}
+.inv .ia{margin-top:{{layout.invitation.actionsTop}}px;padding-top:{{layout.invitation.actionsPad}}px;border-top:1px solid var(--q-rule);display:flex;align-items:center;gap:{{layout.invitation.answerGap}}px}
+.inv .ia .linkb{margin-left:auto;font:var(--q-font-label)}
+.ans{display:inline-flex;align-items:center;gap:6px;height:{{layout.button.small.height}}px;padding:0 9px;border-radius:5px;background:var(--q-raised);box-shadow:inset 0 0 0 1px var(--q-ruleStrong);font:var(--q-font-label);color:var(--q-ink)}
+.ans.on{background:var(--q-accentWash);box-shadow:none;color:var(--q-accent);font:var(--q-font-labelStrong);padding-left:7px}
+.ans.on.hov{background:var(--q-accentWashHover)}
+.ans.foc{box-shadow:inset 0 0 0 1px var(--q-ruleStrong),0 0 0 1px var(--q-sheet),0 0 0 3px var(--q-focus)}
+.inv .banner{height:auto;min-height:32px;margin-top:{{layout.invitation.noticeTop}}px;align-items:flex-start}
+.inv .banner .sym{margin-top:9px}.inv .banner .txt{white-space:normal;padding:8px 0}.inv .banner .linkb{align-self:flex-end;margin-bottom:4px}
 .hscroll{position:absolute;left:0;right:0;bottom:2px;height:4px;padding:0 2px}
 .hscroll i{display:block;height:4px;border-radius:2px;background:var(--q-ink3);opacity:.6}
 </style>

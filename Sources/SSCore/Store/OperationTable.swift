@@ -82,8 +82,18 @@ enum OperationTable {
             state.roles = MailStoreCodec.roles(prior[1])
             state.isRead = prior[2]
             state.isStarred = prior[3]
+            // An answer is local state no provider reports, so what it replaced travels in the operation itself.
+            let isAnswer = operation.change.kind == .answerInvitation
+            if case .answerInvitation(let answer) = operation.change { state.invitationReply = answer.previous }
             for (newerID, change) in try liveOperations(on: id, newerThan: operation, in: db) {
                 try recordPrior(state, operationID: newerID, in: db)
+                // A newer answer named this one as what it replaced, and this one never went out: it now replaces what
+                // this one replaced, so its own give-up puts back only an answer that went out (or none).
+                if isAnswer, case .answerInvitation(var newer) = change, newer.previous != state.invitationReply {
+                    newer.previous = state.invitationReply
+                    try db.cachedStatement(sql: "UPDATE operations SET change_json = ? WHERE id = ?")
+                        .execute(arguments: [try MailStoreCodec.json(MetadataChange.answerInvitation(newer)), newerID])
+                }
                 state = applying(change, to: state)
             }
             guard state != current else { continue }
