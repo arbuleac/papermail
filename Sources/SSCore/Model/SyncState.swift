@@ -54,7 +54,9 @@ public struct AccountSyncStatus: Hashable, Sendable {
     public var backfillProgress: Int?
     /// The provider's estimate of how many messages the backfill covers, when it gives one. Nil when unknown.
     public var backfillTotal: Int?
-    /// Set while the provider has throttled the backfill lane: when it resumes. The live lane is unaffected.
+    /// Set while a throttle holds the backfill lane back, its own or one on the live lane (both spend the provider's
+    /// quota): when it resumes. Only while the backfill has a request to make, so a pause after the download has
+    /// finished never shows. The live lane's own throttle is in `phase`; it never waits for this.
     public var backfillPausedUntil: Date?
     /// True while the backfill lane, its listing done, is still downloading the bodies of mail already listed
     /// (“Up to date · downloading messages…”). Cleared once a batch finds no body missing.

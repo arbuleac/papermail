@@ -8,16 +8,25 @@ import Foundation
 /// before an earlier one on the same message.
 struct OperationRunner: Sendable {
     struct Outcome: Sendable {
+        /// A throttled apply, and the retry time the provider named, if any.
+        struct Throttle: Sendable, Equatable {
+            var retryAfter: TimeInterval?
+        }
+
         var applied = 0
         /// The provider rejected the token; the syncer must stop and wait for the user.
         var needsReauth = false
         /// When the earliest deferred operation becomes due, so the loop can wake early for it.
         var nextAttemptAt: Date?
+        /// Set when the provider throttled an apply. The operations already wait for it; the live lane pauses the
+        /// backfill with it, since the outbox spends the same quota.
+        var throttle: Throttle?
     }
 
     private enum GroupResult {
         case applied
         case deferred(Date)
+        case throttled(Date, retryAfter: TimeInterval?)
         case uncertain(Date?)
         case needsReauth
     }
@@ -70,6 +79,10 @@ struct OperationRunner: Sendable {
             case .deferred(let until):
                 // The provider is unhappy; later operations would fail the same way and must keep their order.
                 outcome.nextAttemptAt = Self.earlier(outcome.nextAttemptAt, until)
+                return outcome
+            case .throttled(let until, let retryAfter):
+                outcome.nextAttemptAt = Self.earlier(outcome.nextAttemptAt, until)
+                outcome.throttle = Outcome.Throttle(retryAfter: retryAfter)
                 return outcome
             case .uncertain(let until):
                 if let until { outcome.nextAttemptAt = Self.earlier(outcome.nextAttemptAt, until) }
@@ -197,7 +210,9 @@ struct OperationRunner: Sendable {
         let count = operations.count
         SyncLog.logger.error("outbox: apply failed for \(count, privacy: .public) operations, \(givenUp, privacy: .public) given up: \(description, privacy: .private)")
         switch error as? ProviderError {
-        case .throttled, .network:
+        case .throttled(let retryAfter):
+            return .throttled(earliest ?? now, retryAfter: retryAfter)
+        case .network:
             return .deferred(earliest ?? now)
         case .unauthorized:
             return .needsReauth

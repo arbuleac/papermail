@@ -29,6 +29,8 @@ final class ScriptedProvider: MailProvider, @unchecked Sendable {
     var sendResults: [Result<SendReceipt, Error>] = []
     /// Keyed "<messageID>/<attachmentID>".
     var attachments: [String: Data] = [:]
+    /// Downloads that fail with this error instead, keyed like `attachments`.
+    var attachmentErrors: [String: Error] = [:]
     /// Fractions `downloadAttachment` reports before it writes the file, as a provider that streams does; it then
     /// reports 1 once the file is written. Empty: it reports nothing, as for a file of unknown size.
     var attachmentProgressSteps: [Double] = []
@@ -227,11 +229,13 @@ final class ScriptedProvider: MailProvider, @unchecked Sendable {
 
     func downloadAttachment(messageID providerID: String, attachmentID: String, expectedSize: Int, to destination: URL,
                             progress: @escaping @Sendable (Double) -> Void) async throws {
-        let (data, steps): (Data?, [Double]) = locked {
+        let (data, steps, failure): (Data?, [Double], Error?) = locked {
             recordedAttachmentCalls.append((providerID, attachmentID))
             recordedAttachmentExpectedSizes.append(expectedSize)
-            return (attachments["\(providerID)/\(attachmentID)"], attachmentProgressSteps)
+            let key = "\(providerID)/\(attachmentID)"
+            return (attachments[key], attachmentProgressSteps, attachmentErrors[key])
         }
+        if let failure { throw failure }
         for step in steps { progress(step) }
         guard let data else { throw ProviderError.notFound }
         try data.write(to: destination)

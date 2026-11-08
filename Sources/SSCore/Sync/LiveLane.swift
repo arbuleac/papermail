@@ -11,7 +11,9 @@ import Foundation
 /// The lane sleeps between cycles on its `SyncWaker`, so `syncNow` and user actions wake it at once. A user
 /// action runs the outbox alone; the change poll keeps its own deadline, which only a full cycle moves.
 /// Throttling and network failures back off exponentially, and neither that schedule nor a provider's retry time
-/// keeps it waiting past `liveBackoffCap`. What it can put off, it fits to its own share of the quota
+/// keeps it waiting past `liveBackoffCap`. A throttle on any of its requests (a page, the outbox, a body) also pauses
+/// the backfill through the budget (`QuotaBudget.liveThrottled`), since both lanes spend one per-user quota; this lane
+/// never waits on that pause. What it can put off, it fits to its own share of the quota
 /// (`QuotaBudget.liveHeadroom`): after a page that left more to fetch or was heavy, the next page (of the same poll
 /// or the next) waits until that share covers what the last one cost, and bodies after a poll are prefetched only
 /// while it has room, so neither a large catch-up nor a busy mailbox whose every poll brings a heavy page spends
@@ -240,7 +242,7 @@ actor LiveLane {
         } catch is CancellationError {
             return .cancelled
         } catch let error as ProviderError {
-            return handle(error)
+            return await handle(error)
         } catch let error as AuthError where error.isKeychainDenial {
             // macOS asks for the keychain password on every read the user has not allowed (each rebuild of an
             // ad hoc signed app counts as a new app). Retrying on a backoff would bring the prompt back again
@@ -256,7 +258,7 @@ actor LiveLane {
         }
     }
 
-    private func handle(_ error: ProviderError) -> CycleOutcome {
+    private func handle(_ error: ProviderError) async -> CycleOutcome {
         let id = accountID.rawValue
         switch error {
         case .unauthorized:
@@ -264,6 +266,9 @@ actor LiveLane {
             SyncLog.logger.error("provider rejected the token for \(id, privacy: .public)")
             return .needsReauth
         case .throttled(let retryAfter):
+            // Before the cycle ends: at launch that end is what lets the backfill start, and its first request must
+            // already find the pause.
+            await budget.liveThrottled(retryAfter: retryAfter)
             setPhase(.paused, message: Self.rateLimitedMessage)
             SyncLog.logger.notice("live lane throttled on \(self.currentCall, privacy: .public) for \(id, privacy: .public), retry after \(retryAfter ?? -1, privacy: .public) s")
             return .throttled(retryAfter: retryAfter)
@@ -377,6 +382,9 @@ actor LiveLane {
     private func drainOutbox() async throws -> Date? {
         let outcome = await runner.drain()
         if outcome.needsReauth { throw ProviderError.unauthorized }
+        // The operations wait on their own schedule and the cycle goes on to poll; the backfill pauses, since the
+        // outbox spends the same quota.
+        if let throttle = outcome.throttle { await budget.liveThrottled(retryAfter: throttle.retryAfter) }
         return outcome.nextAttemptAt
     }
 

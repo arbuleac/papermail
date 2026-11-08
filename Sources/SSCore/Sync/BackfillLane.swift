@@ -11,8 +11,10 @@ import Foundation
 /// live lane marks them, docs/DATA-MODEL.md "Backfill marks"), and the state is saved after every page, so a
 /// quit or a crash resumes where it stopped.
 ///
-/// A throttle pauses this lane alone (the live lane keeps polling) and shows as `backfillPausedUntil`; other
-/// failures back off quietly, without touching the live phase. A rejected token parks both lanes until the live
+/// A throttle pauses this lane (the live lane keeps polling) and shows as `backfillPausedUntil`. So does a throttle
+/// on the live share (`QuotaBudget.liveThrottled`), since both lanes spend one quota: the budget holds every request
+/// of this lane until it ends, and tells this lane to show it once a request waits on it. Other failures back off
+/// quietly, without touching the live phase. A rejected token parks both lanes until the live
 /// lane completes a cycle again, and at launch this lane waits for the live lane's first cycle. The park is
 /// looked at again before every request, so a turn under way stops sending once the account is parked.
 actor BackfillLane {
@@ -73,6 +75,12 @@ actor BackfillLane {
     func run() async {
         let id = accountID.rawValue
         SyncLog.logger.info("backfill lane started for \(id, privacy: .public)")
+        // A pause this lane did not start (a throttle on the live lane) reaches it only through the budget: it shows
+        // while one of this lane's requests waits it out, mid-turn included, and clears as that request goes out.
+        await budget.observePauses { [statusCenter, accountID] resume in
+            guard !Task.isCancelled else { return }
+            statusCenter.update(accountID) { $0.backfillPausedUntil = resume }
+        }
         // A download left incomplete by the last run shows how far it got at once, before any request.
         publishProgress(try? store.bootstrapState(for: accountID))
         while !Task.isCancelled {

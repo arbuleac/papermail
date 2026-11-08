@@ -5,7 +5,8 @@ import Foundation
 /// Two paths share one in-flight table, so a body being hydrated and a body being opened never fetch twice:
 /// the live path fetches the bodies of mail a poll just brought, a few at a time, and only records what it
 /// spent; the paced path serves the backfill lane, and every fetch on it first takes a backfill slot and its
-/// units from the account's `QuotaBudget`. `ensureBody` serves the UI's on-demand fetches as live spend.
+/// units from the account's `QuotaBudget`. `ensureBody` serves the UI's on-demand fetches as live spend. A throttle on
+/// live spend pauses the backfill (`QuotaBudget.liveThrottled`).
 actor Hydrator {
     struct Outcome: Sendable {
         var fetched = 0
@@ -115,8 +116,10 @@ actor Hydrator {
         // newest, a message the user opened) or still being fetched costs the backfill nothing.
         if inFlight[id] != nil || (try? store.body(for: id)) != nil { return false }
         try await budget.acquireBackfill(cost)
-        // The wait for units can be long, and the account may have been parked for sign-in during it.
+        // The wait for units can be long, and the account may have been parked for sign-in during it, or a sibling's
+        // throttle may have stopped the batch.
         guard proceed() else { throw Halted() }
+        try Task.checkCancellation()
         _ = try await fetchTask(for: id, chargesLive: false).value
         return true
     }
@@ -182,7 +185,8 @@ actor Hydrator {
     // MARK: Fetching
 
     /// Runs `fetchOne` over `ids` with at most `concurrency` in flight, and stops starting new ones after an
-    /// error that blocks the whole account or once a paced fetch is halted. `fetchOne` returns whether it fetched.
+    /// error that blocks the whole account (cancelling those that have not sent yet) or once a paced fetch is halted.
+    /// `fetchOne` returns whether it fetched.
     private func fetch(
         _ ids: [MessageID],
         concurrency: Int,
@@ -207,11 +211,19 @@ actor Hydrator {
                 case .failure(let error) where error is Halted:
                     outcome.halted = true
                     stopLaunching = true
+                case .failure(let error) where error is CancellationError && outcome.blocking != nil:
+                    // Cancelled below before it sent: nothing failed, and the body is asked for again next batch.
+                    break
                 case .failure(let error):
                     outcome.failed += 1
                     if let blocking = Self.blockingError(error) {
                         if outcome.blocking == nil { outcome.blocking = blocking }
                         stopLaunching = true
+                        // Fetches that have not sent yet stop now rather than go into the refusal. A paced one
+                        // waiting for its units through a pause (a live throttle's) would also hold the batch until
+                        // after it, and the lane's report of this throttle would then count as a new event that halves
+                        // the rate again. A fetch already sent runs on in its own task and is waited for.
+                        group.cancelAll()
                     } else if Self.deservesDeferral(error) {
                         retryAfter[id] = Date().addingTimeInterval(tuning.hydrationRetryDelay)
                     } else {
@@ -254,7 +266,17 @@ actor Hydrator {
             // The other path may have stored it between the caller's look and now; that costs no request.
             if let stored = try store.body(for: id) { return stored }
             if chargesLive { await budget.recordLive(cost) }
-            let body = try await provider.body(for: id.providerID)
+            let body: MessageBody
+            do {
+                body = try await provider.body(for: id.providerID)
+            } catch {
+                // Every body fetch on the live share starts here (the live lane's newest, a message the user opened),
+                // so here is where its throttle pauses the backfill. A paced fetch's throttle is the backfill lane's.
+                if chargesLive, case .throttled(let retryAfter)? = error as? ProviderError {
+                    await budget.liveThrottled(retryAfter: retryAfter)
+                }
+                throw error
+            }
             try Task.checkCancellation()
             let sanitized = sanitizer.sanitize(body, messageID: id)
             let stored = StoredBody(

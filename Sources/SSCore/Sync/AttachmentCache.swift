@@ -7,7 +7,8 @@ import Foundation
 /// share one download, and its progress, so the conversation view's inline images never hit the network twice.
 ///
 /// A download is something the user asked for (a chip opened or saved, an inline image shown), so it is recorded as
-/// live spend in the account's quota budget and never waits for it, like a message the user opens.
+/// live spend in the account's quota budget and never waits for it, like a message the user opens; a throttle on it
+/// pauses the backfill (`QuotaBudget.liveThrottled`).
 actor AttachmentCache {
     private struct Download {
         var task: Task<Data, Error>
@@ -60,8 +61,16 @@ actor AttachmentCache {
             try FileManager.default.createDirectory(at: partials, withIntermediateDirectories: true)
             let partial = partials.appendingPathComponent(UUID().uuidString + ".partial", isDirectory: false)
             defer { try? FileManager.default.removeItem(at: partial) }
-            try await provider.downloadAttachment(messageID: message.providerID, attachmentID: attachmentID,
-                                                  expectedSize: expectedSize, to: partial, progress: { relay.report($0) })
+            do {
+                try await provider.downloadAttachment(messageID: message.providerID, attachmentID: attachmentID,
+                                                      expectedSize: expectedSize, to: partial, progress: { relay.report($0) })
+            } catch {
+                // Live spend, so a throttle here pauses the backfill as one on the live lane does.
+                if case .throttled(let retryAfter)? = error as? ProviderError {
+                    await budget.liveThrottled(retryAfter: retryAfter)
+                }
+                throw error
+            }
             // rename(2) replaces whatever is there in one step, so a reader never sees half a file.
             guard rename(partial.path, url.path) == 0 else {
                 throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)

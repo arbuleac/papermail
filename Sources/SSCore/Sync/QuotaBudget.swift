@@ -14,9 +14,14 @@ import Foundation
 /// units spent in a few seconds well before a minute's 6,000.
 ///
 /// A throttle means the bucket's picture of the provider was wrong, so the backfill halves its rate (AIMD),
-/// drops whatever credit it held and pauses until the provider's retry time or an exponential delay. Every quiet
-/// minute after the pause wins back a tenth of the rate. Recovery and refill are worked out from timestamps when
-/// someone asks, so nothing runs while the lane is idle.
+/// drops whatever credit it held and pauses until the provider's retry time or an exponential delay. A throttle on
+/// the live lane does the same (`liveThrottled`): both lanes spend one per-user quota, and a backfill that went on
+/// spending would keep the provider refusing new mail. Every quiet minute after the pause wins back a tenth of the
+/// rate. Recovery and refill are worked out from timestamps when someone asks, so nothing runs while the lane is idle.
+///
+/// The pause is told to an observer (the backfill lane, which shows it) only once a backfill request waits through
+/// it, and its end when that request is let through, so a pause no backfill request meets (one after the download
+/// has finished) is never shown and never left behind.
 ///
 /// Under an unmetered quota (`ProviderQuota.unlimited`) nothing waits: not for units and not for a throttle.
 actor QuotaBudget {
@@ -52,6 +57,9 @@ actor QuotaBudget {
     /// Whether the backfill has been let through since the last throttle. Until it has, a success answers a
     /// request sent before the throttle and says nothing about whether the provider has calmed down.
     private var grantedSinceThrottle = true
+    private var pauseObserver: (@Sendable (Date?) -> Void)?
+    /// The resume time the observer last heard, nil once it heard the backfill let through.
+    private var announcedResume: Date?
 
     /// One caller at a time works out its wait and spends, in arrival order. If each slept for its own shortfall,
     /// whoever needed least would wake first and take the refill, and a metadata batch could wait behind body
@@ -82,6 +90,9 @@ actor QuotaBudget {
     private static let liveDebtFloorAllowances = 10.0
     private static let pauseBase: TimeInterval = 15
     private static let pauseCap: TimeInterval = 600
+    /// Quiet time after a pause that ends a run of throttles: longer than a working backfill takes to send again
+    /// once a pause ends (any debt is paid within minutes), so a backfill refused on every try still doubles.
+    private static let throttleRunGap: TimeInterval = pauseCap
     /// A "retry after 0" must not turn the next attempt into a hot loop.
     private static let minimumRetryAfter: TimeInterval = 1
     /// A provider retry time beyond an hour reads as a parsing slip rather than advice; asking again hourly
@@ -142,6 +153,7 @@ actor QuotaBudget {
             try Task.checkCancellation()
             let current = readClock()
             if let pauseEnd, current < pauseEnd {
+                announce(pauseEnd)
                 try await sleep(Self.bounded(pauseEnd.timeIntervalSince(current)))
                 continue
             }
@@ -154,6 +166,7 @@ actor QuotaBudget {
             if needed - tokens <= rate * Self.shortestSleep {
                 spend(cost)
                 grantedSinceThrottle = true
+                announce(nil)
                 return
             }
             var wait = (needed - tokens) / rate
@@ -212,32 +225,64 @@ actor QuotaBudget {
     // MARK: Throttles
 
     /// The provider throttled a backfill request: halve the rate and pause the backfill until `retryAfter`
-    /// (at least a second) or, without one, 15 s doubling per consecutive throttle up to 10 minutes.
+    /// (at least a second) or, without one, 15 s doubling per consecutive throttle up to 10 minutes. A backfill
+    /// request going through, or ten quiet minutes after a pause, starts the doubling again.
     /// Returns when the backfill resumes. Unmetered, nothing pauses and it returns now: the caller keeps its own
     /// retry schedule there.
     @discardableResult
     func backfillThrottled(retryAfter: TimeInterval?) -> Date {
+        pause(retryAfter: retryAfter)
+    }
+
+    /// The provider throttled a request that spends the live share: a changes or head page, the outbox, or a body or
+    /// attachment the live lane or the user fetched. Same quota, so the backfill pauses exactly as for a throttle of
+    /// its own, and one from the same burst as the backfill's is the same event. Nothing here makes the live lane
+    /// wait; it keeps its own backoff. Returns when the backfill resumes; now when unmetered, which pauses nothing.
+    @discardableResult
+    func liveThrottled(retryAfter: TimeInterval?) -> Date {
+        pause(retryAfter: retryAfter)
+    }
+
+    /// Hears when a backfill request starts waiting out a pause (the resume time, again if a throttle moves it) and
+    /// when the backfill is let through again (nil). Nothing is heard of a pause no backfill request meets.
+    func observePauses(_ observer: @escaping @Sendable (Date?) -> Void) {
+        pauseObserver = observer
+    }
+
+    private func pause(retryAfter: TimeInterval?) -> Date {
         let current = readClock()
         guard !unmetered else { return current }
         let hint = retryAfter.flatMap { $0.isFinite ? min(max($0, Self.minimumRetryAfter), Self.maximumRetryAfter) : nil }
+        let resume: Date
         if let pauseEnd, current < pauseEnd {
-            // Requests already in flight when the first throttle came back are throttled too. They are the same
-            // event, and counting each would halve the rate and double the pause several times over.
-            let resume = hint.map { max(pauseEnd, current.addingTimeInterval($0)) } ?? pauseEnd
-            self.pauseEnd = resume
-            quietSince = resume
-            return resume
+            // Requests already in flight when the first throttle came back are throttled too, on either lane. They are
+            // the same event, and counting each would halve the rate and double the pause several times over.
+            resume = hint.map { max(pauseEnd, current.addingTimeInterval($0)) } ?? pauseEnd
+        } else {
+            refill(to: current)
+            baseFraction = max(Self.minimumFraction, fraction(atOffset: current.timeIntervalSince(quietSince)) / 2)
+            // A throttle long after the last pause ended is a new incident, not the next of a run. Once the download
+            // has finished no backfill request goes through to end the run, and live throttles days apart would
+            // otherwise keep doubling the pause up to its cap.
+            if let pauseEnd, current.timeIntervalSince(pauseEnd) >= Self.throttleRunGap { consecutiveThrottles = 0 }
+            consecutiveThrottles += 1
+            let delay = hint ?? Backoff.delay(attempt: consecutiveThrottles, base: Self.pauseBase, cap: Self.pauseCap)
+            resume = current.addingTimeInterval(delay)
+            tokens = min(tokens, 0)
+            grantedSinceThrottle = false
         }
-        refill(to: current)
-        baseFraction = max(Self.minimumFraction, fraction(atOffset: current.timeIntervalSince(quietSince)) / 2)
-        consecutiveThrottles += 1
-        let delay = hint ?? Backoff.delay(attempt: consecutiveThrottles, base: Self.pauseBase, cap: Self.pauseCap)
-        let resume = current.addingTimeInterval(delay)
-        tokens = min(tokens, 0)
         pauseEnd = resume
         quietSince = resume
-        grantedSinceThrottle = false
+        // A backfill request waiting for its units now will wait through the pause too, so it shows at once. With
+        // none waiting it shows when the next one asks, and never if none does (the download has finished).
+        if unitTurn.holders > 0 { announce(resume) }
         return resume
+    }
+
+    private func announce(_ resume: Date?) {
+        guard resume != announcedResume else { return }
+        announcedResume = resume
+        pauseObserver?(resume)
     }
 
     /// A backfill request went through: the next throttle starts the pause schedule from the beginning. Ignored

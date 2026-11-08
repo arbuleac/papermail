@@ -261,6 +261,138 @@ final class QuotaBudgetTests: XCTestCase {
         assertSleeps(clock, [1])
     }
 
+    // MARK: Live throttles
+
+    /// Both lanes spend one quota, so a throttle on the live lane pauses the backfill exactly as one of its own: the
+    /// rate halves, the credit goes, and the backfill's next units wait for the provider's retry time.
+    func testALiveThrottlePausesTheBackfillUntilRetryAfter() async throws {
+        let clock = ManualClock()
+        let budget = clock.budget(quota)
+        let start = clock.now
+
+        let resume = await budget.liveThrottled(retryAfter: 30)
+        XCTAssertEqual(resume, start.addingTimeInterval(30))
+        let pausedUntil = await budget.pausedUntil
+        XCTAssertEqual(pausedUntil, resume)
+        let fraction = await budget.rateFraction
+        XCTAssertEqual(fraction, 0.25)
+
+        // The bucket was full; after the pause, 10 units at 2.5 units/s.
+        try await budget.acquireBackfill(10)
+        assertSleeps(clock, [30, 4])
+    }
+
+    /// Without a retry time a live throttle takes the backfill's own schedule, and the two count as one run: 15 s,
+    /// then 30 s for the next throttle on either lane.
+    func testALiveThrottleWithoutRetryAfterTakesTheBackfillsSchedule() async {
+        let clock = ManualClock()
+        let budget = clock.budget(quota)
+        let first = await budget.liveThrottled(retryAfter: nil)
+        XCTAssertEqual(first.timeIntervalSince(clock.now), 15)
+        clock.advance(15)
+        let second = await budget.backfillThrottled(retryAfter: nil)
+        XCTAssertEqual(second.timeIntervalSince(clock.now), 30)
+        clock.advance(30)
+        let third = await budget.liveThrottled(retryAfter: nil)
+        XCTAssertEqual(third.timeIntervalSince(clock.now), 60)
+    }
+
+    /// Once the download has finished no backfill request goes through to end a run of throttles, so live throttles
+    /// hours apart are separate incidents: ten quiet minutes after a pause start the schedule again, whether or not
+    /// a throttle in between named a retry time. Inside those ten minutes the run goes on.
+    func testThrottlesTenQuietMinutesApartStartTheScheduleAgain() async {
+        let clock = ManualClock()
+        let budget = clock.budget(quota)
+        var pauses: [TimeInterval] = []
+        for retryAfter: TimeInterval? in [nil, 20, nil, nil, 20, nil, nil] {
+            let pause = await budget.liveThrottled(retryAfter: retryAfter).timeIntervalSince(clock.now)
+            pauses.append(pause)
+            clock.advance(pause + 3 * 3_600)
+        }
+        XCTAssertEqual(pauses, [15, 20, 15, 15, 20, 15, 15])
+
+        let first = await budget.liveThrottled(retryAfter: nil)
+        XCTAssertEqual(first.timeIntervalSince(clock.now), 15)
+        clock.advance(15 + 599)
+        let second = await budget.backfillThrottled(retryAfter: nil)
+        XCTAssertEqual(second.timeIntervalSince(clock.now), 30, "under ten quiet minutes: the same run")
+        clock.advance(30 + 600)
+        let third = await budget.liveThrottled(retryAfter: nil)
+        XCTAssertEqual(third.timeIntervalSince(clock.now), 15, "ten quiet minutes: a new run")
+    }
+
+    /// One burst throttles both lanes: whichever comes back first, the other lands inside its pause and is the same
+    /// event. The rate halves once, and a longer retry time only lengthens the pause.
+    func testLiveAndBackfillThrottlesFromOneBurstHalveOnce() async {
+        let clock = ManualClock()
+        let liveFirst = clock.budget(quota)
+        let start = clock.now
+        let live = await liveFirst.liveThrottled(retryAfter: nil)
+        clock.advance(1)
+        let backfill = await liveFirst.backfillThrottled(retryAfter: nil)
+        XCTAssertEqual(backfill, live)
+        XCTAssertEqual(live, start.addingTimeInterval(15))
+        var fraction = await liveFirst.rateFraction
+        XCTAssertEqual(fraction, 0.25, "halved once, not twice")
+
+        let backfillFirst = clock.budget(quota)
+        let later = clock.now
+        await backfillFirst.backfillThrottled(retryAfter: 10)
+        clock.advance(2)
+        let extended = await backfillFirst.liveThrottled(retryAfter: 20)
+        XCTAssertEqual(extended, later.addingTimeInterval(22), "the longer retry time")
+        fraction = await backfillFirst.rateFraction
+        XCTAssertEqual(fraction, 0.25, "halved once, not twice")
+        // The next throttle after that pause is only the second of the run: 30 s, not 60.
+        clock.advance(20)
+        let next = await backfillFirst.liveThrottled(retryAfter: nil)
+        XCTAssertEqual(next.timeIntervalSince(clock.now), 30)
+    }
+
+    /// The backfill lane shows a pause only while one of its requests waits through it: a pause no backfill request
+    /// meets says nothing, and one that a request meets is heard of when it arrives and ends as it is let through.
+    func testAPauseIsHeardOfOnlyWhileABackfillRequestWaitsThroughIt() async throws {
+        let clock = ManualClock()
+        let budget = clock.budget(quota)
+        let heard = PauseLog()
+        await budget.observePauses { heard.append($0) }
+
+        let first = await budget.liveThrottled(retryAfter: 30)
+        clock.advance(40)
+        try await budget.acquireBackfill(1)
+        XCTAssertEqual(heard.values, [], "over before the backfill asked: nothing to show")
+
+        let second = await budget.liveThrottled(retryAfter: 30)
+        XCTAssertNotEqual(first, second)
+        XCTAssertEqual(heard.values, [], "no backfill request waits yet")
+        clock.advance(5)
+        try await budget.acquireBackfill(1)
+        XCTAssertEqual(heard.values, [second, nil])
+    }
+
+    /// A live throttle while a backfill request waits for its units shows at once, before that wait ends; the request
+    /// then waits out the pause and goes at the halved rate.
+    func testALiveThrottleWhileTheBackfillWaitsForUnitsIsHeardOfAtOnce() async throws {
+        let clock = ManualClock()
+        let budget = clock.budget(quota)
+        let heard = PauseLog()
+        await budget.observePauses { heard.append($0) }
+        try await budget.acquireBackfill(150)
+        let start = clock.now
+        let heardDuringTheWait = PauseLog()
+        clock.onNextSleep {
+            await budget.liveThrottled(retryAfter: 30)
+            for value in heard.values { heardDuringTheWait.append(value) }
+        }
+
+        try await budget.acquireBackfill(10)
+        let resume = start.addingTimeInterval(30)
+        XCTAssertEqual(heardDuringTheWait.values, [resume])
+        XCTAssertEqual(heard.values, [resume, nil])
+        // 2 s planned for its units, the rest of the pause, then 10 units at 2.5 units/s.
+        assertSleeps(clock, [2, 28, 4])
+    }
+
     func testAClockThatStepsBackNeitherStallsPacingNorStretchesAPause() async throws {
         let clock = ManualClock()
         let budget = clock.budget(.standard(for: .gmail))
@@ -500,14 +632,20 @@ final class QuotaBudgetTests: XCTestCase {
     func testUnlimitedDoesNotPauseOnAThrottle() async throws {
         let clock = ManualClock()
         let budget = clock.budget(.unlimited)
+        let heard = PauseLog()
+        await budget.observePauses { heard.append($0) }
         let resume = await budget.backfillThrottled(retryAfter: 5)
         XCTAssertEqual(resume, clock.now, "resumes at once")
         await budget.backfillThrottled(retryAfter: nil)
+        let live = await budget.liveThrottled(retryAfter: 5)
+        XCTAssertEqual(live, clock.now, "a live throttle pauses nothing either")
+        await budget.liveThrottled(retryAfter: nil)
         let paused = await budget.pausedUntil
         XCTAssertNil(paused)
         try await budget.acquireBackfill(1)
         try await budget.acquireBackfill(1_000_000)
         XCTAssertEqual(clock.sleeps, [])
+        XCTAssertEqual(heard.values, [])
     }
 
     // MARK: The live share
@@ -710,4 +848,16 @@ private actor ConcurrencyGauge {
         peak = max(peak, current)
     }
     func leave() { current -= 1 }
+}
+
+/// What a pause observer heard, in order; the observer is called synchronously from inside the budget.
+private final class PauseLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var heard: [Date?] = []
+
+    var values: [Date?] { lock.withLock { heard } }
+
+    func append(_ value: Date?) {
+        lock.withLock { heard.append(value) }
+    }
 }

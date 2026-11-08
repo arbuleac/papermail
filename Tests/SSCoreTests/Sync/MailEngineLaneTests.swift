@@ -771,6 +771,309 @@ final class MailEngineLaneTests: XCTestCase {
         await harness.shutdown()
     }
 
+    // MARK: Live throttles pause the backfill
+
+    /// Gmail's costs over an allowance so large that only a throttle makes the backfill wait, on `clock`.
+    private func throttleHarness(_ provider: ScriptedProvider, clock: TestClock, budgets: Recorded<QuotaBudget>? = nil,
+                                 store: InMemoryMailStore? = nil) throws -> EngineHarness {
+        try EngineHarness(store: store ?? InMemoryMailStore(), provider: provider, seedAccount: store == nil) { tuning in
+            tuning.quota = { _ in
+                ProviderQuota(unitsPerMinute: 6_000_000, listCost: 5, metadataCostPerMessage: 20, bodyCost: 60, changesCost: 2,
+                              maxBackfillConcurrency: 2)
+            }
+            tuning.makeBudget = { quota in
+                let budget = QuotaBudget(quota: quota, now: clock.now, sleep: clock.sleep)
+                budgets?.append(budget)
+                return budget
+            }
+            // Only listings go out on the backfill, and the live lane fetches no bodies.
+            tuning.hydrationBatchSize = 0
+            tuning.liveHydrationLimit = 0
+            // The live lane retries its throttled poll within a fifth of a second, well inside the backfill's pause.
+            tuning.backoffBase = 0.05
+            tuning.liveBackoffCap = 0.2
+        }
+    }
+
+    /// Both lanes spend one per-user quota, so a throttle on the live lane's poll pauses the backfill until the
+    /// provider's retry time: its next request waits that long, the pause shows as `backfillPausedUntil` while it
+    /// waits, and then the backfill goes on and finishes. The live lane keeps its own short backoff and is back to
+    /// polling while older mail is still paused.
+    func testAThrottledLivePollPausesTheBackfillUntilRetryAfter() async throws {
+        let clock = TestClock(realSleepCap: 2)
+        let provider = ScriptedProvider(accountID: Fixtures.accountID)
+        provider.bootstrapRuns = [[
+            "": .success(Fixtures.page(1...2, next: "p2", cursor: "c0")),
+            "p2": .success(Fixtures.page(3...4, next: "p3")),
+            "p3": .success(Fixtures.page(5...6, next: nil)),
+        ]]
+        provider.gatedBootstrapPages = ["p2"]
+        let listed = Recorded<(page: String, at: TimeInterval)>()
+        provider.onBackfillListing = { page in listed.append((page, clock.advanced)) }
+        let harness = try throttleHarness(provider, clock: clock)
+        let statuses = PhaseRecorder()
+        let observation = harness.engine.observeStatus { statuses.record($0) }
+        harness.engine.start()
+        // The backfill's request for p2 is out (the provider holds it) when the live lane's poll is throttled.
+        try await waitUntil("the backfill asked for p2") { listed.values.contains { $0.page == "p2" } }
+        provider.enqueueChanges(.failure(ProviderError.throttled(retryAfter: 30)))
+        harness.engine.syncNow(accountID: Fixtures.accountID)
+        try await waitUntil("the live lane throttled") { statuses.seen.contains(.paused) }
+        provider.openGate("p2")
+
+        try await waitUntil("older mail paused", timeout: 10) { statuses.latest.first?.backfillPausedUntil != nil }
+        let paused = try XCTUnwrap(statuses.latest.first?.backfillPausedUntil)
+        // The budget's clock runs ahead of the real one, never behind it.
+        XCTAssertGreaterThan(paused.timeIntervalSinceNow, 20, "the provider's retry time")
+        try await waitUntil("new mail flows while older mail is paused") {
+            statuses.latest.first.map { $0.phase == .idle && $0.backfillPausedUntil != nil } ?? false
+        }
+        try await waitUntil("backfill complete") { try harness.store.bootstrapState(for: Fixtures.accountID)?.isComplete == true }
+        try await waitUntil("pause cleared") { statuses.latest.first?.backfillPausedUntil == nil }
+        XCTAssertEqual(listed.values.map(\.page), ["p2", "p3"], "no other backfill request")
+        let resumed = try XCTUnwrap(listed.values.last?.at)
+        XCTAssertGreaterThanOrEqual(resumed, 25, "the next backfill request waited for the retry time")
+        XCTAssertEqual(try allMessages(harness.store).count, 6)
+        observation.cancel()
+        await harness.shutdown()
+    }
+
+    /// One burst throttles both lanes: the live lane's poll, then the backfill's request that was already out. The
+    /// backfill's throttle lands inside the live one's pause and is the same event: the rate halves once and the
+    /// pause keeps the live lane's longer retry time.
+    func testALiveAndABackfillThrottleFromOneBurstHalveTheRateOnce() async throws {
+        let clock = TestClock(realSleepCap: 2)
+        let provider = ScriptedProvider(accountID: Fixtures.accountID)
+        provider.bootstrapRuns = [[
+            "": .success(Fixtures.page(1...2, next: "p2", cursor: "c0")),
+            "p2": .failure(ProviderError.throttled(retryAfter: 5)),
+        ]]
+        provider.gatedBootstrapPages = ["p2"]
+        let listed = Recorded<(page: String, at: TimeInterval)>()
+        provider.onBackfillListing = { page in listed.append((page, clock.advanced)) }
+        let budgets = Recorded<QuotaBudget>()
+        let harness = try throttleHarness(provider, clock: clock, budgets: budgets)
+        let statuses = PhaseRecorder()
+        let observation = harness.engine.observeStatus { statuses.record($0) }
+        harness.engine.start()
+        try await waitUntil("the backfill asked for p2") { listed.values.contains { $0.page == "p2" } }
+        provider.enqueueChanges(.failure(ProviderError.throttled(retryAfter: 30)))
+        harness.engine.syncNow(accountID: Fixtures.accountID)
+        try await waitUntil("the live lane throttled") { statuses.seen.contains(.paused) }
+        provider.openGate("p2")
+
+        try await waitUntil("older mail paused", timeout: 10) { statuses.latest.first?.backfillPausedUntil != nil }
+        let budget = try XCTUnwrap(budgets.values.first)
+        let fraction = await budget.rateFraction
+        XCTAssertEqual(fraction, 0.25, accuracy: 1e-9, "half the starting rate: halved once, not twice")
+        let paused = try XCTUnwrap(statuses.latest.first?.backfillPausedUntil)
+        XCTAssertGreaterThan(paused.timeIntervalSinceNow, 20, "the live lane's 30 s, not the backfill's own 5 s")
+
+        // The retry after the pause goes through.
+        provider.locked { provider.bootstrapRuns[0]["p2"] = .success(Fixtures.page(3...4, next: nil)) }
+        try await waitUntil("backfill complete") { try harness.store.bootstrapState(for: Fixtures.accountID)?.isComplete == true }
+        XCTAssertEqual(listed.values.map(\.page), ["p2", "p2"])
+        XCTAssertGreaterThanOrEqual(try XCTUnwrap(listed.values.last?.at), 25)
+        observation.cancel()
+        await harness.shutdown()
+    }
+
+    /// One burst throttles the live poll and a paced body fetch that was out while the batch's other fetch waited for
+    /// its units. That fetch stops rather than wait out the pause and go, so the batch comes back while the pause runs
+    /// and its throttle is the same event. Had it gone, the batch would have held the throttle until after the pause,
+    /// where it would count as a second event: the rate halved again and a second pause.
+    func testAPacedBatchThrottledInTheLiveLanesBurstHalvesTheRateOnce() async throws {
+        let store = InMemoryMailStore()
+        let account = Fixtures.accountID
+        try store.upsertAccount(Fixtures.account())
+        try store.upsertMessages([Fixtures.message(1), Fixtures.message(2)])
+        try store.setSyncCursor("c0", for: account)
+        try store.setBootstrapState(BootstrapState(startedAt: Date(), pagesDone: 1, messagesSeen: 2, isComplete: true), for: account)
+        let provider = ScriptedProvider(accountID: account)
+        provider.bodies["1"] = .success(MessageBody(html: nil, text: "1"))
+        provider.bodies["2"] = .failure(ProviderError.throttled(retryAfter: 5))
+        provider.heldBodies = ["2"]
+        // Time moves only when the budget sleeps, and every sleep holds until the test lets it go.
+        let clock = TestClock(realSleepCap: 0.01, followsRealTime: false)
+        clock.holdsSleeps = true
+        let budgets = Recorded<QuotaBudget>()
+        let harness = try EngineHarness(store: store, provider: provider, seedAccount: false) { tuning in
+            // A bucket of 15 units refilling at 0.5 a second; a body costs 10, so the second waits for its units.
+            tuning.quota = { _ in
+                ProviderQuota(unitsPerMinute: 90, listCost: 5, metadataCostPerMessage: 5, bodyCost: 10, changesCost: 0,
+                              maxBackfillConcurrency: 2)
+            }
+            tuning.makeBudget = { quota in
+                let budget = QuotaBudget(quota: quota, now: clock.now, sleep: clock.sleep)
+                budgets.append(budget)
+                return budget
+            }
+            tuning.hydrationBatchSize = 2
+            tuning.hydrationConcurrency = 2
+            tuning.liveHydrationLimit = 0
+            tuning.backoffBase = 0.05
+            tuning.liveBackoffCap = 0.2
+        }
+        let pauses = Recorded<Date>()
+        let observation = harness.engine.observeStatus { snapshot in
+            if let paused = snapshot.first?.backfillPausedUntil { pauses.append(paused) }
+        }
+        harness.engine.start()
+        try await waitUntil("body 2 out and body 1 waiting for its units") {
+            provider.bodyCalls == ["2"] && clock.sleepsBegun == 1
+        }
+        provider.enqueueChanges(.failure(ProviderError.throttled(retryAfter: 30)))
+        // Body 1 waits in the budget, so the pause shows at once.
+        try await waitUntil("the live throttle paused the backfill") { !pauses.values.isEmpty }
+        let budget = try XCTUnwrap(budgets.values.first)
+        let afterLive = await budget.rateFraction
+        XCTAssertEqual(afterLive, 0.25, accuracy: 1e-9)
+
+        // Body 2 comes back refused by the same burst. The batch returns without body 1, and the lane's next turn
+        // waits out the pause.
+        provider.releaseBody("2")
+        // Not a hard wait: a batch held by body 1 never comes back while sleeps hold, and the checks below say why.
+        let deadline = Date().addingTimeInterval(10)
+        while clock.sleepsBegun < 2, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(clock.sleepsBegun, 2, "the batch came back while the pause runs, and the lane waits it out")
+        XCTAssertEqual(provider.bodyCalls, ["2"], "body 1 did not go out into the pause")
+        let reported = await budget.rateFraction
+        XCTAssertEqual(reported, 0.25, accuracy: 1e-9, "the backfill's throttle is the live one's event")
+
+        provider.locked { provider.bodies["2"] = .success(MessageBody(html: nil, text: "2")) }
+        clock.holdsSleeps = false
+        try await waitUntil("both bodies stored") { try (1...2).allSatisfy { try store.body(for: self.id($0)) != nil } }
+        let final = await budget.rateFraction
+        XCTAssertGreaterThanOrEqual(final, 0.25, "halved once, not again when the batch came back")
+        XCTAssertEqual(Set(pauses.values).count, 1, "one pause, not a second after it: \(pauses.values)")
+        observation.cancel()
+        await harness.shutdown()
+    }
+
+    /// The demo's unmetered budget pauses nothing: a throttle on the live lane leaves the backfill going and shows no
+    /// paused older mail.
+    func testUnderAnUnmeteredQuotaALiveThrottlePausesNothing() async throws {
+        let provider = ScriptedProvider(accountID: Fixtures.accountID)
+        provider.bootstrapRuns = [[
+            "": .success(Fixtures.page(1...2, next: "p2", cursor: "c0")),
+            "p2": .success(Fixtures.page(3...4, next: "p3")),
+            "p3": .success(Fixtures.page(5...6, next: nil)),
+        ]]
+        provider.gatedBootstrapPages = ["p2"]
+        let harness = try EngineHarness(provider: provider)
+        let statuses = PhaseRecorder()
+        let pauses = Recorded<Date>()
+        let observation = harness.engine.observeStatus { snapshot in
+            statuses.record(snapshot)
+            if let paused = snapshot.first?.backfillPausedUntil { pauses.append(paused) }
+        }
+        harness.engine.start()
+        try await waitUntil("the backfill asked for p2") { provider.backfillListingCalls.contains { $0.page == "p2" } }
+        provider.enqueueChanges(.failure(ProviderError.throttled(retryAfter: 30)))
+        harness.engine.syncNow(accountID: Fixtures.accountID)
+        try await waitUntil("the live lane throttled") { statuses.seen.contains(.paused) }
+        provider.openGate("p2")
+        try await waitUntil("backfill complete well inside the retry time", timeout: 10) {
+            try harness.store.bootstrapState(for: Fixtures.accountID)?.isComplete == true
+        }
+        XCTAssertEqual(pauses.values, [])
+        observation.cancel()
+        await harness.shutdown()
+    }
+
+    /// With the download finished there is no older mail to pause. A live throttle still pauses the budget, so a
+    /// backfill that starts meanwhile waits too, but nothing shows `backfillPausedUntil` and the line never reads
+    /// "older mail paused".
+    func testALiveThrottleAfterTheBackfillFinishedShowsNoPause() async throws {
+        let store = InMemoryMailStore()
+        let account = Fixtures.accountID
+        try store.upsertAccount(Fixtures.account())
+        try store.setSyncCursor("c0", for: account)
+        try store.setBootstrapState(BootstrapState(startedAt: Date(), pagesDone: 1, messagesSeen: 0, isComplete: true), for: account)
+        let provider = ScriptedProvider(accountID: account)
+        provider.changesQueue = [.failure(ProviderError.throttled(retryAfter: 30))]
+        // Time moves only when the budget sleeps, so the pause is still running when the test looks.
+        let clock = TestClock(realSleepCap: 0.01, followsRealTime: false)
+        let budgets = Recorded<QuotaBudget>()
+        let harness = try throttleHarness(provider, clock: clock, budgets: budgets, store: store)
+        let statuses = PhaseRecorder()
+        let pauses = Recorded<Date>()
+        let observation = harness.engine.observeStatus { snapshot in
+            statuses.record(snapshot)
+            if let paused = snapshot.first?.backfillPausedUntil { pauses.append(paused) }
+        }
+        harness.engine.start()
+        try await waitUntil("the live lane throttled") { statuses.seen.contains(.paused) }
+        try await waitUntil("and polling again") { provider.changesCalls.count >= 3 && statuses.latest.first?.phase == .idle }
+        let budget = try XCTUnwrap(budgets.values.first)
+        let pausedUntil = await budget.pausedUntil
+        XCTAssertNotNil(pausedUntil, "the budget holds the pause for any backfill that starts")
+
+        let latest = try XCTUnwrap(statuses.latest.first)
+        XCTAssertEqual(pauses.values, [], "nothing to show: no older mail is waiting")
+        XCTAssertNil(SyncLineSummary.olderMailWords(latest))
+        XCTAssertEqual(SyncLineSummary.accountWords(latest), "Up to date")
+        let line = SyncLineSummary.make(SyncLineSummary.Input(statuses: [latest], accounts: [Fixtures.account()]))
+        XCTAssertFalse(line.spokenText.contains("paused"), line.spokenText)
+        observation.cancel()
+        await harness.shutdown()
+    }
+
+    /// Every request that spends the live share pauses the backfill when the provider throttles it, not only the
+    /// live lane's pages: the outbox, a message the user opens and an attachment download.
+    func testEveryThrottleOnTheLiveSharePausesTheBackfill() async throws {
+        try await assertAThrottlePausesTheBackfill("an archive in the outbox") { harness, provider in
+            provider.applyResults = [.failure(ProviderError.throttled(retryAfter: 30))]
+            harness.engine.start()
+            try await waitUntil("head page stored") { try harness.store.message(self.id(1)) != nil }
+            try harness.engine.perform(.archive, on: [self.id(1)])
+        }
+        try await assertAThrottlePausesTheBackfill("an opened message") { harness, provider in
+            try harness.store.upsertMessages([Fixtures.message(50)])
+            provider.bodies["50"] = .failure(ProviderError.throttled(retryAfter: 30))
+            do {
+                _ = try await harness.engine.ensureBody(for: self.id(50))
+                XCTFail("the body was throttled")
+            } catch ProviderError.throttled {}
+        }
+        try await assertAThrottlePausesTheBackfill("an attachment") { harness, provider in
+            provider.attachmentErrors["1/att-1"] = ProviderError.throttled(retryAfter: 30)
+            do {
+                _ = try await harness.engine.attachmentData(for: self.id(1), attachmentID: "att-1", expectedSize: 5, progress: nil)
+                XCTFail("the download was throttled")
+            } catch ProviderError.throttled {}
+        }
+    }
+
+    private func assertAThrottlePausesTheBackfill(
+        _ description: String, file: StaticString = #filePath, line: UInt = #line,
+        _ trigger: (EngineHarness, ScriptedProvider) async throws -> Void
+    ) async throws {
+        let provider = ScriptedProvider(accountID: Fixtures.accountID)
+        provider.bootstrapRuns = [["": .success(Fixtures.page(1...1, next: nil, cursor: "c0"))]]
+        let start = Date()
+        let budgets = Recorded<QuotaBudget>()
+        let harness = try EngineHarness(provider: provider) { tuning in
+            tuning.quota = { _ in .standard(for: .gmail) }
+            // The budget's clock stands still, so the pause ends exactly at the retry time.
+            tuning.makeBudget = { quota in
+                let budget = QuotaBudget(quota: quota, now: { start })
+                budgets.append(budget)
+                return budget
+            }
+        }
+        try await trigger(harness, provider)
+        let deadline = Date().addingTimeInterval(10)
+        var pausedUntil: Date?
+        while pausedUntil == nil, Date() < deadline {
+            if let budget = budgets.values.first { pausedUntil = await budget.pausedUntil }
+            if pausedUntil == nil { try await Task.sleep(for: .milliseconds(10)) }
+        }
+        XCTAssertEqual(pausedUntil, start.addingTimeInterval(30), "\(description) pauses the backfill until its retry time",
+                       file: file, line: line)
+        await harness.shutdown()
+    }
+
     /// A paced batch picks its bodies before their slots and units come free. One stored meanwhile (by the live
     /// lane, or opened by the user) is skipped without spending the backfill's units on it.
     func testAPacedFetchSkipsABodyStoredMeanwhileWithoutSpendingUnits() async throws {
@@ -1224,6 +1527,8 @@ private final class Recorded<Value>: @unchecked Sendable {
 private final class TestClock: @unchecked Sendable {
     private let lock = NSLock()
     private var offset: TimeInterval = 0
+    private var begun = 0
+    private var holding = false
     private let realSleepCap: TimeInterval
     private let start: Date?
 
@@ -1238,13 +1543,27 @@ private final class TestClock: @unchecked Sendable {
         return offset
     }
 
+    /// Sleeps begun so far.
+    var sleepsBegun: Int {
+        lock.lock(); defer { lock.unlock() }
+        return begun
+    }
+
+    /// While set, a sleep that has moved the clock goes on waiting until this is cleared or its task is cancelled,
+    /// so what a test does while the budget waits lands at a known point however slow the machine is.
+    var holdsSleeps: Bool {
+        get { lock.lock(); defer { lock.unlock() }; return holding }
+        set { lock.lock(); holding = newValue; lock.unlock() }
+    }
+
     var now: @Sendable () -> Date {
         { [self] in current() }
     }
 
     var sleep: @Sendable (TimeInterval) async throws -> Void {
         { [self] seconds in
-            advance(by: seconds)
+            advance(by: seconds, countingASleep: true)
+            while holdsSleeps { try await Task.sleep(for: .milliseconds(5)) }
             try await Task.sleep(for: .seconds(min(max(0, seconds), realSleepCap)))
         }
     }
@@ -1254,9 +1573,10 @@ private final class TestClock: @unchecked Sendable {
         return (start ?? Date()).addingTimeInterval(offset)
     }
 
-    private func advance(by seconds: TimeInterval) {
+    private func advance(by seconds: TimeInterval, countingASleep: Bool = false) {
         lock.lock(); defer { lock.unlock() }
         offset += max(0, seconds)
+        if countingASleep { begun += 1 }
     }
 
     /// Moves the clock on as if `seconds` had passed, without sleeping.
