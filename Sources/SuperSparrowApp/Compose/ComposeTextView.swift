@@ -29,6 +29,23 @@ final class ComposeTextView: NSTextView {
     /// Asked to show the link popover for the selection (⌘K, the Link toggle).
     var onLinkRequest: ((ComposeTextView) -> Void)?
 
+    /// Told when the editor takes or gives up keyboard focus (the Settings signature field draws its ring and saves
+    /// from it).
+    var onFocusChange: ((Bool) -> Void)?
+
+    /// Lists and quotes. Off in the Settings signature field, which keeps to the inline styles (bold, italic,
+    /// underline, links): their commands and shortcuts then do nothing, and validation reports them disabled.
+    var allowsBlockFormatting = true
+
+    /// Where the text starts and stops across the view: the composer's value axis (x = 84) and 24 pt before the
+    /// trailing edge by default; the Settings signature field sets its own.
+    var leadingInset: CGFloat = Quire.Layout.Composer.valueX {
+        didSet { if oldValue != leadingInset { invalidateTextContainerOrigin(); updateContainerWidth() } }
+    }
+    var trailingInset: CGFloat = Quire.Layout.Composer.bodyPadRight {
+        didSet { if oldValue != trailingInset { updateContainerWidth() } }
+    }
+
     /// Space above the first line: `composer.bodyPadTop`, or more while the send-failed banner sits there.
     var topInset: CGFloat = Quire.Layout.Composer.bodyPadTop {
         didSet {
@@ -109,6 +126,21 @@ final class ComposeTextView: NSTextView {
         return style
     }
 
+    /// Text typed or pasted never carries the signature's mark, wherever the caret is (spec §5.20): the mark covers
+    /// only what the composer inserted, so a From change replaces the signature and keeps what was written after it.
+    override var typingAttributes: [NSAttributedString.Key: Any] {
+        get {
+            var attributes = super.typingAttributes
+            attributes[ComposeSignature.attributeKey] = nil
+            return attributes
+        }
+        set {
+            var attributes = newValue
+            attributes[ComposeSignature.attributeKey] = nil
+            super.typingAttributes = attributes
+        }
+    }
+
     static var defaultTypingAttributes: [NSAttributedString.Key: Any] {
         [
             .font: bodyFont,
@@ -137,13 +169,13 @@ final class ComposeTextView: NSTextView {
     /// The text starts on the value axis and stops 24 pt before the trailing edge (padding 20 24 0 84).
     override var textContainerOrigin: NSPoint {
         let padding = textContainer?.lineFragmentPadding ?? 0
-        return NSPoint(x: Quire.Layout.Composer.valueX - padding, y: topInset)
+        return NSPoint(x: leadingInset - padding, y: topInset)
     }
 
     private func updateContainerWidth() {
         guard let textContainer else { return }
         let padding = textContainer.lineFragmentPadding
-        let width = max(40, bounds.width - Quire.Layout.Composer.valueX - Quire.Layout.Composer.bodyPadRight + 2 * padding)
+        let width = max(40, bounds.width - leadingInset - trailingInset + 2 * padding)
         if abs(textContainer.size.width - width) > 0.5 {
             textContainer.size = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
         }
@@ -160,6 +192,18 @@ final class ComposeTextView: NSTextView {
         // An empty document still has its first line, so the caret has somewhere to sit.
         let height = max(used.height, Self.bodyRole.lineHeight)
         return NSSize(width: NSView.noIntrinsicMetric, height: ceil(height) + topInset)
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        if accepted { onFocusChange?(true) }
+        return accepted
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let resigned = super.resignFirstResponder()
+        if resigned { onFocusChange?(false) }
+        return resigned
     }
 
     override func didChangeText() {
@@ -237,11 +281,11 @@ final class ComposeTextView: NSTextView {
             case "i": toggleItalic(nil); return true
             case "u": underline(nil); return true
             case "k": insertLink(nil); return true
-            case "'": toggleBlockQuote(nil); return true
+            case "'" where allowsBlockFormatting: toggleBlockQuote(nil); return true
             default: break
             }
         }
-        if flags == [.command, .shift] {
+        if flags == [.command, .shift], allowsBlockFormatting {
             switch Int(event.keyCode) {
             case kVK_ANSI_8: toggleBulletList(nil); return true
             case kVK_ANSI_7: toggleNumberedList(nil); return true
@@ -399,7 +443,8 @@ final class ComposeTextView: NSTextView {
     /// Links `range` to `target` (an already normalized address), or inserts `text` (the target when empty)
     /// as a new link at a caret. Undoable as one change.
     func applyLink(_ target: String, text: String?, to range: NSRange) {
-        guard let storage = textStorage else { return }
+        // The range was taken when the popover opened; text that has since grown shorter than it has nothing there to link.
+        guard let storage = textStorage, NSMaxRange(range) <= storage.length else { return }
         if range.length == 0 {
             let label = (text?.isEmpty == false ? text! : target)
             var attributes = typingAttributes
@@ -421,9 +466,44 @@ final class ComposeTextView: NSTextView {
     }
 
     func removeLink(in range: NSRange) {
-        guard let storage = textStorage, range.length > 0, shouldChangeText(in: range, replacementString: nil) else { return }
+        guard let storage = textStorage, range.length > 0, NSMaxRange(range) <= storage.length,
+              shouldChangeText(in: range, replacementString: nil) else { return }
         storage.removeAttribute(.link, range: range)
         didChangeText()
+    }
+
+    /// Opens the link popover (§5.20) for the selection in `host`, a flipped view over the editor: on the link under
+    /// the caret to edit it, else to add one. Confirming links the text, Remove Link unlinks it, and focus comes back
+    /// to the editor when the popover closes from inside. `onClose` follows that, whichever way it closes.
+    @discardableResult
+    func presentLinkPopover(in host: NSView, onClose: @escaping () -> Void) -> ComposeLinkPopover? {
+        let selection = selectedRange()
+        let existing = existingLink(at: selection)
+        let range = existing?.range ?? selection
+        let request = ComposeLinkPopover.Request(range: range, existingTarget: existing?.target, needsText: range.length == 0)
+        let popover = ComposeLinkPopover(request: request)
+        guard let anchor = anchorRects(for: range) else { return nil }
+        let first = host.convert(anchor.first, from: self)
+        let last = host.convert(anchor.last, from: self)
+        let startX = host.convert(NSPoint(x: anchor.startX, y: anchor.first.minY), from: self).x
+        let c = Quire.Layout.Composer.self
+        let frame = ComposePopoverPlacement.linkPopover(firstLine: first, lastLine: last, selectionStartX: startX,
+                                                        size: popover.preferredSize, bounds: host.bounds, pad: c.linkPopoverPad,
+                                                        offsetY: c.linkPopoverOffsetY, edgeMin: c.popoverEdgeMin)
+        popover.onConfirm = { [weak self] target, text in
+            self?.applyLink(target, text: text, to: range)
+        }
+        popover.onRemove = { [weak self] in self?.removeLink(in: range) }
+        popover.onClose = { [weak self, weak popover] in
+            // Confirmed or cancelled from inside: the caret goes back to the text. Focus that already moved
+            // elsewhere (a click in a field) stays where it went.
+            if let self, let popover, let responder = self.window?.firstResponder as? NSView, responder.isDescendant(of: popover) {
+                self.window?.makeFirstResponder(self)
+            }
+            onClose()
+        }
+        popover.present(in: host, frame: frame)
+        return popover
     }
 
     /// The rects of the first and last lines of `range` and the x where it starts, in this view's coordinates,
@@ -554,11 +634,22 @@ final class ComposeTextView: NSTextView {
     // MARK: Lists
 
     @objc func toggleBulletList(_ sender: Any?) {
+        guard allowsBlockFormatting else { return }
         toggleList(format: Self.bulletFormat)
     }
 
     @objc func toggleNumberedList(_ sender: Any?) {
+        guard allowsBlockFormatting else { return }
         toggleList(format: Self.numberFormat)
+    }
+
+    private static let blockCommands: Set<Selector> = [
+        #selector(toggleBulletList(_:)), #selector(toggleNumberedList(_:)), #selector(toggleBlockQuote(_:)),
+    ]
+
+    override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
+        if let action = item.action, Self.blockCommands.contains(action) { return allowsBlockFormatting && isEditable }
+        return super.validateUserInterfaceItem(item)
     }
 
     private func toggleList(format: NSTextList.MarkerFormat) {
@@ -713,7 +804,7 @@ final class ComposeTextView: NSTextView {
     // MARK: Block quotes
 
     @objc func toggleBlockQuote(_ sender: Any?) {
-        guard let storage = textStorage else { return }
+        guard allowsBlockFormatting, let storage = textStorage else { return }
         let paragraphs = selectedParagraphs()
         guard let first = paragraphs.first, let last = paragraphs.last else { return }
         let removing = paragraphs.allSatisfy { $0.block == .quote }

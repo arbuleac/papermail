@@ -12,6 +12,10 @@ public struct Account: Hashable, Codable, Sendable, Identifiable {
     /// The monogram the user typed in Settings, at most `Account.monogramMaxLength` characters. Nil means the
     /// UI derives one from the address's domain.
     public var monogram: String?
+    /// The signature the user set in Settings, as the composer's own HTML subset (`ComposerHTMLExporter`): what the
+    /// composer inserts on new messages, replies and forwards. Nil means none, the default. A local setting: it is
+    /// never read from or written to the provider.
+    public var signature: String?
 
     /// Settings caps an edited monogram at two characters, and the store enforces the same limit.
     public static let monogramMaxLength = 2
@@ -23,7 +27,8 @@ public struct Account: Hashable, Codable, Sendable, Identifiable {
         displayName: String,
         addedAt: Date,
         inkSlot: Int = 0,
-        monogram: String? = nil
+        monogram: String? = nil,
+        signature: String? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -32,6 +37,7 @@ public struct Account: Hashable, Codable, Sendable, Identifiable {
         self.addedAt = addedAt
         self.inkSlot = inkSlot
         self.monogram = monogram
+        self.signature = signature
     }
 
     /// How the store keeps a monogram: trimmed, at most `monogramMaxLength` characters, and nil when nothing
@@ -43,6 +49,13 @@ public struct Account: Hashable, Codable, Sendable, Identifiable {
         let cut = String(monogram.trimmingCharacters(in: .whitespacesAndNewlines).prefix(monogramMaxLength))
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return cut.isEmpty ? nil : cut
+    }
+
+    /// How the store keeps a signature: nil when it is nil or only white space, so "none" has one representation.
+    /// The HTML itself is kept as Settings exported it; only the white space around it goes.
+    public static func normalizedSignature(_ signature: String?) -> String? {
+        guard let trimmed = signature?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else { return nil }
+        return trimmed
     }
 }
 

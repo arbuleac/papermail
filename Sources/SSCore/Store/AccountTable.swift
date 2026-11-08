@@ -5,7 +5,7 @@ import GRDB
 enum AccountTable {
     static func all(_ db: Database) throws -> [Account] {
         try Row.fetchAll(db, sql: """
-            SELECT id, kind, email, display_name, added_at, ink_slot, monogram FROM accounts
+            SELECT id, kind, email, display_name, added_at, ink_slot, monogram, signature FROM accounts
             ORDER BY added_at, id
             """).map { row in
             Account(
@@ -15,28 +15,31 @@ enum AccountTable {
                 displayName: row[3],
                 addedAt: MailStoreCodec.date(row[4]),
                 inkSlot: row[5],
-                monogram: row[6]
+                monogram: row[6],
+                signature: row[7]
             )
         }
     }
 
     /// Sync columns are deliberately left alone: re-saving an account after a profile refresh must not drop
-    /// its cursor.
+    /// its cursor. The local settings (ink slot, monogram, signature) are written from the account as given, so a
+    /// caller re-saving an account it read keeps them.
     ///
     /// `color_hex` is retired (the colour is `ink_slot`'s, drawn by the design layer) but v1 declared it NOT NULL
     /// without a default, so a new row stores an empty string and an existing row keeps whatever it had.
     static func upsert(_ account: Account, in db: Database) throws {
         try validate(inkSlot: account.inkSlot)
         try db.execute(sql: """
-            INSERT INTO accounts (id, kind, email, display_name, color_hex, added_at, ink_slot, monogram)
-            VALUES (?, ?, ?, ?, '', ?, ?, ?)
+            INSERT INTO accounts (id, kind, email, display_name, color_hex, added_at, ink_slot, monogram, signature)
+            VALUES (?, ?, ?, ?, '', ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 kind = excluded.kind, email = excluded.email, display_name = excluded.display_name,
-                added_at = excluded.added_at, ink_slot = excluded.ink_slot, monogram = excluded.monogram
+                added_at = excluded.added_at, ink_slot = excluded.ink_slot, monogram = excluded.monogram,
+                signature = excluded.signature
             """, arguments: [
                 account.id.rawValue, account.kind.rawValue, account.email, account.displayName,
                 MailStoreCodec.milliseconds(account.addedAt), account.inkSlot,
-                Account.normalizedMonogram(account.monogram),
+                Account.normalizedMonogram(account.monogram), Account.normalizedSignature(account.signature),
             ])
     }
 
@@ -49,6 +52,13 @@ enum AccountTable {
     static func setMonogram(_ monogram: String?, for id: AccountID, in db: Database) throws {
         try db.execute(sql: "UPDATE accounts SET monogram = ? WHERE id = ?", arguments: [
             Account.normalizedMonogram(monogram), id.rawValue,
+        ])
+        guard db.changesCount == 1 else { throw StoreError.notFound }
+    }
+
+    static func setSignature(_ signature: String?, for id: AccountID, in db: Database) throws {
+        try db.execute(sql: "UPDATE accounts SET signature = ? WHERE id = ?", arguments: [
+            Account.normalizedSignature(signature), id.rawValue,
         ])
         guard db.changesCount == 1 else { throw StoreError.notFound }
     }

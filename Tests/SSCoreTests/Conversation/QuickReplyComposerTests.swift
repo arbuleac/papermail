@@ -84,6 +84,25 @@ final class QuickReplyComposerTests: XCTestCase {
         XCTAssertTrue(message.attachments.isEmpty)
     }
 
+    /// A quick reply sent from the bar carries the account's signature below the typed text (spec §5.18, §5.20): in
+    /// HTML after the reply's paragraphs (a blank line is a paragraph break there), in text after one empty line, and
+    /// nothing else; an empty signature adds nothing at all.
+    func testOutgoingMessageAppendsTheSignature() {
+        let latest = F.message("m9", from: F.ada, subject: "Engines")
+        let signature = ComposerHTMLExporter.Output(html: "<div><p><b>Alex</b></p><p>Contoso</p></div>", text: "Alex\nContoso")
+        let message = QuickReplyComposer.outgoingMessage(text: "Thanks!\n\nSee you Tuesday.\n", replyingTo: latest, accounts: F.accounts,
+                                                         signature: signature)
+        XCTAssertEqual(message.html, "<p>Thanks!</p><p>See you Tuesday.</p><div><p><b>Alex</b></p><p>Contoso</p></div>")
+        XCTAssertEqual(message.text, "Thanks!\n\nSee you Tuesday.\n\nAlex\nContoso", "one empty line, no separator line")
+
+        let plain = QuickReplyComposer.outgoingMessage(text: "Thanks!", replyingTo: latest, accounts: F.accounts)
+        for empty in [nil, ComposerHTMLExporter.Output(html: "<div><p><br></p></div>", text: " \n")] {
+            let unsigned = QuickReplyComposer.outgoingMessage(text: "Thanks!", replyingTo: latest, accounts: F.accounts, signature: empty)
+            XCTAssertEqual(unsigned.html, plain.html)
+            XCTAssertEqual(unsigned.text, "Thanks!")
+        }
+    }
+
     func testReferencesAreNotDuplicated() {
         let latest = F.message("m9", internetMessageID: "<m9@example.com>", references: ["<m9@example.com>"])
         XCTAssertEqual(QuickReplyComposer.outgoingMessage(text: "x", replyingTo: latest, accounts: F.accounts).references, ["<m9@example.com>"])

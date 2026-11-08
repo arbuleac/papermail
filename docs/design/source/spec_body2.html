@@ -125,7 +125,7 @@
     <p class="ann">Welcome: two equal secondary choices (the first has initial focus), the demo entry, the privacy promise. Trailing notes are <code>ink2</code> so they hold 4.5:1 on hover and press. Waiting: the chosen button returns to its rest face with a spinner and “Finish signing in in your browser…”; “Try the demo” becomes “Preparing the demo…” while the demo store is seeded.</p>
   </div>
   <div class="c12">
-    <div class="win" style="width:{{layout.settings.width}}px;height:548px;background:var(--q-canvas);margin:0 auto 0 0;display:inline-block;vertical-align:top">
+    <div class="win" style="width:{{layout.settings.width}}px;height:630px;background:var(--q-canvas);margin:0 auto 0 0;display:inline-block;vertical-align:top">
       <div class="lights t8" style="top:10px"><i></i><i></i><i></i></div>
       <div style="height:30px;text-align:center;font:600 13px/30px var(--q-sans);color:var(--q-ink2)">Accounts</div>
       <div class="stabs"><span class="on">{{PY: s('person.crop.circle', 20)}}<b>Accounts</b></span><span>{{PY: s('key', 20)}}<b>OAuth</b></span><span>{{PY: s('gearshape', 20)}}<b>General</b></span></div>
@@ -137,9 +137,10 @@
           <div class="arow"><span class="face" style="--a:var(--q-acct-3);--fg:var(--q-sheet)"><span>F</span></span><div class="an"><b><span class="nmx">Fabrikam</span><span class="tag">Microsoft 365</span></b><i class="bad">{{PY: s('exclamationmark.triangle.fill', 10)}}Sign in required</i></div><span class="btn sm secondary">Reconnect</span></div>
         </div>
         <div class="rowline" style="gap:0;margin-top:{{layout.settings.plusMinusTop}}px"><span class="sq sqf">{{PY: s('plus', 11)}}</span><span class="sq sqf">{{PY: s('minus', 11)}}</span></div>
-        <div class="sform det">
+        <div class="sform det" style="grid-template-rows:{{layout.settings.detailRow}}px {{layout.settings.detailRow}}px 82px {{layout.settings.detailRow}}px">
           <span>Colour</span><span class="pop" style="width:{{layout.settings.colourPopupWidth}}px"><span class="swatch" style="--a:var(--q-acct-1)"></span>Persimmon<span style="flex:1"></span>{{PY: s('chevron.up.chevron.down', 11)}}</span>
           <span>Monogram</span><span class="field" style="width:{{layout.settings.monogramFieldWidth}}px;height:{{layout.settings.fieldHeight}}px;--fgap:var(--q-canvas)">C</span>
+          <span style="align-self:start;line-height:{{layout.settings.detailRow}}px">Signature</span><span class="field" style="align-self:start;display:block;width:{{layout.settings.fieldWidth}}px;height:{{layout.settings.signatureFieldHeight}}px;margin-top:8px;padding:1.5px {{layout.textField.padX}}px;font:var(--q-font-writing);--fgap:var(--q-canvas)"><b>Alex Morgan</b><br>Rollout lead · <span style="color:var(--q-accent);text-decoration:underline;text-decoration-thickness:{{layout.textStyle.linkUnderline}}px;text-underline-offset:{{layout.textStyle.linkUnderlineOffset}}px">contoso.test</span></span>
           <span></span><span class="btn sm secondary">Remove…</span>
         </div>
       </div>
@@ -184,6 +185,6 @@
     </div>
     <p class="ann" style="max-width:420px;margin-top:4px">OAuth (§5.40), row by row: Google Client ID and Client secret (a secure field), Microsoft Client ID and Tenant (placeholder “common”), all <code>mono</code>, {{layout.settings.fieldHeight}} pt high and {{layout.settings.fieldWidth}} pt wide, filling to the content padding. The caption is <code>meta</code> <code>ink3</code>, at most {{layout.settings.captionMaxWidth}} pt wide. “Saved” is a status {{layout.settings.savedGap}} pt before Save, which goes quiet again until a field changes; it is not a banner. Account rows show every sync phase in the words of the sync line: up to date, downloading with its {{layout.settings.statusBarWidth}} pt bar, retrying, sign in required. Rows take no hover or pressed wash.</p>
     </div>
-    <p class="ann" style="margin-top:10px">Settings {{layout.settings.width}} pt wide. The toolbar and its tabs are system chrome (drawn here for reference); everything below them is Quire-drawn. Rows {{layout.settings.row}} pt ({{layout.settings.accountRow}} pt for accounts); the selected account carries the {{border.marginRule.width}} pt margin rule on <code>selWash</code>; account hairlines start at the text column (x = {{layout.settings.accountHairlineX}}); labels right-aligned in a {{layout.settings.labelColumn}} pt column; +/− are {{layout.settings.plusMinus}} pt squares. Toggle knobs carry a {{layout.toggle.knobEdge}} pt <code>ruleStrong</code> edge; the focused toggle shows the ring outside a {{border.focusRing.gapOnAccentFill}} pt gap because its track is an accent fill.</p>
+    <p class="ann" style="margin-top:10px">Settings {{layout.settings.width}} pt wide. The toolbar and its tabs are system chrome (drawn here for reference); everything below them is Quire-drawn. Rows {{layout.settings.row}} pt ({{layout.settings.accountRow}} pt for accounts); the selected account carries the {{border.marginRule.width}} pt margin rule on <code>selWash</code>; account hairlines start at the text column (x = {{layout.settings.accountHairlineX}}); labels right-aligned in a {{layout.settings.labelColumn}} pt column; +/− are {{layout.settings.plusMinus}} pt squares. The account's Signature is the composer's own editor in a {{layout.settings.fieldWidth}} × {{layout.settings.signatureFieldHeight}} pt field, {{layout.settings.signatureLines}} <code>writing</code> lines that scroll past that, its label level with the first line. Toggle knobs carry a {{layout.toggle.knobEdge}} pt <code>ruleStrong</code> edge; the focused toggle shows the ring outside a {{border.focusRing.gapOnAccentFill}} pt gap because its track is an accent fill.</p>
   </div>
 </div>

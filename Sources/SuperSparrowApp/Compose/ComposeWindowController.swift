@@ -42,6 +42,9 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     /// The body as plain text (the app's tests read it).
     var bodyText: String { textView.string }
 
+    /// The body's editor (the app's tests type into it).
+    var bodyEditor: ComposeTextView { textView }
+
     /// Everything the window holds, as a kept draft would (the app's tests read the fields through it).
     var contents: ComposeDraft { currentDraft() }
 
@@ -100,6 +103,11 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     private var hasStoredDraft = false
     private var linkPopover: ComposeLinkPopover?
     private var statusObservation: StoreObservation?
+    /// The body holds, or held, a signature this window put there, or is a reopened draft left as the user had it.
+    /// A From change then replaces only a signature still in the body: one the user deleted is not added again.
+    private var signaturePlaced = false
+    /// Set while a From change replaces the signature, so that edit is not taken for the user's own (§5.20 Status).
+    private var isReplacingSignature = false
 
     // MARK: Presenting
 
@@ -113,22 +121,22 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
                         attach: Bool = false) -> ComposeWindowController {
         let typed = body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : body
         let controller: ComposeWindowController
+        var caret: Int?
         if var kept = ComposeDraftStore.shared.keptDraft(for: mode, accounts: accounts) {
             if !typed.isEmpty {
-                let joined = NSMutableAttributedString(attributedString: kept.body)
-                if joined.length > 0 { joined.append(ComposeTextView.plainBody("\n\n")) }
-                joined.append(ComposeTextView.plainBody(typed))
-                kept.body = joined
+                let joined = ComposeSignature.adding(ComposeTextView.plainBody(typed), to: kept.body)
+                kept.body = joined.body
+                caret = joined.caret
             }
             controller = present(client: client, accounts: accounts, draft: kept)
         } else {
             controller = ComposeWindowController(client: client, account: account, accounts: accounts, mode: mode)
-            if !typed.isEmpty { controller.textView.replaceContents(with: ComposeTextView.plainBody(typed)) }
+            caret = controller.startBody(typed: typed.isEmpty ? nil : ComposeTextView.plainBody(typed))
             controller.show()
             controller.beginPrefill()
         }
         if !typed.isEmpty {
-            controller.textView.setSelectedRange(NSRange(location: (controller.textView.string as NSString).length, length: 0))
+            controller.textView.setSelectedRange(NSRange(location: caret ?? (controller.textView.string as NSString).length, length: 0))
             controller.draftChanged(body: true)
         }
         if attach { controller.attachFile(nil) }
@@ -140,6 +148,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     static func presentNew(client: MailClient, account: Account, accounts: [Account], to address: EmailAddress) -> ComposeWindowController {
         let controller = ComposeWindowController(client: client, account: account, accounts: accounts, mode: .new)
         controller.toField.addresses = [address]
+        controller.startBody(typed: nil)
         controller.show()
         controller.window?.makeFirstResponder(controller.subjectField)
         return controller
@@ -152,13 +161,14 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     @discardableResult
     static func present(client: MailClient, account: Account, accounts: [Account], link: MailtoLink) -> ComposeWindowController {
         let controller = ComposeWindowController(client: client, account: account, accounts: accounts, mode: .new)
-        controller.fill(from: link)
+        let bodyEnd = controller.fill(from: link)
         controller.show()
         let subjectIsEmpty = link.subject.trimmingCharacters(in: .whitespaces).isEmpty
         if !link.to.isEmpty, subjectIsEmpty {
             controller.window?.makeFirstResponder(controller.subjectField)
         } else if !link.to.isEmpty {
-            controller.textView.setSelectedRange(NSRange(location: (controller.textView.string as NSString).length, length: 0))
+            // The end of the link's body, above the signature.
+            controller.textView.setSelectedRange(NSRange(location: bodyEnd, length: 0))
         }
         return controller
     }
@@ -419,11 +429,77 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
 
     @objc private func fromChanged(_ sender: Any?) {
         guard accounts.indices.contains(fromPopup.selectedIndex) else { return }
-        // Changing From changes the sending account and nothing in the body: v1 has no signatures (§9).
-        account = accounts[fromPopup.selectedIndex]
+        let chosen = accounts[fromPopup.selectedIndex]
+        guard chosen.id != account.id else { return }
+        account = chosen
         fromPopup.inkMark = .dot(slot: account.inkSlot)
+        replaceSignature()
         observeStatus()
         draftChanged(body: false)
+    }
+
+    /// Chooses the From account as the popup does (the app's tests).
+    func chooseFrom(_ id: AccountID) {
+        guard let index = accounts.firstIndex(where: { $0.id == id }) else { return }
+        fromPopup.selectedIndex = index
+        fromChanged(fromPopup)
+    }
+
+    // MARK: Signature (§5.20)
+
+    /// Starts a new message's body: `typed` (a mail link's body, the quick reply's text), then the sending account's
+    /// signature one empty line below it, when it has one. Returns where the caret goes: the end of `typed`, above the
+    /// signature. What the composer put there is not the user's work, so it stays out of what is worth keeping.
+    @discardableResult
+    private func startBody(typed: NSAttributedString?) -> Int {
+        let signature = ComposeSignature.body(html: account.signature)
+        let start = ComposeSignature.startingBody(typed: typed, signature: signature)
+        if start.body.length > 0 { textView.replaceContents(with: start.body) }
+        textView.setSelectedRange(NSRange(location: start.caret, length: 0))
+        signaturePlaced = signature != nil
+        return start.caret
+    }
+
+    /// From changed: the signature still in the body becomes the new account's, or goes with the empty line before it
+    /// when that account has none. Text typed inside it goes with it (the whole marked range is replaced); text typed
+    /// before or after it stays. A signature the user deleted is not added again, and a body that never had one (the
+    /// previous account had none) gets the new account's below what was written. One undoable change.
+    private func replaceSignature() {
+        guard let storage = textView.textStorage else { return }
+        let signature = ComposeSignature.body(html: account.signature)
+        let text = storage.string as NSString
+        let selection = textView.selectedRange()
+        let edit: (range: NSRange, replacement: NSAttributedString)
+        if let current = ComposeSignature.range(in: storage) {
+            if let signature {
+                edit = (current, signature)
+            } else {
+                let start = ComposeSignature.separatorStart(before: current, in: text)
+                edit = (NSRange(location: start, length: NSMaxRange(current) - start), NSAttributedString())
+            }
+        } else if !signaturePlaced, let signature {
+            edit = (NSRange(location: text.length, length: 0), ComposeSignature.startingBody(typed: nil, signature: signature).body)
+        } else {
+            return
+        }
+        // Clicking From leaves focus in an open link popover, whose range would then point at other text.
+        linkPopover?.close()
+        guard textView.shouldChangeText(in: edit.range, replacementString: edit.replacement.string) else { return }
+        isReplacingSignature = true
+        textView.breakUndoCoalescing()
+        storage.replaceCharacters(in: edit.range, with: edit.replacement)
+        textView.didChangeText()
+        textView.breakUndoCoalescing()
+        isReplacingSignature = false
+        signaturePlaced = signature != nil
+        // A selection in what was written stays on the same text; one inside the old signature goes to where it began.
+        if NSMaxRange(selection) <= edit.range.location {
+            textView.setSelectedRange(selection)
+        } else if selection.location >= NSMaxRange(edit.range) {
+            textView.setSelectedRange(NSRange(location: selection.location + edit.replacement.length - edit.range.length, length: selection.length))
+        } else {
+            textView.setSelectedRange(NSRange(location: edit.range.location, length: 0))
+        }
     }
 
     @objc private func revealCc(_ sender: Any?) {
@@ -454,7 +530,14 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     }
 
     private func newMessage(to address: EmailAddress) {
-        Self.presentNew(client: client, account: account, accounts: accounts, to: address)
+        // This window's accounts are as they were when it opened; the new one takes them as they are now, so a
+        // signature changed in Settings since then is the one it starts with.
+        let current = ((try? client.store.accounts()) ?? []).sorted { $0.addedAt < $1.addedAt }
+        if let from = current.first(where: { $0.id == account.id }) {
+            Self.presentNew(client: client, account: from, accounts: current, to: address)
+        } else {
+            Self.presentNew(client: client, account: account, accounts: accounts, to: address)
+        }
     }
 
     private func updateTitle() {
@@ -498,7 +581,8 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     // MARK: NSTextViewDelegate (body)
 
     func textDidChange(_ notification: Notification) {
-        draftChanged(body: true)
+        // A From change replacing the signature reports itself as a header edit (`fromChanged`).
+        if !isReplacingSignature { draftChanged(body: true) }
         updateFormatState()
     }
 
@@ -571,35 +655,10 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
 
     private func showLinkPopover() {
         guard linkPopover == nil, !isSending else { return }
-        let selection = textView.selectedRange()
-        let existing = textView.existingLink(at: selection)
-        let range = existing?.range ?? selection
-        let request = ComposeLinkPopover.Request(range: range, existingTarget: existing?.target, needsText: range.length == 0)
-        let popover = ComposeLinkPopover(request: request)
-        guard let anchor = textView.anchorRects(for: range) else { return }
-        let first = content.convert(anchor.first, from: textView)
-        let last = content.convert(anchor.last, from: textView)
-        let startX = content.convert(NSPoint(x: anchor.startX, y: anchor.first.minY), from: textView).x
-        let c = Quire.Layout.Composer.self
-        let frame = ComposePopoverPlacement.linkPopover(firstLine: first, lastLine: last, selectionStartX: startX,
-                                                        size: popover.preferredSize, bounds: content.bounds, pad: c.linkPopoverPad,
-                                                        offsetY: c.linkPopoverOffsetY, edgeMin: c.popoverEdgeMin)
-        popover.onConfirm = { [weak self] target, text in
-            self?.textView.applyLink(target, text: text, to: range)
+        linkPopover = textView.presentLinkPopover(in: content) { [weak self] in
+            self?.linkPopover = nil
+            self?.updateFormatState()
         }
-        popover.onRemove = { [weak self] in self?.textView.removeLink(in: range) }
-        popover.onClose = { [weak self, weak popover] in
-            guard let self else { return }
-            self.linkPopover = nil
-            // Confirmed or cancelled from inside: the caret goes back to the text. Focus that already moved
-            // elsewhere (a click in a field) stays where it went.
-            if let popover, let responder = self.window?.firstResponder as? NSView, responder.isDescendant(of: popover) {
-                self.window?.makeFirstResponder(self.textView)
-            }
-            self.updateFormatState()
-        }
-        linkPopover = popover
-        popover.present(in: content, frame: frame)
     }
 
     // MARK: Prefill
@@ -741,6 +800,8 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         subjectField.stringValue = draft.subject
         subjectField.updateFont()
         textView.replaceContents(with: draft.body)
+        // The body is the user's as they left it, signature or none: nothing is added to it, now or on a From change.
+        signaturePlaced = true
         attachments = draft.attachments
         quoted = draft.quoted
         threading = draft.threading
@@ -753,9 +814,9 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         observeStatus()
     }
 
-    /// A mail link's fields, in plain text: the body takes no formatting and no signature or quote (v1 has no
-    /// signatures, §9).
-    private func fill(from link: MailtoLink) {
+    /// A mail link's fields, in plain text: the body takes no formatting and no quote; it is a new message, so the
+    /// account's signature follows it (§5.20). Returns the end of the link's body.
+    private func fill(from link: MailtoLink) -> Int {
         toField.addresses = link.to
         ccField.addresses = link.cc
         bccField.addresses = link.bcc
@@ -763,18 +824,20 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         if !link.bcc.isEmpty { showRow(bccRow, button: bccButton) }
         subjectField.stringValue = link.subject
         subjectField.updateFont()
-        if !link.body.isEmpty { textView.replaceContents(with: ComposeTextView.plainBody(link.body)) }
+        let bodyEnd = startBody(typed: link.body.isEmpty ? nil : ComposeTextView.plainBody(link.body))
         baseline = currentDraft().fingerprint
         updateTitle()
         updateSendEnabled()
+        return bodyEnd
     }
 
-    /// Content worth keeping: anything the user typed, chose or attached; at most the prefilled reply and
-    /// its folded original is not (§5.20).
+    /// Content worth keeping: anything the user typed, chose or attached; at most the prefilled reply, its folded
+    /// original and the signature is not (§5.20).
     private var isWorthKeeping: Bool {
         let fingerprint = currentDraft().fingerprint
         guard fingerprint != baseline else { return false }
-        let typed = !textView.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        // The signature is the composer's, not the user's work.
+        let typed = !fingerprint.bodyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let hasRecipients = !fingerprint.to.isEmpty || !fingerprint.cc.isEmpty || !fingerprint.bcc.isEmpty
         let hasSubject = !fingerprint.subject.trimmingCharacters(in: .whitespaces).isEmpty
         let hasFiles = attachments.contains { !$0.isInline && !baseline.attachmentIDs.contains($0.id) }

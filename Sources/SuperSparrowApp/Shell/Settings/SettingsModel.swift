@@ -4,7 +4,7 @@ import SSDesign
 import SwiftUI
 
 /// What the Settings window shows and does (spec §5.40). The app delegate supplies the account actions, since
-/// sign-in and removal go through the engine and may show alerts; colour and monogram write the store.
+/// sign-in and removal go through the engine and may show alerts; colour, monogram and signature write the store.
 @MainActor
 final class SettingsModel: ObservableObject {
     enum Tab: Hashable {
@@ -74,6 +74,9 @@ final class SettingsModel: ObservableObject {
     var leaveDemo: () -> Void = {}
     var setInkSlot: (Int, Account) -> Void = { _, _ in }
     var setMonogram: (String?, Account) -> Void = { _, _ in }
+    /// The signature's HTML (nil for none) for an account, when editing it ends. By id: the field saves for the account
+    /// it was editing, which may no longer be the selected one.
+    var setSignature: (String?, AccountID) -> Void = { _, _ in }
 
     init(isDemo: Bool, oauthFileURL: URL) {
         self.isDemo = isDemo

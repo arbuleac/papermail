@@ -79,6 +79,11 @@ enum MailSchema {
                 ) WITHOUT ROWID;
                 """)
         }
+        migrator.registerMigration("v9-account-signature") { db in
+            // Nullable and empty for every existing account: a signature is only ever what the user typed in Settings,
+            // never one read from the provider.
+            try db.execute(sql: "ALTER TABLE accounts ADD COLUMN signature TEXT")
+        }
         return migrator
     }
 

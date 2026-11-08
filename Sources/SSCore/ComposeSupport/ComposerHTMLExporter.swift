@@ -178,9 +178,15 @@ public struct ComposerHTMLExporter: Sendable {
         } else {
             candidate = nil
         }
-        guard let candidate, let url = URL(string: candidate), let scheme = url.scheme?.lowercased(),
-              Self.allowedLinkSchemes.contains(scheme) else { return nil }
+        guard let candidate, Self.isAllowedLink(candidate) else { return nil }
         return candidate
+    }
+
+    /// Whether the exporter writes `target` as a link. Shared with `ComposerHTMLImporter`, so HTML read back into
+    /// the editor carries no link the exporter would not send.
+    static func isAllowedLink(_ target: String) -> Bool {
+        guard let url = URL(string: target), let scheme = url.scheme?.lowercased() else { return false }
+        return allowedLinkSchemes.contains(scheme)
     }
 
     private func html(for runs: [(style: InlineStyle, text: String)]) -> String {

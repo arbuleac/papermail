@@ -234,6 +234,22 @@ final class BannerAndGridTests: XCTestCase {
         host.close()
     }
 
+    /// The Signature field (§5.40) is a one-line field grown by whole `writing` lines, so its first line sits where a
+    /// one-line field's text would; `QuireTextAreaStyle` draws it at exactly that height in the field column.
+    func testSignatureFieldIsAOneLineFieldGrownByWritingLines() {
+        let s = Quire.Layout.Settings.self
+        XCTAssertEqual(s.signatureFieldHeight, s.fieldHeight + (s.signatureLines - 1) * QuireFont.Role.writing.lineHeight)
+        let recorder = FrameRecorder()
+        let view = Color.clear
+            .quireTextAreaStyle(height: s.signatureFieldHeight, isFocused: false)
+            .frame(width: s.fieldWidth)
+            .recordFrame("field", in: recorder)
+        let host = SwiftUIHost(view)
+        XCTAssertEqual(recorder["field"].height, s.signatureFieldHeight, accuracy: 0.5)
+        XCTAssertEqual(recorder["field"].width, s.fieldWidth, accuracy: 0.5)
+        host.close()
+    }
+
     func testRowLabelIsRightAlignedInTheColumn() {
         let s = Quire.Layout.Settings.self
         let recorder = FrameRecorder()

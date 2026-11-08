@@ -1394,13 +1394,19 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     func sendQuickReply(_ text: String, mode: QuickReplyView.Mode) {
         guard let conversation = currentConversationID, let latest = replyTarget(in: currentMessages),
               let account = accountsByID[latest.id.accountID] else { return }
-        let message = QuickReplyComposer.outgoingMessage(text: text, replyingTo: latest, accounts: accountsByID, all: mode == .replyAll)
+        // The account's signature follows the typed text, one empty line below it, as a composer would insert it (§5.18).
+        let message = QuickReplyComposer.outgoingMessage(text: text, replyingTo: latest, accounts: accountsByID, all: mode == .replyAll,
+                                                         signature: ComposeSignature.export(html: account.signature))
         guard !message.to.isEmpty else {
             quickReply.status = .noRecipients
             return
         }
+        // What an undone or failed send reopens in a composer: the same text and signature, the signature marked as the
+        // composer's own so From still replaces it there.
+        let body = ComposeSignature.startingBody(typed: ComposeTextView.plainBody(text),
+                                                 signature: ComposeSignature.body(html: account.signature)).body
         let draft = ComposeDraft(id: UUID(), mode: .reply(latest.id, all: mode == .replyAll), account: account, to: message.to,
-                                 cc: message.cc, bcc: message.bcc, subject: message.subject, body: NSAttributedString(string: text),
+                                 cc: message.cc, bcc: message.bcc, subject: message.subject, body: body,
                                  attachments: [], quoted: nil, threading: ReplyThreading(original: latest, isReply: true))
         do {
             let sendID = try client.send(message, undoWindow: Self.undoWindow)

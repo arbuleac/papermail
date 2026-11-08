@@ -12,6 +12,7 @@ struct ComposeDraft {
         var cc: [String] = []
         var bcc: [String] = []
         var subject = ""
+        /// What the user wrote: the body without the signature the composer inserted and the empty line before it.
         var bodyText = ""
         var attachmentIDs: Set<UUID> = []
     }
@@ -44,7 +45,7 @@ struct ComposeDraft {
             cc: cc.map(\.address),
             bcc: bcc.map(\.address),
             subject: subject,
-            bodyText: body.string,
+            bodyText: ComposeSignature.typedText(of: body),
             attachmentIDs: Set(attachments.map(\.id))
         )
     }

@@ -132,6 +132,29 @@ final class MailEngineAccountTests: XCTestCase {
         await harness.shutdown()
     }
 
+    /// Signing in again to an account that is already here, and Reconnect, read the provider's profile but leave the
+    /// account row as the user set it: its signature (a local setting the provider never sees) and monogram stay.
+    func testSigningInAgainKeepsTheSignatureAndMonogram() async throws {
+        let provider = ScriptedProvider(accountID: Fixtures.accountID)
+        provider.bootstrapRuns = [["": .success(Fixtures.page(1...1, next: nil, cursor: "c0"))]]
+        let harness = try EngineHarness(provider: provider)
+        let signature = "<div><p><b>Me</b></p></div>"
+        try harness.store.setSignature(signature, for: Fixtures.accountID)
+        try harness.store.setMonogram("Me", for: Fixtures.accountID)
+        let original = try XCTUnwrap(try harness.store.accounts().first)
+
+        let again = try await harness.engine.addAccount(kind: original.kind)
+        XCTAssertEqual(again.id, original.id)
+        XCTAssertEqual(again.signature, signature)
+        _ = try await harness.engine.reconnect(original)
+
+        let stored = try XCTUnwrap(try harness.store.accounts().first)
+        XCTAssertEqual(try harness.store.accounts().count, 1)
+        XCTAssertEqual(stored.signature, signature, "the signature is kept")
+        XCTAssertEqual(stored.monogram, "Me", "as the monogram is")
+        await harness.shutdown()
+    }
+
     func testFailedSignInLeavesNothingBehind() async throws {
         let harness = try EngineHarness(seedAccount: false)
         harness.authenticator.result = .failure(AuthError.userCancelled)

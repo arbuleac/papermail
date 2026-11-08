@@ -394,6 +394,17 @@ struct QuireGalleryGeneral: View {
                     .quireFieldStyle()
                     .frame(width: Quire.Layout.Settings.monogramFieldWidth)
             }
+            // The app's field is the composer's AppKit editor; this stands in for it with the same container and lines.
+            QuireSettingsRow("Signature", alignment: .top) {
+                (Text("Alex Morgan").bold() + Text("\nContoso · ") + Text("contoso.test").foregroundColor(.qAccent).underline())
+                    .quireParagraph(.writing)
+                    .foregroundStyle(Color.qInk)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .padding(.top, (Quire.Layout.Settings.fieldHeight - QuireFont.Role.writing.lineHeight) / 2)
+                    .quireTextAreaStyle(height: Quire.Layout.Settings.signatureFieldHeight, isFocused: false)
+                    .frame(width: Quire.Layout.Settings.fieldWidth)
+                    .padding(.vertical, (Quire.Layout.Settings.detailRow - Quire.Layout.Settings.fieldHeight) / 2)
+            }
             QuireSettingsTextRow("Last error", text: "Gmail returned an unexpected response. The server closed the connection before the "
                                  + "download finished; SuperSparrow will try again in a few minutes.")
             QuireSettingsRow(nil) {

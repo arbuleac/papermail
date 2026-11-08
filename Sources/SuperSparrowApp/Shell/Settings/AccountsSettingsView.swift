@@ -67,8 +67,8 @@ struct AccountsSettingsView: View {
     }
 }
 
-/// The selected account's detail (spec §5.40, Detail form): Colour, Monogram, Last error when there is one, and
-/// Remove… (Leave Demo… in demo mode), on the Settings grid.
+/// The selected account's detail (spec §5.40, Detail form): Colour, Monogram, Signature, Last error when there is one,
+/// and Remove… (Leave Demo… in demo mode), on the Settings grid.
 struct AccountDetailForm: View {
     @ObservedObject var model: SettingsModel
     let account: Account
@@ -93,6 +93,12 @@ struct AccountDetailForm: View {
                     .onAppear { monogramText = account.monogram ?? "" }
                     .onChange(of: account.id) { monogramText = account.monogram ?? "" }
                     .onChange(of: monogramText) { _, typed in commitMonogram(typed) }
+            }
+            // The field sits 8 pt into its row, as a one-line field does, its first line level with the label.
+            QuireSettingsRow("Signature", minHeight: s.detailRow, alignment: .top) {
+                // Read when the field saves: the app delegate sets the model's action after the form first draws.
+                SignatureField(account: account, onCommit: { [model] html, id in model.setSignature(html, id) })
+                    .padding(.vertical, (s.detailRow - s.fieldHeight) / 2)
             }
             if let error = model.lastError(for: account) {
                 QuireSettingsTextRow("Last error", text: error)

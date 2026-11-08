@@ -107,6 +107,10 @@ public final class SQLiteMailStore: MailStoring, Sendable {
         try write { try AccountTable.setMonogram(monogram, for: accountID, in: $0) }
     }
 
+    public func setSignature(_ signature: String?, for accountID: AccountID) throws {
+        try write { try AccountTable.setSignature(signature, for: accountID, in: $0) }
+    }
+
     // MARK: Sync state
 
     public func syncCursor(for accountID: AccountID) throws -> String? {

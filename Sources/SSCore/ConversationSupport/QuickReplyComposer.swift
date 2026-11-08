@@ -81,16 +81,21 @@ public enum QuickReplyComposer {
         }.joined()
     }
 
+    /// The reply as sent. `signature` is the sending account's signature as the composer exports it (§5.20): it
+    /// follows the typed text after one blank line, which in the quick reply's own paragraphs is a paragraph break,
+    /// and it adds nothing when it is nil or holds no text.
     public static func outgoingMessage(
         text: String,
         replyingTo latest: MessageMetadata,
         accounts: [AccountID: Account],
-        all: Bool = false
+        all: Bool = false,
+        signature: ComposerHTMLExporter.Output? = nil
     ) -> OutgoingMessage {
         var references = latest.references
         if let messageID = latest.internetMessageID, !references.contains(messageID) {
             references.append(messageID)
         }
+        let signed = signature.flatMap { $0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
         let recipients: (to: [EmailAddress], cc: [EmailAddress]) = all
             ? replyAllRecipients(to: latest, accounts: accounts)
             : (replyRecipients(to: latest, accounts: accounts), [])
@@ -99,8 +104,8 @@ public enum QuickReplyComposer {
             to: recipients.to,
             cc: recipients.cc,
             subject: replySubject(for: latest.subject),
-            html: paragraphsHTML(from: text),
-            text: text,
+            html: paragraphsHTML(from: text) + (signed.map { $0.html } ?? ""),
+            text: signed.map { text.trimmingTrailingWhitespace() + "\n\n" + $0.text } ?? text,
             inReplyTo: latest.id,
             inReplyToInternetMessageID: latest.internetMessageID,
             references: references
@@ -109,5 +114,14 @@ public enum QuickReplyComposer {
 
     private static func ownAddresses(_ accounts: [AccountID: Account]) -> Set<String> {
         Set(accounts.values.map { $0.email.lowercased() })
+    }
+}
+
+private extension String {
+    /// Without the spaces and line breaks at its end, so the blank line before a signature is exactly one.
+    func trimmingTrailingWhitespace() -> String {
+        var result = self
+        while let last = result.last, last.isWhitespace || last.isNewline { result.removeLast() }
+        return result
     }
 }

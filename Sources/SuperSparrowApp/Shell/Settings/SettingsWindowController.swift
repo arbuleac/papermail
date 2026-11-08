@@ -87,6 +87,12 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         defaultMailApp.refresh()
     }
 
+    /// Ends editing in the window, so a field that saves when editing ends (the signature) saves now: before quitting
+    /// closes the store, and before a composer opened from here reads the accounts.
+    func endEditing() {
+        window?.makeFirstResponder(nil)
+    }
+
     /// Closing keeps the controller and its model for the next show; their retry clock stops until then.
     func windowWillClose(_ notification: Notification) {
         model.isWindowOpen = false

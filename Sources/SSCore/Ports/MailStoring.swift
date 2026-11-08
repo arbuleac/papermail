@@ -31,6 +31,9 @@ public protocol MailStoring: AnyObject, Sendable {
     /// Stores the monogram the user typed, normalized by `Account.normalizedMonogram`; nil (or blank) goes
     /// back to the derived one. Throws `StoreError.notFound` for an unknown account.
     func setMonogram(_ monogram: String?, for accountID: AccountID) throws
+    /// Stores the signature the user set in Settings (the composer's HTML subset), normalized by
+    /// `Account.normalizedSignature`; nil (or blank) means none. Throws `StoreError.notFound` for an unknown account.
+    func setSignature(_ signature: String?, for accountID: AccountID) throws
 
     // MARK: Sync state
     func syncCursor(for accountID: AccountID) throws -> String?

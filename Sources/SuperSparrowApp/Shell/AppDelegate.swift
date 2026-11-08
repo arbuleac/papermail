@@ -378,7 +378,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let environment, !isTerminating else { return .terminateNow }
         isTerminating = true
-        let replacement = signIn?.replacement
+        let environments = [environment, signIn?.replacement].compactMap { $0 }
+        let settingsWindow = settingsWindow
         // Let in-flight writes finish so the next launch resumes from a consistent store, but never hang quitting.
         var replied = false
         let reply = {
@@ -387,8 +388,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             NSApp.reply(toApplicationShouldTerminate: true)
         }
         Task {
-            await environment.shutdown()
-            await replacement?.shutdown()
+            await Self.prepareToQuit(settings: settingsWindow, environments: environments)
             reply()
         }
         Task {
@@ -400,6 +400,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     func applicationWillTerminate(_ notification: Notification) {
         environment?.engine.stop()
+    }
+
+    /// Quitting's work before AppKit is told to go on. AppKit posts will-terminate only after that, once the stores are
+    /// closed, so a Settings field that saves when editing ends (the signature) ends it first, while they are open.
+    static func prepareToQuit(settings: SettingsWindowController?, environments: [AppEnvironment]) async {
+        settings?.endEditing()
+        for environment in environments { await environment.shutdown() }
     }
 
     // MARK: Environment
@@ -446,6 +453,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         window.onTryDemo = { [weak self] in self?.switchToDemo() }
         window.onCancelSignIn = { [weak self] in self?.cancelSignIn() }
         window.onLeaveDemo = { [weak self] in self?.confirmLeavingDemo(origin: .main) }
+        window.beforeCompose = { [weak self] in self?.saveSettingsEdits() }
         mainWindow = window
         // Last, on either path below: the window is on screen, so a composer for a held link or a notification's
         // Reply opens in front of it.
@@ -901,6 +909,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             model.leaveDemo = { [weak self] in self?.confirmLeavingDemo(origin: .settings) }
             model.setInkSlot = { [weak self] slot, account in self?.edit(account) { try $0.setInkSlot(slot, for: account.id) } }
             model.setMonogram = { [weak self] monogram, account in self?.edit(account) { try $0.setMonogram(monogram, for: account.id) } }
+            model.setSignature = { [weak self, weak model] signature, id in
+                // A field saving as its account is removed has nothing left to save to.
+                guard let account = model?.accounts.first(where: { $0.id == id }) else { return }
+                self?.edit(account) { try $0.setSignature(signature, for: id) }
+            }
             settingsWindow = controller
             reflectSignIn()
         }
@@ -908,7 +921,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if let oauthNotice { settingsWindow?.model.oauthNotice = oauthNotice }
     }
 
-    /// Colour and monogram are written to the store directly; both windows re-read their accounts.
+    /// Colour, monogram and signature are written to the store directly; both windows re-read their accounts, and
+    /// composers opened from then on take the new signature.
     private func edit(_ account: Account, _ change: (MailStoring) throws -> Void) {
         guard let environment else { return }
         do {
@@ -929,6 +943,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc func newMessage(_ sender: Any?) {
         mainWindow?.composeNew()
+    }
+
+    /// A composer opening while Settings is key (⌘N there, a notification's Reply, whose banner leaves Settings key)
+    /// reads the accounts before Settings stops being key, so the signature being edited there is saved first. Settings
+    /// in the background saved it when it stopped being key.
+    private func saveSettingsEdits() {
+        if settingsWindow?.window?.isKeyWindow == true { settingsWindow?.endEditing() }
     }
 
     @objc func addGmailAccount(_ sender: Any?) {

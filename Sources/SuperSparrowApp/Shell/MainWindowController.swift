@@ -28,6 +28,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// The demo tag's Leave Demo… (§5.43): the app delegate asks, as File › Leave Demo… does, then wipes the
     /// demo store and returns to the welcome screen.
     var onLeaveDemo: (() -> Void)?
+    /// Runs before a composer opened from here reads the accounts: Settings saves a signature still being edited, which
+    /// re-reads them here, so the composer starts with it.
+    var beforeCompose: (() -> Void)?
 
     private let splitController = MainSplitViewController()
     /// The panes' split view (the app's tests measure its dividers).
@@ -838,6 +841,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         case .markRead(let id):
             notificationAction(.setRead(true), on: id)
         case .reply(let id):
+            beforeCompose?()
             guard let account = accountsByID[id.accountID], let latest = (try? environment.store.messages(in: id))?.last else { return }
             ComposeWindowController.present(client: environment.engine, account: account, accounts: accounts,
                                             mode: .reply(latest.id, all: false))
@@ -1314,6 +1318,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         case .reveal(let id):
             reveal(id)
         case let .replyInComposer(id, all, body, attach):
+            beforeCompose?()
             guard let account = accounts.first(where: { $0.id == id.accountID }) ?? accounts.first else { return }
             ComposeWindowController.present(client: environment.engine, account: account, accounts: accounts, mode: .reply(id, all: all),
                                             body: body, attach: attach)
@@ -1465,6 +1470,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// a new message starts from. With no account the window comes forward on the welcome screen and nothing opens.
     @discardableResult
     func openMailLink(_ link: MailtoLink) -> ComposeWindowController? {
+        beforeCompose?()
         guard let account = newMessageAccount else {
             showWindow(nil)
             NSApp.activate()
@@ -1474,6 +1480,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     }
 
     private func compose(_ mode: ComposeMode, accountID: AccountID) {
+        beforeCompose?()
         guard let account = accounts.first(where: { $0.id == accountID }) ?? accounts.first else { return }
         ComposeWindowController.present(client: environment.engine, account: account, accounts: accounts, mode: mode)
     }

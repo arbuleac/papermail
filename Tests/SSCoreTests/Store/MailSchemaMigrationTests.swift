@@ -274,10 +274,13 @@ final class MailSchemaMigrationTests: XCTestCase {
                                         createdAt: MailStoreCodec.date(base + 200_000)))
             try store.close()
         }
+        // v9 came after v8, so a v7 file has neither.
         try execute("""
             DROP TABLE backfill_live_marks;
             DROP TABLE backfill_seen;
             DELETE FROM grdb_migrations WHERE identifier = 'v8-backfill-marks';
+            ALTER TABLE accounts DROP COLUMN signature;
+            DELETE FROM grdb_migrations WHERE identifier = 'v9-account-signature';
             """, at: path)
         XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations ORDER BY identifier", at: path).compactMap(\.first), [
             "v1-mailbox", "v2-body-render-facts", "v3-body-typesetting", "v4-account-ink", "v5-failed-operation-mark",
@@ -324,6 +327,45 @@ final class MailSchemaMigrationTests: XCTestCase {
         XCTAssertNotNil(try reopened.message(m1))
         XCTAssertNotNil(try reopened.message(m2))
         XCTAssertEqual(try query("SELECT COUNT(*) FROM backfill_live_marks", at: path), [["0"]])
+    }
+
+    /// v9 adds `accounts.signature` and nothing else, so the file a v8 build leaves is a v9 file without that column
+    /// and its ledger row. Opened by the current build, every account has no signature (NULL, never one read from the
+    /// provider), the monograms and ink slots set before stay, and the column takes a signature.
+    func testVersion8DatabaseGainsAnEmptySignatureAndKeepsItsMonograms() throws {
+        let path = try XCTUnwrap(directory).appendingPathComponent("mail.sqlite").path
+        try writeVersion1Database(at: path)
+        let a = AccountID("acct-a")
+        let b = AccountID("acct-b")
+        do {
+            let store = try SQLiteMailStore(path: path)
+            try store.setMonogram("Ax", for: a)
+            try store.setInkSlot(7, for: b)
+            try store.setSyncCursor("cursor-8", for: a)
+            try store.close()
+        }
+        try execute("""
+            ALTER TABLE accounts DROP COLUMN signature;
+            DELETE FROM grdb_migrations WHERE identifier = 'v9-account-signature';
+            """, at: path)
+        XCTAssertFalse(try query("SELECT name FROM pragma_table_info('accounts')", at: path).compactMap(\.first).contains("signature"))
+
+        let store = try SQLiteMailStore(path: path)
+        let migrated = try store.accounts()
+        XCTAssertEqual(migrated.count, accounts.count)
+        XCTAssertEqual(migrated.map(\.signature), Array(repeating: nil, count: accounts.count), "no account has a signature")
+        XCTAssertEqual(migrated.first { $0.id == a }?.monogram, "Ax", "the monogram is untouched")
+        XCTAssertEqual(migrated.first { $0.id == b }?.inkSlot, 7)
+        XCTAssertEqual(try store.syncCursor(for: a), "cursor-8")
+        XCTAssertEqual(try store.message(MessageID(accountID: a, providerID: "m1"))?.subject, "Hello")
+
+        try store.setSignature("<div><p><b>Alex</b></p></div>", for: a)
+        XCTAssertEqual(try store.accounts().first { $0.id == a }?.signature, "<div><p><b>Alex</b></p></div>")
+        XCTAssertEqual(try store.accounts().first { $0.id == a }?.monogram, "Ax")
+        try store.close()
+        XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations WHERE identifier = 'v9-account-signature'", at: path), [["v9-account-signature"]])
+        XCTAssertEqual(try query("SELECT type, \"notnull\", dflt_value FROM pragma_table_info('accounts') WHERE name = 'signature'", at: path),
+                       [["TEXT", "0", nil]], "TEXT NULL with no default")
     }
 
     // MARK: Raw SQLite

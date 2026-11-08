@@ -2,7 +2,7 @@
 and the rendered DESIGN-LANGUAGE.md. Colour order: light, dark, lightHC, darkHC."""
 
 NAME = "Quire"
-VERSION = "1.5.0"
+VERSION = "1.5.1"
 
 # (token, light, dark, lightHC, darkHC, group, use)
 COLOR = [
@@ -254,7 +254,8 @@ LAYOUT = {
               "fieldHeight": 24, "noticeGap": 16, "labelGap": 12, "fieldWidth": 360, "captionMaxWidth": 360, "captionGap": 8, "sectionGap": 20,
               "accountFaceX": 16, "tagGap": 6, "statusGap": 12, "statusTrailing": 16, "statusGlyph": 12, "statusGlyphGap": 6, "statusButtonGap": 8,
               "statusBarWidth": 96, "statusBarGap": 4, "savedGap": 8,
-              "groupMaxRows": 6, "detailTop": 20, "detailRow": 40, "monogramFieldWidth": 64, "colourPopupWidth": 160, "lastErrorMaxLines": 3},
+              "groupMaxRows": 6, "detailTop": 20, "detailRow": 40, "monogramFieldWidth": 64, "colourPopupWidth": 160, "lastErrorMaxLines": 3,
+              "signatureLines": 3, "signatureFieldHeight": 66},
  "menu": {"titleMenuOffsetY": 4},
  "iconSize": {"window": 15, "inText": 14, "row": 12, "rail": 18},
  "notification": {"bodyMaxChars": 120, "summaryThreshold": 3, "summaryWindowSeconds": 30},

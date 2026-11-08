@@ -17,6 +17,7 @@ One database per user: `~/Library/Application Support/SuperSparrow/mail.sqlite`,
 | bootstrap_json | TEXT NULL | `BootstrapState` as JSON |
 | ink_slot | INTEGER NOT NULL DEFAULT 0 | account palette slot 0–9 (v4). The engine assigns it on add (`AccountInkSlot.next`: the lowest slot no account wears; once all ten are worn, the lowest slot among those worn by the fewest accounts). Accounts that existed before v4 were backfilled in creation order (`added_at`, then `id`) with the same rule, which from an empty palette is the creation index mod 10. Settings may move it (`setInkSlot`); the store refuses values outside 0–9. Colours live in the design layer, never here |
 | monogram | TEXT NULL | the monogram the user typed in Settings (v4): trimmed, at most 2 characters (`Account.monogramMaxLength`). NULL = derived from the domain by the UI (docs/DESIGN-LANGUAGE.md, Monograms) |
+| signature | TEXT NULL | the signature the user set in Settings › Accounts (v9), as the composer's own HTML subset (`ComposerHTMLExporter`: `div`, `p`, `b`, `i`, `u`, `a`, `br`), written by `setSignature` with the white space around it trimmed. NULL = none, the default; a blank value is stored as NULL. A local setting: never read from or written to the provider. Every rewrite of the row (`upsertAccount`) writes it from the account as given, as it does `ink_slot` and `monogram`, so a caller re-saving an account it read keeps it; signing in again or reconnecting does not rewrite the row. It goes with the row when the account is removed. The composer reads it back through `ComposerHTMLImporter`, which keeps only that subset (docs/DESIGN-LANGUAGE.md §5.20) |
 
 ### messages
 | column | type | notes |
@@ -157,6 +158,7 @@ Applied in order by GRDB's `DatabaseMigrator`; a migration is never edited once 
 - `v6-operation-priors`: `operation_targets.prior_roles`, `prior_is_read`, `prior_is_starred` (existing rows stay NULL).
 - `v7-body-design-facts-backfill`: the partial index `bodies_missing_design_facts ON bodies(account_id) WHERE typesetting IS NULL`, for the design-facts backfill.
 - `v8-backfill-marks`: the tables `backfill_live_marks` and `backfill_seen` (empty at first), for the two sync lanes (see "Backfill marks").
+- `v9-account-signature`: `accounts.signature` (NULL for every existing account).
 
 ## Semantics
 
