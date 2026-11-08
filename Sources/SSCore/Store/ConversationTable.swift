@@ -129,15 +129,16 @@ enum ConversationTable {
     /// is what lets SQLite read the Inbox in index order.
     static let inboxDate = "COALESCE(c.returned_at, c.latest_date_ms)"
 
-    /// The date column a view sorts and pages by.
-    private static func sortKey(_ view: MailboxView) -> String {
-        view == .inbox ? inboxDate : "c.latest_date_ms"
+    /// The date column a query sorts and pages by: the Inbox's own, except in a search (an `in:inbox` one too), whose
+    /// rows sort and show their latest message's date in every view, as the list pages them.
+    private static func sortKey(_ query: ConversationQuery) -> String {
+        query.view == .inbox && query.search == nil ? inboxDate : "c.latest_date_ms"
     }
 
     static func fetch(_ query: ConversationQuery, in db: Database) throws -> [ConversationSummary] {
         let (sql, arguments, isSearch) = statement(for: query)
-        // Only a full-text read is worth an interval: the other views are one indexed select. The search's first
-        // page is read off the main thread by the observation, but paging reads it on the caller's thread.
+        // Only a search is worth an interval: the other views are one indexed select. The search's first page is
+        // read off the main thread by the observation, but paging reads it on the caller's thread.
         let signposter = StoreSignposts.signposter
         let interval = isSearch ? signposter.beginInterval(StoreSignposts.search, id: signposter.makeSignpostID()) : nil
         defer { if let interval { signposter.endInterval(StoreSignposts.search, interval) } }
@@ -151,7 +152,7 @@ enum ConversationTable {
             .map { $0["detail"] }
     }
 
-    /// `isSearch` says whether the statement reads the full-text index, which only a query with indexable text does.
+    /// `isSearch` says whether the query carries a search, words or operators alone.
     private static func statement(for query: ConversationQuery)
         -> (sql: String, arguments: [(any DatabaseValueConvertible)?], isSearch: Bool) {
         let isLater = query.view == .later
@@ -161,17 +162,20 @@ enum ConversationTable {
             sql += " JOIN snoozes s ON s.account_id = c.account_id AND s.provider_id = c.provider_id"
         }
         var arguments: [(any DatabaseValueConvertible)?] = []
-        let match = FullTextIndex.matchExpression(for: query.searchText)
-        if let match {
-            // Hits are collapsed to conversation keys once, then joined to the summary rows the list needs,
-            // so the result carries the same denormalized columns as every other view.
+        if let match = FullTextIndex.matchExpression(for: query.search) {
+            // The matching messages are collapsed to conversation keys once, then joined to the summary rows the list
+            // needs, so the result carries the same denormalized columns as every other view. The keys come from one
+            // scan of the covering index on (account, conversation), testing each message's rowid against the set the
+            // full-text match produced; the index yields the keys in order, so DISTINCT needs no sort. 27 ms for a
+            // word in 73% of the 100,000-message fixture's messages, where looking each hit up in the table and
+            // sorting the keys took 47. The unary plus keeps SQLite from looking each rowid up instead.
             sql += """
                  JOIN (SELECT DISTINCT m.account_id, m.conversation_provider_id AS provider_id
-                       FROM message_fts f JOIN messages m ON m.rowid = f.rowid
-                       WHERE message_fts MATCH ?) hits
+                       FROM messages m INDEXED BY messages_by_conversation
+                       WHERE +m.rowid \(match.inverted ? "NOT IN" : "IN") (SELECT rowid FROM message_fts WHERE message_fts MATCH ?)) hits
                    ON hits.account_id = c.account_id AND hits.provider_id = c.provider_id
                 """
-            arguments.append(match)
+            arguments.append(match.expression)
         }
         var predicates = [viewPredicate(query.view)]
         if let accountIDs = query.accountIDs {
@@ -184,18 +188,53 @@ enum ConversationTable {
         if query.unreadOnly {
             predicates.append("c.unread_count > 0")
         }
+        for term in query.search?.terms ?? [] {
+            if let predicate = predicate(for: term, open: query.openConversationID, arguments: &arguments) {
+                predicates.append(predicate)
+            }
+        }
         if let before = query.before, !isLater {
-            predicates.append("\(sortKey(query.view)) < ?")
+            predicates.append("\(sortKey(query)) < ?")
             arguments.append(MailStoreCodec.milliseconds(before))
         }
         sql += " WHERE " + predicates.joined(separator: " AND ")
         if isLater {
             sql += " ORDER BY s.due_at, c.account_id, c.provider_id LIMIT ?"
         } else {
-            sql += " ORDER BY \(sortKey(query.view)) DESC, c.provider_id DESC LIMIT ?"
+            sql += " ORDER BY \(sortKey(query)) DESC, c.provider_id DESC LIMIT ?"
         }
         arguments.append(query.limit)
-        return (sql, arguments, match != nil)
+        return (sql, arguments, query.search != nil)
+    }
+
+    /// An operator as a predicate on the summary row: what the row shows (its unread dot, star, attachment, date)
+    /// and the view it is in. Nil for the index terms, which the MATCH expressions carry.
+    private static func predicate(for term: SearchTerm, open: ConversationID?,
+                                  arguments: inout [(any DatabaseValueConvertible)?]) -> String? {
+        let negated = term.negated
+        switch term.kind {
+        case .text, .phrase, .from, .to, .subject:
+            return nil
+        case .unread, .read:
+            let condition = (term.kind == .unread) != negated ? "c.unread_count > 0" : "c.unread_count = 0"
+            guard let open else { return condition }
+            arguments += [open.accountID.rawValue, open.providerID]
+            return "(\(condition) OR (c.account_id = ? AND c.provider_id = ?))"
+        case .starred:
+            return negated ? "c.is_starred = 0" : "c.is_starred = 1"
+        case .attachment:
+            return negated ? "c.has_attachments = 0" : "c.has_attachments = 1"
+        case .before(let day):
+            arguments.append(MailStoreCodec.milliseconds(day))
+            return negated ? "c.latest_date_ms >= ?" : "c.latest_date_ms < ?"
+        case .after(let day):
+            arguments.append(MailStoreCodec.milliseconds(day))
+            return negated ? "c.latest_date_ms < ?" : "c.latest_date_ms >= ?"
+        case .mailbox(let view):
+            // Later's own predicate leans on the Later view's join to `snoozes`, which no other view has.
+            let inView = view == .later ? snoozedPredicate : viewPredicate(view)
+            return negated ? "NOT (\(inView))" : "(\(inView))"
+        }
     }
 
     static func unreadInboxCount(accountIDs: [AccountID]?, in db: Database) throws -> Int {
@@ -206,6 +245,10 @@ enum ConversationTable {
         }
         return try Int.fetchOne(db, sql: sql, arguments: StatementArguments(arguments)) ?? 0
     }
+
+    /// The conversation is snoozed, without the Later view's join.
+    private static let snoozedPredicate =
+        "EXISTS (SELECT 1 FROM snoozes sn WHERE sn.account_id = c.account_id AND sn.provider_id = c.provider_id)"
 
     private static func viewPredicate(_ view: MailboxView) -> String {
         switch view {

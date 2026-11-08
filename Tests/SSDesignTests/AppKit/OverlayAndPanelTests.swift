@@ -106,11 +106,12 @@ final class OverlayAndPanelTests: XCTestCase {
     // MARK: Cheat sheet
 
     func testCheatSheetPanelMetrics() {
-        XCTAssertEqual(QuireCheatSheetPanel.naturalHeight(), 604, "24 + 28 + 16 + (22 + 9 × 28) + 20 + (22 + 7 × 28) + 24")
+        XCTAssertEqual(QuireCheatSheetPanel.naturalHeight(), 652, "24 + 28 + 16 + (22 + 9 × 28) + 20 + (22 + 7 × 28) + 20 + 28 + 24")
+        XCTAssertEqual(QuireCheatSheetPanel.naturalHeight(searchTerms: []), 604, "no search line, no room for one")
         let bands = QuireCheatSheetPanel.bands(of: Quire.cheatSheet)
         XCTAssertEqual(bands.map { $0.map(\.title) }, [["Move", "Act", "Go"], ["Write", "Format", "View"]])
         let panel = QuireCheatSheetPanel()
-        XCTAssertEqual(panel.frame.size, NSSize(width: 816, height: 604))
+        XCTAssertEqual(panel.frame.size, NSSize(width: 816, height: 652))
         XCTAssertFalse(panel.scrolls)
         panel.layoutSubtreeIfNeeded()
         let close = panel.closeButton.alignmentRect(forFrame: panel.closeButton.frame)
@@ -119,9 +120,21 @@ final class OverlayAndPanelTests: XCTestCase {
         XCTAssertEqual(panel.accessibilitySubrole(), .dialog)
     }
 
+    /// The search operators' line (§5.32, §5.6): every operator the field takes, as typed, on one line that fits
+    /// after the key column without truncating.
+    func testTheSearchLineListsTheOperatorsAndFits() {
+        XCTAssertEqual(Quire.cheatSheetSearchTitle, "Search")
+        XCTAssertEqual(Quire.cheatSheetSearch, ["from:", "to:", "subject:", "is:unread", "is:read", "is:starred", "has:attachment",
+                                                "before:", "after:", "in:sent", "in:trash", "\"phrase\"", "-word"])
+        let c = Quire.Layout.CheatSheet.self
+        let terms = Quire.cheatSheetSearch.map { QuireDraw.width(QuireDraw.line($0, .snippet, .qInk)) }
+        let width = terms.reduce(0, +) + CGFloat(terms.count - 1) * c.searchTermGap
+        XCTAssertLessThanOrEqual(width, c.width - 2 * c.pad - c.keyColumn, "\(width) pt of operators")
+    }
+
     func testOverlayPlacesThePanelUnderTheHorizon() {
         let roomy = QuireCheatSheetOverlay.panelFrame(in: NSSize(width: 1280, height: 800))
-        XCTAssertEqual(roomy, NSRect(x: 232, y: 92, width: 816, height: 604), "centred, top at 92, whole")
+        XCTAssertEqual(roomy, NSRect(x: 232, y: 92, width: 816, height: 652), "centred, top at 92, whole: 92 + 652 + 24 = 768 ≤ 800")
         let short = QuireCheatSheetOverlay.panelFrame(in: NSSize(width: 960, height: 600))
         XCTAssertEqual(short.minY, 92)
         XCTAssertEqual(short.height, 600 - 92 - 24, "at least 24 pt from the bottom; the bands scroll")

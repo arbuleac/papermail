@@ -724,6 +724,35 @@ final class LaterTests: XCTestCase {
         harness.list.onSelectionChange?(id)
     }
 
+    /// L follows the view a search looks through, not the rail's (§5.6, §5.45): `in:trash` results, typed from the Inbox,
+    /// are refused as in the Trash, and a search typed in the Trash lists All Mail, whose rows L snoozes.
+    func testLFollowsTheViewASearchLooksThrough() throws {
+        let (harness, popped) = try harness()
+        defer { harness.close() }
+        let trashed = harness.list.conversations[0].id
+        try harness.environment.engine.perform(.trash, on: trashed)
+        typeSearch("in:trash", harness)
+        XCTAssertEqual(harness.list.query.view, .trash)
+        select(trashed, harness)
+        XCTAssertTrue(harness.controller.perform(.later), "spent, with a beep")
+        XCTAssertNil(popped(), "no menu for Trash results")
+        let item = NSMenuItem(title: "Later…", action: #selector(MainWindowController.laterSelection(_:)), keyEquivalent: "l")
+        XCTAssertFalse(harness.controller.validateMenuItem(item))
+
+        _ = harness.controller.perform(.goTo(.trash))
+        typeSearch("Project", harness)
+        XCTAssertEqual(harness.list.query.view, .all, "a search typed in the Trash looks through All Mail")
+        // The list still holds the `in:trash` result until this search's first page lands off the main thread.
+        harness.spin { harness.list.conversations.contains { $0.id != trashed } }
+        let result = try XCTUnwrap(harness.list.conversations.first { $0.id != trashed }?.id)
+        select(result, harness)
+        XCTAssertTrue(harness.controller.validateMenuItem(item))
+        XCTAssertTrue(harness.controller.perform(.later))
+        try choose("Tomorrow", in: popped())
+        XCTAssertEqual(try snoozedIDs(harness), [result])
+        XCTAssertFalse(try inInbox(result, harness))
+    }
+
     /// A search typed in Later shows all mail, so when the last snooze in view ends (its time comes, or ⌘2 narrows to an
     /// account with none) the window goes back to the Inbox under the search, which stays with its results, selection
     /// and reader; clearing it lands in the Inbox.

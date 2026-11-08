@@ -129,15 +129,18 @@ extension DesignGalleryCards {
     // MARK: Cheat sheet overlay (§5.32)
 
     static func cheatSheet() -> DesignGalleryCard {
-        DesignGalleryCard("Cheat sheet overlay", code: "layout.cheatSheet · cheatSheetContent · scrim",
-                          caption: "An in-window overlay, not a system sheet: scrim over the window (scrimSolid, opaque, under Reduce "
-                              + "Transparency), the panel centred with its top at 92 pt, focus trapped in it, single keys swallowed. "
-                              + "Esc, ?, ⌘/, ⌘W, the close button or a click on the scrim dismisses it. 816 × 576 pt, drawn from "
-                              + "cheatSheetContent; shown here in a 720 pt window, the height it fits whole.",
-                          span: 12, surface: .studio) { block in
+        let height = QuireCheatSheetPanel.naturalHeight()
+        let windowHeight = Quire.Layout.CheatSheet.top + height + Quire.Layout.CheatSheet.minMargin
+        return DesignGalleryCard("Cheat sheet overlay", code: "layout.cheatSheet · cheatSheetContent · scrim",
+                                 caption: "An in-window overlay, not a system sheet: scrim over the window (scrimSolid, opaque, under "
+                                     + "Reduce Transparency), the panel centred with its top at 92 pt, focus trapped in it, single keys "
+                                     + "swallowed. Esc, ?, ⌘/, ⌘W, the close button or a click on the scrim dismisses it. 816 × "
+                                     + "\(Int(height)) pt, drawn from cheatSheetContent, with the search operators' line from "
+                                     + "cheatSheetSearch under the bands; shown here in a \(Int(windowHeight)) pt window, the height it "
+                                     + "fits whole.",
+                                 span: 12, surface: .studio) { block in
             block.labelWidth = 0
-            let size = NSSize(width: block.width, height: Quire.Layout.CheatSheet.top + QuireCheatSheetPanel.naturalHeight()
-                                  + Quire.Layout.CheatSheet.minMargin)
+            let size = NSSize(width: block.width, height: windowHeight)
             let window = DesignGalleryFlippedView(frame: NSRect(origin: .zero, size: size))
             window.fill = .qPaper
             window.cornerRadius = 8

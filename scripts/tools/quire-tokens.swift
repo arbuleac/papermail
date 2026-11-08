@@ -810,6 +810,15 @@ func emitContent(_ t: Tokens) -> String {
         out += "        ]),\n"
     }
     out += "    ]\n\n"
+    let search = t.root.require("cheatSheetSearch", "")
+    let searchTitle = search.require("title", "cheatSheetSearch").string ?? fail("cheatSheetSearch.title must be a string")
+    let searchTerms = (search.require("terms", "cheatSheetSearch").array ?? []).map { $0.string ?? fail("cheatSheetSearch.terms must hold strings") }
+    out += "    /// The title of the search operators' line under the cheat sheet's bands (spec §5.32, §5.6).\n"
+    out += "    public static let cheatSheetSearchTitle = \(swiftString(searchTitle))\n\n"
+    out += "    /// The search operators on that line, as typed, in order.\n"
+    out += "    public static let cheatSheetSearch: [String] = [\n"
+    for term in searchTerms { out += "        \(swiftString(term)),\n" }
+    out += "    ]\n\n"
     // Platform, account rules, deferred
     for (key, type, doc) in [("platform", "Platform", "Platform constants (minimum text size, the Graphite threshold, reader symbol rasterisation)."),
                              ("accountRules", "AccountRules", "The account palette's build-time rules (spec §4.2), asserted by AccountPaletteTests."),

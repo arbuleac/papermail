@@ -39,23 +39,27 @@ enum MessageTable {
         """
 
     private static let lookupSQL = """
-        SELECT rowid, conversation_provider_id, subject, from_json, to_json, cc_json
+        SELECT rowid, conversation_provider_id, subject, from_json, to_json, cc_json, bcc_json
         FROM messages WHERE account_id = ? AND provider_id = ?
         """
 
     /// The columns the full-text index is derived from (besides the body), compared as the stored JSON so a
-    /// poll that only flips flags skips the two index writes.
+    /// poll that only flips flags skips the two index writes. Every one the view reads must be here: a change the
+    /// comparison missed would leave the old values indexed, and FTS5 removes an entry only with the exact values
+    /// it was indexed with.
     struct IndexedFields: Equatable {
         var subject: String
         var fromJSON: String?
         var toJSON: String
         var ccJSON: String
+        var bccJSON: String
 
         init(_ m: MessageMetadata) throws {
             subject = m.subject
             fromJSON = try m.from.map { try MailStoreCodec.json($0) }
             toJSON = try MailStoreCodec.json(m.to)
             ccJSON = try MailStoreCodec.json(m.cc)
+            bccJSON = try MailStoreCodec.json(m.bcc)
         }
 
         init(row: Row) {
@@ -63,6 +67,7 @@ enum MessageTable {
             fromJSON = row[3]
             toJSON = row[4]
             ccJSON = row[5]
+            bccJSON = row[6]
         }
     }
 
@@ -287,7 +292,7 @@ enum MessageTable {
             indexed.fromJSON,
             indexed.toJSON,
             indexed.ccJSON,
-            try MailStoreCodec.json(m.bcc),
+            indexed.bccJSON,
             try MailStoreCodec.json(m.replyTo),
             MailStoreCodec.milliseconds(m.date),
             MailStoreCodec.roleBits(m.roles),

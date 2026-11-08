@@ -299,7 +299,7 @@ public final class SQLiteMailStore: MailStoring, MailStoreMaintenance, Sendable 
         let observation = ValueObservation.tracking { db in try ConversationTable.fetch(query, in: db) }.removeDuplicates()
         // A full-text query over a large mailbox can take tens of milliseconds for a one-letter prefix, so a
         // search fetches its first page on a reader; the list keeps the rows it shows until it arrives.
-        let isSearch = !(query.searchText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        let isSearch = query.search != nil
         let cancellable = database.startObservation(
             observation,
             firstValueOnCallingThread: !isSearch,

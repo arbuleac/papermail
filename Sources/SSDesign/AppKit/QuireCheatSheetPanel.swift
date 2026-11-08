@@ -6,15 +6,20 @@ import AppKit
 /// of three 240 pt columns, 24 pt apart, 20 pt between bands: each section opens with a 22 pt `runningHead`
 /// `ink3` title, then 28 pt rows of large keycaps (24 pt, 4 pt apart) in a 96 pt key column and the label in
 /// `snippet` `ink`, tail-truncated. Sequences read “G then I” with “then” in `meta` `ink3`, 6 pt either side.
+/// 20 pt under the last band, one 28 pt line lists the search operators: “Search” in `runningHead` `ink3` in the
+/// key column, then the operators as typed in `snippet` `ink`, 8 pt apart.
 ///
-/// The content is `Quire.cheatSheet`, generated from `cheatSheetContent`. At its natural height (576 pt) the
-/// panel shows everything; given less, the bands scroll under the fixed title row. `QuireCheatSheetOverlay`
+/// The content is `Quire.cheatSheet` and `Quire.cheatSheetSearch`, generated from `cheatSheetContent` and
+/// `cheatSheetSearch`. At its natural height (652 pt) the panel shows everything; given less, the bands and the
+/// search line scroll under the fixed title row. `QuireCheatSheetOverlay`
 /// places it over the window with the scrim and runs its motion and keys.
 @MainActor
 public final class QuireCheatSheetPanel: NSView {
     public static let title = "Keyboard Shortcuts"
 
     public let sections: [QuireCheatSheetSection]
+    /// The search operators on the line under the bands; none, no line.
+    public let searchTerms: [String]
     /// The close button. `onClose` runs when it is clicked.
     public let closeButton: QuireIconButton
     public var onClose: (@MainActor () -> Void)?
@@ -24,12 +29,13 @@ public final class QuireCheatSheetPanel: NSView {
     private let scrollView = NSScrollView(frame: .zero)
     private let bands: BandsView
 
-    public init(sections: [QuireCheatSheetSection] = Quire.cheatSheet) {
+    public init(sections: [QuireCheatSheetSection] = Quire.cheatSheet, searchTerms: [String] = Quire.cheatSheetSearch) {
         self.sections = sections
-        bands = BandsView(sections: sections)
+        self.searchTerms = searchTerms
+        bands = BandsView(sections: sections, searchTerms: searchTerms)
         closeButton = QuireIconButton(symbolName: Quire.Icon.dismiss, size: .medium, accessibilityLabel: "Close")
         super.init(frame: NSRect(x: 0, y: 0, width: Quire.Layout.CheatSheet.width,
-                                 height: QuireCheatSheetPanel.naturalHeight(for: sections)))
+                                 height: QuireCheatSheetPanel.naturalHeight(for: sections, searchTerms: searchTerms)))
         wantsLayer = true
         clipsToBounds = false
         sheet.fillColor = .qRaised
@@ -73,16 +79,19 @@ public final class QuireCheatSheetPanel: NSView {
         return c.sectionTitle + CGFloat(band.map(\.rows.count).max() ?? 0) * c.row
     }
 
-    /// The scrolling content: every band, `sectionGap` apart.
-    static func bandsHeight(for sections: [QuireCheatSheetSection]) -> CGFloat {
+    /// The scrolling content: every band, `sectionGap` apart, then the search line `sectionGap` below them.
+    static func bandsHeight(for sections: [QuireCheatSheetSection], searchTerms: [String] = Quire.cheatSheetSearch) -> CGFloat {
+        let c = Quire.Layout.CheatSheet.self
         let all = bands(of: sections)
-        return all.map(bandHeight).reduce(0, +) + CGFloat(max(0, all.count - 1)) * Quire.Layout.CheatSheet.sectionGap
+        let line = searchTerms.isEmpty ? 0 : c.sectionGap + c.row
+        return all.map(bandHeight).reduce(0, +) + CGFloat(max(0, all.count - 1)) * c.sectionGap + line
     }
 
-    /// The panel's whole height: 24 + 28 + 16 + bands + 24 (576 pt for the generated content).
-    public static func naturalHeight(for sections: [QuireCheatSheetSection] = Quire.cheatSheet) -> CGFloat {
+    /// The panel's whole height: 24 + 28 + 16 + bands + search line + 24 (652 pt for the generated content).
+    public static func naturalHeight(for sections: [QuireCheatSheetSection] = Quire.cheatSheet,
+                                     searchTerms: [String] = Quire.cheatSheetSearch) -> CGFloat {
         let c = Quire.Layout.CheatSheet.self
-        return 2 * c.pad + c.titleRow + c.headerGap + bandsHeight(for: sections)
+        return 2 * c.pad + c.titleRow + c.headerGap + bandsHeight(for: sections, searchTerms: searchTerms)
     }
 
     /// Where the bands start, under the fixed title row.
@@ -92,7 +101,7 @@ public final class QuireCheatSheetPanel: NSView {
     }
 
     /// True when the panel is shorter than its content and the bands scroll.
-    public var scrolls: Bool { bounds.height < QuireCheatSheetPanel.naturalHeight(for: sections) - 0.5 }
+    public var scrolls: Bool { bounds.height < QuireCheatSheetPanel.naturalHeight(for: sections, searchTerms: searchTerms) - 0.5 }
 
     public override func layout() {
         super.layout()
@@ -102,7 +111,7 @@ public final class QuireCheatSheetPanel: NSView {
         closeButton.frame = closeButton.frame(forVisualRect: NSRect(x: bounds.width - c.closeInset - side, y: c.closeInset, width: side, height: side))
         let top = QuireCheatSheetPanel.bandsTop
         scrollView.frame = NSRect(x: 0, y: top, width: bounds.width, height: max(0, bounds.height - top - c.pad))
-        bands.frame = NSRect(x: 0, y: 0, width: bounds.width, height: QuireCheatSheetPanel.bandsHeight(for: sections))
+        bands.frame = NSRect(x: 0, y: 0, width: bounds.width, height: QuireCheatSheetPanel.bandsHeight(for: sections, searchTerms: searchTerms))
     }
 
     /// Scrolls the bands by `lines` rows (arrow keys) or pages (Page Up / Down), when they scroll.
@@ -151,12 +160,14 @@ public final class QuireCheatSheetPanel: NSView {
         override func accessibilityLabel() -> String? { QuireCheatSheetPanel.title }
     }
 
-    /// Every band, drawn in one pass: section titles, keycaps, connecting words and labels.
+    /// Every band, drawn in one pass: section titles, keycaps, connecting words and labels, then the search line.
     fileprivate final class BandsView: NSView {
         let sections: [QuireCheatSheetSection]
+        let searchTerms: [String]
 
-        init(sections: [QuireCheatSheetSection]) {
+        init(sections: [QuireCheatSheetSection], searchTerms: [String]) {
             self.sections = sections
+            self.searchTerms = searchTerms
             super.init(frame: .zero)
             NotificationCenter.default.addObserver(self, selector: #selector(environmentDidChange(_:)),
                                                    name: QuireEnvironment.didChangeNotification, object: nil)
@@ -194,14 +205,33 @@ public final class QuireCheatSheetPanel: NSView {
                 }
                 top += QuireCheatSheetPanel.bandHeight(band) + c.sectionGap
             }
+            if !searchTerms.isEmpty { QuireCheatSheetPanel.drawSearchLine(searchTerms, top: top) }
         }
 
         override func isAccessibilityElement() -> Bool { true }
         override func accessibilityRole() -> NSAccessibility.Role? { .staticText }
         override func accessibilityLabel() -> String? {
-            sections.map { section in
+            let search = searchTerms.isEmpty ? [] : [Quire.cheatSheetSearchTitle + ": " + searchTerms.joined(separator: ", ")]
+            return (sections.map { section in
                 section.title + ": " + section.rows.map { "\($0.keys), \($0.label)" }.joined(separator: "; ")
-            }.joined(separator: ". ")
+            } + search).joined(separator: ". ")
+        }
+    }
+
+    /// The search line: its title in the key column, then the operators as typed, `searchTermGap` apart, in the
+    /// panel's width less its padding. They are words to type, not keys to press, so they are text, not keycaps.
+    static func drawSearchLine(_ terms: [String], top: CGFloat) {
+        let c = Quire.Layout.CheatSheet.self
+        let headLine = QuireFont.Role.runningHead.lineHeight
+        QuireDraw.draw(QuireDraw.line(Quire.cheatSheetSearchTitle, .runningHead, .qInk3), x: c.pad,
+                       top: top + ((c.row - headLine) / 2).rounded(), maxWidth: c.keyColumn, lineHeight: headLine)
+        let lineHeight = QuireFont.Role.snippet.lineHeight
+        let end = c.width - c.pad
+        var x = c.pad + c.keyColumn
+        for term in terms where x < end {
+            let line = QuireDraw.line(term, .snippet, .qInk)
+            QuireDraw.draw(line, x: x, top: top + ((c.row - lineHeight) / 2).rounded(), maxWidth: end - x, lineHeight: lineHeight)
+            x += QuireDraw.width(line) + c.searchTermGap
         }
     }
 

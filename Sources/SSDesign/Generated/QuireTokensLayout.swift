@@ -605,6 +605,7 @@ extension Quire {
             public static let closeInset: CGFloat = 16
             public static let top: CGFloat = 92
             public static let minMargin: CGFloat = 24
+            public static let searchTermGap: CGFloat = 8
         }
         public enum Kbd {
             public static let largeHeight: CGFloat = 24

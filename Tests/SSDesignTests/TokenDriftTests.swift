@@ -198,6 +198,8 @@ final class TokenDriftTests: XCTestCase {
         XCTAssertEqual(Quire.cheatSheet.map(\.title), sections.map { $0["section"] as! String })
         XCTAssertEqual(Quire.cheatSheet.map(\.rows.count), sections.map { ($0["rows"] as! [Any]).count })
         XCTAssertEqual(Quire.cheatSheet[2].rows[0].parts.map(\.isKeycap), [true, false, true]) // "G then I"
+        XCTAssertEqual(Quire.cheatSheetSearchTitle, file.object("cheatSheetSearch")["title"] as? String)
+        XCTAssertEqual(Quire.cheatSheetSearch, file.object("cheatSheetSearch")["terms"] as? [String])
         XCTAssertEqual(Quire.Platform.graphiteSaturationMax, file.number("platform.graphiteSaturationMax"))
         XCTAssertEqual(Quire.Platform.minTextSize, 11)
         XCTAssertEqual(Quire.AccountRules.promisedDistinct, 6)

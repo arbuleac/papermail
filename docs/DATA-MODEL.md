@@ -93,7 +93,9 @@ Indexes: `conversations_inbox (in_inbox, COALESCE(returned_at, latest_date_ms) D
 After `upsertMessages` or `deleteMessages`, recompute the summary row for every touched conversation with one aggregate query per batch (`GROUP BY conversation_provider_id`). Delete the summary row when a conversation has no messages left.
 
 ### message_fts (FTS5, external content = bodies/messages)
-Columns: `subject`, `participants`, `body`. Tokenizer `unicode61 remove_diacritics 2`. `rowid` = `messages.rowid`. Maintained by the store on upsert/saveBody/delete (no triggers, so inserts stay in the same transaction and remain explainable). Search joins hits to `conversations` and orders by `latest_date_ms`.
+Columns (v12): `subject`; `sender`, the From name and address; `recipients`, every To, Cc and Bcc name and address; `body`, `bodies.plain_text` (kept when a body is evicted). Before v12 one `participants` column held the From, To and Cc names and addresses (no Bcc). The content table is the view `message_fts_content` over `messages` LEFT JOIN `bodies`, which builds `sender` and `recipients` from the address JSON (recursive CTEs, since FTS5 reads the view with virtual tables disallowed). Tokenizer `unicode61 remove_diacritics 2`. `rowid` = `messages.rowid`. Maintained by the store on upsert (only when the subject, From, To, Cc or Bcc changed: `MessageTable.IndexedFields`, which must name every column the view reads, since FTS5 removes an entry only with the values it was indexed with), on every body save (whole or already evicted) and on delete, each bracketed by a delete of the old entry and an insert of the new from the same view (no triggers, so inserts stay in the same transaction and remain explainable). An eviction leaves the entry alone.
+
+A search (docs/ARCHITECTURE.md "Search") matches one MATCH expression per message: words across every column, `from:` in `sender`, `to:` in `recipients`, `subject:` in `subject`, the negated ones after NOT. The matching messages become conversation keys through a scan of the covering index `messages_by_conversation`, joined to `conversations`, where the other operators are predicates on the summary row (`unread_count`, `is_starred`, `has_attachments`, `latest_date_ms`, the view flags); results order by `latest_date_ms`, an `in:inbox` search's too (its rows show their latest message's date, not a return's).
 
 ### operations
 | column | type | notes |
@@ -179,6 +181,7 @@ Applied in order by GRDB's `DatabaseMigrator`; a migration is never edited once 
 - `v9-account-signature`: `accounts.signature` (NULL for every existing account).
 - `v10-body-eviction`: `bodies.evicted` (0 for every existing body). It does not change `auto_vacuum` (see "The file"). From this version the backfill stores bodies outside the Keep mail window already evicted, so a file migrated from v9 grows only by their plain text and index entries from then on, though it keeps whatever size it had already reached.
 - `v11-snoozes`: the table `snoozes` (empty at first), `conversations.returned_at` (NULL for every existing row), and `conversations_inbox` rebuilt on `(in_inbox, COALESCE(returned_at, latest_date_ms) DESC)`, which orders every existing row as before (its `returned_at` is NULL).
+- `v12-search-columns`: `message_fts` and its view `message_fts_content` dropped and created again with `sender` and `recipients` in place of `participants`, then rebuilt from the stored rows (`'rebuild'`), in the migration's transaction, once, at the first launch of a build that has it: about 1.3 s for the 100,000-message fixture (`SearchOperatorPerformanceTests`), during which the store does not open. Bcc names and addresses are indexed from then on, old mail included.
 
 ## Semantics
 

@@ -240,11 +240,13 @@ final class SQLiteMailStoreTests: XCTestCase {
     func testSearchDoesNotInterpretQueryOperators() throws {
         let store = try store(with: [accountA])
         try store.upsertMessages([message("m1", in: "c1", subject: "Quarterly budget review", date: date(100))])
-        // Unquoted, FTS5 would read these as syntax (a grouping error and a boolean OR that matches c1).
+        // Unquoted, FTS5 would read these as syntax (a grouping error, a boolean OR that matches c1, a column filter).
+        // `subject:` is the search's own operator (`SearchGrammar`), not FTS5's column filter.
         XCTAssertEqual(try search("(budget", in: store), ["c1"])
         XCTAssertEqual(try search("budget OR nothing", in: store), [])
         XCTAssertEqual(try search("\"budget\" NOT review", in: store), [])
-        XCTAssertEqual(try search("subject:budget", in: store), [])
+        XCTAssertEqual(try search("{subject}:budget", in: store), [])
+        XCTAssertEqual(try search("body:budget", in: store), [])
         XCTAssertEqual(try search("budget*", in: store), ["c1"])
     }
 
@@ -546,5 +548,12 @@ final class SQLiteMailStoreTests: XCTestCase {
 
         let search = try store.queryPlan(for: ConversationQuery(view: .inbox, searchText: "budget"))
         XCTAssertTrue(search.contains { $0.contains("VIRTUAL TABLE INDEX") }, "hits come from FTS5: \(search)")
+        // The hits become conversation keys through one scan of the covering index, never a table lookup per hit,
+        // whether the search keeps what matches or, all its words negated, what does not.
+        for text in ["budget", "-budget", "from:alice is:unread -budget"] {
+            let plan = try store.queryPlan(for: ConversationQuery(view: .inbox, searchText: text))
+            XCTAssertTrue(plan.contains { $0.contains("COVERING INDEX messages_by_conversation") }, "\(text): \(plan)")
+            XCTAssertFalse(plan.contains { $0.contains("INTEGER PRIMARY KEY") }, "\(text): \(plan)")
+        }
     }
 }

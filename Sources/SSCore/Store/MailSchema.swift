@@ -111,6 +111,9 @@ enum MailSchema {
                 CREATE INDEX conversations_inbox ON conversations(in_inbox, COALESCE(returned_at, latest_date_ms) DESC);
                 """)
         }
+        migrator.registerMigration("v12-search-columns") { db in
+            try db.execute(sql: v12)
+        }
         return migrator
     }
 
@@ -121,6 +124,52 @@ enum MailSchema {
         try migrator().migrate(queue, upTo: identifier)
         try queue.close()
     }
+
+    /// `participants` split in two, so `from:` and `to:` each search one column (docs/DATA-MODEL.md, `message_fts`):
+    /// `sender` (the From name and address) and `recipients` (every To, Cc and Bcc name and address). The index is
+    /// dropped and rebuilt from the stored rows in the migration's transaction, once, at the first launch of a build
+    /// that has it. Plain words still search every column, so they find what they found before, and Bcc names too.
+    /// Recipients are flattened with recursive CTEs for the reason the v1 view gives.
+    static let v12 = """
+    DROP TABLE message_fts;
+    DROP VIEW message_fts_content;
+
+    CREATE VIEW message_fts_content AS
+    SELECT m.rowid AS id,
+           m.account_id AS account_id,
+           m.provider_id AS provider_id,
+           m.subject AS subject,
+           trim(COALESCE(json_extract(m.from_json, '$.name'), '') || ' '
+                || COALESCE(json_extract(m.from_json, '$.address'), '')) AS sender,
+           trim(COALESCE((WITH RECURSIVE i(n) AS (
+                              SELECT 0 WHERE json_array_length(m.to_json) > 0
+                              UNION ALL SELECT n + 1 FROM i WHERE n + 1 < json_array_length(m.to_json))
+                          SELECT group_concat(COALESCE(json_extract(m.to_json, '$[' || n || '].name'), '') || ' '
+                                              || COALESCE(json_extract(m.to_json, '$[' || n || '].address'), ''), ' ')
+                          FROM i), '') || ' '
+                || COALESCE((WITH RECURSIVE i(n) AS (
+                                 SELECT 0 WHERE json_array_length(m.cc_json) > 0
+                                 UNION ALL SELECT n + 1 FROM i WHERE n + 1 < json_array_length(m.cc_json))
+                             SELECT group_concat(COALESCE(json_extract(m.cc_json, '$[' || n || '].name'), '') || ' '
+                                                 || COALESCE(json_extract(m.cc_json, '$[' || n || '].address'), ''), ' ')
+                             FROM i), '') || ' '
+                || COALESCE((WITH RECURSIVE i(n) AS (
+                                 SELECT 0 WHERE json_array_length(m.bcc_json) > 0
+                                 UNION ALL SELECT n + 1 FROM i WHERE n + 1 < json_array_length(m.bcc_json))
+                             SELECT group_concat(COALESCE(json_extract(m.bcc_json, '$[' || n || '].name'), '') || ' '
+                                                 || COALESCE(json_extract(m.bcc_json, '$[' || n || '].address'), ''), ' ')
+                             FROM i), '')) AS recipients,
+           COALESCE(b.plain_text, '') AS body
+    FROM messages m
+    LEFT JOIN bodies b ON b.account_id = m.account_id AND b.provider_id = m.provider_id;
+
+    CREATE VIRTUAL TABLE message_fts USING fts5(
+        subject, sender, recipients, body,
+        content='message_fts_content', content_rowid='id',
+        tokenize='unicode61 remove_diacritics 2'
+    );
+    INSERT INTO message_fts(message_fts) VALUES ('rebuild');
+    """
 
     /// `auto_vacuum` is written into a database file with its first page and fixed from then on: only a full VACUUM
     /// (twice the disk, the writer held throughout) changes it. So a new file is created for incremental vacuum here,

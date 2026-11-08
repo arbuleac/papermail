@@ -22,13 +22,21 @@ public struct ConversationQuery: Hashable, Sendable {
     /// nil means both sections.
     public var section: InboxSection?
     public var unreadOnly: Bool
-    /// Full-text search over subject, participants and body text. nil or empty means no search.
-    public var searchText: String?
+    /// The search, parsed: full-text terms over subject, sender, recipients and body text, and operators on the
+    /// conversation (`SearchQuery`). nil means no search. Its `in:` terms narrow `view`; choosing which view a
+    /// search looks through is `ShellQuery`'s job.
+    public var search: SearchQuery?
     public var limit: Int
     /// Paging: only conversations whose latest date (in the Inbox, `ConversationSummary.inboxDate`) is strictly
     /// before this. Later is never paged: it holds what the user snoozed, read whole.
     public var before: Date?
+    /// The conversation the reader shows. A search's read-state terms (`is:unread`, `is:read`) never take it out of
+    /// the results, so reading a result of an `is:unread` search does not pull it from under the reader and hand
+    /// the selection to the next row, which would be read in turn. Everything else still applies to it: archiving
+    /// it in an `in:inbox` search takes it out as usual. The list sets it; nil for every other caller.
+    public var openConversationID: ConversationID?
 
+    /// `searchText` is parsed as the search field's text is (`SearchQuery(parsing:)`), in the current calendar.
     public init(
         accountIDs: [AccountID]? = nil,
         view: MailboxView = .inbox,
@@ -42,10 +50,13 @@ public struct ConversationQuery: Hashable, Sendable {
         self.view = view
         self.section = section
         self.unreadOnly = unreadOnly
-        self.searchText = searchText
+        self.search = searchText.flatMap { SearchQuery(parsing: $0) }
         self.limit = limit
         self.before = before
     }
+
+    /// The search as typed, trimmed; nil when there is no search.
+    public var searchText: String? { search?.text }
 }
 
 /// One row of the message list. Denormalized so the list needs no joins.

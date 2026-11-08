@@ -483,6 +483,52 @@ final class RailFolderDropTests: XCTestCase {
         XCTAssertTrue(try messages(of: result.id, in: harness).allSatisfy(\.isStarred), "S would star it too")
         try assertQueued(.setStarred(true), for: [result.id], in: harness)
     }
+
+    private func search(_ text: String, in harness: MainWindowHarness) {
+        harness.controller.listPane.header.search.query = text
+        harness.controller.listPane.header.search.onQueryChange?(text)
+        harness.spin { harness.list.query.searchText == text }
+    }
+
+    /// Drops treat results as rows of the view searched, as # does (§5.12): with the rail on the Inbox, `in:trash`
+    /// results are rows of the Trash, so the Trash refuses them (# leaves them be) and the Inbox restores them (⇧I).
+    func testTheTrashRefusesInTrashResultsWhateverTheRailShows() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let id = harness.list.conversations[1].id
+        XCTAssertTrue(harness.controller.drop([id], onto: .trash))
+        search("in:trash", in: harness)
+        harness.spin { harness.list.query.view == .trash && harness.list.conversations.contains { $0.id == id } }
+        XCTAssertEqual(harness.controller.strip.mailboxView, .inbox, "the rail stays on the Inbox")
+        let queued = try operations(in: harness).count
+
+        let trash = try tile(.trash, in: harness)
+        let (operation, dropped) = drop(try dragOfRows([id], in: harness), on: trash, in: harness)
+        XCTAssertEqual(operation, [], "no highlight for rows already in the Trash")
+        XCTAssertFalse(dropped)
+        XCTAssertFalse(trash.isDropTarget)
+        XCTAssertFalse(harness.controller.drop([id], onto: .trash))
+        XCTAssertEqual(try operations(in: harness).count, queued, "nothing queued")
+
+        XCTAssertTrue(drop(try dragOfRows([id], in: harness), on: try tile(.inbox, in: harness), in: harness).dropped)
+        XCTAssertTrue(try messages(of: id, in: harness).allSatisfy { $0.roles.contains(.inbox) && !$0.roles.contains(.trash) })
+        XCTAssertEqual(harness.toastMessage, "Moved to Inbox", "⇧I's toast in the Trash")
+    }
+
+    /// From the Trash a search lists All Mail, whose results # trashes; the Trash takes them too.
+    func testTheTrashTakesASearchsResultsFromTheTrash() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        goTo(.trash, in: harness) { true }
+        search("Project", in: harness)
+        harness.spin { harness.list.query.view == .all && !harness.list.conversations.isEmpty }
+        let id = try XCTUnwrap(harness.list.conversations.first?.id)
+
+        XCTAssertTrue(drop(try dragOfRows([id], in: harness), on: try tile(.trash, in: harness), in: harness).dropped)
+        XCTAssertTrue(try messages(of: id, in: harness).allSatisfy { $0.roles.contains(.trash) })
+        try assertQueued(.trash, for: [id], in: harness)
+        XCTAssertEqual(harness.toastMessage, "Moved to Trash", "#'s toast")
+    }
 }
 
 /// A drag as AppKit hands it to a destination, carrying what a test puts on its pasteboard. Not main-actor

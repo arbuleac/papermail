@@ -1,3 +1,4 @@
+import GRDB
 import SQLite3
 import XCTest
 @testable import SSCore
@@ -284,8 +285,9 @@ final class MailSchemaMigrationTests: XCTestCase {
                                         createdAt: MailStoreCodec.date(base + 200_000)))
             try store.close()
         }
-        // v9 came after v8, so a v7 file has neither.
+        // v9, v10, v11 and v12 came after v8, so a v7 file has none of them.
         try execute("""
+            \(FullTextVersion10.revertSQL)
             DROP TABLE backfill_live_marks;
             DROP TABLE backfill_seen;
             DELETE FROM grdb_migrations WHERE identifier = 'v8-backfill-marks';
@@ -357,6 +359,7 @@ final class MailSchemaMigrationTests: XCTestCase {
             try store.close()
         }
         try execute("""
+            \(FullTextVersion10.revertSQL)
             ALTER TABLE accounts DROP COLUMN signature;
             DELETE FROM grdb_migrations WHERE identifier = 'v9-account-signature';
             ALTER TABLE bodies DROP COLUMN evicted;
@@ -396,6 +399,7 @@ final class MailSchemaMigrationTests: XCTestCase {
             try store.close()
         }
         try execute("""
+            \(FullTextVersion10.revertSQL)
             ALTER TABLE bodies DROP COLUMN evicted;
             DELETE FROM grdb_migrations WHERE identifier = 'v10-body-eviction';
             """ + withoutV11, at: path)
@@ -489,6 +493,71 @@ final class MailSchemaMigrationTests: XCTestCase {
         let reopened = try SQLiteMailStore(path: path)
         defer { try? reopened.close() }
         XCTAssertEqual(try reopened.conversations(ConversationQuery(view: .inbox)).first?.returnedAt, back, "kept across a reopen")
+    }
+
+    /// v12 splits the index's `participants` into `sender` and `recipients` and rebuilds it from the stored rows. The
+    /// file is a real v11 one: a v1 file taken through the shipped migrations up to v11 and no further, holding mail
+    /// indexed as v11 indexed it (one `participants` column: the sender, To and Cc, never Bcc). Opened by the current
+    /// build, the index has the new columns and holds every stored message, Bcc included: `from:` and `to:` find
+    /// what they should, plain words what they found before, the strict integrity check passes, and later writes
+    /// keep it so.
+    func testVersion11DatabaseRebuildsTheIndexWithSenderAndRecipients() throws {
+        let path = try XCTUnwrap(directory).appendingPathComponent("mail.sqlite").path
+        try writeVersion1Database(at: path, then: """
+            INSERT INTO messages (account_id, provider_id, conversation_provider_id, references_json, subject, snippet,
+                                  from_json, to_json, cc_json, bcc_json, reply_to_json, date_ms, roles, is_read,
+                                  is_starred, inbox_section, has_attachments, label_ids_json, has_body)
+            VALUES ('acct-a', 'm2', 'c2', '[]', 'Lisbon flat', 'Keys', '{"address":"ana@example.org","name":"Ana Silva"}',
+                    '[{"address":"acct-a@example.com","name":"Owner"}]', '[{"address":"carol@example.com","name":"Carol"}]',
+                    '[{"address":"dana@example.net","name":"Dana Reyes"}]', '[]', \(base + 90_000), 1, 1, 0, 'unknown', 0, '[]', 0);
+            INSERT INTO message_fts(rowid, subject, participants, body)
+            SELECT id, subject, participants, body FROM message_fts_content WHERE provider_id = 'm2';
+            INSERT INTO conversations (account_id, provider_id, subject, snippet, participants_json, latest_date_ms,
+                                       latest_provider_id, message_count, unread_count, is_starred, has_attachments,
+                                       in_inbox, in_sent, in_drafts, in_trash, inbox_section, has_pending_ops)
+            VALUES ('acct-a', 'c2', 'Lisbon flat', 'Keys', '[{"address":"ana@example.org","name":"Ana Silva"}]',
+                    \(base + 90_000), 'm2', 1, 0, 0, 0, 1, 0, 0, 0, 'unknown', 0);
+            """)
+        try MailSchema.migrateFile(at: path, upTo: "v11-snoozes")
+        XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations ORDER BY rowid", at: path).compactMap(\.first).last,
+                       "v11-snoozes")
+        XCTAssertEqual(try query("SELECT name FROM pragma_table_info('message_fts')", at: path).compactMap(\.first),
+                       ["subject", "participants", "body"])
+
+        let store = try SQLiteMailStore(path: path)
+        XCTAssertEqual(try query("SELECT name FROM pragma_table_info('message_fts')", at: path).compactMap(\.first),
+                       ["subject", "sender", "recipients", "body"])
+        try store.verifyFullTextIndex()
+        func search(_ text: String) throws -> [String] {
+            try store.conversations(ShellQuery.make(scope: nil, view: .inbox, searchText: text)).map(\.id.providerID)
+        }
+        XCTAssertEqual(try search("from:bob"), ["c1"])
+        XCTAssertEqual(try search("from:\"Ana Silva\""), ["c2"])
+        XCTAssertEqual(try search("from:carol"), [], "Carol is in cc")
+        XCTAssertEqual(try search("to:carol"), ["c2"])
+        XCTAssertEqual(try search("to:dana"), ["c2"], "Bcc, which v10 never indexed, from the stored row")
+        XCTAssertEqual(try search("to:owner"), ["c2"])
+        XCTAssertEqual(try search("hello"), ["c1"], "body text, as before")
+        XCTAssertEqual(try search("bob"), ["c1"], "a plain word still searches the people")
+        XCTAssertEqual(try search("carol"), ["c2"])
+        XCTAssertEqual(try search("subject:lisbon"), ["c2"])
+
+        // Every write after the migration keeps the rebuilt index whole.
+        let m2 = MessageID(accountID: AccountID("acct-a"), providerID: "m2")
+        var message = try XCTUnwrap(try store.message(m2))
+        message.bcc = [EmailAddress(name: "Erin Moss", address: "erin@example.com")]
+        try store.upsertMessages([message])
+        try store.saveBody(StoredBody(body: MessageBody(html: nil, text: "keys under the mat", attachments: []),
+                                      renderedHTML: "<p>keys under the mat</p>", plainText: "keys under the mat"), for: m2)
+        try store.verifyFullTextIndex()
+        XCTAssertEqual(try search("to:dana"), [])
+        XCTAssertEqual(try search("to:erin mat"), ["c2"])
+        try store.deleteMessages([MessageID(accountID: AccountID("acct-a"), providerID: "m1")])
+        try store.verifyFullTextIndex()
+        XCTAssertEqual(try search("from:bob"), [])
+        try store.close()
+        XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations WHERE identifier = 'v12-search-columns'", at: path),
+                       [["v12-search-columns"]])
     }
 
     // MARK: Raw SQLite

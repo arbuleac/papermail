@@ -2,7 +2,7 @@
 and the rendered DESIGN-LANGUAGE.md. Colour order: light, dark, lightHC, darkHC."""
 
 NAME = "Quire"
-VERSION = "1.6.0"
+VERSION = "1.6.1"
 
 # (token, light, dark, lightHC, darkHC, group, use)
 COLOR = [
@@ -244,7 +244,8 @@ LAYOUT = {
                "shadowMarginTop": 32, "shadowMarginSide": 48, "shadowMarginBottom": 68},
  "gHud": {"width": 220, "radius": 12, "pad": 12, "headerHeight": 28, "rowsTop": 6, "row": 22, "keycap": 18, "keycapGap": 8},
  "cheatSheet": {"width": 816, "radius": 12, "pad": 24, "titleRow": 28, "headerGap": 16, "columns": 3, "bands": 2, "columnWidth": 240, "columnGap": 24,
-                "sectionGap": 20, "sectionTitle": 22, "row": 28, "keyColumn": 96, "keycap": 24, "keycapGap": 4, "close": 24, "closeInset": 16, "top": 92, "minMargin": 24},
+                "sectionGap": 20, "sectionTitle": 22, "row": 28, "keyColumn": 96, "keycap": 24, "keycapGap": 4, "close": 24, "closeInset": 16, "top": 92, "minMargin": 24,
+                "searchTermGap": 8},
  "kbd": {"largeHeight": 24, "largeFont": 12, "height": 18, "minWidth": 18, "padX": 4, "radius": 3, "largeRadius": 5, "inField": 16},
  "progress": {"indeterminateSegment": 0.36, "reducedSegment": 0.4, "barHeight": 4, "barRadius": 2, "contrail": 2, "contrailHead": 4, "contrailTail": 32,
               "spinner": [12, 16, 32], "spinnerStroke": [1.5, 2, 3], "spinnerArc": 0.75},
@@ -310,6 +311,10 @@ GRAPHITE = {
  "selRule": ("ink", "Margin rule, window key (rows, rail, Settings account row, autocomplete highlight)"),
  "knob": ("paper", "Toggle knob face, so it stays distinct from the `ink` on track in dark appearances"),
 }
+
+# The search operators' line under the cheat sheet's bands (§5.32, §5.6): its title, then the terms in order, as typed.
+CHEAT_SHEET_SEARCH = ("Search", ["from:", "to:", "subject:", "is:unread", "is:read", "is:starred", "has:attachment",
+                                 "before:", "after:", "in:sent", "in:trash", "\"phrase\"", "-word"])
 
 # Keyboard cheat sheet content (§5.32), band by band, left to right; keys separated by spaces, "then" and "…" are words.
 CHEAT_SHEET = [

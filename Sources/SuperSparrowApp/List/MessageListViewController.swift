@@ -17,8 +17,9 @@ final class MessageListViewController: NSViewController {
 
     var query: ConversationQuery {
         didSet {
-            guard query != oldValue, isViewLoaded else { return }
-            subscribe()
+            guard query != oldValue else { return }
+            keptOpen = nil
+            if isViewLoaded { subscribe() }
         }
     }
 
@@ -174,6 +175,12 @@ final class MessageListViewController: NSViewController {
     /// Conversations whose failed mark is being cleared, so a refresh that lands meanwhile does not write again.
     private var acknowledging: Set<ConversationID> = []
     private var keyObservers: [NSObjectProtocol] = []
+    /// The conversation the store keeps in a search that filters on read state, whatever its read state now: the
+    /// lead, once it has rested (`ConversationQuery.openConversationID`). Opening an `is:unread` result marks it
+    /// read after 500 ms; without this the row would leave under the reader and hand the selection to the next
+    /// result, which would be read and leave in turn, until the list had read itself empty. Apple Mail keeps the
+    /// selected message in its Unread filter the same way, until another is selected.
+    private var keptOpen: ConversationID?
 
     // MARK: View lifecycle
 
@@ -358,7 +365,7 @@ final class MessageListViewController: NSViewController {
         guard !isLoadingMore, !reachedEnd, hasReceivedFirstPage, let cursor = storeRows.last.map(listDate(of:)) else { return }
         isLoadingMore = true
         setFooterPhase(.loading)
-        var pageQuery = query
+        var pageQuery = observedQuery
         pageQuery.before = cursor
         let generation = subscriptionGeneration
         let store = self.store
@@ -468,12 +475,14 @@ final class MessageListViewController: NSViewController {
     private func selectionDidSettle() {
         acknowledgeTimer?.invalidate()
         selectionRestedID = nil
+        // Nothing selected keeps the conversation kept before: it leaves once another is open.
         guard selectedID != nil else { return }
         let timer = Timer(timeInterval: MessageListViewController.acknowledgeDelay, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.selectionRestedID = self.selectedID
                 self.acknowledgeFailedOperationIfNeeded()
+                self.keepOpenConversationListed()
             }
         }
         RunLoop.main.add(timer, forMode: .common)
@@ -501,19 +510,45 @@ final class MessageListViewController: NSViewController {
 
     // MARK: Store observation
 
-    private func subscribe() {
+    /// What the store is asked for: `query`, keeping `keptOpen` listed while the search filters on read state.
+    private var observedQuery: ConversationQuery {
+        var observed = query
+        if query.search?.filtersOnReadState == true { observed.openConversationID = keptOpen }
+        return observed
+    }
+
+    /// Hands the store the lead as the conversation to keep, in a search that filters on read state, once the lead
+    /// rests (150 ms, before the reader marks it read at 500 ms). Re-observing keeps the pages and the selection, and
+    /// the conversation kept before leaves if it no longer matches. Every other query never re-observes for this.
+    private func keepOpenConversationListed() {
+        guard query.search?.filtersOnReadState == true, keptOpen != selectedID else { return }
+        keptOpen = selectedID
+        if isViewLoaded { subscribe(keepingRows: true) }
+    }
+
+    /// `keepingRows` re-observes the same query with another conversation kept: the rows, the pages loaded below
+    /// them and a search still waiting for its first page carry on, and the next delivery refreshes them in place.
+    private func subscribe(keepingRows: Bool = false) {
         observation?.cancel()
         subscriptionGeneration += 1
         let generation = subscriptionGeneration
-        hasReceivedFirstPage = false
-        tailPageCount = 0
-        reachedEnd = false
-        isLoadingMore = false
-        footerPhase = .idle
-        // Begun before the store is asked, since a store may hand over the first page inside the call. A search
-        // still waiting for its rows is superseded either way, by the next search or by leaving search.
-        if isSearch { searchSignpost.begin() } else { searchSignpost.supersede() }
-        observation = store.observeConversations(query, onChange: { [weak self] rows in
+        if keepingRows {
+            // A page in flight belongs to the observation just replaced and will be dropped; the next scroll asks again.
+            if isLoadingMore {
+                isLoadingMore = false
+                setFooterPhase(.idle)
+            }
+        } else {
+            hasReceivedFirstPage = false
+            tailPageCount = 0
+            reachedEnd = false
+            isLoadingMore = false
+            footerPhase = .idle
+            // Begun before the store is asked, since a store may hand over the first page inside the call. A search
+            // still waiting for its rows is superseded either way, by the next search or by leaving search.
+            if isSearch { searchSignpost.begin() } else { searchSignpost.supersede() }
+        }
+        observation = store.observeConversations(observedQuery, onChange: { [weak self] rows in
             // The store contract delivers on the main thread; assumeIsolated turns that promise into a check.
             MainActor.assumeIsolated {
                 guard let self, self.subscriptionGeneration == generation else { return }
@@ -571,7 +606,7 @@ final class MessageListViewController: NSViewController {
         var cursor = head.last.map(listDate(of:))
         for _ in 0..<pages {
             guard let before = cursor else { break }
-            var pageQuery = query
+            var pageQuery = observedQuery
             pageQuery.before = before
             let page: [ConversationSummary]
             do {
@@ -593,7 +628,8 @@ final class MessageListViewController: NSViewController {
     }
 
     /// The date the list sorts, pages, groups and shows a row by: the Inbox's own, which a conversation back from Later
-    /// takes from its return (`ConversationSummary.inboxDate`); every other view's the latest message's.
+    /// takes from its return (`ConversationSummary.inboxDate`); every other view's and every search's (an `in:inbox` one
+    /// too, as the stores sort it) the latest message's.
     private func listDate(of summary: ConversationSummary) -> Date {
         query.view == .inbox && !isSearch ? summary.inboxDate : summary.latestDate
     }

@@ -60,12 +60,33 @@ public enum MailActionCopy {
         "Undo \(commandName(for: change))"
     }
 
-    /// Only actions that take a row out of the view, or change several rows at once, get a toast: starring or
-    /// marking one conversation unread does not, because the row itself shows the change (§4.13).
-    public static func wantsToast(for change: MetadataChange, in view: MailboxView, isSearching: Bool, count: Int = 1) -> Bool {
+    /// Only actions that take a row out of the list, or change several rows at once, get a toast: starring or
+    /// marking one conversation unread does not, because the row itself shows the change (§4.13). `view` is the view
+    /// the list shows; while searching, the one the search looks through (All Mail, where only moving to the trash
+    /// takes a result away, or the view an `in:` term picked), with `search` the search itself, whose other terms can
+    /// take a result away too (unstarring in an `is:starred` search). Read state never does: the list keeps the open
+    /// conversation in an `is:unread` search (`ConversationQuery.openConversationID`).
+    public static func wantsToast(for change: MetadataChange, in view: MailboxView, search: SearchQuery? = nil, count: Int = 1) -> Bool {
         if count > 1 { return true }
-        // Search looks through everything but the trash, so only moving to the trash takes a result away.
-        if isSearching { return change == .trash }
+        if takesAway(change, from: view) { return true }
+        for term in search?.terms ?? [] {
+            switch (term.kind, term.negated) {
+            case (.mailbox(let other), false):
+                if takesAway(change, from: other) { return true }
+            case (.mailbox(.inbox), true):
+                if change == .moveToInbox || change == .restoreFromTrash { return true }
+            case (.starred, false):
+                if change == .setStarred(false) { return true }
+            case (.starred, true):
+                if change == .setStarred(true) { return true }
+            default:
+                continue
+            }
+        }
+        return false
+    }
+
+    private static func takesAway(_ change: MetadataChange, from view: MailboxView) -> Bool {
         switch change {
         case .archive: return view == .inbox
         case .trash: return view != .trash

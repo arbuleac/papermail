@@ -388,19 +388,28 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
             if let ids = query.accountIDs, !ids.contains(message.id.accountID) { continue }
             grouped[message.conversationID, default: []].append(message)
         }
-        let search = query.searchText?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        let terms = query.search?.terms ?? []
+        // As the SQLite store: index terms with nothing indexable are left out, and some message of the conversation
+        // must match every positive one and no negated one.
+        let indexed = terms.filter { FullTextMatcher.query(for: $0) != nil }
+        let positive = indexed.filter { !$0.negated }
+        let negative = indexed.filter(\.negated)
         var result: [ConversationSummary] = []
         for (id, messages) in grouped {
             guard var summary = summarize(id: id, messages: messages) else { continue }
             guard matches(summary, view: query.view) else { continue }
             if let section = query.section, summary.inboxSection != section { continue }
             if query.unreadOnly, summary.unreadCount == 0 { continue }
-            if let before = query.before, !isLater, Self.sortDate(of: summary, in: query.view) >= before { continue }
+            if let before = query.before, !isLater, Self.sortDate(of: summary, for: query) >= before { continue }
+            guard terms.allSatisfy({ matches(summary, operator: $0, open: query.openConversationID) }) else { continue }
             if isLater { summary.snoozedUntil = snoozeRows[id]?.dueAt }
-            if !search.isEmpty {
-                let haystack = ([summary.subject] + summary.participants.map { ($0.name ?? "") + " " + $0.address }
-                    + messages.compactMap { bodies[$0.id]?.plainText }).joined(separator: " ").lowercased()
-                guard haystack.contains(search) else { continue }
+            if !indexed.isEmpty {
+                let columns = messages.map { FullTextMatcher.Columns(message: $0, body: bodies[$0.id]?.plainText) }
+                let found = columns.contains { message in
+                    positive.allSatisfy { FullTextMatcher.matches($0, in: message) }
+                        && !negative.contains { FullTextMatcher.matches($0, in: message) }
+                }
+                guard found else { continue }
             }
             result.append(summary)
         }
@@ -412,15 +421,15 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
                 return left < right
             }
         } else {
-            let view = query.view
-            result.sort { (Self.sortDate(of: $0, in: view), $0.id.providerID) > (Self.sortDate(of: $1, in: view), $1.id.providerID) }
+            result.sort { (Self.sortDate(of: $0, for: query), $0.id.providerID) > (Self.sortDate(of: $1, for: query), $1.id.providerID) }
         }
         return Array(result.prefix(query.limit))
     }
 
-    /// The date a view sorts and pages by: the Inbox's own (`inboxDate`), every other view's the latest message's.
-    private static func sortDate(of summary: ConversationSummary, in view: MailboxView) -> Date {
-        view == .inbox ? summary.inboxDate : summary.latestDate
+    /// The date a query sorts and pages by: the Inbox's own (`inboxDate`), every other view's and every search's (an
+    /// `in:inbox` one too) the latest message's, as the SQLite store's `ConversationTable.sortKey`.
+    private static func sortDate(of summary: ConversationSummary, for query: ConversationQuery) -> Date {
+        query.view == .inbox && query.search == nil ? summary.inboxDate : summary.latestDate
     }
 
     private func matches(_ summary: ConversationSummary, view: MailboxView) -> Bool {
@@ -433,6 +442,29 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         case .all: return summary.messageCount > 0 && !summaryIsTrash(summary)
         case .later: return snoozeRows[summary.id] != nil
         }
+    }
+
+    /// The SQLite store's operator predicates (`ConversationTable.predicate(for:)`) on the summary; true for index terms.
+    private func matches(_ summary: ConversationSummary, operator term: SearchTerm, open: ConversationID?) -> Bool {
+        let holds: Bool
+        switch term.kind {
+        case .text, .phrase, .from, .to, .subject:
+            return true
+        case .unread, .read:
+            if summary.id == open { return true }
+            holds = (summary.unreadCount > 0) == (term.kind == .unread)
+        case .starred:
+            holds = summary.isStarred
+        case .attachment:
+            holds = summary.hasAttachments
+        case .before(let day):
+            holds = MailStoreCodec.milliseconds(summary.latestDate) < MailStoreCodec.milliseconds(day)
+        case .after(let day):
+            holds = MailStoreCodec.milliseconds(summary.latestDate) >= MailStoreCodec.milliseconds(day)
+        case .mailbox(let view):
+            holds = matches(summary, view: view)
+        }
+        return holds != term.negated
     }
 
     private struct Flags { var inSent: Bool; var inDrafts: Bool; var inTrash: Bool }

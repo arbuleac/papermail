@@ -66,6 +66,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     private var statuses: [AccountSyncStatus] = []
     private var scope: AccountScope = .unified
     private var mailboxView: MailboxView = .inbox
+    /// The view the list's rows come from: the rail's view, or while searching the one the search looks through (All
+    /// Mail, or the view an `in:` term picked), so keys, menus and the reader treat results as rows of that view:
+    /// `in:trash` results restore with ⇧I and # leaves them be, as in the Trash.
+    private var listView: MailboxView { list.query.view }
     private var searchText = ""
     private var showingWelcome = false
     private var unifiedUnread = 0
@@ -352,7 +356,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         list.onOpen = { [weak self] id in
             guard let self else { return }
             // In Drafts, ↩ and a double-click are Continue Editing (§5.19).
-            if self.mailboxView == .drafts {
+            if self.listView == .drafts {
                 if let draft = self.draftMessageID(in: id) { self.continueDraft(draft) }
                 return
             }
@@ -774,8 +778,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     }
 
     private func applyQuery() {
-        conversation.mailboxView = mailboxView
         let query = ShellQuery.make(scope: scope.accountIDs, view: mailboxView, searchText: searchText)
+        conversation.mailboxView = query.view
         if query != list.query {
             // A selection carried into another list would be handed to whatever row replaced it there, and the
             // reader would open (and mark read) a conversation the user never picked.
@@ -1024,13 +1028,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             return mailAction(change)
         case .trash:
             // In Drafts, # is Discard Draft…, asked first (§5.12).
-            if mailboxView == .drafts {
+            if listView == .drafts {
                 confirmDiscardDrafts(selectedIDs)
                 return true
             }
             // In Trash the conversation is already there and v1 has no Delete Forever: # does nothing, quietly,
             // and never trashes the rest of a conversation only partly in Trash (§5.12).
-            if mailboxView == .trash { return true }
+            if listView == .trash { return true }
             return mailAction(.trash)
         case .reply, .replyAll, .forward:
             // A reply answers one conversation: with several selected R, A and F do nothing (§5.12).
@@ -1172,7 +1176,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             return
         }
         // No toast for a change the row itself shows; Z still reaches it for the grace period.
-        let toasted = MailActionCopy.wantsToast(for: change, in: mailboxView, isSearching: !searchText.isEmpty, count: records.count)
+        // The list's own query: while searching, its view is the one the search looks through.
+        let toasted = MailActionCopy.wantsToast(for: change, in: list.query.view, search: list.query.search, count: records.count)
         let id = undoHistory.add(records, at: now, toasted: toasted)
         rememberLaterGroup(id)
         guard toasted else { return }
@@ -1203,7 +1208,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     private func rememberLaterGroup(_ id: Int) {
         let live = Set(undoHistory.groups.map(\.id))
         groupsFromLater = groupsFromLater.filter { live.contains($0) }
-        if mailboxView == .later, searchText.isEmpty { groupsFromLater.insert(id) }
+        if listView == .later { groupsFromLater.insert(id) }
     }
 
     /// A toast stopped being visible: Z and ⌘Z reach its action for 10000 ms more (§6.1), and an undo-send
@@ -1317,8 +1322,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         let shows = showsLater
         strip.setShowsLater(shows)
         // The last snooze in view ended while Later was shown, or the scope moved to an account with none: nothing is
-        // left to show there, so the window goes back to the Inbox (§5.2). A search the user typed stays: it shows all
-        // mail whatever the view, so its results, selection and reader stay too, and clearing it lands in the Inbox.
+        // left to show there, so the window goes back to the Inbox (§5.2). A search the user typed stays: it shows All
+        // Mail or its `in:` view whatever the rail's, so its results, selection and reader stay too, and clearing it
+        // lands in the Inbox.
         if mailboxView == .later, !shows {
             mailboxView = .inbox
             leftLaterAsItEmptied = true
@@ -1331,9 +1337,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         selectedIDs.filter { !LocalDraftConversation.isLocal($0) }
     }
 
-    /// Nothing is snoozed from the Trash (a trashed conversation ends its snooze) or from Drafts.
+    /// Nothing is snoozed from the Trash (a trashed conversation ends its snooze) or from Drafts, nor from `in:trash` or
+    /// `in:drafts` results; a search typed there lists All Mail (`listView`), whose rows L takes.
     private var canSnoozeSelection: Bool {
-        !showingWelcome && mailboxView != .trash && mailboxView != .drafts && !snoozableSelection.isEmpty
+        !showingWelcome && listView != .trash && listView != .drafts && !snoozableSelection.isEmpty
     }
 
     /// The conversations of `ids` a snooze would hold, judged as snoozing leaves them (archived) by the store's own rule
@@ -1395,7 +1402,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// as it is; with none to snooze it beeps, as E does when it changes nothing.
     func snooze(_ ids: [ConversationID], until date: Date) {
         let candidates = ids.filter { !LocalDraftConversation.isLocal($0) }
-        let held = mailboxView == .trash || mailboxView == .drafts ? [] : snoozable(candidates)
+        let held = listView == .trash || listView == .drafts ? [] : snoozable(candidates)
         guard !held.isEmpty else {
             NSSound.beep()
             return
@@ -1423,7 +1430,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         let time = laterFormatter.dueTime(for: date, reference: laterFormatter.reference(now: laterNow()))
         let toasts = listPane.toasts
         let toast = MailActionCopy.snoozed(until: time) { toasts.fits($0, symbol: Quire.Icon.later, actionTitle: "Undo", keycap: "Z") }
-        let fromLater = mailboxView == .later && searchText.isEmpty
+        let fromLater = listView == .later
         let engine = environment.engine
         recordExternalUndo(command: MailActionCopy.snoozeCommand, toast: toast, symbol: Quire.Icon.later) { [weak self] in
             do {
@@ -1442,7 +1449,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// archived; everywhere else the ordinary archive.
     @discardableResult
     private func archive(_ ids: [ConversationID]? = nil) -> Bool {
-        guard mailboxView == .later, searchText.isEmpty else { return mailAction(.archive, on: ids) }
+        guard listView == .later else { return mailAction(.archive, on: ids) }
         let targets = (ids ?? selectedIDs).filter { snoozedUntil[$0] != nil }
         guard !targets.isEmpty else { return mailAction(.archive, on: ids) }
         let prior = snoozedUntil
@@ -1502,11 +1509,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
     /// Whether the rail's folder `tile` takes these dragged conversations. `RailDrop` decides from the rows as
     /// the list holds them, so a drag over the rail reads nothing from the store; the list's own query says
-    /// whether they are search results, since a blank search shows the view.
+    /// whether they are search results, since a blank search shows the view, and which view they are rows of
+    /// (`listView`, as for the keys), so the Trash refuses `in:trash` results as # leaves them be and takes a
+    /// search's All Mail results from the Trash as # trashes them.
     func acceptsDrop(of ids: [ConversationID], onto tile: MailboxView) -> Bool {
         guard !showingWelcome else { return false }
         let dragged = Set(ids)
-        return RailDrop.accepts(tile, rows: list.conversations.filter { dragged.contains($0.id) }, selectedView: mailboxView,
+        return RailDrop.accepts(tile, rows: list.conversations.filter { dragged.contains($0.id) }, selectedView: listView,
                                 isSearching: list.query.searchText != nil)
     }
 
@@ -1516,7 +1525,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     @discardableResult
     func drop(_ ids: [ConversationID], onto tile: MailboxView) -> Bool {
         guard acceptsDrop(of: ids, onto: tile), let change = RailDrop.change(for: tile) else { return false }
-        if change == .trash, mailboxView == .drafts {
+        if change == .trash, listView == .drafts {
             confirmDiscardDrafts(ids)
             return true
         }
@@ -1911,10 +1920,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             return !showingWelcome && !typing && list.selectedConversationID != nil
         case #selector(trashSelection(_:)):
             // Already in Trash (§5.12): Message › Move to Trash is disabled there.
-            return !showingWelcome && !typing && list.selectedConversationID != nil && mailboxView != .trash
+            return !showingWelcome && !typing && list.selectedConversationID != nil && listView != .trash
         case #selector(moveSelectionToInbox(_:)):
             // Everything in the Inbox view is in the Inbox already.
-            return !showingWelcome && !typing && list.selectedConversationID != nil && mailboxView != .inbox
+            return !showingWelcome && !typing && list.selectedConversationID != nil && listView != .inbox
         case #selector(markSelectionUnread(_:)):
             if case .setRead(let read)? = readChangeForSelection {
                 menuItem.title = read ? "Mark as Read" : "Mark as Unread"

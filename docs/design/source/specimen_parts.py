@@ -202,8 +202,28 @@ def _caps(keys, lg=True):
             out.append('<span class="kbd%s">%s</span>' % (' lg' if lg else '', html.escape(k)))
     return ''.join(out)
 
+def cheat_sheet_band_rows(band):
+    """Rows in a cheat-sheet band: its longest section's."""
+    n = T.LAYOUT['cheatSheet']['columns']
+    return max(len(rows) for _, rows in T.CHEAT_SHEET[band * n:(band + 1) * n])
+
+def cheat_sheet_height():
+    """The panel's natural height, as QuireCheatSheetPanel.naturalHeight() adds it up: the padding, the title row and the
+    gap under it, every band (section title and its longest section's rows) sectionGap apart, then the search line."""
+    L = T.LAYOUT['cheatSheet']
+    count = -(-len(T.CHEAT_SHEET) // L['columns'])
+    bands = sum(L['sectionTitle'] + cheat_sheet_band_rows(b) * L['row'] for b in range(count)) + (count - 1) * L['sectionGap']
+    search = L['sectionGap'] + L['row'] if T.CHEAT_SHEET_SEARCH[1] else 0
+    return 2 * L['pad'] + L['titleRow'] + L['headerGap'] + bands + search
+
+def cheat_sheet_window():
+    """The window height the cheat sheet fits whole in: its top, the panel, the bottom margin."""
+    L = T.LAYOUT['cheatSheet']
+    return L['top'] + cheat_sheet_height() + L['minMargin']
+
 def cheat_sheet():
-    """The cheat-sheet overlay panel: two bands of three sections (layout.cheatSheet), content from T.CHEAT_SHEET."""
+    """The cheat-sheet overlay panel: two bands of three sections (layout.cheatSheet), content from T.CHEAT_SHEET, and the
+    search operators' line from T.CHEAT_SHEET_SEARCH."""
     L = T.LAYOUT['cheatSheet']
     sections = T.CHEAT_SHEET
     def sec(title, rows):
@@ -214,6 +234,12 @@ def cheat_sheet():
     n = L['columns']
     for i in range(0, len(sections), n):
         bands.append('<div style="display:grid;grid-template-columns:repeat(%d,%dpx);column-gap:%dpx;align-items:start">%s</div>' % (n, L['columnWidth'], L['columnGap'], ''.join(sec(*x) for x in sections[i:i + n])))
+    # The search operators' line: its title in the key column, the terms after it, one row under the bands.
+    title, terms = T.CHEAT_SHEET_SEARCH
+    bands.append('<div style="display:grid;grid-template-columns:%dpx 1fr;align-items:center;height:%dpx">'
+                 '<span style="font:var(--q-font-runningHead);letter-spacing:var(--q-track-runningHead);text-transform:uppercase;color:var(--q-ink3)">%s</span>'
+                 '<span style="display:flex;gap:%dpx;font:var(--q-font-snippet);color:var(--q-ink);white-space:nowrap;overflow:hidden">%s</span></div>'
+                 % (L['keyColumn'], L['row'], title, L['searchTermGap'], ''.join('<span>%s</span>' % html.escape(t) for t in terms)))
     return ('<div style="position:relative;width:%dpx;padding:%dpx;border-radius:%dpx;background:var(--q-raised);box-shadow:var(--q-e3);color:var(--q-ink)">'
             '<div style="height:%dpx;display:flex;align-items:center;font:var(--q-font-title)">Keyboard Shortcuts</div>'
             '<span class="ib" style="position:absolute;right:%dpx;top:%dpx;width:%dpx;height:%dpx">%s</span>'

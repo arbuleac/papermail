@@ -96,6 +96,23 @@ extension MailStoreContractTests {
         XCTAssertEqual(try conversationIDs(ConversationQuery(view: .later, before: date(-1_000))), ["cb", "ca"], "Later reads whole")
     }
 
+    /// A search over Later (the field makes none: a search typed there looks through All Mail) keeps Later's order and
+    /// reads whole; Later as a search term, which no typed text makes either, reads the snoozes without Later's join.
+    func testASearchOverLaterKeepsItsOrder() throws {
+        try store.upsertMessages([message("a1", in: "ca", subject: "Lisbon flat"), message("b1", in: "cb", subject: "Lisbon keys"),
+                                  message("c1", in: "cc", subject: "Lisbon trip")])
+        try snooze("ca", messages: ["a1"], until: 600)
+        try snooze("cb", messages: ["b1"], until: 300)
+        XCTAssertEqual(try conversationIDs(ConversationQuery(view: .later, searchText: "lisbon", before: date(-1_000))), ["cb", "ca"])
+        XCTAssertEqual(try conversationIDs(ConversationQuery(view: .later, searchText: "flat")), ["ca"])
+        XCTAssertEqual(try store.conversations(ConversationQuery(view: .later, searchText: "flat")).first?.snoozedUntil, date(600))
+        var query = ConversationQuery(view: .all)
+        query.search = SearchQuery(text: "snoozed", terms: [SearchTerm(.mailbox(.later))])
+        XCTAssertEqual(Set(try conversationIDs(query)), ["ca", "cb"])
+        query.search = SearchQuery(text: "-snoozed", terms: [SearchTerm(.mailbox(.later), negated: true)])
+        XCTAssertEqual(try conversationIDs(query), ["cc"])
+    }
+
     // MARK: Returning
 
     func testReturningMovesBackMarksUnreadAndSortsUnderTheReturn() throws {
@@ -123,8 +140,10 @@ extension MailStoreContractTests {
         // Paging walks the same order.
         XCTAssertEqual(try conversationIDs(ConversationQuery(view: .inbox, limit: 1)), ["old"])
         XCTAssertEqual(try conversationIDs(ConversationQuery(view: .inbox, before: date(9_000))), ["fresh"])
-        // Every other view keeps the mail's own date.
+        // Every other view keeps the mail's own date, and so does a search, an `in:inbox` one too, whose rows show it.
         XCTAssertEqual(try conversationIDs(ConversationQuery(view: .all)), ["fresh", "old"])
+        XCTAssertEqual(try conversationIDs(ConversationQuery(view: .inbox, searchText: "in:inbox")), ["fresh", "old"])
+        XCTAssertEqual(try conversationIDs(ConversationQuery(view: .inbox, searchText: "in:inbox", before: date(5_000))), ["old"])
     }
 
     /// Reading it moves no row; leaving the Inbox or newer mail ends the return's place.

@@ -30,6 +30,7 @@ tokens = {
 }
 tokens['contrastPairs'] = None  # filled after ALL_PAIRS is built
 tokens['cheatSheetContent'] = [{'section': sec, 'rows': [{'keys': k, 'label': l} for k, l in rows]} for sec, rows in T.CHEAT_SHEET]
+tokens['cheatSheetSearch'] = {'title': T.CHEAT_SHEET_SEARCH[0], 'terms': T.CHEAT_SHEET_SEARCH[1]}
 tokens['accountRules'] = {'standardMinContrast': 3.0, 'icMinContrast': 3.5, 'firstSixMinCVD': 13.0, 'firstSixTargetStandard': 14.0, 'allTenMinNormal': 13.0, 'minFromAccentNormal': 15.0,
                           'minFromDangerAnyVision': 10.0, 'minFromInfoNormal': 10.0, 'minFromStarNormal': 8.0, 'promisedDistinct': 6,
                           'simulation': 'Machado 2009, severity 1.0, linear sRGB; CIEDE2000'}
@@ -441,6 +442,9 @@ def render(text):
                         for n, (k, l) in enumerate(items, 1):
                             rows.append((bi // 3 + 1, col, sec, n, '  '.join(x for x in k.split(' ')), l))
                 return md_table(['Band', 'Column', 'Section', '#', 'Keycaps', 'Label'], rows)
+            if kind == 'cheatSheetSearch':
+                title, terms = T.CHEAT_SHEET_SEARCH
+                return md_table(['Title', 'Terms, in order'], [(title, ' '.join('`%s`' % t for t in terms))])
             if kind == 'icons': return table_icons()
             if kind == 'layout': return table_layout(parts[2])
             if kind == 'avatarSizes':

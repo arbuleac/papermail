@@ -17,14 +17,15 @@ public enum RailDrop {
         }
     }
 
-    /// Whether `tile` takes `rows`, the dragged conversations as the list shows them, while the rail's selected
-    /// view is `view` and the list shows that view, or search results when `isSearching`. A drop that would
+    /// Whether `tile` takes `rows`, the dragged conversations as the list shows them, while the list shows rows
+    /// of `view`: the rail's selected view, or search results when `isSearching`, with `view` the one the search
+    /// looks through (All Mail, or the view an `in:` term picked), as the keys treat them. A drop that would
     /// change nothing the list shows is refused, so the tile never lights up for it and the drag ends where it
     /// began:
     ///
     /// - outside a search the selected tile takes nothing: the rows under it are already where it would put
-    ///   them. A search lists mail from every view under the selected tile, so there only the rows decide,
-    ///   as they do for S, E and ⇧I; Trash still refuses while selected, because # does nothing in Trash;
+    ///   them. A search's rows need not be (All Mail holds Inbox mail), so there only the rows decide, as they
+    ///   do for S, E and ⇧I; Trash still refuses `in:trash` results, because # does nothing in Trash;
     /// - Inbox refuses rows that are all in the Inbox, Starred rows that are all starred, and All Mail rows none
     ///   of which is in the Inbox (archiving leaves those, the trashed among them, as they are);
     /// - a draft kept on this Mac is not mail in the store, so only Trash takes it (as Discard Draft).

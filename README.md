@@ -72,6 +72,23 @@ Press `l` (or **Message → Later…**, or **Later** in a conversation's right-c
 
 **Settings → General → Keep mail on this Mac** chooses how far back messages keep their full content on your Mac: **Everything** (the default), **1 year** or **3 months**, with the space your mail takes beside it ("292 MB"). Older messages stay in the list and in search; their full content is removed from this Mac (older mail arriving during the first download is never stored in full) and downloads again when you open one (so opening old mail needs a connection); mail you have opened keeps its content until you quit. Choosing a shorter time cleans up at once; choosing a longer one removes nothing more and downloads nothing back. Drafts, messages waiting to send and changes still syncing are never touched. Attachments you open are cached up to 1 GB, the least recently used going first.
 
+## Search
+
+Press `/` and type: results narrow as you type, across subjects, people and message text, in every account the rail shows, everywhere but the Trash. Add operators to the same field:
+
+| Operator | Finds |
+|---|---|
+| `from:ben`, `from:"Ben Carter"` | mail from that name or address |
+| `to:ana` | mail to that name or address, in To, Cc or Bcc |
+| `subject:lisbon` | that word in the subject |
+| `is:unread`, `is:read`, `is:starred`, `has:attachment` | conversations that are unread, read, starred, or have an attachment |
+| `after:2026-01-31`, `before:2026/01/31` | the latest message on or after that day, or before it |
+| `in:inbox`, `in:sent`, `in:drafts`, `in:trash`, `in:all` | that view, whichever one is on screen, Later included (`in:trash` searches the Trash) |
+| `"weekly metrics"` | those words together, in that order |
+| `-word`, `-from:ben`, `-is:starred` | leaves those out |
+
+Operators combine (`from:ben is:unread after:2026-01-01 -invoice`), ignore case, and anything that is not an operator is searched as words. A result you open in an `is:unread` search stays in the list, read, until you open another. The keyboard cheat sheet (`?`) lists the operators on its last line.
+
 ## Keyboard shortcuts
 
 | Key | Action |
