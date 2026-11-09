@@ -1412,7 +1412,7 @@ A newer status replaces an older one, except that the warnings stay until the us
 
 A From change is one undoable edit: Edit › Undo in the body restores the body as it was before it (the From popup keeps its choice). A From change that edits the body first closes the link popover if it is open (a click on From leaves focus in it), since the selection it would link has moved. The signature alone is not worth keeping: a message holding nothing the user wrote but its signature closes without a draft (below); text typed inside it counts as written. Settings' changes reach composers opened afterwards, a New Message from a recipient token in a window already open included; a window already open keeps the signatures it opened with.
 
-**Closing, discarding and the subject check.** Drafts are kept on this Mac and autosaved, so closing never asks.
+**Closing, discarding and the subject check.** Drafts are kept on this Mac and autosaved, so closing never asks. Esc closes a composer that holds nothing worth keeping, keeping no draft (a reply opened by mistake goes with one key), and leaves one holding the user's work open (§6.1).
 
 | Action | Result |
 |---|---|
@@ -2182,7 +2182,7 @@ Several surfaces answer the same key. The first row that applies wins and consum
 | 7 | Focus is in the reader or the quick reply (main window) | returns focus to the list; the quick reply keeps its text |
 | 8 | Focus is on the list | nothing (no beep) |
 
-So in the reader with a toast up, the first Esc dismisses the toast and the second returns to the list. In a composer window Esc does only rows 1–2; it never closes the window.
+So in the reader with a toast up, the first Esc dismisses the toast and the second returns to the list. In a composer window Esc does rows 1–2; with no popover left to close, it closes a composer that holds nothing worth keeping (nothing typed, chosen or attached beyond the prefilled reply, its folded original and the signature, §5.20), keeping no draft, and does nothing in one that holds the user's work.
 
 **⌘Z** (Edit › Undo, titled by its target)
 

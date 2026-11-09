@@ -566,7 +566,9 @@ final class AddressTokenField: NSView, NSTextFieldDelegate {
                 return true
             }
         case #selector(NSResponder.cancelOperation(_:)):
-            // Esc in a composer only ever closes popovers (§6.1); it never closes the window.
+            // With no autocomplete to close, Esc goes to the composer, which closes only if it holds nothing worth
+            // keeping (§6.1).
+            (window?.windowController as? ComposeWindowController)?.escapeComposer(self)
             return true
         default: break
         }

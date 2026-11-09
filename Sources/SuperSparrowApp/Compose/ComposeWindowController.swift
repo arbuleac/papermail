@@ -571,7 +571,8 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
             window?.makeFirstResponder(self.textView)
             return true
         case #selector(NSResponder.cancelOperation(_:)):
-            // Esc never closes a composer (§6.1).
+            // Esc closes a composer holding nothing worth keeping (§6.1).
+            escapeComposer(nil)
             return true
         default:
             return false
@@ -579,6 +580,15 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     }
 
     // MARK: NSTextViewDelegate (body)
+
+    /// Esc in the body goes to the composer, which closes only if it holds nothing worth keeping (§6.1); ⌥Esc still
+    /// completes words. Answered here, as the body's delegate, so the Settings signature field, the same text view
+    /// outside a composer, keeps NSTextView's own Esc.
+    func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        guard commandSelector == #selector(NSResponder.cancelOperation(_:)) else { return false }
+        escapeComposer(textView)
+        return true
+    }
 
     func textDidChange(_ notification: Notification) {
         // A From change replacing the signature reports itself as a header edit (`fromChanged`).
@@ -1102,6 +1112,21 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         NotificationCenter.default.post(name: Self.draftDiscardedNotification, object: nil, userInfo: [Self.draftUndoKey: undo])
     }
 
+    /// Esc, once no popover is left to close (§6.1): a composer holding nothing worth keeping (nothing typed, chosen or
+    /// attached beyond the prefilled reply, its folded original and the signature) closes, keeping no draft; one
+    /// holding the user's work stays open, since Esc must never throw work away. Every field and the window call it,
+    /// so it answers wherever the keyboard is.
+    @objc func escapeComposer(_ sender: Any?) {
+        guard !isSending, !isWorthKeeping, !isTypingAnAddress else { return }
+        window?.performClose(nil)
+    }
+
+    /// An address typed in To, Cc or Bcc that is not a token yet (or a token taken back to fix) is the user's work too,
+    /// though the draft does not hold it until it becomes a token.
+    private var isTypingAnAddress: Bool {
+        [toField, ccField, bccField].contains { !$0.pendingText.trimmingCharacters(in: .whitespaces).isEmpty }
+    }
+
     /// Closes the window and keeps nothing: its draft was discarded elsewhere, or its account was removed.
     func closeWithoutSaving() {
         autosaveTimer?.invalidate()
@@ -1205,7 +1230,7 @@ final class ComposeDraftUndo: NSObject {
     }
 }
 
-/// The composer's window: Esc never closes it (§6.1), it reports focus changes to its controller, and Edit ›
+/// The composer's window: Esc closes it only while it holds nothing worth keeping (§6.1), it reports focus changes to its controller, and Edit ›
 /// Undo undoes typing when the focused text can, else cancels the newest counting undo-send panel (“Undo
 /// Send”, §6.1 rows 1–2; the main window's toasts are not reachable from here).
 @MainActor
@@ -1255,7 +1280,10 @@ final class ComposeWindow: NSWindow {
         return changed
     }
 
-    override func cancelOperation(_ sender: Any?) {}
+    /// Esc with the keyboard on a control rather than in a field: the same rule as in the fields (§6.1).
+    override func cancelOperation(_ sender: Any?) {
+        (windowController as? ComposeWindowController)?.escapeComposer(sender)
+    }
 }
 
 /// The Subject field: borderless `composeSubject` (New York 15 pt, its sans twin under the SF Pro font or for

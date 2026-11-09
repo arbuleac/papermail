@@ -118,6 +118,7 @@ Operators combine (`from:ben is:unread after:2026-01-01 -invoice`), ignore case,
 | `z`, `⌘Z` | Undo the last mail action (last 20 are kept) |
 | `⇧⌘U` | Unsubscribe from the open conversation's list, then archive it |
 | `r` / `a` / `f` | Reply / reply all / forward |
+| `esc` in a composer | Closes it while you haven't written anything; a composer with your words stays open |
 | `c`, `⌘N` | New message |
 | `/`, `⌘F` | Search (`Esc` clears, in the search field or the list) |
 | `↩` in the search field | Search the mail server for more, then move to the results |
