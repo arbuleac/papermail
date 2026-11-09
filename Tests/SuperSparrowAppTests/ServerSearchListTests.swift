@@ -4,7 +4,7 @@ import XCTest
 @testable import SuperSparrowApp
 
 /// The end of a search (spec §5.10, roadmap Q3.1) in the real main window: once every local result is listed the list
-/// ends with “Search Gmail for more”, ⌘↩ in the field or the row's link runs it, the row says how it went, the found
+/// ends with “Search Gmail for more”, ↩ in the field or the row's link runs it, the row says how it went, the found
 /// conversations join the results in date order, and new words start fresh. The engine is replaced by a search the test
 /// answers, so nothing reaches a provider.
 @MainActor
@@ -83,7 +83,7 @@ final class ServerSearchListTests: XCTestCase {
         XCTAssertEqual(list.layout.items.last, .serverSearch)
         XCTAssertEqual(rowTitle, "Search all accounts for more", "unified, two accounts")
         XCTAssertEqual(rowView?.link.isHidden, false, "the offer is a link")
-        XCTAssertEqual(rowView?.link.toolTip, "Search All Accounts for More  ⌘↩")
+        XCTAssertEqual(rowView?.link.toolTip, "Search All Accounts for More  ↩ in the search field")
         XCTAssertFalse(list.tableView(list.tableView, shouldSelectRow: try XCTUnwrap(list.layout.serverSearchRow)))
 
         harness.controller.strip.select(.account(ListTestSupport.accountA.id), notify: true)
@@ -107,64 +107,66 @@ final class ServerSearchListTests: XCTestCase {
         search("quarterly")
         XCTAssertNil(list.layout.serverSearchRow, "older results are still to load: the tail ends the list, not the row")
         XCTAssertFalse(list.canRequestServerSearch)
-        XCTAssertFalse(harness.controller.validateMenuItem(menuItem()), "⌘↩ waits for the end of the local results too")
+        XCTAssertFalse(harness.controller.validateMenuItem(menuItem()), "the menu waits for the end of the local results too")
     }
 
-    // MARK: ⌘↩ and ↩
+    // MARK: ↩ in the field
 
-    func testCommandReturnRunsItAndReturnStillGoesToTheList() throws {
+    /// ↩ in the field searches the server for more and gives the keyboard to the list (§5.6); the Edit item does the same
+    /// and claims no key, so Return stays with the list, the composer and every sheet.
+    func testReturnInTheFieldRunsItAndGivesTheKeyboardToTheList() throws {
         let previous = (MainMenuController.shared, NSApp.windowsMenu, NSApp.helpMenu)
         defer { (MainMenuController.shared, NSApp.windowsMenu, NSApp.helpMenu) = previous }
         let bar = MainMenu.build(appDelegate: AppDelegate(options: LaunchOptions(arguments: ["SuperSparrow"])))
-        let commandReturn = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0, windowNumber: 0,
-                                                           context: nil, characters: "\r", charactersIgnoringModifiers: "\r",
-                                                           isARepeat: false, keyCode: 36))
         MainMenuController.shared?.updateForKeyWindow()
-        let item = try XCTUnwrap(MainMenuBar.exactItem(for: commandReturn, in: bar), "⌘↩ is an Edit item while no composer is key")
-        XCTAssertEqual(item.action, #selector(MainWindowController.searchServer(_:)))
-        XCTAssertFalse(harness.controller.validateMenuItem(item), "no words, nothing to search")
+        for modifiers in [NSEvent.ModifierFlags(), .command] {
+            let key = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: 0, windowNumber: 0,
+                                                     context: nil, characters: "\r", charactersIgnoringModifiers: "\r",
+                                                     isARepeat: false, keyCode: 36))
+            XCTAssertNotEqual(MainMenuBar.exactItem(for: key, in: bar)?.action, #selector(MainWindowController.searchServer(_:)),
+                              "no menu item takes ↩ or ⌘↩ for the server search")
+        }
 
         pane.focusSearch()
         search("quarterly")
         XCTAssertTrue(pane.isSearchFocused)
+        // The Edit item offers the same search, titled by the scope.
+        let item = menuItem()
         XCTAssertTrue(harness.controller.validateMenuItem(item))
         XCTAssertEqual(item.title, "Search All Accounts for More", "titled by the scope")
 
-        // ↩ in the field keeps giving the keyboard to the list, and searches nothing.
         pane.header.search.onSubmit?("quarterly")
-        XCTAssertTrue(harness.controller.window?.firstResponder === list.tableView)
-        XCTAssertEqual(server.calls.count, 0)
-
-        pane.focusSearch()
-        NSApp.sendAction(try XCTUnwrap(item.action), to: harness.controller, from: item)
         harness.spin { self.server.calls.count == 1 }
         XCTAssertEqual(server.calls.first?.words, "quarterly")
         XCTAssertNil(server.calls.first?.scope, "every account")
+        XCTAssertTrue(harness.controller.window?.firstResponder === list.tableView, "and the keyboard goes to the list")
         XCTAssertFalse(harness.controller.validateMenuItem(item), "one search at a time")
     }
 
-    /// In the quick reply ⌘↩ sends. A menu item claims its key even while it is disabled, so the quick reply takes ⌘↩
-    /// before the menu is asked; from the search field the key goes on to the menu, which searches.
+    /// While the field has the keyboard the offer shows a “↩” keycap after its link, since ↩ there runs it; with the
+    /// keyboard in the list it goes, since ↩ there opens a conversation (§5.10).
+    func testTheOfferShowsItsReturnKeycapWhileTheFieldHasTheKeyboard() throws {
+        pane.focusSearch()
+        search("quarterly")
+        XCTAssertTrue(pane.isSearchFocused)
+        XCTAssertTrue(list.searchFieldHasFocus)
+        let view = try XCTUnwrap(rowView)
+        XCTAssertFalse(view.keycap.isHidden, "the keycap shows while the field has the keyboard")
+        XCTAssertEqual(view.keycap.legend, "↩")
+        view.layoutSubtreeIfNeeded()
+        XCTAssertGreaterThan(view.keycap.frame.minX, view.link.frame.maxX, "after the link")
+
+        XCTAssertTrue(harness.controller.window?.makeFirstResponder(list.tableView) ?? false)
+        XCTAssertFalse(list.searchFieldHasFocus)
+        XCTAssertTrue(view.keycap.isHidden, "gone with the keyboard in the list")
+    }
+
+    /// ⌘↩ in the quick reply still sends, and searches nothing.
     func testCommandReturnInTheQuickReplySendsAndSearchesNothing() throws {
-        let previous = (MainMenuController.shared, NSApp.windowsMenu, NSApp.helpMenu)
-        defer { (MainMenuController.shared, NSApp.windowsMenu, NSApp.helpMenu) = previous }
-        let bar = MainMenu.build(appDelegate: AppDelegate(options: LaunchOptions(arguments: ["SuperSparrow"])))
-        MainMenuController.shared?.updateForKeyWindow()
         let window = try XCTUnwrap(harness.controller.window)
         let commandReturn = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0,
                                                            windowNumber: window.windowNumber, context: nil, characters: "\r",
                                                            charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
-        let item = try XCTUnwrap(MainMenuBar.exactItem(for: commandReturn, in: bar))
-        XCTAssertEqual(item.action, #selector(MainWindowController.searchServer(_:)))
-        // The key window's responder chain would find the controller; this window is not key in a test.
-        item.target = harness.controller
-        // AppKit's order for a key with ⌘: the window's views, then the menu bar, and only then the first responder's keyDown.
-        func press() {
-            if window.performKeyEquivalent(with: commandReturn) { return }
-            if bar.performKeyEquivalent(with: commandReturn) { return }
-            window.firstResponder?.keyDown(with: commandReturn)
-        }
-
         search("quarterly")
         let id = try XCTUnwrap(list.conversations.first?.id)
         list.selectedConversationID = id
@@ -175,28 +177,19 @@ final class ServerSearchListTests: XCTestCase {
         reply.onSend = { text, _ in sent.append(text) }
         XCTAssertTrue(harness.reader.focusQuickReply(all: false))
         reply.text = "Tuesday works"
-        XCTAssertFalse(harness.controller.validateMenuItem(item), "disabled while another place to type has focus")
-        press()
+        if !window.performKeyEquivalent(with: commandReturn) { window.firstResponder?.keyDown(with: commandReturn) }
         XCTAssertEqual(sent, ["Tuesday works"], "⌘↩ reaches the quick reply")
         ListTestSupport.spin(for: 0.1)
         XCTAssertEqual(server.calls.count, 0, "and searches nothing")
-
-        pane.focusSearch()
-        XCTAssertTrue(harness.controller.validateMenuItem(item))
-        press()
-        harness.spin { self.server.calls.count == 1 }
-        XCTAssertEqual(server.calls.first?.words, "quarterly")
-        XCTAssertEqual(sent.count, 1, "the quick reply does not send from the search field")
     }
 
-    /// ⌘↩ typed before the field's debounce has sent the words: they go now, and the search runs once their local
+    /// ↩ typed before the field's debounce has sent the words: they go now, and the search runs once their local
     /// results are in.
-    func testCommandReturnRightAfterTypingRunsOnceTheResultsAreIn() throws {
+    func testReturnRightAfterTypingRunsOnceTheResultsAreIn() throws {
         pane.focusSearch()
         search("quarterly", waitForRows: false)
         XCTAssertTrue(pane.hasPendingSearch)
-        XCTAssertTrue(harness.controller.validateMenuItem(menuItem()))
-        harness.controller.searchServer(nil)
+        pane.header.search.onSubmit?("quarterly")
         harness.spin { self.server.calls.count == 1 }
         XCTAssertEqual(server.calls.first?.words, "quarterly")
         XCTAssertEqual(rowTitle, "Searching all accounts…")

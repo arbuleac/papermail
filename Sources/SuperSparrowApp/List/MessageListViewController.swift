@@ -901,6 +901,7 @@ final class MessageListViewController: NSViewController {
                 footerRow.phase = self.footerPhase
             case let serverRow as ServerSearchRowView:
                 serverRow.row = self.serverSearchRow
+                serverRow.showsReturnKeycap = self.searchFieldHasFocus
             default:
                 break
             }
@@ -947,7 +948,18 @@ final class MessageListViewController: NSViewController {
         return ServerSearchRow(target: target, phase: phase)
     }
 
-    /// Whether ⌘↩ can ask for the search now: it can run, and the local results are all listed or not in yet (it then
+    /// The search field has the keyboard, so ↩ there runs the offer: the row shows its “↩” keycap (§5.10).
+    var searchFieldHasFocus = false {
+        didSet {
+            guard oldValue != searchFieldHasFocus, isViewLoaded else { return }
+            if !emptyView.isHidden { updateEmptyState() }
+            guard let row = layout.serverSearchRow,
+                  let view = tableView.rowView(atRow: row, makeIfNecessary: false) as? ServerSearchRowView else { return }
+            view.showsReturnKeycap = searchFieldHasFocus
+        }
+    }
+
+    /// Whether ↩ in the search field can ask for the search now: it can run, and the local results are all listed or not in yet (it then
     /// runs once they are, if they fit on the pages read).
     var canRequestServerSearch: Bool {
         guard let row = serverSearchRow, row.runs else { return false }
@@ -961,7 +973,7 @@ final class MessageListViewController: NSViewController {
         return view.link
     }
 
-    /// ⌘↩ in the search field (spec §6): runs the search now if every local result is listed, or as soon as they are.
+    /// ↩ in the search field (spec §5.6, §6): runs the search now if every local result is listed, or as soon as they are.
     func requestServerSearch() {
         guard canRequestServerSearch else { return }
         if hasReceivedFirstPage {
@@ -971,7 +983,7 @@ final class MessageListViewController: NSViewController {
         }
     }
 
-    /// The row's link, ↩ on it, the empty state's link and ⌘↩: searches the providers in scope for the words as typed.
+    /// The row's link, ↩ on it, the empty state's link and ↩ in the search field: searches the providers in scope for the words as typed.
     func runServerSearch() {
         guard let row = serverSearchRow, row.runs, hasReceivedFirstPage, reachedEnd else { return }
         pendingServerSearch = false
@@ -1045,6 +1057,8 @@ final class MessageListViewController: NSViewController {
         var hint: [QuireEmptyStateView.HintPart] = state.hint.isEmpty ? [] : [.text(state.hint)]
         if let link = state.link {
             hint.append(.link(link))
+            // ↩ in the field runs the offer too; its keycap shows while the field has the keyboard (§5.9).
+            if searchFieldHasFocus, serverSearchRow?.phase == .offer { hint.append(.keys(["↩"])) }
             emptyView.onLink = { [weak self] in self?.runServerSearch() }
         } else {
             emptyView.onLink = nil
@@ -1284,6 +1298,7 @@ extension MessageListViewController: NSTableViewDelegate {
             let rowView = (tableView.makeView(withIdentifier: ServerSearchRowView.identifier, owner: nil) as? ServerSearchRowView)
                 ?? ServerSearchRowView(frame: .zero)
             rowView.row = serverSearchRow
+            rowView.showsReturnKeycap = searchFieldHasFocus
             rowView.onRun = { [weak self] in self?.runServerSearch() }
             return rowView
         }

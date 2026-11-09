@@ -344,6 +344,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             self?.applyQuery()
         }
         listPane.onLeaveSearch = { [weak self] in self?.focusList() }
+        listPane.onSubmitSearch = { [weak self] in self?.list.requestServerSearch() }
+        listPane.header.onSearchFocusChange = { [weak self] focused in self?.list.searchFieldHasFocus = focused }
         listPane.onCompose = { [weak self] in self?.composeNew() }
         listPane.onSelectAccountShortcut = { [weak self] number in self?.strip.selectShortcut(number) }
         listPane.onAddAccount = { [weak self] kind in self?.requestAddAccount(kind) }
@@ -1983,16 +1985,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// Message › Undo (Z): the latest toast's action, never a send (§6.1).
     @objc func undoMailAction(_ sender: Any?) { performUndo(zTarget) }
     @objc func focusSearchField(_ sender: Any?) { listPane.focusSearch() }
-    /// Edit › Search Gmail for More, ⌘↩ in the search field (§5.10, §6): words still waiting out the field's debounce
+    /// Edit › Search Gmail for More (§5.10; ↩ in the search field does the same, §5.6): words still waiting out the field's debounce
     /// go to the list first, and the search runs once their local results are all listed.
     @objc func searchServer(_ sender: Any?) {
         listPane.sendPendingSearch()
         list.requestServerSearch()
     }
 
-    /// ⌘↩ belongs to the search field, the list and the row, so the item is disabled while any other place to type, or
-    /// the reader, has focus. A disabled item still claims its key, so the quick reply takes ⌘↩ (Send) before the menu
-    /// is asked (`QuickReplyTextView.performKeyEquivalent`).
+    /// The search belongs to the search field, the list and the row, so the item is disabled while any other place to
+    /// type, or the reader, has focus.
     private var serverSearchKeyApplies: Bool {
         guard let responder = window?.firstResponder else { return true }
         if listPane.isSearchFocused { return true }

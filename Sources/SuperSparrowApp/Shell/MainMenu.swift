@@ -129,7 +129,7 @@ enum MainMenu {
         return menu
     }
 
-    /// `searchServer` is the main window's: hidden while a composer is key, so its ⌘↩ never stands in for Send.
+    /// `searchServer` is the main window's: hidden while a composer is key.
     private static func editMenu() -> (menu: NSMenu, searchServer: NSMenuItem) {
         let menu = menu("Edit")
         menu.addItem(item("Undo", NSSelectorFromString("undo:"), "z"))
@@ -143,8 +143,9 @@ enum MainMenu {
         menu.addItem(item("Select All", #selector(NSText.selectAll(_:)), "a"))
         menu.addItem(.separator())
         menu.addItem(item("Find…", #selector(MainWindowController.focusSearchField(_:)), "f", symbol: Quire.Icon.search))
-        // Titled by the scope when it validates (“Search Gmail for More”, §5.10); ⌘↩ in the search field.
-        let searchServer = item(ServerSearchRow.menuTitle(for: nil), #selector(MainWindowController.searchServer(_:)), "\r")
+        // Titled by the scope when it validates (“Search Gmail for More”, §5.10). No key equivalent: ↩ in the search
+        // field runs it (§5.6), and a menu's plain ↩ would take Return from the list, the composer and every sheet.
+        let searchServer = item(ServerSearchRow.menuTitle(for: nil), #selector(MainWindowController.searchServer(_:)))
         menu.addItem(searchServer)
         // The text system's own submenus, acting on whichever text view has focus. Without them spelling, text
         // replacement and smart quotes could be switched only from a text view's context menu. Writing Tools, AutoFill,

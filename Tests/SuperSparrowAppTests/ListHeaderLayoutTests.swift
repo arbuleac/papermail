@@ -121,6 +121,43 @@ final class ListHeaderLayoutTests: XCTestCase {
     /// Demo tag and an address, at the list's minimum, default and maximum width: the field never starts before the
     /// cluster ends, keeps at least its own height, and goes below its minimum only when nothing but the masthead,
     /// its chevron and the dot are left on the line.
+    /// Focused, the field widens over the cluster to where the masthead text starts and the cluster fades under it, so a
+    /// long query has room; compose and the field's height stay, and focus leaving gives the cluster back (§5.6).
+    func testTheFocusedFieldWidensOverTheClusterAndGivesItBack() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let header = header(harness)
+        let window = try XCTUnwrap(header.window)
+        header.showsDemoTag = true
+        header.address = "alex@contoso.test"
+        header.accountName = "Contoso"
+        header.layoutSubtreeIfNeeded()
+        let rest = visual(header.search, in: header)
+        let compose = visual(header.compose, in: header)
+        let masthead = visual(header.masthead, in: header)
+        XCTAssertGreaterThan(rest.minX, masthead.maxX, "at rest the field sits after the cluster")
+
+        XCTAssertTrue(window.makeFirstResponder(header.search.textField))
+        // The frame glides there (AppKit steps an animated view frame to its end), so let the glide run its course.
+        ListTestSupport.spin(for: Quire.Motion.standard + 0.3)
+        XCTAssertTrue(header.isSearchExpanded)
+        let focused = visual(header.search, in: header)
+        XCTAssertEqual(focused.minX, header.mastheadX, accuracy: 0.5, "it starts where the masthead text starts")
+        XCTAssertEqual(focused.maxX, rest.maxX, accuracy: 0.5, "it still ends before compose")
+        XCTAssertEqual(focused.height, rest.height)
+        XCTAssertEqual(visual(header.compose, in: header), compose, "compose does not move")
+        XCTAssertEqual(header.masthead.alphaValue, 0, "the masthead fades under it")
+        XCTAssertEqual(header.demoTag.alphaValue, 0, "so does the Demo tag")
+        XCTAssertEqual(header.search.placeholder, "Search Contoso", "with the address covered, the placeholder names the account")
+
+        XCTAssertTrue(window.makeFirstResponder(harness.list.tableView))
+        ListTestSupport.spin(for: Quire.Motion.standard + 0.3)
+        XCTAssertFalse(header.isSearchExpanded)
+        XCTAssertEqual(visual(header.search, in: header), rest, "focus leaving gives the cluster back")
+        XCTAssertEqual(header.masthead.alphaValue, 1)
+        XCTAssertEqual(header.demoTag.alphaValue, 1)
+    }
+
     func testTheFieldNeverCoversTheCluster() throws {
         let harness = try MainWindowHarness()
         defer { harness.close() }

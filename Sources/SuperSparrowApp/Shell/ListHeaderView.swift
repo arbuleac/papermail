@@ -35,6 +35,14 @@ final class ListHeaderView: NonDraggingView {
     /// The address as it is drawn now: its full width, and the part of it the search field leaves (0 hides it).
     private(set) var addressWidths: (natural: CGFloat, shown: CGFloat) = (0, 0)
 
+    /// While the field has the keyboard it widens over the masthead cluster to where the masthead text starts
+    /// (§5.6): a query with operators outgrows the free width beside the cluster, and the placeholder still names
+    /// the view. Focus leaving gives the cluster back.
+    private(set) var isSearchExpanded = false
+
+    /// The field took or gave up the keyboard (after the header has widened or narrowed it).
+    var onSearchFocusChange: ((Bool) -> Void)?
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         compose.symbolSize = .custom(Quire.Layout.ListHeader.composeGlyph)
@@ -45,8 +53,27 @@ final class ListHeaderView: NonDraggingView {
         row.addSubview(demoTag)
         row.addSubview(search)
         row.addSubview(compose)
+        search.onFocusChange = { [weak self] focused in
+            self?.setSearchExpanded(focused)
+            self?.onSearchFocusChange?(focused)
+        }
         NotificationCenter.default.addObserver(self, selector: #selector(environmentDidChange(_:)),
                                                name: QuireEnvironment.didChangeNotification, object: nil)
+    }
+
+    /// Widens the field over the cluster, or gives the cluster back, gliding with the field's frame (§4.10, "Search
+    /// field width"; a short cross-fade under Reduce Motion). Before the header is on screen it simply lands there.
+    func setSearchExpanded(_ expanded: Bool) {
+        guard expanded != isSearchExpanded else { return }
+        isSearchExpanded = expanded
+        guard window != nil else {
+            needsLayout = true
+            return
+        }
+        Quire.Motion.run(Quire.Motion.standard, .glide, reduced: .fade, participants: [search, masthead, demoTag]) { _ in
+            self.needsLayout = true
+            self.layoutSubtreeIfNeeded()
+        }
     }
 
     @available(*, unavailable)
@@ -117,13 +144,18 @@ final class ListHeaderView: NonDraggingView {
         row.addressRect = NSRect(x: addressX, y: (h.mastheadCenterY - lineHeight / 2).rounded(), width: shown, height: lineHeight)
 
         // Never under the cluster: what the masthead, chevron and dot leave is the field's, even below its minimum.
-        let searchStart = shown > 0 ? addressX + shown + h.searchGap : cursor + h.searchGap
+        // Focused, the field covers the cluster from where the masthead text starts, and the cluster fades under it.
+        let searchStart = isSearchExpanded ? mastheadX : (shown > 0 ? addressX + shown + h.searchGap : cursor + h.searchGap)
         let searchWidth = max(0, searchEnd - searchStart)
         search.frame = search.frame(forVisualRect: NSRect(x: searchStart, y: h.searchTop, width: searchWidth, height: h.searchHeight))
-        // With the address off the line the placeholder names the account; when “Search Contoso” would be cut, the
-        // name alone, since the magnifier already says search and a cut name may no longer tell two accounts apart.
+        let clusterAlpha: CGFloat = isSearchExpanded ? 0 : 1
+        if masthead.alphaValue != clusterAlpha { masthead.alphaValue = clusterAlpha }
+        if demoTag.alphaValue != clusterAlpha { demoTag.alphaValue = clusterAlpha }
+        // With the address off the line, or covered by the widened field, the placeholder names the account; when
+        // “Search Contoso” would be cut, the name alone, since the magnifier already says search and a cut name may no
+        // longer tell two accounts apart.
         var placeholder = searchPlaceholder
-        if address != nil, shown == 0, let accountName {
+        if address != nil, shown == 0 || isSearchExpanded, let accountName {
             let scoped = "Search " + accountName
             placeholder = search.fitsPlaceholder(scoped) ? scoped : accountName
         }

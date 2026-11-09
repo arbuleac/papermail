@@ -21,6 +21,8 @@ final class ListPaneViewController: NSViewController {
     var onSearchChange: ((String) -> Void)?
     /// Escape in an empty field, ↓ or Return: give the keyboard back to the list.
     var onLeaveSearch: (() -> Void)?
+    /// ↩ in the field: search the mail server for more as well (§5.6), before the keyboard goes to the list.
+    var onSubmitSearch: (() -> Void)?
     var onCompose: (() -> Void)?
     /// The title menu's account items (minimal mode): 0 is All Inboxes, 1…9 the accounts in rail order.
     var onSelectAccountShortcut: ((Int) -> Void)?
@@ -181,13 +183,14 @@ final class ListPaneViewController: NSViewController {
 
     private func submitSearch() {
         if searchTimer != nil { sendQuery() }
+        onSubmitSearch?()
         onLeaveSearch?()
     }
 
     /// Words typed less than the debounce ago that the list has not been given yet.
     var hasPendingSearch: Bool { searchTimer != nil }
 
-    /// Gives the list the field's words now rather than when the debounce ends: ⌘↩ acts on what was typed.
+    /// Gives the list the field's words now rather than when the debounce ends: ↩ acts on what was typed.
     func sendPendingSearch() {
         if searchTimer != nil { sendQuery() }
     }

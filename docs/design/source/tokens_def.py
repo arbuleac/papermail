@@ -322,7 +322,7 @@ CHEAT_SHEET_SEARCH = ("Search", ["from:", "to:", "subject:", "is:unread", "is:re
 # Keyboard cheat sheet content (§5.32), band by band, left to right; keys separated by spaces, "then" and "…" are words.
 CHEAT_SHEET = [
  ("Move", [("J K", "Next · previous"), ("⇧J ⇧K", "Extend the selection"), ("↩", "Open"), ("esc", "Back to the list"),
-           ("N P", "Next · previous message"), ("space", "Quick Look attachments"), ("/", "Search"), ("⌘↩", "Search the server")]),
+           ("N P", "Next · previous message"), ("space", "Quick Look attachments"), ("/", "Search"), ("↩", "In search: search the server")]),
  ("Act", [("E", "Archive"), ("L", "Snooze until later"), ("#", "Move to Trash"), ("⇧I", "Move to Inbox"), ("S", "Star · unstar"),
           ("U", "Mark as unread · read"), ("⇧⌘U", "Unsubscribe"), ("Z", "Undo"),
           (".", "Show · hide quoted text")]),

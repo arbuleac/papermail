@@ -101,7 +101,7 @@ Press `/` (or `⌘F`) and type: results narrow as you type, across subjects, peo
 
 Operators combine (`from:ben is:unread after:2026-01-01 -invoice`), ignore case, and anything that is not an operator is searched as words. A result you open in an `is:unread` search stays in the list, read, until you open another. The keyboard cheat sheet (`?`) lists the operators on its last line.
 
-**Searching the server.** Search looks through the mail on this Mac. When the results end, the list ends with **Search Gmail for more** (**Search Outlook for more** for a Microsoft account, **Search all accounts for more** under All Inboxes): click it, or press `⌘↩` in the search field, to ask the mail server too, for mail that has not downloaded yet, as during the first download of a large mailbox. The server is asked what you typed, operators included, and searches by its own rules (Gmail understands its own `from:`, `is:unread` and `has:attachment`, Outlook its own search words), so it can also find what this Mac's search reads differently; `is:`, `has:`, `before:`, `after:` and `in:` still narrow what it finds, as they narrow the rest. What it finds joins the results in date order and stays on this Mac, so a later search finds it like any other mail; a message's content downloads when you open it. The row then says how many more it found, or **Nothing more on Gmail**, or **Couldn't search Gmail · Try again** when offline. `Return` in the search field still takes you to the list, and new words start a new search.
+**Searching the server.** Search looks through the mail on this Mac. When the results end, the list ends with **Search Gmail for more** (**Search Outlook for more** for a Microsoft account, **Search all accounts for more** under All Inboxes): click it, or press `↩` in the search field (the row shows a `↩` keycap while you type), to ask the mail server too, for mail that has not downloaded yet, as during the first download of a large mailbox. The server is asked what you typed, operators included, and searches by its own rules (Gmail understands its own `from:`, `is:unread` and `has:attachment`, Outlook its own search words), so it can also find what this Mac's search reads differently; `is:`, `has:`, `before:`, `after:` and `in:` still narrow what it finds, as they narrow the rest. What it finds joins the results in date order and stays on this Mac, so a later search finds it like any other mail; a message's content downloads when you open it. The row then says how many more it found, or **Nothing more on Gmail**, or **Couldn't search Gmail · Try again** when offline. `Return` in the search field still takes you to the list, and new words start a new search.
 
 ## Keyboard shortcuts
 
@@ -120,7 +120,7 @@ Operators combine (`from:ben is:unread after:2026-01-01 -invoice`), ignore case,
 | `r` / `a` / `f` | Reply / reply all / forward |
 | `c`, `⌘N` | New message |
 | `/`, `⌘F` | Search (`Esc` clears, in the search field or the list) |
-| `⌘↩` in the search field | Search the mail server for more |
+| `↩` in the search field | Search the mail server for more, then move to the results |
 | `g` then `i` / `s` / `t` / `a` | Go to Inbox / Starred / Sent / All Mail |
 | `g` then `l` | Go to Later, while something is snoozed |
 | `⌘0` | All inboxes |
