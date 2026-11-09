@@ -158,6 +158,103 @@ final class ListHeaderLayoutTests: XCTestCase {
         XCTAssertEqual(header.demoTag.alphaValue, 1)
     }
 
+    /// The usual narrowed state: the address on the line and “Search Inbox” at rest. Widening covers the address, so
+    /// the placeholder names the account while the field edits, which AppKit applies by restarting the editing
+    /// session. That restart is no focus change: read as one, the field stayed wide after the keyboard had gone.
+    func testANarrowedFieldGivesTheClusterBackWhenFocusLeaves() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let header = header(harness)
+        let window = try XCTUnwrap(header.window)
+        header.address = "alex@contoso.test"
+        header.accountName = "Contoso"
+        header.searchPlaceholder = "Search Inbox"
+        header.layoutSubtreeIfNeeded()
+        XCTAssertGreaterThan(header.addressWidths.shown, 0, "the address shows at rest")
+        XCTAssertEqual(header.search.placeholder, "Search Inbox")
+        let rest = visual(header.search, in: header)
+
+        XCTAssertTrue(window.makeFirstResponder(header.search.textField))
+        ListTestSupport.spin(for: Quire.Motion.standard + 0.3)
+        XCTAssertEqual(header.search.placeholder, "Search Contoso")
+        XCTAssertTrue(header.search.hasKeyboardFocus)
+        XCTAssertTrue(header.isSearchExpanded, "the new placeholder is no focus change")
+        XCTAssertTrue(harness.list.searchFieldHasFocus, "so the list still shows the offer's ↩")
+        XCTAssertTrue(header.masthead.isHidden, "faded, the masthead takes no click, Tab stop or VoiceOver focus")
+        XCTAssertFalse(harness.controller.listPane.keyViews.contains { $0 === header.masthead })
+
+        // A scope change while the field edits changes the placeholder again.
+        header.address = "sam@fabrikam.test"
+        header.accountName = "Fabrikam"
+        header.layoutSubtreeIfNeeded()
+        XCTAssertEqual(header.search.placeholder, "Search Fabrikam")
+        XCTAssertTrue(header.isSearchExpanded)
+        XCTAssertTrue(harness.list.searchFieldHasFocus)
+
+        XCTAssertTrue(window.makeFirstResponder(harness.list.tableView))
+        ListTestSupport.spin(for: Quire.Motion.standard + 0.3)
+        XCTAssertFalse(header.isSearchExpanded)
+        XCTAssertFalse(harness.list.searchFieldHasFocus)
+        XCTAssertEqual(visual(header.search, in: header).maxX, rest.maxX, accuracy: 0.5)
+        XCTAssertGreaterThan(visual(header.search, in: header).minX, visual(header.masthead, in: header).maxX,
+                             "focus leaving gives the cluster back")
+        XCTAssertFalse(header.masthead.isHidden)
+        XCTAssertEqual(header.masthead.alphaValue, 1)
+        XCTAssertEqual(header.search.placeholder, "Search Inbox", "with the address back on the line")
+    }
+
+    /// Under Reduce Motion the width snaps at once and only the cluster cross-fades (§4.10).
+    func testUnderReduceMotionTheWidthSnapsAndTheClusterCrossFades() throws {
+        let environment = QuireEnvironment.shared
+        let saved = environment.overrides
+        defer { environment.setOverrides(saved) }
+        var overrides = saved
+        overrides.reduceMotion = true
+        environment.setOverrides(overrides)
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let header = header(harness)
+        let window = try XCTUnwrap(header.window)
+        header.layoutSubtreeIfNeeded()
+        let rest = visual(header.search, in: header)
+
+        XCTAssertTrue(window.makeFirstResponder(header.search.textField))
+        XCTAssertEqual(visual(header.search, in: header).minX, header.mastheadX, accuracy: 0.5, "no glide: it is there at once")
+        ListTestSupport.spin(for: Quire.Motion.reducedFade + 0.3)
+        XCTAssertEqual(header.masthead.alphaValue, 0)
+        XCTAssertTrue(header.masthead.isHidden)
+
+        XCTAssertTrue(window.makeFirstResponder(harness.list.tableView))
+        XCTAssertEqual(visual(header.search, in: header), rest, "and back at once")
+        XCTAssertFalse(header.masthead.isHidden, "the masthead is back before it fades in")
+        ListTestSupport.spin(for: Quire.Motion.reducedFade + 0.3)
+        XCTAssertEqual(header.masthead.alphaValue, 1)
+    }
+
+    /// Whether “Search <account>” fits is measured at the width the field glides to, not the frame it is leaving:
+    /// focused it names the account in full where that fits, and back at rest it reads as it did, never cut.
+    func testThePlaceholderIsMeasuredAtTheWidthTheFieldGlidesTo() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let header = header(harness)
+        let window = try XCTUnwrap(header.window)
+        header.showsDemoTag = true
+        header.address = "alex@contoso.test"
+        header.accountName = "Contoso Holdings Group"
+        header.layoutSubtreeIfNeeded()
+        let restPlaceholder = header.search.placeholder
+        XCTAssertEqual(header.search.fitsPlaceholder("Search Contoso Holdings Group"), restPlaceholder == "Search Contoso Holdings Group")
+
+        XCTAssertTrue(window.makeFirstResponder(header.search.textField))
+        ListTestSupport.spin(for: Quire.Motion.standard + 0.3)
+        XCTAssertTrue(header.search.fitsPlaceholder("Search Contoso Holdings Group"), "the widened field has room for it")
+        XCTAssertEqual(header.search.placeholder, "Search Contoso Holdings Group")
+
+        XCTAssertTrue(window.makeFirstResponder(harness.list.tableView))
+        ListTestSupport.spin(for: Quire.Motion.standard + 0.3)
+        XCTAssertEqual(header.search.placeholder, restPlaceholder, "back at rest it reads as it did")
+    }
+
     func testTheFieldNeverCoversTheCluster() throws {
         let harness = try MainWindowHarness()
         defer { harness.close() }

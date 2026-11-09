@@ -195,6 +195,49 @@ final class ServerSearchListTests: XCTestCase {
         XCTAssertEqual(rowTitle, "Searching all accounts…")
     }
 
+    /// ↓ in the field only hands the keyboard to the list: walking the results never searches the server (§5.6).
+    func testDownInTheFieldGivesTheListTheKeyboardAndSearchesNothing() throws {
+        pane.focusSearch()
+        search("quarterly")
+        XCTAssertTrue(pane.isSearchFocused)
+        XCTAssertEqual(pane.header.search.onCommand?(#selector(NSResponder.moveDown(_:))), true)
+        XCTAssertTrue(harness.controller.window?.firstResponder === list.tableView, "the keyboard goes to the list")
+        ListTestSupport.spin(for: 0.1)
+        XCTAssertEqual(server.calls.count, 0, "and no server is asked")
+        XCTAssertEqual(list.serverSearchRow?.phase, .offer, "the offer stays at the end of the list")
+    }
+
+    /// After a failure ↩ in the field only goes back to the list, with no keycap promising more; Try again stays on
+    /// the row's link and the Edit menu, so coming back to the results does not search every account again.
+    func testReturnInTheFieldAfterAFailureOnlyGivesTheListTheKeyboard() throws {
+        search("quarterly")
+        list.runServerSearch()
+        harness.spin { self.server.calls.count == 1 }
+        server.answer(ServerSearchResult(failedAccounts: [ListTestSupport.accountB.id]))
+        harness.spin { self.rowTitle?.hasPrefix("Couldn't search") == true }
+        pane.focusSearch()
+        XCTAssertTrue(pane.isSearchFocused)
+        XCTAssertTrue(try XCTUnwrap(rowView).keycap.isHidden, "no ↩ keycap after a failure")
+        pane.header.search.onSubmit?("quarterly")
+        XCTAssertTrue(harness.controller.window?.firstResponder === list.tableView, "the keyboard goes to the list")
+        ListTestSupport.spin(for: 0.1)
+        XCTAssertEqual(server.calls.count, 1, "↩ in the field does not try again")
+        XCTAssertTrue(harness.controller.validateMenuItem(menuItem()), "Try again stays in the Edit menu")
+    }
+
+    /// The Edit item answers only where the list or the field has the keyboard: with the quick reply holding it, the
+    /// item is off (§5.35).
+    func testTheEditItemIsOffWhileAnotherPlaceToTypeHasTheKeyboard() throws {
+        search("quarterly")
+        XCTAssertTrue(harness.controller.validateMenuItem(menuItem()))
+        let id = try XCTUnwrap(list.conversations.first?.id)
+        list.selectedConversationID = id
+        list.onSelectionChange?(id)
+        harness.spin { !self.harness.reader.currentMessages.isEmpty }
+        XCTAssertTrue(harness.reader.focusQuickReply(all: false))
+        XCTAssertFalse(harness.controller.validateMenuItem(menuItem()), "the quick reply has the keyboard")
+    }
+
     // MARK: States
 
     func testTheRowSaysItIsSearchingThenWhatItFound() throws {

@@ -8,7 +8,8 @@ import AppKit
 /// States: hover `sheet + hover`; focused keeps the edge and adds the ring outside a 1 pt gap; searching swaps
 /// the magnifier for a 12 pt spinner, only once the spinner's 150 ms delay has passed; disabled (no accounts)
 /// is `fill` with no edge and `inkDisabled`. Esc clears the query, and in an empty field calls `onCancel` so the
-/// owner returns focus to the list. The list header gives it the free width on its line; focus never resizes it.
+/// owner returns focus to the list. The list header sets its width: the free width on its line at rest, and wider,
+/// over the masthead cluster, while it has the keyboard (§5.6).
 @MainActor
 public final class QuireSearchField: QuireControl, NSTextFieldDelegate {
     public let textField: NSTextField
@@ -123,11 +124,12 @@ public final class QuireSearchField: QuireControl, NSTextFieldDelegate {
         didSet { if oldValue != allowsKeycap { contentDidChange() } }
     }
 
-    /// Whether `text` would show whole as the placeholder at the field's current width, without the keycap.
-    public func fitsPlaceholder(_ text: String) -> Bool {
+    /// Whether `text` would show whole as the placeholder, without the keycap, in a face `faceWidth` wide (the
+    /// field's current one by default). A layout that is gliding the field passes the width it is moving to.
+    public func fitsPlaceholder(_ text: String, faceWidth: CGFloat? = nil) -> Bool {
         let s = Quire.Layout.Search.self
         let width = ceil(NSAttributedString(string: text, attributes: [.font: QuireFont.font(.body)]).size().width)
-        return s.textX + width + s.resultsGap + s.trailingInset <= faceRect.width
+        return s.textX + width + s.resultsGap + s.trailingInset <= (faceWidth ?? faceRect.width)
     }
 
     /// The face width that holds the magnifier, the whole placeholder and the keycap.
@@ -151,11 +153,15 @@ public final class QuireSearchField: QuireControl, NSTextFieldDelegate {
         // A field the header line has narrowed ends its placeholder with an ellipsis rather than a cut letter.
         let truncating = NSMutableParagraphStyle()
         truncating.lineBreakMode = .byTruncatingTail
+        // While the field edits, AppKit applies a new placeholder by restarting the editing session; the field
+        // keeps the keyboard throughout, so nobody hears of a focus change.
+        inner.isRestartingEditing = true
         textField.placeholderAttributedString = NSAttributedString(string: placeholder, attributes: [
             .font: font,
             .foregroundColor: isEnabled ? NSColor.qInk3 : NSColor.qInkDisabled,
             .paragraphStyle: truncating,
         ])
+        inner.isRestartingEditing = false
         textField.setAccessibilityLabel(placeholder)
         textField.cell?.setAccessibilityLabel(placeholder)
         needsDisplay = true

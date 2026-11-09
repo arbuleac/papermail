@@ -69,7 +69,7 @@ final class ListPaneViewController: NSViewController {
         search.onSubmit = { [weak self] _ in self?.submitSearch() }
         search.onCommand = { [weak self] selector in
             guard selector == #selector(NSResponder.moveDown(_:)) else { return false }
-            self?.submitSearch()
+            self?.leaveSearch()
             return true
         }
         view = root
@@ -181,9 +181,16 @@ final class ListPaneViewController: NSViewController {
         onSearchChange?(query)
     }
 
+    /// ↩: the words as typed, the server search's offer if the list ends with one (§5.6, §5.10), then the list.
     private func submitSearch() {
         if searchTimer != nil { sendQuery() }
         onSubmitSearch?()
+        onLeaveSearch?()
+    }
+
+    /// ↓: the words as typed and the list, and nothing more; walking the results never searches the server.
+    private func leaveSearch() {
+        if searchTimer != nil { sendQuery() }
         onLeaveSearch?()
     }
 
@@ -265,7 +272,7 @@ final class ListPaneViewController: NSViewController {
     /// (only while it carries one), the sync line itself and a toast's action (both with Full Keyboard Access only;
     /// the window drops views that cannot take focus).
     var keyViews: [NSView] {
-        var views: [NSView] = header.masthead.isMenu ? [header.masthead] : []
+        var views: [NSView] = header.masthead.isMenu && !header.masthead.isHidden ? [header.masthead] : []
         if !header.demoTag.isHidden { views.append(header.demoTag) }
         views.append(header.search.textField)
         views.append(header.compose)

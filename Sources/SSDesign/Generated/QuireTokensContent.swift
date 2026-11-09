@@ -198,7 +198,7 @@ extension Quire {
             QuireCheatSheetRow(keys: "N P", label: "Next · previous message"),
             QuireCheatSheetRow(keys: "space", label: "Quick Look attachments"),
             QuireCheatSheetRow(keys: "/", label: "Search"),
-            QuireCheatSheetRow(keys: "↩", label: "In search: search the server"),
+            QuireCheatSheetRow(keys: "↩", label: "In search: ask the server"),
         ]),
         QuireCheatSheetSection(title: "Act", rows: [
             QuireCheatSheetRow(keys: "E", label: "Archive"),

@@ -58,7 +58,8 @@ public struct ServerSearchRow: Hashable, Sendable {
         return nil
     }
 
-    /// Whether a click, ↩ on the focused row or ⌘↩ in the search field runs the search now.
+    /// Whether a click, ↩ on the focused row or the Edit menu item runs the search now (↩ in the search field runs
+    /// only the offer).
     public var runs: Bool {
         switch phase {
         case .offer, .failed: return true

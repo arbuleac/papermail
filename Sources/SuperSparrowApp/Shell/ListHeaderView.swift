@@ -9,7 +9,8 @@ import SSDesign
 /// The search field keeps its 140 pt minimum while anything can make room for it: first the address (it truncates,
 /// and below 40 pt drops out whole, the placeholder then naming the account), then the Demo tag, which steps off the
 /// line whole. The masthead text, the chevron and the dot never give way; only when they alone leave less
-/// than the minimum does the field narrow, and it never starts before the cluster ends.
+/// than the minimum does the field narrow, and at rest it never starts before the cluster ends. While the field has the
+/// keyboard it covers the cluster from where the masthead text starts (§5.6).
 @MainActor
 final class ListHeaderView: NonDraggingView {
     let masthead = MastheadButton(frame: .zero)
@@ -40,6 +41,14 @@ final class ListHeaderView: NonDraggingView {
     /// the view. Focus leaving gives the cluster back.
     private(set) var isSearchExpanded = false
 
+    /// The faded cluster under the widened field: hidden once its fade has ended, so it takes no click, no Tab stop
+    /// and no VoiceOver focus; shown again before it fades back in.
+    private var isClusterCovered = false
+    /// Counts widen and narrow requests, so the end of an older fade never hides a cluster a newer one brings back.
+    private var expansionGeneration = 0
+    /// Set during a Reduce Motion change: the field's width snaps and only the cluster cross-fades (§4.10).
+    private var snapsSearchFrame = false
+
     /// The field took or gave up the keyboard (after the header has widened or narrowed it).
     var onSearchFocusChange: ((Bool) -> Void)?
 
@@ -62,18 +71,29 @@ final class ListHeaderView: NonDraggingView {
     }
 
     /// Widens the field over the cluster, or gives the cluster back, gliding with the field's frame (§4.10, "Search
-    /// field width"; a short cross-fade under Reduce Motion). Before the header is on screen it simply lands there.
+    /// field width"; under Reduce Motion the width snaps and the cluster cross-fades). Before the header is on screen
+    /// it simply lands there.
     func setSearchExpanded(_ expanded: Bool) {
         guard expanded != isSearchExpanded else { return }
         isSearchExpanded = expanded
+        expansionGeneration += 1
+        let generation = expansionGeneration
+        if !expanded { isClusterCovered = false }
         guard window != nil else {
+            isClusterCovered = expanded
             needsLayout = true
             return
         }
-        Quire.Motion.run(Quire.Motion.standard, .glide, reduced: .fade, participants: [search, masthead, demoTag]) { _ in
+        Quire.Motion.run(Quire.Motion.standard, .glide, reduced: .fade, participants: [search, masthead, demoTag], animations: { plan in
+            self.snapsSearchFrame = plan.isReduced
             self.needsLayout = true
             self.layoutSubtreeIfNeeded()
-        }
+            self.snapsSearchFrame = false
+        }, completion: { [weak self] in
+            guard let self, expanded, self.expansionGeneration == generation else { return }
+            self.isClusterCovered = true
+            self.needsLayout = true
+        })
     }
 
     @available(*, unavailable)
@@ -124,7 +144,9 @@ final class ListHeaderView: NonDraggingView {
                 tagShown = true
             }
         }
-        demoTag.isHidden = !tagShown
+        demoTag.isHidden = !tagShown || isClusterCovered
+        if masthead.isHidden != isClusterCovered { masthead.isHidden = isClusterCovered }
+        row.isCovered = isSearchExpanded
 
         // The address takes only what the field's minimum leaves. A lone “· a…” names nothing, so below its own
         // minimum it drops out whole; and it gives way before the Demo tag, so it stays off while the tag is.
@@ -147,17 +169,28 @@ final class ListHeaderView: NonDraggingView {
         // Focused, the field covers the cluster from where the masthead text starts, and the cluster fades under it.
         let searchStart = isSearchExpanded ? mastheadX : (shown > 0 ? addressX + shown + h.searchGap : cursor + h.searchGap)
         let searchWidth = max(0, searchEnd - searchStart)
-        search.frame = search.frame(forVisualRect: NSRect(x: searchStart, y: h.searchTop, width: searchWidth, height: h.searchHeight))
+        let searchFrame = search.frame(forVisualRect: NSRect(x: searchStart, y: h.searchTop, width: searchWidth, height: h.searchHeight))
+        if snapsSearchFrame {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0
+                context.allowsImplicitAnimation = false
+                search.frame = searchFrame
+                search.layoutSubtreeIfNeeded()
+            }
+        } else {
+            search.frame = searchFrame
+        }
         let clusterAlpha: CGFloat = isSearchExpanded ? 0 : 1
         if masthead.alphaValue != clusterAlpha { masthead.alphaValue = clusterAlpha }
         if demoTag.alphaValue != clusterAlpha { demoTag.alphaValue = clusterAlpha }
         // With the address off the line, or covered by the widened field, the placeholder names the account; when
         // “Search Contoso” would be cut, the name alone, since the magnifier already says search and a cut name may no
-        // longer tell two accounts apart.
+        // longer tell two accounts apart. Measured at the width the field is moving to: mid-glide its frame is still
+        // the old one.
         var placeholder = searchPlaceholder
         if address != nil, shown == 0 || isSearchExpanded, let accountName {
             let scoped = "Search " + accountName
-            placeholder = search.fitsPlaceholder(scoped) ? scoped : accountName
+            placeholder = search.fitsPlaceholder(scoped, faceWidth: searchWidth) ? scoped : accountName
         }
         if search.placeholder != placeholder { search.placeholder = placeholder }
         search.allowsKeycap = placeholder != accountName
@@ -197,6 +230,8 @@ private final class HeaderRow: TitleBarZoneView {
     var dotRect: NSRect? { didSet { if oldValue != dotRect { needsDisplay = true } } }
     var addressRect: NSRect = .zero { didSet { if oldValue != addressRect { needsDisplay = true } } }
     var address: String? { didSet { if oldValue != address { needsDisplay = true } } }
+    /// The widened search field covers the dot and the address; VoiceOver no longer reads them.
+    var isCovered = false
 
     private func addressText(_ address: String) -> NSAttributedString {
         QuireFont.attributedString(address, role: .snippet, color: .qInk3)
@@ -220,7 +255,7 @@ private final class HeaderRow: TitleBarZoneView {
         needsDisplay = true
     }
 
-    override func isAccessibilityElement() -> Bool { address != nil || dotRect != nil }
+    override func isAccessibilityElement() -> Bool { !isCovered && (address != nil || dotRect != nil) }
     override func accessibilityRole() -> NSAccessibility.Role? { .staticText }
     override func accessibilityLabel() -> String? {
         [dotRect != nil ? "New mail in another account" : nil, address].compactMap { $0 }.joined(separator: ", ")

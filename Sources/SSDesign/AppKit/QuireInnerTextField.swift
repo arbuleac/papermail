@@ -8,6 +8,10 @@ import AppKit
 final class QuireInnerTextField: NSTextField, QuireInnerField {
     var onFocusChange: (@MainActor (Bool) -> Void)?
 
+    /// Set while the container changes something AppKit applies by ending and restarting the editing session (the
+    /// placeholder, for one). That restart is no focus change: it reports none and keeps the editing setup.
+    var isRestartingEditing = false
+
     /// What a borderless text field cell insets its text by on each side; containers subtract it so the text
     /// starts exactly at their padding.
     static let cellInset: CGFloat = 2
@@ -28,6 +32,7 @@ final class QuireInnerTextField: NSTextField, QuireInnerField {
     }
 
     override func textDidEndEditing(_ notification: Notification) {
+        guard !isRestartingEditing else { return super.textDidEndEditing(notification) }
         innerFieldWillEndEditing()
         super.textDidEndEditing(notification)
         innerFieldDidEndEditing()

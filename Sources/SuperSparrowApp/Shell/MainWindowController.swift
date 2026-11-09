@@ -344,7 +344,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             self?.applyQuery()
         }
         listPane.onLeaveSearch = { [weak self] in self?.focusList() }
-        listPane.onSubmitSearch = { [weak self] in self?.list.requestServerSearch() }
+        listPane.onSubmitSearch = { [weak self] in self?.list.requestServerSearchFromField() }
         listPane.header.onSearchFocusChange = { [weak self] focused in self?.list.searchFieldHasFocus = focused }
         listPane.onCompose = { [weak self] in self?.composeNew() }
         listPane.onSelectAccountShortcut = { [weak self] number in self?.strip.selectShortcut(number) }

@@ -973,7 +973,15 @@ final class MessageListViewController: NSViewController {
         return view.link
     }
 
-    /// ↩ in the search field (spec §5.6, §6): runs the search now if every local result is listed, or as soon as they are.
+    /// ↩ in the search field (spec §5.6, §6) runs only the offer, the one state its keycap shows in. After a failure ↩
+    /// just gives the keyboard to the list, so coming back to the results does not search every account again; Try
+    /// again stays on the link and the Edit menu.
+    func requestServerSearchFromField() {
+        guard serverSearchRow?.phase == .offer else { return }
+        requestServerSearch()
+    }
+
+    /// Runs the search now if every local result is listed, or as soon as they are.
     func requestServerSearch() {
         guard canRequestServerSearch else { return }
         if hasReceivedFirstPage {
