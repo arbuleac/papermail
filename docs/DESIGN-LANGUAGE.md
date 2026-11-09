@@ -475,7 +475,7 @@ Rules:
 
 SF Symbols, monochrome; status glyphs use the `.fill` variant in their semantic colour.
 
-**Defaults** (`layout.iconSize`), Regular weight unless noted: 15 pt for window-level icon buttons (reader header actions, the composer bar, the rail's Add and Settings); 14 pt inside text buttons, chips, banners, tool rows and format toggles; 12 pt **Semibold** in rows and the sync line (so the small size holds up); 18 pt for the rail's All Inboxes glyph. **Exceptions**, each a named metric of its component and the only other sizes in use: the compose button's `ss.nib` at 18 pt (`listHeader.composeGlyph`: the list header's one verb, sized against the 20 pt masthead on its line); the rail's folder symbols at 16 pt (`rail.folderGlyph`: SF Symbols fill more of their box than the custom `ss.quire`, so 16 pt reads as the same size beside it); the masthead chevron at 9 pt **Semibold** (`listHeader.chevron`: a disclosure mark, Semibold so 9 pt holds); popup chevrons at 12 pt (`popup.chevron`); the attention badge's `exclamationmark` at 9 pt **Semibold**; dismiss and remove `xmark` at 9 pt (`banner.dismissGlyph`, `composer.removeGlyph`, `search.clearGlyph`); the sheet's header hover actions at 14 pt on 24 pt buttons (`reader.headerActionGlyph`); the toast glyph at 14 pt and the undo panel's at 15 pt. The Settings toolbar tabs are system-drawn at the system's size.
+**Defaults** (`layout.iconSize`), Regular weight unless noted: 15 pt for window-level icon buttons (reader header actions, the composer bar, the rail's Add and Settings); 14 pt inside text buttons, chips, banners, tool rows and format toggles; 12 pt **Semibold** in rows and the sync line (so the small size holds up); 18 pt for the rail's All Inboxes glyph. **Exceptions**, each a named metric of its component and the only other sizes in use: the compose button's `ss.nib` at 18 pt (`listHeader.composeGlyph`: the list header's one verb, sized against the 20 pt masthead on its line); the rail's folder symbols at 16 pt (`rail.folderGlyph`: SF Symbols fill more of their box than the custom `ss.quire`, so 16 pt reads as the same size beside it); the masthead chevron at 9 pt **Semibold** (`listHeader.chevron`: a disclosure mark, Semibold so 9 pt holds); popup chevrons, and the `chevron.down` of Send's drop-down (§5.23), at 12 pt (`popup.chevron`); the attention badge's `exclamationmark` at 9 pt **Semibold**; dismiss and remove `xmark` at 9 pt (`banner.dismissGlyph`, `composer.removeGlyph`, `search.clearGlyph`); the sheet's header hover actions at 14 pt on 24 pt buttons (`reader.headerActionGlyph`); the toast glyph at 14 pt and the undo panel's at 15 pt. The Settings toolbar tabs are system-drawn at the system's size.
 
 Glyph colour: `ink2` at rest, `ink` on hover and press, `inkDisabled` when disabled; the star is `star` **and** filled when on. Menu items carry their symbol leading in `ink2`.
 
@@ -510,7 +510,7 @@ Glyph colour: `ink2` at rest, `ink` on hover and press, `inkDisabled` when disab
 | Discard Draft (Drafts reader, composer Message menu) | `trash` | # in Drafts |
 | Remove account (Settings) | `minus` | ⌫ in the account list |
 | Show / hide rail | `sidebar.left` | ⌃⌘S |
-| Title menu (minimal mode) / popup | `chevron.down` / `chevron.up.chevron.down` | — |
+| Title menu (minimal mode), Send's drop-down (§5.23) / popup | `chevron.down` / `chevron.up.chevron.down` | — |
 | Views (the rail's folder tiles, the title menu, View menu): Inbox, Starred, Sent, Drafts, Trash, All Mail | `tray`, `star`, `paperplane`, `doc`, `trash`, `archivebox` | G I, G S, G T, G D, G #, G A |
 | Queued locally (row) | `ss.queued` (custom) | — |
 | Operation failed (row), error, sign-in | `exclamationmark.triangle.fill` | — |
@@ -1285,8 +1285,8 @@ Docked to the bottom of the reader, drawn **over** the web view: the web view al
 | Face | the replying account's rail face at 24 pt with its ring (2 pt `sheet` gap + 2 pt account ink, so the ring's outer edge is 4 pt further out), face at x = 12, y = 7; monogram New York Semibold 11 pt (10 pt for two letters; `monogramSans` under the SF Pro font, §5.29) in `ink` |
 | Text | `writing` (14/21) from x = 48; trailing inset 67 at rest (room for the keycap and send), 12 when focused |
 | Placeholder | “Reply to Ben Carter…” (`writing`, `ink3`); “Reply all to Ben Carter and 2 others…” in Reply all mode |
-| Trailing (rest) | send icon button 28 pt, `paperplane` 15 pt, `inkDisabled`, inset 5 from the trailing and top edges; keycap “R” 8 pt before it |
-| Tool row (focused) | 28 pt, 4 pt under the last text line, 4 pt above the field's bottom, starting at x = 48: the mode tabs Reply · Reply all (16 pt apart), then after 12 pt Attach and Open in Composer (⇧⌘R) as 22 pt icon buttons with 14 pt symbols, 2 pt apart; trailing, 8 pt from the edge, a small primary “Send” with keycap “⌘↩” 8 pt before it |
+| Trailing (rest) | send icon button 28 pt, `paperplane` 15 pt, `inkDisabled`, inset 5 from the trailing and top edges; keycap “R” 8 pt before it. It does what Send does; its tooltip and VoiceOver name say which (§5.23) |
+| Tool row (focused) | 28 pt, 4 pt under the last text line, 4 pt above the field's bottom, starting at x = 48: the mode tabs Reply · Reply all (16 pt apart), then after 12 pt Attach and Open in Composer (⇧⌘R) as 22 pt icon buttons with 14 pt symbols, 2 pt apart; trailing, 8 pt from the edge, Send's drop-down (a 22 pt menu button, `chevron.down` 12 pt, §5.23) and 2 pt before it a small primary “Send” with keycap “⌘↩” 8 pt before that |
 
 **Growth.** Field height = 9 + lines × 21 + 8 when not focused and showing one line; focused = 9 + lines × 21 + 4 + 28 + 4. Focused and empty that is 66 (bar 88). The text grows to 5 lines: field max 150, bar max 172, both **including** the tool row; past that the text scrolls inside the field. Unfocused with text, the field returns to 38 pt showing the first line, tail-truncated, so the reader does not jump when focus leaves. Height changes use `dur.standard` `ease.glide` (Reduce Motion: instant).
 
@@ -1302,12 +1302,12 @@ Docked to the bottom of the reader, drawn **over** the web view: the web view al
 | No one to reply to (the reply has no recipients) | text allowed; Send disabled, tooltip “No one to reply to”; the tool row shows `exclamationmark.triangle.fill` `warning` + “No one to reply to” (`snippet` `ink2`) and Open in Composer stays available |
 | Disabled (a draft for this conversation is open in the composer) | `fill`, no edge, placeholder “Reply in the composer”; clicking brings that window forward |
 
-**Sends from the quick reply stay in the bar.** The floating undo-send panel (§5.31) is for composer sends, whose window has closed; a quick reply is sent where the eyes already are. After ⌘↩ the field clears and its frame shows the **strip** for the undo window, so the bar keeps its height and nothing else moves:
+**Sends from the quick reply stay in the bar.** The floating undo-send panel (§5.31) is for composer sends, whose window has closed; a quick reply is sent where the eyes already are. After ⌘↩ (what Send does, Send and Archive by default) or ⇧⌘↩ (always Send and Archive, §5.23) the field clears and its frame shows the **strip** for the undo window, so the bar keeps its height and nothing else moves:
 
 | Strip state | Content (glyph 14 pt, gap 8) | Duration |
 |---|---|---|
-| Counting | `paperplane.fill` `ink2` · “Sending in 4 s” (`body`, tabular, `ink`) · “to Ben Carter” (`snippet` `ink3`, truncates first) · trailing small secondary “Undo”, with the keycap “⌘Z” 8 pt **before** it, outside the button (`quickReply.stripKeycapGap`; the same placement as “⌘↩” before the quick reply's Send. Only slip actions carry their keycap inside, because a slip action has no face for a keycap to sit beside); a 2 pt `accent` contrail along the strip's bottom inside edge drains over the undo window, and the seconds count down as text (Reduce Motion: the contrail steps once per second) | the undo window (Settings: 5 / 10 / 20 s) |
-| Undone in time | the strip closes at once; the text returns to the field with the caret at its end, focused | — |
+| Counting | `paperplane.fill` `ink2` · “Sending in 4 s” (`body`, tabular, `ink`; after Send and Archive “Archived · sending in 4 s”, the archive first, since this lead never truncates) · “to Ben Carter” (`snippet` `ink3`, truncates first) · trailing small secondary “Undo”, with the keycap “⌘Z” 8 pt **before** it, outside the button (`quickReply.stripKeycapGap`; the same placement as “⌘↩” before the quick reply's Send. Only slip actions carry their keycap inside, because a slip action has no face for a keycap to sit beside); a 2 pt `accent` contrail along the strip's bottom inside edge drains over the undo window, and the seconds count down as text (Reduce Motion: the contrail steps once per second) | the undo window (Settings: 5 / 10 / 20 s) |
+| Undone in time | the strip closes at once; the text returns to the field with the caret at its end, focused. After Send and Archive the conversation is back in the Inbox first, and selected again, so the text returns to its own field | — |
 | Sent | `checkmark` `ink2` · “Sent” | 1500 ms, then the field returns (cross-fade `dur.quick`) |
 | Undo too late | `checkmark` `ink2` · “Already sent” · “Undo came after the message left.” (`snippet` `ink3`) | 3000 ms |
 | Undone after moving on (the selection changed during the countdown) | `arrow.uturn.backward` `ink2` · “Not sent · draft kept in “Contoso rollout”” · link “Show” (selects that conversation) | 3000 ms |
@@ -1315,7 +1315,7 @@ Docked to the bottom of the reader, drawn **over** the web view: the web view al
 
 **Signature.** The bar never shows the replying account's signature (§5.20), but a reply sent from it carries it: below the typed text after one empty line (in the HTML, the paragraph break the bar sends for every blank line), with nothing added between them. Open in Composer hands the typed text to a reply composer, which inserts the signature by its own rule, below that text.
 
-During Counting, clicking the strip outside Undo or pressing R brings the field back for a new reply; the countdown then continues as the tool row's leading status (“Sending in 4 s · Undo”, `snippet`, with its contrail under it) until it resolves. The strip belongs to the bar, not to the conversation: it stays while the selection moves on. If the new reader state hides the bar (nothing or several selected, Drafts, Trash), the countdown moves to an undo-send panel (§5.31) for its remaining seconds, so Undo is never lost.
+During Counting, clicking the strip outside Undo or pressing R brings the field back for a new reply; the countdown then continues as the tool row's leading status (“Sending in 4 s · Undo”, or “Archived · sending in 4 s · Undo”, `snippet`, with its contrail under it) until it resolves. The strip belongs to the bar, not to the conversation: it stays while the selection moves on, which Send and Archive makes the usual case in the Inbox (the conversation leaves the list and the next one opens, as after E). If the new reader state hides the bar (nothing or several selected, Drafts, Trash, Later emptied), the countdown moves to an undo-send panel (§5.31) for its remaining seconds, with the archive, so Undo is never lost.
 
 **Visibility.**
 
@@ -1383,7 +1383,7 @@ The quick reply is hidden in Drafts.
 | Attachment strip | §5.22 |
 | Bottom bar | below |
 
-**Bottom bar.** 52 pt, `paper`, top hairline, padding x 16, everything centred vertically: Send (regular primary, §5.23) · the “⌘↩” keycap 8 pt after it · after 12 pt, Attach (`paperclip`) and Format (`textformat`, `accentWash` when the format row is shown) as 28 pt icon buttons 2 pt apart. Trailing, at 16: the status, `meta`, glyph 6 pt before the words.
+**Bottom bar.** 52 pt, `paper`, top hairline, padding x 16, everything centred vertically: Send (regular primary, §5.23) · 2 pt after it, Send's drop-down (28 pt, §5.23) · the “⌘↩” keycap 8 pt after that · after 12 pt, Attach (`paperclip`) and Format (`textformat`, `accentWash` when the format row is shown) as 28 pt icon buttons 2 pt apart. Trailing, at 16: the status, `meta`, glyph 6 pt before the words.
 
 | Status | Glyph | Copy | Lasts |
 |---|---|---|---|
@@ -1419,7 +1419,7 @@ A From change is one undoable edit: Edit › Undo in the body restores the body 
 | ⌘W, the red light or File › Close Window, with content worth keeping | no alert: the last edit is saved synchronously, the window closes, and the draft stays in Drafts (“Edited 23:51”); no toast. ↩ on it in Drafts reopens it (§5.19) |
 | The same with nothing worth keeping (no recipient, subject, attachment or typed body text: at most the folded original and the signature) | the window closes and no draft is kept |
 | Message › Discard Draft… (composer windows; `trash`) | the alert “Discard this draft?”, composer form (§5.33: “Discard” destructive, “Keep Writing” default); confirming closes the window, removes the draft and shows “Draft discarded · Undo” in the main window, where Undo reopens the composer with the draft |
-| ⌘↩ or Send with an empty or whitespace-only subject | the sheet alert “Send without a subject?” / “Messages without a subject are easy to miss.” / “Add Subject” (default, ↩ and Esc; focuses the Subject field) and “Send Anyway”. It asks every time; quick-reply sends never ask, because a reply's subject is never empty |
+| ⌘↩, ⇧⌘↩ or Send with an empty or whitespace-only subject | the sheet alert “Send without a subject?” / “Messages without a subject are easy to miss.” / “Add Subject” (default, ↩ and Esc; focuses the Subject field) and “Send Anyway”. It asks every time; quick-reply sends never ask, because a reply's subject is never empty |
 | Close while a send is starting (between ⌘↩ and the undo-send panel) | the window cannot close; the panel replaces it at once |
 
 **Format row.** At x = 16: Bold · Italic · Underline, then after 12 pt Bulleted list · Numbered list · Quote, then after 12 pt Link, as 28 pt icon toggles 2 pt apart (symbols in §4.11, 14 pt). States: off `ink2`; hover `hover` wash, `ink`; pressed `pressed`; **on** (the style applies at the caret or across the whole selection) `accent` on `accentWash` (hover `accentWashHover`, pressed `accentWashPressed`); mixed selection shows off; focused ring. Each toggle's tooltip names its shortcut (“Bold  ⌘B”). It is a docked row, not a popover, so it never covers text and needs no motion.
@@ -1428,7 +1428,7 @@ A From change is one undoable edit: Edit › Undo in the body restores the body 
 
 **Link popover (⌘K, or the Link toggle).** App-drawn because it anchors to the selection: `raised`, `e2`, radius 8, padding 12, width 320; `ruleStrong` edge in Increase Contrast. **Position:** its top 6 pt below the bottom of the selection's last line (`composer.linkPopoverOffsetY`), or its bottom 6 pt above the selection's first line when there is no room below; its leading edge at the selection's start on that line minus 12 pt, so the Link field starts under the selected text (`linkPopoverAlign`: selectionStart; with an empty selection, the caret); clamped to stay 8 pt inside the window's edges (`composer.popoverEdgeMin`). Content, 8 pt apart: a “Link” field (28 pt text field, placeholder “https://” `ink3`, focused on open) and, only when nothing is selected, a “Text” field; then a row with, when editing an existing link, ghost “Remove Link” leading, and trailing ghost “Cancel” and small primary “Add Link” (“Save” when editing). ↩ confirms, Esc cancels, Tab cycles inside. Invalid input: field error “Enter a web address or an email address.” (§5.25). In `dur.quick` fade; out `dur.quick`. Clicking an existing link in the body places the caret; ⌘K on it opens the popover in edit mode.
 
-**Tab order.** From (when shown) → To → Cc → Bcc (each once shown) → Subject → Body → attachment chips (← → between them) → Send → Attach → Format → format toggles (when shown) → back to From. ⇧Tab reverses. In the body, Tab inserts a tab, or indents inside a list item; ⌃Tab and ⌃⇧Tab move focus out, as in every macOS text view. The Cc and Bcc buttons join the loop only with Full Keyboard Access (⇧⌘C and ⇧⌘B reveal those rows from anywhere).
+**Tab order.** From (when shown) → To → Cc → Bcc (each once shown) → Subject → Body → attachment chips (← → between them) → Send → Send's drop-down → Attach → Format → format toggles (when shown) → back to From. ⇧Tab reverses. In the body, Tab inserts a tab, or indents inside a list item; ⌃Tab and ⌃⇧Tab move focus out, as in every macOS text view. The Cc and Bcc buttons join the loop only with Full Keyboard Access (⇧⌘C and ⇧⌘B reveal those rows from anywhere).
 
 | State | Look |
 |---|---|
@@ -1437,7 +1437,7 @@ A From change is one undoable edit: Edit › Undo in the body restores the body 
 | Body focused | the insertion point (`accent`) and the selection only: the one exception in §4.1; no ring |
 | Prefilling | status “Loading original message…”; the folded-original chip appears when it loads |
 | Dragging files over | the body shows a 2 pt dashed `focus` outline inset 8 pt, radius `r.lg`, and “Drop to attach” in `label` `accent`, centred in the outline (`accent` on `sheet`, asserted at 4.5:1) |
-| Sending | the window closes into the undo-send panel (§5.31) |
+| Sending | the window closes into the undo-send panel (§5.31); after Send and Archive the conversation the message answers is archived as it closes (§5.23) |
 | Send failed | the window reopens with a multi-line danger banner (§5.38) under the field rows, inset 16 pt from the window's sides and 8 pt below the last row's hairline and above the body text: “Couldn't send: Microsoft 365 rejected the attachment size.” (the reason in plain words). No link: Send is the retry. It clears on the next send |
 | Offline | status “Will send when you're back online” |
 | Window not key | Send draws as secondary (§3.4) |
@@ -1493,14 +1493,20 @@ A 48 pt band above the composer's bottom bar (and the format row), `sheet`, top 
 
 ### 5.23 Send button
 
-A primary button (§5.24) with `paperplane` 14 pt and the label “Send”: regular in the composer, small in the quick reply. The “⌘↩” keycap sits beside it.
+A primary button (§5.24) with `paperplane` 14 pt and the label “Send”: regular in the composer, small in the quick reply. The “⌘↩” keycap sits beside it, and so does its drop-down.
+
+**What Send does** is one of two actions, the user's choice: **Send and Archive**, the default, sends the message and archives the conversation it answers; **Send** only sends. A click on Send, ⌘↩, Message › Send and the quick reply's rest glyph do the chosen one; ⇧⌘↩ and Message › Send and Archive always send and archive. The label stays “Send”, at the widths below; the tooltip says what it does now, “Send and Archive  ⌘↩” or “Send  ⌘↩” (§5.34), and VoiceOver hears the same name, “Send and Archive” or “Send”. A new message answers no conversation, so it only sends, and its Send says “Send  ⌘↩” whatever the choice. The choice is a preference kept across launches (Send and Archive on a fresh install) and is not in Settings: the drop-down is where it is made.
+
+**The drop-down** is a menu button beside Send: in the composer a 28 pt icon button 2 pt after Send, the “⌘↩” keycap 8 pt after it; in the quick reply a 22 pt one 2 pt after Send, whose keycap leads it. Its glyph is `chevron.down` at the popup chevron's 12 pt, `ink2`, with an Icon button's states (§5.24), pressed while its menu is open; tooltip and VoiceOver name “Send Options”, role menu button. A press opens, on mouse-down as a pull-down does (Space with focus), a system `NSMenu` hung 4 pt below it (`menu.titleMenuOffsetY`, as Quire's other hung menus): “Send and Archive”, “Send”, the current choice checked and no key equivalents, since they are choices, not commands. Choosing one makes it the default at once, for every open composer and the quick reply. Choosing never sends. It is disabled while its composer is sending, and stays enabled while Send waits for a recipient.
+
+**Archiving** happens as soon as the send is queued, when the undo window starts: the conversation the message answers (a reply's, or a forwarded message's) is archived as E would archive it, applied to the store and queued as the ordinary archive, only the messages in the Inbox; a conversation back from Later keeps its return mark for the undo. One already out of the Inbox stays as it is. A snoozed one (in Later, or a search's result) is archived already, so its snooze ends and it stays archived, as E does in Later. In the Inbox its row leaves the list and the selection moves on, as after E. No toast shows and nothing joins the window's undo history; the send's own feedback says it instead: the undo-send panel's second line starts “Archived ·” (§5.31) and the quick reply's strip reads “Archived · sending in 4 s” (§5.18). **One undo for both:** Undo in the panel or the strip, or ⌘Z while the send is its target (Edit › Undo reads “Undo Send and Archive”, §6.1), cancels the send and brings the conversation back exactly as Z after E would: the archived messages back in the Inbox, with their return mark, or the snooze back at its time; the conversation is selected again when the archive had taken it off the screen. Z alone never reaches it, since Z never cancels a send. Once the message has left, or when Undo comes too late, the archive stays; a send that fails after its window keeps its draft (§5.18, §5.31) and leaves the conversation where the archive put it.
 
 | State | Look |
 |---|---|
-| Rest | `accentFill`, `onAccent` label |
+| Rest | `accentFill`, `onAccent` label; tooltip “Send and Archive  ⌘↩” or “Send  ⌘↩” |
 | Hover / pressed | `accentFillHover` / `accentFillPressed` |
 | Focused | ring outside a 2 pt gap |
-| Disabled (no valid recipient) | `fill`, `inkDisabled`; tooltip “Add a recipient” or “Fix the address it-desk@contoso” |
+| Disabled (no valid recipient) | `fill`, `inkDisabled`; tooltip “Add a recipient” or “Fix the address it-desk@contoso” (the quick reply's: “No one to reply to”) |
 | Sending | spinner + “Sending…”; at rest the button is as wide as “Send” and it grows once to fit the gerund when sending starts (the window closes as soon as the message is queued) |
 | Window not key | secondary look |
 
@@ -1668,7 +1674,7 @@ A non-activating floating `NSPanel` for **composer** sends (quick-reply sends co
 
 **Window and visual frame.** The panel window is transparent (`isOpaque = false`, clear background, `hasShadow = false`) and larger than the slip it draws by 32 pt above, 48 pt at each side and 68 pt below, so the `e3` shadow (drawn by the slip's layers with an explicit `shadowPath`) is never clipped. Insets and stacking measure the visual frame. Clicks on the transparent margin pass through to the window below.
 
-**Anatomy** (280 × 52, radius 12, `slip`, `slipEdge`): padding left 16 · `paperplane.fill` 15 pt `onSlip2` · 12 pt · text block (title top 10: “Sending in 4 s”, `bodyMedium`, tabular, `onSlip`; 0 pt; “Re: Contoso rollout · to Ben Carter”, `meta`, `onSlip2`, tail-truncated) · 12 pt · the Undo action · padding right 12; a 2 pt contrail along the bottom edge draining linearly over the undo window (5000 ms by default; Settings offers 5000 / 10000 / 20000 ms).
+**Anatomy** (280 × 52, radius 12, `slip`, `slipEdge`): padding left 16 · `paperplane.fill` 15 pt `onSlip2` · 12 pt · text block (title top 10: “Sending in 4 s”, `bodyMedium`, tabular, `onSlip`; 0 pt; “Re: Contoso rollout · to Ben Carter”, `meta`, `onSlip2`, tail-truncated; after Send and Archive “Archived · Re: Contoso rollout · to Ben Carter”, the archive first so the truncation never takes it, §5.23) · 12 pt · the Undo action · padding right 12; a 2 pt contrail along the bottom edge draining linearly over the undo window (5000 ms by default; Settings offers 5000 / 10000 / 20000 ms).
 
 **The Undo action** has the toast action's metrics exactly: 26 pt high, radius `r.sm` (5, `layout.undoPanel.actionRadius`), padding x 8, “Undo” (`bodyStrong`, `onSlip`), then 6 pt and the keycap “⌘Z” (`onSlipEdge` outline). The one difference is a resting outline: the panel has no divider, so the outline is what says “button”, and it is therefore asserted at 3:1 (`onSlipEdge` on `slip`, §7).
 
@@ -1683,7 +1689,7 @@ A non-activating floating `NSPanel` for **composer** sends (quick-reply sends co
 | Panel state | Look |
 |---|---|
 | Counting | as above; hover does not pause (the send time is a promise) |
-| Undo | the panel closes at once and the composer reopens with the draft |
+| Undo | the panel closes at once and the composer reopens with the draft; after Send and Archive the conversation is back in the Inbox first (§5.23) |
 | Sending | 16 pt `onSlip2` spinner in the glyph's place + “Sending…”, no action |
 | Sent | `checkmark` + “Sent” for 1500 ms, then fades (`dur.quick`) |
 | Undo too late | `checkmark` + “Already sent” / “Undo came after the message left.” for 3000 ms |
@@ -1710,7 +1716,7 @@ The second key, any other key, Esc or the end of the 2000 ms window dismisses it
 | Part | Spec |
 |---|---|
 | Scrim | `scrim` over the whole window content below the title-bar zone's controls (the traffic lights stay usable); fades in `dur.quick` |
-| Panel | 816 pt wide (= 2 × 24 + 3 × 240 + 2 × 24; it fits the 960 pt minimum window with 72 pt to spare on each side), centred horizontally, top at y = 92 (under the horizon), at least 24 pt from the window bottom; `raised`, radius 12, `e3`, padding 24; `ruleStrong` edge in Increase Contrast. Its full height is 652 pt (24 + 28 + 16 + band 1 (22 + 9 × 28, Act's and Go's rows) + 20 + band 2 (22 + 7 × 28) + 20 + the search line (28) + 24), so it fits whole in the default window (92 + 652 + 24 = 768 ≤ 800); in a window shorter than 768 pt (the 600 pt minimum among them) the bands and the search line scroll inside the panel under a fixed title row |
+| Panel | 816 pt wide (= 2 × 24 + 3 × 240 + 2 × 24; it fits the 960 pt minimum window with 72 pt to spare on each side), centred horizontally, top at y = 92 (under the horizon), at least 24 pt from the window bottom; `raised`, radius 12, `e3`, padding 24; `ruleStrong` edge in Increase Contrast. Its full height is 680 pt (24 + 28 + 16 + band 1 (22 + 9 × 28, Act's and Go's rows) + 20 + band 2 (22 + 8 × 28) + 20 + the search line (28) + 24), so it fits whole in the default window (92 + 680 + 24 = 796 ≤ 800); in a window shorter than 796 pt (the 600 pt minimum among them) the bands and the search line scroll inside the panel under a fixed title row |
 | Title row | 28 pt: “Keyboard Shortcuts” (`title`) and a close button (24 pt icon button, `xmark`, at 16 pt from the top-trailing corner) |
 | Sections | 16 pt below the title: 2 bands of 3 columns, each 240 pt, 24 pt apart: **Move · Act · Go** in the first band, **Write · Format · View** in the second, 20 pt between bands; each section opens with a 22 pt `runningHead` `ink3` title |
 | Search line | 20 pt below band 2, one 28 pt row: the title (`runningHead` `ink3`) in the 96 pt key column, then the search operators as typed (`snippet`, `ink`, plain text, not keycaps: they are typed, not pressed), 8 pt apart; they take 652 of the 672 pt after the key column |
@@ -1752,7 +1758,8 @@ The second key, any other key, Esc or the end of the 2000 ms window dismisses it
 | 2 | 1 | Write | 4 | F | Forward |
 | 2 | 1 | Write | 5 | ⇧⌘R | Open in composer |
 | 2 | 1 | Write | 6 | ⌘↩ | Send |
-| 2 | 1 | Write | 7 | ⇧⌘A | Attach files |
+| 2 | 1 | Write | 7 | ⇧⌘↩ | Send and archive |
+| 2 | 1 | Write | 8 | ⇧⌘A | Attach files |
 | 2 | 2 | Format | 1 | ⇧⌘T | Format row |
 | 2 | 2 | Format | 2 | ⌘B  ⌘I  ⌘U | Bold · italic · underline |
 | 2 | 2 | Format | 3 | ⇧⌘8  ⇧⌘7 | Bulleted · numbered list |
@@ -1812,7 +1819,7 @@ Sign-in failures from the main window use this alert (§5.44). Later's Pick a Da
 
 ### 5.34 Tooltips
 
-System `toolTip` on every icon-only control and on truncated text; Quire defines no tooltip view and no tooltip metrics. Content: the action name, two spaces, the shortcut (“Archive  E”, “Reply All  A”, “All Inboxes  ⌘0”), in title case because it repeats the command's menu name (§4.13). Disabled controls explain why (“Nothing to undo”). The reader uses `title` attributes so WebKit shows the same system tooltip. Delay and look are the system's.
+System `toolTip` on every icon-only control and on truncated text; Quire defines no tooltip view and no tooltip metrics. Content: the action name, two spaces, the shortcut (“Archive  E”, “Reply All  A”, “All Inboxes  ⌘0”), in title case because it repeats the command's menu name (§4.13). Disabled controls explain why (“Nothing to undo”). A control whose action is a choice says the one in force: Send reads “Send and Archive  ⌘↩” or “Send  ⌘↩” (§5.23). The reader uses `title` attributes so WebKit shows the same system tooltip. Delay and look are the system's.
 
 ### 5.35 Menus
 
@@ -1820,10 +1827,10 @@ Main menu (system), with Quire content. Single-key shortcuts are handled by `Key
 
 - **SuperSparrow**: About SuperSparrow (the system About panel) · Settings… ⌘, · Services · Hide · Quit.
 - **File**: New Message ⌘N (also C) · Close Window ⌘W · Add Gmail Account… · Add Microsoft Account… · Save Attachments… · in demo mode, Leave Demo… (§5.43).
-- **Edit**: standard, plus Find… ⌘F (focuses search) and Search Gmail for More (§5.10, no key equivalent: ↩ in the search field runs it, and a plain ↩ on a menu item would take Return from the list, the composer and every sheet; titled by the scope: Search Outlook for More, Search All Accounts for More). It is enabled while the search field holds words whose local results are all listed (or not in yet) and the server has not been asked for them, or failed; it is disabled while any other place to type or the reader has focus, and hidden while a composer is key. Undo is titled by its target (“Undo Archive”, “Undo Send”, “Undo Typing”), following §6.1.
+- **Edit**: standard, plus Find… ⌘F (focuses search) and Search Gmail for More (§5.10, no key equivalent: ↩ in the search field runs it, and a plain ↩ on a menu item would take Return from the list, the composer and every sheet; titled by the scope: Search Outlook for More, Search All Accounts for More). It is enabled while the search field holds words whose local results are all listed (or not in yet) and the server has not been asked for them, or failed; it is disabled while any other place to type or the reader has focus, and hidden while a composer is key. Undo is titled by its target (“Undo Archive”, “Undo Send”, “Undo Send and Archive”, “Undo Typing”), following §6.1.
 - **View**: Inbox · Later (while the rail shows it) · Starred · Sent · Drafts · Trash · All Mail (G-sequences) · All Inboxes ⌘0 · accounts ⌘1–9 · Check for New Mail ⇧⌘N · Show/Hide Account Rail ⌃⌘S · Compact Rows ⌥⌘C · Load Images ⇧⌘I · Original Colors ⇧⌘O (checkmark when on) · Show Quoted Text .
 - **Message**: Reply R · Reply All A · Forward F · — · Archive E · Later… L (the Later menu at the selection, §5.45) · Move to Trash # · Move to Inbox ⇧I · Star S · Mark as Unread U · Undo Z · — · Unsubscribe ⇧⌘U (enabled while one conversation is open and offers it, §5.14; no symbol, since SF Symbols has none for it before macOS 26) · — · Next Message N · Previous Message P.
-- **Format** (composer windows only): Show Format Row ⇧⌘T · — · Bold ⌘B · Italic ⌘I · Underline ⌘U · — · Bulleted List ⇧⌘8 · Numbered List ⇧⌘7 · Quote ⌘' · — · Add Link… ⌘K. In a composer window the Message menu holds Send ⌘↩ · Attach Files… ⇧⌘A · Add Cc Field ⇧⌘C · Add Bcc Field ⇧⌘B · — · Discard Draft… (§5.20).
+- **Format** (composer windows only): Show Format Row ⇧⌘T · — · Bold ⌘B · Italic ⌘I · Underline ⌘U · — · Bulleted List ⇧⌘8 · Numbered List ⇧⌘7 · Quote ⌘' · — · Add Link… ⌘K. In a composer window the Message menu holds Send ⌘↩ (what the Send button does, §5.23) · Send and Archive ⇧⌘↩ (always; no symbol) · Attach Files… ⇧⌘A · Add Cc Field ⇧⌘C · Add Bcc Field ⇧⌘B · — · Discard Draft… (§5.20).
 - **Window**, **Help** (Keyboard Shortcuts ⌘/).
 
 Context menu on rows and messages: Reply, Reply All, Forward, —, Archive, Later (a submenu holding the Later menu's items, §5.45), Star, Mark as Unread, Move to Inbox (disabled where it does not apply), —, Move to Trash; every item with its symbol and shortcut, title case, disabled items visible. Then, after a separator, Unsubscribe ⇧⌘U (no symbol, as in the Message menu), present only while the open conversation offers it (§5.14), since most mail is no list's. It acts on the selection, like the Message menu, and shares its validation (Star reads Unstar when every selected conversation is starred; Move to Inbox is disabled in the Inbox; Move to Trash in Trash). A right-click on a row outside the selection selects that row first; heads and the list tail have no menu. On a message it opens over the sheet's or collapsed row's own chrome; inside a body, which is the sender's document, the system's text menu stays, for Copy and links. The message More menu is §5.14; the rail's add menu §5.44; the demo tag's menu §5.43. The highlight is the system's (Iron Gall under Multicolor, §3.1).
@@ -2156,11 +2163,11 @@ All single keys are inactive while a text field has focus. Every key press first
 | ↩ (search field) | search the server for more while the list ends with its offer (§5.6, §5.10), then the list; ↓ only the list | | |
 | G I, G S, G T, G D, G #, G A | Inbox, Starred, Sent, Drafts, Trash, All Mail (HUD after 500 ms) | ⌘0 / ⌘1…⌘9 | All Inboxes / account |
 | L | snooze: the Later menu (§5.45; nothing in Trash or Drafts) | G L | Later, while its tile shows (§5.2) |
-| ⇧⌘R | open the quick reply in the composer | ⌘↩ | send |
+| ⇧⌘R | open the quick reply in the composer | ⌘↩ | send: what Send does, Send and Archive unless the drop-down chose Send (§5.23) |
 | ⇧⌘I / ⇧⌘O | load images / original colors | ⌃⌘S | show / hide the rail |
 | ⌥⌘C | compact rows | ? or ⌘/ | keyboard shortcuts |
 | ⇧⌘N | check for new mail | ⇧I | move to Inbox |
-| ⇧⌘U | unsubscribe, then archive; in Later, end the snooze (§5.14) | | |
+| ⇧⌘U | unsubscribe, then archive; in Later, end the snooze (§5.14) | ⇧⌘↩ | send and archive, whatever Send does (composer and quick reply, §5.23) |
 | ⇧⌘T, ⌘B ⌘I ⌘U, ⇧⌘8 ⇧⌘7, ⌘', ⌘K | composer: format row, styles, lists, quote, link | ⇧⌘A, ⇧⌘C, ⇧⌘B | composer: attach files, Cc field, Bcc field |
 | Space | reader (focus in the reader, not in a text field): Quick Look the target message's attachments, starting from the focused chip, else the first; Space again closes Quick Look. With no attachments to preview the key passes to the web view, which scrolls down a page (⇧Space up), as in Safari. In the list Space does nothing | | |
 
@@ -2190,7 +2197,7 @@ So in the reader with a toast up, the first Esc dismisses the toast and the seco
 | # | When | ⌘Z does |
 |---|---|---|
 | 1 | A text view or field is first responder and its undo manager can undo | undoes typing (“Undo Typing”) |
-| 2 | An undo-send panel, a quick-reply countdown or an undoable toast is live | undoes the **most recent** of them: the panel or countdown cancels the send (“Undo Send”), the toast reverts its action (“Undo Archive”). The undo-send panel shows its “⌘Z” keycap only while it is that target |
+| 2 | An undo-send panel, a quick-reply countdown or an undoable toast is live | undoes the **most recent** of them: the panel or countdown cancels the send (“Undo Send”; “Undo Send and Archive” when the send archived its conversation, which comes back with it, §5.23), the toast reverts its action (“Undo Archive”). The undo-send panel shows its “⌘Z” keycap only while it is that target |
 | 3 | Within 10000 ms of a toast's action, after the toast has gone | reverts that action |
 | 4 | Otherwise | nothing; the menu item reads “Can't Undo” and is disabled |
 
@@ -2860,7 +2867,7 @@ Paragraph style per role: `minimumLineHeight = maximumLineHeight = lineHeight`, 
 
 **Spinners.** One `QuireSpinnerView` (layer-backed `NSView` with a `CAShapeLayer`, §5.37) replaces every `NSProgressIndicator`; it takes a size (12 / 16 / 32) and a colour token and owns its delay, fade-in and rotation.
 
-**Components.** The AppKit components live in SSDesign's `AppKit/` folder, one public type per file: `QuireControl` (hover, pressed, focused and key state for every Quire-drawn control) and the controls on it (`QuireButton`, `QuireIconButton`, `QuirePopUpButton`, `QuireCheckbox`, `QuireRadioGroupView`, `QuireToggle`, `QuireTextField` with its secure variant, `QuireSearchField`, `QuireUnderlineTabs`), `QuireBannerView` (§5.38), the slips (`QuireSlipView`, `QuireUndoPanelView`, `QuireSequenceHUDView`), `QuireKeycap`, `QuireBadge`, `QuireTag`, `QuireAvatarRenderer`, `QuireHairline`, `QuireEmptyStateView`, `QuireSkeleton`, `QuireProgressBar` and `QuireContrailView`. The banner and the radio group carry a `View` suffix because the SwiftUI versions own the plain names (`QuireBanner`, `QuireRadioGroup`, §8.3). `QuireWindowChrome` configures and measures the main and composer windows (§3.2).
+**Components.** The AppKit components live in SSDesign's `AppKit/` folder, one public type per file: `QuireControl` (hover, pressed, focused and key state for every Quire-drawn control) and the controls on it (`QuireButton`, `QuireIconButton` (also a menu button that acts on mouse-down, Send's drop-down, §5.23), `QuirePopUpButton`, `QuireCheckbox`, `QuireRadioGroupView`, `QuireToggle`, `QuireTextField` with its secure variant, `QuireSearchField`, `QuireUnderlineTabs`), `QuireBannerView` (§5.38), the slips (`QuireSlipView`, `QuireUndoPanelView`, `QuireSequenceHUDView`), `QuireKeycap`, `QuireBadge`, `QuireTag`, `QuireAvatarRenderer`, `QuireHairline`, `QuireEmptyStateView`, `QuireSkeleton`, `QuireProgressBar` and `QuireContrailView`. The banner and the radio group carry a `View` suffix because the SwiftUI versions own the plain names (`QuireBanner`, `QuireRadioGroup`, §8.3). `QuireWindowChrome` configures and measures the main and composer windows (§3.2).
 
 **Panels and overlays.** The undo-send `NSPanel` is borderless, non-activating, transparent and outset by `layout.undoPanel.shadowMargin*` (§5.31). The cheat sheet is an overlay view in the main window's content view, above the split view, with the scrim as its own layer (§5.32). The rail toggle sets the split item's `isCollapsed` inside `NSAnimationContext` with `duration = 0`.
 

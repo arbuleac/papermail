@@ -23,9 +23,14 @@ public enum ReaderShortcuts {
         rawModifierFlags & chordMask
     }
 
-    /// Cmd+Return or Cmd+keypad Enter sends the quick reply.
+    /// Cmd+Return or Cmd+keypad Enter sends the quick reply, as its Send button does (spec §5.23).
     public static func isSend(keyCode: UInt16, rawModifierFlags: UInt) -> Bool {
         returnKeyCodes.contains(keyCode) && chord(rawModifierFlags) == command
+    }
+
+    /// Shift+Cmd+Return (or keypad Enter) sends the quick reply and archives its conversation, whatever Send does.
+    public static func isSendAndArchive(keyCode: UInt16, rawModifierFlags: UInt) -> Bool {
+        returnKeyCodes.contains(keyCode) && chord(rawModifierFlags) == shift | command
     }
 
     /// An unmodified Space, the Quick Look key.

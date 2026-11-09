@@ -260,7 +260,11 @@ enum MainMenu {
             item("Previous Message", #selector(MainWindowController.previousMessage(_:)), "p", []),
         ]
         let composer: [NSMenuItem] = [
+            // Send does what the Send button does (Send and Archive unless the user chose Send); Send and Archive always
+            // archives (§5.23). Hidden outside a composer, both still claim their keys there, so the quick reply's text
+            // view takes ⌘↩ and ⇧⌘↩ before the menu does.
             item("Send", #selector(ComposeWindowController.send(_:)), "\r", symbol: Quire.Icon.send),
+            item("Send and Archive", #selector(ComposeWindowController.sendAndArchive(_:)), "\r", [.command, .shift]),
             item("Attach Files…", #selector(ComposeWindowController.attachFile(_:)), "a", [.command, .shift], symbol: Quire.Icon.attach),
             item("Add Cc Field", #selector(ComposeWindowController.addCcField(_:)), "c", [.command, .shift]),
             item("Add Bcc Field", #selector(ComposeWindowController.addBccField(_:)), "b", [.command, .shift]),

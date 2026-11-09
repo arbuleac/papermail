@@ -122,6 +122,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         let endsAt: Date
         /// The reply as a composer would hold it, for an undo-send panel the countdown may move to (§5.18).
         let draft: ComposeDraft
+        /// What Send and Archive archived as the reply was queued: Undo brings it back with the reply (§5.23).
+        let archive: SendArchive?
     }
 
     /// Called whenever a quick reply's undo window opens or closes, so the main window can re-rank ⌘Z (§6.1).
@@ -130,6 +132,11 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     /// The quick reply's send while ⌘Z can still cancel it.
     var liveQuickSend: UndoPrecedence.LiveSend? {
         quickSend.map { UndoPrecedence.LiveSend(id: $0.sendID, startedAt: $0.startedAt) }
+    }
+
+    /// Edit › Undo's title for the quick reply's live send: “Undo Send and Archive” while it holds an archive to put back.
+    var liveQuickSendUndoTitle: String {
+        SendAction.undoMenuTitle(archived: quickSend?.archive?.isArchived ?? false)
     }
 
     init(client: MailClient) {
@@ -153,6 +160,10 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         // The Font setting lives in the Quire environment: every shell, the pre-rendered ones too, is told in place.
         notificationTokens.append(center.addObserver(forName: QuireEnvironment.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.typefaceMayHaveChanged() }
+        })
+        // A drop-down here or in any composer changes what the quick reply's Send does (§5.23).
+        notificationTokens.append(center.addObserver(forName: SendActionPreference.didChange, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.quickReply.sendAction = SendActionPreference.current }
         })
         statusObservation = client.observeStatus { [weak self] statuses in
             if Thread.isMainThread {
@@ -225,7 +236,9 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         ])
 
         header.onAction = { [weak self] action in self?.headerAction(action) }
-        quickReply.onSend = { [weak self] text, mode in self?.sendQuickReply(text, mode: mode) }
+        quickReply.onSend = { [weak self] text, mode, action in self?.sendQuickReply(text, mode: mode, action: action) }
+        quickReply.onChooseSendAction = { SendActionPreference.choose($0) }
+        quickReply.sendAction = SendActionPreference.current
         quickReply.onEscape = { [weak self] in self?.quickReplyEscape() }
         quickReply.onHeightChange = { [weak self] _ in self?.applyBottomInset() }
         quickReply.onOpenInComposer = { [weak self] text, mode in self?.openQuickReplyInComposer(text: text, mode: mode, attach: false) }
@@ -577,7 +590,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         if remaining > 0 {
             let accounts = accountsByID.values.sorted { $0.addedAt < $1.addedAt }
             UndoSendPanel.show(client: client, accounts: accounts, sendID: send.sendID, draft: send.draft, undoWindow: Self.undoWindow,
-                               remaining: remaining, startedAt: send.startedAt)
+                               remaining: remaining, startedAt: send.startedAt, archive: send.archive)
         }
         onQuickSendChange?()
     }
@@ -1495,8 +1508,10 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         quickReply.isComposerOpen = replyComposer(for: currentMessages) != nil
     }
 
-    /// ⌘↩ in the quick reply; internal so the app's tests can send one.
-    func sendQuickReply(_ text: String, mode: QuickReplyView.Mode) {
+    /// ⌘↩ in the quick reply (`action` nil: what Send does now), or ⇧⌘↩ (`.sendAndArchive`); internal so the app's tests
+    /// can send one. Send and Archive archives the conversation once the reply is queued, as E would (in Later, or for a
+    /// snoozed conversation, its snooze ends), and the strip's Undo brings it back with the reply (§5.23).
+    func sendQuickReply(_ text: String, mode: QuickReplyView.Mode, action: SendAction? = nil) {
         guard let conversation = currentConversationID, let latest = replyTarget(in: currentMessages),
               let account = accountsByID[latest.id.accountID] else { return }
         // The account's signature follows the typed text, one empty line below it, as a composer would insert it (§5.18).
@@ -1519,12 +1534,16 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             let endsAt = startedAt.addingTimeInterval(Self.undoWindow)
             let names = (message.to + message.cc).map(\.shortDisplay)
             let recipient = names.count > 2 ? names[0] + " and \(names.count - 1) others" : names.joined(separator: " and ")
+            // The store leaves the list on its observation, after this returns: the strip is up before the selection moves.
+            let archive = (action ?? SendActionPreference.current).archives
+                ? SendArchive.archiveConversation(answering: latest.id, client: client)
+                : nil
             quickSend = QuickSend(sendID: sendID, text: text, conversation: conversation,
                                   subject: RenderPayloadBuilder.subject(of: currentMessages), startedAt: startedAt, endsAt: endsAt,
-                                  draft: draft)
+                                  draft: draft, archive: archive)
             onQuickSendChange?()
             quickReply.clear()
-            quickReply.showStrip(.counting(endsAt: endsAt, duration: Self.undoWindow, recipient: recipient))
+            quickReply.showStrip(.counting(endsAt: endsAt, duration: Self.undoWindow, recipient: recipient, archived: archive != nil))
             outboxTick()
             quickSendTimer?.invalidate()
             quickSendTimer = Timer.scheduledTimer(withTimeInterval: Self.undoWindow, repeats: false) { [weak self] _ in
@@ -1647,6 +1666,12 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         guard cancelled else {
             quickReply.showStrip(.alreadySent)
             return
+        }
+        if let archive = send.archive {
+            // Back in the Inbox and selected again, as Z after E leaves it; a show the debounce holds lands now, so the text
+            // goes back into its own conversation's box below rather than being parked.
+            archive.revert()
+            if pendingShow?.id == send.conversation { flushPendingShow() }
         }
         if drafts.restoreUnsent(send.text, under: send.conversation, shown: currentConversationID) {
             quickReply.hideStrip()

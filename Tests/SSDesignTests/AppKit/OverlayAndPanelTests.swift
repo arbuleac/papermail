@@ -106,12 +106,12 @@ final class OverlayAndPanelTests: XCTestCase {
     // MARK: Cheat sheet
 
     func testCheatSheetPanelMetrics() {
-        XCTAssertEqual(QuireCheatSheetPanel.naturalHeight(), 652, "24 + 28 + 16 + (22 + 9 × 28) + 20 + (22 + 7 × 28) + 20 + 28 + 24")
-        XCTAssertEqual(QuireCheatSheetPanel.naturalHeight(searchTerms: []), 604, "no search line, no room for one")
+        XCTAssertEqual(QuireCheatSheetPanel.naturalHeight(), 680, "24 + 28 + 16 + (22 + 9 × 28) + 20 + (22 + 8 × 28) + 20 + 28 + 24")
+        XCTAssertEqual(QuireCheatSheetPanel.naturalHeight(searchTerms: []), 632, "no search line, no room for one")
         let bands = QuireCheatSheetPanel.bands(of: Quire.cheatSheet)
         XCTAssertEqual(bands.map { $0.map(\.title) }, [["Move", "Act", "Go"], ["Write", "Format", "View"]])
         let panel = QuireCheatSheetPanel()
-        XCTAssertEqual(panel.frame.size, NSSize(width: 816, height: 652))
+        XCTAssertEqual(panel.frame.size, NSSize(width: 816, height: 680))
         XCTAssertFalse(panel.scrolls)
         panel.layoutSubtreeIfNeeded()
         let close = panel.closeButton.alignmentRect(forFrame: panel.closeButton.frame)
@@ -134,7 +134,7 @@ final class OverlayAndPanelTests: XCTestCase {
 
     func testOverlayPlacesThePanelUnderTheHorizon() {
         let roomy = QuireCheatSheetOverlay.panelFrame(in: NSSize(width: 1280, height: 800))
-        XCTAssertEqual(roomy, NSRect(x: 232, y: 92, width: 816, height: 652), "centred, top at 92, whole: 92 + 652 + 24 = 768 ≤ 800")
+        XCTAssertEqual(roomy, NSRect(x: 232, y: 92, width: 816, height: 680), "centred, top at 92, whole: 92 + 680 + 24 = 796 ≤ 800")
         let short = QuireCheatSheetOverlay.panelFrame(in: NSSize(width: 960, height: 600))
         XCTAssertEqual(short.minY, 92)
         XCTAssertEqual(short.height, 600 - 92 - 24, "at least 24 pt from the bottom; the bands scroll")

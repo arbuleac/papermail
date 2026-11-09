@@ -229,6 +229,7 @@ extension Quire {
             QuireCheatSheetRow(keys: "F", label: "Forward"),
             QuireCheatSheetRow(keys: "⇧⌘R", label: "Open in composer"),
             QuireCheatSheetRow(keys: "⌘↩", label: "Send"),
+            QuireCheatSheetRow(keys: "⇧⌘↩", label: "Send and archive"),
             QuireCheatSheetRow(keys: "⇧⌘A", label: "Attach files"),
         ]),
         QuireCheatSheetSection(title: "Format", rows: [

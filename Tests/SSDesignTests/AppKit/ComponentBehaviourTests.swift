@@ -219,6 +219,32 @@ final class ComponentBehaviourTests: XCTestCase {
         XCTAssertEqual(target.count, 2)
     }
 
+    /// The Send button's drop-down (§5.23): a menu button acts on mouse-down, as a pull-down opens, draws pressed while
+    /// its action (the menu tracking) runs, and is at rest after; VoiceOver hears a menu button.
+    func testAMenuButtonActsOnMouseDownAndDrawsPressedMeanwhile() throws {
+        @MainActor final class Recorder: NSObject {
+            var states: [QuireDisplayState] = []
+            @objc func fire(_ sender: Any?) { states.append((sender as? QuireIconButton)?.interactionState ?? .rest) }
+        }
+        let recorder = Recorder()
+        let chevron = QuireIconButton(symbolName: Quire.Icon.titleMenu, size: .large, accessibilityLabel: "Send Options",
+                                      target: recorder, action: #selector(Recorder.fire(_:)))
+        chevron.frame = chevron.frame(forVisualRect: NSRect(x: 0, y: 0, width: 28, height: 28))
+        XCTAssertEqual(chevron.accessibilityRole(), .button)
+        chevron.isMenuButton = true
+        XCTAssertEqual(chevron.accessibilityRole(), .menuButton)
+        let down = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
+                                                    context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        chevron.mouseDown(with: down)
+        XCTAssertEqual(recorder.states, [.pressed], "acted on mouse-down, pressed while the menu tracks")
+        XCTAssertEqual(chevron.interactionState, .rest, "at rest once it closes")
+        chevron.performClick(nil)
+        XCTAssertEqual(recorder.states.count, 2, "Space and VoiceOver's press open it too")
+        chevron.isEnabled = false
+        chevron.mouseDown(with: down)
+        XCTAssertEqual(recorder.states.count, 2, "disabled: nothing")
+    }
+
     func testPopupSelection() {
         let popup = QuirePopUpButton(titles: ["5 seconds", "10 seconds", "20 seconds"], selectedIndex: 1)
         XCTAssertEqual(popup.title, "10 seconds")

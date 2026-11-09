@@ -108,6 +108,8 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     private var signaturePlaced = false
     /// Set while a From change replaces the signature, so that edit is not taken for the user's own (§5.20 Status).
     private var isReplacingSignature = false
+    /// Send's drop-down (§5.23): choosing an action makes it every Send button's default.
+    private lazy var sendActionMenu = SendActionMenu { SendActionPreference.choose($0) }
 
     // MARK: Presenting
 
@@ -344,6 +346,8 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
 
         bar.sendButton.target = self
         bar.sendButton.action = #selector(send(_:))
+        bar.sendOptionsButton.target = self
+        bar.sendOptionsButton.action = #selector(showSendOptions(_:))
         bar.attachButton.target = self
         bar.attachButton.action = #selector(attachFile(_:))
         bar.formatButton.target = self
@@ -360,10 +364,13 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         // Quitting closes windows without asking their delegates, so the last edit is kept here instead.
         NotificationCenter.default.addObserver(self, selector: #selector(applicationWillTerminate(_:)),
                                                name: NSApplication.willTerminateNotification, object: nil)
+        // A drop-down in any composer or the quick reply changes what this Send does too (§5.23).
+        NotificationCenter.default.addObserver(self, selector: #selector(sendActionDidChange(_:)),
+                                               name: SendActionPreference.didChange, object: nil)
     }
 
-    /// The Tab loop (§5.20): From → To → Cc → Bcc → Subject → Body → attachment chips → Send → Attach → Format →
-    /// the format toggles → From. The Cc and Bcc buttons join it only with Full Keyboard Access.
+    /// The Tab loop (§5.20): From → To → Cc → Bcc → Subject → Body → attachment chips → Send → Send's drop-down → Attach →
+    /// Format → the format toggles → From. The Cc and Bcc buttons join it only with Full Keyboard Access.
     private func rebuildKeyLoop() {
         var loop: [NSView] = []
         if !fromRow.isHidden { loop.append(fromPopup) }
@@ -374,7 +381,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         loop.append(subjectField)
         loop.append(textView)
         loop.append(content.strip)
-        loop += [bar.sendButton, bar.attachButton, bar.formatButton]
+        loop += [bar.sendButton, bar.sendOptionsButton, bar.attachButton, bar.formatButton]
         if content.showsFormatRow { loop += content.formatRow.buttons.map(\.button) }
         for (index, view) in loop.enumerated() {
             view.nextKeyView = loop[(index + 1) % loop.count]
@@ -548,6 +555,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     private func perform(_ command: ComposeContentView.Command) {
         switch command {
         case .send: send(nil)
+        case .sendAndArchive: sendAndArchive(nil)
         case .attach: attachFile(nil)
         case .toggleFormatRow: toggleFormatRow(nil)
         case .addCc: if ccRow.isHidden { revealCc(nil) } else { window?.makeFirstResponder(ccField.keyView) }
@@ -964,7 +972,23 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
 
     // MARK: Sending
 
+    /// What Send, ⌘↩ and Message › Send do now (§5.23): the default the drop-down chose, Send and Archive unless the user
+    /// picked Send; a new message answers no conversation, so it only sends.
+    var sendAction: SendAction {
+        SendActionPreference.current.effective(answers: mode.originalMessageID != nil)
+    }
+
+    /// Send, ⌘↩ and Message › Send: the default action.
     @objc func send(_ sender: Any?) {
+        send(as: sendAction)
+    }
+
+    /// ⇧⌘↩ and Message › Send and Archive: send, then archive the conversation the message answers, whatever Send does.
+    @objc func sendAndArchive(_ sender: Any?) {
+        send(as: .sendAndArchive)
+    }
+
+    private func send(as action: SendAction) {
         guard !isSending, !isPrefilling, validateRecipients() else {
             NSSound.beep()
             return
@@ -973,14 +997,32 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
             AppAlert.sendWithoutSubject.present(on: window) { [weak self] choice in
                 guard let self else { return }
                 if choice == 1 {
-                    self.performSend()
+                    self.performSend(action)
                 } else {
                     self.window?.makeFirstResponder(self.subjectField)
                 }
             }
             return
         }
-        performSend()
+        performSend(action)
+    }
+
+    /// Send's drop-down (§5.23): the two actions, the default checked; choosing one makes it the default for every Send
+    /// button and ⌘↩. It never sends. Hung from the chevron; tracks until dismissed.
+    @objc func showSendOptions(_ sender: Any?) {
+        SendActionMenu.popUp(sendOptionsMenu(), from: bar.sendOptionsButton)
+    }
+
+    /// The drop-down's menu as it opens now (the app's tests choose from it).
+    func sendOptionsMenu() -> NSMenu {
+        sendActionMenu.menu(current: SendActionPreference.current)
+    }
+
+    /// Send's tooltip and VoiceOver name as set now (the app's tests).
+    var sendButtonHelp: (toolTip: String?, label: String?) { (bar.sendButton.toolTip, bar.sendButton.accessibilityLabel()) }
+
+    @objc private func sendActionDidChange(_ note: Notification) {
+        updateSendEnabled()
     }
 
     /// Commits whatever is still being typed and reports whether the message has somewhere to go; focus goes
@@ -1001,7 +1043,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         return toValid && ccValid && bccValid
     }
 
-    private func performSend() {
+    private func performSend(_ action: SendAction) {
         autosaveTimer?.invalidate()
         let draft = currentDraft()
         let normalized = ComposeBodyNormalizer.normalize(draft.body)
@@ -1034,6 +1076,11 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
             let message = sent.outgoingMessage(normalizedBody: normalized, loadedAttachments: outcome.parts)
             do {
                 let sendID = try self.client.send(message, undoWindow: Self.undoWindow)
+                // Queued: Send and Archive archives the conversation it answers now, as E would, and the panel's Undo
+                // brings it back with the message (§5.23). A new message has none.
+                let archive = action.archives
+                    ? self.mode.originalMessageID.flatMap { SendArchive.archiveConversation(answering: $0, client: self.client) }
+                    : nil
                 // The outbox holds the message now; the panel keeps the draft for Undo and for a failure.
                 ComposeDraftStore.shared.remove(id: self.draftID)
                 // The provider's draft this one continued goes to Trash, as the reader's Discard sends it, but only
@@ -1043,7 +1090,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
                 self.closesWithoutSaving = true
                 self.close()
                 UndoSendPanel.show(client: client, accounts: self.accounts, sendID: sendID, draft: sent,
-                                   undoWindow: Self.undoWindow, onSent: continued.map { original in
+                                   undoWindow: Self.undoWindow, archive: archive, onSent: continued.map { original in
                     { Self.discardContinuedDraft(original, client: client) }
                 })
             } catch {
@@ -1067,19 +1114,24 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         isSending = sending
         if sending { sendFailure = nil }
         bar.sendButton.isLoading = sending
+        bar.sendOptionsButton.isEnabled = !sending
         for field in [toField, ccField, bccField] { field.isLocked = sending }
         subjectField.isEditable = !sending
         textView.isEditable = !sending
         updateSendEnabled()
     }
 
-    /// Send is disabled without a valid recipient (§5.23); its tooltip says what to fix. Send and ⌘↩ both
+    /// Send is disabled without a valid recipient (§5.23); its tooltip says what to fix, and otherwise what Send does now
+    /// (“Send and Archive  ⌘↩”), which VoiceOver hears as its name, though its label stays “Send”. Send and ⌘↩ both
     /// validate, so an invalid address beside a valid one lands on the field to fix instead of sending.
     private func updateSendEnabled() {
         let fields = [toField, ccField, bccField]
         let readiness = ComposeSendReadiness.evaluate(tokens: fields.flatMap(\.addresses), pendingText: fields.map(\.pendingText))
         let button = bar.sendButton
-        button.toolTip = readiness.tooltip
+        let action = sendAction
+        button.toolTip = readiness.isEnabled ? action.tooltip : readiness.tooltip
+        // While sending, the button's own “Sending…” is its name.
+        button.setAccessibilityLabel(isSending ? nil : action.title)
         button.isEnabled = isSending || (!isPrefilling && readiness.isEnabled)
     }
 
@@ -1145,7 +1197,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         switch action {
         case #selector(discardDraft(_:)), #selector(attachFile(_:)), #selector(addCcField(_:)), #selector(addBccField(_:)):
             return !isSending
-        case #selector(send(_:)):
+        case #selector(send(_:)), #selector(sendAndArchive(_:)):
             return !isSending && bar.sendButton.isEnabled
         case #selector(toggleFormatRow(_:)):
             menuItem.title = content.showsFormatRow ? "Hide Format Row" : "Show Format Row"
@@ -1259,8 +1311,8 @@ final class ComposeWindow: NSWindow {
         case .typing:
             menuItem.title = undoManager?.undoMenuItemTitle ?? "Undo"
             return true
-        case .send:
-            menuItem.title = "Undo Send"
+        case .send(let id):
+            menuItem.title = UndoSendPanel.panel(sendID: id)?.undoMenuTitle ?? SendAction.undoMenuTitle(archived: false)
             return true
         case .group, .nothing:
             menuItem.title = "Can't Undo"

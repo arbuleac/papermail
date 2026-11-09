@@ -64,6 +64,10 @@ Checked on macOS 27.0.1 (build 26A434), with in-process tests and a scratch buil
 
 Not yet checked on macOS 15 or 26.
 
+## Send and Archive
+
+Replying usually finishes a conversation, so **Send** sends and archives the conversation you answered, as `e` would: it leaves the Inbox the moment the message is queued and, in the Inbox, the next conversation opens. The arrow beside **Send** (in a composer and in the reply field under a conversation) chooses what Send and `⌘↩` do: **Send and Archive** (the default) or **Send**; the choice applies to every Send button at once and is kept. `⇧⌘↩` (**Message → Send and Archive** in a composer) always sends and archives. A new message only sends. Send's tooltip says which it does. Undo send (in the panel, the reply field's strip or `⌘Z`) also brings the conversation back to the Inbox; once the message has left, it stays archived. In **Later**, Send and Archive stops the conversation's return and keeps it archived, as `e` does there.
+
 ## Later
 
 Press `l` (or **Message → Later…**, or **Later** in a conversation's right-click menu) to put the selected conversations away until **Later Today**, **This Evening**, **Tomorrow**, **Next Week** or a date you pick. They are archived now and come back to the Inbox at that time, their latest message unread, at the top under Today with a **Back** tag until you read them. While anything is snoozed a **Later** folder shows in the rail below Inbox (`g` then `l`), listing what comes back when, soonest first; there `l` picks a new time, `e` keeps a conversation archived and stops its return, `⇧I` brings it back now and `#` moves it to the Trash. A reply from someone else, or moving the conversation back to the Inbox yourself (here or on another device), ends the snooze early. Both halves are the ordinary archive and move to Inbox, so your phone and the web show the same state; only the timer lives on this Mac, so mail comes back while SuperSparrow is running, or as soon as it next opens or the Mac wakes, once it has checked for anything that came in the meantime. Gmail's and Outlook's own snooze cannot be reached through their APIs, so mail snoozed there does not show in Later.
@@ -118,6 +122,8 @@ Operators combine (`from:ben is:unread after:2026-01-01 -invoice`), ignore case,
 | `z`, `⌘Z` | Undo the last mail action (last 20 are kept) |
 | `⇧⌘U` | Unsubscribe from the open conversation's list, then archive it |
 | `r` / `a` / `f` | Reply / reply all / forward |
+| `⌘↩` | Send (sends and archives unless you chose **Send** with the arrow beside it) |
+| `⇧⌘↩` | Send and archive, whatever Send does |
 | `esc` in a composer | Closes it while you haven't written anything; a composer with your words stays open |
 | `c`, `⌘N` | New message |
 | `/`, `⌘F` | Search (`Esc` clears, in the search field or the list) |

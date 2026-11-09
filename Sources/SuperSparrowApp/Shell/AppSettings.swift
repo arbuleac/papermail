@@ -41,6 +41,7 @@ final class AppSettings: ObservableObject {
         /// The demo's own, so trying the demo never changes the scope the user's accounts open on.
         static let demoAccountScope = "accountScope.demo"
         static let keepMail = "keepMail"
+        static let sendAction = "sendAction"
     }
 
     /// Account ids are UUIDs, so this can never be one.
@@ -84,6 +85,15 @@ final class AppSettings: ObservableObject {
         case .everything: return "Everything"
         case .oneYear: return "1 year"
         case .threeMonths: return "3 months"
+        }
+    }
+
+    /// Spec §5.23: what the Send button and ⌘↩ do, Send and Archive unless the user chose Send. Not in Settings: the Send
+    /// button's drop-down changes it (`SendActionPreference`), and every open composer and the quick reply follow at once.
+    @Published var sendAction: SendAction {
+        didSet {
+            defaults.set(sendAction.rawValue, forKey: Key.sendAction)
+            if oldValue != sendAction { NotificationCenter.default.post(name: SendActionPreference.didChange, object: self) }
         }
     }
 
@@ -200,11 +210,13 @@ final class AppSettings: ObservableObject {
             Key.accountInitialsChosenByUser: false,
             Key.sevenAccountsNoticePending: false,
             Key.keepMail: MailRetention.everything.rawValue,
+            Key.sendAction: SendAction.default.rawValue,
         ])
         notificationsEnabled = defaults.bool(forKey: Key.notifications)
         showPreviews = defaults.bool(forKey: Key.previews)
         loadRemoteImages = defaults.bool(forKey: Key.remoteImages)
         keepMail = MailRetention(rawValue: defaults.string(forKey: Key.keepMail) ?? "") ?? .everything
+        sendAction = SendAction(rawValue: defaults.string(forKey: Key.sendAction) ?? "") ?? .default
         let stored = defaults.double(forKey: Key.undoSend)
         undoSendDelay = AppSettings.undoSendChoices.contains(stored) ? stored : 5
         // Not pushed into QuireEnvironment here: the app does that at launch (a `--font` override may win), and

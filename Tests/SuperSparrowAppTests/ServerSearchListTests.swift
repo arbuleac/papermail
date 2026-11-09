@@ -174,7 +174,7 @@ final class ServerSearchListTests: XCTestCase {
         harness.spin { !self.harness.reader.currentMessages.isEmpty }
         let reply = harness.reader.quickReplyBar
         var sent: [String] = []
-        reply.onSend = { text, _ in sent.append(text) }
+        reply.onSend = { text, _, _ in sent.append(text) }
         XCTAssertTrue(harness.reader.focusQuickReply(all: false))
         reply.text = "Tuesday works"
         if !window.performKeyEquivalent(with: commandReturn) { window.firstResponder?.keyDown(with: commandReturn) }

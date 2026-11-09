@@ -3,7 +3,7 @@ import AppKit
 /// An icon-only button (spec §5.24, §5.12): a symbol in `ink2` on no fill, `hover` / `pressed` washes with the
 /// symbol in `ink`, the focus ring outside a 1 pt gap, `inkDisabled` when disabled, and a 12 pt spinner in
 /// place of the symbol while loading. It can also be on: the filled star in `star`, or a quiet toggle in
-/// `accent` on `accentWash`.
+/// `accent` on `accentWash`; or a menu button that pops its menu on mouse-down (the Send button's drop-down).
 ///
 /// Custom-glyph buttons need a name for VoiceOver: set `accessibilityLabel` (and a tooltip that repeats the
 /// command and its shortcut, “Archive  E”, §5.34).
@@ -43,6 +43,10 @@ public final class QuireIconButton: QuireControl {
 
     /// Flip `isOn` on every activation before sending the action (format toggles).
     public var togglesOnClick = false
+
+    /// A menu button (the Send button's drop-down, §5.23): a click acts on mouse-down, as a pull-down's menu opens, and the
+    /// face stays pressed while the action runs, which is while the menu it pops tracks. VoiceOver hears a menu button.
+    public var isMenuButton = false
 
     public var isLoading = false {
         didSet { if oldValue != isLoading { loadingDidChange() } }
@@ -128,9 +132,27 @@ public final class QuireIconButton: QuireControl {
         super.activate()
     }
 
+    public override func mouseDown(with event: NSEvent) {
+        guard isMenuButton else {
+            super.mouseDown(with: event)
+            return
+        }
+        guard isEnabled else { return }
+        isPressed = true
+        stateDidChange()
+        displayIfNeeded()
+        // The menu takes the mouse-up, so the press ends here rather than in `mouseUp`.
+        activate()
+        isPressed = false
+        stateDidChange()
+    }
+
     // MARK: Accessibility
 
-    public override func accessibilityRole() -> NSAccessibility.Role? { togglesOnClick ? .checkBox : .button }
+    public override func accessibilityRole() -> NSAccessibility.Role? {
+        if isMenuButton { return .menuButton }
+        return togglesOnClick ? .checkBox : .button
+    }
     public override func accessibilitySubrole() -> NSAccessibility.Subrole? { togglesOnClick ? .toggle : nil }
     public override func accessibilityValue() -> Any? { togglesOnClick ? NSNumber(value: isOn) : nil }
 }

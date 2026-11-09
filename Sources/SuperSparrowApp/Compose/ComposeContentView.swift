@@ -7,12 +7,13 @@ import SSDesign
 /// and the bottom bar, laid out by hand to the token metrics.
 ///
 /// Files dropped anywhere on the window become attachments; while a file drag hovers, the body shows the drop
-/// outline. The composer's window-wide shortcuts (⌘↩, ⇧⌘A, ⇧⌘T, ⇧⌘C, ⇧⌘B) are answered here, before the
+/// outline. The composer's window-wide shortcuts (⌘↩, ⇧⌘↩, ⇧⌘A, ⇧⌘T, ⇧⌘C, ⇧⌘B) are answered here, before the
 /// menus, so they work from every field.
 @MainActor
 final class ComposeContentView: NSView {
     enum Command {
-        case send, attach, toggleFormatRow, addCc, addBcc
+        /// ⌘↩: what Send does (§5.23). ⇧⌘↩: send and archive, whatever Send does.
+        case send, sendAndArchive, attach, toggleFormatRow, addCc, addBcc
     }
 
     var onDropFiles: (([URL]) -> Void)?
@@ -121,6 +122,7 @@ final class ComposeContentView: NSView {
         }
         if flags == [.command, .shift] {
             switch key {
+            case "\r", "\u{3}": onCommand?(.sendAndArchive); return true
             case "a": onCommand?(.attach); return true
             case "t": onCommand?(.toggleFormatRow); return true
             case "c": onCommand?(.addCc); return true

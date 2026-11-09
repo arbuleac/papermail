@@ -30,6 +30,16 @@ final class ReaderShortcutsTests: XCTestCase {
         XCTAssertFalse(S.isSend(keyCode: 49, rawModifierFlags: S.command), "Cmd+Space is not a send")
     }
 
+    /// ⇧⌘↩ sends and archives whatever Send does (spec §5.23, §6); it is never ⌘↩, nor ⌘↩ it.
+    func testSendAndArchiveChordIsShiftCommandOnReturn() {
+        XCTAssertTrue(S.isSendAndArchive(keyCode: 36, rawModifierFlags: S.command | S.shift))
+        XCTAssertTrue(S.isSendAndArchive(keyCode: 76, rawModifierFlags: S.command | S.shift | S.numericPad | S.capsLock), "keypad Enter, Caps Lock on")
+        XCTAssertFalse(S.isSendAndArchive(keyCode: 36, rawModifierFlags: S.command), "⌘↩ is Send")
+        XCTAssertFalse(S.isSendAndArchive(keyCode: 36, rawModifierFlags: S.shift), "⇧↩ is a line break")
+        XCTAssertFalse(S.isSendAndArchive(keyCode: 36, rawModifierFlags: S.command | S.shift | S.option))
+        XCTAssertFalse(S.isSendAndArchive(keyCode: 49, rawModifierFlags: S.command | S.shift))
+    }
+
     func testPlainSpaceIgnoresCapsLock() {
         XCTAssertTrue(S.isPlainSpace(charactersIgnoringModifiers: " ", rawModifierFlags: 0))
         XCTAssertTrue(S.isPlainSpace(charactersIgnoringModifiers: " ", rawModifierFlags: S.capsLock))

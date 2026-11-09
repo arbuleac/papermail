@@ -5,10 +5,11 @@ import SSDesign
 /// The quick reply bar (spec §5.18): docked to the bottom of the reader and drawn over the web view, which
 /// is told the bar's height as a bottom inset instead of being resized. The field sits on the reading column;
 /// at rest it is one 38 pt line with the replying account's face, the R keycap and a send glyph; focused it
-/// grows with the text to five lines and shows the tool row (Reply · Reply all, Attach, Open in Composer, Send).
+/// grows with the text to five lines and shows the tool row (Reply · Reply all, Attach, Open in Composer, Send and its
+/// drop-down).
 ///
-/// The view owns no mail logic: it reports the text on ⌘↩ and the commands of its buttons, and shows the
-/// strip and the states its owner asks for.
+/// The view owns no mail logic: it reports the text on ⌘↩ (with what Send does now, `sendAction`) and on ⇧⌘↩ (send and
+/// archive), the drop-down's choice and the commands of its buttons, and shows the strip and the states its owner asks for.
 @MainActor
 final class QuickReplyView: NSView {
     enum Mode: Int, Equatable {
@@ -23,11 +24,14 @@ final class QuickReplyView: NSView {
         case error
         /// The reply has no recipients: Send disabled, Open in Composer available.
         case noRecipients
-        /// The countdown went on after the field came back for a new reply.
-        case counting(endsAt: Date)
+        /// The countdown went on after the field came back for a new reply; `archived` after Send and Archive.
+        case counting(endsAt: Date, archived: Bool)
     }
 
-    var onSend: ((String, Mode) -> Void)?
+    /// ⌘↩, Send or the rest glyph (with `sendAction`), or ⇧⌘↩ (`.sendAndArchive`).
+    var onSend: ((String, Mode, SendAction) -> Void)?
+    /// The drop-down's choice: the owner makes it the default (§5.23). Nothing is sent.
+    var onChooseSendAction: ((SendAction) -> Void)?
     var onEscape: (() -> Void)?
     var onFocusChange: ((Bool) -> Void)?
     /// The bar's height changed; the owner moves the web view's bottom inset, once per change.
@@ -54,6 +58,11 @@ final class QuickReplyView: NSView {
             tabs.items = Self.tabItems(replyAll: replyAllAvailable)
             if !replyAllAvailable, mode == .replyAll { mode = .reply }
         }
+    }
+
+    /// What Send, the rest glyph and ⌘↩ do now (§5.23): their tooltips and VoiceOver names say it.
+    var sendAction: SendAction = .default {
+        didSet { if oldValue != sendAction { sendActionDidChange() } }
     }
 
     var mode: Mode = .reply {
@@ -102,6 +111,9 @@ final class QuickReplyView: NSView {
     private let attach = QuireIconButton(symbolName: Quire.Icon.attach, size: .small, accessibilityLabel: "Attach")
     private let openInComposer = QuireIconButton(symbolName: Quire.Icon.openInComposer, size: .small, accessibilityLabel: "Open in Composer")
     private let send = QuireButton(title: "Send", variant: .primary, size: .small)
+    /// Send's drop-down (§5.23), 2 pt after it: the menu that chooses what Send and ⌘↩ do.
+    private let sendOptions = QuireIconButton(symbolName: Quire.Icon.titleMenu, size: .small, accessibilityLabel: "Send Options")
+    private lazy var sendActionMenu = SendActionMenu { [weak self] action in self?.onChooseSendAction?(action) }
     private let statusGlyph = NSImageView()
     private let statusLabel = NSTextField(labelWithString: "")
     private let statusAction = QuireButton(title: "Undo", variant: .link, size: .small)
@@ -177,6 +189,7 @@ final class QuickReplyView: NSView {
         textView.focusRingType = .none
         textView.delegate = self
         textView.onCommandReturn = { [weak self] in self?.sendPressed() }
+        textView.onCommandShiftReturn = { [weak self] in self?.sendAndArchivePressed() }
         textView.onOpenInComposer = { [weak self] in self?.openInComposerPressed() }
         textView.onAttach = { [weak self] in self?.attachPressed() }
         // The placeholder is a separate label that goes away while typing, so the field carries its own name.
@@ -193,7 +206,6 @@ final class QuickReplyView: NSView {
 
         restSend.target = self
         restSend.action = #selector(sendPressed)
-        restSend.toolTip = "Send  ⌘↩"
         addSubview(restSend)
         addSubview(restKeycap)
 
@@ -217,6 +229,14 @@ final class QuickReplyView: NSView {
         send.target = self
         send.action = #selector(sendPressed)
         addSubview(send)
+        // A pull-down's chevron at the popup chevron's size (§4.11), on the tool row's 22 pt icon button.
+        sendOptions.symbolSize = .custom(Quire.Layout.Popup.chevron)
+        sendOptions.isMenuButton = true
+        sendOptions.toolTip = "Send Options"
+        sendOptions.target = self
+        sendOptions.action = #selector(showSendOptions)
+        addSubview(sendOptions)
+        sendActionDidChange()
 
         statusGlyph.imageScaling = .scaleNone
         addSubview(statusGlyph)
@@ -326,17 +346,20 @@ final class QuickReplyView: NSView {
 
     /// The countdown, if one is running, so the bar can hand it to an undo panel when it hides.
     var countdownEnd: Date? {
-        if case let .counting(endsAt, _, _) = strip.state { return endsAt }
-        if case let .counting(endsAt) = status { return endsAt }
+        if case let .counting(endsAt, _, _, _) = strip.state { return endsAt }
+        if case let .counting(endsAt, _) = status { return endsAt }
         return nil
     }
 
     private func stripDismissed() {
-        guard case let .counting(endsAt, _, _) = strip.state else { return }
+        guard case let .counting(endsAt, _, _, archived) = strip.state else { return }
         hideStrip()
-        status = .counting(endsAt: endsAt)
+        status = .counting(endsAt: endsAt, archived: archived)
         window?.makeFirstResponder(textView)
     }
+
+    /// The strip's countdown lead as shown now (tests).
+    var stripLead: String { strip.leadText }
 
     private func hideFieldContents(_ hidden: Bool) {
         scrollView.isHidden = hidden
@@ -429,9 +452,10 @@ final class QuickReplyView: NSView {
         attach.isHidden = !toolRow || showsStatus
         openInComposer.isHidden = !toolRow || (showsStatus && status == .error)
         send.isHidden = !toolRow
+        sendOptions.isHidden = !toolRow
         send.keycap = keycaps ? "⌘↩" : nil
         send.isEnabled = status != .noRecipients && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        send.toolTip = status == .noRecipients ? "No one to reply to" : "Send  ⌘↩"
+        send.toolTip = sendToolTip
         let tabSize = tabs.intrinsicContentSize
         tabs.frame = tabs.frame(forVisualRect: NSRect(x: field.minX + m.textX, y: rowY, width: tabSize.width, height: m.toolRow))
         var x = field.minX + m.textX + tabSize.width + m.toolGroupGap
@@ -439,9 +463,12 @@ final class QuickReplyView: NSView {
         attach.frame = attach.frame(forVisualRect: NSRect(x: x, y: iconY, width: m.toolIcon, height: m.toolIcon))
         x += m.toolIcon + m.toolIconGap
         let composerX = showsStatus ? nil : x
+        // Trailing, 8 pt from the edge: the drop-down, and 2 pt before it Send with its “⌘↩” leading.
+        let optionsVisual = NSRect(x: field.maxX - m.sendInset - m.toolIcon, y: iconY, width: m.toolIcon, height: m.toolIcon)
+        sendOptions.frame = sendOptions.frame(forVisualRect: optionsVisual)
         send.sizeToFit()
         let sendSize = send.alignmentRect(forFrame: send.frame).size
-        let sendVisual = NSRect(x: field.maxX - m.sendInset - sendSize.width, y: rowY + (m.toolRow - sendSize.height) / 2,
+        let sendVisual = NSRect(x: optionsVisual.minX - m.toolIconGap - sendSize.width, y: rowY + (m.toolRow - sendSize.height) / 2,
                                 width: sendSize.width, height: sendSize.height)
         send.frame = send.frame(forVisualRect: sendVisual)
 
@@ -568,10 +595,46 @@ final class QuickReplyView: NSView {
     // MARK: Behavior
 
     @objc private func sendPressed() {
+        send(as: sendAction)
+    }
+
+    /// ⇧⌘↩: send and archive the conversation, whatever Send does (§5.23).
+    private func sendAndArchivePressed() {
+        send(as: .sendAndArchive)
+    }
+
+    private func send(as action: SendAction) {
         let typed = text
         guard !typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, status != .noRecipients else { return }
-        onSend?(typed, mode)
+        onSend?(typed, mode, action)
     }
+
+    /// Send's drop-down: hung from the chevron; the choice goes to the owner and nothing is sent.
+    @objc private func showSendOptions() {
+        SendActionMenu.popUp(sendOptionsMenu(), from: sendOptions)
+    }
+
+    /// The drop-down's menu as it opens now (the app's tests choose from it).
+    func sendOptionsMenu() -> NSMenu {
+        sendActionMenu.menu(current: sendAction)
+    }
+
+    /// The tooltips and VoiceOver names of Send and the rest glyph say what they do now; their label stays “Send”.
+    private func sendActionDidChange() {
+        restSend.toolTip = sendAction.tooltip
+        restSend.setAccessibilityLabel(sendAction.title)
+        send.setAccessibilityLabel(sendAction.title)
+        send.toolTip = sendToolTip
+        needsLayout = true
+    }
+
+    /// Send's tooltip: what it does now, or why it cannot.
+    private var sendToolTip: String {
+        status == .noRecipients ? "No one to reply to" : sendAction.tooltip
+    }
+
+    /// The Send button's tooltip and VoiceOver name as set now (tests).
+    var sendButtonHelp: (toolTip: String?, label: String?) { (send.toolTip, send.accessibilityLabel()) }
 
     @objc private func openInComposerPressed() {
         onOpenInComposer?(text, mode)
@@ -639,12 +702,12 @@ final class QuickReplyView: NSView {
             setStatusGlyph(Quire.Icon.warning, color: .qWarning)
             statusLabel.attributedStringValue = ReaderFonts.fieldString(QuireFont.attributedString("No one to reply to", role: .snippet, color: .qInk2))
             statusAction.title = ""
-        case .counting(let endsAt):
+        case let .counting(endsAt, archived):
             statusAction.title = "Undo"
             statusContrail.mode = .countdown(duration: max(1, endsAt.timeIntervalSinceNow), remaining: max(0, endsAt.timeIntervalSinceNow))
-            updateCountdownStatus(endsAt)
+            updateCountdownStatus(endsAt, archived: archived)
             statusTicker = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
-                MainActor.assumeIsolated { self?.updateCountdownStatus(endsAt) }
+                MainActor.assumeIsolated { self?.updateCountdownStatus(endsAt, archived: archived) }
             }
         }
         statusAction.isHidden = statusAction.title.isEmpty
@@ -652,9 +715,10 @@ final class QuickReplyView: NSView {
         needsDisplay = true
     }
 
-    private func updateCountdownStatus(_ endsAt: Date) {
+    private func updateCountdownStatus(_ endsAt: Date, archived: Bool) {
         let left = max(0, Int(ceil(endsAt.timeIntervalSinceNow)))
-        statusLabel.attributedStringValue = ReaderFonts.fieldString(QuireFont.attributedString("Sending in \(left) s \u{00b7}", role: .snippet, color: .qInk2))
+        let words = QuickReplyStripView.countdown(secondsLeft: left, archived: archived) + " \u{00b7}"
+        statusLabel.attributedStringValue = ReaderFonts.fieldString(QuireFont.attributedString(words, role: .snippet, color: .qInk2))
         if left == 0 {
             statusTicker?.invalidate()
             statusTicker = nil
@@ -682,31 +746,39 @@ extension QuickReplyView: NSTextViewDelegate {
     }
 }
 
-/// Catches the keys the delegate protocol cannot: ⌘↩ is not a text command, ⇧⌘R opens the composer, ⇧⌘A
+/// Catches the keys the delegate protocol cannot: ⌘↩ and ⇧⌘↩ are not text commands, ⇧⌘R opens the composer, ⇧⌘A
 /// attaches there, and Escape must go to the owner rather than cancel completion.
 private final class QuickReplyTextView: NSTextView {
     var onCommandReturn: (() -> Void)?
+    var onCommandShiftReturn: (() -> Void)?
     var onOpenInComposer: (() -> Void)?
     var onAttach: (() -> Void)?
     var onEscape: (() -> Void)?
     var onFocusChange: ((Bool) -> Void)?
 
-    /// ⌘↩ is taken here, before the main menu sees it: a menu item carrying ⌘↩ (the composer's hidden Send, Edit ›
-    /// Search Gmail for More) claims the key even while it is hidden or disabled, so `keyDown` would never get it.
+    /// ⌘↩ and ⇧⌘↩ are taken here, before the main menu sees them: a menu item carrying one (the composer's hidden Send
+    /// and Send and Archive) claims the key even while it is hidden or disabled, so `keyDown` would never get it.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if window?.firstResponder === self,
-           ReaderShortcuts.isSend(keyCode: event.keyCode, rawModifierFlags: event.modifierFlags.rawValue) {
-            onCommandReturn?()
-            return true
-        }
+        if window?.firstResponder === self, sendKey(event) { return true }
         return super.performKeyEquivalent(with: event)
     }
 
-    override func keyDown(with event: NSEvent) {
-        if ReaderShortcuts.isSend(keyCode: event.keyCode, rawModifierFlags: event.modifierFlags.rawValue) {
+    /// ⌘↩ sends as Send does, ⇧⌘↩ sends and archives (§5.23); false for any other key.
+    private func sendKey(_ event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.rawValue
+        if ReaderShortcuts.isSend(keyCode: event.keyCode, rawModifierFlags: flags) {
             onCommandReturn?()
-            return
+            return true
         }
+        if ReaderShortcuts.isSendAndArchive(keyCode: event.keyCode, rawModifierFlags: flags) {
+            onCommandShiftReturn?()
+            return true
+        }
+        return false
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if sendKey(event) { return }
         let chord = ReaderShortcuts.chord(event.modifierFlags.rawValue)
         if chord == ReaderShortcuts.shift | ReaderShortcuts.command, event.charactersIgnoringModifiers?.lowercased() == "r" {
             onOpenInComposer?()

@@ -10,7 +10,8 @@ import SSDesign
 ///
 /// Counting (“Sending in 4 s”, the outlined Undo with “⌘Z”, the contrail draining) → Sending → Sent for 1500 ms,
 /// or Failed with “Open draft”. Undo closes the panel at once and reopens the composer; an Undo that comes
-/// after the message left shows “Already sent” for 3000 ms. Hover never pauses the countdown: the send time
+/// after the message left shows “Already sent” for 3000 ms. A Send and Archive's panel says “Archived” first on its
+/// second line, and its Undo also brings the conversation back to the Inbox (§5.23). Hover never pauses the countdown: the send time
 /// is a promise. ⌘Z cancels the newest counting panel unless a text view can undo typing or, in the main
 /// window, a newer toast or quick-reply countdown holds ⌘Z (§6.1, `UndoPrecedence`).
 @MainActor
@@ -27,6 +28,8 @@ final class UndoSendPanel: NSPanel {
     private var onUndone: (() -> Void)?
     /// Runs once the message has left: work that Undo must be able to take back waits for it.
     private var onSent: (() -> Void)?
+    /// What Send and Archive archived when this send was queued: Undo puts it back with the send.
+    private var archive: SendArchive?
     private var pollTimer: Timer?
     private var isFinished = false
     private var failureReason: String?
@@ -37,10 +40,12 @@ final class UndoSendPanel: NSPanel {
     /// §5.18); `startedAt` when it began, so ⌘Z still ranks it by its own send.
     @discardableResult
     static func show(client: MailClient, accounts: [Account], sendID: String, draft: ComposeDraft, undoWindow: TimeInterval,
-                     remaining: TimeInterval? = nil, startedAt: Date = Date(), onUndone: (() -> Void)? = nil,
-                     onSent: (() -> Void)? = nil) -> UndoSendPanel {
+                     remaining: TimeInterval? = nil, startedAt: Date = Date(), archive: SendArchive? = nil,
+                     onUndone: (() -> Void)? = nil, onSent: (() -> Void)? = nil) -> UndoSendPanel {
         let left = max(0, min(undoWindow, remaining ?? undoWindow))
-        let panel = UndoSendPanel(client: client, accounts: accounts, sendID: sendID, draft: draft, undoWindow: left, startedAt: startedAt)
+        let panel = UndoSendPanel(client: client, accounts: accounts, sendID: sendID, draft: draft, undoWindow: left, startedAt: startedAt,
+                                  archived: archive != nil)
+        panel.archive = archive
         panel.onUndone = onUndone
         panel.onSent = onSent
         ComposeWindowRegistry.shared.register(panel)
@@ -52,14 +57,16 @@ final class UndoSendPanel: NSPanel {
         return panel
     }
 
-    init(client: MailClient, accounts: [Account], sendID: String, draft: ComposeDraft, undoWindow: TimeInterval, startedAt: Date = Date()) {
+    init(client: MailClient, accounts: [Account], sendID: String, draft: ComposeDraft, undoWindow: TimeInterval, startedAt: Date = Date(),
+         archived: Bool = false) {
         self.client = client
         self.accounts = accounts
         self.sendID = sendID
         self.draft = draft
         self.undoWindow = undoWindow
         self.shownAt = startedAt
-        slip = QuireUndoPanelView(state: .counting(secondsLeft: Int(undoWindow.rounded(.up))), summary: Self.summary(for: draft))
+        slip = QuireUndoPanelView(state: .counting(secondsLeft: Int(undoWindow.rounded(.up))),
+                                  summary: Self.summary(for: draft, archived: archived))
         let margins = QuireUndoPanelView.shadowMargins
         let size = NSSize(width: QuireUndoPanelView.size.width + margins.left + margins.right,
                           height: QuireUndoPanelView.size.height + margins.top + margins.bottom)
@@ -87,13 +94,20 @@ final class UndoSendPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 
-    /// “Re: Contoso rollout · to Ben Carter”.
-    static func summary(for draft: ComposeDraft) -> String {
+    /// “Re: Contoso rollout · to Ben Carter”; after Send and Archive “Archived · Re: Contoso rollout · to Ben Carter”,
+    /// the archive first, since the line is tail-truncated and Undo takes the archive back too (§5.31).
+    static func summary(for draft: ComposeDraft, archived: Bool = false) -> String {
         let subject = draft.subject.trimmingCharacters(in: .whitespaces)
         let title = subject.isEmpty ? "New Message" : subject
-        guard let name = draft.firstRecipientName else { return title }
-        return "\(title) · to \(name)"
+        let message = draft.firstRecipientName.map { "\(title) · to \($0)" } ?? title
+        return archived ? "Archived · " + message : message
     }
+
+    /// The summary as the panel shows it (tests).
+    var summary: String { slip.summary }
+
+    /// Edit › Undo's title while ⌘Z would cancel this send: “Undo Send and Archive” while it holds an archive to put back.
+    var undoMenuTitle: String { SendAction.undoMenuTitle(archived: archive?.isArchived ?? false) }
 
     var isLive: Bool { !isFinished }
 
@@ -193,6 +207,8 @@ final class UndoSendPanel: NSPanel {
     private func showSent() {
         onSent?()
         onSent = nil
+        // The message has left: the archive it went with stays.
+        archive = nil
         slip.state = .sent
         finish(after: Quire.Motion.sentConfirm)
     }
@@ -227,6 +243,9 @@ final class UndoSendPanel: NSPanel {
             return
         }
         dismissNow()
+        // The conversation comes back to the Inbox before the composer takes the screen.
+        archive?.revert()
+        archive = nil
         if let onUndone {
             onUndone()
         } else {

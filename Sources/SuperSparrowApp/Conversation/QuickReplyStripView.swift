@@ -6,8 +6,9 @@ import SSDesign
 @MainActor
 final class QuickReplyStripView: NSView {
     enum State: Equatable {
-        /// Inside the undo window: "Sending in 4 s" · "to Ben Carter", Undo with ⌘Z before it, the contrail.
-        case counting(endsAt: Date, duration: TimeInterval, recipient: String)
+        /// Inside the undo window: "Sending in 4 s" · "to Ben Carter", Undo with ⌘Z before it, the contrail. After Send
+        /// and Archive the lead says the conversation went first, “Archived · sending in 4 s”, and Undo brings it back.
+        case counting(endsAt: Date, duration: TimeInterval, recipient: String, archived: Bool = false)
         /// The window ran out and the send left: "Sent" for 1500 ms.
         case sent
         /// The window ran out while offline: the send waits for the connection.
@@ -79,15 +80,15 @@ final class QuickReplyStripView: NSView {
         detail.stringValue = ""
         guard let state else { return }
         switch state {
-        case let .counting(endsAt, duration, recipient):
+        case let .counting(endsAt, duration, recipient, archived):
             setGlyph(Quire.Icon.sendPanel)
             detail.attributedStringValue = ReaderFonts.fieldString(QuireFont.attributedString("to " + recipient, role: .snippet, color: .qInk3))
             undo.isHidden = false
             contrail.isHidden = false
             contrail.mode = .countdown(duration: duration, remaining: max(0, endsAt.timeIntervalSinceNow))
-            updateSeconds(endsAt: endsAt)
+            updateSeconds(endsAt: endsAt, archived: archived)
             ticker = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
-                MainActor.assumeIsolated { self?.updateSeconds(endsAt: endsAt) }
+                MainActor.assumeIsolated { self?.updateSeconds(endsAt: endsAt, archived: archived) }
             }
         case .sent:
             setGlyph(Quire.Icon.upToDate)
@@ -109,10 +110,21 @@ final class QuickReplyStripView: NSView {
     }
 
     /// Seconds left, as text beside the contrail, always (spec §4.10).
-    private func updateSeconds(endsAt: Date) {
-        let left = max(0, Int(ceil(endsAt.timeIntervalSinceNow)))
-        setLead("Sending in \(left) s")
+    private func updateSeconds(endsAt: Date, archived: Bool) {
+        setLead(Self.countdown(secondsLeft: max(0, Int(ceil(endsAt.timeIntervalSinceNow))), archived: archived))
     }
+
+    /// “Sending in 4 s”, or after Send and Archive “Archived · sending in 4 s”: the archive happened when the send was
+    /// queued, and it leads, since the lead never truncates (the recipient after it does, §5.18).
+    static func countdown(secondsLeft: Int, archived: Bool) -> String {
+        archived ? "Archived \u{00b7} sending in \(secondsLeft) s" : "Sending in \(secondsLeft) s"
+    }
+
+    /// The lead as shown now (tests).
+    var leadText: String { lead.stringValue }
+
+    /// The lead has the room to show whole as laid out now (tests: it never truncates; the recipient after it does).
+    var showsLeadWhole: Bool { lead.frame.width >= ceil(lead.attributedStringValue.size().width) }
 
     private func setLead(_ text: String) {
         var attributes = QuireFont.attributes(.body, color: .qInk)

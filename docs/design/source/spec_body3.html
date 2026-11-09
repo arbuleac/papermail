@@ -237,18 +237,18 @@
         <span class="mono24" style="--a:var(--q-acct-1)"><span>C</span></span><span class="ph" style="color:var(--q-ink)">Thanks Ben, forwarding to IT now.<span class="caret" style="display:inline-block;vertical-align:-3px"></span></span>
         <div style="flex-basis:100%;display:flex;align-items:center;gap:4px;margin-top:8px;padding-left:34px">
           <span class="mt on">{{PY: s('arrowshape.turn.up.left', 12)}}Reply</span><span class="mt" style="margin-left:{{layout.quickReply.modeGap}}px">{{PY: s('arrowshape.turn.up.left.2', 12)}}Reply all</span><span class="qtool" style="margin-left:{{layout.quickReply.toolGroupGap}}px"><span class="ib sm">{{PY: s('paperclip', 14)}}</span><span class="ib sm" style="margin-left:{{layout.quickReply.toolIconGap}}px">{{PY: s('arrow.up.left.and.arrow.down.right', 14)}}</span></span>
-          <span class="kbd" style="margin-left:auto">⌘↩</span><span class="btn sm primary" style="margin-left:{{layout.quickReply.sendKeycapGap}}px">Send</span></div>
+          <span class="kbd" style="margin-left:auto">⌘↩</span><span class="btn sm primary" style="margin-left:{{layout.quickReply.sendKeycapGap}}px">Send</span><span class="ib sm" style="margin-left:calc({{layout.quickReply.toolIconGap}}px - 4px)" title="Send Options">{{PY: s('chevron.down', 12)}}</span></div>
       </div>
-      <div class="qrf s" style="position:relative;overflow:hidden"><span class="st2">{{PY: s('paperplane.fill', 14)}}<b>Sending in 4 s</b><i>to Ben Carter</i></span><span class="kbd" style="margin-right:{{layout.quickReply.stripKeycapGap}}px">⌘Z</span><span class="btn sm secondary">Undo</span><i class="contrail" style="width:70%"></i></div>
+      <div class="qrf s" style="position:relative;overflow:hidden"><span class="st2">{{PY: s('paperplane.fill', 14)}}<b>Archived · sending in 4 s</b><i>to Ben Carter</i></span><span class="kbd" style="margin-right:{{layout.quickReply.stripKeycapGap}}px">⌘Z</span><span class="btn sm secondary">Undo</span><i class="contrail" style="width:70%"></i></div>
       <div class="qrf s"><span class="st2">{{PY: s('checkmark', 14)}}<b>Sent</b></span></div>
       <div class="qrf s"><span class="st2">{{PY: s('arrow.uturn.backward', 14)}}<b>Not sent · draft kept in “Contoso rollout”</b><a>Show</a></span></div>
       <div class="qrf s" style="height:auto;flex-wrap:wrap;padding:10px 6px 6px 12px;align-items:flex-start;box-shadow:inset 0 0 0 1.5px var(--q-danger)">
         <span class="mono24" style="--a:var(--q-acct-1)"><span>C</span></span><span class="ph" style="color:var(--q-ink)">Thanks Ben, forwarding to IT now.</span>
-        <div style="flex-basis:100%;display:flex;align-items:center;gap:4px;margin-top:8px;padding-left:34px"><span class="qstat bad">{{PY: s('exclamationmark.triangle.fill', 12)}}Couldn’t send · Open in composer</span><span class="btn sm primary" style="margin-left:auto">Send</span></div>
+        <div style="flex-basis:100%;display:flex;align-items:center;gap:4px;margin-top:8px;padding-left:34px"><span class="qstat bad">{{PY: s('exclamationmark.triangle.fill', 12)}}Couldn’t send · Open in composer</span><span class="btn sm primary" style="margin-left:auto">Send</span><span class="ib sm" style="margin-left:calc({{layout.quickReply.toolIconGap}}px - 4px)">{{PY: s('chevron.down', 12)}}</span></div>
       </div>
       <div class="qrf s" style="background:var(--q-fill);box-shadow:none"><span class="ph">Reply in the composer</span></div>
     </div>
-    <span class="lbl">rest · focused, Reply mode (underline) · counting (contrail + seconds) · sent · undone after moving on · error (text kept) · disabled (a draft is open)</span>
+    <span class="lbl">rest · focused, Reply mode (underline), Send with its drop-down · counting after Send and Archive (contrail + seconds) · sent · undone after moving on · error (text kept) · disabled (a draft is open)</span>
   </div>
 
   <div class="c6 card">
@@ -264,6 +264,10 @@
     <div class="rowline"><span class="sc">{{PY: s('doc', 14)}}<b>runbook.docx</b><i>88 KB</i><span class="rm">{{PY: s('xmark', 9)}}</span></span><span class="sc" style="position:relative;overflow:hidden">{{PY: s('photo', 14)}}<b>rack.heic</b><i>3.1 of 4.8 MB</i><span class="rm">{{PY: s('xmark', 9)}}</span><i class="contrail" style="top:auto;bottom:0;width:64%"></i></span><span class="sc" title="Too large for Microsoft 365: 150 MB limit">{{PY: '<span style="color:var(--q-danger)">' + s('exclamationmark.triangle.fill', 13) + '</span>'}}<b style="color:var(--q-danger)">capture.mov</b><i>Too large</i><span class="rm">{{PY: s('xmark', 9)}}</span></span></div>
     <span class="lbl">Send: rest · hover · focused · disabled (no recipient) · sending · inactive window</span>
     <div class="rowline"><span class="btn primary">{{PY: s('paperplane', 14)}}Send</span><span class="btn primary hov">{{PY: s('paperplane', 14)}}Send</span><span class="btn primary foc">{{PY: s('paperplane', 14)}}Send</span><span class="btn primary dis">{{PY: s('paperplane', 14)}}Send</span><span class="btn primary"><span class="spin" style="--sz:11px"></span>Sending…</span><span class="btn inact">{{PY: s('paperplane', 14)}}Send</span></div>
+    <span class="lbl">Send's drop-down: rest · hover · open, its menu (the default checked; choosing never sends) · ⇧⌘↩ always sends and archives</span>
+    <div class="rowline" style="align-items:flex-start"><span class="rowline" style="gap:2px"><span class="btn primary">{{PY: s('paperplane', 14)}}Send</span><span class="ib" title="Send Options">{{PY: s('chevron.down', 12)}}</span></span><span class="ib hov">{{PY: s('chevron.down', 12)}}</span><span style="display:flex;flex-direction:column;gap:4px"><span class="ib prs">{{PY: s('chevron.down', 12)}}</span>
+      <div class="menu" style="width:176px"><div class="mi"><span class="ck">{{PY: s('checkmark', 10)}}</span>Send and Archive</div><div class="mi hi"><span class="ck"></span>Send</div></div></span>
+      <span class="ann" style="max-width:220px">Tooltip “Send and Archive  ⌘↩” (or “Send  ⌘↩”), and VoiceOver hears the same name; the label stays “Send”.</span></div>
   </div>
 
   <div class="c4 card">

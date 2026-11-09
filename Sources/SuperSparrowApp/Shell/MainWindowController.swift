@@ -9,7 +9,8 @@ import os
 /// shortcuts, keeps the window's one undo history and ranks Z and ⌘Z across it, the quick reply's countdown
 /// and the undo-send panels (§6.1), and reduces every account's status into the sync line.
 @MainActor
-final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuItemValidation, KeyboardRouterTarget, UndoKeyArbiter {
+final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuItemValidation, KeyboardRouterTarget, UndoKeyArbiter,
+                                  SendArchiving {
     static let defaultSize = QuireWindowChrome.defaultSize
     static let minimumSize = QuireWindowChrome.minimumSize
     private static let log = Logger(subsystem: "io.supersparrow.mac", category: "shell")
@@ -147,6 +148,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     init(environment: AppEnvironment, settings: AppSettings, remembersScope: Bool = !LaunchOptions().isSnapshot) {
         self.environment = environment
         self.settings = settings
+        // Every Send button reads the user's choice from these settings (§5.23), the reader's built below among them.
+        SendActionPreference.settings = settings
         self.remembersScope = remembersScope
         scopeToRestore = remembersScope ? settings.savedAccountScope(demo: environment.isDemo) : nil
         list = MessageListViewController(store: environment.store)
@@ -216,6 +219,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         listPane.setDemo(environment.isDemo)
         refreshSyncLine()
         UndoSendPanel.undoKeyArbiter = self
+        SendArchive.archiver = self
         NotificationCenter.default.addObserver(self, selector: #selector(composeDraftDiscarded(_:)),
                                                name: ComposeWindowController.draftDiscardedNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(signInProgressChanged(_:)),
@@ -260,6 +264,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         retryLineTimer?.invalidate()
         listPane.toasts.dismiss()
         if UndoSendPanel.undoKeyArbiter === self { UndoSendPanel.undoKeyArbiter = nil }
+        if SendArchive.archiver === self { SendArchive.archiver = nil }
         crossFadeOverlay?.orderOut(nil)
         crossFadeOverlay = nil
         window?.orderOut(nil)
@@ -1348,11 +1353,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         UndoPrecedence.sendOwningCommandZ(sends: liveSends, toast: visibleToastGroup)
     }
 
-    /// Edit › Undo's title for `target`: “Undo Typing”, “Undo Send”, “Undo Archive”, “Can't Undo”.
+    /// Edit › Undo's title for `target`: “Undo Typing”, “Undo Send” (“Undo Send and Archive” when the send archived its
+    /// conversation, which the undo brings back too), “Undo Archive”, “Can't Undo”.
     func undoMenuTitle(for target: UndoPrecedence.Target) -> String {
         switch target {
         case .typing: return window?.undoManager?.undoMenuItemTitle ?? "Undo"
-        case .send: return "Undo Send"
+        case .send(let id):
+            if conversation.liveQuickSend?.id == id { return conversation.liveQuickSendUndoTitle }
+            return UndoSendPanel.panel(sendID: id)?.undoMenuTitle ?? SendAction.undoMenuTitle(archived: false)
         case .group(let id):
             guard let group = undoHistory.groups.last(where: { $0.id == id }) else { return "Can't Undo" }
             if let change = group.change { return MailActionCopy.undoMenuTitle(for: change) }
@@ -1651,22 +1659,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         }
         let fromLater = groupsFromLater.remove(groupID) != nil
         do {
-            // A Move to Inbox or Move to Trash that ended a snooze puts it back with the inverse steps, in one transaction,
-            // so the conversation never shows in the Inbox between the two; an Archive or Move to Trash of a conversation
-            // back from Later puts its return mark back, so the row returns under Today with its Back tag.
-            let snoozes = group.records.compactMap { record -> Snooze.Change? in
-                guard let id = record.conversation, record.snoozedUntil != nil || record.returnedAt != nil else { return nil }
-                return Snooze.Change(conversationID: id, until: record.snoozedUntil, returnedAt: record.returnedAt)
-            }
-            if snoozes.isEmpty {
-                for record in group.records.reversed() {
-                    for step in record.inverse {
-                        try environment.engine.perform(step.change, on: step.targets)
-                    }
-                }
-            } else {
-                try environment.engine.setSnoozes(snoozes, performing: group.records.reversed().flatMap(\.inverse))
-            }
+            try revert(group.records)
         } catch {
             Self.log.error("undo failed: \(String(describing: error), privacy: .public)")
             NSSound.beep()
@@ -1680,6 +1673,80 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             reselect(restored, inLater: fromLater)
         }
         return true
+    }
+
+    /// Applies the inverse of `records`, newest first. A Move to Inbox or Move to Trash that ended a snooze puts it back with
+    /// the inverse steps, in one transaction, so the conversation never shows in the Inbox between the two; an Archive or
+    /// Move to Trash of a conversation back from Later puts its return mark back, so the row returns under Today with its
+    /// Back tag.
+    private func revert(_ records: [MailActionRecord]) throws {
+        let snoozes = records.compactMap { record -> Snooze.Change? in
+            guard let id = record.conversation, record.snoozedUntil != nil || record.returnedAt != nil else { return nil }
+            return Snooze.Change(conversationID: id, until: record.snoozedUntil, returnedAt: record.returnedAt)
+        }
+        if snoozes.isEmpty {
+            for record in records.reversed() {
+                for step in record.inverse {
+                    try environment.engine.perform(step.change, on: step.targets)
+                }
+            }
+        } else {
+            try environment.engine.setSnoozes(snoozes, performing: records.reversed().flatMap(\.inverse))
+        }
+    }
+
+    // MARK: Send and Archive (§5.23)
+
+    /// Archives the conversation `original` belongs to right after a send answering it was queued, as E would: what is in
+    /// the Inbox is archived, a conversation back from Later keeps its return mark for the undo, and a snoozed one, archived
+    /// already, has its snooze ended and stays archived, as E ends it in Later. Nothing joins the undo history and no toast
+    /// shows: the send's own undo (its panel, the quick reply's strip, ⌘Z) puts the conversation back with the send, as Z
+    /// after E would, so there is one undo for both. Only this window's mail, through its own engine.
+    func archiveConversation(answering original: MessageID, client: MailClient) -> SendArchive? {
+        guard client === environment.engine, !showingWelcome, accountsByID[original.accountID] != nil,
+              let message = try? environment.store.message(original) else { return nil }
+        let id = message.conversationID
+        let engine = environment.engine
+        // Where the user was: an undo selects the conversation again only if the archive took it off the screen, and in
+        // Later only if Later emptied meanwhile (`reselect`), as Z after E does.
+        let wasShown = shownSelection == [id]
+        let inLater = listView == .later
+        let snoozedAt = ((try? environment.store.snoozes()) ?? []).first { $0.conversationID == id }?.dueAt
+        if let snoozedAt {
+            do {
+                try engine.setSnoozes([Snooze.Change(conversationID: id, until: nil)], performing: [])
+            } catch {
+                Self.log.error("ending a snooze after a send failed: \(String(describing: error), privacy: .public)")
+                return nil
+            }
+            return SendArchive(conversation: id) { [weak self] in
+                do {
+                    try engine.setSnoozes([Snooze.Change(conversationID: id, until: snoozedAt)], performing: [])
+                } catch {
+                    Self.log.error("putting a snooze back after an undone send failed: \(String(describing: error), privacy: .public)")
+                    return
+                }
+                if wasShown { self?.reselect([id], inLater: inLater) }
+            }
+        }
+        let records = actionRecords(.archive, on: [id])
+        guard !records.isEmpty else { return nil }
+        do {
+            try engine.perform(.archive, on: records.flatMap(\.targets))
+        } catch {
+            Self.log.error("archiving after a send failed: \(String(describing: error), privacy: .public)")
+            return nil
+        }
+        return SendArchive(conversation: id) { [weak self] in
+            guard let self else { return }
+            do {
+                try self.revert(records)
+            } catch {
+                Self.log.error("bringing a conversation back after an undone send failed: \(String(describing: error), privacy: .public)")
+                return
+            }
+            if wasShown { self.reselect([id], inLater: inLater) }
+        }
     }
 
     /// Puts the selection on conversations an undo brought back. Back in Later when the action was taken there and Later
