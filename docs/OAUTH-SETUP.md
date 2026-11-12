@@ -24,7 +24,7 @@ Without the Calendar API enabled, answers still reach the organizer by mail, but
 
 ## Microsoft (Microsoft 365 and Outlook.com)
 
-1. Microsoft Entra admin center → App registrations → New registration. Supported account types: "Accounts in any organizational directory and personal Microsoft accounts".
+1. Microsoft Entra admin center → App registrations → New registration. Supported account types: "Accounts in any organizational directory and personal Microsoft accounts". SuperSparrow asks "Work or School" or "Personal" when you add a Microsoft account and signs that account in through `organizations` or `consumers` only, because one address can be both and Microsoft would otherwise pick for you; a registration limited to one kind only lets that kind sign in.
 2. Authentication → Add a platform → **Mobile and desktop applications** → add `http://localhost` as a redirect URI, exactly that, with no port and no path (SuperSparrow redirects to `http://localhost:<random port>`, and Entra ignores the port of a loopback URI but compares the path). Enable "Allow public client flows".
 3. API permissions → Microsoft Graph → Delegated: `Mail.ReadWrite`, `Mail.Send`, `User.Read`, `offline_access`, and `Calendars.ReadWrite` (to answer invitations). SuperSparrow asks for `Calendars.ReadWrite` only the first time you answer one, by asking you to reconnect.
 4. Copy the Application (client) ID. No secret is needed.

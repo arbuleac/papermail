@@ -34,9 +34,35 @@ public struct HTMLSanitizer: BodySanitizing, Sendable {
     public func sanitize(_ body: MessageBody, messageID: MessageID) -> SanitizedBody {
         if let html = body.html, !html.allSatisfy(\.isWhitespace) {
             // A parse failure must never leak the original markup, so fall through to the text part instead.
-            if let sanitized = try? sanitizeHTML(html, messageID: messageID) { return sanitized }
+            if let sanitized = Self.onLargeStack({ try? sanitizeHTML(html, messageID: messageID) }) { return sanitized }
         }
         return renderText(body.text ?? "")
+    }
+
+    /// The stack the HTML work runs on. Parsing, the scrub, quote detection and serialising all walk the tree
+    /// recursively, and a mailer's unclosed tags can nest a body hundreds deep: at `Pass.maxDepth` that took more
+    /// than the 512 KB of the concurrency pool thread the body was fetched on, and the app crashed on every
+    /// launch until that message was gone. 16 MB holds the deepest tree the scrub keeps many times over.
+    static let workStackSize = 16 << 20
+
+    /// Runs `work` on a thread of its own with `workStackSize`, waiting for it. The caller's thread is busy for
+    /// the same time either way; only the stack differs.
+    static func onLargeStack<T>(_ work: @escaping () -> T) -> T {
+        let box = ResultBox<T>()
+        let done = DispatchSemaphore(value: 0)
+        let thread = Thread {
+            box.value = work()
+            done.signal()
+        }
+        thread.stackSize = workStackSize
+        thread.qualityOfService = Thread.current.qualityOfService
+        thread.start()
+        done.wait()
+        return box.value!
+    }
+
+    private final class ResultBox<T>: @unchecked Sendable {
+        var value: T?
     }
 
     // MARK: HTML

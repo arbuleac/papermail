@@ -4,6 +4,17 @@ import XCTest
 /// Regressions from the adversarial review of the sanitizer. Each case is a construct that got past an earlier
 /// version, usually because SwiftSoup reads the markup one way and WebKit reads the re-serialised output another.
 final class SanitizerAdversarialTests: XCTestCase {
+    /// Unclosed tags can nest a body hundreds deep. Sanitised at sync time on a concurrency pool thread (512 KB of
+    /// stack), the recursive scrub of such a body overflowed it and crashed the app on every launch.
+    func testABodyNestedToTheScrubsLimitIsSanitisedOffTheMainStack() async {
+        let depth = 400
+        let html = String(repeating: #"<div style="color:#333;font:12px \41rial">"#, count: depth) + "Deep words"
+            + String(repeating: "</div>", count: depth)
+        let task = Task.detached { RenderTestSupport.sanitize(html) }
+        let sanitized = await task.value
+        XCTAssertTrue(sanitized.plainText.contains("Deep words") || sanitized.html.contains("ss-body"))
+    }
+
     // MARK: Foreign content (mutation XSS)
 
     /// SwiftSoup keeps `<style>` as raw text everywhere; inside `<svg>` WebKit parses its contents as markup,

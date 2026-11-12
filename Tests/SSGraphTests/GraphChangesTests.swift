@@ -534,6 +534,55 @@ final class GraphChangesTests: GraphTestCase {
         ])
     }
 
+    /// A delta can report a read message with only what changed. Stored whole it became “No sender · No subject”
+    /// dated 1970; its metadata is looked up instead, and a message gone since is simply left out.
+    func testAPartialChangeIsLookedUpNotStoredBlank() async throws {
+        route { request in
+            if request.method == "GET", request.path == self.inboxDelta {
+                return .json(Fixtures.list([
+                    #"{"id":"m-read","isRead":true}"#,
+                    #"{"id":"m-gone","isRead":true}"#,
+                ], deltaLink: self.inboxLink))
+            }
+            return self.batchReply(request) { id, url in
+                if url.contains("m-gone") {
+                    return Fixtures.BatchItem(id: id, status: 404, body: Fixtures.notFoundError)
+                }
+                return Fixtures.BatchItem(id: id, status: 200, body: Fixtures.message(id: "m-read", folder: "F-INBOX"))
+            }
+        }
+
+        let page = try await makeProvider().changes(since: try cursor(folders: ["F-INBOX": nil]), limit: 50)
+
+        XCTAssertEqual(page.upserts.map(\.id.providerID), ["m-read"])
+        XCTAssertNotEqual(page.upserts.first?.date, Date(timeIntervalSince1970: 0))
+        XCTAssertEqual(page.deletedIDs, [], "a partial change is no deletion")
+        XCTAssertEqual(innerBatchRequests().map { $0["url"] as? String }, [
+            "/me/messages/m-read?$select=\(GraphProvider.metadataSelect)",
+            "/me/messages/m-gone?$select=\(GraphProvider.metadataSelect)",
+        ])
+    }
+
+    /// A partial change Graph will not look up keeps what the store has, and the cursor moves on.
+    func testAPartialChangeGraphWillNotReturnKeepsWhatTheStoreHas() async throws {
+        let internalError = #"{"error":{"code":"ErrorInternalServerError","message":"An internal server error occurred."}}"#
+        route { request in
+            if request.method == "GET", request.path == self.inboxDelta {
+                return .json(Fixtures.list([
+                    #"{"id":"m-broken","isRead":true}"#,
+                    Fixtures.message(id: "m-new", folder: "F-INBOX"),
+                ], deltaLink: self.inboxLink))
+            }
+            return self.batchReply(request) { id, _ in Fixtures.BatchItem(id: id, status: 500, body: internalError) }
+        }
+
+        let page = try await makeProvider().changes(since: try cursor(folders: ["F-INBOX": nil]), limit: 50)
+
+        XCTAssertEqual(page.upserts.map(\.id.providerID), ["m-new"])
+        XCTAssertEqual(page.deletedIDs, [])
+        XCTAssertEqual(try GraphCursor.decode(page.cursor).deltaLink(for: "F-INBOX"), inboxLink)
+    }
+
     /// One removal Graph would not look up (seen live: 403 ErrorAccessDenied) failed the whole call, so the cursor
     /// never moved and every poll met the same message: the account stopped syncing for good. It is taken as gone
     /// now and the cursor moves on.

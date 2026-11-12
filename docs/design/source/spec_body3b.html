@@ -146,7 +146,7 @@
 
   <div class="c12 card deskbg">
     <h3>Invitation card <code>layout.invitation · §5.14</code></h3>
-    <p class="cap" style="max-width:none">Above the body, at the indent, inside the measure. Read when the body was fetched, never when it opens. The answer is recorded at once and goes out in the background; an answer that needs permission to update the calendar waits and asks to reconnect. Cancelled shows the word and strikes the title; an event the user organized and an invitation that could not be read whole offer nothing to answer (the latter shows no card at all).</p>
+    <p class="cap" style="max-width:none">Above the body, at the indent, inside the measure; the body folds under it behind the elision mark, {{layout.invitation.gapBelow}} pt below, where it would start (“Show message”). Read when the body was fetched, never when it opens. The answer is recorded at once and goes out in the background; an answer that needs permission to update the calendar waits and asks to reconnect. Cancelled shows the word and strikes the title; an event the user organized and an invitation that could not be read whole offer nothing to answer (the latter shows no card at all).</p>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start">
       <div style="display:grid;gap:6px">
         <span class="lbl">Open · in another zone · repeating</span>
@@ -159,7 +159,8 @@
           <dl><dt>Where</dt><dd>Bay 4</dd><dt></dt><dd><span class="lk">https://teams.microsoft.com/l/meetup-join/…</span></dd><dt>Organizer</dt><dd>Rachel Kim</dd><dt>Guests</dt><dd>You, Marcus Bell, Aisha Patel</dd></dl>
           <div class="ia"><span class="ans">Accept</span><span class="ans foc">Tentative</span><span class="ans">Decline</span><span class="btn linkb">Open in Calendar</span></div>
         </div>
-        <span class="ann">Tentative focused (Tab); no answer chosen yet.</span>
+        <div style="margin-top:calc({{layout.invitation.gapBelow}}px - 6px)"><span class="qt">{{PY: g('ss.elide', 14)}}Show message</span></div>
+        <span class="ann">Tentative focused (Tab); no answer chosen yet. The message folded under the card; “Hide message” once unfolded.</span>
       </div>
       <div style="display:grid;gap:6px">
         <span class="lbl">Answered · waiting for calendar permission</span>

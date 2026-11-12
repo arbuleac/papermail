@@ -26,6 +26,9 @@ final class PooledConversationView {
     var lastUsed: UInt64 = 0
     /// A render requested before the shell signalled readiness; replayed on `ssReady`.
     var pendingRender: PendingRender?
+    /// The page's keyboard focus is on an elision mark, as its shell last said. Kept per slot, on screen or not, because
+    /// a slot swapped back in still has its page's focus.
+    var markFocused = false
 
     init(webView: WKWebView) {
         self.webView = webView
@@ -60,6 +63,7 @@ final class PooledConversationView {
         renderedID = nil
         renderedInputs = nil
         pendingRender = nil
+        markFocused = false
         let waiters = tracker.reset()
         for waiter in waiters { waiter(false) }
     }

@@ -958,9 +958,13 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     // MARK: Shell messages
 
     private func handle(_ message: ConversationScriptMessage, from slot: PooledConversationView) {
+        if case .focusMark(let on) = message {
+            slot.markFocused = on
+            return
+        }
         guard slot === pool.current else { return }
         switch message {
-        case .ready:
+        case .ready, .focusMark:
             break
         case .motion:
             // The registry holds animators weakly; this one lives until the next motion replaces it.
@@ -1216,7 +1220,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
            let index = parts.firstIndex(where: { $0.id == focused.attachment }) {
             parts.insert(parts.remove(at: index), at: 0)
         }
-        switch ReaderShortcuts.spaceOutcome(previewVisible: preview.isPanelVisible, attachments: parts) {
+        switch ReaderShortcuts.spaceOutcome(previewVisible: preview.isPanelVisible, markFocused: isMarkFocused, attachments: parts) {
         case .closePreview:
             preview.closePanel()
             return true
@@ -1227,6 +1231,15 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         case .passThrough:
             return false
         }
+    }
+
+    /// Keyboard focus is on an elision mark in the conversation on screen (quoted text, or the message under an
+    /// invitation card): Space and ↩ press it in the page (spec §5.15), so neither Quick Look nor the router's Open
+    /// takes them. Only while the page itself has the window's focus; the shell says where focus is inside it.
+    var isMarkFocused: Bool {
+        guard let current = pool.current, current.markFocused, !webContainer.isHidden,
+              let responder = view.window?.firstResponder as? NSView else { return false }
+        return responder.isDescendant(of: current.webView)
     }
 
     /// Read apart from the body, which a clean-up may have evicted in the instant this conversation went on screen.
@@ -1703,8 +1716,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     }
 
     /// The reader's own keys (spec §6): N and P move through the messages, "." shows or hides quoted text,
-    /// ⇧⌘I loads images and ⇧⌘O switches Original colors on the target, and Space previews its attachments.
-    /// None of them fire while a text field has focus.
+    /// ⇧⌘I loads images and ⇧⌘O switches Original colors on the target, and Space previews its attachments
+    /// (or, on a focused elision mark, goes on to press it). None of them fire while a text field has focus.
     private func handleKey(_ event: NSEvent) -> Bool {
         guard let window = view.window, window.isKeyWindow, event.window === window,
               !KeyboardRouter.isTextInput(window.firstResponder) else { return false }

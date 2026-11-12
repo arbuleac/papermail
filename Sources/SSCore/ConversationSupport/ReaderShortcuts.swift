@@ -41,14 +41,16 @@ public enum ReaderShortcuts {
     public enum SpaceOutcome: Equatable {
         case closePreview
         case preview(AttachmentInfo)
-        /// Nothing to preview: the event belongs to the web view, where Space pages down.
+        /// Nothing to preview, or focus on an elision mark: the event belongs to the web view, where Space pages
+        /// down, or presses the focused mark.
         case passThrough
     }
 
-    /// Space closes an open Quick Look panel, else previews the first real attachment. Inline parts are
-    /// pictures in the body, not something to open.
-    public static func spaceOutcome(previewVisible: Bool, attachments: [AttachmentInfo]) -> SpaceOutcome {
+    /// Space closes an open Quick Look panel, else presses a focused elision mark (spec §5.15), else previews the
+    /// first real attachment. Inline parts are pictures in the body, not something to open.
+    public static func spaceOutcome(previewVisible: Bool, markFocused: Bool = false, attachments: [AttachmentInfo]) -> SpaceOutcome {
         if previewVisible { return .closePreview }
+        if markFocused { return .passThrough }
         guard let first = attachments.first(where: { !$0.isInline }) else { return .passThrough }
         return .preview(first)
     }

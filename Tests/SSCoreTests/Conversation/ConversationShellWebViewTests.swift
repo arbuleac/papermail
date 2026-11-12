@@ -607,7 +607,9 @@ final class ConversationShellWebViewTests: XCTestCase {
         let held = int(try await evaluate("window.ss.render(\(try payload.jsonString())); document.querySelectorAll('.ss-card .ss-skels.ss-held').length", in: webView))
         XCTAssertEqual(held, 1, "the loading frame's bars wait for skeletonDelay")
         let margins = try await evaluate("Array.from(document.querySelectorAll('.ss-card.ss-draft .ss-ind')).map(function (n) { return getComputedStyle(n).marginLeft; })", in: webView) as? [String]
-        XCTAssertEqual(margins, ["0px", "0px", "0px"])
+        // The message's elision mark (never shown on a draft, which has no invitation card), the quoted-text toggle,
+        // the chips and the footer.
+        XCTAssertEqual(margins, ["0px", "0px", "0px", "0px"])
     }
 
     /// Downloading (spec §5.17): the chip's meta gives way to the 120 pt contrail, sweeping until a fraction is
@@ -838,20 +840,33 @@ final class ConversationShellWebViewTests: XCTestCase {
         _ = try await evaluate("window.ss.render(\(try payload(reply: nil)))", in: webView)
         try await waitForFrames(count: 1, in: webView)
 
-        let geometry = numbers(try await evaluate("""
+        let geometryScript = """
             (function () {
               var card = document.querySelector('.ss-invite'), head = document.querySelector('.ss-head');
-              var body = document.querySelector('.ss-body'), button = document.querySelector('.ss-ans');
-              var c = card.getBoundingClientRect(), h = head.getBoundingClientRect(), b = body.getBoundingClientRect();
-              return [c.left - h.left, c.width, c.top - h.bottom, b.top - c.bottom, button.getBoundingClientRect().height];
+              var mark = document.querySelector('.ss-mrow .ss-elide'), button = document.querySelector('.ss-ans');
+              var body = document.querySelector('.ss-body');
+              var c = card.getBoundingClientRect(), h = head.getBoundingClientRect(), k = mark.getBoundingClientRect();
+              var b = body.getBoundingClientRect();
+              return [c.left - h.left, c.width, c.top - h.bottom, k.top - c.bottom, button.getBoundingClientRect().height,
+                      k.left - h.left, k.height, b.height, b.top - k.bottom];
             })()
-            """, in: webView))
-        XCTAssertEqual(geometry.count, 5)
+            """
+        let geometry = numbers(try await evaluate(geometryScript, in: webView))
+        XCTAssertEqual(geometry.count, 9)
         XCTAssertEqual(geometry[0], 48, accuracy: 0.5, "at the body indent")
         XCTAssertLessThanOrEqual(geometry[1], 576.5, "inside the measure")
         XCTAssertEqual(geometry[2], 18, accuracy: 0.5, "where the body would start")
-        XCTAssertEqual(geometry[3], 16, accuracy: 0.5, "the body 16 below it")
+        XCTAssertEqual(geometry[3], 16, accuracy: 0.5, "the message's elision mark 16 below it, where the body would start")
         XCTAssertEqual(geometry[4], 22, accuracy: 0.5, "small buttons")
+        XCTAssertEqual(geometry[5], 48, accuracy: 0.5, "the mark at the indent")
+        XCTAssertEqual(geometry[6], 24, accuracy: 0.5)
+        XCTAssertEqual(geometry[7], 0, accuracy: 0.5, "the body folded under it")
+        _ = try await evaluate("document.querySelector('.ss-mrow .ss-elide').click()", in: webView)
+        let unfolded = numbers(try await evaluate(geometryScript, in: webView))
+        XCTAssertEqual(unfolded.count, 9)
+        XCTAssertEqual(unfolded[3], 16, accuracy: 0.5, "the mark stays put")
+        XCTAssertGreaterThan(unfolded[7], 0, "the body unfolds")
+        XCTAssertEqual(unfolded[8], 12, accuracy: 0.5, "12 below the mark")
         let answers = try await count(".ss-invite .ss-ans", in: webView)
         XCTAssertEqual(answers, 3)
         let links = try await count(".ss-invite .ss-ilink", in: webView)
@@ -951,6 +966,132 @@ final class ConversationShellWebViewTests: XCTestCase {
         XCTAssertEqual(linksGone, 0, "the headers going take the link")
         let cardBack = try await count(".ss-invite:not([hidden]) .ss-ans", in: webView)
         XCTAssertEqual(cardBack, 3, "and leave the card answerable")
+    }
+
+    /// Every state of the card folds its message (spec §5.14): to answer, answered, waiting for permission, the user's own
+    /// event, an earlier revision a later message updates, cancelled. A message without a card in the same
+    /// conversation shows its body as before. Nothing reads the HTML: the fold follows the payload's card.
+    func testEveryCardStateFoldsItsMessage() async throws {
+        typealias F = ConversationFixtures
+        let (webView, _) = try await loadedShell()
+        func invitation(_ uid: String, sequence: Int = 0, method: CalendarInvitation.Method = .request,
+                        own: Bool = false) -> CalendarInvitation {
+            CalendarInvitation(
+                method: method, uid: uid, sequence: sequence, title: "Design review", start: F.utc(2025, 3, 11, 15), end: F.utc(2025, 3, 11, 16),
+                organizer: CalendarInvitation.Person(name: own ? "Me" : "Ben Carter", address: own ? F.account.email : "ben@example.com"),
+                attendees: [CalendarInvitation.Person(address: "me@example.com", response: .needsAction)],
+                userAddress: "me@example.com", userResponse: .needsAction, userIsOrganizer: own,
+                calendarText: "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n")
+        }
+        // Oldest first: open, answered and waiting, own event, the earlier revision, its update, cancelled, no card.
+        var messages = (0..<7).map { F.message("m\($0)", date: F.utc(2025, 3, 1 + $0, 9, 0), isRead: false) }
+        messages[1].invitationReply = .accepted
+        var bodies: [MessageID: StoredBody] = [:]
+        let cards: [CalendarInvitation?] = [
+            invitation("open"), invitation("answered"), invitation("own", own: true),
+            invitation("revised", sequence: 0), invitation("revised", sequence: 1), invitation("gone", method: .cancel), nil,
+        ]
+        for (message, card) in zip(messages, cards) {
+            var body = F.body(html: "<p>Body of \(message.id.providerID)</p>")
+            body.invitation = card
+            bodies[message.id] = body
+        }
+        let payload = F.builder.build(messages: messages, bodies: bodies, accounts: F.accounts,
+                                      invitationPermissionNeeded: [F.accountID], now: F.utc(2025, 3, 8, 9))
+        XCTAssertEqual(payload.messages[1].invitation?.needsPermission, true, "the answered card waits for permission")
+        XCTAssertEqual(payload.messages[2].invitation?.organizer, "You", "the user's own event")
+        XCTAssertEqual(payload.messages[3].invitation?.canAnswer, false, "the earlier revision is updated")
+        XCTAssertEqual(payload.messages[5].invitation?.isCancelled, true)
+        _ = try await evaluate("window.ss.render(\(try payload.jsonString())); window.ss.expandAll()", in: webView)
+        try await waitForFrames(count: 7, in: webView)
+        let folded = try await evaluate("""
+            JSON.stringify(Array.from(document.querySelectorAll('.ss-card')).map(function (c) {
+              return [c.classList.contains('ss-mfolded'), getComputedStyle(c.querySelector('.ss-mrow')).display !== 'none',
+                      c.querySelector('.ss-body').getBoundingClientRect().height > 0];
+            }))
+            """, in: webView) as? String
+        XCTAssertEqual(folded, "[[true,true,false],[true,true,false],[true,true,false],[true,true,false],[true,true,false],"
+                       + "[true,true,false],[false,false,true]]")
+    }
+
+    /// The fold moves like the quoted-text toggle (spec §4.10): unfolding animates the sheet's height, and the app hears
+    /// that something moves; under Reduce Motion the sheet takes its new height at once, and nothing is said to move.
+    func testTheFoldMovesLikeQuotedText() async throws {
+        typealias F = ConversationFixtures
+        let (webView, handler) = try await loadedShell()
+        let message = F.message("m1")
+        var body = F.body(html: "<p>Ben has invited you.</p>" + String(repeating: "<p>Line</p>", count: 20))
+        body.invitation = CalendarInvitation(
+            method: .request, uid: "uid-1", title: "Design review", start: F.utc(2025, 3, 11, 15), end: F.utc(2025, 3, 11, 16),
+            organizer: CalendarInvitation.Person(name: "Ben Carter", address: "ben@example.com"),
+            attendees: [CalendarInvitation.Person(address: "me@example.com", response: .needsAction)],
+            userAddress: "me@example.com", userResponse: .needsAction, calendarText: "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n")
+        let payload = F.builder.build(messages: [message], bodies: [message.id: body], accounts: F.accounts)
+        let heights = """
+            (function () { var c = document.querySelector('.ss-card');
+              return [parseFloat(c.style.height), Math.ceil(c.querySelector('.ss-inner').getBoundingClientRect().height),
+                      c.getBoundingClientRect().height]; })()
+            """
+        func motions() -> Int { handler.received.filter { ($0["kind"] as? String) == "motion" }.count }
+
+        _ = try await evaluate("window.ss.render(\(try payload.jsonString()))", in: webView)
+        try await waitForFrames(count: 1, in: webView)
+        try await Task.sleep(nanoseconds: 300_000_000)
+        let before = motions()
+        _ = try await evaluate("document.querySelector('.ss-mrow .ss-elide').click()", in: webView)
+        let animating = numbers(try await evaluate(heights, in: webView))
+        XCTAssertEqual(animating.count, 3)
+        XCTAssertEqual(animating[0], animating[1], accuracy: 0.5, "the sheet heads straight for the unfolded height")
+        XCTAssertLessThan(animating[2], animating[0] - 1, "and gets there by animating")
+        XCTAssertGreaterThan(motions(), before, "the app hears that something moves")
+
+        _ = try await evaluate("window.ss.setModes({rm: true})", in: webView)
+        try await Task.sleep(nanoseconds: 300_000_000)
+        let still = motions()
+        _ = try await evaluate("document.querySelector('.ss-mrow .ss-elide').click()", in: webView)
+        let reduced = numbers(try await evaluate(heights, in: webView))
+        XCTAssertEqual(reduced.count, 3)
+        XCTAssertEqual(reduced[0], reduced[1], accuracy: 0.5)
+        XCTAssertEqual(reduced[2], reduced[0], accuracy: 0.5, "Reduce Motion: folded at once")
+        XCTAssertEqual(motions(), still, "nothing moves")
+    }
+
+    /// Original colors work on a folded message (spec §5.16): its notice stays in view over the folded body, as over folded
+    /// quoted text, and says when the switch is made; the body is rebuilt on the inset out of sight and shows so once
+    /// unfolded.
+    func testOriginalColorsWorkUnderTheFold() async throws {
+        typealias F = ConversationFixtures
+        let (webView, _) = try await loadedShell(dark: true)
+        let message = F.message("m1")
+        var body = F.body(html: "<table bgcolor=\"#B91C1C\"><tr><td style=\"color:#ffffff\">Join with Meet</td></tr></table>")
+        body.typesetting = .styled
+        body.declaresColors = true
+        body.invitation = CalendarInvitation(
+            method: .request, uid: "uid-1", title: "Design review", start: F.utc(2025, 3, 11, 15), end: F.utc(2025, 3, 11, 16),
+            organizer: CalendarInvitation.Person(name: "Ben Carter", address: "ben@example.com"),
+            attendees: [CalendarInvitation.Person(address: "me@example.com", response: .needsAction)],
+            userAddress: "me@example.com", userResponse: .needsAction, calendarText: "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n")
+        let payload = F.builder.build(messages: [message], bodies: [message.id: body], accounts: F.accounts)
+        _ = try await evaluate("window.ss.render(\(try payload.jsonString()))", in: webView)
+        try await waitForFramedCards(in: webView)
+        let notice = "(function () { var b = document.querySelector('.ss-banners .ss-banner.ss-warn');"
+            + " return b.querySelector('.ss-btxt').textContent + ' | ' + getComputedStyle(b).visibility; })()"
+        let before = try await evaluate(notice, in: webView) as? String
+        XCTAssertEqual(before, "This message uses its own colours. | visible", "the notice stays in view, as over folded quoted text")
+        let state = try await evaluate("JSON.stringify(window.ss.targetState())", in: webView) as? String
+        XCTAssertTrue(state?.contains("\"offersOriginal\":true") == true, "the hover action, More and ⇧⌘O still offer it: \(state ?? "")")
+        let on = try await evaluate("window.ss.toggleOriginal()", in: webView) as? Bool
+        XCTAssertEqual(on, true)
+        try await waitForFramedCards(in: webView)
+        let after = try await evaluate(notice, in: webView) as? String
+        XCTAssertEqual(after, "Showing the sender\u{2019}s colours. | visible", "the switch shows where it can be seen")
+        let inset = try await count(".ss-original iframe", in: webView)
+        XCTAssertEqual(inset, 1, "rebuilt on the inset under the fold")
+        let stillFolded = try await evaluate("document.querySelector('.ss-card').classList.contains('ss-mfolded')", in: webView) as? Bool
+        XCTAssertEqual(stillFolded, true, "and left folded, as quoted text is")
+        _ = try await evaluate("document.querySelector('.ss-mrow .ss-elide').click()", in: webView)
+        let shown = numbers(try await evaluate("[document.querySelector('.ss-original').getBoundingClientRect().height]", in: webView))
+        XCTAssertGreaterThan(shown.first ?? 0, 24, "the inset shows once unfolded")
     }
 
     /// The shell in a web view, once it has signalled ready. Skips unless `SS_UI_TESTS=1`.

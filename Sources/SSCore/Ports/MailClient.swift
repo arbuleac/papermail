@@ -6,7 +6,8 @@ public protocol MailClient: AnyObject {
 
     func accounts() throws -> [Account]
     /// Runs the OAuth flow in the system browser, creates the account, and starts its first sync.
-    func addAccount(kind: ProviderKind) async throws -> Account
+    /// `tenant` (Microsoft) is the one `MicrosoftAccountType` chose; nil signs in through the configured tenant.
+    func addAccount(kind: ProviderKind, tenant: String?) async throws -> Account
     /// Signs `account` in again (it is in `needsReauth`), steering the browser to its mailbox. Throws
     /// `AuthError.wrongAccount` when the user signs in to another mailbox; nothing is added then.
     func reconnect(_ account: Account) async throws -> Account
@@ -96,5 +97,12 @@ extension MailClient {
     /// The attachment's bytes, for a caller that shows no progress.
     public func attachmentData(for message: MessageID, attachmentID: String) async throws -> Data {
         try await attachmentData(for: message, attachmentID: attachmentID, expectedSize: 0, progress: nil)
+    }
+}
+
+extension MailClient {
+    /// Through the configured tenant (Gmail, the demo, and Microsoft before the user chose a kind of account).
+    public func addAccount(kind: ProviderKind) async throws -> Account {
+        try await addAccount(kind: kind, tenant: nil)
     }
 }

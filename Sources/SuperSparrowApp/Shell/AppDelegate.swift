@@ -612,7 +612,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     /// Starts a browser sign-in for a new account (§5.44). With no kind (the rail's +), the provider is chosen
     /// in a pull-down menu, never an alert.
-    func addAccount(_ kind: ProviderKind?, origin: Origin) {
+    func addAccount(_ kind: ProviderKind?, origin: Origin, type: MicrosoftAccountType? = nil) {
         guard let environment, !isPreparingDemo else { return }
         guard let kind else {
             // The welcome screen's two buttons are its provider choice.
@@ -620,12 +620,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return
         }
         guard signIn == nil else { return }
+        // One address can be a work account and a personal one; Microsoft would pick for the user, so they choose.
+        if kind == .microsoft, type == nil {
+            AppAlert.microsoftAccountType.present(on: window(for: origin)) { [weak self] choice in
+                guard choice < 2 else { return }
+                self?.addAccount(kind, origin: origin, type: choice == 0 ? .workOrSchool : .personal)
+            }
+            return
+        }
         if environment.isDemo {
-            confirmReplacingDemo(kind, origin: origin)
+            confirmReplacingDemo(kind, origin: origin, type: type)
             return
         }
         guard clientIsConfigured(kind, in: environment, origin: origin) else { return }
-        beginSignIn(kind: kind, reconnecting: nil, origin: origin, in: environment, replacement: nil)
+        beginSignIn(kind: kind, reconnecting: nil, origin: origin, in: environment, replacement: nil, type: type)
     }
 
     /// Runs the browser sign-in again for an account that needs it (§5.44, Reconnecting).
@@ -661,7 +669,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     /// In demo mode a real account replaces the demo (§5.43): asked first, then signed in against a real
     /// environment built beside the demo, which is swapped in only when the sign-in succeeds.
-    private func confirmReplacingDemo(_ kind: ProviderKind, origin: Origin) {
+    private func confirmReplacingDemo(_ kind: ProviderKind, origin: Origin, type: MicrosoftAccountType?) {
         AppAlert.replaceDemo.present(on: window(for: origin)) { [weak self] choice in
             guard choice == 0, let self, self.signIn == nil else { return }
             let real: AppEnvironment
@@ -670,7 +678,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             } catch {
                 Self.log.error("could not open the real mail database: \(String(describing: error), privacy: .public)")
                 AppAlert.addFailed(reason: "The mail database couldn't be opened.").present(on: self.window(for: origin)) { [weak self] choice in
-                    if choice == 0 { self?.addAccount(kind, origin: origin) }
+                    if choice == 0 { self?.addAccount(kind, origin: origin, type: type) }
                 }
                 return
             }
@@ -679,12 +687,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 return
             }
             real.start()
-            self.beginSignIn(kind: kind, reconnecting: nil, origin: origin, in: real, replacement: real)
+            self.beginSignIn(kind: kind, reconnecting: nil, origin: origin, in: real, replacement: real, type: type)
         }
     }
 
     private func beginSignIn(kind: ProviderKind, reconnecting: Account?, origin: Origin, in environment: AppEnvironment,
-                             replacement: AppEnvironment?) {
+                             replacement: AppEnvironment?, type: MicrosoftAccountType? = nil) {
+        let tenant = type.map { $0.tenant(configured: try? environment.clientConfigurations.configuration(for: kind).tenant) }
         signInGeneration += 1
         let generation = signInGeneration
         let knownIDs = Set(((try? environment.engine.accounts()) ?? []).map(\.id))
@@ -694,7 +703,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 if let reconnecting {
                     account = try await environment.engine.reconnect(reconnecting)
                 } else {
-                    account = try await environment.engine.addAccount(kind: kind)
+                    account = try await environment.engine.addAccount(kind: kind, tenant: tenant)
                 }
                 self?.signInSucceeded(account, generation: generation, wasKnown: knownIDs.contains(account.id))
             } catch {

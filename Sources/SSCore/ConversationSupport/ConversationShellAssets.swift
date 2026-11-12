@@ -322,7 +322,22 @@ public enum ConversationShellAssets {
     }
     html.ss-ic .ss-invite { box-shadow: inset 0 0 0 1px var(--q-ruleStrong); }
     @media (prefers-contrast: more) { .ss-invite { box-shadow: inset 0 0 0 1px var(--q-ruleStrong); } }
-    .ss-invite:not([hidden]) + .ss-body { margin-top: 16px; }
+    /* The message under a card folds behind the elision mark (spec §5.14, §5.15): the mark stands where the body would
+       start, gapBelow under the card, and the body unfolds blockGap under the mark. A flex row, so no line box adds to
+       the mark's 24 pt. Folded, the frame keeps its document laid out at full width and measured, only clipped to
+       nothing and out of sight (the !important beats the provisional min-height the script sets), so unfolding animates
+       to its real height as quoted text does; `inert` (set by the script) keeps it out of the Tab order and from
+       VoiceOver. The body's banners stay in view, blockGap under the mark and attachmentsTop above the chips, as they
+       stay over folded quoted text, so Load images and Original colors answer where they can be seen. Its own
+       quoted-text toggle folds with it. */
+    .ss-mrow { display: none; margin-top: 16px; }
+    .ss-card.ss-mfold .ss-mrow { display: flex; }
+    .ss-card.ss-mfold .ss-body { margin-top: 12px; }
+    .ss-card.ss-mfolded .ss-body { margin-top: 0; }
+    .ss-card.ss-mfolded .ss-banners { margin-top: 12px; }
+    .ss-card.ss-mfolded .ss-banners > .ss-banner:last-child { margin-bottom: 0; }
+    .ss-card.ss-mfolded .ss-frame { height: 0; min-height: 0 !important; overflow: hidden; visibility: hidden; }
+    .ss-card.ss-mfolded .ss-qrow { display: none; }
     .ss-ikick {
       display: flex; align-items: center; gap: 6px; font: var(--q-font-runningHead); letter-spacing: var(--q-track-runningHead);
       text-transform: uppercase; color: var(--q-ink3);
@@ -1422,20 +1437,61 @@ public enum ConversationShellAssets {
         card.element.setAttribute('aria-label', (m.from && m.from.name ? m.from.name : 'No sender') + ', ' + m.dateDisplay);
       }
 
-      // MARK: Quoted text, attachments, footer
+      // MARK: Quoted text, the message under a card, attachments, footer
+
+      // The elision mark (spec §5.15), for quoted text and for the message under an invitation card. A Space or ↩ on
+      // the focused mark rebuilds it; the new one takes the focus back, so the next press folds again. `takeFocus` gives
+      // it the focus from something the fold is about to hide.
+      function fillElision(row, kind, shown, words, tooltip, onToggle, takeFocus) {
+        var hadFocus = !!takeFocus || (!!document.activeElement && row.contains(document.activeElement));
+        var toggle = button('ss-elide ' + kind + (shown ? ' ss-on' : ''), null, tooltip);
+        toggle.appendChild(glyph(ELIDE_SVG));
+        toggle.appendChild(document.createTextNode(words));
+        toggle.setAttribute('aria-pressed', shown ? 'true' : 'false');
+        toggle.addEventListener('click', onToggle);
+        row.replaceChildren(toggle);
+        if (hadFocus) {
+          try { toggle.focus({ preventScroll: true }); } catch (e) { toggle.focus(); }
+        }
+      }
 
       function fillQuote(card) {
         var m = card.message;
-        card.qrow.replaceChildren();
         card.qrow.style.display = m.hasBody && m.hasQuotedContent ? '' : 'none';
-        if (!(m.hasBody && m.hasQuotedContent)) { refitCard(card); return; }
-        var toggle = button('ss-elide ss-toggle-quote' + (card.quotesShown ? ' ss-on' : ''), null,
-          card.quotesShown ? 'Hide Quoted Text  .' : 'Show Quoted Text  .');
-        toggle.appendChild(glyph(ELIDE_SVG));
-        toggle.appendChild(document.createTextNode(card.quotesShown ? 'Hide quoted text' : 'Show quoted text'));
-        toggle.setAttribute('aria-pressed', card.quotesShown ? 'true' : 'false');
-        toggle.addEventListener('click', function (event) { stop(event); setTarget(card, true); toggleQuotes(card); });
-        card.qrow.appendChild(toggle);
+        if (!(m.hasBody && m.hasQuotedContent)) { card.qrow.replaceChildren(); refitCard(card); return; }
+        // Under a card "." folds the message instead (toggleFold), so this mark names no key there.
+        var key = foldsMessage(card) ? '' : '  .';
+        fillElision(card.qrow, 'ss-toggle-quote', card.quotesShown,
+          card.quotesShown ? 'Hide quoted text' : 'Show quoted text',
+          (card.quotesShown ? 'Hide Quoted Text' : 'Show Quoted Text') + key,
+          function (event) { stop(event); setTarget(card, true); toggleQuotes(card); });
+        refitCard(card);
+      }
+
+      // A message with an invitation card starts folded under it (spec §5.14): its body is most often the sender's own
+      // rendering of the same invitation. Decided from the payload's card alone; nothing reads the HTML.
+      function foldsMessage(card) {
+        var m = card.message;
+        return !!(m.hasBody && m.invitation);
+      }
+
+      function fillMessageFold(card) {
+        var folds = foldsMessage(card);
+        var folded = folds && !card.messageShown;
+        // Folding by "." can hide what has the focus (a link in the body's frame, its quoted-text toggle); the mark takes
+        // it, so the user keeps their place instead of focus falling to the page or staying on something inert.
+        var active = document.activeElement;
+        var hidesFocus = folded && !!active && (card.frameWrap.contains(active) || card.qrow.contains(active));
+        card.element.classList.toggle('ss-mfold', folds);
+        card.element.classList.toggle('ss-mfolded', folded);
+        if (folded) { card.frameWrap.setAttribute('inert', ''); } else { card.frameWrap.removeAttribute('inert'); }
+        if (folds) {
+          fillElision(card.mrow, 'ss-toggle-message', !folded, folded ? 'Show message' : 'Hide message',
+            folded ? 'Show Message  .' : 'Hide Message  .',
+            function (event) { stop(event); setTarget(card, true); toggleMessage(card); }, hidesFocus);
+        } else {
+          card.mrow.replaceChildren();
+        }
         refitCard(card);
       }
 
@@ -1610,12 +1666,14 @@ public enum ConversationShellAssets {
         card.imagesLoaded = loadRemote;
         card.liveRemote = 0;
         card.quotesShown = false;
+        card.messageShown = false;
         card.imageLoad = null;
         card.imageFailures = 0;
         markDesign(card);
         renderBanners(card);
         renderFrame(card);
         fillQuote(card);
+        fillMessageFold(card);
       }
 
       function patch(card, m) {
@@ -1632,6 +1690,12 @@ public enum ConversationShellAssets {
         // they were, so the mark is put back to the store's answer even when nothing else changed.
         if (JSON.stringify(previous.invitation || null) !== JSON.stringify(m.invitation || null)) { fillInvitation(card); }
         else if (m.invitation) { chooseAnswer(card, m.invitation.response || null); }
+        // An answer or a notice redraws the card and leaves the fold as the user set it; only a card coming or going
+        // changes whether the message folds at all.
+        if (!!previous.invitation !== !!m.invitation) {
+          fillMessageFold(card);
+          fillQuote(card);
+        }
       }
 
       function fit(card, animate) {
@@ -1644,8 +1708,9 @@ public enum ConversationShellAssets {
       function buildCard(m) {
         var card = {
           message: m, element: null, row: null, inner: null, head: null, avatar: null, who: null, meta: null,
-          invite: null, banners: null, frameWrap: null, qrow: null, atts: null, foot: null, iframe: null, observer: null,
-          expanded: false, folded: false, imagesLoaded: loadRemote, liveRemote: 0, quotesShown: false, height: 0,
+          invite: null, mrow: null, banners: null, frameWrap: null, qrow: null, atts: null, foot: null, iframe: null,
+          observer: null, expanded: false, folded: false, imagesLoaded: loadRemote, liveRemote: 0, quotesShown: false,
+          messageShown: false, height: 0,
           measured: false, measureTimer: null, collapseTimer: null, imageLoad: null, imageFailures: 0, zoom: 1,
           wide: false, typeset: false, animateFit: false, sizeObserver: null
         };
@@ -1679,6 +1744,7 @@ public enum ConversationShellAssets {
         var invite = el('section', 'ss-invite');
         invite.setAttribute('role', 'group');
         invite.hidden = true;
+        var mrow = el('div', 'ss-mrow ss-ind');
         var body = el('div', 'ss-body');
         var banners = el('div', 'ss-banners');
         var frameWrap = el('div', 'ss-frame');
@@ -1689,6 +1755,7 @@ public enum ConversationShellAssets {
         var foot = el('footer', 'ss-foot ss-ind');
         inner.appendChild(head);
         inner.appendChild(invite);
+        inner.appendChild(mrow);
         inner.appendChild(body);
         inner.appendChild(qrow);
         inner.appendChild(atts);
@@ -1729,6 +1796,7 @@ public enum ConversationShellAssets {
         card.who = who;
         card.meta = meta;
         card.invite = invite;
+        card.mrow = mrow;
         card.banners = banners;
         card.frameWrap = frameWrap;
         card.qrow = qrow;
@@ -1737,6 +1805,7 @@ public enum ConversationShellAssets {
         markDesign(card);
         fillHeader(card);
         fillInvitation(card);
+        fillMessageFold(card);
         renderBanners(card);
         fillQuote(card);
         fillAttachments(card);
@@ -1978,6 +2047,20 @@ public enum ConversationShellAssets {
         }
       }
 
+      // The body is already laid out and measured under the fold, so the sheet animates straight to its height.
+      function toggleMessage(card) {
+        if (!card || !foldsMessage(card)) { return; }
+        card.messageShown = !card.messageShown;
+        card.animateFit = true;
+        fillMessageFold(card);
+      }
+
+      // "." (spec §6): quoted text, or on a message under an invitation card the message, whose own quoted text keeps its
+      // toggle.
+      function toggleFold(card) {
+        if (card && foldsMessage(card)) { toggleMessage(card); } else { toggleQuotes(card); }
+      }
+
       function setOriginal(card, on) {
         if (!card) { return; }
         if (on) { originalOn[card.message.id] = true; } else { delete originalOn[card.message.id]; }
@@ -2120,6 +2203,7 @@ public enum ConversationShellAssets {
         if (firstExpanded && firstExpanded !== state.cards[0]) {
           firstExpanded.element.scrollIntoView({ block: 'start' });
         }
+        reportMarkFocus();
         return state.cards.length;
       }
 
@@ -2130,9 +2214,9 @@ public enum ConversationShellAssets {
       }
 
       // Patches the cards in place so what the reader is looking at survives a store change: expansion,
-      // scroll position, loaded images and shown quotes all stay, and only what changed is touched. New
-      // messages are inserted around the survivors; a reorder of survivors falls back to a full render,
-      // because moving an iframe in the DOM reloads it.
+      // scroll position, loaded images, shown quotes and an unfolded message all stay, and only what changed
+      // is touched. New messages are inserted around the survivors; a reorder of survivors falls back to a
+      // full render, because moving an iframe in the DOM reloads it.
       function update(payload) {
         var messages = payload.messages || [];
         if (!state.payload || state.cards.length === 0 || messages.length === 0) { return render(payload); }
@@ -2191,6 +2275,7 @@ public enum ConversationShellAssets {
         for (var a = 0; a < added.length; a++) { if (added[a].expand) { expand(added[a].card, false); } }
         restack();
         if (!state.target) { setTarget(cards[cards.length - 1], false); }
+        reportMarkFocus();
         return cards.length;
       }
 
@@ -2225,9 +2310,25 @@ public enum ConversationShellAssets {
         teardown();
         document.title = '';
         root.replaceChildren();
+        reportMarkFocus();
       }
 
       document.addEventListener('keydown', function () { keyboardNav = true; }, true);
+      // The app sees every key before the page, and in the reader Space is Quick Look and ↩ is Open (spec §6). On a
+      // focused elision mark both are the mark's (§5.15), so the shell tells the app whenever focus lands on a mark or
+      // leaves one, and the app lets those two keys through. Focus can also go with no event (its node replaced by a
+      // render), so the renders report too; only a change is posted.
+      var markFocusPosted = false;
+      function reportMarkFocus() {
+        var active = document.activeElement;
+        var on = !!active && !!active.classList && active.classList.contains('ss-elide');
+        if (on === markFocusPosted) { return; }
+        markFocusPosted = on;
+        post('ss', { kind: 'focusMark', on: on });
+      }
+      document.addEventListener('focusin', reportMarkFocus);
+      // The element losing focus may still be the active one while focusout runs.
+      document.addEventListener('focusout', function () { setTimeout(reportMarkFocus, 0); });
       // A click (or Tab) into a body moves focus into its frame and away from the shell. Listeners inside the
       // sandboxed body never run, so this is how the click makes that message the target (spec §5.14).
       // Focus can also move from one body straight into another, which the shell hears nothing of: while it is
@@ -2298,7 +2399,8 @@ public enum ConversationShellAssets {
             hasQuotes: !!(m.hasBody && m.hasQuotedContent), quotesShown: !!card.quotesShown, isStarred: !!m.isStarred
           };
         },
-        toggleQuotes: function () { toggleQuotes(targetCard()); },
+        // The "." command: named for quoted text, it also folds the message under an invitation card (toggleFold).
+        toggleQuotes: function () { toggleFold(targetCard()); },
         toggleOriginal: function () {
           var card = targetCard();
           if (!card || !offersOriginal(card)) { return null; }
@@ -2313,7 +2415,8 @@ public enum ConversationShellAssets {
             var card = state.cards[i];
             states.push({
               id: card.message.id, expanded: card.expanded, imagesLoaded: card.imagesLoaded,
-              quotesShown: card.quotesShown, hasFrame: !!card.iframe, folded: card.folded
+              quotesShown: card.quotesShown, hasFrame: !!card.iframe, folded: card.folded,
+              foldsMessage: foldsMessage(card), messageShown: !!card.messageShown
             });
           }
           return states;

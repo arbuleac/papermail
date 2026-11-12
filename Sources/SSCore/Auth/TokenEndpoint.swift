@@ -51,7 +51,8 @@ struct TokenResponse: Decodable, Sendable, Hashable {
             accessToken: accessToken,
             refreshToken: refreshToken ?? previous?.refreshToken,
             expiresAt: issuedAt.addingTimeInterval(expiresIn ?? TokenResponse.defaultLifetime),
-            scope: scope ?? previous?.scope
+            scope: scope ?? previous?.scope,
+            tenant: previous?.tenant
         )
     }
 }

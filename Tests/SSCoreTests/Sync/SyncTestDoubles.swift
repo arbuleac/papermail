@@ -106,6 +106,26 @@ final class StubAuthenticator: AccountAuthenticator, @unchecked Sendable {
         try recordSignIn(kind, loginHint: loginHint, permissions: permissions).get()
     }
 
+    private var askedTenants: [String?] = []
+
+    /// The tenant each sign-in went through (nil: the configured one).
+    var tenants: [String?] {
+        lock.lock(); defer { lock.unlock() }
+        return askedTenants
+    }
+
+    func signIn(kind: ProviderKind, loginHint: String?, permissions: Set<AccountPermission>, tenant: String?) async throws -> OAuthTokens {
+        var tokens = try recordSignIn(kind, loginHint: loginHint, permissions: permissions).get()
+        recordTenant(tenant)
+        tokens.tenant = tenant
+        return tokens
+    }
+
+    private func recordTenant(_ tenant: String?) {
+        lock.lock(); defer { lock.unlock() }
+        askedTenants.append(tenant)
+    }
+
     private func recordSignIn(_ kind: ProviderKind, loginHint: String?, permissions: Set<AccountPermission>) -> Result<OAuthTokens, Error> {
         lock.lock(); defer { lock.unlock() }
         kinds.append(kind)

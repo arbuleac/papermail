@@ -63,6 +63,7 @@ extension GraphProvider {
 
         var upserts: [String: MessageMetadata] = [:]
         var upsertOrder: [String] = []
+        var partial: [String] = []
         var removed: [String] = []
 
         // The first pass visits every drained folder due this call, so a quiet folder whose turn in the full visit
@@ -96,6 +97,10 @@ extension GraphProvider {
                 for item in page.value {
                     if item.removed != nil {
                         removed.append(item.id)
+                    } else if item.receivedDateTime == nil {
+                        // A delta may report a change with only what changed (a read flag); mapped whole it would
+                        // become a message with no sender, no subject and a 1970 date. Its metadata is looked up.
+                        partial.append(item.id)
                     } else if upserts.updateValue(mapper.metadata(from: item), forKey: item.id) == nil {
                         upsertOrder.append(item.id)
                     }
@@ -132,6 +137,17 @@ extension GraphProvider {
                 upsertOrder.append(message.id.providerID)
             }
             deletedIDs = candidates.filter { upserts[$0] == nil }
+        }
+
+        var looked: Set<String> = []
+        let incomplete = partial.filter { upserts[$0] == nil && looked.insert($0).inserted }
+        if !incomplete.isEmpty {
+            // Unknown ids (deleted since) are left out; their removal comes through the delta like any other. One
+            // Graph will not return keeps what the store has.
+            for message in try await metadata(for: incomplete, folders: folders, skippingUnreadable: true)
+            where upserts.updateValue(message, forKey: message.id.providerID) == nil {
+                upsertOrder.append(message.id.providerID)
+            }
         }
 
         return ChangesPage(

@@ -1043,6 +1043,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             list.extendSelection(by: -1)
             return true
         case .open:
+            // ↩ on a focused elision mark in the reader presses the mark in the page (§5.15) rather than opening again.
+            if conversation.isMarkFocused { return false }
             // Several selected have nothing single to open; the key is spent all the same.
             guard !isSeveralSelected else { return true }
             guard let id = list.selectedConversationID else { return false }

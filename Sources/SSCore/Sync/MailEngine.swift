@@ -216,15 +216,19 @@ public final class MailEngine: MailClient, @unchecked Sendable {
         try store.accounts()
     }
 
-    public func addAccount(kind: ProviderKind) async throws -> Account {
-        let (tokens, id, profile) = try await signIn(kind: kind, loginHint: nil)
+    public func addAccount(kind: ProviderKind, tenant: String?) async throws -> Account {
+        let (tokens, id, profile) = try await signIn(kind: kind, loginHint: nil, tenant: tenant)
         let existing = try store.accounts()
+        // A work account and a personal Microsoft account can share an address; they are different mailboxes.
+        let type = MicrosoftAccountType(tenant: tokens.tenant)
+        let tokenStore = tokenStore
         if let known = existing.first(where: {
-            $0.kind == kind && $0.email.caseInsensitiveCompare(profile.email) == .orderedSame
+            guard $0.kind == kind, $0.email.caseInsensitiveCompare(profile.email) == .orderedSame else { return false }
+            guard let type, let knownType = MicrosoftAccountType(tenant: (try? tokenStore.tokens(for: $0.id))??.tenant) else { return true }
+            return knownType == type
         }) {
             // Signing in to an account that is already here is how the user recovers from `needsReauth`:
             // keep the new tokens, drop the duplicate id, and let the existing syncer try again.
-            let tokenStore = tokenStore
             try await tokenProvider.replaceTokens(for: known.id) { try tokenStore.save(tokens, for: known.id) }
             try? tokenStore.delete(for: id)
             registry.context(for: known.id)?.syncer.wake(.poll)
@@ -247,8 +251,10 @@ public final class MailEngine: MailClient, @unchecked Sendable {
     }
 
     public func reconnect(_ account: Account) async throws -> Account {
+        // Through the tenant the account was added through, so a work account is never answered by a personal one.
+        let tenant = (try? tokenStore.tokens(for: account.id))??.tenant
         let (tokens, id, profile) = try await signIn(kind: account.kind, loginHint: account.email,
-                                                     permissions: permissionsToAsk(for: account))
+                                                     permissions: permissionsToAsk(for: account), tenant: tenant)
         defer { try? tokenStore.delete(for: id) }
         guard profile.email.caseInsensitiveCompare(account.email) == .orderedSame else {
             throw AuthError.wrongAccount(expected: account.email, actual: profile.email)
@@ -272,9 +278,9 @@ public final class MailEngine: MailClient, @unchecked Sendable {
     }
 
     /// Browser sign-in plus a profile read under a provisional id, whose tokens the caller keeps or drops.
-    private func signIn(kind: ProviderKind, loginHint: String?,
-                        permissions: Set<AccountPermission> = []) async throws -> (OAuthTokens, AccountID, AccountProfile) {
-        let tokens = try await authenticator.signIn(kind: kind, loginHint: loginHint, permissions: permissions)
+    private func signIn(kind: ProviderKind, loginHint: String?, permissions: Set<AccountPermission> = [],
+                        tenant: String?) async throws -> (OAuthTokens, AccountID, AccountProfile) {
+        let tokens = try await authenticator.signIn(kind: kind, loginHint: loginHint, permissions: permissions, tenant: tenant)
         let id = AccountID(UUID().uuidString)
         try tokenStore.save(tokens, for: id)
         let provisional = Account(id: id, kind: kind, email: "", displayName: "", addedAt: Date())

@@ -45,7 +45,13 @@ public final class OAuthFlow: AccountAuthenticator, Sendable {
     }
 
     public func signIn(kind: ProviderKind, loginHint: String?, permissions: Set<AccountPermission>) async throws -> OAuthTokens {
-        let configuration = try configurations.configuration(for: kind)
+        try await signIn(kind: kind, loginHint: loginHint, permissions: permissions, tenant: nil)
+    }
+
+    public func signIn(kind: ProviderKind, loginHint: String?, permissions: Set<AccountPermission>, tenant: String?) async throws -> OAuthTokens {
+        var configuration = try configurations.configuration(for: kind)
+        let tenant = kind == .microsoft ? tenant : nil
+        if let tenant { configuration.tenant = tenant }
         let pkce = PKCE()
         let state = Data.secureRandom(count: 16).base64URLEncodedString()
         let listener = LoopbackRedirectListener(expectedState: state, callbackPath: OAuthEndpoints.redirectPath(for: kind))
@@ -70,7 +76,9 @@ public final class OAuthFlow: AccountAuthenticator, Sendable {
         guard callback.state == state else {
             throw AuthError.invalidResponse("Authorization response state did not match the request")
         }
-        return try await exchange(code: callback.code, verifier: pkce.verifier, redirectURI: redirectURI, configuration: configuration)
+        var tokens = try await exchange(code: callback.code, verifier: pkce.verifier, redirectURI: redirectURI, configuration: configuration)
+        tokens.tenant = tenant
+        return tokens
     }
 
     /// Opens `url` with the default handler via LaunchServices.

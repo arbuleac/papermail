@@ -113,6 +113,11 @@ struct AppAlert {
                         buttons: [Button(title: "Open Settings"), Button(title: "Cancel")])
     }
 
+    /// Before a Microsoft sign-in: the address may be both kinds of account, and only the user knows which holds the mail.
+    static let microsoftAccountType = AppAlert(title: "Which kind of Microsoft account?",
+                                               body: "An address can be both a work or school account and a personal Microsoft account. Choose the one that holds your mail.",
+                                               buttons: [Button(title: "Work or School"), Button(title: "Personal"), Button(title: "Cancel")])
+
     static func addFailed(reason: String) -> AppAlert {
         AppAlert(title: "Couldn't add the account", body: sentence(reason), buttons: [Button(title: "Try Again"), Button(title: "Cancel")])
     }

@@ -186,7 +186,9 @@ public actor TokenManager: AccessTokenProvider {
             // Entra mints the access token for the audience named here; omitting it can yield a token Graph rejects.
             form.append(("scope", stored.scope ?? OAuthEndpoints.microsoftScope))
         }
-        let url = OAuthEndpoints.tokenURL(for: kind, tenant: configuration.tenant)
+        // The tenant the grant was signed in through: a work account's token renews there even if the configured
+        // tenant is `common`, which the same address's personal account would answer.
+        let url = OAuthEndpoints.tokenURL(for: kind, tenant: stored.tenant ?? configuration.tenant)
         do {
             let response = try await TokenEndpoint.post(form: form, to: url, session: session)
             Self.logger.debug("Refreshed access token for account \(accountID.rawValue, privacy: .public)")

@@ -93,6 +93,31 @@ final class MailEngineAccountTests: XCTestCase {
         await harness.shutdown()
     }
 
+    /// One address can be a personal Microsoft account and a work one: two mailboxes, so two accounts, each signing in
+    /// again through its own tenant.
+    func testAWorkAndAPersonalMicrosoftAccountWithOneAddressAreTwoAccounts() async throws {
+        let harness = try EngineHarness(seedAccount: false, factory: { account in
+            let provider = ScriptedProvider(accountID: account.id)
+            provider.bootstrapRuns = [["": .success(Fixtures.page(1...1, next: nil, cursor: "c0", account: account.id))]]
+            return provider
+        })
+        let personal = try await harness.engine.addAccount(kind: .microsoft, tenant: "consumers")
+        let work = try await harness.engine.addAccount(kind: .microsoft, tenant: "organizations")
+        XCTAssertNotEqual(personal.id, work.id)
+        XCTAssertEqual(personal.email, work.email)
+        XCTAssertEqual(try harness.tokenStore.tokens(for: work.id)?.tenant, "organizations")
+        XCTAssertEqual(try harness.tokenStore.tokens(for: personal.id)?.tenant, "consumers")
+
+        // Adding the work account again is its reconnect, not a third account.
+        let again = try await harness.engine.addAccount(kind: .microsoft, tenant: "organizations")
+        XCTAssertEqual(again.id, work.id)
+        XCTAssertEqual(try harness.store.accounts().count, 2)
+
+        _ = try await harness.engine.reconnect(work)
+        XCTAssertEqual(harness.authenticator.tenants.last ?? nil, "organizations", "a reconnect goes through the account's own tenant")
+        await harness.shutdown()
+    }
+
     func testAddingAnExistingAccountRefreshesItsTokensInstead() async throws {
         let provider = ScriptedProvider(accountID: Fixtures.accountID)
         provider.bootstrapRuns = [["": .success(Fixtures.page(1...1, next: nil, cursor: "c0"))]]

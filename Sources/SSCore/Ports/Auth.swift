@@ -21,11 +21,16 @@ public struct OAuthTokens: Codable, Sendable, Hashable {
     public var refreshToken: String?
     public var expiresAt: Date
     public var scope: String?
-    public init(accessToken: String, refreshToken: String?, expiresAt: Date, scope: String?) {
+    /// Microsoft only: the tenant this grant was signed in through (`organizations`, `consumers` or one organisation),
+    /// which its refreshes must use too. Nil for grants from before the user chose (`MicrosoftAccountType`): those
+    /// use the tenant in Settings › OAuth.
+    public var tenant: String?
+    public init(accessToken: String, refreshToken: String?, expiresAt: Date, scope: String?, tenant: String? = nil) {
         self.accessToken = accessToken
         self.refreshToken = refreshToken
         self.expiresAt = expiresAt
         self.scope = scope
+        self.tenant = tenant
     }
 }
 
@@ -69,9 +74,16 @@ public protocol AccountAuthenticator: Sendable {
     /// As above, asking for `permissions` on top of mail: a reconnect that adds a scope the account needs now
     /// (incremental authorization). The default asks for mail alone.
     func signIn(kind: ProviderKind, loginHint: String?, permissions: Set<AccountPermission>) async throws -> OAuthTokens
+    /// As above, through `tenant` rather than the configured one (Microsoft; nil keeps the configured tenant). The
+    /// tokens remember it, so refreshes go through it too.
+    func signIn(kind: ProviderKind, loginHint: String?, permissions: Set<AccountPermission>, tenant: String?) async throws -> OAuthTokens
 }
 
 extension AccountAuthenticator {
+    public func signIn(kind: ProviderKind, loginHint: String?, permissions: Set<AccountPermission>, tenant: String?) async throws -> OAuthTokens {
+        try await signIn(kind: kind, loginHint: loginHint, permissions: permissions)
+    }
+
     public func signIn(kind: ProviderKind) async throws -> OAuthTokens {
         try await signIn(kind: kind, loginHint: nil)
     }

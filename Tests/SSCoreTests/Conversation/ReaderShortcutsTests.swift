@@ -58,4 +58,13 @@ final class ReaderShortcutsTests: XCTestCase {
         XCTAssertEqual(S.spaceOutcome(previewVisible: true, attachments: []), .closePreview, "an open panel closes even with nothing selected")
         XCTAssertEqual(S.spaceOutcome(previewVisible: true, attachments: [file]), .closePreview)
     }
+
+    /// Space on a focused elision mark presses it (spec §5.15), even when the message has a file to preview, such as
+    /// a Google invitation's invite.ics; an open Quick Look panel still closes first.
+    func testSpaceOnAFocusedMarkIsLeftToTheWebView() {
+        let ics = AttachmentInfo(id: "att-ics", filename: "invite.ics", mimeType: "application/ics", sizeBytes: 10, isInline: false)
+        XCTAssertEqual(S.spaceOutcome(previewVisible: false, markFocused: true, attachments: [ics]), .passThrough)
+        XCTAssertEqual(S.spaceOutcome(previewVisible: false, markFocused: false, attachments: [ics]), .preview(ics))
+        XCTAssertEqual(S.spaceOutcome(previewVisible: true, markFocused: true, attachments: [ics]), .closePreview)
+    }
 }

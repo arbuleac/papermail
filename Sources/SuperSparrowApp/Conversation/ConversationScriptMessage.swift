@@ -12,6 +12,8 @@ enum ConversationScriptMessage: Equatable {
     case select(MessageID)
     /// An attachment chip took keyboard focus: Space previews from it.
     case focusAttachment(MessageID, String)
+    /// Keyboard focus landed on an elision mark (true) or left it (false): Space and ↩ are the mark's while it has it.
+    case focusMark(Bool)
     /// A message switched between Original and Adaptive colors.
     case originalColors(MessageID, Bool)
     /// A height animation started; the next key press finishes it.
@@ -41,6 +43,9 @@ enum ConversationScriptMessage: Equatable {
         case "focusAttachment":
             guard let messageID, let attachmentID = dictionary["attachmentID"] as? String else { return nil }
             self = .focusAttachment(messageID, attachmentID)
+        case "focusMark":
+            guard let on = dictionary["on"] as? Bool else { return nil }
+            self = .focusMark(on)
         case "originalColors":
             guard let messageID, let on = dictionary["on"] as? Bool else { return nil }
             self = .originalColors(messageID, on)
