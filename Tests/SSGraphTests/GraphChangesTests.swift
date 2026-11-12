@@ -534,6 +534,41 @@ final class GraphChangesTests: GraphTestCase {
         ])
     }
 
+    /// One removal Graph would not look up (seen live: 403 ErrorAccessDenied) failed the whole call, so the cursor
+    /// never moved and every poll met the same message: the account stopped syncing for good. It is taken as gone
+    /// now and the cursor moves on.
+    func testARemovalGraphWillNotReturnDoesNotStopThePoll() async throws {
+        let accessDenied = #"{"error":{"code":"ErrorAccessDenied","message":"Access is denied. Check credentials and try again."}}"#
+        route { request in
+            if request.method == "GET", request.path == self.inboxDelta {
+                return .json(Fixtures.list([
+                    Fixtures.removed("r-denied"),
+                    Fixtures.message(id: "m-new", folder: "F-INBOX"),
+                ], deltaLink: self.inboxLink))
+            }
+            return self.batchReply(request) { id, _ in Fixtures.BatchItem(id: id, status: 403, body: accessDenied) }
+        }
+
+        let page = try await makeProvider().changes(since: try cursor(folders: ["F-INBOX": nil]), limit: 50)
+
+        XCTAssertEqual(page.upserts.map(\.id.providerID), ["m-new"])
+        XCTAssertEqual(page.deletedIDs, ["r-denied"])
+        XCTAssertEqual(try GraphCursor.decode(page.cursor).deltaLink(for: "F-INBOX"), inboxLink)
+    }
+
+    /// A throttle or a refused token in a lookup is the mailbox's, not the message's: the call still fails and the
+    /// cursor stays, so nothing is lost.
+    func testAThrottledLookupStillFailsThePoll() async throws {
+        route { request in
+            if request.method == "GET", request.path == self.inboxDelta {
+                return .json(Fixtures.list([Fixtures.removed("r-1")], deltaLink: self.inboxLink))
+            }
+            return self.batchReply(request) { id, _ in Fixtures.BatchItem(id: id, status: 429, headers: ["Retry-After": "7"]) }
+        }
+        let start = try cursor(folders: ["F-INBOX": nil])
+        await expectProviderError({ try await self.makeProvider().changes(since: start, limit: 50) }) { $0.retryAfter == 7 }
+    }
+
     // MARK: Requests sent
 
     /// A quiet poll between full visits asks the inbox, sent and drafts, and says so: three requests, which the

@@ -125,7 +125,9 @@ extension GraphProvider {
             candidates.append(id)
         }
         if !candidates.isEmpty {
-            let alive = try await metadata(for: candidates, folders: folders)
+            // A removal Graph will not look up is taken as gone; if it was a move, its new folder's delta brings
+            // the message back as an upsert.
+            let alive = try await metadata(for: candidates, folders: folders, skippingUnreadable: true)
             for message in alive where upserts.updateValue(message, forKey: message.id.providerID) == nil {
                 upsertOrder.append(message.id.providerID)
             }

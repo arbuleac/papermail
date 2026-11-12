@@ -61,7 +61,12 @@ public final class GraphProvider: MailProvider, Sendable {
         try await metadata(for: providerIDs, folders: try await wellKnownFolders())
     }
 
-    func metadata(for providerIDs: [String], folders: GraphWellKnownFolders) async throws -> [MessageMetadata] {
+    /// With `skippingUnreadable` (the delta's own lookups), a message Graph will not return on its own (a 400, 403 or
+    /// 500 for that one item, or a reply that does not decode) is left out like an unknown one. Failing the call for
+    /// it would hold the cursor, so every later poll would meet the same message and the account would stop syncing.
+    /// A failure the next request would meet too (a throttle, a refused token, the network) still fails the call.
+    func metadata(for providerIDs: [String], folders: GraphWellKnownFolders,
+                  skippingUnreadable: Bool = false) async throws -> [MessageMetadata] {
         let mapper = GraphMessageMapper(accountID: accountID, folders: folders)
         var result: [MessageMetadata] = []
         for chunk in providerIDs.chunks(of: GraphBatch.maxRequests) {
@@ -79,9 +84,15 @@ public final class GraphProvider: MailProvider, Sendable {
                 }
                 // Unknown ids are omitted, never thrown.
                 if response.status == 404 { continue }
-                try GraphBatch.check(response)
-                guard let body = response.body else { continue }
-                result.append(mapper.metadata(from: try GraphJSON.decode(GraphMessage.self, from: body)))
+                do {
+                    try GraphBatch.check(response)
+                    guard let body = response.body else { continue }
+                    result.append(mapper.metadata(from: try GraphJSON.decode(GraphMessage.self, from: body)))
+                } catch let error where skippingUnreadable && Self.isItemFailure(error) {
+                    // Status and Graph's error code name the failure, never the mail.
+                    let code = response.body?.objectValue?["error"]?.objectValue?["code"]?.stringValue ?? "no code"
+                    Self.folderLog.notice("lookup left out a message Graph would not return: HTTP \(response.status, privacy: .public) \(code, privacy: .public)")
+                }
             }
         }
         return result
@@ -343,6 +354,14 @@ public final class GraphProvider: MailProvider, Sendable {
         case .throttled, .unauthorized, .cancelled, .resetRequired: return true
         case .notFound, .network, .decoding, .server: return false
         }
+    }
+
+    /// A failure that belongs to one message: anything but what fails the call, and the network, which a
+    /// `$batch` part reports (503, 504) when the service rather than the message is at fault.
+    static func isItemFailure(_ error: Error) -> Bool {
+        if failsTheCall(error) { return false }
+        if case ProviderError.network = error { return false }
+        return true
     }
 
     static func pageSize(_ limit: Int, max: Int) -> Int {
