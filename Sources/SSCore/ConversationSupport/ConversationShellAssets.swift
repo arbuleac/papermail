@@ -478,6 +478,10 @@ public enum ConversationShellAssets {
     .ss-dhead { display: flex; align-items: baseline; gap: 12px; font: var(--q-font-snippet); line-height: 16px; }
     .ss-dto { flex: 1; min-width: 0; color: var(--q-ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .ss-ddate { flex: none; color: var(--q-ink3); font-variant-numeric: tabular-nums; }
+    /* A Send Later message's “Sends Mon 09:00 · Cancel” (spec §5.19): Cancel is a link like Unsubscribe's, after a
+       middle dot in the date's colour; the date and the link never shrink, the recipients truncate first. */
+    .ss-dlater { flex: none; display: inline-flex; align-items: baseline; gap: 4px; }
+    .ss-dlater .ss-unsub { margin-left: 0; }
     .ss-draft .ss-foot { gap: 8px; }
     .ss-draft .ss-foot .ss-kbd { margin: 0 4px 0 -2px; }
 
@@ -1204,7 +1208,7 @@ public enum ConversationShellAssets {
 
       function headerKey(m) {
         return JSON.stringify([m.from, m.to, m.cc, m.recipients, m.snippet, m.dateDisplay, m.dateISO, m.isUnread, m.isStarred, m.isDraft,
-          !!m.unsubscribe]);
+          !!m.unsubscribe, !!m.cancelsSendLater]);
       }
 
       function nameNode(m, cls) {
@@ -1416,7 +1420,25 @@ public enum ConversationShellAssets {
           var head = el('div', 'ss-dhead');
           var to = recipientSummary(m).replace(/^to /, 'To ');
           head.appendChild(to ? el('span', 'ss-dto', to) : el('span', 'ss-dto ss-ph', 'No recipients yet'));
-          head.appendChild(el('span', 'ss-ddate', m.dateDisplay));
+          if (m.cancelsSendLater) {
+            // “Sends Mon 09:00 · Cancel”: Cancel takes the schedule back and leaves the draft (spec §5.19).
+            var later = el('span', 'ss-dlater');
+            var when = el('span', 'ss-ddate', m.dateDisplay);
+            when.title = m.dateDisplay + ' while SuperSparrow is open';
+            var cancel = button('ss-unsub ss-cancelLater', 'Cancel', 'Cancel Send Later');
+            cancel.addEventListener('click', function (event) {
+              stop(event);
+              if (event.detail > 1) { return; }
+              setTarget(card, true);
+              action('cancelSendLater', card, null);
+            });
+            later.appendChild(when);
+            later.appendChild(el('span', 'ss-ddate', '·'));
+            later.appendChild(cancel);
+            head.appendChild(later);
+          } else {
+            head.appendChild(el('span', 'ss-ddate', m.dateDisplay));
+          }
           card.head.replaceWith(head);
           card.head = head;
           return;

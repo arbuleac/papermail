@@ -536,6 +536,24 @@ class MailStoreContractTests: XCTestCase {
         XCTAssertEqual(try store.pendingSends(), [second])
     }
 
+    /// Send Later's statuses and the draft a message was written in are stored and read back as written (v18).
+    func testSendLaterStatusesAndDraftRoundTrip() throws {
+        let draft = UUID()
+        let waiting = PendingSend(id: "l1", message: outgoing(from: accountA), createdAt: date(10), sendAfter: date(3_600),
+                                  status: .later, draftID: draft)
+        try store.enqueueSend(waiting)
+        XCTAssertEqual(try store.pendingSends(), [waiting])
+        var missed = waiting
+        missed.status = .missed
+        try store.updateSend(missed)
+        XCTAssertEqual(try store.pendingSends(), [missed])
+        var sent = missed
+        sent.status = .sent
+        try store.updateSend(sent)
+        XCTAssertEqual(try store.pendingSends().first?.draftID, draft, "kept with the row until the app clears it")
+        XCTAssertEqual(try store.pendingSends().first?.status, .sent)
+    }
+
     func outgoing(from accountID: AccountID) -> OutgoingMessage {
         OutgoingMessage(
             accountID: accountID,

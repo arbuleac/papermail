@@ -133,6 +133,11 @@ enum MailSchema {
                 ALTER TABLE messages ADD COLUMN invitation_reply TEXT;
                 """)
         }
+        migrator.registerMigration("v18-scheduled-sends") { db in
+            // Send Later (docs/DATA-MODEL.md, `pending_sends`). NULL for every send already in the outbox: those are
+            // undo-sends, which keep no draft. The new statuses (`later`, `missed`) need no change to the column.
+            try db.execute(sql: "ALTER TABLE pending_sends ADD COLUMN draft_id TEXT")
+        }
         return migrator
     }
 

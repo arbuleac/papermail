@@ -199,7 +199,8 @@ final class UndoSendPanel: NSPanel {
         case .failed?:
             pollTimer?.invalidate()
             showFailed(reason: send?.lastError)
-        case .scheduled?, .sending?:
+        case .scheduled?, .sending?, .later?, .missed?:
+            // An undo-send is never `later` or `missed`; those are Send Later's.
             break
         }
     }

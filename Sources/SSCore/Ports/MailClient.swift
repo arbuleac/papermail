@@ -57,8 +57,17 @@ public protocol MailClient: AnyObject {
 
     /// Queue a send held for `undoWindow` seconds. Returns the pending send id.
     func send(_ message: OutgoingMessage, undoWindow: TimeInterval) throws -> String
-    /// True when the send was still held and is now cancelled.
+    /// True when the send was still held (in its undo window, or waiting for its Send Later time) and is now cancelled.
     func cancelSend(id: String) throws -> Bool
+    /// Send Later (spec §5.23): queue a send held until `date` on the wall clock, sent then while the engine runs, with
+    /// `draftID`, the draft kept on this Mac it was written in. A time that passes while the engine is stopped (the app
+    /// closed) is not sent when it starts again: it becomes `missed` and waits for `sendNow` or `cancelSend`. A delivered
+    /// send that carries a draft id stays in the outbox as `sent` until the caller deletes it (`MailStoring.deleteSend`),
+    /// once it has removed the draft. Returns the pending send id.
+    func scheduleSend(_ message: OutgoingMessage, at date: Date, draftID: UUID?) throws -> String
+    /// Sends these Send Later messages now, waiting or missed: the user said Send Now. Returns the ids still held.
+    @discardableResult
+    func sendNow(_ ids: [String]) throws -> [String]
 
     /// Asks the providers of `accountIDs` (every account when nil) to search for `text` as typed, under their own search
     /// rules (Gmail's `from:` and `subject:`, Outlook's KQL), for mail this Mac does not have yet: during a first

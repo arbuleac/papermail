@@ -49,6 +49,13 @@ final class MailSchemaMigrationTests: XCTestCase {
         ALTER TABLE bodies DROP COLUMN invitation_json;
         ALTER TABLE messages DROP COLUMN invitation_reply;
         DELETE FROM grdb_migrations WHERE identifier = 'v15-calendar-invitations';
+        """ + MailSchemaMigrationTests.withoutV18
+
+    /// Takes v18 back out of a migrated file: a file from before it keeps no draft with a send. Part of `withoutV15`,
+    /// since every file the tests build from before v15 is from before v18 too.
+    private static let withoutV18 = """
+        ALTER TABLE pending_sends DROP COLUMN draft_id;
+        DELETE FROM grdb_migrations WHERE identifier = 'v18-scheduled-sends';
         """
 
     /// Twelve accounts, inserted out of creation order, two of them created in the same millisecond so the id
@@ -700,8 +707,40 @@ final class MailSchemaMigrationTests: XCTestCase {
                        [["TEXT", "0", nil]], "TEXT NULL with no default")
         XCTAssertEqual(try query("SELECT type, \"notnull\", dflt_value FROM pragma_table_info('messages') WHERE name = 'invitation_reply'", at: path),
                        [["TEXT", "0", nil]], "TEXT NULL with no default")
-        XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations ORDER BY rowid", at: path).compactMap(\.first).last,
-                       "v15-calendar-invitations")
+        // Later migrations follow it, so this checks that it ran, not that it was the last.
+        XCTAssertTrue(try query("SELECT identifier FROM grdb_migrations ORDER BY rowid", at: path).compactMap(\.first)
+            .contains("v15-calendar-invitations"))
+    }
+
+    /// v18 adds `pending_sends.draft_id` and nothing else, NULL for every send already in the outbox: those are
+    /// undo-sends, which keep no draft. The file is a real v15 one (a v1 file taken through the shipped migrations up to
+    /// v15) with a send held in its undo window; opened by the current build, the send reads as before, with no draft,
+    /// and the runner would still send it as an undo-send.
+    func testVersion15DatabaseGainsTheDraftColumnAndKeepsItsOutbox() throws {
+        let path = try XCTUnwrap(directory).appendingPathComponent("mail.sqlite").path
+        try writeVersion1Database(at: path)
+        try MailSchema.migrateFile(at: path, upTo: "v15-calendar-invitations")
+        XCTAssertFalse(try query("SELECT name FROM pragma_table_info('pending_sends')", at: path).compactMap(\.first).contains("draft_id"))
+        let message = try MailStoreCodec.json(OutgoingMessage(accountID: AccountID("acct-a"), to: [EmailAddress(address: "ben@example.com")],
+                                                              subject: "Lunch", html: "<p>Noon?</p>", text: "Noon?"))
+        try execute("""
+            INSERT INTO pending_sends (id, account_id, message_json, created_at, send_after, status, attempts, last_error)
+            VALUES ('s1', 'acct-a', '\(message.replacingOccurrences(of: "'", with: "''"))', \(base), \(base + 5_000), 'scheduled', 0, NULL);
+            """, at: path)
+
+        let store = try SQLiteMailStore(path: path)
+        let sends = try store.pendingSends()
+        XCTAssertEqual(sends.map(\.id), ["s1"])
+        XCTAssertEqual(sends.first?.status, .scheduled)
+        XCTAssertNil(sends.first?.draftID, "an undo-send keeps no draft")
+        XCTAssertNil(sends.first.flatMap(SendLaterState.init), "and is never listed in Drafts")
+        XCTAssertEqual(sends.first?.message.subject, "Lunch")
+        try store.close()
+        XCTAssertEqual(try query("SELECT type, \"notnull\", dflt_value FROM pragma_table_info('pending_sends') WHERE name = 'draft_id'", at: path),
+                       [["TEXT", "0", nil]], "TEXT NULL with no default")
+        XCTAssertEqual(try query("SELECT draft_id FROM pending_sends", at: path), [[nil]])
+        XCTAssertTrue(try query("SELECT identifier FROM grdb_migrations ORDER BY rowid", at: path).compactMap(\.first)
+            .contains("v18-scheduled-sends"))
     }
 
     // MARK: Raw SQLite

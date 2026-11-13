@@ -1634,7 +1634,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
                 kept.sendFailure = SendFailureWording.banner(lastError: send?.lastError, provider: draft.account.kind)
                 ComposeDraftStore.shared.save(kept)
                 onAction?(.quickReplyFailed(kept))
-            case .scheduled?, .sending?:
+            case .scheduled?, .sending?, .later?, .missed?:
+                // A quick reply sent now is never `later` or `missed`; those are Send Later's, which `SendLaterOutbox` follows.
                 break
             }
         }
