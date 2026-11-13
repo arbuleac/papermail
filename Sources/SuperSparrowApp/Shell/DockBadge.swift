@@ -12,8 +12,8 @@ extension NSDockTile: DockBadgeTile {}
 /// The unread count on the Dock icon (spec §5.28): All Inboxes' count in the words the rail's badges use
 /// (`QuireBadge.unreadText`), so the two always agree, “99+” above 99 and nothing at all at zero.
 ///
-/// Each main window's `InboxMonitor` holds it while it runs, and the one that started last is shown. A window
-/// replaced by another (the demo and the real mailbox cross-fading, §5.43) is torn down after its successor
+/// Each main window's `InboxMonitor` holds it while it runs, and the newest holder that has counted is shown. A
+/// window replaced by another (the demo and the real mailbox cross-fading, §5.43) is torn down after its successor
 /// has counted; were stopping simply to clear the badge, the new count would vanish until it next changed.
 ///
 /// macOS draws the badge only while badges are allowed for the app in System Settings › Notifications; with them
@@ -21,7 +21,8 @@ extension NSDockTile: DockBadgeTile {}
 /// the label is still set, and appears as soon as badges are allowed again.
 @MainActor
 final class DockBadge {
-    static let app = DockBadge(tile: NSApp.dockTile)
+    // `shared`, not `NSApp`: a window's monitor is built before anything else need have made the application.
+    static let app = DockBadge(tile: NSApplication.shared.dockTile)
 
     private struct Holder {
         weak var monitor: AnyObject?
