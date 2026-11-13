@@ -31,6 +31,9 @@
     <key>NSAppTransportSecurity</key>
     <dict>
         <key>NSAllowsLocalNetworking</key><true/>
+        <!-- WebKit holds the reader's loads to this policy: without it a message's http images never load, even
+             once the user lets its images load. Only web content is exempt; the app's own requests keep TLS. -->
+        <key>NSAllowsArbitraryLoadsInWebContent</key><true/>
     </dict>
 </dict>
 </plist>

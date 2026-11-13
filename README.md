@@ -148,7 +148,7 @@ SuperSparrow's look is **Quire**: New York subjects on warm paper, one blue-blac
 - Mail content goes only to Google, Microsoft and this machine. No analytics, no crash reporting, no third-party services.
 - Apart from remote images you choose to load, **Unsubscribe** is the only time SuperSparrow contacts anyone but Google, Microsoft and this Mac: it contacts the sender's server with the sender's own one-click request (the address the sender chose, which can identify you, and no cookies or credentials), or opens the sender's unsubscribe page in your browser. An unsubscribe email goes from your account through Google or Microsoft like any other mail. Nothing is sent unless you click Unsubscribe or press `⇧⌘U`.
 - Your calendar is reached only to answer an invitation, and the permission is asked for only then: the first answer asks you to reconnect, granting Google's `calendar.events` or Microsoft's `Calendars.ReadWrite`, which SuperSparrow uses to find that event and mark your answer on it. The answer reaches the organizer through Google or Microsoft. **Open in Calendar** hands the invitation to the Mac's Calendar app; SuperSparrow never reads or writes your Mac's calendars.
-- Remote images are blocked by default (they can tell senders you opened a message). You can change that in Settings → General.
+- Remote images are blocked by default (they can tell senders you opened a message). You can change that in Settings → General. Images you let load come as the sender serves them, encrypted or, from senders who still use plain `http`, not.
 - New-mail notifications show sender and subject by default; turn off **Show sender and subject** in Settings → General to keep notifications content-free.
 
 ## More
