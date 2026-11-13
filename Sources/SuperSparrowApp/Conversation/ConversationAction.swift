@@ -23,6 +23,8 @@ enum ConversationAction {
     /// Discard Draft… on one draft or several (the header, the sheet's footer): the main window asks “Discard
     /// this draft?” (§5.33), the same alert # asks, and discards on confirm.
     case discardDrafts([ConversationID])
+    /// Cancel beside a Send Later message's time (spec §5.19): the schedule goes and the message stays as a draft.
+    case cancelSendLater(ConversationID)
     /// The quick reply's "Show" after an undo that came once the selection had moved on.
     case reveal(ConversationID)
     /// Open in Composer (⇧⌘R), the error state's “Open in composer” and Attach (⇧⌘A) on the quick reply

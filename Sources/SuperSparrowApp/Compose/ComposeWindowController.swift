@@ -108,8 +108,10 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     private var signaturePlaced = false
     /// Set while a From change replaces the signature, so that edit is not taken for the user's own (§5.20 Status).
     private var isReplacingSignature = false
-    /// Send's drop-down (§5.23): choosing an action makes it every Send button's default.
-    private lazy var sendActionMenu = SendActionMenu { SendActionPreference.choose($0) }
+    /// Send's drop-down (§5.23): choosing an action makes it every Send button's default; a Send Later time schedules this
+    /// message for it.
+    private lazy var sendActionMenu = SendActionMenu(choose: { SendActionPreference.choose($0) },
+                                                     sendLater: { [weak self] date in self?.sendLater(at: date) })
 
     // MARK: Presenting
 
@@ -1018,6 +1020,116 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         sendActionMenu.menu(current: SendActionPreference.current)
     }
 
+    // MARK: Send Later
+
+    /// ⇧⌘L and Message › Send Later… (§5.23): Send Later's times, hung from Send's drop-down as its menu would be.
+    @objc func sendLater(_ sender: Any?) {
+        guard !isSending, bar.sendButton.isEnabled else {
+            NSSound.beep()
+            return
+        }
+        SendActionMenu.popUp(sendLaterMenu(), from: bar.sendOptionsButton)
+    }
+
+    /// The menu ⇧⌘L pops (the app's tests choose from it).
+    func sendLaterMenu() -> NSMenu {
+        sendActionMenu.laterMenu()
+    }
+
+    /// A Send Later time from the drop-down, or nil for Pick a Time…, which asks for one first.
+    func sendLater(at date: Date?) {
+        guard let date else {
+            SendLaterPicker.present(window) { [weak self] chosen in
+                guard let chosen else { return }
+                self?.schedule(at: chosen)
+            }
+            return
+        }
+        schedule(at: date)
+    }
+
+    /// As Send checks a message before it goes: a recipient, then a subject (§5.20).
+    private func schedule(at date: Date) {
+        guard !isSending, !isPrefilling, validateRecipients() else {
+            NSSound.beep()
+            return
+        }
+        if subjectField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let window {
+            AppAlert.sendWithoutSubject.present(on: window) { [weak self] choice in
+                guard let self else { return }
+                if choice == 1 {
+                    self.performSchedule(at: date)
+                } else {
+                    self.window?.makeFirstResponder(self.subjectField)
+                }
+            }
+            return
+        }
+        performSchedule(at: date)
+    }
+
+    /// The message waits in the outbox until `date` (`MailClient.scheduleSend`), and its draft stays on this Mac, which
+    /// the Drafts row stands in for: opening the row brings it back as written. The window closes and the main window
+    /// says when it sends, with Undo. The draft is kept before the send is queued, so a send never waits without one.
+    private func performSchedule(at date: Date) {
+        autosaveTimer?.invalidate()
+        var current = currentDraft()
+        current.sendFailure = nil
+        let draft = current
+        let normalized = ComposeBodyNormalizer.normalize(draft.body)
+        let pending = draft.attachments.filter(\.isSendable)
+        setSending(true)
+
+        Task { [weak self] in
+            let outcome: (parts: [OutgoingAttachment], failure: UUID?) = await Task.detached(priority: .userInitiated) {
+                var parts: [OutgoingAttachment] = []
+                for attachment in pending {
+                    do {
+                        parts.append(try attachment.outgoing())
+                    } catch {
+                        return ([], attachment.id)
+                    }
+                }
+                return (parts, nil)
+            }.value
+            guard let self else { return }
+            if let failed = outcome.failure {
+                self.setSending(false)
+                let name = self.attachments.first { $0.id == failed }?.filename ?? "attachment"
+                self.replaceAttachment(failed) { $0.state = .failed(short: "Can't read", detail: "“\(name)” couldn't be read. It may have been moved or deleted.") }
+                self.statusBoard.post(.unreadableAttachment(name: name))
+                return
+            }
+            let message = draft.outgoingMessage(normalizedBody: normalized, loadedAttachments: outcome.parts)
+            guard ComposeDraftStore.shared.saveNow(draft) else {
+                self.setSending(false)
+                self.sendFailure = "Couldn't schedule: the draft couldn't be kept on this Mac."
+                return
+            }
+            self.hasStoredDraft = true
+            do {
+                let sendID = try self.client.scheduleSend(message, at: date, draftID: draft.id)
+                let client = self.client
+                let accounts = self.accounts
+                self.closesWithoutSaving = true
+                self.close()
+                SendLaterScheduled(sendID: sendID, date: date) {
+                    // Undo: the schedule goes and the composer comes back with what was written; too late, it is on its way.
+                    guard (try? client.cancelSend(id: sendID)) == true else {
+                        NSSound.beep()
+                        return
+                    }
+                    let kept = ComposeDraftStore.shared.draft(id: draft.id, accounts: accounts) ?? draft
+                    ComposeWindowController.present(client: client, accounts: accounts, draft: kept)
+                }.post()
+            } catch {
+                Self.logger.error("Scheduling a send failed: \(String(describing: error))")
+                self.setSending(false)
+                self.sendFailure = "Couldn't schedule: the message couldn't be added to the outbox."
+            }
+        }
+    }
+
     /// Send's tooltip and VoiceOver name as set now (the app's tests).
     var sendButtonHelp: (toolTip: String?, label: String?) { (bar.sendButton.toolTip, bar.sendButton.accessibilityLabel()) }
 
@@ -1197,7 +1309,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         switch action {
         case #selector(discardDraft(_:)), #selector(attachFile(_:)), #selector(addCcField(_:)), #selector(addBccField(_:)):
             return !isSending
-        case #selector(send(_:)), #selector(sendAndArchive(_:)):
+        case #selector(send(_:)), #selector(sendAndArchive(_:)), #selector(sendLater(_:)):
             return !isSending && bar.sendButton.isEnabled
         case #selector(toggleFormatRow(_:)):
             menuItem.title = content.showsFormatRow ? "Hide Format Row" : "Show Format Row"

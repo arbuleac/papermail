@@ -189,11 +189,17 @@ final class AppEnvironment {
         let engine = self.engine
         Task {
             do {
-                try await DemoSeeder.seedIfNeeded(engine)
+                try await Self.seedDemo(engine)
             } catch {
                 Self.log.error("demo seeding failed: \(String(describing: error), privacy: .public)")
             }
         }
+    }
+
+    /// The demo's mailboxes and, the first time they are added, its Send Later sample (§5.43), so Drafts shows one.
+    private static func seedDemo(_ engine: MailEngine) async throws {
+        let added = try await DemoSeeder.seedIfNeeded(engine)
+        if !added.isEmpty { try DemoSeeder.seedSendLater(engine, accounts: added) }
     }
 
     /// “Try the demo” (spec §5.39): starts the demo engine and returns once both made-up mailboxes exist, so
@@ -201,7 +207,7 @@ final class AppEnvironment {
     func startAndSeedDemo() async throws {
         assert(isDemo, "only the demo environment seeds")
         engine.start()
-        try await DemoSeeder.seedIfNeeded(engine)
+        try await Self.seedDemo(engine)
     }
 
     /// Stops sync and waits for in-flight work so another environment can take over cleanly. Quitting comes through

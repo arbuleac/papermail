@@ -25,31 +25,40 @@ enum LaterMenu {
     /// The presets, the separator and Pick a Date…, for the menu or a submenu.
     static func items(now: Date, formatter: DateFormatting, calendar: Calendar = .autoupdatingCurrent, target: AnyObject,
                       presetAction: Selector, pickAction: Selector) -> [NSMenuItem] {
-        let offered = LaterPreset.offered(at: now, calendar: calendar)
+        let offered = LaterPreset.offered(at: now, calendar: calendar).map { (title: $0.preset.title, date: $0.date) }
+        var items = timedItems(offered, now: now, formatter: formatter, target: target, action: presetAction) { "Comes back \($0)" }
+        items.append(.separator())
+        let pick = NSMenuItem(title: pickDateTitle, action: pickAction, keyEquivalent: "")
+        pick.target = target
+        items.append(pick)
+        return items
+    }
+
+    /// One item per named time, each name followed by its time in `ink3` on a right tab stop past the longest name, written
+    /// as the rows write times; each carries its time as its `representedObject`. Later's presets and Send Later's
+    /// (§5.23) are set the same way. `help` words a time for VoiceOver.
+    static func timedItems(_ entries: [(title: String, date: Date)], now: Date, formatter: DateFormatting, target: AnyObject,
+                           action: Selector, help: (String) -> String) -> [NSMenuItem] {
         let reference = formatter.reference(now: now)
-        let times = offered.map { formatter.dueTime(for: $0.date, reference: reference) }
+        let times = entries.map { formatter.dueTime(for: $0.date, reference: reference) }
         let font = NSFont.menuFont(ofSize: 0)
-        let titleWidth = offered.map { ceil(($0.preset.title as NSString).size(withAttributes: [.font: font]).width) }.max() ?? 0
+        let titleWidth = entries.map { ceil(($0.title as NSString).size(withAttributes: [.font: font]).width) }.max() ?? 0
         let timeWidth = times.map { ceil(($0 as NSString).size(withAttributes: [.font: font]).width) }.max() ?? 0
         // The time column ends on a right tab stop past the longest name, as the title menu sets its sequences.
         let style = NSMutableParagraphStyle()
         style.tabStops = [NSTextTab(textAlignment: .right, location: titleWidth + Quire.Space.s8 + timeWidth)]
         var items: [NSMenuItem] = []
-        for ((preset, date), time) in zip(offered, times) {
-            let item = NSMenuItem(title: preset.title, action: presetAction, keyEquivalent: "")
+        for (entry, time) in zip(entries, times) {
+            let item = NSMenuItem(title: entry.title, action: action, keyEquivalent: "")
             item.target = target
-            item.representedObject = date
-            let title = NSMutableAttributedString(string: preset.title, attributes: [.font: font, .paragraphStyle: style])
+            item.representedObject = entry.date
+            let title = NSMutableAttributedString(string: entry.title, attributes: [.font: font, .paragraphStyle: style])
             title.append(NSAttributedString(string: "\t" + time, attributes: [.font: font, .paragraphStyle: style,
                                                                               .foregroundColor: NSColor.qInk3]))
             item.attributedTitle = title
-            item.setAccessibilityHelp("Comes back \(time)")
+            item.setAccessibilityHelp(help(time))
             items.append(item)
         }
-        items.append(.separator())
-        let pick = NSMenuItem(title: pickDateTitle, action: pickAction, keyEquivalent: "")
-        pick.target = target
-        items.append(pick)
         return items
     }
 

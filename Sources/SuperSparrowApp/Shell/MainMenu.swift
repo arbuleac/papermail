@@ -265,6 +265,9 @@ enum MainMenu {
             // view takes ⌘↩ and ⇧⌘↩ before the menu does.
             item("Send", #selector(ComposeWindowController.send(_:)), "\r", symbol: Quire.Icon.send),
             item("Send and Archive", #selector(ComposeWindowController.sendAndArchive(_:)), "\r", [.command, .shift]),
+            // Send Later's times, hung from Send's drop-down (§5.23); the quick reply's text view takes ⇧⌘L itself.
+            item(SendLaterCopy.command + "\u{2026}", #selector(ComposeWindowController.sendLater(_:)), "l", [.command, .shift],
+                 symbol: Quire.Icon.later),
             item("Attach Files…", #selector(ComposeWindowController.attachFile(_:)), "a", [.command, .shift], symbol: Quire.Icon.attach),
             item("Add Cc Field", #selector(ComposeWindowController.addCcField(_:)), "c", [.command, .shift]),
             item("Add Bcc Field", #selector(ComposeWindowController.addBccField(_:)), "b", [.command, .shift]),

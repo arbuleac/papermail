@@ -176,6 +176,24 @@ final class SendLaterRunnerTests: XCTestCase {
         await harness.shutdown()
     }
 
+    /// The demo's sample (spec §5.43): one message waiting for Monday 09:00 with no kept draft, so Drafts lists it.
+    func testTheDemoSampleWaitsForMondayMorning() async throws {
+        let clock = HandClock()
+        let harness = try harness(clock, start: false)
+        var london = Calendar(identifier: .gregorian)
+        london.timeZone = TimeZone(identifier: "Europe/London") ?? .current
+        let thursday = try XCTUnwrap(london.date(from: DateComponents(year: 2025, month: 3, day: 6, hour: 15)))
+        let id = try XCTUnwrap(try DemoSeeder.seedSendLater(harness.engine, accounts: [Fixtures.account(id: Fixtures.accountID)],
+                                                            now: thursday, calendar: london))
+        let send = try XCTUnwrap(try harness.store.pendingSends().first { $0.id == id })
+        XCTAssertEqual(send.status, .later)
+        XCTAssertNil(send.draftID)
+        XCTAssertEqual(send.sendAfter, london.date(from: DateComponents(year: 2025, month: 3, day: 10, hour: 9)))
+        XCTAssertEqual(SendLaterConversation.listed([send]).count, 1, "listed in Drafts")
+        XCTAssertNil(try DemoSeeder.seedSendLater(harness.engine, accounts: [], now: thursday, calendar: london))
+        await harness.shutdown()
+    }
+
     /// The draft id survives the SQLite store, and a throttle keeps it with the row while the message waits to retry.
     func testTheDraftIDRoundTripsThroughTheSQLiteStoreAndAThrottle() async throws {
         let clock = HandClock()

@@ -33,6 +33,12 @@ public enum ReaderShortcuts {
         returnKeyCodes.contains(keyCode) && chord(rawModifierFlags) == shift | command
     }
 
+    /// Shift+Cmd+L shows Send Later's times from the quick reply's drop-down, as Message › Send Later… does in a composer
+    /// (spec §5.23). By the character, so it follows the keyboard layout as the menu's key equivalent does.
+    public static func isSendLater(charactersIgnoringModifiers: String?, rawModifierFlags: UInt) -> Bool {
+        chord(rawModifierFlags) == shift | command && charactersIgnoringModifiers?.lowercased() == "l"
+    }
+
     /// An unmodified Space, the Quick Look key.
     public static func isPlainSpace(charactersIgnoringModifiers: String?, rawModifierFlags: UInt) -> Bool {
         charactersIgnoringModifiers == " " && chord(rawModifierFlags) == 0

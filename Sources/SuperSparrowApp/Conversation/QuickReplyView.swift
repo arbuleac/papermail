@@ -32,6 +32,8 @@ final class QuickReplyView: NSView {
     var onSend: ((String, Mode, SendAction) -> Void)?
     /// The drop-down's choice: the owner makes it the default (§5.23). Nothing is sent.
     var onChooseSendAction: ((SendAction) -> Void)?
+    /// A Send Later time chosen from the drop-down or ⇧⌘L (§5.23), or nil for Pick a Time…, with the text and mode.
+    var onSendLater: ((String, Mode, Date?) -> Void)?
     var onEscape: (() -> Void)?
     var onFocusChange: ((Bool) -> Void)?
     /// The bar's height changed; the owner moves the web view's bottom inset, once per change.
@@ -113,7 +115,8 @@ final class QuickReplyView: NSView {
     private let send = QuireButton(title: "Send", variant: .primary, size: .small)
     /// Send's drop-down (§5.23), 2 pt after it: the menu that chooses what Send and ⌘↩ do.
     private let sendOptions = QuireIconButton(symbolName: Quire.Icon.titleMenu, size: .small, accessibilityLabel: "Send Options")
-    private lazy var sendActionMenu = SendActionMenu { [weak self] action in self?.onChooseSendAction?(action) }
+    private lazy var sendActionMenu = SendActionMenu(choose: { [weak self] action in self?.onChooseSendAction?(action) },
+                                                     sendLater: { [weak self] date in self?.sendLater(at: date) })
     private let statusGlyph = NSImageView()
     private let statusLabel = NSTextField(labelWithString: "")
     private let statusAction = QuireButton(title: "Undo", variant: .link, size: .small)
@@ -190,6 +193,7 @@ final class QuickReplyView: NSView {
         textView.delegate = self
         textView.onCommandReturn = { [weak self] in self?.sendPressed() }
         textView.onCommandShiftReturn = { [weak self] in self?.sendAndArchivePressed() }
+        textView.onSendLater = { [weak self] in self?.showSendLater() }
         textView.onOpenInComposer = { [weak self] in self?.openInComposerPressed() }
         textView.onAttach = { [weak self] in self?.attachPressed() }
         // The placeholder is a separate label that goes away while typing, so the field carries its own name.
@@ -619,6 +623,34 @@ final class QuickReplyView: NSView {
         sendActionMenu.menu(current: sendAction)
     }
 
+    /// ⇧⌘L: Send Later's times hung from the drop-down, while there is a reply to schedule.
+    private func showSendLater() {
+        guard canSend else {
+            NSSound.beep()
+            return
+        }
+        SendActionMenu.popUp(sendLaterMenu(), from: sendOptions)
+    }
+
+    /// The menu ⇧⌘L pops (the app's tests choose from it).
+    func sendLaterMenu() -> NSMenu {
+        sendActionMenu.laterMenu()
+    }
+
+    /// A Send Later time (nil: Pick a Time…) for what is typed; the owner schedules it, as it sends on ⌘↩.
+    func sendLater(at date: Date?) {
+        guard canSend else {
+            NSSound.beep()
+            return
+        }
+        onSendLater?(text, mode, date)
+    }
+
+    /// There is a reply to send, and someone to send it to.
+    private var canSend: Bool {
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && status != .noRecipients
+    }
+
     /// The tooltips and VoiceOver names of Send and the rest glyph say what they do now; their label stays “Send”.
     private func sendActionDidChange() {
         restSend.toolTip = sendAction.tooltip
@@ -751,19 +783,21 @@ extension QuickReplyView: NSTextViewDelegate {
 private final class QuickReplyTextView: NSTextView {
     var onCommandReturn: (() -> Void)?
     var onCommandShiftReturn: (() -> Void)?
+    var onSendLater: (() -> Void)?
     var onOpenInComposer: (() -> Void)?
     var onAttach: (() -> Void)?
     var onEscape: (() -> Void)?
     var onFocusChange: ((Bool) -> Void)?
 
-    /// ⌘↩ and ⇧⌘↩ are taken here, before the main menu sees them: a menu item carrying one (the composer's hidden Send
-    /// and Send and Archive) claims the key even while it is hidden or disabled, so `keyDown` would never get it.
+    /// ⌘↩, ⇧⌘↩ and ⇧⌘L are taken here, before the main menu sees them: a menu item carrying one (the composer's hidden
+    /// Send, Send and Archive and Send Later…) claims the key even while it is hidden or disabled, so `keyDown` would
+    /// never get it.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if window?.firstResponder === self, sendKey(event) { return true }
         return super.performKeyEquivalent(with: event)
     }
 
-    /// ⌘↩ sends as Send does, ⇧⌘↩ sends and archives (§5.23); false for any other key.
+    /// ⌘↩ sends as Send does, ⇧⌘↩ sends and archives, ⇧⌘L shows Send Later's times (§5.23); false for any other key.
     private func sendKey(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags.rawValue
         if ReaderShortcuts.isSend(keyCode: event.keyCode, rawModifierFlags: flags) {
@@ -772,6 +806,10 @@ private final class QuickReplyTextView: NSTextView {
         }
         if ReaderShortcuts.isSendAndArchive(keyCode: event.keyCode, rawModifierFlags: flags) {
             onCommandShiftReturn?()
+            return true
+        }
+        if ReaderShortcuts.isSendLater(charactersIgnoringModifiers: event.charactersIgnoringModifiers, rawModifierFlags: flags) {
+            onSendLater?()
             return true
         }
         return false

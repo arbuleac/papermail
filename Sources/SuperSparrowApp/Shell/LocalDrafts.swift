@@ -4,6 +4,10 @@ import SSCore
 /// The drafts kept on this Mac (`ComposeDraftStore`), as the Drafts view lists them and the reader shows them
 /// (spec §5.19), beside the provider's drafts that sync into the store. Records (small JSON files) are read
 /// again whenever the drafts folder changes; a draft's body is read only when the reader shows it.
+///
+/// Send Later messages waiting in the outbox (`laterSends`, which `SendLaterOutbox` keeps from the outbox's observation)
+/// are a row kind beside them (`SendLaterConversation`): each stands in for the kept draft it was written in, which
+/// stays on disk, out of the list, until the message has gone or its schedule is cancelled.
 @MainActor
 final class LocalDrafts {
     private let store: ComposeDraftStore
@@ -12,7 +16,9 @@ final class LocalDrafts {
     var accounts: [Account] = [] {
         didSet { if oldValue != accounts { reload() } }
     }
-    /// After the kept drafts changed on disk.
+    /// The Send Later messages the Drafts view lists (`SendLaterConversation.listed`), oldest first.
+    private(set) var laterSends: [PendingSend] = []
+    /// After the kept drafts changed on disk, or the Send Later messages changed.
     var onChange: (() -> Void)?
     private var bodies: [UUID: (editedAt: Date, body: StoredBody)] = [:]
     private var observer: NSObjectProtocol?
@@ -40,9 +46,21 @@ final class LocalDrafts {
         bodies = bodies.filter { live.contains($0.key) }
     }
 
-    /// The Drafts rows, newest first.
+    /// Takes the outbox's Send Later messages; tells `onChange` when what the Drafts view shows of them changed.
+    func setLaterSends(_ sends: [PendingSend]) {
+        let listed = SendLaterConversation.listed(sends)
+        guard listed != laterSends else { return }
+        laterSends = listed
+        onChange?()
+    }
+
+    /// The Drafts rows: the kept drafts, newest first, then the Send Later messages, each in place of its kept draft.
     var summaries: [ConversationSummary] {
-        records.map(LocalDraftConversation.summary(for:))
+        let known = Set(accounts.map(\.id))
+        let later = laterSends.filter { known.contains($0.message.accountID) }
+        let standIns = Set(later.compactMap(\.draftID))
+        return records.filter { !standIns.contains($0.id) }.map(LocalDraftConversation.summary(for:))
+            + later.compactMap(SendLaterConversation.summary(for:))
     }
 
     /// The provider's drafts a kept draft continues: the kept one stands in for them in the Drafts view.
@@ -55,15 +73,39 @@ final class LocalDrafts {
         return records.first { $0.id == draftID }
     }
 
-    /// The kept draft's one message, empty once it is gone (sent or discarded), nil for mail in the store.
+    /// The Send Later message behind a Drafts row, while the outbox holds it.
+    func laterSend(for id: ConversationID) -> PendingSend? {
+        guard let sendID = SendLaterConversation.sendID(of: id) else { return nil }
+        return laterSends.first { $0.id == sendID }
+    }
+
+    /// The state the draft sheet of a Send Later message shows, by its message id.
+    var sendLaterStates: [MessageID: SendLaterState] {
+        var states: [MessageID: SendLaterState] = [:]
+        for send in laterSends {
+            guard let state = SendLaterState(send) else { continue }
+            states[SendLaterConversation.messageID(sendID: send.id, account: send.message.accountID)] = state
+        }
+        return states
+    }
+
+    /// The kept draft's (or Send Later message's) one message, empty once it is gone (sent, discarded), nil for mail in
+    /// the store.
     func messages(in id: ConversationID) -> [MessageMetadata]? {
         guard LocalDraftConversation.isLocal(id) else { return nil }
+        if SendLaterConversation.sendID(of: id) != nil {
+            guard let send = laterSend(for: id), let account = accounts.first(where: { $0.id == send.message.accountID }) else { return [] }
+            return [SendLaterConversation.message(for: send, sender: EmailAddress(name: account.displayName, address: account.email))]
+        }
         guard let record = record(for: id), let account = accounts.first(where: { $0.id == record.accountID }) else { return [] }
         return [LocalDraftConversation.message(for: record, sender: EmailAddress(name: account.displayName, address: account.email))]
     }
 
-    /// The kept draft's body as the reader renders it, read once per edit.
+    /// The kept draft's body as the reader renders it, read once per edit; a Send Later message's from its outbox row.
     func body(for id: MessageID) -> StoredBody? {
+        if let sendID = SendLaterConversation.sendID(of: id) {
+            return laterSends.first { $0.id == sendID }.map(SendLaterConversation.body(for:))
+        }
         guard let draftID = LocalDraftConversation.draftID(of: id), let record = records.first(where: { $0.id == draftID }) else { return nil }
         if let cached = bodies[draftID], cached.editedAt == record.editedAt { return cached.body }
         guard let draft = store.draft(id: draftID, accounts: accounts) else { return nil }

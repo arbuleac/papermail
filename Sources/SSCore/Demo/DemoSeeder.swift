@@ -17,4 +17,27 @@ public enum DemoSeeder {
         }
         return added
     }
+
+    /// The demo's Send Later sample (spec §5.43, §5.23): a note to Ben Carter from the Outlook mailbox waiting in the
+    /// outbox for Monday 09:00 (Tomorrow's 09:00 on a Sunday), so Drafts shows a row reading “Sends Mon 09:00” from the
+    /// start. Built from the outbox row alone, with no kept draft: opening it makes one from the message. The app calls it
+    /// once, with the accounts the first seeding added. Returns the pending send id, or nil with no account to send from.
+    @discardableResult
+    public static func seedSendLater(_ client: MailClient, accounts: [Account], now: Date = Date(),
+                                     calendar: Calendar = .autoupdatingCurrent) throws -> String? {
+        guard let account = accounts.first(where: { $0.kind == .microsoft }) ?? accounts.first,
+              let date = SendLaterPreset.monday.date(after: now, calendar: calendar)
+                ?? SendLaterPreset.tomorrow.date(after: now, calendar: calendar) else { return nil }
+        let text = """
+            Hi Ben,
+
+            Items 8 and 9 are done now that your SSO metadata is in. Your store managers can start training as planned.
+
+            Alex
+            """
+        let html = text.components(separatedBy: "\n\n").map { "<p>" + $0.replacingOccurrences(of: "\n", with: "<br>") + "</p>" }.joined()
+        let message = OutgoingMessage(accountID: account.id, to: [DemoCatalog.ben.email], subject: "Contoso rollout: items 8 and 9",
+                                      html: html, text: text)
+        return try client.scheduleSend(message, at: date, draftID: nil)
+    }
 }
