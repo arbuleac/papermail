@@ -74,6 +74,9 @@ extension GraphProvider {
                 && (visiting.contains(folderID) || Self.isPolledEveryCall(folderID, in: cursor, priority: priority))
         }
         var seedPagesLeft = Self.maxSeedPagesPerCall
+        let inboxID = cursor.wellKnown["inbox"]
+        var anyAnswered = false
+        var firstSkipped: Error?
         while true {
             var pass = drained
             // Last in its pass, so the drained folders' new mail leads the page.
@@ -93,7 +96,16 @@ extension GraphProvider {
                     cursor.folders.removeValue(forKey: folderID)
                     cursor.nextLinks.removeValue(forKey: folderID)
                     continue
+                } catch let error where folderID != inboxID && Self.isServiceFailure(error) {
+                    // Through Exchange's November 2026 outage the inbox answered while one folder kept failing with
+                    // a 502, and failing the call for it threw away every other folder's changes, new inbox mail
+                    // included. The folder keeps its link and is asked again next call. The inbox failing still
+                    // fails the call, so the account shows it is not syncing.
+                    firstSkipped = firstSkipped ?? error
+                    Self.folderLog.notice("delta: a folder failed and waits for the next call: \(Self.failureLabel(error), privacy: .public)")
+                    continue
                 }
+                anyAnswered = true
                 for item in page.value {
                     if item.removed != nil {
                         removed.append(item.id)
@@ -120,6 +132,8 @@ extension GraphProvider {
             drained = continuing
             if upserts.count + removed.count >= pageSize { break }
         }
+        // Every folder failing is the service down, not a folder: the call fails as it would have.
+        if !anyAnswered, let firstSkipped { throw firstSkipped }
 
         // A folder delta reports a move out of the folder as a removal; only a lookup tells a move from a
         // deletion, and dropping a merely moved message would also throw away its cached body.

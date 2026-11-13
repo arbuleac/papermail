@@ -364,6 +364,25 @@ public final class GraphProvider: MailProvider, Sendable {
         return true
     }
 
+    /// The service failing for now rather than anything about the request: a 5xx (500 and 502 map to `server`,
+    /// 503 and 504 to `network`) or the network itself.
+    static func isServiceFailure(_ error: Error) -> Bool {
+        switch error as? ProviderError {
+        case .network?: return true
+        case .server(let status, _)?: return status >= 500
+        default: return false
+        }
+    }
+
+    /// For public logs: the status, never the message, which the service could fill with anything.
+    static func failureLabel(_ error: Error) -> String {
+        switch error as? ProviderError {
+        case .server(let status, _)?: return "HTTP \(status)"
+        case .network?: return "network (or HTTP 503/504)"
+        default: return "other"
+        }
+    }
+
     static func pageSize(_ limit: Int, max: Int) -> Int {
         Swift.max(1, Swift.min(limit, max))
     }

@@ -712,6 +712,59 @@ final class GraphChangesTests: GraphTestCase {
         await expectProviderError({ try await self.makeProvider().changes(since: start, limit: 10) }) { $0.retryAfter == 12 }
     }
 
+    /// Exchange's November 2026 outage: the inbox answered, one folder kept failing with a 502, and the whole call
+    /// failed with it, throwing the inbox's new mail away on every poll. That folder now waits for the next call.
+    func testAFolderTheServiceFailsWaitsWhileTheOthersSync() async throws {
+        let badGateway = #"{"error":{"code":"UnknownError","message":""}}"#
+        route { request in
+            guard request.method == "GET" else { return nil }
+            switch request.path {
+            case self.inboxDelta:
+                return .json(Fixtures.list([Fixtures.message(id: "m-new", folder: "F-INBOX")], deltaLink: self.inboxLink2))
+            case self.sentDelta:
+                return .json(badGateway, status: 502)
+            default:
+                return nil
+            }
+        }
+
+        let page = try await makeProvider().changes(since: try cursor(folders: ["F-INBOX": inboxLink, "F-SENT": sentLink]), limit: 50)
+
+        XCTAssertEqual(page.upserts.map(\.id.providerID), ["m-new"])
+        let after = try GraphCursor.decode(page.cursor)
+        XCTAssertEqual(after.deltaLink(for: "F-INBOX"), inboxLink2)
+        XCTAssertEqual(after.deltaLink(for: "F-SENT"), sentLink, "the failed folder is asked again from where it was")
+    }
+
+    /// The inbox is what the user waits on: when the service fails it, the call fails and the account says so.
+    func testTheInboxFailingStillFailsThePoll() async throws {
+        route { request in
+            guard request.method == "GET" else { return nil }
+            switch request.path {
+            case self.inboxDelta: return .status(504)
+            case self.sentDelta: return .json(Fixtures.list([], deltaLink: self.sentLink2))
+            default: return nil
+            }
+        }
+        let start = try cursor(folders: ["F-INBOX": inboxLink, "F-SENT": sentLink])
+        await expectProviderError({ try await self.makeProvider().changes(since: start, limit: 50) }) {
+            if case .network = $0 { return true }
+            return false
+        }
+    }
+
+    /// No folder answering is the service down, not a folder: the call fails rather than report nothing new.
+    func testEveryFolderFailingStillFailsThePoll() async throws {
+        route { request in
+            request.method == "GET" && request.path.hasSuffix("/messages/delta") ? .status(500) : nil
+        }
+        let start = try cursor(folders: ["F-SENT": sentLink, "F-AAA": deltaLink("F-AAA", "a1")], fullVisitAt: "2000-01-01T00:00:00Z")
+        await expectProviderError({ try await self.makeProvider().changes(since: start, limit: 50) }) {
+            if case .server(500, _) = $0 { return true }
+            return false
+        }
+    }
+
     func testDeletedFolderIsDroppedFromCursor() async throws {
         route { request in
             switch request.path {
