@@ -1971,13 +1971,27 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// a new message starts from. With no account the window comes forward on the welcome screen and nothing opens.
     @discardableResult
     func openMailLink(_ link: MailtoLink) -> ComposeWindowController? {
+        openNewMessage { ComposeWindowController.present(client: environment.engine, account: $0, accounts: accounts, link: link) }
+    }
+
+    /// A Services menu item used in another app, or in this one (spec §5.20 Services): a new composer from the account a
+    /// new message starts from, with the selected text as its body or the files attached. With no account the window
+    /// comes forward on the welcome screen and nothing opens, as for a mail link.
+    @discardableResult
+    func openServiceRequest(_ request: ServiceRequest) -> ComposeWindowController? {
+        openNewMessage { ComposeWindowController.present(client: environment.engine, account: $0, accounts: accounts, service: request) }
+    }
+
+    /// What another app asked to write opens from the account a new message starts from; with none there is nobody to
+    /// write as, so the welcome screen comes forward instead.
+    private func openNewMessage(_ present: (Account) -> ComposeWindowController) -> ComposeWindowController? {
         beforeCompose?()
         guard let account = newMessageAccount else {
             showWindow(nil)
             NSApp.activate()
             return nil
         }
-        return ComposeWindowController.present(client: environment.engine, account: account, accounts: accounts, link: link)
+        return present(account)
     }
 
     private func compose(_ mode: ComposeMode, accountID: AccountID) {

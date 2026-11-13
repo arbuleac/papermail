@@ -31,6 +31,10 @@ SuperSparrow signs in through your browser with OAuth clients you register yours
 
 Once SuperSparrow is your default mail app, a `mailto:` link (an address in Safari, **Email** in Contacts, a link in any other app) opens a new message with its recipients, subject and body filled in, from the account you are looking at (the first account under All Inboxes). Nothing is sent until you click Send. To make it the default, click **Set as Default Mail App** in **Settings → General → Mail links** and confirm in the dialog macOS shows; you can also choose it in Mail under **Settings → General → Default email reader**.
 
+## Services
+
+Select text in any app and choose **Services → New Message with Selection** (in the app's menu, or right-click the selection) for a new message with that text as its body. Select files in Finder and choose **Services → Send with SuperSparrow** for a new message with them attached; folders can't be attached. Both open from the account you are looking at (the first account under All Inboxes), with nothing sent until you click Send; closing the window without changing anything keeps no draft. To give either a keyboard shortcut, or to hide it, use **System Settings → Keyboard → Keyboard Shortcuts → Services**. If they don't show yet after you first open SuperSparrow, logging out and back in makes macOS read them again.
+
 ## Signatures
 
 Each account can have a signature: select the account in **Settings → Accounts** and type it in **Signature**, using bold (`⌘B`), italic (`⌘I`), underline (`⌘U`) and links (`⌘K`). It is saved when you leave the field or go to another window. New messages, replies and forwards then start with it below an empty line, above the quoted message; it is ordinary text you can edit or delete. Changing **From** swaps it for the other account's signature, unless you deleted it. Signatures stay on this Mac: SuperSparrow neither reads nor changes the one set in Gmail or Outlook.
