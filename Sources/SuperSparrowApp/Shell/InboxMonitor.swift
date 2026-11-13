@@ -1,9 +1,9 @@
 import AppKit
 import SSCore
 
-/// Watches the unified inbox: keeps the Dock badge and the rail's unread badges current, feeds new rows to the
-/// notifier, and reports operations the provider gave up on (the store has already put the row back, so the
-/// shell says so in a toast, §5.7). One observation serves all of them, since each fires on the same store
+/// Watches the unified inbox: keeps the Dock badge (`DockBadge`) and the rail's unread badges current, feeds new
+/// rows to the notifier, and reports operations the provider gave up on (the store has already put the row back,
+/// so the shell says so in a toast, §5.7). One observation serves all of them, since each fires on the same store
 /// transactions. It also prunes failed operations once they are 24 hours old.
 @MainActor
 final class InboxMonitor {
@@ -17,6 +17,7 @@ final class InboxMonitor {
     var onFailures: (([(ConversationID, OperationKind)]) -> Void)?
 
     private let store: MailStoring
+    private let dockBadge: DockBadge
     private var observation: StoreObservation?
     private var accountIDs: [AccountID] = []
     private var isCounting = false
@@ -26,13 +27,16 @@ final class InboxMonitor {
     private var pruneTimer: Timer?
     private static let countQueue = DispatchQueue(label: "io.supersparrow.mac.inbox-counts", qos: .userInitiated)
 
-    init(store: MailStoring) {
+    /// `dockBadge` nil is the app's Dock tile.
+    init(store: MailStoring, dockBadge: DockBadge? = nil) {
         self.store = store
+        self.dockBadge = dockBadge ?? .app
     }
 
     func start(accounts: [AccountID]) {
         accountIDs = accounts
         guard observation == nil else { return }
+        dockBadge.claim(self)
         observation = store.observeConversations(ConversationQuery(view: .inbox, limit: Self.observedLimit)) { [weak self] rows in
             MainActor.assumeIsolated { self?.inboxChanged(rows) }
         }
@@ -53,7 +57,7 @@ final class InboxMonitor {
         observation = nil
         pruneTimer?.invalidate()
         pruneTimer = nil
-        NSApp.dockTile.badgeLabel = nil
+        dockBadge.release(self)
     }
 
     private func inboxChanged(_ rows: [ConversationSummary]) {
@@ -112,8 +116,7 @@ final class InboxMonitor {
         }
         // Every account is counted, so the unified badge is their sum; a separate query would repeat the work.
         let unified = perAccount.values.reduce(0, +)
-        let label = unified > 0 ? NumberFormatter.localizedString(from: NSNumber(value: unified), number: .decimal) : nil
-        if NSApp.dockTile.badgeLabel != label { NSApp.dockTile.badgeLabel = label }
+        dockBadge.show(unread: unified, for: self)
         onCounts?(unified, perAccount)
     }
 }
