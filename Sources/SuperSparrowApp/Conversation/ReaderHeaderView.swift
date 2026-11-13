@@ -31,6 +31,16 @@ final class ReaderHeaderView: NSView {
 
     var onAction: ((ReaderActionSet.Action) -> Void)?
 
+    /// The reader's Text size (spec §4.15): the headline's, never the kicker's or the actions', which are the band's
+    /// chrome. The band keeps its height; the headline's line grows inside it.
+    var textSize = QuireFont.TextSize.default {
+        didSet {
+            guard oldValue != textSize else { return }
+            applyHeadline()
+            needsLayout = true
+        }
+    }
+
     private(set) var content = Content(kicker: nil, headline: nil, placeholder: "No subject", actions: .make(.nothing))
     private let kickerView = ReaderKickerView()
     private let headline = ReaderHeadlineView()
@@ -100,8 +110,8 @@ final class ReaderHeaderView: NSView {
         headline.isHidden = false
         let trimmed = subject.trimmingCharacters(in: .whitespacesAndNewlines)
         let text = trimmed.isEmpty
-            ? ReaderFonts.placeholder(content.placeholder, role: .headline)
-            : QuireFont.attributedString(trimmed, role: .headline, color: .qInk)
+            ? ReaderFonts.placeholder(content.placeholder, role: .headline, textSize: textSize)
+            : QuireFont.attributedString(trimmed, role: .headline, color: .qInk, textSize: textSize)
         headline.show(text)
         headline.toolTip = trimmed.isEmpty ? nil : trimmed
         headline.setAccessibilityLabel(trimmed.isEmpty ? content.placeholder : trimmed)
@@ -202,8 +212,9 @@ final class ReaderHeaderView: NSView {
         let kickerHeight = QuireFont.Role.runningHead.lineHeight
         let kickerWidth = max(0, firstActionX - metrics.kickerActionGap - column.x)
         kickerView.frame = NSRect(x: column.x, y: metrics.kickerCenterY - kickerHeight / 2, width: kickerWidth, height: kickerHeight)
-        // The headline's text view lays the role's 30 pt line out exactly, so its frame is the line itself.
-        headline.frame = NSRect(x: column.x, y: metrics.headlineTop, width: column.width, height: metrics.headlineHeight)
+        // The headline's text view lays the role's line out exactly (30 pt at Default), so its frame is the line itself.
+        let headlineHeight = metrics.headlineHeight + QuireFont.Role.headline.step(at: textSize)
+        headline.frame = NSRect(x: column.x, y: metrics.headlineTop, width: column.width, height: headlineHeight)
         let hair = QuireHairline.width(for: self)
         hairline.frame = NSRect(x: 0, y: bounds.height - max(hair, 1), width: bounds.width, height: max(hair, 1))
     }

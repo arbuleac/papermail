@@ -139,7 +139,11 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         SendAction.undoMenuTitle(archived: quickSend?.archive?.isArchived ?? false)
     }
 
-    init(client: MailClient) {
+    /// Where the reader's own Text size comes from (spec §4.15): the app's settings, or a test's throwaway ones.
+    private let appSettings: AppSettings
+
+    init(client: MailClient, settings: AppSettings? = nil) {
+        appSettings = settings ?? AppSettings.shared
         self.client = client
         self.pool = WebViewPool(client: client)
         self.preview = AttachmentPreviewController(client: client)
@@ -147,6 +151,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         for account in (try? client.accounts()) ?? [] { accounts[account.id] = account }
         self.accountsByID = accounts
         super.init(nibName: nil, bundle: nil)
+        header.textSize = appSettings.readerSize
         pool.onMessage = { [weak self] slot, message in self?.handle(message, from: slot) }
         pool.onViewRecreated = { [weak self] slot in self?.slotWasRecreated(slot) }
         let center = NotificationCenter.default
@@ -157,9 +162,13 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         notificationTokens.append(center.addObserver(forName: AppSettings.displayPreferencesChanged, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.displayPreferencesDidChange() }
         })
-        // The Font setting lives in the Quire environment: every shell, the pre-rendered ones too, is told in place.
+        // The Font setting and Text size live in the Quire environment: every shell, the pre-rendered ones too, is
+        // told in place. The reader's own size (⌘+, ⌘−) is the settings'.
         notificationTokens.append(center.addObserver(forName: QuireEnvironment.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.typefaceMayHaveChanged() }
+            MainActor.assumeIsolated { self?.readerTypeMayHaveChanged() }
+        })
+        notificationTokens.append(center.addObserver(forName: AppSettings.readerTextSizeChanged, object: appSettings, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.readerTypeMayHaveChanged() }
         })
         // A drop-down here or in any composer changes what the quick reply's Send does (§5.23).
         notificationTokens.append(center.addObserver(forName: SendActionPreference.didChange, object: nil, queue: .main) { [weak self] _ in
@@ -711,6 +720,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         let payload = builder.build(
             messages: all, bodies: bodies, accounts: accountsByID, bodyStates: states,
             loadRemoteImages: Self.loadRemoteImages, readingSans: QuireEnvironment.typeface == .sfPro,
+            textSize: appSettings.readerSize.rawValue,
             colorsNoticeDismissed: settings.originalColorsNoticeDismissed, pending: Set(sheets.map(\.metadata.id)),
             invitationPermissionNeeded: invitationPermissionNeeded
         )
@@ -929,23 +939,29 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         broadcastPreferences()
     }
 
-    /// The typeface last told to the shells. Graphite and contrast changes post the same notification; they
-    /// reach the shells through the pool's modes, so only a typeface change is broadcast here.
+    /// The typeface and reader Text size last told to the shells. Graphite and contrast changes post the same
+    /// notification; they reach the shells through the pool's modes, so only these are broadcast here.
     private var broadcastTypeface = QuireEnvironment.typeface
+    private var broadcastTextSize: QuireFont.TextSize?
 
-    private func typefaceMayHaveChanged() {
-        guard QuireEnvironment.typeface != broadcastTypeface else { return }
+    private func readerTypeMayHaveChanged() {
+        header.textSize = appSettings.readerSize
+        guard QuireEnvironment.typeface != broadcastTypeface || appSettings.readerSize != broadcastTextSize else { return }
         broadcastPreferences()
     }
 
     /// `readingSans` is the Font setting (spec §4.4): the shell sets plain and unstyled bodies in `readingSans`
-    /// and toggles `html.ss-sf`, which puts the avatar initials in `monogramSans`.
+    /// and toggles `html.ss-sf`, which puts the avatar initials in `monogramSans`. `textSize` is the reader's own
+    /// size (spec §4.15): the shell's `html.ss-text-*` class, which measures every body again.
     private func broadcastPreferences() {
         let settings = AppSettings.shared
         broadcastTypeface = QuireEnvironment.typeface
+        broadcastTextSize = appSettings.readerSize
         let sans = broadcastTypeface == .sfPro
+        let size = appSettings.readerSize.rawValue
         pool.broadcastPreferences(
-            "window.ss && window.ss.preferences({readingSans: \(sans), colorsNoticeDismissed: \(settings.originalColorsNoticeDismissed)})"
+            "window.ss && window.ss.preferences({readingSans: \(sans), textSize: '\(size)', "
+                + "colorsNoticeDismissed: \(settings.originalColorsNoticeDismissed)})"
         )
     }
 

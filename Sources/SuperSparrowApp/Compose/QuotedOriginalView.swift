@@ -54,6 +54,18 @@ final class QuotedOriginalView: NSView {
         addSubview(chip)
         addSubview(attribution)
         update()
+        NotificationCenter.default.addObserver(self, selector: #selector(environmentDidChange(_:)),
+                                               name: QuireEnvironment.didChangeNotification, object: nil)
+    }
+
+    /// The preview is the composer's body text: a Text size sets it again and measures it again (spec §4.15).
+    @objc private func environmentDidChange(_ note: Notification) {
+        guard quoteStorage.length > 0 else { return }
+        ComposeTextView.setTextSize(ComposeTextView.composerTextSize, of: quoteStorage)
+        measuredWidth = 0
+        invalidateIntrinsicContentSize()
+        needsLayout = true
+        needsDisplay = true
     }
 
     @available(*, unavailable)

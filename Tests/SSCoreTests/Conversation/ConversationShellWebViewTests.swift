@@ -568,6 +568,61 @@ final class ConversationShellWebViewTests: XCTestCase {
         XCTAssertEqual(again, false)
     }
 
+    /// The reader's Text size (spec §4.15): `ss.preferences({textSize})` puts the class on the shell and on every body
+    /// document, live, so a plain body's text and the sheet's header grow by the step, the bodies are measured again
+    /// and the sheets take their new heights; a styled body keeps its own size; a payload carries the size.
+    func testTheReadersTextSizeStepsSheetsAndPlainBodiesLive() async throws {
+        let (webView, _) = try await loadedShell()
+        typealias F = ConversationFixtures
+        let plain = F.message("m1", date: F.utc(2025, 3, 1, 9, 0))
+        let styled = F.message("m2", date: F.utc(2025, 3, 2, 9, 0))
+        var plainBody = F.body(html: "<p>Plain words that wrap over a few lines when the reader is narrow enough for them to.</p>")
+        plainBody.typesetting = .unstyled
+        plainBody.coveredByNewYork = true
+        var styledBody = F.body(html: "<p style=\"font-size:13px;color:#123456\">Styled</p>")
+        styledBody.typesetting = .styled
+        styledBody.declaresColors = true
+        let payload = F.builder.build(messages: [plain, styled], bodies: [plain.id: plainBody, styled.id: styledBody], accounts: F.accounts)
+        _ = try await evaluate("window.ss.render(\(try payload.jsonString())); window.ss.expandAll()", in: webView)
+        try await waitForFramedCards(in: webView)
+        let probe = "(function () { var f = document.querySelectorAll('.ss-card iframe'); var name = document.querySelector('.ss-name');"
+            + " return [document.documentElement.className, f[0].contentDocument.documentElement.className,"
+            + " getComputedStyle(f[0].contentDocument.body).fontSize, getComputedStyle(f[0].contentDocument.body).lineHeight,"
+            + " getComputedStyle(f[1].contentDocument.querySelector('p')).fontSize, name ? getComputedStyle(name).fontSize : '',"
+            + " f[0].getBoundingClientRect().height]; })()"
+        let before = try await evaluate(probe, in: webView) as? [Any]
+        XCTAssertFalse((before?[0] as? String ?? "").contains("ss-text-"), "Default has no class")
+        XCTAssertEqual(before?[2] as? String, "15px")
+        XCTAssertEqual(before?[3] as? String, "24px")
+        XCTAssertEqual(before?[4] as? String, "13px")
+
+        _ = try await evaluate("window.ss.preferences({readingSans: false, textSize: 'larger', colorsNoticeDismissed: false})", in: webView)
+        try await Task.sleep(nanoseconds: 150_000_000)
+        let larger = try await evaluate(probe, in: webView) as? [Any]
+        XCTAssertTrue((larger?[0] as? String ?? "").contains("ss-text-larger"), "\(String(describing: larger))")
+        XCTAssertTrue((larger?[1] as? String ?? "").contains("ss-text-larger"), "the body document takes the class")
+        XCTAssertEqual(larger?[2] as? String, "17px", "reading 15 + 2")
+        XCTAssertEqual(larger?[3] as? String, "26px", "its line 24 + 2")
+        XCTAssertEqual(larger?[4] as? String, "13px", "styled HTML keeps its own size")
+        if let a = before?[5] as? String, let b = larger?[5] as? String, !a.isEmpty {
+            XCTAssertEqual((Double(b.dropLast(2)) ?? 0) - (Double(a.dropLast(2)) ?? 0), 2, "the sheet's header steps too")
+        }
+        let grew = (larger?[6] as? Double ?? 0) > (before?[6] as? Double ?? 0)
+        XCTAssertTrue(grew, "the plain body was measured again: \(String(describing: before?[6])) → \(String(describing: larger?[6]))")
+
+        _ = try await evaluate("window.ss.preferences({readingSans: false, textSize: 'small', colorsNoticeDismissed: false})", in: webView)
+        let small = try await evaluate(probe, in: webView) as? [Any]
+        XCTAssertTrue((small?[0] as? String ?? "").contains("ss-text-small"))
+        XCTAssertFalse((small?[0] as? String ?? "").contains("ss-text-larger"), "one size at a time")
+        XCTAssertEqual(small?[2] as? String, "14px")
+
+        // A payload carries the size: rendering one built at Default takes the class off again.
+        let plainOnly = F.builder.build(messages: [plain], bodies: [plain.id: plainBody], accounts: F.accounts, textSize: "default")
+        _ = try await evaluate("window.ss.render(\(try plainOnly.jsonString()))", in: webView)
+        let again = try await evaluate("document.documentElement.className", in: webView) as? String
+        XCTAssertFalse((again ?? "").contains("ss-text-"))
+    }
+
     /// A Gmail reply ends its new text with a <br> before the quote; folded, that break must not leave an empty
     /// line between the body and the elision mark, and unfolded the reply reads as sent (spec §5.14, §5.15).
     func testAFoldedQuoteLeavesNoEmptyLine() async throws {

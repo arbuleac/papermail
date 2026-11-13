@@ -24,6 +24,7 @@ public struct RenderPayloadBuilder: Sendable {
     ///   - subject: overrides the first non-empty message subject when the caller already has it.
     ///   - loadRemoteImages: the user's preference, passed through to the shell.
     ///   - readingSans: the Font setting is SF Pro (spec §4.4).
+    ///   - textSize: the reader's Text size by name (spec §4.15).
     ///   - colorsNoticeDismissed: the Original colors notice was dismissed for good (spec §5.16).
     ///   - pending: messages that are replies still in the outbox (`PendingSheet`), shown as sending.
     ///   - invitationPermissionNeeded: accounts whose answered invitations wait for permission to update the calendar
@@ -36,6 +37,7 @@ public struct RenderPayloadBuilder: Sendable {
         subject: String? = nil,
         loadRemoteImages: Bool = false,
         readingSans: Bool = false,
+        textSize: String = "default",
         colorsNoticeDismissed: Bool = false,
         pending: Set<MessageID> = [],
         invitationPermissionNeeded: Set<AccountID> = [],
@@ -113,6 +115,7 @@ public struct RenderPayloadBuilder: Sendable {
             loadRemoteImages: loadRemoteImages,
             inkSlot: inkSlot,
             readingSans: readingSans,
+            textSize: textSize,
             colorsNoticeDismissed: colorsNoticeDismissed
         )
     }

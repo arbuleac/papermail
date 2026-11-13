@@ -20,6 +20,11 @@ final class RunningHeadRowView: NSTableRowView {
         didSet { if oldValue != density { needsDisplay = true } }
     }
 
+    /// The label's line follows the Text size; the head keeps its height and the label its place (spec §4.15).
+    var textSize = QuireFont.TextSize.default {
+        didSet { if oldValue != textSize { needsDisplay = true } }
+    }
+
     private var titleWidth: CGFloat = 0
 
     override var isFlipped: Bool { true }
@@ -36,9 +41,9 @@ final class RunningHeadRowView: NSTableRowView {
         nil
     }
 
-    /// The uppercased label in its role, built once per title change.
-    static func title(_ text: String) -> NSAttributedString {
-        QuireFont.attributedString(text, role: .runningHead, color: .qInk3)
+    /// The uppercased label in its role at `textSize`, built once per title change.
+    static func title(_ text: String, textSize: QuireFont.TextSize = .default) -> NSAttributedString {
+        QuireFont.attributedString(text, role: .runningHead, color: .qInk3, textSize: textSize)
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -47,14 +52,15 @@ final class RunningHeadRowView: NSTableRowView {
         let compact = density == .compact
         let x = compact ? Head.compactLabelX : Head.labelX
         let top = compact ? Head.compactLabelY : Head.labelY
-        let lineHeight = QuireFont.Role.runningHead.lineHeight
+        let lineHeight = QuireFont.Role.runningHead.lineHeight(at: textSize)
         let maxWidth = bounds.width - x - Quire.Layout.Row.trailing
         title.draw(with: NSRect(x: x, y: top, width: max(0, maxWidth), height: lineHeight), options: QuireFont.drawingOptions, context: nil)
 
         let ruleX = x + titleWidth + Head.ruleGap
         let ruleEnd = bounds.width - Quire.Layout.Row.trailing
         guard ruleEnd > ruleX else { return }
-        let ruleY = compact ? Head.compactRuleY : Head.ruleY
+        // On the label's centre, which moves by half its line's step.
+        let ruleY = (compact ? Head.compactRuleY : Head.ruleY) + QuireFont.Role.runningHead.step(at: textSize) / 2
         let width = QuireHairline.width(for: self)
         NSColor.qRule.setFill()
         // On the device grid: centred on the label's line, a hairline straddled two pixel rows at half

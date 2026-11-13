@@ -285,7 +285,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         fillsPage.priority = .defaultLow
         // Room for a couple of lines before the folded original, so an empty reply still reads as a page.
         let editorMinimum = textView.heightAnchor.constraint(greaterThanOrEqualToConstant:
-            Quire.Layout.Composer.bodyPadTop + 2 * ComposeTextView.bodyRole.lineHeight)
+            Quire.Layout.Composer.bodyPadTop + 2 * textView.lineHeight)
         editorMinimum.priority = .defaultHigh
         NSLayoutConstraint.activate([
             bodyDocument.topAnchor.constraint(equalTo: clip.topAnchor),
@@ -1338,9 +1338,9 @@ final class ComposeWindow: NSWindow {
     }
 }
 
-/// The Subject field: borderless `composeSubject` (New York 15 pt, its sans twin under the SF Pro font or for
-/// scripts New York lacks) in `ink`, an `accent` caret, no ring of its own (the row draws the inset ring). A
-/// Font switch re-sets it at once, in every open composer, mid-edit included.
+/// The Subject field: borderless `composeSubject` (New York 15 pt at Default, its sans twin under the SF Pro font or
+/// for scripts New York lacks) in `ink`, an `accent` caret, no ring of its own (the row draws the inset ring). A
+/// Font switch or a Text size (spec §4.15) re-sets it at once, in every open composer, mid-edit included.
 @MainActor
 private final class ComposeSubjectField: NSTextField {
     override init(frame frameRect: NSRect) {
@@ -1367,7 +1367,7 @@ private final class ComposeSubjectField: NSTextField {
     }
 
     func updateFont() {
-        let font = QuireFont.font(.composeSubject, for: stringValue)
+        let font = QuireFont.font(.composeSubject, for: stringValue, textSize: QuireEnvironment.textSize)
         guard self.font != font else { return }
         self.font = font
         // While the subject is being edited the field editor draws it, with its own font and typing attributes.

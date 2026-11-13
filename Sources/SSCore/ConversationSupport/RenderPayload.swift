@@ -266,6 +266,9 @@ public struct RenderPayload: Hashable, Codable, Sendable {
     /// Settings › General › Font is SF Pro (spec §4.4): plain and unstyled bodies use `readingSans`, and the
     /// shell's avatar initials `monogramSans` (`html.ss-sf`).
     public var readingSans: Bool
+    /// The reader's Text size (spec §4.15), by name: `small`, `default`, `large` or `larger`. The shell puts every
+    /// other size's `html.ss-text-<name>` class on itself and on each body document.
+    public var textSize: String
     /// The Original colors notice was dismissed for good (`originalColorsNoticeDismissed`, spec §5.16).
     public var colorsNoticeDismissed: Bool
 
@@ -276,6 +279,7 @@ public struct RenderPayload: Hashable, Codable, Sendable {
         loadRemoteImages: Bool = false,
         inkSlot: Int = 0,
         readingSans: Bool = false,
+        textSize: String = "default",
         colorsNoticeDismissed: Bool = false
     ) {
         self.subject = subject
@@ -284,6 +288,7 @@ public struct RenderPayload: Hashable, Codable, Sendable {
         self.loadRemoteImages = loadRemoteImages
         self.inkSlot = inkSlot
         self.readingSans = readingSans
+        self.textSize = textSize
         self.colorsNoticeDismissed = colorsNoticeDismissed
     }
 

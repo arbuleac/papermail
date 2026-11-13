@@ -68,7 +68,7 @@ public enum ConversationShellAssets {
         ".ss-sym-" + name.replacingOccurrences(of: ".", with: "-") + "{--sym:var(" + symbolVariable(name) + ")}"
     }.joined(separator: "\n")
 
-    public static let css: String = QuireCSS.head + "\n" + shellCSS + "\n" + symbolClasses
+    public static let css: String = QuireCSS.head + "\n" + QuireCSS.textSizes + "\n" + shellCSS + "\n" + symbolClasses
 
     /// The shell's own rules (spec §5.13–5.19, §8.4). Every colour, font, radius and duration is a Quire
     /// variable; the old `--ss-*` names stay defined, mapped onto Quire, for anything that still reads them.
@@ -494,15 +494,15 @@ public enum ConversationShellAssets {
     html.ss-rm .ss-contrail { transition-timing-function: steps(var(--q-countdown-steps)); }
     """#
 
-    /// The variables a body document needs, cut from `QuireCSS.head` block by block, so `html.ss-ic` and
-    /// `html.ss-graphite` switch them inside the frame exactly as they do in the shell.
+    /// The variables a body document needs, cut from `QuireCSS.head` and `QuireCSS.textSizes` block by block, so
+    /// `html.ss-ic`, `html.ss-graphite` and `html.ss-text-*` switch them inside the frame exactly as in the shell.
     static let bodyVariables: String = {
         let keep: Set<String> = [
             "--q-ink", "--q-ink2", "--q-ink3", "--q-accent", "--q-rule", "--q-focus", "--q-sheet", "--q-fill",
             "--q-originalPage", "--q-sans", "--q-serif", "--q-font-reading", "--q-font-readingSans", "--q-font-writing",
             "--q-track-reading", "--q-track-readingSans", "--q-track-writing", "--q-r-xs",
         ]
-        return QuireCSS.head.components(separatedBy: "\n").compactMap { line -> String? in
+        return (QuireCSS.head + "\n" + QuireCSS.textSizes).components(separatedBy: "\n").compactMap { line -> String? in
             guard let first = line.range(of: "--") else { return nil }
             let prefix = String(line[..<first.lowerBound])
             var suffix = ""
@@ -582,7 +582,7 @@ public enum ConversationShellAssets {
       var state = { payload: null, cards: [], byID: {}, target: null, focusEl: null, folds: [] };
       // The "Load remote images" preference of the payload being rendered.
       var loadRemote = false;
-      var prefs = { readingSans: false, noticeDismissed: false };
+      var prefs = { readingSans: false, noticeDismissed: false, textSize: 'default' };
       // Session memory that outlives a render: measured body heights per message and width, the messages
       // shown in Original colors, and the recipient blocks the user opened (spec §4.10, §5.14).
       var heights = {};
@@ -709,6 +709,8 @@ public enum ConversationShellAssets {
         var shell = document.documentElement.classList;
         if (shell.contains('ss-ic')) { classes.push('ss-ic'); }
         if (shell.contains('ss-graphite')) { classes.push('ss-graphite'); }
+        var size = textSizeClass();
+        if (size) { classes.push(size); }
         if (adapts(card)) { classes.push('ss-adapt'); }
         if (showsInset(card)) { classes.push('ss-original'); }
         if (card.wide) { classes.push('ss-wide'); }
@@ -858,7 +860,7 @@ public enum ConversationShellAssets {
       }
 
       function heightKey(card) {
-        return card.message.id + ':' + Math.round(card.frameWrap.clientWidth);
+        return card.message.id + ':' + Math.round(card.frameWrap.clientWidth) + ':' + prefs.textSize;
       }
 
       function measure(card) {
@@ -2084,20 +2086,49 @@ public enum ConversationShellAssets {
         document.documentElement.classList.toggle('ss-sf', prefs.readingSans);
       }
 
+      // The reader's Text size (spec §4.15): an `html.ss-text-*` class redefines every type variable, on the shell
+      // and on each body document (htmlClasses), so sheets and plain and unstyled bodies follow it while styled
+      // HTML, which never reads the variables, keeps its own sizes. Default has no class.
+      var TEXT_SIZES = ['small', 'large', 'larger'];
+      function textSizeClass() {
+        return TEXT_SIZES.indexOf(prefs.textSize) >= 0 ? 'ss-text-' + prefs.textSize : '';
+      }
+      function applyTextSize() {
+        var shell = document.documentElement.classList;
+        for (var i = 0; i < TEXT_SIZES.length; i++) { shell.toggle('ss-text-' + TEXT_SIZES[i], prefs.textSize === TEXT_SIZES[i]); }
+      }
+
+      // Every sheet's height follows the size: bodies are measured again at once and once more after layout, and
+      // the open sheets refitted without animation.
+      function textSizeChanged() {
+        for (var i = 0; i < state.cards.length; i++) {
+          var card = state.cards[i];
+          if (card.iframe) {
+            fitWidth(card);
+            measure(card);
+            setTimeout(card.remeasure, 50);
+          }
+          if (card.expanded) { fit(card, false); }
+        }
+      }
+
       function setPreferences(p) {
         var sansChanged = !!p.readingSans !== prefs.readingSans;
         var noticeChanged = !!p.colorsNoticeDismissed !== prefs.noticeDismissed;
+        var size = typeof p.textSize === 'string' ? p.textSize : prefs.textSize;
+        var sizeChanged = size !== prefs.textSize;
         prefs.readingSans = !!p.readingSans;
         prefs.noticeDismissed = !!p.colorsNoticeDismissed;
+        prefs.textSize = size;
         applyTypeface();
+        applyTextSize();
         for (var i = 0; i < state.cards.length; i++) {
           var card = state.cards[i];
-          if (sansChanged) {
-            syncDocumentClasses(card);
-            if (!card.message.hasBody) { renderFrame(card); }
-          }
+          if (sansChanged || sizeChanged) { syncDocumentClasses(card); }
+          if (sansChanged && !card.message.hasBody) { renderFrame(card); }
           if (noticeChanged) { renderBanners(card); }
         }
+        if (sizeChanged) { textSizeChanged(); }
       }
 
       // The app mirrors Increase Contrast, Reduce Motion, Reduce Transparency and Graphite onto the shell and
@@ -2161,7 +2192,9 @@ public enum ConversationShellAssets {
         loadRemote = !!payload.loadRemoteImages;
         prefs.readingSans = !!payload.readingSans;
         prefs.noticeDismissed = !!payload.colorsNoticeDismissed;
+        prefs.textSize = typeof payload.textSize === 'string' ? payload.textSize : 'default';
         applyTypeface();
+        applyTextSize();
         root.dataset.inkSlot = String(payload.inkSlot || 0);
         document.title = payload.subject || '';
       }

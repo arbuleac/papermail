@@ -8,14 +8,17 @@ extension QuireEnvironment {
         public var reduceTransparency: Bool?
         /// Wins over the app's Font setting, so the Design Gallery can show either face without saving it.
         public var typeface: QuireFont.Typeface?
+        /// Wins over the app's Text size, for tests and snapshots at a given size.
+        public var textSize: QuireFont.TextSize?
 
         public init(isGraphite: Bool? = nil, increaseContrast: Bool? = nil, reduceMotion: Bool? = nil, reduceTransparency: Bool? = nil,
-                    typeface: QuireFont.Typeface? = nil) {
+                    typeface: QuireFont.Typeface? = nil, textSize: QuireFont.TextSize? = nil) {
             self.isGraphite = isGraphite
             self.increaseContrast = increaseContrast
             self.reduceMotion = reduceMotion
             self.reduceTransparency = reduceTransparency
             self.typeface = typeface
+            self.textSize = textSize
         }
     }
 }

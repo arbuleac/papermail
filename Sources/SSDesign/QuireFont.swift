@@ -7,10 +7,20 @@ import CoreText
 /// The Font setting (`QuireEnvironment.typeface`) is applied here, once, for every caller: under SF Pro a New
 /// York role is replaced by its sans twin before anything is looked up. The caches are keyed by the role
 /// actually set, never by the role asked for, so after a switch no cache can hand back the other face.
+///
+/// A Text size (spec §4.15) is asked for, never assumed: it applies only where mail is read and written, so the
+/// list, the reader and the composer pass `QuireEnvironment.textSize` (or the reader's own size) and everything
+/// else gets Default. Every cache keys on it.
 public enum QuireFont {
     private struct FontKey: Hashable {
         let role: Role
         let unread: Bool
+        let textSize: TextSize
+    }
+
+    private struct StyleKey: Hashable {
+        let role: Role
+        let textSize: TextSize
     }
 
     private struct MonogramKey: Hashable {
@@ -19,30 +29,30 @@ public enum QuireFont {
     }
 
     private static let fonts = LockedCache<FontKey, NSFont>()
-    private static let styles = LockedCache<Role, NSParagraphStyle>()
+    private static let styles = LockedCache<StyleKey, NSParagraphStyle>()
     private static let offsets = LockedCache<FontKey, CGFloat>()
     private static let monograms = LockedCache<MonogramKey, NSFont>()
 
     // MARK: Fonts
 
-    /// The role's font under the Font setting, cached. `unread` switches to the role's `unreadWeight` where it
-    /// has one.
-    public static func font(_ role: Role, unread: Bool = false) -> NSFont {
-        font(setIn: resolvedRole(role), unread: unread)
+    /// The role's font under the Font setting at `textSize`, cached. `unread` switches to the role's
+    /// `unreadWeight` where it has one.
+    public static func font(_ role: Role, unread: Bool = false, textSize: TextSize = .default) -> NSFont {
+        font(setIn: resolvedRole(role), unread: unread, textSize: textSize)
     }
 
     /// The font for `text` in `role`: the role's sans twin under the SF Pro font, or when New York cannot set
     /// every letter of it (spec §4.4, script fallback). Twins keep the line height, so metrics never change.
-    public static func font(_ role: Role, for text: String, unread: Bool = false) -> NSFont {
-        font(setIn: resolvedRole(role, for: text), unread: unread)
+    public static func font(_ role: Role, for text: String, unread: Bool = false, textSize: TextSize = .default) -> NSFont {
+        font(setIn: resolvedRole(role, for: text), unread: unread, textSize: textSize)
     }
 
     /// Exactly `role`'s font: the typeface has already been applied.
-    private static func font(setIn role: Role, unread: Bool) -> NSFont {
+    private static func font(setIn role: Role, unread: Bool, textSize: TextSize) -> NSFont {
         let unread = unread && role.spec.unreadWeight != nil
-        return fonts.value(for: FontKey(role: role, unread: unread)) {
+        return fonts.value(for: FontKey(role: role, unread: unread, textSize: textSize)) {
             let spec = role.spec
-            return make(spec, size: spec.pointSize, weight: unread ? spec.unreadWeight! : spec.weight)
+            return make(spec, size: role.size(at: textSize), weight: unread ? spec.unreadWeight! : spec.weight)
         }
     }
 
@@ -145,12 +155,12 @@ public enum QuireFont {
     // MARK: Paragraphs and attributes
 
     /// Exact line height, single line, tail truncation without tightening, natural writing direction with the
-    /// UI's leading alignment (spec §4.4, §8.2). Shared and immutable, so it is cached per role.
-    public static func paragraphStyle(_ role: Role) -> NSParagraphStyle {
-        styles.value(for: role) {
+    /// UI's leading alignment (spec §4.4, §8.2). Shared and immutable, so it is cached per role and Text size.
+    public static func paragraphStyle(_ role: Role, textSize: TextSize = .default) -> NSParagraphStyle {
+        styles.value(for: StyleKey(role: role, textSize: textSize)) {
             let style = NSMutableParagraphStyle()
-            style.minimumLineHeight = role.lineHeight
-            style.maximumLineHeight = role.lineHeight
+            style.minimumLineHeight = role.lineHeight(at: textSize)
+            style.maximumLineHeight = role.lineHeight(at: textSize)
             style.lineBreakMode = .byTruncatingTail
             style.allowsDefaultTighteningForTruncation = false
             style.baseWritingDirection = .natural
@@ -164,11 +174,11 @@ public enum QuireFont {
     /// Centres the font's own line in the role's line box: (role line height − font line height) / 2, the
     /// font line height being what NSLayoutManager would give it (spec §4.4). The reader's CSS line-height
     /// centres the same way, so AppKit and the reader agree to the point.
-    public static func baselineOffset(_ role: Role, unread: Bool = false) -> CGFloat {
+    public static func baselineOffset(_ role: Role, unread: Bool = false, textSize: TextSize = .default) -> CGFloat {
         let role = resolvedRole(role)
         let unread = unread && role.spec.unreadWeight != nil
-        return offsets.value(for: FontKey(role: role, unread: unread)) {
-            baselineOffset(for: font(setIn: role, unread: unread), lineHeight: role.lineHeight)
+        return offsets.value(for: FontKey(role: role, unread: unread, textSize: textSize)) {
+            baselineOffset(for: font(setIn: role, unread: unread, textSize: textSize), lineHeight: role.lineHeight(at: textSize))
         }
     }
 
@@ -179,13 +189,14 @@ public enum QuireFont {
     /// String attributes for `role` in `color`, under the Font setting (the twin's tracking with its font).
     /// Tracking is applied as `.kern` only when the role has one, because an explicit 0 kern turns off the
     /// font's own kerning.
-    public static func attributes(_ role: Role, color: NSColor, unread: Bool = false) -> [NSAttributedString.Key: Any] {
+    public static func attributes(_ role: Role, color: NSColor, unread: Bool = false,
+                                  textSize: TextSize = .default) -> [NSAttributedString.Key: Any] {
         let role = resolvedRole(role)
         var a: [NSAttributedString.Key: Any] = [
-            .font: font(setIn: role, unread: unread),
+            .font: font(setIn: role, unread: unread, textSize: textSize),
             .foregroundColor: color,
-            .paragraphStyle: paragraphStyle(role),
-            .baselineOffset: baselineOffset(role, unread: unread),
+            .paragraphStyle: paragraphStyle(role, textSize: textSize),
+            .baselineOffset: baselineOffset(role, unread: unread, textSize: textSize),
         ]
         if role.tracking != 0 { a[.kern] = role.tracking }
         return a
@@ -194,10 +205,10 @@ public enum QuireFont {
     /// `text` set in `role`: the twin under the SF Pro font or when New York cannot set it, uppercased for
     /// uppercase roles, with the role's attributes. This is the one call row and header builders need.
     public static func attributedString(_ text: String, role: Role, color: NSColor, unread: Bool = false,
-                                        locale: Locale = .current) -> NSAttributedString {
+                                        locale: Locale = .current, textSize: TextSize = .default) -> NSAttributedString {
         let used = resolvedRole(role, for: text)
         let string = used.uppercase ? text.uppercased(with: locale) : text
-        return NSAttributedString(string: string, attributes: attributes(used, color: color, unread: unread))
+        return NSAttributedString(string: string, attributes: attributes(used, color: color, unread: unread, textSize: textSize))
     }
 
     // MARK: Laying out

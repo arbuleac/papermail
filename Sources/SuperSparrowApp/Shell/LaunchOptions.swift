@@ -20,6 +20,9 @@ struct LaunchOptions: Equatable {
     /// faces from one machine. Never written to the user's defaults; Settings › General › Font still shows the
     /// saved choice, and picking one there applies it as usual.
     var typeface: QuireFont.Typeface?
+    /// Debug aid: force Text size ("small", "default", "large" or "larger") for this process only, so snapshots can
+    /// show the list, the reader and a composer at every size (spec §4.15). Never saved, like `typeface`.
+    var textSize: QuireFont.TextSize?
     /// Debug aid: open the design gallery (Debug › Design Gallery) at launch.
     var gallery = false
     /// Debug aid: render the whole design gallery page into this PNG, then quit.
@@ -61,6 +64,8 @@ struct LaunchOptions: Equatable {
                 appearance = Self.value(of: value, after: "--appearance=")
             case let value where value.hasPrefix("--font="):
                 typeface = Self.typeface(named: Self.value(of: value, after: "--font="))
+            case let value where value.hasPrefix("--text-size="):
+                textSize = Self.value(of: value, after: "--text-size=").flatMap { QuireFont.TextSize(rawValue: $0.lowercased()) }
             case let value where value.hasPrefix("--snapshot-compose="):
                 composeSnapshotPath = Self.value(of: value, after: "--snapshot-compose=")
             case let value where value.hasPrefix("--snapshot-gallery="):

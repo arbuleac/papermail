@@ -234,6 +234,15 @@ enum MainMenu {
                           symbol: Quire.Icon.originalColors))
         menu.addItem(item("Show Quoted Text", #selector(MainWindowController.toggleQuotedText(_:)), ".", [], symbol: Quire.Icon.quotedText))
         menu.addItem(.separator())
+        // The reader's own Text size (§4.15). No ⌘0 to reset it: that is All Inboxes; the other key comes back.
+        menu.addItem(item("Make Text Bigger", #selector(MainWindowController.makeReaderTextBigger(_:)), "+"))
+        // ⌘= is ⌘+ without the Shift most layouts need for +, and Safari takes it the same way.
+        let biggerUnshifted = item("Make Text Bigger", #selector(MainWindowController.makeReaderTextBigger(_:)), "=")
+        biggerUnshifted.isHidden = true
+        biggerUnshifted.allowsKeyEquivalentWhenHidden = true
+        menu.addItem(biggerUnshifted)
+        menu.addItem(item("Make Text Smaller", #selector(MainWindowController.makeReaderTextSmaller(_:)), "-"))
+        menu.addItem(.separator())
         menu.addItem(item("Enter Full Screen", #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control]))
         return menu
     }

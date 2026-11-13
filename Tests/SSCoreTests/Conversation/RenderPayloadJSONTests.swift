@@ -6,7 +6,7 @@ import XCTest
 /// rename on either side fail here rather than render blank cards.
 final class RenderPayloadJSONTests: XCTestCase {
     static let expectedTopLevelKeys = [
-        "colorsNoticeDismissed", "inkSlot", "loadRemoteImages", "messages", "participants", "readingSans", "subject",
+        "colorsNoticeDismissed", "inkSlot", "loadRemoteImages", "messages", "participants", "readingSans", "subject", "textSize",
     ]
     static let expectedMessageKeys = [
         "attachments", "blockedRemoteImageCount", "bodyState", "cc", "coveredByNewYork", "dateDisplay", "dateISO",
@@ -149,7 +149,8 @@ final class RenderPayloadJSONTests: XCTestCase {
     func testBodyDocumentsCarryTheirVariables() {
         let variables = ConversationShellAssets.bodyVariables
         for needle in ["--q-ink:", "--q-accent:", "--q-rule:", "--q-focus:", "--q-originalPage:", "--q-font-reading:",
-                       "--q-font-readingSans:", "html.ss-ic{", "html.ss-graphite{", "@media (prefers-color-scheme:dark){:root{"] {
+                       "--q-font-readingSans:", "html.ss-ic{", "html.ss-graphite{", "@media (prefers-color-scheme:dark){:root{",
+                       "html.ss-text-small{--q-font-reading:400 14px/23px", "html.ss-text-larger{--q-font-reading:400 17px/26px"] {
             XCTAssertTrue(variables.contains(needle), needle)
         }
         XCTAssertFalse(variables.contains("--q-spine:"), "only what bodies use")

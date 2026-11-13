@@ -19,7 +19,10 @@ import SSDesign
 @MainActor
 final class ComposeTextView: NSTextView {
     static let bodyRole = QuireFont.Role.writing
-    static var bodyFont: NSFont { QuireFont.font(bodyRole) }
+    /// The size every composer sets its body at (spec §4.15): the app's Text size. Text built for a composer outside
+    /// one (a signature, a mail link's body, the quick reply's hand-off) is built at it.
+    static var composerTextSize: QuireFont.TextSize { QuireEnvironment.textSize }
+    static var bodyFont: NSFont { QuireFont.font(bodyRole, textSize: composerTextSize) }
     static let bulletFormat = NSTextList.MarkerFormat.disc
     static let numberFormat = NSTextList.MarkerFormat("{decimal}.")
     static let listIndent = Quire.Layout.TextStyle.listIndent
@@ -44,6 +47,18 @@ final class ComposeTextView: NSTextView {
     }
     var trailingInset: CGFloat = Quire.Layout.Composer.bodyPadRight {
         didSet { if oldValue != trailingInset { updateContainerWidth() } }
+    }
+
+    /// The size this editor sets its text at (spec §4.15). A composer's follows Text size live, re-setting what it holds
+    /// (`followsTextSize`); the Settings signature field keeps Default, as Settings does.
+    private(set) var textSize = ComposeTextView.composerTextSize
+
+    /// Off for the Settings signature field: it stays at Default whatever Text size says.
+    var followsTextSize = true {
+        didSet {
+            guard oldValue != followsTextSize else { return }
+            setTextSize(followsTextSize ? Self.composerTextSize : .default)
+        }
     }
 
     /// Space above the first line: `composer.bodyPadTop`, or more while the send-failed banner sits there.
@@ -72,6 +87,14 @@ final class ComposeTextView: NSTextView {
         ownedStorage = storage
         super.init(frame: frame, textContainer: container)
         configure()
+        NotificationCenter.default.addObserver(self, selector: #selector(environmentDidChange(_:)),
+                                               name: QuireEnvironment.didChangeNotification, object: nil)
+    }
+
+    /// Text size changed: a composer sets everything it holds again, mid-edit included (spec §4.15).
+    @objc private func environmentDidChange(_ note: Notification) {
+        guard followsTextSize else { return }
+        setTextSize(Self.composerTextSize)
     }
 
     @available(*, unavailable)
@@ -91,10 +114,10 @@ final class ComposeTextView: NSTextView {
         isAutomaticDataDetectionEnabled = false
         isContinuousSpellCheckingEnabled = true
         isGrammarCheckingEnabled = false
-        font = Self.bodyFont
+        font = bodyFont
         textColor = .qInk
         insertionPointColor = .qAccent
-        typingAttributes = Self.defaultTypingAttributes
+        typingAttributes = defaultTypingAttributes
         textContainerInset = .zero
         // The editor sits in a document view together with the quoted original, so Auto Layout, not the
         // text system, owns its height: it reports the laid-out text height as intrinsic size instead.
@@ -116,14 +139,32 @@ final class ComposeTextView: NSTextView {
 
     // MARK: Styles
 
-    /// `writing`: 14 pt on exact 21 pt lines, wrapping, no extra paragraph spacing (what you type is sent).
-    static var bodyParagraphStyle: NSParagraphStyle {
+    /// `writing`: 14 pt on exact 21 pt lines at Default, wrapping, no extra paragraph spacing (what you type is sent).
+    static var bodyParagraphStyle: NSParagraphStyle { bodyParagraphStyle(at: composerTextSize) }
+
+    static func bodyParagraphStyle(at textSize: QuireFont.TextSize) -> NSParagraphStyle {
         let style = NSMutableParagraphStyle()
-        style.minimumLineHeight = bodyRole.lineHeight
-        style.maximumLineHeight = bodyRole.lineHeight
+        style.minimumLineHeight = bodyRole.lineHeight(at: textSize)
+        style.maximumLineHeight = bodyRole.lineHeight(at: textSize)
         style.lineBreakMode = .byWordWrapping
         style.baseWritingDirection = .natural
         return style
+    }
+
+    /// The instance's own styles, at its `textSize`.
+    var bodyFont: NSFont { QuireFont.font(Self.bodyRole, textSize: textSize) }
+    var lineHeight: CGFloat { Self.bodyRole.lineHeight(at: textSize) }
+    var bodyParagraphStyle: NSParagraphStyle { Self.bodyParagraphStyle(at: textSize) }
+    var defaultTypingAttributes: [NSAttributedString.Key: Any] { Self.defaultTypingAttributes(at: textSize) }
+    var quoteParagraphStyle: NSParagraphStyle { Self.quoteParagraphStyle(at: textSize) }
+
+    func listParagraphStyle(_ list: NSTextList) -> NSParagraphStyle { Self.listParagraphStyle(list, textSize: textSize) }
+
+    func markerAttributes(_ style: NSParagraphStyle) -> [NSAttributedString.Key: Any] {
+        var attributes = defaultTypingAttributes
+        attributes[.paragraphStyle] = style
+        attributes[.foregroundColor] = NSColor.qInk2
+        return attributes
     }
 
     /// Text typed or pasted never carries the signature's mark, wherever the caret is (spec §5.20): the mark covers
@@ -141,12 +182,14 @@ final class ComposeTextView: NSTextView {
         }
     }
 
-    static var defaultTypingAttributes: [NSAttributedString.Key: Any] {
+    static var defaultTypingAttributes: [NSAttributedString.Key: Any] { defaultTypingAttributes(at: composerTextSize) }
+
+    static func defaultTypingAttributes(at textSize: QuireFont.TextSize) -> [NSAttributedString.Key: Any] {
         [
-            .font: bodyFont,
+            .font: QuireFont.font(bodyRole, textSize: textSize),
             .foregroundColor: NSColor.qInk,
-            .paragraphStyle: bodyParagraphStyle,
-            .baselineOffset: QuireFont.baselineOffset(bodyRole),
+            .paragraphStyle: bodyParagraphStyle(at: textSize),
+            .baselineOffset: QuireFont.baselineOffset(bodyRole, textSize: textSize),
         ]
     }
 
@@ -156,12 +199,65 @@ final class ComposeTextView: NSTextView {
         NSAttributedString(string: text, attributes: defaultTypingAttributes)
     }
 
-    /// The typed “\t•\t” of a list item: `ink2`, so the marker reads as structure, not words.
-    static func markerAttributes(_ style: NSParagraphStyle) -> [NSAttributedString.Key: Any] {
-        var attributes = defaultTypingAttributes
-        attributes[.paragraphStyle] = style
-        attributes[.foregroundColor] = NSColor.qInk2
-        return attributes
+    // The typed “\t•\t” of a list item takes `markerAttributes(_:)`: `ink2`, so the marker reads as structure, not words.
+
+    // MARK: Text size
+
+    /// Sets everything the editor holds at `textSize` (spec §4.15). The body holds one size of text, `writing`, so
+    /// every run takes the new size with its own traits (bold, italic), every paragraph the new line (indents, lists
+    /// and quotes kept) and every baseline the new offset; links, underlines, inks, the signature's mark and the
+    /// selection stay. Not an edit: nothing goes on the undo stack.
+    private func setTextSize(_ newSize: QuireFont.TextSize) {
+        guard newSize != textSize else { return }
+        textSize = newSize
+        // Not `font =`, which would set the whole text in one face and drop its bold and italic runs.
+        if let storage = textStorage { Self.setTextSize(newSize, of: storage) }
+        var typing = typingAttributes
+        if let typed = typing[.font] as? NSFont { typing[.font] = Self.resized(typed, to: newSize) }
+        if let style = typing[.paragraphStyle] as? NSParagraphStyle { typing[.paragraphStyle] = Self.relined(style, to: newSize) }
+        typing[.baselineOffset] = QuireFont.baselineOffset(Self.bodyRole, textSize: newSize)
+        typingAttributes = typing
+        invalidateIntrinsicContentSize()
+        needsDisplay = true
+    }
+
+    /// `storage`'s fonts, lines and baselines at `textSize`, whatever size they were set at.
+    static func setTextSize(_ textSize: QuireFont.TextSize, of storage: NSTextStorage) {
+        let whole = NSRange(location: 0, length: storage.length)
+        guard whole.length > 0 else { return }
+        let offset = QuireFont.baselineOffset(bodyRole, textSize: textSize)
+        storage.beginEditing()
+        storage.enumerateAttribute(.font, in: whole, options: []) { value, range, _ in
+            guard let font = value as? NSFont else { return }
+            storage.addAttribute(.font, value: resized(font, to: textSize), range: range)
+        }
+        storage.enumerateAttribute(.paragraphStyle, in: whole, options: []) { value, range, _ in
+            guard let style = value as? NSParagraphStyle else { return }
+            storage.addAttribute(.paragraphStyle, value: relined(style, to: textSize), range: range)
+        }
+        storage.enumerateAttribute(.baselineOffset, in: whole, options: []) { value, range, _ in
+            guard value != nil else { return }
+            storage.addAttribute(.baselineOffset, value: offset, range: range)
+        }
+        storage.endEditing()
+    }
+
+    /// The same face at the writing size. From its descriptor, not `NSFontManager.convert(_:toSize:)`, which sets the
+    /// system font's bold back to regular.
+    private static func resized(_ font: NSFont, to textSize: QuireFont.TextSize) -> NSFont {
+        let size = bodyRole.size(at: textSize)
+        return font.pointSize == size ? font : NSFont(descriptor: font.fontDescriptor, size: size) ?? font
+    }
+
+    /// A paragraph style on the writing line at `textSize`; one set on another line (none in a composer) is left alone.
+    private static func relined(_ style: NSParagraphStyle, to textSize: QuireFont.TextSize) -> NSParagraphStyle {
+        let line = bodyRole.lineHeight(at: textSize)
+        let lines = Set(QuireFont.TextSize.allCases.map { bodyRole.lineHeight(at: $0) })
+        guard style.minimumLineHeight != line, lines.contains(style.minimumLineHeight),
+              let copy = style.mutableCopy() as? NSMutableParagraphStyle else { return style }
+        copy.minimumLineHeight = line
+        copy.maximumLineHeight = line
+        return copy
     }
 
     // MARK: Geometry
@@ -190,7 +286,7 @@ final class ComposeTextView: NSTextView {
         layoutManager.ensureLayout(for: textContainer)
         let used = layoutManager.usedRect(for: textContainer)
         // An empty document still has its first line, so the caret has somewhere to sit.
-        let height = max(used.height, Self.bodyRole.lineHeight)
+        let height = max(used.height, lineHeight)
         return NSSize(width: NSView.noIntrinsicMetric, height: ceil(height) + topInset)
     }
 
@@ -227,8 +323,12 @@ final class ComposeTextView: NSTextView {
     /// attributes behind, and gives it back its inks.
     func replaceContents(with content: NSAttributedString) {
         textStorage?.setAttributedString(content)
-        if let storage = textStorage { Self.applyInks(to: storage) }
-        typingAttributes = Self.defaultTypingAttributes
+        if let storage = textStorage {
+            // A draft keeps the size it was archived at, and a signature comes at the composer's: the editor's wins.
+            Self.setTextSize(textSize, of: storage)
+            Self.applyInks(to: storage)
+        }
+        typingAttributes = defaultTypingAttributes
         undoManager?.removeAllActions()
         invalidateIntrinsicContentSize()
     }
@@ -321,14 +421,14 @@ final class ComposeTextView: NSTextView {
         let manager = NSFontManager.shared
         let range = selectedRange()
         if range.length == 0 {
-            let font = (typingAttributes[.font] as? NSFont) ?? Self.bodyFont
+            let font = (typingAttributes[.font] as? NSFont) ?? bodyFont
             state.bold = manager.traits(of: font).contains(.boldFontMask)
             state.italic = manager.traits(of: font).contains(.italicFontMask)
             state.underline = ((typingAttributes[.underlineStyle] as? Int) ?? 0) != 0
         } else if let storage = textStorage {
             var bold = true, italic = true, underline = true
             storage.enumerateAttributes(in: range, options: []) { attributes, _, _ in
-                let font = (attributes[.font] as? NSFont) ?? Self.bodyFont
+                let font = (attributes[.font] as? NSFont) ?? bodyFont
                 let traits = manager.traits(of: font)
                 if !traits.contains(.boldFontMask) { bold = false }
                 if !traits.contains(.italicFontMask) { italic = false }
@@ -367,7 +467,7 @@ final class ComposeTextView: NSTextView {
         let manager = NSFontManager.shared
         transformFonts { font in
             let traits = manager.traits(of: manager.convert(font)).intersection([.boldFontMask, .italicFontMask])
-            return Self.font(withTraits: traits)
+            return self.font(withTraits: traits)
         }
     }
 
@@ -380,11 +480,11 @@ final class ComposeTextView: NSTextView {
         let range = selectedRange()
         var everyRunHasTrait = true
         if range.length == 0 {
-            let font = (typingAttributes[.font] as? NSFont) ?? Self.bodyFont
+            let font = (typingAttributes[.font] as? NSFont) ?? bodyFont
             everyRunHasTrait = manager.traits(of: font).contains(trait)
         } else if let storage = textStorage {
             storage.enumerateAttribute(.font, in: range, options: []) { value, _, stop in
-                let font = (value as? NSFont) ?? Self.bodyFont
+                let font = (value as? NSFont) ?? bodyFont
                 if !manager.traits(of: font).contains(trait) {
                     everyRunHasTrait = false
                     stop.pointee = true
@@ -400,7 +500,7 @@ final class ComposeTextView: NSTextView {
     private func transformFonts(_ transform: (NSFont) -> NSFont) {
         let range = selectedRange()
         var typing = typingAttributes
-        typing[.font] = transform((typing[.font] as? NSFont) ?? Self.bodyFont)
+        typing[.font] = transform((typing[.font] as? NSFont) ?? bodyFont)
         guard range.length > 0, let storage = textStorage else {
             typingAttributes = typing
             return
@@ -408,7 +508,7 @@ final class ComposeTextView: NSTextView {
         guard shouldChangeText(in: range, replacementString: nil) else { return }
         storage.beginEditing()
         storage.enumerateAttribute(.font, in: range, options: []) { value, subrange, _ in
-            let font = (value as? NSFont) ?? Self.bodyFont
+            let font = (value as? NSFont) ?? bodyFont
             storage.addAttribute(.font, value: transform(font), range: subrange)
         }
         storage.endEditing()
@@ -416,7 +516,7 @@ final class ComposeTextView: NSTextView {
         typingAttributes = typing
     }
 
-    private static func font(withTraits traits: NSFontTraitMask) -> NSFont {
+    private func font(withTraits traits: NSFontTraitMask) -> NSFont {
         let manager = NSFontManager.shared
         var font = bodyFont
         if traits.contains(.boldFontMask) { font = manager.convert(font, toHaveTrait: .boldFontMask) }
@@ -534,7 +634,7 @@ final class ComposeTextView: NSTextView {
             }
         }
         guard let first = rects.first, let last = rects.last else {
-            let line = NSRect(x: Quire.Layout.Composer.valueX, y: topInset, width: 1, height: Self.bodyRole.lineHeight)
+            let line = NSRect(x: Quire.Layout.Composer.valueX, y: topInset, width: 1, height: lineHeight)
             return (line, line, line.minX)
         }
         return (first, last, first.minX)
@@ -616,8 +716,8 @@ final class ComposeTextView: NSTextView {
     }
 
     /// A list item: text 24 pt in, the marker right-aligned 6 pt before it (`textStyle.listIndent`, `listMarkerGap`).
-    static func listParagraphStyle(_ list: NSTextList) -> NSParagraphStyle {
-        let style = bodyParagraphStyle.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
+    static func listParagraphStyle(_ list: NSTextList, textSize: QuireFont.TextSize) -> NSParagraphStyle {
+        let style = bodyParagraphStyle(at: textSize).mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
         style.textLists = [list]
         style.headIndent = listIndent
         style.firstLineHeadIndent = 0
@@ -630,8 +730,8 @@ final class ComposeTextView: NSTextView {
     }
 
     /// A quote: 12 pt in, behind the 2 pt bar `ComposeLayoutManager` paints (`textStyle.quoteIndent`, `quoteBar`).
-    static var quoteParagraphStyle: NSParagraphStyle {
-        let style = bodyParagraphStyle.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
+    static func quoteParagraphStyle(at textSize: QuireFont.TextSize) -> NSParagraphStyle {
+        let style = bodyParagraphStyle(at: textSize).mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
         style.headIndent = quoteIndent
         style.firstLineHeadIndent = quoteIndent
         return style
@@ -676,7 +776,7 @@ final class ComposeTextView: NSTextView {
         storage.endEditing()
         didChangeText()
         if removing {
-            typingAttributes = Self.defaultTypingAttributes.merging(fontOnly(typingAttributes)) { _, new in new }
+            typingAttributes = defaultTypingAttributes.merging(fontOnly(typingAttributes)) { _, new in new }
         } else {
             renumberList(containing: first.range.location)
         }
@@ -689,16 +789,16 @@ final class ComposeTextView: NSTextView {
             storage.deleteCharacters(in: marker)
             range.length -= marker.length
         }
-        let style = Self.listParagraphStyle(list)
+        let style = listParagraphStyle(list)
         if range.length > 0 {
             storage.removeAttribute(ComposerBlock.attributeKey, range: range)
             storage.addAttribute(.paragraphStyle, value: style, range: range)
             storage.addAttribute(.foregroundColor, value: NSColor.qInk, range: range)
         }
-        storage.insert(NSAttributedString(string: "\t" + list.marker(forItemNumber: 1) + "\t", attributes: Self.markerAttributes(style)),
+        storage.insert(NSAttributedString(string: "\t" + list.marker(forItemNumber: 1) + "\t", attributes: markerAttributes(style)),
                        at: range.location)
         if range.length == 0 {
-            var typing = Self.defaultTypingAttributes
+            var typing = defaultTypingAttributes
             typing[.paragraphStyle] = style
             typingAttributes = typing
         }
@@ -711,7 +811,7 @@ final class ComposeTextView: NSTextView {
             range.length -= marker.length
         }
         if range.length > 0 {
-            storage.addAttribute(.paragraphStyle, value: Self.bodyParagraphStyle, range: range)
+            storage.addAttribute(.paragraphStyle, value: bodyParagraphStyle, range: range)
             storage.addAttribute(.foregroundColor, value: NSColor.qInk, range: range)
             storage.removeAttribute(ComposerBlock.attributeKey, range: range)
         }
@@ -756,7 +856,7 @@ final class ComposeTextView: NSTextView {
             let info = paragraphInfo(at: cursor)
             guard let itemList = info.list, itemList.markerFormat == list.markerFormat else { break }
             let expected = "\t" + itemList.marker(forItemNumber: number) + "\t"
-            let attributes = Self.markerAttributes(Self.listParagraphStyle(itemList))
+            let attributes = markerAttributes(listParagraphStyle(itemList))
             if let marker = info.markerRange {
                 if text.substring(with: marker) != expected { edits.append((marker, expected, attributes)) }
             } else {
@@ -802,7 +902,7 @@ final class ComposeTextView: NSTextView {
         stripList(info, storage: storage)
         storage.endEditing()
         didChangeText()
-        typingAttributes = Self.defaultTypingAttributes.merging(fontOnly(typingAttributes)) { _, new in new }
+        typingAttributes = defaultTypingAttributes.merging(fontOnly(typingAttributes)) { _, new in new }
         setSelectedRange(NSRange(location: info.range.location, length: 0))
         renumberList(containing: min(NSMaxRange(info.range) - (info.markerRange?.length ?? 0), max(0, (string as NSString).length - 1)))
     }
@@ -826,9 +926,9 @@ final class ComposeTextView: NSTextView {
         }
         storage.endEditing()
         didChangeText()
-        var typing = Self.defaultTypingAttributes.merging(fontOnly(typingAttributes)) { _, new in new }
+        var typing = defaultTypingAttributes.merging(fontOnly(typingAttributes)) { _, new in new }
         if !removing {
-            typing[.paragraphStyle] = Self.quoteParagraphStyle
+            typing[.paragraphStyle] = quoteParagraphStyle
             typing[.foregroundColor] = NSColor.qInk2
             typing[ComposerBlock.attributeKey] = ComposerBlock.quote.rawValue
         }
@@ -843,14 +943,14 @@ final class ComposeTextView: NSTextView {
             range.length -= marker.length
         }
         guard range.length > 0 else { return }
-        storage.addAttribute(.paragraphStyle, value: Self.quoteParagraphStyle, range: range)
+        storage.addAttribute(.paragraphStyle, value: quoteParagraphStyle, range: range)
         storage.addAttribute(.foregroundColor, value: NSColor.qInk2, range: range)
         storage.addAttribute(ComposerBlock.attributeKey, value: ComposerBlock.quote.rawValue, range: range)
     }
 
     private func stripQuote(_ info: ParagraphInfo, storage: NSTextStorage) {
         guard info.range.length > 0 else { return }
-        storage.addAttribute(.paragraphStyle, value: Self.bodyParagraphStyle, range: info.range)
+        storage.addAttribute(.paragraphStyle, value: bodyParagraphStyle, range: info.range)
         storage.addAttribute(.foregroundColor, value: NSColor.qInk, range: info.range)
         storage.removeAttribute(ComposerBlock.attributeKey, range: info.range)
     }
@@ -861,7 +961,7 @@ final class ComposeTextView: NSTextView {
         stripQuote(info, storage: storage)
         storage.endEditing()
         didChangeText()
-        typingAttributes = Self.defaultTypingAttributes.merging(fontOnly(typingAttributes)) { _, new in new }
+        typingAttributes = defaultTypingAttributes.merging(fontOnly(typingAttributes)) { _, new in new }
     }
 
     // MARK: Return and Delete inside structure

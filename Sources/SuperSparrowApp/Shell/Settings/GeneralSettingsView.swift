@@ -2,7 +2,8 @@ import SSDesign
 import SwiftUI
 
 /// Settings › General (spec §5.40): a two-column grid, hairlines between the reading group, the mail group, Keep mail on
-/// this Mac and Mail links. Font applies live across the app (spec §4.4).
+/// this Mac and Mail links. Font applies live across the app (spec §4.4), Text size live to the list, the reader and
+/// every composer (spec §4.15). Settings itself stays at Default.
 struct GeneralSettingsView: View {
     static let keepMailCaption = "Older mail stays in the list and in search, and downloads again when you open it."
 
@@ -16,6 +17,9 @@ struct GeneralSettingsView: View {
                 QuirePopup("Font", selection: $settings.typeface, options: QuireFont.Typeface.allCases) { typeface in
                     typeface == .newYork ? "New York" : "SF Pro"
                 }
+            }
+            QuireSettingsRow("Text size") {
+                QuirePopup("Text size", selection: $settings.textSize, options: QuireFont.TextSize.allCases) { $0.title }
             }
             QuireSettingsRow("List density") {
                 QuireRadioGroup("List density", selection: $settings.listDensity, options: AppSettings.ListDensity.allCases) { density in

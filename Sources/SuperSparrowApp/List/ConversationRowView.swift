@@ -11,8 +11,9 @@ import SSDesign
 final class ConversationRowView: NSTableRowView {
     static let identifier = NSUserInterfaceItemIdentifier("ConversationRow")
 
-    var density = AppSettings.ListDensity.standard {
-        didSet { if oldValue != density { needsDisplay = true } }
+    /// The row's density and Text size, which place the margin rule and the separator (spec §5.7, §4.15).
+    var metrics = QuireRowMetrics.standard(.default) {
+        didSet { if oldValue != metrics { needsDisplay = true } }
     }
 
     /// Set by the table's single tracking area, never by the row itself, so live scroll can pause it.
@@ -59,13 +60,11 @@ final class ConversationRowView: NSTableRowView {
     private var isWindowKey: Bool { windowKeyOverride ?? window?.isKeyWindow ?? false }
 
     override func draw(_ dirtyRect: NSRect) {
-        let compact = density == .compact
         if isSelected {
             (isWindowKey ? NSColor.qSelWash : NSColor.qSelWashIdle).setFill()
             bounds.fill()
-            let y = compact ? Quire.Layout.RowCompact.marginRuleY : Quire.Layout.Row.marginRuleY
-            let height = compact ? Quire.Layout.RowCompact.marginRuleHeight : Quire.Layout.Row.marginRuleHeight
-            QuireMarginRule.draw(in: NSRect(x: 0, y: y, width: Quire.Border.MarginRule.width, height: height), isWindowKey: isWindowKey)
+            QuireMarginRule.draw(in: NSRect(x: 0, y: metrics.marginRuleY, width: Quire.Border.MarginRule.width, height: metrics.marginRuleHeight),
+                                 isWindowKey: isWindowKey)
         } else {
             NSColor.qPaper.setFill()
             bounds.fill()
@@ -76,7 +75,7 @@ final class ConversationRowView: NSTableRowView {
         }
         // The separator is hidden on the selected row and on the row above it, so the wash reads as one block.
         guard !isSelected, !isNextRowSelected else { return }
-        let x = compact ? Quire.Layout.RowCompact.separatorX : Quire.Layout.Row.separatorX
+        let x = metrics.separatorX
         let width = QuireHairline.width(for: self)
         NSColor.qRule.setFill()
         NSRect(x: x, y: bounds.maxY - width, width: max(0, bounds.width - x), height: width).fill()

@@ -70,6 +70,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // Before the first window or menu image is drawn: the Font setting decides every New York role (§4.4).
         // `--font` (debug) wins for this process without being saved.
         QuireEnvironment.shared.setTypeface(options.typeface ?? settings.typeface)
+        // Text size too (§4.15): the list's first rows are measured at it. `--text-size` (debug) wins, unsaved.
+        QuireEnvironment.shared.setTextSize(options.textSize ?? settings.textSize)
         NSApp.mainMenu = MainMenu.build(appDelegate: self)
         switch options.appearance {
         case "light": NSApp.appearance = NSAppearance(named: .aqua)

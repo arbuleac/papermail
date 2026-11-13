@@ -349,6 +349,7 @@ Rules:
 - **Script fallback.** A string is set in a New York role only if every letter in it is covered by New York's character set (`CTFontCopyCharacterSet` of the New York system font, computed once at launch). Otherwise the role's sans twin is used and the system cascade supplies the script (PingFang, Hiragino, Apple SD Gothic Neo, Geeza Pro, Arial Hebrew, Thonburi, Kohinoor Devanagari). The test runs when the row's attributed strings are built and is cached with them; the reader header runs it when the subject changes. Because twins keep the line height, row metrics never change; `RowMetricsTests` (§8.7) lays out CJK, Arabic, Hebrew, Thai and Devanagari samples and asserts the used height stays within the role's line height.
 - **Bidirectional text.** Subjects, senders and snippets use natural writing direction with leading alignment (the UI's direction), so an Arabic or Hebrew subject reads right-to-left but stays flush with the column. CSS: `dir="auto"` with `text-align: start`.
 - **Font setting.** Settings › General › Font: New York (default) or SF Pro. It picks the face of every New York role across the app. Under SF Pro each role is set in its sans twin wherever it appears, in AppKit, SwiftUI and the reader: `display` → `displaySans`, `headline` → `headlineSans`, `masthead` → `mastheadSans`, `reading` → `readingSans` (plain and unstyled bodies), `subject` → `subjectSans` (unread weight kept), `composeSubject` → `composeSubjectSans`, `aside` → `asideSans`, and `monogram` → `monogramSans` (§4.3, §5.29). Under New York the script fallback above still decides per string. A change applies live: every window on screen, the pre-rendered reader views and every open composer redraw in the new face at once, with no relaunch and no reselection. Twins keep the line height, so line heights and row metrics never change, no row is reloaded or re-measured and nothing moves vertically; only text widths follow the face, so the masthead takes its new width and the header items after it (the Demo tag, the search field's leading edge) shift with it. HTML mail with its own fonts is never restyled.
+- **Text size.** Settings › General › Text size moves every role where mail is read and written by -1 / 0 / 1 / 2 pt, size and line height together (§4.15). The tables above are Default.
 - **Unstyled bodies.** “Set like a page” applies to bodies classified at sync time, never at open. The sanitizer, which already walks the tree, stores one of three values with the body: `plain` (text/plain only), `unstyled` (HTML with no `<style>` blocks, no `font-family`, `font-size`, `color`, `background` or width declarations in `style` attributes, no `<font>` face/size/color, no `bgcolor`, no layout tables with explicit widths; only text structure such as `p`, `div`, `br`, `span`, `b`, `i`, `u`, `a`, `ul`, `ol`, `li`, `blockquote`, `pre`, `code`, `img`) or `styled` (everything else). Plain and unstyled bodies get `reading` (or `readingSans`) inside the 576 pt measure; styled bodies keep their own fonts at full sheet width. The value also records whether the body's letters are covered by New York (same rule as above); if not, `readingSans` is used.
 - **Tabular digits** (`.monospacedDigit` / `font-variant-numeric: tabular-nums`) for times, counts, badges, sizes and progress, so columns do not jitter during sync.
 - **Tracking** is in points at the stated size: AppKit `.kern`, CSS `letter-spacing` in px. A tracking of 0 means the system's own optical tracking. `runningHead` is uppercased at string-build time (`uppercased(with: locale)`).
@@ -579,7 +580,7 @@ The quoted-text toggle, the message's mark under an invitation card and the fold
 
 | | Standard (default) | Compact (View › Compact Rows, ⌥⌘C) |
 |---|---|---|
-| Row height | 68 | 48 |
+| Row height | 68 (64 / 68 / 72 / 76 by Text size, §4.15) | 48 (44 / 48 / 52 / 56) |
 | Lines | sender · time / subject / snippet | sender · time / subject — snippet |
 | Avatar | 30 pt face in a 38 pt box | none |
 | Account mark (unified views) | 2 pt ring (+ optional initial tile before the time) | 6 pt square before the time; with **Show account initials** on, the 16 pt initial tile **replaces** the square (it carries the colour and the letter) |
@@ -647,6 +648,37 @@ The reader has one density.
 | Active tab | `ink` text | 2 pt underline, Semibold |
 | Focus | `focus` ring | ring shape, 3 pt in IC; inset ring on borderless composer rows; the insertion point in the composer body (§4.1); a Quire ring on links inside message bodies (§8.4) |
 | Link button | `accent` label | position and verb; the underline on hover and press, and at rest under Graphite (§3.1) |
+
+### 4.15 Text size (Q2.6)
+
+Settings › General › **Text size**: a popup of Small, Default, Large and Larger (`textSize.names`) that moves every role where mail is read and written by -1 / 0 / 1 / 2 pt (`textSize.deltas`), and ⌘+ / ⌘− for the reader alone. macOS gives apps no text-size preference; this is the one Quire has, and the 11 to 14 pt the list and the reader set by default are small for some eyes.
+
+- **The step.** A role's size and its line height move together, so each role keeps its leading; weight, tracking and family stay. No text goes below 11 pt: at Small the 11 pt roles (`meta`, `runningHead`, `tag`, `badge`, `kbd` and their variants) keep their size and line height. Twins move with their roles, so a twin still shares its role's line (§4.4) and a Font switch still moves nothing. Monograms follow the face's diameter, which no Text size changes (§5.29).
+- **Where it applies.** The mail: the list's rows, running heads and skeleton rows (§5.7, §5.8, §5.10); the reader, whose headline, sheets, collapsed rows, chips, invitation card and plain and unstyled bodies take the step through its CSS (§5.12, §8.4), while styled HTML keeps its own sizes as it keeps its own fonts; the quick reply (§5.18: its field gains the step per line, so the bar at rest is 60 pt at Default and a point less or up to two more); a composer's subject and body (§5.20: its rows keep their heights) and the folded original under them. Everything drawn around a line of chrome keeps Default, because its bands and controls are sized for that line: the rail, the list header and its masthead, the sync line, the list's tail footer and server row, the reader's kicker and actions, buttons, fields, popups, tags, badges and keycaps, toasts, the undo panel, the HUD and the cheat sheet, empty states, the welcome screen and Settings (its 140 pt label column holds “Keep mail on this Mac” at `body` and no more), and what the system draws (menus, tooltips, alerts).
+- **Rows.** Each line of a row moves by its role's step, the lines below it by the lines above, and the row's top pad by the step once more; a compact row's bottom pad too. Standard rows are 64 / 68 / 72 / 76 pt (`textSize.rowHeights`), compact rows 44 / 48 / 52 / 56 pt (`textSize.rowCompactHeights`). The marks keep their sizes and stay centred on what they mark: the pip on the sender line, the face and its ring in the row, the time cluster (the tile, the Back tag, the queued glyph) on the sender line, the glyph cluster and the count badge on line 2. The margin rule keeps its inset (8 pt, compact 6) and takes the row's height. Nothing moves horizontally.
+
+| Standard row | Small | Default | Large | Larger |
+|---|---|---|---|---|
+| height | 64 | 68 | 72 | 76 |
+| sender line y, h | 9, 15 | 10, 16 | 11, 17 | 12, 18 |
+| subject line y, h | 25, 17 | 27, 18 | 29, 19 | 31, 20 |
+| snippet line y, h | 43, 14 | 46, 15 | 49, 16 | 52, 17 |
+| avatar box y | 13 | 15 | 17 | 19 |
+| pip y | 12.5 | 14 | 15.5 | 17 |
+| margin rule y, h | 8, 48 | 8, 52 | 8, 56 | 8, 60 |
+
+| Compact row | Small | Default | Large | Larger |
+|---|---|---|---|---|
+| height | 44 | 48 | 52 | 56 |
+| sender line y, h | 6, 15 | 7, 16 | 8, 17 | 9, 18 |
+| line 2 y, h | 23, 17 | 25, 18 | 27, 19 | 29, 20 |
+| pip y | 10 | 11.5 | 13 | 14.5 |
+| margin rule y, h | 6, 32 | 6, 36 | 6, 40 | 6, 44 |
+
+- **Running heads** keep their heights (28 pt, compact 24) and their label's place; the label's line takes `runningHead`'s step (none at Small) and the hairline stays on its centre, on the device grid. **Skeleton rows** take the row's height; each bar stays centred on the line it stands for and the circle on the row, at their own sizes.
+- **The reader's own size.** ⌘+ (View › Make Text Bigger) and ⌘− (View › Make Text Smaller) step the reader alone through the same sizes, from the one Settings chose: its headline, sheets and bodies, never the list, the quick reply or a composer. ⌘+ is disabled at Larger and ⌘− at Small, so the keys never pass a size the design does not draw; there is no ⌘0, which is All Inboxes (§6), and the other key comes back. The reader keeps its size across launches; choosing a Text size in Settings sets the reader to it too.
+- **Live.** A change applies at once, with no relaunch and no reselection. The list re-measures its rows, keeping the selection and the scroll position, as a density change does. Every reader shell, the pre-rendered ones and one still loading included, takes the size and measures its bodies again; the headline is set again. Every open composer sets its subject and its body again, mid-edit included: bold, italic, underline, links, lists and quotes stay, and the caret stays where it was. The quick reply does the same.
+- **Budgets.** A change re-measures rows once; moving the selection still builds nothing (`RowContentCache` keys on the Text size, §5.7).
 
 ---
 ## 5. Components
@@ -819,7 +851,7 @@ Words, phrases, `from:`, `to:` and `subject:` must all hold in one message, and 
 
 ### 5.7 Conversation row
 
-Fixed **68 pt** (compact 48). Drawn by hand in `layout()` / `draw(_:)`: no Auto Layout, no shadow, no blur, no per-row animation, no layer per sub-element beyond the text labels and the avatar image.
+Fixed **68 pt** (compact 48) at the Default Text size; the other sizes step the row and its lines (§4.15), and every metric below is Default's. Drawn by hand in `layout()` / `draw(_:)`: no Auto Layout, no shadow, no blur, no per-row animation, no layer per sub-element beyond the text labels and the avatar image.
 
 | Element | Frame (x, y, w, h) | Style |
 |---|---|---|
@@ -880,7 +912,7 @@ Fixed **68 pt** (compact 48). Drawn by hand in `layout()` / `draw(_:)`: no Auto 
 
 **Performance contract.**
 
-- All attributed strings are built once per (conversation id, version, appearance, contrast, Font setting, day) in `RowContentCache`, including the script-coverage decision and the running-head time format. Window key state is not part of the key: no text colour depends on it (§3.4).
+- All attributed strings are built once per (conversation id, version, appearance, contrast, Font setting, Text size, day) in `RowContentCache`, including the script-coverage decision and the running-head time format. Window key state is not part of the key: no text colour depends on it (§3.4).
 - **Avatars: faces are cached, rings are drawn.** The face bitmap (tint disc + monogram) renders off the main thread, cached by (initials, tint, size, appearance, contrast, Graphite, Font setting) only. The account ring is stroked in `draw(_:)` with `NSBezierPath` (a circle of radius face/2 + gap + ring/2, width 2, in the account ink), and the gap is left transparent so the row's fill (`paper`, `paper + hover`, `selWash`, `selWashIdle`) shows through. Hover and selection therefore never miss the cache or flash a wrong-coloured gap. Until a face is ready the row draws the tint disc and initials synchronously from the cached glyph run; it never shows an empty circle.
 - **Hover is suspended while scrolling.** On `NSScrollView.willStartLiveScrollNotification` (and for scroll-wheel momentum) the list stops updating hover; rows that slide under a still pointer draw no wash. On `didEndLiveScrollNotification` the row under the pointer, if any, takes the hover wash once.
 - Selection changes redraw only the fill and the margin rule inside `CATransaction.setDisableActions(true)`. Row views are opaque and layer-backed.
@@ -900,7 +932,8 @@ Rows are grouped under local-day heads: Today, Yesterday, Earlier this week, Las
 - Label at x 20, y 10: `runningHead` (SF Pro 11/14 Semibold, uppercase, 0.6 pt tracking), `ink3`. A hairline runs from the label end + 10 to trailing 16 at y 17.
 - **Hidden** in search results (ranked), in Later (its times are ahead) and in views with fewer than 8 conversations. The Inbox groups by the date it sorts by, so a conversation back from Later is under Today.
 - **Compact density**: 24 pt, label at x 24, y 5, rule at y 12.
-- **Not sticky**: plain group rows, no `floatsGroupRows` (no extra compositing during scroll). `heightOfRow` returns two fixed values per density (row and head), plus the tail footer's height (§5.10). `j`/`k`, next-unread and selection restore skip them; they are not selectable or focusable; VoiceOver reads them as headings.
+- **Text size** (§4.15): the head keeps its height and its label's place; the label's line takes `runningHead`'s step and the rule stays on its centre.
+- **Not sticky**: plain group rows, no `floatsGroupRows` (no extra compositing during scroll). `heightOfRow` returns two fixed values per density and Text size (row and head), plus the tail footer's height (§5.10). `j`/`k`, next-unread and selection restore skip them; they are not selectable or focusable; VoiceOver reads them as headings.
 
 ### 5.9 Empty states
 
@@ -941,6 +974,7 @@ Only on the first sync of an account, before its first page lands, and only afte
 | `bodyBarGap` | 14 |  |  |  |  |  |  |
 
 - Skeleton row: 68 pt; a 30 pt circle and four bars (sender, time, subject, snippet: frames above as x, y, w, h), widths varying by ±0.3 from a fixed table; colour `fill`, radius 3.
+- At another Text size a skeleton row takes that row's height, its bars centred on the lines they stand for and its circle on the row (§4.15).
 - Compact skeleton row: 48 pt, no circle; sender bar 24 / 10 / 120 / 9, time bar 28 / 9 (trailing 16), line-2 bar 24 / 29 / 260 / 9 (x, y, w, h), same jitter, colour and radius.
 - Body not cached yet: the sheet shows its header at once and three bars at 1 / 0.92 / 0.6 of the measure, 10 pt high, 14 pt apart. In the reader these are CSS (`.ss-skel { background: var(--q-fill); border-radius: var(--q-r-xs) }`), never a full-pane spinner.
 - Skeleton to content is an instant swap, in the list and in a sheet (no cross-fade: nothing in the list animates).
@@ -1002,7 +1036,7 @@ New words, or another scope, start again: a search still running is cancelled an
 A **native** view (it replaces `ConversationHeaderView`), 92 pt, `paper`, bottom hairline at the horizon, always visible. The subject updates in the same frame as the selection, before the web view renders, so key repeat feels instant.
 
 - **Row 1** (title-bar zone): the kicker at the reading column's leading edge, centred on y = 26: a 7 pt account-ink dot, 8 pt, the account name, “·”, the message count, in `runningHead` `ink3` (single-account setups omit the account; several selected shows “Selection”). The kicker ends at least 16 pt before the first visible action (`readerHeader.kickerActionGap`); when it does not fit, the account name tail-truncates and the dot, the “·” and the count never do; if fewer than 4 characters of the name would remain, the name is dropped (dot and count stay, and the kicker's tooltip names the account). At the 400 pt minimum reader the kicker has 400 − 16 − 190 − 16 − 16 = 162 pt: the dot, “· 12 MESSAGES” and the first letters of the account name. Trailing at 16, top 12: Star · Archive · Trash, a 14 pt gap, Reply · Reply All · Forward, as 28 pt icon buttons with 15 pt symbols, 2 pt apart (190 pt for all six). The set changes per view and selection (below).
-- **Row 2**: the headline at the reading column, top 56: `headline` (New York 24/30 Semibold, `headlineSans` when New York lacks the script), one line, tail truncation, full subject in the tooltip and VoiceOver label, selectable. No subject: “No subject” in the placeholder style (`headline` italic, `ink3`).
+- **Row 2**: the headline at the reading column, top 56: `headline` (New York 24/30 Semibold, `headlineSans` when New York lacks the script), at the reader's Text size (§4.15: at Larger 26/32, still inside the band), one line, tail truncation, full subject in the tooltip and VoiceOver label, selectable. No subject: “No subject” in the placeholder style (`headline` italic, `ink3`).
 - The reading column x = max(margin, (reader width − 680) / 2), where margin is 32, or 16 when the reader is narrower than 560 pt; recomputed in `layout()`; the kicker, headline, sheets and quick-reply field share it.
 - **Per view and selection.** Each set is drawn from the trailing edge; hidden actions close up, they never leave gaps.
 
@@ -1773,7 +1807,8 @@ The second key, any other key, Esc or the end of the 2000 ms window dismisses it
 | 2 | 3 | View | 3 | ⌥⌘C | Compact rows |
 | 2 | 3 | View | 4 | ⌃⌘S | Show · hide the rail |
 | 2 | 3 | View | 5 | ⇧⌘N | Check for new mail |
-| 2 | 3 | View | 6 | ? | This sheet |
+| 2 | 3 | View | 6 | ⌘+  ⌘− | Reader text bigger · smaller |
+| 2 | 3 | View | 7 | ? | This sheet |
 
 Alternates that duplicate a single key (⌘F for /, ⌘N for C, ⌘Z for Z, → and ← for ↩ and esc, ⌘/ for ?) are left out to keep one key per action; menus and tooltips name them.
 
@@ -1830,7 +1865,7 @@ Main menu (system), with Quire content. Single-key shortcuts are handled by `Key
 - **SuperSparrow**: About SuperSparrow (the system About panel) · Settings… ⌘, · Services · Hide · Quit.
 - **File**: New Message ⌘N (also C) · Close Window ⌘W · Add Gmail Account… · Add Microsoft Account… · Save Attachments… · in demo mode, Leave Demo… (§5.43).
 - **Edit**: standard, plus Find… ⌘F (focuses search) and Search Gmail for More (§5.10, no key equivalent: ↩ in the search field runs it, and a plain ↩ on a menu item would take Return from the list, the composer and every sheet; titled by the scope: Search Outlook for More, Search All Accounts for More). It is enabled while the search field holds words whose local results are all listed (or not in yet) and the server has not been asked for them, or failed; it is disabled while any other place to type or the reader has focus, and hidden while a composer is key. Undo is titled by its target (“Undo Archive”, “Undo Send”, “Undo Send and Archive”, “Undo Typing”), following §6.1.
-- **View**: Inbox · Later (while the rail shows it) · Starred · Sent · Drafts · Trash · All Mail (G-sequences) · All Inboxes ⌘0 · accounts ⌘1–9 · Check for New Mail ⇧⌘N · Show/Hide Account Rail ⌃⌘S · Compact Rows ⌥⌘C · Load Images ⇧⌘I · Original Colors ⇧⌘O (checkmark when on) · Show Quoted Text . (on a message under an invitation card it shows or hides the message, §5.14)
+- **View**: Inbox · Later (while the rail shows it) · Starred · Sent · Drafts · Trash · All Mail (G-sequences) · All Inboxes ⌘0 · accounts ⌘1–9 · Check for New Mail ⇧⌘N · Show/Hide Account Rail ⌃⌘S · Compact Rows ⌥⌘C · Load Images ⇧⌘I · Original Colors ⇧⌘O (checkmark when on) · Show Quoted Text . (on a message under an invitation card it shows or hides the message, §5.14) · — · Make Text Bigger ⌘+ · Make Text Smaller ⌘− (the reader's own size, §4.15; ⌘= is taken as ⌘+, as Safari takes it; disabled at Larger and at Small)
 - **Message**: Reply R · Reply All A · Forward F · — · Archive E · Later… L (the Later menu at the selection, §5.45) · Move to Trash # · Move to Inbox ⇧I · Star S · Mark as Unread U · Undo Z · — · Unsubscribe ⇧⌘U (enabled while one conversation is open and offers it, §5.14; no symbol, since SF Symbols has none for it before macOS 26) · — · Next Message N · Previous Message P.
 - **Format** (composer windows only): Show Format Row ⇧⌘T · — · Bold ⌘B · Italic ⌘I · Underline ⌘U · — · Bulleted List ⇧⌘8 · Numbered List ⇧⌘7 · Quote ⌘' · — · Add Link… ⌘K. In a composer window the Message menu holds Send ⌘↩ (what the Send button does, §5.23) · Send and Archive ⇧⌘↩ (always; no symbol) · Attach Files… ⇧⌘A · Add Cc Field ⇧⌘C · Add Bcc Field ⇧⌘B · — · Discard Draft… (§5.20).
 - **Window**, **Help** (Keyboard Shortcuts ⌘/).
@@ -2018,7 +2053,7 @@ The group is **not** a `List(selection:)`: SwiftUI's list selection paints an ac
 
 **“Saved”** is a status beside Save, not a banner: `checkmark.circle.fill` `success` 12 pt + “Saved” (`snippet` `ink2`), 8 pt before the Save button, from a successful save until the next edit (VoiceOver announces “Saved”). A failed save is a danger banner at the top of the tab (“Couldn't save the OAuth settings.” + the reason). Validation errors sit under their field (§5.25: “That doesn't look like a Google client ID.”).
 
-**General** (a two-column grid: labels right-aligned in 140 pt, rows 40 pt, a hairline between groups): Font (popup: New York, SF Pro; §4.4) · List density (radio: Standard, Compact) · Rows (checkbox: Show account initials in unified views; the seven-accounts caption under it, above) · Undo send (popup: 5, 10, 20 seconds) · — · Remote images (toggle “Load by default”, caption “Off: images load only when you ask, per message.”) · Notifications (toggle “New mail”; checkbox “Show sender and subject”) · — · Keep mail on this Mac (below) · — · Mail links (below).
+**General** (a two-column grid: labels right-aligned in 140 pt, rows 40 pt, a hairline between groups): Font (popup: New York, SF Pro; §4.4) · Text size (popup: Small, Default, Large, Larger; §4.15) · List density (radio: Standard, Compact) · Rows (checkbox: Show account initials in unified views; the seven-accounts caption under it, above) · Undo send (popup: 5, 10, 20 seconds) · — · Remote images (toggle “Load by default”, caption “Off: images load only when you ask, per message.”) · Notifications (toggle “New mail”; checkbox “Show sender and subject”) · — · Keep mail on this Mac (below) · — · Mail links (below).
 
 **Keep mail on this Mac.** How far back messages keep their full content on this Mac: a popup, Everything (the default), 1 year, 3 months, and 12 pt after it the space the mailbox takes in plain words (“292 MB”: the mail database, less the pages it keeps free for reuse after a clean-up, and the attachment cache, decimal units as Finder counts, `meta` `ink2`; VoiceOver reads “292 MB on this Mac”). Under the row, in the field column 8 pt below it (`meta` `ink3`): “Older mail stays in the list and in search, and downloads again when you open it.” The size is measured when the tab appears, when the window reopens on it, and after each clean-up while the window is open; never on a timer, and until the first answer the row holds the popup alone, never a placeholder number. A message received before the window keeps its row, its snippet and its text for search; its full content goes, and opening it fetches it again as for mail the download has not reached yet (§5.14: the skeleton while it loads, the offline preview without a network), after which it stays until the app next starts; so does mail shown in the reader, so a clean-up never empties a conversation on screen or its attachments. Older mail the download brings in arrives already cleaned up, so the mailbox never takes its full size first. Choosing a shorter window cleans up at once, in the background, and the size follows when it is done; choosing a longer one, or Everything, removes nothing more and downloads nothing back (those messages fill in again as they are opened). Drafts, messages waiting to send and messages with an action still syncing are never touched. Attachments opened on this Mac are kept up to 1 GB, the least recently used going first.
 
@@ -2169,6 +2204,7 @@ All single keys are inactive while a text field has focus. Every key press first
 | ⇧⌘R | open the quick reply in the composer | ⌘↩ | send: what Send does, Send and Archive unless the drop-down chose Send (§5.23) |
 | ⇧⌘I / ⇧⌘O | load images / original colors | ⌃⌘S | show / hide the rail |
 | ⌥⌘C | compact rows | ? or ⌘/ | keyboard shortcuts |
+| ⌘+ / ⌘− | reader text bigger / smaller, through the four Text sizes (§4.15) | | |
 | ⇧⌘N | check for new mail | ⇧I | move to Inbox |
 | ⇧⌘U | unsubscribe, then archive; in Later, end the snooze (§5.14) | ⇧⌘↩ | send and archive, whatever Send does (composer and quick reply, §5.23) |
 | ⇧⌘T, ⌘B ⌘I ⌘U, ⇧⌘8 ⇧⌘7, ⌘', ⌘K | composer: format row, styles, lists, quote, link | ⇧⌘A, ⇧⌘C, ⇧⌘B | composer: attach files, Cc field, Bcc field |
@@ -2900,6 +2936,7 @@ Paragraph style per role: `minimumLineHeight = maximumLineHeight = lineHeight`, 
 - Current variables map as: `--ss-bg` → `--q-canvas`, `--ss-card` → `--q-sheet`, `--ss-border` → `--q-rule`, `--ss-text` → `--q-ink`, `--ss-muted` → `--q-ink2` (recipients, snippets) / `--q-ink3` (dates), `--ss-accent` → `--q-accent`, `--ss-chip` → `--q-fill`, `--ss-selected` → `--q-focus`, `--ss-star` → `--q-star`.
 - Classes: `.ss-card` (expanded) → sheet (radius `r.lg`, padding per §5.14, `e1`); collapsed cards → `.ss-stack` rows joined in one sheet; `.ss-button` → `.ss-elide` toggle and link buttons; `.ss-chip` → attachment chip; `.ss-footer a` → ghost buttons; `.ss-tools` is removed (Original colors moves to the header hover actions).
 - **Invitation card** (§5.14): `.ss-invite` (a `section` with `role="group"`) sits between the sheet header and `.ss-body`, `hidden` when the message has none. After it, `.ss-mrow` holds the message's elision mark (`.ss-elide.ss-toggle-message`), shown only on a sheet whose message has a card (`.ss-card.ss-mfold`, decided from the payload's `invitation`, never from the HTML). Folded (`.ss-mfolded`), `.ss-frame` is clipped to 0 pt, `visibility: hidden` and `inert`, with the quoted-text row hidden, while `.ss-banners` stays in view (12 below the mark, its last banner's bottom margin dropped); the frame is still loaded and measured at full width, so unfolding sets the sheet's height to the measured one and animates there like quoted text. A fold by “.” that hides the focused element (in the frame or the quoted-text row) focuses the mark. The shell posts `focusMark` (`on`) whenever keyboard focus lands on an `.ss-elide` mark or leaves one, and after a render; the app keeps it per pooled slot, and while the reader's web view has the window's focus and a mark has the page's (`ConversationViewController.isMarkFocused`), the router's ↩ (`.open`) and the reader's Space (`ReaderShortcuts.spaceOutcome`) let the key through to the page. The fold lives on the card in the script (`messageShown`, like `quotesShown`): `ss.update` keeps it, `ss.render` and a replaced body forget it. `ss.toggleQuotes()` (the “.” command) folds and unfolds the message on a sheet that has one, and quoted text elsewhere. `.ss-ikick`, `.ss-ititle`, `.ss-iwhen`, `.ss-ielse`, `.ss-irep`, the `.ss-idet` grid (72 pt label column), `.ss-iacts` with `.ss-ans` (small secondary; `.ss-chosen` the chosen answer, `aria-pressed`) and the `.ss-iopen` link button; `.ss-invite.ss-cancelled`; the permission notice is a `.ss-banner.ss-info.ss-wrap`. A click marks the answer in place and posts `answerInvitation` with the answer's name (`accepted`, `tentative`, `declined`); `openInCalendar`, `openInvitationLink` and `reconnectForInvitation` are the other actions. The payload carries the card display-ready (`RenderPayload.Invitation`); a patch rebuilds only the card when its JSON changed, and otherwise puts the chosen mark back on the payload's answer, so an answer the store refused or gave up never stays marked.
+- **Text size** (§4.15): `QuireCSS.textSizes`, generated beside the head, redefines every `--q-font-<role>` at each other size under `html.ss-text-small`, `html.ss-text-large` and `html.ss-text-larger` (size and line height moved by the role's step). The shell's root and every body document carry the reader's class, so sheets and plain and unstyled bodies follow it and styled HTML, which never reads the variables, keeps its own sizes. `ss.preferences({textSize})` switches it in place and measures every body again; the payload carries it for a shell that renders later.
 - `bodyCSS`: `body.ss-set { font: var(--q-font-reading); max-width: 576px; }` for bodies whose stored typesetting is `plain` or `unstyled` (the shell receives the flag in the render payload; it never scans the HTML); `body.ss-set.ss-sans { font: var(--q-font-readingSans) }` for the SF Pro font setting or uncovered scripts. It also injects the Quire focus ring for links, in every body document, because WebKit's default ring falls below 3:1 and a sender's CSS must not decide focus:
 
 ```css
@@ -3005,7 +3042,7 @@ Design tests live in `Tests/SSDesignTests`: the generated ones in `Tests/SSDesig
 
 - **`DesignContrastTests`** (generated from `contrastPairs` and `graphiteContrastPairs`): resolves each pair in four modes with the same compositing and asserts ≥ `need`, or ≥ `needIC` in the IC modes when the pair has one.
 - **`AccountPaletteTests`** (generated from `accountRules`): Machado simulation + CIEDE2000; asserts the six-account floor, the ten-account normal floor and the distances from accent, danger, info and star.
-- **`RowMetricsTests`**: lays out subjects in Latin, Cyrillic, Japanese, Arabic, Hebrew, Thai and Devanagari with the chosen role (New York or twin) and asserts the used line fragment height ≤ the role line height and that the coverage check picks the twin for the last five.
+- **`RowMetricsTests`**: lays out subjects in Latin, Cyrillic, Japanese, Arabic, Hebrew, Thai and Devanagari with the chosen role (New York or twin) and asserts the used line fragment height ≤ the role line height and that the coverage check picks the twin for the last five, at each of the four Text sizes. `TextSizeTests` hold the step (the floor, twins, monograms), the row tables of §4.15 and `textSize.rowHeights`, the skeleton, and the reader's CSS to the AppKit roles; `TextSizeSettingTests` switch the list, the reader and an open composer live.
 - **`GlyphPathTests`**: parses the five custom glyph paths and checks their bounds stay inside the grid.
 - **`WindowChromeTests`**: builds the main window off screen with the §3.2 configuration (empty unified toolbar) and asserts that the close button's centre is 26 ± 0.5 pt from the top, that the derived rail width is ≥ the zoom button's `maxX` + 4, and that a composer window configured by `QuireWindowChrome` measures the system title bar. `ComposerChromeTests` (SuperSparrowAppTests) builds the real composer, with and without the From row, and asserts its first field row starts at that measured height. A failure means a macOS release moved the lights or the band: re-derive the title-bar metrics (§3.2) rather than nudging numbers.
 - **`ReaderSymbolTests`**: the shell's CSS references only `--sym-*` names in `readerSymbols`, and every name rasterises (`NSImage(systemSymbolName:)` is non-nil).
@@ -3017,11 +3054,10 @@ Design tests live in `Tests/SSDesignTests`: the generated ones in `Tests/SSDesig
 
 ## 9. Scope decisions
 
-**In v1:** everything above. New settings are limited to Font, List density, Show account initials, and per-account colour, monogram and signature (plus the one Original colors notice preference).
+**In v1:** everything above. New settings are limited to Font, Text size, List density, Show account initials, and per-account colour, monogram and signature (plus the one Original colors notice preference).
 
 **Not in v1, deliberately:**
 
-- **A Text size setting.** macOS has no app text-size preference; if the team adds one later, it applies -1 / 0 / 1 / 2 pt to every role and steps standard rows 64 / 68 / 72 / 76 pt (compact rows by the same amounts). Nothing in this language depends on it.
 - **Row animations** of any kind: no slide-out on archive, no gap closing, no star pop, no dot shrink.
 - **Sticky date headers** and date headers in search results.
 - **App-drawn vibrancy.** The rail and every pane are opaque.
