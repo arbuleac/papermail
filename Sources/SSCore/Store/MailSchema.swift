@@ -133,6 +133,28 @@ enum MailSchema {
                 ALTER TABLE messages ADD COLUMN invitation_reply TEXT;
                 """)
         }
+        migrator.registerMigration("v16-conversation-mute") { db in
+            // Mute (docs/DATA-MODEL.md, `conversations.muted`): nothing is muted yet. The partial index holds only muted
+            // rows, so the upsert's look for accounts with any (once per write) reads a handful of entries, and a mailbox
+            // with nothing muted pays nothing per message.
+            try db.execute(sql: """
+                ALTER TABLE conversations ADD COLUMN muted INTEGER NOT NULL DEFAULT 0;
+                CREATE INDEX conversations_muted ON conversations(account_id) WHERE muted = 1;
+                """)
+        }
+        migrator.registerMigration("v17-sender-rules") { db in
+            // Sender rules (docs/DATA-MODEL.md, `sender_rules`), keyed as the upsert looks them up: one probe per arriving
+            // message. A rowid table, so Settings' list can observe it.
+            try db.execute(sql: """
+                CREATE TABLE sender_rules (
+                    account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                    address TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    PRIMARY KEY (account_id, address)
+                );
+                """)
+        }
         return migrator
     }
 

@@ -145,7 +145,7 @@ public final class SQLiteMailStore: MailStoring, MailStoreMaintenance, Sendable 
 
     public func upsertMessages(_ messages: [MessageMetadata]) throws {
         guard !messages.isEmpty else { return }
-        try write { try MessageTable.upsert(messages, in: $0) }
+        try write { try MessageTable.upsert(messages, senderRules: true, in: $0) }
     }
 
     public func deleteMessages(_ ids: [MessageID]) throws {
@@ -352,6 +352,37 @@ public final class SQLiteMailStore: MailStoring, MailStoreMaintenance, Sendable 
         // It reads the summary rows too, which every sync batch writes; the snoozes are a handful of key lookups, and
         // only a changed list is delivered.
         let observation = ValueObservation.tracking { db in try SnoozeTable.all(db) }.removeDuplicates()
+        let cancellable = database.startObservation(observation, firstValueOnCallingThread: true, onError: Self.reportObservationFailure,
+                                                    onChange: onChange)
+        return StoreObservation { cancellable.cancel() }
+    }
+
+    // MARK: Mute and sender rules
+
+    public func setMuted(_ muted: Bool, conversations: [ConversationID], enqueueing operations: [Operation]) throws {
+        guard !conversations.isEmpty || !operations.isEmpty else { return }
+        try write { db in
+            for operation in operations { try OperationTable.enqueue(operation, in: db) }
+            // After the operations, whose summary refresh carries the old flag over.
+            try MuteTable.set(muted, conversations: conversations, in: db)
+        }
+    }
+
+    public func senderRules() throws -> [SenderRule] {
+        try read { try SenderRuleTable.all($0) }
+    }
+
+    public func setSenderRule(_ action: SenderRule.Action?, for address: String, accountID: AccountID,
+                              enqueueing operations: [Operation], at now: Date) throws {
+        try write { db in
+            for operation in operations { try OperationTable.enqueue(operation, in: db) }
+            try SenderRuleTable.set(action, for: address, accountID: accountID, now: now, in: db)
+        }
+    }
+
+    public func observeSenderRules(onChange: @escaping @Sendable ([SenderRule]) -> Void) -> StoreObservation {
+        // Tracks `sender_rules` alone, so mail arriving never wakes Settings' list.
+        let observation = ValueObservation.tracking { db in try SenderRuleTable.all(db) }.removeDuplicates()
         let cancellable = database.startObservation(observation, firstValueOnCallingThread: true, onError: Self.reportObservationFailure,
                                                     onChange: onChange)
         return StoreObservation { cancellable.cancel() }

@@ -206,6 +206,17 @@ final class FaultyStore: MailStoring, @unchecked Sendable {
     func observeSnoozes(onChange: @escaping @Sendable ([Snooze]) -> Void) -> StoreObservation {
         base.observeSnoozes(onChange: onChange)
     }
+    func setMuted(_ muted: Bool, conversations: [ConversationID], enqueueing operations: [Operation]) throws {
+        try base.setMuted(muted, conversations: conversations, enqueueing: operations)
+    }
+    func senderRules() throws -> [SenderRule] { try base.senderRules() }
+    func setSenderRule(_ action: SenderRule.Action?, for address: String, accountID: AccountID,
+                       enqueueing operations: [Operation], at now: Date) throws {
+        try base.setSenderRule(action, for: address, accountID: accountID, enqueueing: operations, at: now)
+    }
+    func observeSenderRules(onChange: @escaping @Sendable ([SenderRule]) -> Void) -> StoreObservation {
+        base.observeSenderRules(onChange: onChange)
+    }
     func enqueue(_ operation: Operation) throws {
         try check(.enqueue)
         try base.enqueue(operation)

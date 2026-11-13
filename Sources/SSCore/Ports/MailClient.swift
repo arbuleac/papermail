@@ -38,6 +38,19 @@ public protocol MailClient: AnyObject {
     /// marks the action ended (`Snooze.Change.returnedAt`). Local state updates before this returns.
     func setSnoozes(_ changes: [Snooze.Change], performing steps: [MailActionRecord.Step]) throws
 
+    /// Mutes or unmutes `conversations` together with `steps`, in one store transaction: the steps are applied and queued
+    /// as `perform` queues them (muting passes the archive of what is in the Inbox; an undo passes the inverse). While a
+    /// conversation is muted, mail arriving in it is archived in the write that stores it, so it never reaches the Inbox
+    /// and no notification fires. Local state updates before this returns.
+    func setMuted(_ muted: Bool, conversations: [ConversationID], performing steps: [MailActionRecord.Step]) throws
+
+    /// Sets the account's rule for mail from `address` (nil removes it) together with `steps`, in one store transaction:
+    /// the steps are applied and queued as `perform` queues them (the rule's change on that sender's mail in the
+    /// conversation it was set from; an undo passes the inverse and the rule the address had). From then on mail from the
+    /// address is archived or moved to the Trash in the write that stores it. Local state updates before this returns.
+    func setSenderRule(_ action: SenderRule.Action?, for address: String, accountID: AccountID,
+                       performing steps: [MailActionRecord.Step]) throws
+
     /// Unsubscribes as the user asked (spec §5.14), in one transaction: archives `messages` (the conversation's
     /// messages the archive changes; empty when it changes none), ends the snoozes of `snoozed` (a snoozed conversation
     /// is archived already, and unsubscribing leaves it so rather than bringing it back at its time, as E does in Later)

@@ -93,6 +93,9 @@ public struct ConversationSummary: Hashable, Sendable, Identifiable {
     public var returnedAt: Date?
     /// When its snooze ends; set only in the Later view, whose rows read “Back Tue 09:00”.
     public var snoozedUntil: Date?
+    /// Muted with M (docs/DATA-MODEL.md, `conversations.muted`): mail arriving in it is archived as it arrives, and its
+    /// row carries the muted glyph wherever it is listed.
+    public var isMuted: Bool
 
     /// The date the Inbox sorts, pages and groups by, and its rows show: the latest message's, or the return's when
     /// that came later, so mail that comes back lands under Today rather than under the day it first arrived.
@@ -117,7 +120,8 @@ public struct ConversationSummary: Hashable, Sendable, Identifiable {
         hasPendingOperations: Bool,
         failedOperation: OperationKind? = nil,
         returnedAt: Date? = nil,
-        snoozedUntil: Date? = nil
+        snoozedUntil: Date? = nil,
+        isMuted: Bool = false
     ) {
         self.id = id
         self.subject = subject
@@ -135,5 +139,6 @@ public struct ConversationSummary: Hashable, Sendable, Identifiable {
         self.failedOperation = failedOperation
         self.returnedAt = returnedAt
         self.snoozedUntil = snoozedUntil
+        self.isMuted = isMuted
     }
 }

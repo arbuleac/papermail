@@ -167,6 +167,26 @@ public protocol MailStoring: AnyObject, Sendable {
     /// `snoozes()` after every change to it, delivered on the main thread, the current value first.
     func observeSnoozes(onChange: @escaping @Sendable ([Snooze]) -> Void) -> StoreObservation
 
+    // MARK: Mute and sender rules (docs/DATA-MODEL.md, "Arrival rules")
+    // Mail new to the store in a muted conversation, or from a sender with a rule, is archived or moved to the Trash in
+    // the write that stores it, through the ordinary operation queued in that transaction: `upsertMessages` applies
+    // both; `writeBackfillMessages`, which writes old mail, applies only the mute. The mute and the rules themselves
+    // live on this Mac; what they do round-trips.
+
+    /// In one transaction: applies and queues `operations` as `enqueue` does (muting archives what is in the Inbox, an
+    /// undo passes the inverse steps), then marks the conversations muted, or not. A conversation the store holds no
+    /// summary row for is left alone.
+    func setMuted(_ muted: Bool, conversations: [ConversationID], enqueueing operations: [Operation]) throws
+    /// Every sender rule, by account and then address.
+    func senderRules() throws -> [SenderRule]
+    /// In one transaction: applies and queues `operations` as `enqueue` does (the rule's change on the sender's mail in
+    /// the conversation it was set from, or an undo's inverse steps), then sets the account's rule for `address` to
+    /// `action`, replacing the other, or removes it when `action` is nil. `now` is its `createdAt`.
+    func setSenderRule(_ action: SenderRule.Action?, for address: String, accountID: AccountID,
+                       enqueueing operations: [Operation], at now: Date) throws
+    /// `senderRules()` after every change to them, delivered on the main thread, the current value first.
+    func observeSenderRules(onChange: @escaping @Sendable ([SenderRule]) -> Void) -> StoreObservation
+
     // MARK: Operations (outbox)
     /// In one transaction: apply `operation.change` to every target locally, insert the operation as pending,
     /// and record what it replaced on each target, which a give-up puts back (see `updateOperation`).

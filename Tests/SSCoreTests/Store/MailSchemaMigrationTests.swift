@@ -51,6 +51,20 @@ final class MailSchemaMigrationTests: XCTestCase {
         DELETE FROM grdb_migrations WHERE identifier = 'v15-calendar-invitations';
         """
 
+    /// Takes v16 back out of a migrated file: a file from before it mutes nothing (the partial index goes first, since a
+    /// column an index reads cannot be dropped).
+    private let withoutV16 = """
+        DROP INDEX conversations_muted;
+        ALTER TABLE conversations DROP COLUMN muted;
+        DELETE FROM grdb_migrations WHERE identifier = 'v16-conversation-mute';
+        """
+
+    /// Takes v17 back out of a migrated file: a file from before it has no sender rules.
+    private let withoutV17 = """
+        DROP TABLE sender_rules;
+        DELETE FROM grdb_migrations WHERE identifier = 'v17-sender-rules';
+        """
+
     /// Twelve accounts, inserted out of creation order, two of them created in the same millisecond so the id
     /// has to break the tie.
     private let accounts: [(id: String, addedAt: Int64)] = [
@@ -302,7 +316,7 @@ final class MailSchemaMigrationTests: XCTestCase {
             try store.close()
         }
         // v9 to v15 came after v8, so a v7 file has none of them (`revertSQL` takes v12 and v13 back).
-        try execute(withoutV15 + withoutV14 + """
+        try execute(withoutV17 + withoutV16 + withoutV15 + withoutV14 + """
             \(FullTextVersion10.revertSQL)
             DROP TABLE backfill_live_marks;
             DROP TABLE backfill_seen;
@@ -374,7 +388,7 @@ final class MailSchemaMigrationTests: XCTestCase {
             try store.setSyncCursor("cursor-8", for: a)
             try store.close()
         }
-        try execute(withoutV15 + withoutV14 + """
+        try execute(withoutV17 + withoutV16 + withoutV15 + withoutV14 + """
             \(FullTextVersion10.revertSQL)
             ALTER TABLE accounts DROP COLUMN signature;
             DELETE FROM grdb_migrations WHERE identifier = 'v9-account-signature';
@@ -414,7 +428,7 @@ final class MailSchemaMigrationTests: XCTestCase {
             try store.setSignature("<div><p>Alex</p></div>", for: AccountID("acct-a"))
             try store.close()
         }
-        try execute(withoutV15 + withoutV14 + """
+        try execute(withoutV17 + withoutV16 + withoutV15 + withoutV14 + """
             \(FullTextVersion10.revertSQL)
             ALTER TABLE bodies DROP COLUMN evicted;
             DELETE FROM grdb_migrations WHERE identifier = 'v10-body-eviction';
@@ -700,8 +714,74 @@ final class MailSchemaMigrationTests: XCTestCase {
                        [["TEXT", "0", nil]], "TEXT NULL with no default")
         XCTAssertEqual(try query("SELECT type, \"notnull\", dflt_value FROM pragma_table_info('messages') WHERE name = 'invitation_reply'", at: path),
                        [["TEXT", "0", nil]], "TEXT NULL with no default")
-        XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations ORDER BY rowid", at: path).compactMap(\.first).last,
-                       "v15-calendar-invitations")
+        XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations WHERE identifier = 'v15-calendar-invitations'", at: path),
+                       [["v15-calendar-invitations"]])
+    }
+
+    /// v16 adds `conversations.muted` (0 for every row, so nothing is muted) and the partial index the upsert asks once
+    /// per write, and nothing else. The file is a real v15 one. Opened by the current build its mail reads as before, a
+    /// conversation can be muted, and mail arriving in it is archived.
+    func testVersion15DatabaseGainsTheMuteAndKeepsItsMail() throws {
+        let path = try XCTUnwrap(directory).appendingPathComponent("mail.sqlite").path
+        try writeVersion1Database(at: path)
+        try MailSchema.migrateFile(at: path, upTo: "v15-calendar-invitations")
+        XCTAssertFalse(try query("SELECT name FROM pragma_table_info('conversations')", at: path).compactMap(\.first).contains("muted"))
+
+        let account = AccountID("acct-a")
+        let c1 = ConversationID(accountID: account, providerID: "c1")
+        let store = try SQLiteMailStore(path: path)
+        let summary = try XCTUnwrap(try store.conversations(ConversationQuery(view: .inbox)).first)
+        XCTAssertEqual(summary.id, c1, "the mail stored before v16 reads as before")
+        XCTAssertFalse(summary.isMuted, "nothing is muted")
+        try store.setMuted(true, conversations: [c1], enqueueing: [
+            Operation(accountID: account, change: .archive, targets: [MessageID(accountID: account, providerID: "m1")]),
+        ])
+        try store.upsertMessages([MessageMetadata(
+            id: MessageID(accountID: account, providerID: "m2"), conversationID: c1, subject: "Re: Hello", snippet: "More",
+            from: EmailAddress(name: "Bob", address: "bob@example.com"), date: MailStoreCodec.date(base + 90_000),
+            roles: [.inbox], isRead: false, isStarred: false, hasAttachments: false
+        )])
+        XCTAssertTrue(try store.conversations(ConversationQuery(view: .inbox)).isEmpty, "mail arriving in it is archived")
+        XCTAssertEqual(try store.conversations(ConversationQuery(view: .all)).first?.isMuted, true)
+        try store.verifyFullTextIndex()
+        try store.close()
+
+        XCTAssertEqual(try query("SELECT type, \"notnull\", dflt_value FROM pragma_table_info('conversations') WHERE name = 'muted'", at: path),
+                       [["INTEGER", "1", "0"]], "INTEGER NOT NULL DEFAULT 0")
+        XCTAssertEqual(try query("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'conversations_muted'", at: path),
+                       [["conversations_muted"]])
+        let plan = try query("EXPLAIN QUERY PLAN SELECT DISTINCT account_id FROM conversations WHERE muted = 1", at: path)
+        XCTAssertTrue(plan.contains { $0.contains { $0?.contains("conversations_muted") == true } },
+                      "the once-per-write look reads the partial index: \(plan)")
+        XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations WHERE identifier = 'v16-conversation-mute'", at: path),
+                       [["v16-conversation-mute"]])
+    }
+
+    /// v17 adds the empty `sender_rules` table and nothing else. The file is a real v16 one with a conversation muted.
+    /// Opened by the current build the mute stays, a rule can be set, and it cascades with its account.
+    func testVersion16DatabaseGainsSenderRulesAndKeepsItsMutes() throws {
+        let path = try XCTUnwrap(directory).appendingPathComponent("mail.sqlite").path
+        try writeVersion1Database(at: path)
+        try MailSchema.migrateFile(at: path, upTo: "v16-conversation-mute")
+        try execute("UPDATE conversations SET muted = 1 WHERE provider_id = 'c1'", at: path)
+        XCTAssertTrue(try query("SELECT name FROM sqlite_master WHERE name = 'sender_rules'", at: path).isEmpty)
+
+        let account = AccountID("acct-a")
+        let store = try SQLiteMailStore(path: path)
+        XCTAssertEqual(try store.conversations(ConversationQuery(view: .inbox)).first?.isMuted, true, "v16's mute reads as before")
+        XCTAssertTrue(try store.senderRules().isEmpty)
+        try store.setSenderRule(.trash, for: "deals@shop.example", accountID: account, enqueueing: [],
+                                at: MailStoreCodec.date(base + 100_000))
+        XCTAssertEqual(try store.senderRules().map(\.address), ["deals@shop.example"])
+        try store.deleteAccount(account)
+        XCTAssertTrue(try store.senderRules().isEmpty, "removed with its account")
+        try store.close()
+
+        XCTAssertEqual(try query("SELECT name, type, \"notnull\", pk FROM pragma_table_info('sender_rules') ORDER BY cid", at: path), [
+            ["account_id", "TEXT", "1", "1"], ["address", "TEXT", "1", "2"], ["action", "TEXT", "1", "0"], ["created_at", "INTEGER", "1", "0"],
+        ])
+        XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations ORDER BY rowid", at: path).compactMap(\.first).suffix(2),
+                       ["v16-conversation-mute", "v17-sender-rules"])
     }
 
     // MARK: Raw SQLite

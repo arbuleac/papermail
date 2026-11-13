@@ -86,7 +86,9 @@ enum MessageTable {
 
     // MARK: Upsert and delete
 
-    static func upsert(_ messages: [MessageMetadata], in db: Database) throws {
+    /// `senderRules` says whether this is mail arriving (a poll, a head page), which sender rules apply to; the backfill
+    /// and a search of the server pass false (`ArrivalRules`).
+    static func upsert(_ messages: [MessageMetadata], senderRules: Bool, in db: Database) throws {
         guard !messages.isEmpty else { return }
         try MailSchema.ensureTouchedTable(db)
         let lookup = try db.cachedStatement(sql: lookupSQL)
@@ -94,6 +96,9 @@ enum MessageTable {
         // Pending operations win over provider state, but looking them up per message only pays off when the
         // account has any live operation at all, which is rare between user actions.
         let accountsWithOperations = try OperationTable.accountsWithLiveOperations(db)
+        // The same for the mute and the sender rules: decided per account once, so a burst of mail into a mailbox with
+        // none costs nothing more per message.
+        var arrivals = try ArrivalRules(in: db, senderRules: senderRules)
         for incoming in messages {
             var metadata = incoming
             if accountsWithOperations.contains(incoming.id.accountID.rawValue) {
@@ -123,8 +128,12 @@ enum MessageTable {
             if existing == nil {
                 try ContactTable.record(metadata, in: db)
                 try SnoozeTable.endForArrival(of: metadata, in: db)
+                try arrivals.consider(metadata, in: db)
             }
         }
+        // Stored as the provider reported them first, so each change records that as its prior, then changed and queued
+        // here, in this transaction: no observer ever sees the row in the Inbox.
+        try arrivals.enqueue(at: Date(), in: db)
         try ConversationTable.refreshTouched(db)
     }
 
