@@ -328,8 +328,9 @@ CHEAT_SHEET = [
           (".", "Show · hide quoted text")]),
  ("Go", [("G then I", "Inbox"), ("G then L", "Later"), ("G then S", "Starred"), ("G then T", "Sent"), ("G then D", "Drafts"),
          ("G then #", "Trash"), ("G then A", "All Mail"), ("⌘0", "All Inboxes"), ("⌘1 … ⌘9", "One account")]),
- ("Write", [("C", "New message"), ("R", "Reply"), ("A", "Reply all"), ("F", "Forward"), ("⇧⌘R", "Open in composer"), ("⌘↩", "Send"), ("⇧⌘↩", "Send and archive"),
-           ("⇧⌘A", "Attach files")]),
+ # R and A share a row, as J K and N P do, so Send later fits the band without making the sheet taller (§5.32).
+ ("Write", [("C", "New message"), ("R A", "Reply · reply all"), ("F", "Forward"), ("⇧⌘R", "Open in composer"), ("⌘↩", "Send"),
+           ("⇧⌘↩", "Send and archive"), ("⇧⌘L", "Send later"), ("⇧⌘A", "Attach files")]),
  ("Format", [("⇧⌘T", "Format row"), ("⌘B ⌘I ⌘U", "Bold · italic · underline"), ("⇧⌘8 ⇧⌘7", "Bulleted · numbered list"), ("⌘'", "Quote"),
              ("⌘K", "Add link"), ("⇧⌘C ⇧⌘B", "Cc · Bcc field")]),
  ("View", [("⇧⌘I", "Load images"), ("⇧⌘O", "Original colors"), ("⌥⌘C", "Compact rows"), ("⌃⌘S", "Show · hide the rail"),
