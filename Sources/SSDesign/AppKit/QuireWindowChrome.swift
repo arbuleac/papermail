@@ -53,6 +53,22 @@ public enum QuireWindowChrome {
         window.contentMinSize = minimumSize
     }
 
+    /// A reader window's default content size, 840 × 800: the reader pane of a default main window (§5.19a).
+    public nonisolated static let readerWindowDefaultSize = NSSize(width: Quire.Layout.ReaderWindow.defaultWidth,
+                                                                   height: Quire.Layout.ReaderWindow.defaultHeight)
+
+    /// A reader window's minimum content size, 520 × 420.
+    public nonisolated static let readerWindowMinimumSize = NSSize(width: Quire.Layout.ReaderWindow.minWidth,
+                                                                   height: Quire.Layout.ReaderWindow.minHeight)
+
+    /// Applies a reader window's chrome (§3.2, §5.19a): the main window's, empty unified toolbar included, because the
+    /// reader header it holds puts its kicker and actions on the lights' centre line, which only that band provides;
+    /// only the minimum differs. The title (the conversation's subject) names the window where the band hides it.
+    public static func configureReaderWindow(_ window: NSWindow, title: String) {
+        configureMainWindow(window, title: title)
+        window.contentMinSize = readerWindowMinimumSize
+    }
+
     /// Applies the composer's chrome (§3.2): the same transparent title bar over `paper`, but with the title
     /// visible and no toolbar, so AppKit keeps the plain system title bar (28 pt on macOS 15, 32 pt from 26 on).
     /// The field rows start at `titlebarHeight(of:)`.

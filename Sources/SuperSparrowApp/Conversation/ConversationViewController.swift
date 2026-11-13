@@ -139,9 +139,11 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         SendAction.undoMenuTitle(archived: quickSend?.archive?.isArchived ?? false)
     }
 
-    init(client: MailClient) {
+    /// `poolSize` 1 is a reader window's (§5.19a): it shows one conversation and pre-renders nothing. A pool of its own
+    /// rather than a slot of the main window's, which that reader hands to whatever neighbour it pre-renders next.
+    init(client: MailClient, poolSize: Int = 3) {
         self.client = client
-        self.pool = WebViewPool(client: client)
+        self.pool = WebViewPool(client: client, size: poolSize)
         self.preview = AttachmentPreviewController(client: client)
         var accounts: [AccountID: Account] = [:]
         for account in (try? client.accounts()) ?? [] { accounts[account.id] = account }
@@ -664,8 +666,19 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         }
     }
 
+    /// How far the quick reply covers the reader from its bottom edge: 0 while the bar is hidden. A reader window's toast
+    /// sits that far up (§5.19a).
+    var bottomOverlayHeight: CGFloat {
+        guard isViewLoaded, !quickReply.isHidden else { return 0 }
+        return quickReply.barHeight
+    }
+
+    /// Called when `bottomOverlayHeight` may have changed.
+    var onBottomOverlayChange: (() -> Void)?
+
     /// The shell pads the conversation by the bar's height + 12, once per height change (spec §8.4).
     private func applyBottomInset() {
+        onBottomOverlayChange?()
         guard let current = pool.current else { return }
         let inset = quickReply.isHidden ? 0 : quickReply.barHeight
         evaluate("window.ss && window.ss.setBottomInset(\(Int(inset)))", in: current)
@@ -1497,9 +1510,21 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         if let onAction {
             onAction(.escapeQuickReply)
         } else {
-            quickReply.blur()
-            focusWebView()
+            leaveQuickReply()
         }
+    }
+
+    /// The field lets go, keeping its text, and the page takes focus: Esc in a reader window, which has no list to go
+    /// back to (§6.1).
+    func leaveQuickReply() {
+        quickReply.blur()
+        focusWebView()
+    }
+
+    /// The reader is going away with a quick reply still counting down (its reader window closing): the countdown moves
+    /// to an undo-send panel for its remaining seconds, as when the bar hides, so its Undo is not lost (§5.18).
+    func handOffQuickSend() {
+        if let send = quickSend { moveQuickSendToPanel(send) }
     }
 
     private func focusWebView() {

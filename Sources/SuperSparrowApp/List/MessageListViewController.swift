@@ -42,6 +42,8 @@ final class MessageListViewController: NSViewController {
 
     var onSelectionChange: ((ConversationID?) -> Void)?
     var onOpen: ((ConversationID) -> Void)?
+    /// ⌘-double-click on a row: that row's conversation in a reader window of its own (spec §5.19a).
+    var onOpenInWindow: ((ConversationID) -> Void)?
     /// A dragged row's conversation, JSON-encoded, for drops inside the app.
     static let conversationPasteboardType = NSPasteboard.PasteboardType("io.supersparrow.mac.conversation")
     /// The host's context menu for conversation rows (spec §5.35). It acts on the selection, so a right-click
@@ -421,8 +423,19 @@ final class MessageListViewController: NSViewController {
     }
 
     @objc private func didDoubleClick(_ sender: Any?) {
-        guard let index = layout.conversationIndex(atRow: tableView.clickedRow) else { return }
-        onOpen?(conversations[index].id)
+        rowDoubleClicked(tableView.clickedRow, modifiers: NSApp.currentEvent?.modifierFlags ?? [])
+    }
+
+    /// A double-click opens the row's conversation; with ⌘ held it opens it in a window of its own, the row's, whatever
+    /// the ⌘-clicks did to the selection. Internal so the app's tests can double-click without events.
+    func rowDoubleClicked(_ row: Int, modifiers: NSEvent.ModifierFlags) {
+        guard let index = layout.conversationIndex(atRow: row) else { return }
+        let id = conversations[index].id
+        if modifiers.contains(.command) {
+            onOpenInWindow?(id)
+        } else {
+            onOpen?(id)
+        }
     }
 
     // MARK: Selection

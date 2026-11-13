@@ -75,6 +75,7 @@ A quire is a gathering of folded sheets, the unit a book is sewn from. Quire tre
 - The top 52 pt of every pane is the title-bar zone: it drags the window (`mouseDownCanMoveWindow`), double-click follows the system preference, and controls inside it opt out. Content under the toolbar still receives clicks (hit-testing passes through the transparent unified toolbar to the content view; verified on macOS 27). The toolbar's own container is taller than the band from macOS 26 on (66 pt measured), so every view below y = 52 returns `mouseDownCanMoveWindow = false`: a click on the reader's headline or the first list row never drags the window. In full screen AppKit hides the toolbar band and reveals it on hover; the zone keeps its height so nothing jumps.
 - Default size 1280 × 800, minimum 960 × 600. The reader never gets narrower than 400 pt (`layout.window.readerMinWidth`): the list's maximum width is the smaller of 480 and window width − rail − 400.
 - **Composer windows** use the same transparent title bar over `paper`: `.titled .closable .miniaturizable .resizable .fullSizeContentView`, `titlebarAppearsTransparent = true`, `titleVisibility = .visible` (the system draws the title text and the lights), no toolbar, so it keeps the plain system title bar: 28 pt on macOS 15, 32 pt from macOS 26 on (measured on 27.0.1; `layout.window.composerTitlebar` / `composerTitlebar26`). `QuireWindowChrome.configureComposerWindow` applies it. The band's height is read from the window (`QuireWindowChrome.titlebarHeight(of:)`: the content view's height above `contentLayoutRect`), never assumed; the band is `paper` with a hairline at its bottom drawn by the content view, and the field rows start directly below it.
+- **Reader windows** (§5.19a) take the main window's chrome, not the composer's: the same style mask, transparent title bar, title hidden and the empty unified toolbar, so AppKit lays out the 52 pt band with the lights centred on y = 26, and the reader header's kicker and actions sit on that one centre line as they do in the main window. The title (the conversation's subject) still names the window in the Window menu, Mission Control and VoiceOver. `QuireWindowChrome.configureReaderWindow` applies it, with the reader window's own minimum (`layout.readerWindow`).
 
 ### 3.3 Appearance and accessibility modes
 
@@ -1003,7 +1004,7 @@ A **native** view (it replaces `ConversationHeaderView`), 92 pt, `paper`, bottom
 
 - **Row 1** (title-bar zone): the kicker at the reading column's leading edge, centred on y = 26: a 7 pt account-ink dot, 8 pt, the account name, “·”, the message count, in `runningHead` `ink3` (single-account setups omit the account; several selected shows “Selection”). The kicker ends at least 16 pt before the first visible action (`readerHeader.kickerActionGap`); when it does not fit, the account name tail-truncates and the dot, the “·” and the count never do; if fewer than 4 characters of the name would remain, the name is dropped (dot and count stay, and the kicker's tooltip names the account). At the 400 pt minimum reader the kicker has 400 − 16 − 190 − 16 − 16 = 162 pt: the dot, “· 12 MESSAGES” and the first letters of the account name. Trailing at 16, top 12: Star · Archive · Trash, a 14 pt gap, Reply · Reply All · Forward, as 28 pt icon buttons with 15 pt symbols, 2 pt apart (190 pt for all six). The set changes per view and selection (below).
 - **Row 2**: the headline at the reading column, top 56: `headline` (New York 24/30 Semibold, `headlineSans` when New York lacks the script), one line, tail truncation, full subject in the tooltip and VoiceOver label, selectable. No subject: “No subject” in the placeholder style (`headline` italic, `ink3`).
-- The reading column x = max(margin, (reader width − 680) / 2), where margin is 32, or 16 when the reader is narrower than 560 pt; recomputed in `layout()`; the kicker, headline, sheets and quick-reply field share it.
+- The reading column x = max(margin, (reader width − 680) / 2), where margin is 32, or 16 when the reader is narrower than 560 pt; recomputed in `layout()`; the kicker, headline, sheets and quick-reply field share it. In a reader window the kicker starts no nearer the leading edge than the minimal-mode masthead, so it clears the lights (§5.19a).
 - **Per view and selection.** Each set is drawn from the trailing edge; hidden actions close up, they never leave gaps.
 
   | Reader state | Actions | Notes |
@@ -1351,6 +1352,37 @@ The quick reply is hidden in Drafts.
 
 **Conversation emptied while open.** The desk shows the empty state “No messages to show” / “They were deleted or moved on another device.” (§5.9); the header keeps the subject; only Trash stays enabled; the quick reply is hidden.
 
+### 5.19a Reader window (Q3.5)
+
+A conversation in a window of its own, for reading beside a composer or another conversation. ⌘O (File › Open in New Window) opens the selected conversation; ⌘-double-click on a row opens that row's. One window per conversation: opening one that is already open brings its window forward. Nothing opens with several conversations selected (the key is spent, as ↩ is, §5.19), from Drafts (a draft opens in its composer), or from the welcome screen.
+
+`layout.readerWindow`
+
+| Metric | pt | Metric | pt | Metric | pt | Metric | pt |
+|---|---|---|---|---|---|---|---|
+| `defaultWidth` | 840 | `defaultHeight` | 800 | `minWidth` | 520 | `minHeight` | 420 |
+
+| Part | Spec |
+|---|---|
+| Window | the main window's chrome (§3.2): transparent title bar, title hidden, the empty unified toolbar, the lights on y = 26; the title is the subject (“No subject” without one). Default 840 × 800 (the reader pane of a default main window), minimum 520 × 420; each new window cascades from the last, and the size the user leaves one at is the next one's. No tabs |
+| Content | the reader alone, without the split: the 92 pt header, the desk, the sheets and the quick reply exactly as in the main window's third pane (§5.12–5.18). Row 1 of the header shares the lights' centre line; its kicker starts at the larger of the reading column and the minimal-mode masthead's x (rail width + 8: 84 on macOS 15, 92 from 26 on, §3.2), so it clears the lights at any width; the headline, the sheets and the quick reply keep the reading column. The actions are the set of the view the conversation was opened from (§5.12): from the Trash, Star · Move to Inbox; from Later, Archive ends the snooze (§5.45) |
+| Web view | one web view of its own, outside the main window's pool, so each window is one more WebContent process (about 25 MB, which the roadmap's baseline allows for); nothing is pre-rendered |
+| Toast | bottom centre of the reader, 16 pt above the quick reply (above the window's bottom edge while the bar is hidden), at most the window's width less 16 pt a side (§5.30) |
+
+**Keys and menus.** The reader's keys and the Message menu act on the window's conversation, as they do on the selection in the main window (§6): E, L, #, ⇧I, S, U, Z, R, A, F, N, P, ., Space, ⇧⌘U, ⇧⌘I, ⇧⌘O. C and ⌘N start a new message. / and ⌘F, the G-sequences and ? act in the main window, which comes forward. J, K and ↩ have no list to move in, and pass to the page. ⌘W closes the window.
+
+**Leaving the window.** Archive, Later, Move to Trash and Unsubscribe take the conversation off the desk, so the window closes as the step is taken: the main window comes forward with the step's toast (“Archived · Undo Z”), and its Undo (Z, ⌘Z, the button) brings the conversation back and opens its window again where it was. A step that leaves the conversation in the window (Move to Inbox, Star, Mark as Unread) keeps it open, and the toast it gets shows in the window. A reply sent from the window's quick reply with Send and Archive leaves the window open, its strip holding the one Undo for both (§5.23). A conversation emptied elsewhere shows the reader's emptied state (§5.19), and the window stays until it is closed.
+
+**One undo history.** The undo history and its toast belong to the app, not to a window. Every window's steps join the same history, one toast shows at a time across all windows, in the window where its step was taken, and steps taken in different windows never coalesce into one toast. Z and ⌘Z reach the latest step from any window (§6.1), and its undo lands where the step was taken: the confirmation shows there, and a window the step closed opens again.
+
+| State | Look |
+|---|---|
+| Key / not key | as the main window (§3.4, §5.1) |
+| Conversation emptied while open | the reader's emptied state (§5.19); only Trash enabled |
+| Full screen | as the main window: the band keeps its 52 pt |
+
+VoiceOver names the window by its subject; inside it everything reads as the reader does (§4.14).
+
 ### 5.20 Composer window and fields
 
 640 × 600 default (min 520 × 420). The window has a transparent system title bar over `paper` (28 pt on macOS 15, 32 pt from macOS 26 on, read from the window, §3.2): the system draws the lights and the title, which is the subject, or “New Message” when the subject is empty; a hairline closes the band. No toolbar.
@@ -1639,7 +1671,7 @@ Face = tint (§4.3); initials New York Semibold, or SF Pro Semibold (`monogramSa
 | Divider | 1 × 16, `onSlipEdge`; only when there is an action |
 | Action | “Undo” (`bodyStrong`, `onSlip`), 6 pt, keycap “Z” (18 pt, `onSlipEdge` outline; legend `onSlip2` at rest, `onSlip` while the action is hovered or pressed); 26 pt high, padding x 8 (`layout.toast.actionPadX`, `actionKeycapGap`), radius `r.sm` (5), no fill or outline at rest (the divider before it marks it as a separate control), 24 pt hit |
 | Contrail | 2 pt along the bottom edge in `onSlip`, draining over the toast's life (5000 ms); it freezes while the pointer rests on the toast; only on toasts with an action |
-| Placement | bottom centre of the list pane, 16 pt above the sync line, max width = list width − 2 × 16 (the message truncates) |
+| Placement | bottom centre of the list pane, 16 pt above the sync line, max width = list width − 2 × 16 (the message truncates); for a step taken in a reader window, bottom centre of its reader, 16 pt above the quick reply (§5.19a) |
 
 **Variants.**
 
@@ -1651,7 +1683,7 @@ Face = tint (§4.3); initials New York Semibold, or SF Pro Semibold (`monogramSa
 | Unsubscribe (§5.14) | `archivebox` | “Unsubscribe sent · Archived” (a one-click or mailto request), “Opened in browser · Archived” (a page in the browser) | Undo + Z: brings the conversation back; the request stays sent, and the undo's confirmation says so (“Undid Archive · Unsubscribe stays sent”; “Undid Archive” after a page). In Later, or on a snoozed search result, it ends the snooze rather than archiving, and Undo puts the snooze back. It never coalesces: an archive within 1000 ms, E in Later included, gets its own toast, so the request's words are never replaced. Both, and the confirmation, fit the default list (364 pt) whole, so the archive is never the part cut off | 5000 ms, contrail |
 | Unsubscribe, nothing archived (the conversation was already out of the Inbox, and not snoozed) | `paperplane` for a request, `link` for a page | “Unsubscribe sent”, “Opened in browser” | none | 2000 ms, no contrail |
 
-Behaviour: in `dur.standard` (rise 8 pt + fade, `ease.settle`); out `dur.quick` (`ease.leave`). One toast at a time: a new toast replaces the old one instantly, without stacking, and several actions within 1000 ms coalesce into one (“Archived 3 conversations”). Z (or ⌘Z, by the precedence in §6.1) undoes the latest undoable action from anywhere in the main window while its toast is visible and for 10000 ms after; the confirmation toast then replaces it. Esc dismisses (§6.1). VoiceOver announces “Archived. Press Z to undo.” and “Undid Archive.” Reduce Motion: fades only; the contrail steps once per second.
+Behaviour: in `dur.standard` (rise 8 pt + fade, `ease.settle`); out `dur.quick` (`ease.leave`). One toast at a time, across every window: a new toast replaces the old one instantly, without stacking, wherever the old one was, and several actions within 1000 ms in the same window coalesce into one (“Archived 3 conversations”). Z (or ⌘Z, by the precedence in §6.1) undoes the latest undoable action from anywhere in the main window or a reader window while its toast is visible and for 10000 ms after; the confirmation toast then replaces it, in the window where the action was taken (§5.19a). Esc dismisses (§6.1). VoiceOver announces “Archived. Press Z to undo.” and “Undid Archive.” Reduce Motion: fades only; the contrail steps once per second.
 
 | State | Look |
 |---|---|
@@ -1731,11 +1763,12 @@ The second key, any other key, Esc or the end of the 2000 ms window dismisses it
 | 1 | 1 | Move | 1 | J  K | Next · previous |
 | 1 | 1 | Move | 2 | ⇧J  ⇧K | Extend the selection |
 | 1 | 1 | Move | 3 | ↩ | Open |
-| 1 | 1 | Move | 4 | esc | Back to the list |
-| 1 | 1 | Move | 5 | N  P | Next · previous message |
-| 1 | 1 | Move | 6 | space | Quick Look attachments |
-| 1 | 1 | Move | 7 | / | Search |
-| 1 | 1 | Move | 8 | ↩ | In search: ask the server |
+| 1 | 1 | Move | 4 | ⌘O | Open in a new window |
+| 1 | 1 | Move | 5 | esc | Back to the list |
+| 1 | 1 | Move | 6 | N  P | Next · previous message |
+| 1 | 1 | Move | 7 | space | Quick Look attachments |
+| 1 | 1 | Move | 8 | / | Search |
+| 1 | 1 | Move | 9 | ↩ | In search: ask the server |
 | 1 | 2 | Act | 1 | E | Archive |
 | 1 | 2 | Act | 2 | L | Snooze until later |
 | 1 | 2 | Act | 3 | # | Move to Trash |
@@ -1828,10 +1861,10 @@ System `toolTip` on every icon-only control and on truncated text; Quire defines
 Main menu (system), with Quire content. Single-key shortcuts are handled by `KeyboardRouter` and shown as attributed shortcut text, so they never fire inside text fields.
 
 - **SuperSparrow**: About SuperSparrow (the system About panel) · Settings… ⌘, · Services · Hide · Quit.
-- **File**: New Message ⌘N (also C) · Close Window ⌘W · Add Gmail Account… · Add Microsoft Account… · Save Attachments… · in demo mode, Leave Demo… (§5.43).
+- **File**: New Message ⌘N (also C) · Open in New Window ⌘O (the selected conversation in a reader window, §5.19a) · Close Window ⌘W · Add Gmail Account… · Add Microsoft Account… · Save Attachments… · in demo mode, Leave Demo… (§5.43).
 - **Edit**: standard, plus Find… ⌘F (focuses search) and Search Gmail for More (§5.10, no key equivalent: ↩ in the search field runs it, and a plain ↩ on a menu item would take Return from the list, the composer and every sheet; titled by the scope: Search Outlook for More, Search All Accounts for More). It is enabled while the search field holds words whose local results are all listed (or not in yet) and the server has not been asked for them, or failed; it is disabled while any other place to type or the reader has focus, and hidden while a composer is key. Undo is titled by its target (“Undo Archive”, “Undo Send”, “Undo Send and Archive”, “Undo Typing”), following §6.1.
 - **View**: Inbox · Later (while the rail shows it) · Starred · Sent · Drafts · Trash · All Mail (G-sequences) · All Inboxes ⌘0 · accounts ⌘1–9 · Check for New Mail ⇧⌘N · Show/Hide Account Rail ⌃⌘S · Compact Rows ⌥⌘C · Load Images ⇧⌘I · Original Colors ⇧⌘O (checkmark when on) · Show Quoted Text . (on a message under an invitation card it shows or hides the message, §5.14)
-- **Message**: Reply R · Reply All A · Forward F · — · Archive E · Later… L (the Later menu at the selection, §5.45) · Move to Trash # · Move to Inbox ⇧I · Star S · Mark as Unread U · Undo Z · — · Unsubscribe ⇧⌘U (enabled while one conversation is open and offers it, §5.14; no symbol, since SF Symbols has none for it before macOS 26) · — · Next Message N · Previous Message P.
+- **Message**: Reply R · Reply All A · Forward F · — · Archive E · Later… L (the Later menu at the selection, §5.45) · Move to Trash # · Move to Inbox ⇧I · Star S · Mark as Unread U · Undo Z · — · Unsubscribe ⇧⌘U (enabled while one conversation is open and offers it, §5.14; no symbol, since SF Symbols has none for it before macOS 26) · — · Next Message N · Previous Message P. In a reader window the same items act on its conversation (§5.19a), and the context menu on its messages is the one below, acting on that conversation.
 - **Format** (composer windows only): Show Format Row ⇧⌘T · — · Bold ⌘B · Italic ⌘I · Underline ⌘U · — · Bulleted List ⇧⌘8 · Numbered List ⇧⌘7 · Quote ⌘' · — · Add Link… ⌘K. In a composer window the Message menu holds Send ⌘↩ (what the Send button does, §5.23) · Send and Archive ⇧⌘↩ (always; no symbol) · Attach Files… ⇧⌘A · Add Cc Field ⇧⌘C · Add Bcc Field ⇧⌘B · — · Discard Draft… (§5.20).
 - **Window**, **Help** (Keyboard Shortcuts ⌘/).
 
@@ -2164,6 +2197,7 @@ All single keys are inactive while a text field has focus. Every key press first
 | . | show / hide quoted text; on a message under an invitation card, the message (§5.14) | C or ⌘N | new message |
 | R / A / F | reply / reply all / forward | / or ⌘F | search |
 | ↩ (search field) | search the server for more while the list ends with its offer (§5.6, §5.10), then the list; ↓ only the list | | |
+| ⌘O, ⌘-double-click on a row | open the conversation in a reader window (§5.19a) | ⌘W | close the window |
 | G I, G S, G T, G D, G #, G A | Inbox, Starred, Sent, Drafts, Trash, All Mail (HUD after 500 ms) | ⌘0 / ⌘1…⌘9 | All Inboxes / account |
 | L | snooze: the Later menu (§5.45; nothing in Trash or Drafts) | G L | Later, while its tile shows (§5.2) |
 | ⇧⌘R | open the quick reply in the composer | ⌘↩ | send: what Send does, Send and Archive unless the drop-down chose Send (§5.23) |
@@ -2189,8 +2223,8 @@ Several surfaces answer the same key. The first row that applies wins and consum
 | 3 | The cheat sheet or the g-sequence HUD is showing | closes it |
 | 4 | The search field is first responder and holds a query | clears the query (focus stays) |
 | 5 | The search field is first responder and is empty | returns focus to the list; the field collapses |
-| 6 | A toast is visible | dismisses the toast (its undo keeps working for the grace period) |
-| 7 | Focus is in the reader or the quick reply (main window) | returns focus to the list; the quick reply keeps its text |
+| 6 | A toast is visible in this window | dismisses the toast (its undo keeps working for the grace period) |
+| 7 | Focus is in the reader or the quick reply (main window) | returns focus to the list; the quick reply keeps its text. In a reader window, focus in the quick reply returns to the page |
 | 8 | Focus is on the list | nothing (no beep) |
 
 So in the reader with a toast up, the first Esc dismisses the toast and the second returns to the list. In a composer window Esc does rows 1–2; with no popover left to close, it closes a composer that holds nothing worth keeping (nothing typed, chosen or attached beyond the prefilled reply, its folded original and the signature, §5.20), keeping no draft, and does nothing in one that holds the user's work.
@@ -2204,7 +2238,7 @@ So in the reader with a toast up, the first Esc dismisses the toast and the seco
 | 3 | Within 10000 ms of a toast's action, after the toast has gone | reverts that action |
 | 4 | Otherwise | nothing; the menu item reads “Can't Undo” and is disabled |
 
-**Z** (single key, main window, no text field focused) only ever reverts the latest toast's action (rows 2–3 above restricted to toasts); it never cancels a send. Several live sends are cancelled newest first, one ⌘Z each.
+**Z** (single key, main window or a reader window, no text field focused) only ever reverts the latest toast's action (rows 2–3 above restricted to toasts); it never cancels a send. Several live sends are cancelled newest first, one ⌘Z each. The order is the app's, not a window's (§5.19a): Z and ⌘Z in a reader window see the same history, toast, undo-send panels and quick-reply countdowns (the main window's and every reader window's) as in the main window.
 
 ---
 
@@ -2870,7 +2904,7 @@ Paragraph style per role: `minimumLineHeight = maximumLineHeight = lineHeight`, 
 
 **Spinners.** One `QuireSpinnerView` (layer-backed `NSView` with a `CAShapeLayer`, §5.37) replaces every `NSProgressIndicator`; it takes a size (12 / 16 / 32) and a colour token and owns its delay, fade-in and rotation.
 
-**Components.** The AppKit components live in SSDesign's `AppKit/` folder, one public type per file: `QuireControl` (hover, pressed, focused and key state for every Quire-drawn control) and the controls on it (`QuireButton`, `QuireIconButton` (also a menu button that acts on mouse-down, Send's drop-down, §5.23), `QuirePopUpButton`, `QuireCheckbox`, `QuireRadioGroupView`, `QuireToggle`, `QuireTextField` with its secure variant, `QuireSearchField`, `QuireUnderlineTabs`), `QuireBannerView` (§5.38), the slips (`QuireSlipView`, `QuireUndoPanelView`, `QuireSequenceHUDView`), `QuireKeycap`, `QuireBadge`, `QuireTag`, `QuireAvatarRenderer`, `QuireHairline`, `QuireEmptyStateView`, `QuireSkeleton`, `QuireProgressBar` and `QuireContrailView`. The banner and the radio group carry a `View` suffix because the SwiftUI versions own the plain names (`QuireBanner`, `QuireRadioGroup`, §8.3). `QuireWindowChrome` configures and measures the main and composer windows (§3.2).
+**Components.** The AppKit components live in SSDesign's `AppKit/` folder, one public type per file: `QuireControl` (hover, pressed, focused and key state for every Quire-drawn control) and the controls on it (`QuireButton`, `QuireIconButton` (also a menu button that acts on mouse-down, Send's drop-down, §5.23), `QuirePopUpButton`, `QuireCheckbox`, `QuireRadioGroupView`, `QuireToggle`, `QuireTextField` with its secure variant, `QuireSearchField`, `QuireUnderlineTabs`), `QuireBannerView` (§5.38), the slips (`QuireSlipView`, `QuireUndoPanelView`, `QuireSequenceHUDView`), `QuireKeycap`, `QuireBadge`, `QuireTag`, `QuireAvatarRenderer`, `QuireHairline`, `QuireEmptyStateView`, `QuireSkeleton`, `QuireProgressBar` and `QuireContrailView`. The banner and the radio group carry a `View` suffix because the SwiftUI versions own the plain names (`QuireBanner`, `QuireRadioGroup`, §8.3). `QuireWindowChrome` configures and measures the main, reader and composer windows (§3.2).
 
 **Panels and overlays.** The undo-send `NSPanel` is borderless, non-activating, transparent and outset by `layout.undoPanel.shadowMargin*` (§5.31). The cheat sheet is an overlay view in the main window's content view, above the split view, with the scrim as its own layer (§5.32). The rail toggle sets the split item's `isCollapsed` inside `NSAnimationContext` with `duration = 0`.
 

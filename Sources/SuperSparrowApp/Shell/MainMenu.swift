@@ -4,8 +4,9 @@ import SSDesign
 
 /// The menu bar (spec §5.35): system menus with Quire content. Items carry their symbol, title-case names and
 /// their shortcut, single keys included (“Archive  E”), so nothing is learnable only from the cheat sheet.
-/// Mail commands target the first responder so they reach the main window controller, the reader or a
-/// composer; app-level commands target the app delegate. Items that do not apply stay visible, disabled.
+/// Mail commands target the first responder so they reach the main window controller, the reader, a reader window
+/// (which answers the same selectors for its conversation, §5.19a) or a composer; app-level commands target the app
+/// delegate. Items that do not apply stay visible, disabled.
 ///
 /// Single-key shortcuts belong to `KeyboardRouter`, which acts only outside text fields; the menu bar shows
 /// them but never matches them (`MainMenuBar`), so typing “e” in a field can never archive.
@@ -113,6 +114,8 @@ enum MainMenu {
     private static func fileMenu(_ delegate: AppDelegate) -> NSMenu {
         let menu = menu("File")
         menu.addItem(item("New Message", #selector(AppDelegate.newMessage(_:)), "n", symbol: Quire.Icon.compose, target: delegate))
+        // The main window's selected conversation in a reader window (§5.19a); disabled wherever there is none to open.
+        menu.addItem(item("Open in New Window", #selector(MainWindowController.openSelectionInNewWindow(_:)), "o"))
         menu.addItem(item("Close Window", #selector(NSWindow.performClose(_:)), "w"))
         menu.addItem(.separator())
         menu.addItem(item("Add Gmail Account…", #selector(AppDelegate.addGmailAccount(_:)), symbol: Quire.Icon.addAccountProvider,

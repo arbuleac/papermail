@@ -194,6 +194,7 @@ extension Quire {
             QuireCheatSheetRow(keys: "J K", label: "Next · previous"),
             QuireCheatSheetRow(keys: "⇧J ⇧K", label: "Extend the selection"),
             QuireCheatSheetRow(keys: "↩", label: "Open"),
+            QuireCheatSheetRow(keys: "⌘O", label: "Open in a new window"),
             QuireCheatSheetRow(keys: "esc", label: "Back to the list"),
             QuireCheatSheetRow(keys: "N P", label: "Next · previous message"),
             QuireCheatSheetRow(keys: "space", label: "Quick Look attachments"),
