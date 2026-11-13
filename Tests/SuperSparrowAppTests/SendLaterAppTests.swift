@@ -204,6 +204,22 @@ final class SendLaterAppTests: XCTestCase {
         XCTAssertFalse(harness.list.conversations.contains { $0.id == row(sendID) })
     }
 
+    /// R again on the conversation a scheduled reply answers starts another reply: the scheduled one's draft is not
+    /// reopened, which would leave one message both waiting and open for sending.
+    func testReplyingAgainDoesNotReopenAScheduledReply() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let original = MessageID(accountID: ListTestSupport.accountA.id, providerID: "msg-2-2")
+        var draft = newDraft("Re: thread")
+        draft.mode = .reply(original, all: false)
+        let sendID = try schedule(draft, at: Date().addingTimeInterval(86_400), harness)
+        let accounts = harness.controller.accounts
+        let composer = ComposeWindowController.present(client: harness.environment.engine, account: accounts[0], accounts: accounts,
+                                                       mode: .reply(original, all: false))
+        XCTAssertNotEqual(composer.draftID, draft.id)
+        XCTAssertEqual(sends(harness).map(\.id), [sendID], "still scheduled")
+    }
+
     /// Cancel beside its time: the schedule goes, the draft stays and takes the selection; Undo schedules it again.
     func testCancelKeepsTheDraftAndUndoSchedulesItAgain() throws {
         let harness = try MainWindowHarness()

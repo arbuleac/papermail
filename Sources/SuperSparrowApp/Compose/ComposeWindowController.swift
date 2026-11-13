@@ -126,7 +126,10 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         let typed = body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : body
         let controller: ComposeWindowController
         var caret: Int?
-        if var kept = ComposeDraftStore.shared.keptDraft(for: mode, accounts: accounts) {
+        // A reply scheduled with Send Later keeps its draft until it goes; R again starts another reply rather than
+        // reopening that one, which would leave the same message scheduled and open for sending at once.
+        if var kept = ComposeDraftStore.shared.keptDraft(for: mode, accounts: accounts),
+           !SendLaterOutbox.heldDraftIDs(in: client.store).contains(kept.id) {
             if !typed.isEmpty {
                 let joined = ComposeSignature.adding(ComposeTextView.plainBody(typed), to: kept.body)
                 kept.body = joined.body

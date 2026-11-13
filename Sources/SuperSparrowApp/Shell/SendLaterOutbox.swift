@@ -55,13 +55,21 @@ final class SendLaterOutbox {
         observation = nil
     }
 
+    /// Reads the outbox again: the window calls it once it knows its accounts, which settling a message needs.
+    func refresh() {
+        sendsChanged((try? client.store.pendingSends()) ?? [])
+    }
+
     /// Internal so the app's tests can hand it an outbox without waiting for the observation.
     func sendsChanged(_ sends: [PendingSend]) {
         localDrafts.setLaterSends(sends)
         let present = Set(sends.map(\.id))
         settling.formIntersection(present)
         asked.formIntersection(present)
-        for send in sends where send.draftID != nil && !settling.contains(send.id) {
+        // A message that went or failed is settled against its draft and account, which the window may not know yet at
+        // launch; `refresh` comes back to it once it does.
+        let ready = !localDrafts.accounts.isEmpty
+        for send in sends where ready && send.draftID != nil && !settling.contains(send.id) {
             switch send.status {
             case .sent: settleSent(send)
             case .failed: settleFailed(send)
@@ -105,7 +113,8 @@ final class SendLaterOutbox {
                 return
             }
         }
-        // With nowhere to keep it, the row stays failed rather than losing the message.
+        // With nowhere to keep it, the row stays failed rather than losing the message, and the next look tries again.
+        settling.remove(send.id)
         Self.log.error("keeping a failed Send Later message as a draft failed")
     }
 
@@ -119,6 +128,13 @@ final class SendLaterOutbox {
     }
 
     // MARK: Drafts
+
+    /// The drafts Send Later messages were written in, while those messages wait or go: a reply composer must not
+    /// reopen one of them as the kept draft answering its original (R again on the conversation), or the message would
+    /// be both scheduled and open for sending. Opening one from its Drafts row cancels the schedule first instead.
+    static func heldDraftIDs(in store: MailStoring) -> Set<UUID> {
+        Set(((try? store.pendingSends()) ?? []).filter { SendLaterState($0) != nil }.compactMap(\.draftID))
+    }
 
     /// The draft `send` was written in, as kept on this Mac; failing that, one made from the message as it would have
     /// been sent: its recipients, subject, text and attachments, its threading, and under the draft id it names (or a

@@ -14,7 +14,9 @@ enum DraftReopener {
             NSApp.activate()
             return true
         }
-        if let kept = ComposeDraftStore.shared.keptDraft(continuing: id, accounts: accounts) {
+        // Not one a Send Later message is waiting with: that one opens from its own Drafts row, which cancels it first.
+        if let kept = ComposeDraftStore.shared.keptDraft(continuing: id, accounts: accounts),
+           !SendLaterOutbox.heldDraftIDs(in: client.store).contains(kept.id) {
             ComposeWindowController.present(client: client, accounts: accounts, draft: kept)
             return true
         }

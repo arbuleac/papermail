@@ -455,6 +455,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             list.accountsByID = byID
             conversation.accountsByID = byID
             localDrafts.accounts = fresh
+            sendLaterOutbox.refresh()
             showLocalDrafts()
             inboxMonitor.updateAccounts(fresh.map(\.id))
             listPane.setSearchEnabled(!fresh.isEmpty)
