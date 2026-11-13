@@ -12,7 +12,8 @@ enum ConversationScriptMessage: Equatable {
     case select(MessageID)
     /// An attachment chip took keyboard focus: Space previews from it.
     case focusAttachment(MessageID, String)
-    /// Keyboard focus landed on an elision mark (true) or left it (false): Space and ↩ are the mark's while it has it.
+    /// Keyboard focus landed on an elision mark, a Download button or Download all (true) or left it (false): Space and
+    /// ↩ are that control's while it has it (spec §5.15, §5.17).
     case focusMark(Bool)
     /// A message switched between Original and Adaptive colors.
     case originalColors(MessageID, Bool)

@@ -19,7 +19,7 @@ scripts/test.sh                   # the generated design files' check, then the 
 
 ### Demo mode
 
-`--demo` opens two made-up mailboxes (`alex@demo-gmail.test` on "Gmail" and `alex@demo-outlook.test` on "Microsoft") with about 400 messages over the last 60 days: threads, newsletters, notifications, calendar invitations, a Gmail-style and an Outlook-style quoted reply, an inline image and a PDF attachment. A new message arrives roughly every 45 seconds while the app runs. Archive, star, reply and send all work; nothing leaves your Mac.
+`--demo` opens two made-up mailboxes (`alex@demo-gmail.test` on "Gmail" and `alex@demo-outlook.test` on "Microsoft") with about 400 messages over the last 60 days: threads, newsletters, notifications, calendar invitations, a Gmail-style and an Outlook-style quoted reply, an inline image, a PDF attachment, and a message with two attachments to try **Download all** on. A new message arrives roughly every 45 seconds while the app runs. Archive, star, reply and send all work; nothing leaves your Mac.
 
 Demo mode uses its own database (`~/Library/Application Support/SuperSparrow/demo.sqlite`) and never touches your real mail or the Keychain. `--reset-demo` wipes it and starts over. With no accounts set up, the welcome screen also has a **Try the demo** button.
 
@@ -76,6 +76,10 @@ Press `l` (or **Message → Later…**, or **Later** in a conversation's right-c
 
 A newsletter or other list mail that says how to leave its list shows **Unsubscribe** beside the sender's name in the reader. One click, or `⇧⌘U` (**Message → Unsubscribe**), asks to stop it and archives the conversation, without a confirmation: SuperSparrow uses the one-click request the sender offers (RFC 8058), otherwise sends the unsubscribe email the sender asks for from your account (it appears in Sent), otherwise opens the sender's unsubscribe page in your browser. On a conversation in **Later**, it stops the conversation's return instead, as `e` does there, and it stays archived. **Undo** in the toast brings the conversation back (to Later, if it was there); the request itself cannot be taken back. Mail downloaded before this version shows no link until it is downloaded again.
 
+## Saving attachments
+
+Every attachment in the reader has a download button at its right end: it saves the file to your Downloads folder (a second copy is numbered, "plan 2.pdf"), and a note at the bottom of the list says so, with **Show in Finder**. A message with two or more attachments also says how many above them, with **Download all**, which saves every one of them with one progress bar. `⇧⌘D` (**File → Download Attachments**) does the same for the message you are reading. Saved files keep the mark macOS puts on downloaded files, so it still asks before opening anything that runs. **File → Save Attachments…** saves them to a folder you choose.
+
 ## Invitations
 
 A message with a calendar invitation opens with a card above it: the event's title, when it is (in your time zone, and in the organizer's when that differs), how it repeats, where, who organized it and who else is invited. The message itself, usually the sender's own copy of the same invitation, starts folded under the card: **Show message** (or `.`) unfolds it as it was sent, and **Hide message** (or `.` again) folds it away; its attachments, and a note about images it keeps back or its own colours, stay in view either way. **Accept**, **Tentative** and **Decline** answer the organizer; your answer shows on the card at once and goes out in the background, and you can change it by choosing another (change it before it has gone out, and only your last answer is sent). On Gmail, SuperSparrow mails the organizer your answer and marks the event in your Google Calendar, so your phone agrees; on Microsoft 365 and Outlook.com it answers the event in your Outlook calendar. A cancelled event is marked **Cancelled**; an event you organized offers no answers, and neither does an invitation that does not name the account it came to (one forwarded to you, or sent to another of your addresses): answer it where it was sent. **Open in Calendar** hands the invitation to the Mac's Calendar app, which shows it and offers to add it; SuperSparrow never asks for access to your Mac's calendars.
@@ -121,6 +125,7 @@ Operators combine (`from:ben is:unread after:2026-01-01 -invoice`), ignore case,
 | `⇧I`, `⇧⌘I` | Move to Inbox (restores from the Trash) |
 | `z`, `⌘Z` | Undo the last mail action (last 20 are kept) |
 | `⇧⌘U` | Unsubscribe from the open conversation's list, then archive it |
+| `⇧⌘D` | Save the open message's attachments to Downloads |
 | `r` / `a` / `f` | Reply / reply all / forward |
 | `⌘↩` | Send (sends and archives unless you chose **Send** with the arrow beside it) |
 | `⇧⌘↩` | Send and archive, whatever Send does |

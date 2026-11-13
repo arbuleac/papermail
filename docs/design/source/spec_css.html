@@ -200,7 +200,15 @@ code{font:11px/14px var(--q-mono)}
 .qt.foc{box-shadow:0 0 0 1px var(--q-sheet),0 0 0 3px var(--q-focus)}
 .ind{margin-left:48px}
 .atts{display:flex;gap:8px;flex-wrap:wrap}
-.ach{position:relative;height:44px;min-width:196px;max-width:264px;border-radius:8px;background:var(--q-sheet);box-shadow:inset 0 0 0 1px var(--q-rule);display:flex;align-items:center;gap:10px;padding:0 14px 0 8px;white-space:nowrap;overflow:hidden}
+.ach{position:relative;height:{{layout.attachmentChip.height}}px;min-width:{{layout.attachmentChip.minWidth}}px;max-width:{{layout.attachmentChip.maxWidth}}px;border-radius:{{layout.attachmentChip.radius}}px;background:var(--q-sheet);box-shadow:inset 0 0 0 1px var(--q-rule);display:flex;align-items:center;gap:{{layout.attachmentChip.gap}}px;padding:0 {{layout.attachmentChip.padRight}}px 0 {{layout.attachmentChip.padLeft}}px;white-space:nowrap;overflow:hidden}
+/* the chip's Download button (§5.17): last in the row, after the name and meta */
+.ach > div{flex:1;min-width:0}
+.ach .dlb{width:{{layout.attachmentChip.download}}px;height:{{layout.attachmentChip.download}}px;border-radius:{{layout.attachmentChip.downloadRadius}}px;margin-left:calc({{layout.attachmentChip.downloadGap}}px - {{layout.attachmentChip.gap}}px);display:flex;align-items:center;justify-content:center;color:var(--q-ink2);flex:none}
+.ach .dlb.hov{background:var(--q-hover);color:var(--q-ink)} .ach .dlb.dis{color:var(--q-inkDisabled)}
+.ach .dlb.foc{box-shadow:0 0 0 1px var(--q-sheet),0 0 0 3px var(--q-focus)}
+.achead{display:flex;align-items:center;gap:8px;height:{{layout.attachmentChip.head}}px;font:var(--q-font-meta);color:var(--q-ink3)}
+.achead .linkb{font:var(--q-font-label);display:inline-flex;align-items:center}
+.achead .linkb.dis{color:var(--q-inkDisabled)}
 .ach .tl{width:28px;height:28px;border-radius:5px;background:var(--q-fill);display:flex;align-items:center;justify-content:center;color:var(--q-ink2);flex:none}
 .ach .nm{font:var(--q-font-label);color:var(--q-ink);overflow:hidden;text-overflow:ellipsis}
 .ach .mt{font:var(--q-font-meta);color:var(--q-ink3)}

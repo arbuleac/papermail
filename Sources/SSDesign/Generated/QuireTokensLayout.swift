@@ -317,7 +317,7 @@ extension Quire {
             public static let maxWidth: CGFloat = 264
             public static let radius: CGFloat = 8
             public static let padLeft: CGFloat = 8
-            public static let padRight: CGFloat = 14
+            public static let padRight: CGFloat = 6
             public static let gap: CGFloat = 10
             public static let tile: CGFloat = 28
             public static let tileRadius: CGFloat = 5
@@ -325,6 +325,12 @@ extension Quire {
             public static let progressWidth: CGFloat = 120
             public static let progressHeight: CGFloat = 2
             public static let chipGap: CGFloat = 8
+            public static let download: CGFloat = 24
+            public static let downloadGlyph: CGFloat = 14
+            public static let downloadGap: CGFloat = 4
+            public static let downloadRadius: CGFloat = 5
+            public static let head: CGFloat = 24
+            public static let headGap: CGFloat = 8
         }
         public enum QuickReply {
             public static let rest: CGFloat = 60

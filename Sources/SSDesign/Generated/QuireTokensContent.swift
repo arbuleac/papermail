@@ -88,6 +88,7 @@ extension Quire {
         public static let conceal = "eye.slash"
         public static let invitation = "calendar"
         public static let answered = "checkmark"
+        public static let download = "arrow.down.circle"
     }
 
     /// The custom glyphs (spec §4.11): SVG path data in grid units, y down.
@@ -186,6 +187,7 @@ extension Quire {
         "calendar",
         "checkmark",
         "info.circle",
+        "arrow.down.circle",
     ]
 
     /// The keyboard cheat sheet's content (spec §5.32), band by band, left to right.
@@ -197,6 +199,7 @@ extension Quire {
             QuireCheatSheetRow(keys: "esc", label: "Back to the list"),
             QuireCheatSheetRow(keys: "N P", label: "Next · previous message"),
             QuireCheatSheetRow(keys: "space", label: "Quick Look attachments"),
+            QuireCheatSheetRow(keys: "⇧⌘D", label: "Save attachments to Downloads"),
             QuireCheatSheetRow(keys: "/", label: "Search"),
             QuireCheatSheetRow(keys: "↩", label: "In search: ask the server"),
         ]),

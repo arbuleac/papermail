@@ -17,6 +17,8 @@ final class ToastPresenter {
         case confirmation
         /// “Couldn't archive. Restored.”, with an optional action that is never Undo.
         case error
+        /// “Saved 3 attachments to Downloads”: done, nothing to undo, with an optional action that is never Undo.
+        case notice
     }
 
     /// Why a toast stopped being visible.
@@ -61,6 +63,7 @@ final class ToastPresenter {
         case .undoable: slipKind = .undoable
         case .confirmation: slipKind = .confirmation
         case .error: slipKind = .error
+        case .notice: slipKind = .notice
         }
         let reuse = updatingID != nil && updatingID == currentID && slip != nil && currentKind == kind
         if !reuse, slip != nil {

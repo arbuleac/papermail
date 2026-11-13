@@ -88,8 +88,13 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     private var bodyStates: [MessageID: RenderPayload.BodyState] = [:]
     private var offlineAccounts: Set<AccountID> = []
     private var focusedAttachment: (message: MessageID, attachment: String)?
-    /// What each chip shows of its fetch.
+    /// What each chip shows of its fetch, and each message's count line of its Download all.
     private var downloads = AttachmentDownloadBoard()
+    /// Saves to Downloads under way: one chip's file, or every file of a message (`Chip.allAttachments`). A second
+    /// press while one runs does nothing, so a file is never saved twice by a double click.
+    private var savesUnderWay: Set<AttachmentDownloadBoard.Chip> = []
+    /// Where Download, Download all and Save to Downloads save (spec §5.17). Tests point it at a folder of their own.
+    var downloadsFolder: URL? = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
     /// Messages the shell shows in Original colors this session, for View › Original Colors' checkmark.
     private var originalColorsShown: Set<MessageID> = []
     private var drafts = QuickReplyDrafts()
@@ -997,6 +1002,11 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
                 guard let attachmentID else { return }
                 menuAttachment = (messageID, attachmentID)
                 attachmentMenu.menu().popUp(positioning: nil, at: point ?? .zero, in: slot.webView)
+            case "downloadAttachment":
+                guard let attachmentID, let info = attachments(of: messageID).first(where: { $0.id == attachmentID }) else { return }
+                downloadAttachment(info, of: messageID)
+            case "downloadAllAttachments":
+                downloadAllAttachments(of: messageID)
             case "star":
                 performOnMessage(.setStarred(on ?? true), messageID)
             case "more":
@@ -1234,8 +1244,9 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     }
 
     /// Keyboard focus is on an elision mark in the conversation on screen (quoted text, or the message under an
-    /// invitation card): Space and ↩ press it in the page (spec §5.15), so neither Quick Look nor the router's Open
-    /// takes them. Only while the page itself has the window's focus; the shell says where focus is inside it.
+    /// invitation card), or on a Download button or Download all: Space and ↩ press it in the page (spec §5.15, §5.17),
+    /// so neither Quick Look nor the router's Open takes them. Only while the page itself has the window's focus; the
+    /// shell says where focus is inside it.
     var isMarkFocused: Bool {
         guard let current = pool.current, current.markFocused, !webContainer.isHidden,
               let responder = view.window?.firstResponder as? NSView else { return false }
@@ -1283,7 +1294,13 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     /// engine calls it at most about ten times a second, on any thread, and it hops to the main thread.
     private func beginDownload(_ attachmentID: String, of messageID: MessageID)
         -> (ticket: AttachmentDownloadBoard.Ticket, progress: @Sendable (Double) -> Void) {
-        let ticket = downloads.begin(AttachmentDownloadBoard.Chip(message: messageID, attachmentID: attachmentID))
+        beginDownload(AttachmentDownloadBoard.Chip(message: messageID, attachmentID: attachmentID))
+    }
+
+    /// As above for any place a download shows: a chip, or a message's count line for Download all.
+    private func beginDownload(_ chip: AttachmentDownloadBoard.Chip)
+        -> (ticket: AttachmentDownloadBoard.Ticket, progress: @Sendable (Double) -> Void) {
+        let ticket = downloads.begin(chip)
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: AttachmentDownloadBoard.revealDelay)
             guard let self, let display = self.downloads.reveal(ticket) else { return }
@@ -1312,8 +1329,54 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         case .fraction(let fraction): value = String(max(0, min(1, fraction)))
         case .done: value = "-1"
         }
-        evaluate("window.ss && window.ss.attachmentProgress(\(key), \(ConversationShellAssets.jsStringLiteral(chip.attachmentID)), \(value))",
-                 in: current)
+        if chip.isAllAttachments {
+            evaluate("window.ss && window.ss.attachmentsProgress(\(key), \(value))", in: current)
+        } else {
+            evaluate("window.ss && window.ss.attachmentProgress(\(key), \(ConversationShellAssets.jsStringLiteral(chip.attachmentID)), \(value))",
+                     in: current)
+        }
+    }
+
+    // MARK: Download and Download all (spec §5.17)
+
+    /// The chip's Download and its menu's Save to Downloads: the file, fetched with the chip showing it, copied into
+    /// Downloads under a free name and still quarantined; then the saved toast. A fetch that fails marks the chip.
+    func downloadAttachment(_ info: AttachmentInfo, of messageID: MessageID) {
+        let chip = AttachmentDownloadBoard.Chip(message: messageID, attachmentID: info.id)
+        guard let folder = downloadsFolder else { return NSSound.beep() }
+        guard savesUnderWay.insert(chip).inserted else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            let outcome = await AttachmentSaver.save([info], into: folder) { info, _ in
+                await self.fetchAttachmentFile(info, of: messageID)
+            }
+            self.savesUnderWay.remove(chip)
+            self.onAction?(.attachmentsSaved(outcome))
+        }
+    }
+
+    /// Download all and File › Download Attachments: every file of the message, one after another, with one progress
+    /// on its count line rather than on each chip; a file that cannot be fetched marks its chip and the rest are saved.
+    /// One file is that chip's Download, since a message with one file has no count line to show it.
+    func downloadAllAttachments(of messageID: MessageID) {
+        let infos = attachments(of: messageID)
+        if infos.count == 1, let only = infos.first { return downloadAttachment(only, of: messageID) }
+        guard !infos.isEmpty, let folder = downloadsFolder else { return NSSound.beep() }
+        let chip = AttachmentDownloadBoard.Chip.allAttachments(of: messageID)
+        guard savesUnderWay.insert(chip).inserted else { return }
+        for info in infos { setAttachmentFailed(false, info.id, of: messageID) }
+        let download = beginDownload(chip)
+        Task { [weak self] in
+            guard let self else { return }
+            let outcome = await AttachmentSaver.save(infos, into: folder, fetch: { info, progress in
+                await self.preview.file(for: info, of: messageID, progress: progress)
+            }, progress: download.progress, unfetched: { info in
+                self.setAttachmentFailed(true, info.id, of: messageID)
+            })
+            self.endDownload(download.ticket)
+            self.savesUnderWay.remove(chip)
+            self.onAction?(.attachmentsSaved(outcome))
+        }
     }
 
     private func performAttachment(_ command: AttachmentMenu.Command) {
@@ -1322,28 +1385,27 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     }
 
     /// The chip's commands (spec §5.17). Each one fetches the file first, once per session; a failed fetch marks
-    /// the chip, as a failed Quick Look does.
+    /// the chip, as a failed Quick Look does. Save to Downloads is the Download button's, toast and all.
     private func performAttachment(_ command: AttachmentMenu.Command, _ attachmentID: String, of messageID: MessageID) {
         guard let info = attachments(of: messageID).first(where: { $0.id == attachmentID }) else { return }
-        if command == .quickLook {
+        switch command {
+        case .quickLook:
             openAttachment(info, of: messageID)
             return
+        case .saveToDownloads:
+            downloadAttachment(info, of: messageID)
+            return
+        case .open, .saveAs, .copy:
+            break
         }
         let window = view.window
         Task { [weak self] in
             guard let self, let file = await self.fetchAttachmentFile(info, of: messageID) else { return }
             switch command {
-            case .quickLook:
+            case .quickLook, .saveToDownloads:
                 break
             case .open:
                 self.open(file, in: window)
-            case .saveToDownloads:
-                guard let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first else { return }
-                if let saved = Self.copy(file, into: downloads) {
-                    NSWorkspace.shared.activateFileViewerSelecting([saved])
-                } else {
-                    NSSound.beep()
-                }
             case .saveAs:
                 let panel = NSSavePanel()
                 panel.nameFieldStringValue = file.lastPathComponent
@@ -1355,7 +1417,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
                         }
                         try FileManager.default.copyItem(at: file, to: destination)
                     } catch {
-                        Self.logSaveFailure(error)
+                        AttachmentSaver.logFailure(error)
                         NSSound.beep()
                     }
                 }
@@ -1378,34 +1440,6 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         AppAlert.openProgram(filename: file.lastPathComponent).present(on: window) { choice in
             if choice == 1 { NSWorkspace.shared.open(file) }
         }
-    }
-
-    /// A Cocoa file error names the attachment and its path, which are message content: only the domain and
-    /// code are public.
-    private static func logSaveFailure(_ error: Error) {
-        let failure = error as NSError
-        ConversationSignposts.log.error("saving an attachment failed: \(failure.domain, privacy: .public) \(failure.code, privacy: .public)")
-        ConversationSignposts.log.debug("saving an attachment failed: \(String(describing: error), privacy: .private)")
-    }
-
-    /// Copies `file` into `folder` under its own name, numbered like the Finder ("plan 2.pdf") when taken.
-    private static func copy(_ file: URL, into folder: URL) -> URL? {
-        let manager = FileManager.default
-        let base = file.deletingPathExtension().lastPathComponent
-        let ext = file.pathExtension
-        for index in 1...999 {
-            let name = index == 1 ? file.lastPathComponent : base + " \(index)" + (ext.isEmpty ? "" : "." + ext)
-            let destination = folder.appendingPathComponent(name)
-            guard !manager.fileExists(atPath: destination.path) else { continue }
-            do {
-                try manager.copyItem(at: file, to: destination)
-                return destination
-            } catch {
-                logSaveFailure(error)
-                return nil
-            }
-        }
-        return nil
     }
 
     /// "Couldn't download · Retry" on the chip (spec §5.17); opening it again is the retry.
@@ -1823,20 +1857,24 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     private func save(_ infos: [AttachmentInfo], of messageID: MessageID, into folder: URL) {
         Task { [weak self] in
             guard let self else { return }
-            var saved: [URL] = []
-            for info in infos {
-                guard let file = await self.preview.file(for: info, of: messageID) else {
-                    self.setAttachmentFailed(true, info.id, of: messageID)
-                    continue
-                }
-                if let copy = Self.copy(file, into: folder) { saved.append(copy) }
-            }
-            if saved.isEmpty {
+            let outcome = await AttachmentSaver.save(infos, into: folder, fetch: { info, _ in
+                await self.preview.file(for: info, of: messageID)
+            }, unfetched: { info in
+                self.setAttachmentFailed(true, info.id, of: messageID)
+            })
+            if outcome.saved.isEmpty {
                 NSSound.beep()
             } else {
-                NSWorkspace.shared.activateFileViewerSelecting(saved)
+                NSWorkspace.shared.activateFileViewerSelecting(outcome.saved)
             }
         }
+    }
+
+    /// File › Download Attachments (⇧⌘D, spec §5.17): the target message's files to Downloads, as Download all saves
+    /// them; on a message with one file, that chip's Download.
+    @objc func downloadAttachments(_ sender: Any?) {
+        guard let messageID = attachmentTarget, !attachments(of: messageID).isEmpty else { return NSSound.beep() }
+        downloadAllAttachments(of: messageID)
     }
 
     /// The message Save Attachments… acts on: the target message (spec §5.14).
@@ -1857,7 +1895,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             return showsOne
         case #selector(nextMessage(_:)), #selector(previousMessage(_:)), #selector(toggleQuotedText(_:)), #selector(loadImages(_:)):
             return showsOne
-        case #selector(saveAttachments(_:)):
+        case #selector(saveAttachments(_:)), #selector(downloadAttachments(_:)):
             return attachmentTarget.map { !attachments(of: $0).isEmpty } ?? false
         default:
             return true

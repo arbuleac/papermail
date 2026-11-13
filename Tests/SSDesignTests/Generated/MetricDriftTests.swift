@@ -10,8 +10,8 @@ final class MetricDriftTests: XCTestCase {
     private let file = DesignTokensFile.shared
 
     func testEveryMetricIsCovered() {
-        // tokens.json had 665 leaves under layout, border and platform when this file was generated.
-        XCTAssertEqual(file.leafCount(under: ["layout", "border", "platform"]), 665, "regenerate with swift scripts/tools/quire-tokens.swift")
+        // tokens.json had 671 leaves under layout, border and platform when this file was generated.
+        XCTAssertEqual(file.leafCount(under: ["layout", "border", "platform"]), 671, "regenerate with swift scripts/tools/quire-tokens.swift")
     }
 
     func testLayoutWindow() {
@@ -350,6 +350,12 @@ final class MetricDriftTests: XCTestCase {
         number(Quire.Layout.AttachmentChip.progressWidth, "layout.attachmentChip.progressWidth")
         number(Quire.Layout.AttachmentChip.progressHeight, "layout.attachmentChip.progressHeight")
         number(Quire.Layout.AttachmentChip.chipGap, "layout.attachmentChip.chipGap")
+        number(Quire.Layout.AttachmentChip.download, "layout.attachmentChip.download")
+        number(Quire.Layout.AttachmentChip.downloadGlyph, "layout.attachmentChip.downloadGlyph")
+        number(Quire.Layout.AttachmentChip.downloadGap, "layout.attachmentChip.downloadGap")
+        number(Quire.Layout.AttachmentChip.downloadRadius, "layout.attachmentChip.downloadRadius")
+        number(Quire.Layout.AttachmentChip.head, "layout.attachmentChip.head")
+        number(Quire.Layout.AttachmentChip.headGap, "layout.attachmentChip.headGap")
     }
 
     func testLayoutQuickReply() {

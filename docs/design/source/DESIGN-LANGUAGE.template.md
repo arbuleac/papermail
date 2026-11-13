@@ -315,6 +315,7 @@ Glyph colour: `ink2` at rest, `ink` on hover and press, `inkDisabled` when disab
 | Original colors | `{{icon.originalColors}}` | ⇧⌘O |
 | Show / Hide quoted text; Show / Hide message under an invitation card (§5.14) | `{{icon.quotedText}}` (custom) | . |
 | Quick Look the target message's attachments | — (system Quick Look) | Space (§6) |
+| Download: an attachment chip's button, Download all, File › Download Attachments, the saved toast (§5.17, §5.30) | `{{icon.download}}` | ⇧⌘D (all of the target message's) |
 | All Inboxes | `{{icon.unifiedInbox}}` (custom) | ⌘0 |
 | Account N | monogram | ⌘1…⌘9 |
 | Add account / Settings | `{{icon.addAccount}}` / `{{icon.settings}}` | — / ⌘, |
@@ -386,6 +387,7 @@ AppKit builds each once as a `CGPath` in grid units (a small SVG-path parser for
 | `calendar` | the invitation card's kicker (§5.14) |
 | `checkmark` | the chosen answer on the invitation card (§5.14) |
 | `info.circle` | the invitation card's permission notice (§5.14) |
+| `arrow.down.circle` | an attachment chip's Download button (§5.17) |
 
 The quoted-text toggle, the message's mark under an invitation card and the folded original use the custom `ss.elide` (inline SVG); spinners and skeleton bars are CSS; keycaps are text. Each symbol is rasterised with `NSImage(systemSymbolName:)` + `SymbolConfiguration(pointSize: {{platform.readerSymbolPointSize}}, weight: .regular)` at {{platform.readerSymbolScale}}× into black-on-clear PNGs on a square canvas {{platform.readerSymbolCanvas}} × the point size, encodes each once as a `data:` URI and passes them to the shell builder, which emits them as CSS custom properties (`--sym-xmark: url(data:…)`). The shell draws them as `mask-image` with `background: currentColor`, so they take any token colour in any appearance. The specimen uses exactly this pipeline.
 
@@ -954,18 +956,25 @@ Hover and pressed put `hover` / `pressed` behind the action; focus rings it. A t
 
 {{TABLE:layout:attachmentChip}}
 
-Anatomy: type tile ({{layout.attachmentChip.tile}} pt, radius {{layout.attachmentChip.tileRadius}}, `fill`, {{layout.attachmentChip.tileGlyph}} pt symbol `ink2`: `doc`, `doc.richtext`, `photo`, `tablecells`, `doc.zipper`, `film`; or a Quick Look thumbnail when cached) · name (`label`, `ink`, middle-truncated) over meta (`meta` `ink3`: “PDF · 240 KB”). Edge: inset hairline `rule`; fill `sheet`.
+Anatomy: type tile ({{layout.attachmentChip.tile}} pt, radius {{layout.attachmentChip.tileRadius}}, `fill`, {{layout.attachmentChip.tileGlyph}} pt symbol `ink2`: `doc`, `doc.richtext`, `photo`, `tablecells`, `doc.zipper`, `film`; or a Quick Look thumbnail when cached) · name (`label`, `ink`, middle-truncated) over meta (`meta` `ink3`: “PDF · 240 KB”) · the Download button. Edge: inset hairline `rule`; fill `sheet`.
+
+**Download.** Every chip carries a visible Download button at its trailing end, never only on hover (§9): a {{layout.attachmentChip.download}} pt square (its own hit target), radius {{layout.attachmentChip.downloadRadius}}, {{layout.attachmentChip.downloadGap}} pt after the name and meta and {{layout.attachmentChip.padRight}} pt from the chip's edge, with `{{icon.download}}` at {{layout.attachmentChip.downloadGlyph}} pt in `ink2` (`ink` on hover and press, behind it `hover`, `pressed`). It is the context menu's Save to Downloads made visible: the file is saved to Downloads under its own name, numbered as the Finder numbers a copy (“plan 2.pdf”) when the name is taken, and keeps the quarantine mark every attachment file carries, so Gatekeeper still asks before anything in it runs. The chip shows the download as its Downloading state; the saved toast follows (§5.30). Tooltip “Save to Downloads”; VoiceOver “Download plan.pdf”. While the chip downloads the button is disabled (`inkDisabled`) and a second press does nothing.
+
+**Download all.** A message with two attachments or more (inline images never count) opens its chips with a line of their own, {{layout.attachmentChip.head}} pt high and {{layout.attachmentChip.headGap}} pt above the chips: the count in `meta` `ink3` (“3 attachments”), then the link button “Download all” (§5.24, `label` `accent`, sentence case in the reader, §4.13; tooltip “Download Attachments  ⇧⌘D”). It saves every attachment of that message to Downloads, one after another, with one progress: the count gives way to the {{layout.attachmentChip.progressWidth}} × {{layout.attachmentChip.progressHeight}} pt contrail, its length the share of all the files' bytes that has arrived (by their listed sizes; a file without one counts as the average of the others), and the link is disabled until the last file is saved. The chips themselves do not show the batch; a file that cannot be fetched shows its chip's Error state, and the rest are saved all the same. The toast says what was saved (§5.30). File › Download Attachments (⇧⌘D) does the same for the target message from anywhere in the main window; on a message with one attachment it is that chip's Download.
+
+Keyboard: the chips are one Tab stop (← → move between them), followed by the focused chip's Download button; Download all comes before them. Space and ↩ press a focused Download button or Download all, as they press the elision mark (§5.15), rather than opening Quick Look or the conversation.
 
 | State | Change |
 |---|---|
 | Hover | `sheet + hover`, edge `ruleStrong`, meta reads “Space to Quick Look” |
 | Pressed | `sheet + pressed` |
 | Focused | ring ({{border.focusRing.gap}} pt gap) |
+| Download button | rest `ink2`; hover `hover` behind it, `ink`; pressed `pressed`, `ink`; focused ring ({{border.focusRing.gap}} pt gap); disabled `inkDisabled` while the chip downloads. Hovering the button gives the chip its hover fill and edge but not its hover meta |
 | Downloading | meta replaced by a determinate contrail {{layout.attachmentChip.progressWidth}} × {{layout.attachmentChip.progressHeight}} pt on a `rule` track, shown once the fetch outlasts 150 ms (a cached file never flashes it). Its length is the share of the file that has arrived, measured against the length the server states or, without one, the attachment's listed size, and stops just short of full until the file is decoded and stored; it moves at most about ten times a second. Only while the size of what is arriving is unknown (no listed size and no stated length) does the contrail sweep, indeterminate, Reduce Motion a still segment; a length learned later turns it determinate. The meta returns when the fetch ends; a failure shows the Failed state |
 | Error | tile glyph `exclamationmark.triangle.fill` `danger`; meta “Couldn't download · Retry” in `danger`, “Retry” in `metaStrong` `accent` |
 | Dragging out | lifts with `e2` (the only shadowed chip state) |
 
-Click or Space opens Quick Look; double-click opens with the default app; context menu: Quick Look, Open, Save to Downloads, Save As…, Copy.
+Click or Space opens Quick Look; double-click opens with the default app; the Download button saves to Downloads; context menu: Quick Look, Open, Save to Downloads (what the Download button does, toast included), Save As…, Copy.
 
 ### 5.18 Quick reply bar
 
@@ -1287,8 +1296,10 @@ Face = tint (§4.3); initials New York Semibold, or SF Pro Semibold (`monogramSa
 | Error | `exclamationmark.triangle.fill` `onSlip2` | “Couldn't archive. Restored.”, “Couldn't send your reply” | optional “Details” / “Open draft”; never Undo | {{motion.duration.toastLife}} ms, contrail when it has an action |
 | Unsubscribe (§5.14) | `archivebox` | “Unsubscribe sent · Archived” (a one-click or mailto request), “Opened in browser · Archived” (a page in the browser) | Undo + Z: brings the conversation back; the request stays sent, and the undo's confirmation says so (“Undid Archive · Unsubscribe stays sent”; “Undid Archive” after a page). In Later, or on a snoozed search result, it ends the snooze rather than archiving, and Undo puts the snooze back. It never coalesces: an archive within {{motion.duration.toastCoalesce}} ms, E in Later included, gets its own toast, so the request's words are never replaced. Both, and the confirmation, fit the default list ({{layout.list.defaultWidth}} pt) whole, so the archive is never the part cut off | {{motion.duration.toastLife}} ms, contrail |
 | Unsubscribe, nothing archived (the conversation was already out of the Inbox, and not snoozed) | `paperplane` for a request, `link` for a page | “Unsubscribe sent”, “Opened in browser” | none | {{motion.duration.toastConfirm}} ms, no contrail |
+| Saved (§5.17; a notice: done, nothing to undo) | `{{icon.download}}` | “Saved to Downloads” (one file), “Saved 3 attachments to Downloads”, “Saved 2 of 3 attachments to Downloads” when a file could not be fetched (its chip says so); where the list would cut the words off beside the action, the longest that fits of “Saved 3 to Downloads”, or “Saved 2 of 3 to Downloads” then “Saved 2 of 3” (in the default list only the shorter forms fit beside “Show in Finder”), so the count is never what is cut off | “Show in Finder”: the saved files selected in the Finder; never Undo, no keycap | {{motion.duration.toastLife}} ms, contrail |
+| Not saved (§5.17) | `exclamationmark.triangle.fill` `onSlip2` | “Couldn't save to Downloads”: a file arrived but could not be written there (a file that could not be fetched says so on its chip, with no toast) | none | {{motion.duration.toastLife}} ms, no contrail |
 
-Behaviour: in `dur.standard` (rise {{layout.toast.rise}} pt + fade, `ease.settle`); out `dur.quick` (`ease.leave`). One toast at a time: a new toast replaces the old one instantly, without stacking, and several actions within {{motion.duration.toastCoalesce}} ms coalesce into one (“Archived 3 conversations”). Z (or ⌘Z, by the precedence in §6.1) undoes the latest undoable action from anywhere in the main window while its toast is visible and for {{motion.duration.undoKeyGrace}} ms after; the confirmation toast then replaces it. Esc dismisses (§6.1). VoiceOver announces “Archived. Press Z to undo.” and “Undid Archive.” Reduce Motion: fades only; the contrail steps once per second.
+Behaviour: in `dur.standard` (rise {{layout.toast.rise}} pt + fade, `ease.settle`); out `dur.quick` (`ease.leave`). One toast at a time: a new toast replaces the old one instantly, without stacking, and several actions within {{motion.duration.toastCoalesce}} ms coalesce into one (“Archived 3 conversations”). Z (or ⌘Z, by the precedence in §6.1) undoes the latest undoable action from anywhere in the main window while its toast is visible and for {{motion.duration.undoKeyGrace}} ms after; the confirmation toast then replaces it. Esc dismisses (§6.1). VoiceOver announces “Archived. Press Z to undo.”, “Undid Archive.” and “Saved 3 attachments to Downloads. Show in Finder.” Reduce Motion: fades only; the contrail steps once per second.
 
 | State | Look |
 |---|---|
@@ -1408,7 +1419,7 @@ System `toolTip` on every icon-only control and on truncated text; Quire defines
 Main menu (system), with Quire content. Single-key shortcuts are handled by `KeyboardRouter` and shown as attributed shortcut text, so they never fire inside text fields.
 
 - **SuperSparrow**: About SuperSparrow (the system About panel) · Settings… ⌘, · Services · Hide · Quit.
-- **File**: New Message ⌘N (also C) · Close Window ⌘W · Add Gmail Account… · Add Microsoft Account… · Save Attachments… · in demo mode, Leave Demo… (§5.43).
+- **File**: New Message ⌘N (also C) · Close Window ⌘W · Add Gmail Account… · Add Microsoft Account… · Save Attachments… · Download Attachments ⇧⌘D (the target message's, to Downloads, §5.17; enabled while it has any) · in demo mode, Leave Demo… (§5.43).
 - **Edit**: standard, plus Find… ⌘F (focuses search) and Search Gmail for More (§5.10, no key equivalent: ↩ in the search field runs it, and a plain ↩ on a menu item would take Return from the list, the composer and every sheet; titled by the scope: Search Outlook for More, Search All Accounts for More). It is enabled while the search field holds words whose local results are all listed (or not in yet) and the server has not been asked for them, or failed; it is disabled while any other place to type or the reader has focus, and hidden while a composer is key. Undo is titled by its target (“Undo Archive”, “Undo Send”, “Undo Send and Archive”, “Undo Typing”), following §6.1.
 - **View**: Inbox · Later (while the rail shows it) · Starred · Sent · Drafts · Trash · All Mail (G-sequences) · All Inboxes ⌘0 · accounts ⌘1–9 · Check for New Mail ⇧⌘N · Show/Hide Account Rail ⌃⌘S · Compact Rows ⌥⌘C · Load Images ⇧⌘I · Original Colors ⇧⌘O (checkmark when on) · Show Quoted Text . (on a message under an invitation card it shows or hides the message, §5.14)
 - **Message**: Reply R · Reply All A · Forward F · — · Archive E · Later… L (the Later menu at the selection, §5.45) · Move to Trash # · Move to Inbox ⇧I · Star S · Mark as Unread U · Undo Z · — · Unsubscribe ⇧⌘U (enabled while one conversation is open and offers it, §5.14; no symbol, since SF Symbols has none for it before macOS 26) · — · Next Message N · Previous Message P.
@@ -1706,7 +1717,7 @@ All single keys are inactive while a text field has focus. Every key press first
 |---|---|---|---|
 | J / K | next / previous conversation | E | archive |
 | ⇧J / ⇧K | extend the selection | # | move to Trash (nothing in Trash, §5.12) |
-| ↩ / → | open (focus the reader); ↩ on a focused elision mark in the reader presses it (§5.15) | S | star |
+| ↩ / → | open (focus the reader); ↩ on a focused elision mark, Download button or Download all in the reader presses it (§5.15, §5.17) | S | star |
 | Esc / ← | back to the list | U | mark unread |
 | N / P | next / previous message in the reader | Z or ⌘Z | undo |
 | . | show / hide quoted text; on a message under an invitation card, the message (§5.14) | C or ⌘N | new message |
@@ -1718,9 +1729,10 @@ All single keys are inactive while a text field has focus. Every key press first
 | ⇧⌘I / ⇧⌘O | load images / original colors | ⌃⌘S | show / hide the rail |
 | ⌥⌘C | compact rows | ? or ⌘/ | keyboard shortcuts |
 | ⇧⌘N | check for new mail | ⇧I | move to Inbox |
+| ⇧⌘D | save the target message's attachments to Downloads (§5.17) | | |
 | ⇧⌘U | unsubscribe, then archive; in Later, end the snooze (§5.14) | ⇧⌘↩ | send and archive, whatever Send does (composer and quick reply, §5.23) |
 | ⇧⌘T, ⌘B ⌘I ⌘U, ⇧⌘8 ⇧⌘7, ⌘', ⌘K | composer: format row, styles, lists, quote, link | ⇧⌘A, ⇧⌘C, ⇧⌘B | composer: attach files, Cc field, Bcc field |
-| Space | reader (focus in the reader, not in a text field): Quick Look the target message's attachments, starting from the focused chip, else the first; Space again closes Quick Look. On a focused elision mark (§5.15) Space presses the mark instead, unless Quick Look is open. With no attachments to preview the key passes to the web view, which scrolls down a page (⇧Space up), as in Safari. In the list Space does nothing | | |
+| Space | reader (focus in the reader, not in a text field): Quick Look the target message's attachments, starting from the focused chip, else the first; Space again closes Quick Look. On a focused elision mark (§5.15), Download button or Download all (§5.17) Space presses it instead, unless Quick Look is open. With no attachments to preview the key passes to the web view, which scrolls down a page (⇧Space up), as in Safari. In the list Space does nothing | | |
 
 **G-sequences** arm for {{motion.duration.gSequenceWindow}} ms from the G key-down; the HUD appears at {{motion.duration.gHudDelay}} ms and leaves with the sequence (§5.32). The cheat sheet (§5.32) lists every row of this map, one key per action.
 

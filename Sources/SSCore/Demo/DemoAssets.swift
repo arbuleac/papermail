@@ -9,6 +9,31 @@ enum DemoAssets {
     /// A one-page invoice in PDF 1.4 with a real cross-reference table, so Quick Look renders it.
     static let invoicePDF: Data = makeInvoicePDF()
 
+    /// The Contoso go-live checklist, the first of the two files Download all saves in the demo (spec §5.17).
+    static let checklistPDF: Data = makePDF([
+        ("Contoso go-live checklist", 720, 20),
+        ("Store rollout, the 14th", 690, 14),
+        ("1  Hardware delivered to every store", 650, 11),
+        ("2  Point-of-sale images signed off", 632, 11),
+        ("3  Network change window agreed", 614, 11),
+        ("4  Staff accounts created", 596, 11),
+        ("5  Training rooms booked", 578, 11),
+        ("6  Support rota published", 560, 11),
+        ("7  Rollback plan reviewed", 542, 11),
+        ("8  SSO configured on staging", 524, 11),
+        ("9  SSO tested with store logins", 506, 11),
+    ])
+
+    /// The second file: a small table, so its chip shows the spreadsheet tile.
+    static let trainingCSV = Data("""
+        Store,Session,Date,Trainer
+        Lisbon,Point of sale,Mon 10:00,Ben Carter
+        Porto,Point of sale,Mon 14:00,Tom Hughes
+        Lisbon,Returns and refunds,Tue 10:00,Ben Carter
+        Porto,Returns and refunds,Tue 14:00,Tom Hughes
+
+        """.utf8)
+
     // MARK: PNG
 
     static func makeSunsetPNG(width: Int, height: Int) -> Data {
@@ -95,7 +120,7 @@ enum DemoAssets {
     // MARK: PDF
 
     static func makeInvoicePDF() -> Data {
-        let lines: [(text: String, y: Int, size: Int)] = [
+        makePDF([
             ("Northwind Print Co.", 720, 20),
             ("Invoice INV-2041", 690, 14),
             ("Bill to: Alex Morgan", 650, 11),
@@ -105,7 +130,11 @@ enum DemoAssets {
             ("Delivery                              1       $35.00", 554, 11),
             ("Total due                                    $642.50", 520, 12),
             ("Payment terms: 30 days. Thank you for your business.", 480, 10),
-        ]
+        ])
+    }
+
+    /// One page of Helvetica lines at the given baselines and sizes.
+    static func makePDF(_ lines: [(text: String, y: Int, size: Int)]) -> Data {
         var stream = "BT\n"
         for line in lines {
             let escaped = line.text.replacingOccurrences(of: "\\", with: "\\\\")

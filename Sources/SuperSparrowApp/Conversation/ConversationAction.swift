@@ -18,6 +18,9 @@ enum ConversationAction {
     case applyToSelection(MetadataChange, [ConversationID])
     /// Informational: the reader has already opened Quick Look for it.
     case openAttachment(MessageID, AttachmentInfo)
+    /// Download, Download all or Save to Downloads finished (spec §5.17): the main window shows the saved toast with
+    /// Show in Finder, or the error toast, as the outcome says (§5.30).
+    case attachmentsSaved(AttachmentSaveOutcome)
     /// Continue Editing on a read-only draft (spec §5.19).
     case continueDraft(MessageID)
     /// Discard Draft… on one draft or several (the header, the sheet's footer): the main window asks “Discard
