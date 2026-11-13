@@ -170,7 +170,8 @@ final class DefaultMailAppSettingsTests: XCTestCase {
     /// The General tab as Settings hosts it, in an ordered window far off screen, sized to its content.
     private func host(_ model: DefaultMailAppModel) throws -> (window: NSWindow, view: NSHostingView<GeneralSettingsView>) {
         let view = NSHostingView(rootView: GeneralSettingsView(settings: try throwawaySettings(), defaultMailApp: model,
-                                                               mailboxSize: MailboxSizeModel(measure: { 292_000_000 })))
+                                                               mailboxSize: MailboxSizeModel(measure: { 292_000_000 }),
+                                                               launchAtLogin: LaunchAtLoginModel(handler: FakeLoginItem())))
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: view.fittingSize), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = view
@@ -272,7 +273,8 @@ final class DefaultMailAppSettingsTests: XCTestCase {
         let environment = try AppEnvironment.makeScratch(in: directory)
         defer { try? FileManager.default.removeItem(at: directory) }
         let handler = FakeMailtoHandler(isDefault: true)
-        let controller = SettingsWindowController(environment: environment, settings: try throwawaySettings(), mailtoHandler: handler)
+        let controller = SettingsWindowController(environment: environment, settings: try throwawaySettings(), mailtoHandler: handler,
+                                                  loginItem: FakeLoginItem())
         defer { controller.tearDown() }
         let window = try XCTUnwrap(controller.window)
         window.setFrameAutosaveName("")

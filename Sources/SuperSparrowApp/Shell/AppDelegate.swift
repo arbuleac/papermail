@@ -913,12 +913,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func openSettings(tab: SettingsModel.Tab? = nil, oauthNotice: SettingsModel.OAuthNotice? = nil) {
         guard let environment else { return }
         if settingsWindow == nil {
-            // A snapshot neither asks nor changes which app opens mail links, and shows a fixed mailbox size, so its
-            // render depends only on the build.
+            // A snapshot neither asks nor changes which app opens mail links or whether it opens at login, and shows a
+            // fixed mailbox size, so its render depends only on the build.
             let mailtoHandler: MailtoDefaultHandling = options.isSnapshot ? SnapshotMailtoHandler() : LaunchServicesMailtoHandler()
+            let loginItem: LoginItemHandling = options.isSnapshot ? SnapshotLoginItem() : MainAppLoginItem()
             let snapshotSize: (@Sendable () -> Int64)? = options.isSnapshot ? AppSnapshots.mailboxSize : nil
             let controller = SettingsWindowController(environment: environment, settings: settings, mailtoHandler: mailtoHandler,
-                                                      measureMailbox: snapshotSize)
+                                                      loginItem: loginItem, measureMailbox: snapshotSize)
             let model = controller.model
             model.addAccount = { [weak self] kind in self?.addAccount(kind, origin: .settings) }
             model.cancelSignIn = { [weak self] in self?.cancelSignIn() }

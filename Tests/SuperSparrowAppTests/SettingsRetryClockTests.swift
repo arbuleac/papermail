@@ -60,7 +60,7 @@ final class SettingsRetryClockTests: XCTestCase {
         try environment.store.upsertAccount(a)
         try environment.store.upsertAccount(b)
         let controller = SettingsWindowController(environment: environment, settings: ListTestSupport.settings(),
-                                                  mailtoHandler: FakeMailtoHandler())
+                                                  mailtoHandler: FakeMailtoHandler(), loginItem: FakeLoginItem())
         defer { controller.tearDown() }
         // The engine's first status report, an empty one, lands before the test writes its own.
         ListTestSupport.spin(for: 0.2)

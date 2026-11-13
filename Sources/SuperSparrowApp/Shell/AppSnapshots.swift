@@ -60,10 +60,12 @@ enum AppSnapshots {
     }
 
     /// The Accounts, OAuth and General states of §5.40 that demo mode can show. The OAuth fields are put back before
-    /// the window closes; nothing here saves, and Mail links neither asks nor changes which app opens mail links.
+    /// the window closes; nothing here saves, Mail links neither asks nor changes which app opens mail links, and At
+    /// login neither asks nor changes the Mac's login items.
     static func renderSettingsStates(_ controller: SettingsWindowController, completion: @escaping (NSBitmapImageRep?) -> Void) {
         let model = controller.model
         let defaultMailApp = controller.defaultMailApp
+        let launchAtLogin = controller.launchAtLogin
         let accounts = model.accounts
         let original = model.oauth
         let steps: [() -> Void] = [
@@ -81,6 +83,10 @@ enum AppSnapshots {
             // Mail links: SuperSparrow is the default, then the button's failure.
             { model.tab = .general; defaultMailApp.showForSnapshot(.isDefault) },
             { defaultMailApp.showForSnapshot(.failed) },
+            // At login: waiting for approval in System Settings, unavailable, then a change that did not take.
+            { defaultMailApp.showForSnapshot(.isDefault); launchAtLogin.showForSnapshot(.needsApproval) },
+            { launchAtLogin.showForSnapshot(.unavailable) },
+            { launchAtLogin.showForSnapshot(.off, failed: .turnOn) },
         ]
         render(controller, steps: steps) { bitmap in
             model.oauth = original

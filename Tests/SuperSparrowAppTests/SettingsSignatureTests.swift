@@ -164,7 +164,8 @@ final class SettingsSignatureTests: XCTestCase {
         let environment = try AppEnvironment.makeScratch(in: directory)
         defer { try? FileManager.default.removeItem(at: directory) }
         try environment.store.upsertAccount(a)
-        let controller = SettingsWindowController(environment: environment, settings: ListTestSupport.settings(), mailtoHandler: FakeMailtoHandler())
+        let controller = SettingsWindowController(environment: environment, settings: ListTestSupport.settings(), mailtoHandler: FakeMailtoHandler(),
+                                                  loginItem: FakeLoginItem())
         defer { controller.tearDown() }
         let store = environment.store
         controller.model.setSignature = { [weak controller] html, id in
@@ -226,7 +227,8 @@ final class SettingsSignatureTests: XCTestCase {
         try environment.store.upsertAccount(a)
         try environment.store.upsertAccount(b)
         try environment.store.setSignature("<div><p><b>Alex</b> at Contoso</p></div>", for: a.id)
-        let controller = SettingsWindowController(environment: environment, settings: ListTestSupport.settings(), mailtoHandler: FakeMailtoHandler())
+        let controller = SettingsWindowController(environment: environment, settings: ListTestSupport.settings(), mailtoHandler: FakeMailtoHandler(),
+                                                  loginItem: FakeLoginItem())
         defer { controller.tearDown() }
         let store = environment.store
         controller.model.setSignature = { [weak controller] html, id in

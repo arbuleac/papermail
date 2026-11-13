@@ -39,6 +39,8 @@ Each account can have a signature: select the account in **Settings → Accounts
 
 A notification for one new conversation offers **Archive**, **Mark as Read** and **Reply**; a summary of several ("4 new messages") offers none. Archive and Mark as Read leave SuperSparrow in the background and sync like the same actions in the window, but they have no Undo. Reply brings SuperSparrow forward with a reply ready in a composer window. Clicking a notification for one conversation opens it.
 
+Notifications arrive only while SuperSparrow is open. To have it open when you log in, turn on **Open SuperSparrow** in **Settings → General → At login**. If it says "Needs approval in System Settings", click **Open Login Items** and allow SuperSparrow there; you can also add or remove it yourself in System Settings → General → Login Items & Extensions.
+
 ## What the Mac provides
 
 SuperSparrow leaves these to macOS instead of building its own, and keeps them switched on:

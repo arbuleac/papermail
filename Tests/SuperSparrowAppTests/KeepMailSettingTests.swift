@@ -111,7 +111,7 @@ final class KeepMailSettingTests: XCTestCase {
         let environment = try scratchEnvironment()
         let source = SizeSource([292_000_000])
         let controller = SettingsWindowController(environment: environment, settings: ListTestSupport.settings(),
-                                                  mailtoHandler: FakeMailtoHandler(), measureMailbox: { source.next() })
+                                                  mailtoHandler: FakeMailtoHandler(), loginItem: FakeLoginItem(), measureMailbox: { source.next() })
         defer { controller.tearDown() }
         let window = try XCTUnwrap(controller.window)
         window.setFrameAutosaveName("")
@@ -148,7 +148,7 @@ final class KeepMailSettingTests: XCTestCase {
         XCTAssertEqual(control.fittingSize.width, popupOnly.fittingSize.width, accuracy: 0.5, "nothing beside the popup before the answer")
 
         let general = NSHostingView(rootView: GeneralSettingsView(settings: settings, defaultMailApp: DefaultMailAppModel(handler: FakeMailtoHandler()),
-                                                                  mailboxSize: size))
+                                                                  mailboxSize: size, launchAtLogin: LaunchAtLoginModel(handler: FakeLoginItem())))
         let window = NSWindow(contentRect: NSRect(x: -20_000, y: -20_000, width: 560, height: 700), styleMask: [.titled],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
