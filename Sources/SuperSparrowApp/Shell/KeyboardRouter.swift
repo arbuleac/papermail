@@ -14,6 +14,8 @@ enum KeyCommand: Equatable {
     case toggleStar
     case toggleRead
     case trash
+    /// ! (⇧1 on most layouts): Mark as Spam, read from the character as # is, so it follows the layout.
+    case markSpam
     case reply
     case replyAll
     case forward
@@ -201,6 +203,7 @@ final class KeyboardRouter {
         }
 
         if characters == "#" { return (.trash, false) }
+        if characters == "!" { return (.markSpam, false) }
         if modifiers == .shift {
             switch key {
             case "i": return (.moveToInbox, false)

@@ -163,6 +163,7 @@ final class DemoMailbox: @unchecked Sendable {
             record.metadata.providerVersion = String((Int(record.metadata.providerVersion ?? "1") ?? 1) + 1)
             if profile.kind == .microsoft {
                 record.metadata.folderID = updated.roles.contains(.trash) ? "deleteditems"
+                    : updated.roles.contains(.spam) ? "junkemail"
                     : updated.roles.contains(.inbox) ? "inbox" : (updated.roles.contains(.sent) ? "sentitems" : "archive")
             }
             storeLocked(record)

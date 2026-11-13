@@ -122,6 +122,43 @@ enum GmailFixtures {
     }
     """
 
+    /// m2 after Mark as spam landed: SPAM added, INBOX gone (Gmail's answer to the batchModify `apply` sends).
+    static let metadataM2Spam = """
+    {
+      "id": "m2",
+      "threadId": "t2",
+      "labelIds": ["SPAM", "CATEGORY_PROMOTIONS"],
+      "snippet": "Big sale",
+      "historyId": "8675330",
+      "internalDate": "1730376000000",
+      "sizeEstimate": 100,
+      "payload": {
+        "partId": "",
+        "mimeType": "text/html",
+        "filename": "",
+        "headers": [
+          {"name": "From", "value": "Shop <shop@example.com>"},
+          {"name": "To", "value": "ada@example.com"},
+          {"name": "Subject", "value": "Big sale"},
+          {"name": "Message-ID", "value": "<m2@example.com>"}
+        ],
+        "body": {"size": 0}
+      }
+    }
+    """
+
+    /// The history Gmail records for Mark as spam on m2: one record with SPAM added and INBOX removed.
+    static let historyMarkedSpam = """
+    {
+      "history": [
+        {"id": "8675330", "messages": [{"id": "m2", "threadId": "t2"}],
+         "labelsAdded": [{"message": {"id": "m2", "threadId": "t2", "labelIds": ["SPAM", "CATEGORY_PROMOTIONS"]}, "labelIds": ["SPAM"]}],
+         "labelsRemoved": [{"message": {"id": "m2", "threadId": "t2", "labelIds": ["SPAM", "CATEGORY_PROMOTIONS"]}, "labelIds": ["INBOX"]}]}
+      ],
+      "historyId": "8675331"
+    }
+    """
+
     static let metadataM4 = """
     {
       "id": "m4",

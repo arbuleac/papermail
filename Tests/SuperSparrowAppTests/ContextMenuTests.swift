@@ -22,7 +22,7 @@ final class ContextMenuTests: XCTestCase {
         XCTAssertEqual(harness.list.selectedConversationIDs, [second], "a right-click outside the selection selects that row")
         menu.update()
         XCTAssertEqual(titles(menu), ["Reply", "Reply All", "Forward", "—", "Archive", "Later", menu.items[6].title, "Mark as Unread",
-                                      "Move to Inbox", "—", "Move to Trash"])
+                                      "Move to Inbox", "—", "Move to Trash", "Mark as Spam"])
         XCTAssertTrue(["Star", "Unstar"].contains(menu.items[6].title))
         XCTAssertTrue(menu.items.allSatisfy { $0.isSeparatorItem || $0.image != nil }, "every item has its symbol")
         XCTAssertEqual(menu.items[4].keyEquivalent, "e", "and its shortcut")

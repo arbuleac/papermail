@@ -29,6 +29,13 @@ struct GmailLabelEdit: Equatable, Sendable {
         case .restoreFromTrash:
             add = ["INBOX"]
             remove = ["TRASH"]
+        case .markSpam:
+            // Gmail's Report spam: the message leaves the Inbox, and the Trash, which never holds it beside Spam.
+            add = ["SPAM"]
+            remove = ["INBOX", "TRASH"]
+        case .markNotSpam:
+            add = ["INBOX"]
+            remove = ["SPAM"]
         case .unsubscribe:
             // Not a label change: the engine sends the request itself, and `apply` sends nothing for an empty edit.
             add = []

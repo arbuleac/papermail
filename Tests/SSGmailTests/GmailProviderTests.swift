@@ -452,6 +452,37 @@ final class GmailProviderTests: XCTestCase {
         XCTAssertTrue(server.requests.isEmpty)
     }
 
+    /// Mark as spam is Gmail's Report spam as a label edit (roadmap Q2.3): SPAM on, INBOX off (and TRASH, which Gmail
+    /// never holds beside SPAM); its undo, Not spam, is the reverse. The next poll then reports the message as spam,
+    /// which is what the store applied locally.
+    func testMarkSpamAndItsUndoAreBatchModifyLabelEdits() async throws {
+        server.on("POST", "/users/me/messages/batchModify", .empty())
+        server.on("GET", "/users/me/history", .json(GmailFixtures.historyMarkedSpam))
+        TestSupport.stubBatch(messages: ["m2": GmailFixtures.metadataM2Spam])
+        let provider = TestSupport.makeProvider()
+
+        try await provider.apply(.markSpam, to: ["m2", "m3"])
+        try await provider.apply(.markNotSpam, to: ["m2"])
+
+        let calls = server.requests(to: "/users/me/messages/batchModify")
+        XCTAssertEqual(calls.count, 2)
+        XCTAssertEqual(calls[0].jsonBody["ids"] as? [String], ["m2", "m3"])
+        XCTAssertEqual(calls[0].jsonBody["addLabelIds"] as? [String], ["SPAM"])
+        XCTAssertEqual(calls[0].jsonBody["removeLabelIds"] as? [String], ["INBOX", "TRASH"])
+        XCTAssertEqual(calls[1].jsonBody["ids"] as? [String], ["m2"])
+        XCTAssertEqual(calls[1].jsonBody["addLabelIds"] as? [String], ["INBOX"])
+        XCTAssertEqual(calls[1].jsonBody["removeLabelIds"] as? [String], ["SPAM"])
+
+        let page = try await provider.changes(since: "8675329", limit: 100)
+        let reported = try XCTUnwrap(page.upserts.first)
+        XCTAssertEqual(page.upserts.map(\.id.providerID), ["m2"])
+        XCTAssertEqual(reported.roles, [.spam])
+        var local = reported
+        local.roles = [.inbox]
+        XCTAssertEqual(applying(.markSpam, to: local).roles, reported.roles, "the provider converges to the local change")
+        XCTAssertTrue(page.deletedIDs.isEmpty, "spam is a label, not a deletion")
+    }
+
     // MARK: Send
 
     func testSendBuildsRawMIMEAndThreadsReplies() async throws {

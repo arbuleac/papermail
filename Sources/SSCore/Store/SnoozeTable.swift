@@ -6,24 +6,25 @@ import GRDB
 /// - a snooze is written only for a conversation that is stored and holds mail put away (`holdsSnooze`: out of the
 ///   Inbox and out of the Trash, counting the user's own copies out), after the operations written with it;
 /// - it ends on its own when a summary refresh finds its conversation no longer holding mail put away (back in the
-///   Inbox, in the Trash, or gone: every message deleted or in Spam), and when mail that is not the user's own arrives
-///   in it after it was snoozed: the provider puts such mail in the Inbox anyway;
+///   Inbox, in the Trash or Spam, or gone: every message deleted or in Spam), and when mail that is not the user's own
+///   arrives in it after it was snoozed: the provider puts such mail in the Inbox anyway;
 /// - returning deletes it, applies and queues the operations, and marks the conversation `returned_at`, which a
 ///   refresh keeps only while the conversation is in the Inbox and no newer mail has come; an undo of what took it out
 ///   of the Inbox puts the mark back with its inverse operations (`Snooze.Change.returnedAt`).
 enum SnoozeTable {
     /// Whether the conversation row `c` stands for mail put away, which a snooze needs: out of the Inbox, out of the
-    /// Trash, and not one whose mail from others is all in the Trash while the user's own copies stay in Sent Items and
-    /// Drafts (`MailActionRecord.isOwnFolderCopy`), as Move to Trash leaves them on Microsoft. Its return would otherwise
-    /// bring the deleted mail back, or the user's own copy in its place. `Snooze.canHold` is the same rule in Swift, which
-    /// the in-memory store and the window use.
+    /// Trash, and not one whose mail from others is all in the Trash or Spam while the user's own copies stay in Sent
+    /// Items and Drafts (`MailActionRecord.isOwnFolderCopy`), as Move to Trash leaves them on Microsoft and Mark as Spam
+    /// on both providers. Its return would otherwise bring the deleted or spam mail back, or the user's own copy in its
+    /// place. `Snooze.canHold` is the same rule in Swift, which the in-memory store and the window use.
     private static let holdsSnooze: String = {
         let own = "((m.roles & \(MailStoreCodec.inboxBit)) = 0 AND (m.roles & \(MailStoreCodec.sentBit | MailStoreCodec.draftsBit)) != 0)"
-        let ofC = "m.account_id = c.account_id AND m.conversation_provider_id = c.provider_id AND (m.roles & \(MailStoreCodec.spamBit)) = 0"
+        let ofC = "m.account_id = c.account_id AND m.conversation_provider_id = c.provider_id"
+        let away = "(m.roles & \(MailStoreCodec.trashBit | MailStoreCodec.spamBit))"
         return """
             c.in_inbox = 0 AND c.in_trash = 0 AND NOT (
-                EXISTS (SELECT 1 FROM messages m WHERE \(ofC) AND (m.roles & \(MailStoreCodec.trashBit)) != 0 AND NOT \(own))
-                AND NOT EXISTS (SELECT 1 FROM messages m WHERE \(ofC) AND (m.roles & \(MailStoreCodec.trashBit)) = 0 AND NOT \(own)))
+                EXISTS (SELECT 1 FROM messages m WHERE \(ofC) AND \(away) != 0 AND NOT \(own))
+                AND NOT EXISTS (SELECT 1 FROM messages m WHERE \(ofC) AND \(away) = 0 AND NOT \(own)))
             """
     }()
 
@@ -96,8 +97,8 @@ enum SnoozeTable {
     }
 
     /// Part of every summary refresh, before the touched set is cleared: a touched conversation that is back in the
-    /// Inbox (⇧I, a drop, another device, new mail), in the Trash (on Microsoft, all but the user's own copies) or gone
-    /// is no longer snoozed. Driven by the snoozes, a handful of rows, so a refresh with nothing snoozed costs nothing.
+    /// Inbox (⇧I, a drop, another device, new mail), in the Trash or Spam (all but the user's own copies) or gone is no
+    /// longer snoozed. Driven by the snoozes, a handful of rows, so a refresh with nothing snoozed costs nothing.
     static func endForTouched(in db: Database) throws {
         try db.cachedStatement(sql: """
             DELETE FROM snoozes

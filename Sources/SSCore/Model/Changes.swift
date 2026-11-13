@@ -12,6 +12,11 @@ public enum MetadataChange: Hashable, Codable, Sendable {
     case trash
     /// Gmail: remove TRASH, add INBOX. Graph: move to Inbox.
     case restoreFromTrash
+    /// Mark as spam. Gmail: add SPAM, remove INBOX (and TRASH, which Gmail never holds beside SPAM). Graph: move to
+    /// Junk Email. There is no Spam view: the provider's own spam folder is where mail is rescued from.
+    case markSpam
+    /// The inverse of `markSpam`, for its undo. Gmail: remove SPAM, add INBOX. Graph: move to Inbox.
+    case markNotSpam
     /// Ask a mailing list to stop (a one-click POST or a mailto request, never `browser`, which the app opens at
     /// once). Changes nothing locally and is never sent to the provider as a change: the engine sends the request
     /// itself (`OperationRunner`). Queued with no targets, beside the ordinary archive of the conversation.
@@ -43,6 +48,13 @@ public func applying(_ change: MetadataChange, to metadata: MessageMetadata) -> 
         m.roles.insert(.trash)
     case .restoreFromTrash:
         m.roles.remove(.trash)
+        m.roles.insert(.inbox)
+    case .markSpam:
+        m.roles.remove(.inbox)
+        m.roles.remove(.trash)
+        m.roles.insert(.spam)
+    case .markNotSpam:
+        m.roles.remove(.spam)
         m.roles.insert(.inbox)
     case .unsubscribe:
         break

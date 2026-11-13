@@ -22,6 +22,8 @@ final class GraphApplyTests: GraphTestCase {
             Expectation(change: .moveToInbox, method: "POST", suffix: "/move", body: ["destinationId": "inbox"]),
             Expectation(change: .restoreFromTrash, method: "POST", suffix: "/move", body: ["destinationId": "inbox"]),
             Expectation(change: .trash, method: "POST", suffix: "/move", body: ["destinationId": "deleteditems"]),
+            Expectation(change: .markSpam, method: "POST", suffix: "/move", body: ["destinationId": "junkemail"]),
+            Expectation(change: .markNotSpam, method: "POST", suffix: "/move", body: ["destinationId": "inbox"]),
         ]
         let provider = makeProvider()
 
@@ -50,6 +52,38 @@ final class GraphApplyTests: GraphTestCase {
                 XCTAssertEqual(headers?["Prefer"], "IdType=\"ImmutableId\"")
             }
         }
+    }
+
+    /// Mark as spam moves to Junk Email by its well-known name (roadmap Q2.3). Immutable ids keep the message's id, so the
+    /// next poll finds it in Junk Email's delta as the inbox's delta reports it removed, and it comes back as spam, which
+    /// is what the store applied: a move, not a deletion.
+    func testMarkSpamMovesToJunkEmailAndTheNextPollReportsItAsSpam() async throws {
+        route { request in
+            if request.path == "/v1.0/$batch" {
+                return self.batchReply(request) { id, _ in Fixtures.BatchItem(id: id, status: 201, body: #"{"id":"m-x"}"#) }
+            }
+            guard request.method == "GET" else { return nil }
+            switch request.path {
+            case "/v1.0/me/mailFolders/F-INBOX/messages/delta":
+                return .json(Fixtures.list([Fixtures.removed("m-x")],
+                                           deltaLink: "https://graph.microsoft.com/v1.0/me/mailFolders/F-INBOX/messages/delta?$deltatoken=i2"))
+            case "/v1.0/me/mailFolders/F-JUNK/messages/delta":
+                return .json(Fixtures.list([Fixtures.message(id: "m-x", folder: "F-JUNK")],
+                                           deltaLink: "https://graph.microsoft.com/v1.0/me/mailFolders/F-JUNK/messages/delta?$deltatoken=j2"))
+            default:
+                return nil
+            }
+        }
+        let provider = makeProvider()
+        try await provider.apply(.markSpam, to: ["m-x"])
+        let moves = requests(to: "/v1.0/$batch").flatMap { ($0.json()["requests"] as? [[String: Any]]) ?? [] }
+        XCTAssertEqual(moves.map { $0["url"] as? String }, ["/me/messages/m-x/move"])
+        XCTAssertEqual(moves.first?["body"] as? NSDictionary, ["destinationId": "junkemail"])
+
+        let page = try await provider.changes(since: try cursor(folders: ["F-INBOX": nil, "F-JUNK": nil]), limit: 50)
+        XCTAssertEqual(page.upserts.map(\.id.providerID), ["m-x"])
+        XCTAssertEqual(page.upserts.first?.roles, [.spam])
+        XCTAssertTrue(page.deletedIDs.isEmpty)
     }
 
     func testApplyTreatsMissingMessageAsDone() async throws {

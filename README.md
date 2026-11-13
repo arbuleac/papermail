@@ -72,6 +72,10 @@ Replying usually finishes a conversation, so **Send** sends and archives the con
 
 Press `l` (or **Message → Later…**, or **Later** in a conversation's right-click menu) to put the selected conversations away until **Later Today**, **This Evening**, **Tomorrow**, **Next Week** or a date you pick. They are archived now and come back to the Inbox at that time, their latest message unread, at the top under Today with a **Back** tag until you read them. While anything is snoozed a **Later** folder shows in the rail below Inbox (`g` then `l`), listing what comes back when, soonest first; there `l` picks a new time, `e` keeps a conversation archived and stops its return, `⇧I` brings it back now and `#` moves it to the Trash. A reply from someone else, or moving the conversation back to the Inbox yourself (here or on another device), ends the snooze early. Both halves are the ordinary archive and move to Inbox, so your phone and the web show the same state; only the timer lives on this Mac, so mail comes back while SuperSparrow is running, or as soon as it next opens or the Mac wakes, once it has checked for anything that came in the meantime. Gmail's and Outlook's own snooze cannot be reached through their APIs, so mail snoozed there does not show in Later.
 
+## Mark as spam
+
+Press `!` (or **Message → Mark as Spam**, or **Mark as Spam** in a conversation's right-click menu) to send the selected conversations to your provider's spam folder: Gmail's Spam, or Junk Email on Microsoft 365 and Outlook.com. They leave the list at once, and **Undo** puts them back where they were. Your own sent messages and drafts in the conversation are never marked as spam and stay in Sent and Drafts. SuperSparrow has no Spam folder of its own: to rescue a message later, move it out of Spam on the web or your phone, and it comes back here. Mark as spam does nothing in the Trash or Drafts.
+
 ## Unsubscribe
 
 A newsletter or other list mail that says how to leave its list shows **Unsubscribe** beside the sender's name in the reader. One click, or `⇧⌘U` (**Message → Unsubscribe**), asks to stop it and archives the conversation, without a confirmation: SuperSparrow uses the one-click request the sender offers (RFC 8058), otherwise sends the unsubscribe email the sender asks for from your account (it appears in Sent), otherwise opens the sender's unsubscribe page in your browser. On a conversation in **Later**, it stops the conversation's return instead, as `e` does there, and it stays archived. **Undo** in the toast brings the conversation back (to Later, if it was there); the request itself cannot be taken back. Mail downloaded before this version shows no link until it is downloaded again.
@@ -118,6 +122,7 @@ Operators combine (`from:ben is:unread after:2026-01-01 -invoice`), ignore case,
 | `s` | Star / unstar |
 | `u` | Mark read / unread |
 | `#`, `⌘⌫` | Move to Trash |
+| `!` | Mark as spam |
 | `⇧I`, `⇧⌘I` | Move to Inbox (restores from the Trash) |
 | `z`, `⌘Z` | Undo the last mail action (last 20 are kept) |
 | `⇧⌘U` | Unsubscribe from the open conversation's list, then archive it |

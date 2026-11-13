@@ -699,7 +699,7 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
     }
 
     /// `SnoozeTable.holdsSnooze`, in the words of `Snooze.canHold`: the conversation is stored, out of the Inbox and out
-    /// of the Trash, and its mail other than the user's own copies is not all in the Trash.
+    /// of the Trash, and its mail other than the user's own copies is not all in the Trash or Spam.
     private func holdsSnoozeLocked(_ id: ConversationID) -> Bool {
         Snooze.canHold(messagesLocked(in: id))
     }

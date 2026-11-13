@@ -49,8 +49,10 @@ extension GraphProvider {
             return GraphBatchRequest(id: requestID, method: "PATCH", url: path, body: .object(["flag": .object(["flagStatus": status])]))
         case .archive:
             return move(messageID: messageID, to: "archive", requestID: requestID)
-        case .moveToInbox, .restoreFromTrash:
+        case .moveToInbox, .restoreFromTrash, .markNotSpam:
             return move(messageID: messageID, to: "inbox", requestID: requestID)
+        case .markSpam:
+            return move(messageID: messageID, to: "junkemail", requestID: requestID)
         case .unsubscribe:
             // Never sent (`apply` returns first); a read of the message changes nothing if it ever were.
             return GraphBatchRequest(id: requestID, method: "GET", url: path + "?$select=id")

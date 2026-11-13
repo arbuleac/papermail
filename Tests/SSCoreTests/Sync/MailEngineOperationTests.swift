@@ -74,6 +74,31 @@ final class MailEngineOperationTests: XCTestCase {
         await harness.shutdown()
     }
 
+    /// Mark as spam (roadmap Q2.3): the conversation leaves every view before `perform` returns, the provider is asked
+    /// once, and the undo's inverse reaches it after, in the order it was applied.
+    func testMarkSpamIsLocalFirstAndItsUndoReplaysAfterIt() async throws {
+        let harness = try await bootstrappedHarness()
+        let conversation = ConversationID(accountID: Fixtures.accountID, providerID: "t1")
+        let messages = try harness.store.messages(in: conversation)
+        let record = try XCTUnwrap(MailActionRecord.make(.markSpam, on: MailActionRecord.targets(for: .markSpam, in: messages, kind: .gmail),
+                                                         conversation: conversation))
+        try harness.engine.perform(.markSpam, on: record.targets)
+
+        XCTAssertTrue(try harness.store.messages(in: conversation).allSatisfy { $0.roles == [.spam] })
+        XCTAssertTrue(try harness.store.conversations(ConversationQuery(view: .all)).isEmpty)
+        try await waitUntil("spam applied") { harness.provider.applyCalls.count == 1 }
+        XCTAssertEqual(harness.provider.applyCalls.first?.change, .markSpam)
+        XCTAssertEqual(harness.provider.applyCalls.first?.ids, ["1", "2", "3"])
+
+        XCTAssertEqual(record.inverse.map(\.change), [.markNotSpam], "all three were in the Inbox")
+        for step in record.inverse { try harness.engine.perform(step.change, on: step.targets) }
+        XCTAssertEqual(try harness.store.conversations(ConversationQuery(view: .inbox)).map(\.id), [conversation])
+        try await waitUntil("undo applied") { harness.provider.applyCalls.count == 2 }
+        XCTAssertEqual(harness.provider.applyCalls.map(\.change), [.markSpam, .markNotSpam])
+        try await waitUntil("outbox drained") { try self.pendingOperations(harness).isEmpty }
+        await harness.shutdown()
+    }
+
     func testNetworkFailureLeavesOperationPendingWithFutureRetry() async throws {
         let failures = Array(repeating: Result<Void, Error>.failure(ProviderError.network("offline")), count: 20)
         // The harness caps backoff at one second for speed; this test needs a retry that stays in the future.

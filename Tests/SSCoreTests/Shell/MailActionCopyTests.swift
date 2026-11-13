@@ -101,6 +101,25 @@ final class MailActionCopyTests: XCTestCase {
         XCTAssertFalse(toast(.archive, "has:attachment after:2026-01-01"))
     }
 
+    /// Mark as spam (spec “Mark as spam”): no view lists spam, so it always takes the row away and always says so.
+    func testMarkAsSpamWords() {
+        XCTAssertEqual(MailActionCopy.toast(for: .markSpam), "Marked as spam")
+        XCTAssertEqual(MailActionCopy.toast(for: .markSpam, count: 3), "Marked 3 as spam")
+        XCTAssertEqual(MailActionCopy.commandName(for: .markSpam), "Mark as Spam")
+        XCTAssertEqual(MailActionCopy.undoConfirmation(for: .markSpam), "Undid Mark as Spam")
+        XCTAssertEqual(MailActionCopy.undoMenuTitle(for: .markSpam), "Undo Mark as Spam")
+        XCTAssertEqual(MailActionCopy.failure(for: .markSpam), "Couldn't mark as spam. Restored.")
+        XCTAssertEqual(MailActionCopy.failure(for: .markNotSpam), "Couldn't mark as not spam. Restored.")
+        XCTAssertEqual(ConversationRowText.failureText(for: .markSpam), "Couldn't mark as spam")
+        for view in MailboxView.allCases {
+            XCTAssertTrue(MailActionCopy.wantsToast(for: .markSpam, in: view), "\(view)")
+        }
+        XCTAssertTrue(MailActionCopy.wantsToast(for: .markSpam, in: .all, search: SearchQuery(parsing: "budget")))
+        XCTAssertEqual(MetadataChange.markSpam.kind, .markSpam)
+        XCTAssertEqual(MetadataChange.markNotSpam.kind, .markNotSpam)
+        XCTAssertEqual(OperationKind(rawValue: "markSpam"), .markSpam, "the stored raw value")
+    }
+
     func testFailureLines() {
         XCTAssertEqual(MailActionCopy.failure(for: .archive), "Couldn't archive. Restored.")
         XCTAssertEqual(MailActionCopy.failure(for: .trash), "Couldn't move to Trash. Restored.")
