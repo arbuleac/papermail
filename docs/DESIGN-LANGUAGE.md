@@ -1372,6 +1372,7 @@ The quick reply is hidden in Drafts.
 | `stripChipMaxWidth` | 240 | `formatRow` | 36 | `formatToggle` | 28 | `formatGap` | 2 |
 | `formatGroupGap` | 12 | `linkPopoverWidth` | 320 | `linkPopoverPad` | 12 | `linkPopoverRadius` | 8 |
 | `linkPopoverGap` | 8 | `linkPopoverAlign` | selectionStart | `linkPopoverOffsetY` | 6 | `popoverEdgeMin` | 8 |
+| `pictureSelectedWash` | 0.45 |  |  |  |  |  |  |
 
 | Part | Spec |
 |---|---|
@@ -1379,7 +1380,7 @@ The quick reply is hidden in Drafts.
 | From | borderless popup (§5.27): 7 pt account-ink dot, 8 pt, “Alex Morgan <alex@contoso.test>”, `chevron.up.chevron.down`; shown only with two or more accounts. Changing From changes the sending account and replaces the signature (below). Hovered or pressed, the face takes `raised + hover` / `raised + pressed` and the dot keeps its 2 pt `raised` halo (§5.27) |
 | To / Cc / Bcc | token fields (§5.21); small ghost “Cc” and “Bcc” buttons trail the To row until used, the last one's trailing edge 16 pt from the window's edge, 4 pt apart, centred on the row's first line |
 | Subject | `composeSubject` (New York; `composeSubjectSans` when needed), `ink` |
-| Body | `sheet`, padding 20 24 0 84 (the text starts on the value axis); `writing`; text styles below |
+| Body | `sheet`, padding 20 24 0 84 (the text starts on the value axis); `writing`; text styles below; pictures in the text (Images in the body, below) |
 | Folded original | the elision chip + “On 1 Nov 2026 at 23:39, Ben Carter wrote:” (§5.15) |
 | Format row | toggled by the Format button or ⇧⌘T, remembered per window: a 36 pt `paper` row with a top hairline directly above the bottom bar (and above the strip when attachments show) |
 | Attachment strip | §5.22 |
@@ -1419,7 +1420,7 @@ A From change is one undoable edit: Edit › Undo in the body restores the body 
 | Action | Result |
 |---|---|
 | ⌘W, the red light or File › Close Window, with content worth keeping | no alert: the last edit is saved synchronously, the window closes, and the draft stays in Drafts (“Edited 23:51”); no toast. ↩ on it in Drafts reopens it (§5.19) |
-| The same with nothing worth keeping (no recipient, subject, attachment or typed body text: at most the folded original and the signature) | the window closes and no draft is kept |
+| The same with nothing worth keeping (no recipient, subject, attachment, typed body text or picture in the body: at most the folded original and the signature) | the window closes and no draft is kept |
 | Message › Discard Draft… (composer windows; `trash`) | the alert “Discard this draft?”, composer form (§5.33: “Discard” destructive, “Keep Writing” default); confirming closes the window, removes the draft and shows “Draft discarded · Undo” in the main window, where Undo reopens the composer with the draft |
 | ⌘↩, ⇧⌘↩ or Send with an empty or whitespace-only subject | the sheet alert “Send without a subject?” / “Messages without a subject are easy to miss.” / “Add Subject” (default, ↩ and Esc; focuses the Subject field) and “Send Anyway”. It asks every time; quick-reply sends never ask, because a reply's subject is never empty |
 | Close while a send is starting (between ⌘↩ and the undo-send panel) | the window cannot close; the panel replaces it at once |
@@ -1427,6 +1428,28 @@ A From change is one undoable edit: Edit › Undo in the body restores the body 
 **Format row.** At x = 16: Bold · Italic · Underline, then after 12 pt Bulleted list · Numbered list · Quote, then after 12 pt Link, as 28 pt icon toggles 2 pt apart (symbols in §4.11, 14 pt). States: off `ink2`; hover `hover` wash, `ink`; pressed `pressed`; **on** (the style applies at the caret or across the whole selection) `accent` on `accentWash` (hover `accentWashHover`, pressed `accentWashPressed`); mixed selection shows off; focused ring. Each toggle's tooltip names its shortcut (“Bold  ⌘B”). It is a docked row, not a popover, so it never covers text and needs no motion.
 
 **Text styles in the body** (`layout.textStyle`, shared with the reader so a reply looks the same before and after sending): links `accent`, 1 pt underline at offset 2; block quotes a 2 pt `rule` leading bar and 12 pt indent, text `ink2` (the composer's 3 / 16 quote of today becomes 2 / 12); lists indent 24 pt per level with the marker (“•”, or tabular numerals with a period) in `ink2` and 6 pt before the text; paragraphs have no extra spacing (what you type is what is sent).
+
+**Images in the body (Q3.3).** A picture pasted (⌘V, Edit › Paste) or dropped on the text goes into the message where the caret is, or where it is dropped: in the text, not on the strip, as recipients will see it. It is sent as a part of the message that the text points at (`cid:`), the path a forwarded message's own pictures already take: on Gmail a `multipart/related` part beside the HTML, on Microsoft an inline attachment with a content id. Text is still pasted plain, however it comes.
+
+| Pasted or dropped on the text | What happens |
+|---|---|
+| A picture without a file: a screenshot copied to the clipboard, Copy Image in a browser, a picture dragged from a web page | it goes in, at the caret or where it was dropped |
+| Files that are all pictures (copied in the Finder, or dragged from it onto the text) | each goes in, in order, named as its file is |
+| Files of which one is not a picture, and any files dropped outside the text (the field rows, the folded original, the strip) | they attach (§5.22), with the “Drop to attach” outline while they hover; nothing goes into the text |
+| A picture file the Mac cannot read | it attaches instead |
+| Text with a picture of itself (a word processor's or a spreadsheet's copy) | the text, plain |
+| A browser's picture with its address as text | the picture, named from the address |
+| A selection of the body copied or cut in a composer | its pictures, as pictures of their own, and its text, plain |
+
+**Look.** At its size on screen (its pixels over its resolution, so a Retina screenshot shows at the size it had), scaled down, never up, to the width the text has (less a list item's or a quote's indent), its shape kept, sitting on the line's baseline; that line grows to hold it, and every other line keeps its 21 pt. No frame, no handles, no resizing and no editing of the picture (`allowsImageEditing` off): it is typed over, deleted, cut, copied, moved and undone as one character. A selected picture is washed with the text's selection colour at 0.45 (`layout.composer.pictureSelectedWash`), because the selection is painted behind the text, where the picture would hide it. VoiceOver reads it as an image by its file name (“terrace.png”; a pasted one is “image.png”). Undo takes a paste or a drop out as one step (Edit › Undo Paste, Undo Drop).
+
+**What is sent.** PNG, JPEG and GIF go as they came (a GIF keeps its frames; the composer shows the first). A photo in a format many mail apps cannot show (HEIC, HEIF, AVIF, WebP, JPEG XL, camera raw) becomes a JPEG; anything else (the TIFF a copied picture often arrives as, BMP, SVG) becomes a PNG, which loses nothing. Its name is its file's, the extension changed with the format (IMG_0412.HEIC goes as IMG_0412.jpg); a picture without a file is “image.png”, or takes the name in its address. The HTML gives it its size on screen as `width` and `height`, for clients that ignore styles, and `max-width: 100%`, so it fits a phone; the plain-text alternative reads “[image: terrace.png]” where it stood. A picture deleted from the body, or taken out by Undo, is not sent.
+
+**Size.** As for attachments: SuperSparrow sets no limit of its own and never scales a picture down, so a picture of any size goes in, shows (decoded for the screen no larger than it needs) and is kept in the draft at full size. The provider decides as the message leaves, after the undo window: a message larger than the account allows (Gmail's attachment limit; on Microsoft, what the mailbox allows) fails as an attachment that is too large does. The undo-send panel says it could not send, the draft is kept on this Mac with its pictures, and Open draft reopens the composer with “Couldn't send: Gmail rejected the attachment size.”; taking a picture out, or sending a smaller one, and sending again is the remedy.
+
+**Drafts.** A kept draft keeps its pictures: after a relaunch, Continue Editing in Drafts, an undone send or a failed one, they are where they were and are sent as they would have been. A body holding only a picture is worth keeping. The Drafts row's snippet leaves pictures out; the reader's draft sheet, which sets the draft as text, shows “[image: terrace.png]” in a picture's place. The Settings signature field takes no pictures (a signature is kept as the composer's HTML, with nowhere to keep one): a picture pasted there pastes nothing.
+
+**Keys.** None of its own: pictures come with ⌘V and with dropping, as text does. The keyboard cheat sheet (§5.32) lists the app's own commands, not Edit's, and has no room left in its second band.
 
 **Link popover (⌘K, or the Link toggle).** App-drawn because it anchors to the selection: `raised`, `e2`, radius 8, padding 12, width 320; `ruleStrong` edge in Increase Contrast. **Position:** its top 6 pt below the bottom of the selection's last line (`composer.linkPopoverOffsetY`), or its bottom 6 pt above the selection's first line when there is no room below; its leading edge at the selection's start on that line minus 12 pt, so the Link field starts under the selected text (`linkPopoverAlign`: selectionStart; with an empty selection, the caret); clamped to stay 8 pt inside the window's edges (`composer.popoverEdgeMin`). Content, 8 pt apart: a “Link” field (28 pt text field, placeholder “https://” `ink3`, focused on open) and, only when nothing is selected, a “Text” field; then a row with, when editing an existing link, ghost “Remove Link” leading, and trailing ghost “Cancel” and small primary “Add Link” (“Save” when editing). ↩ confirms, Esc cancels, Tab cycles inside. Invalid input: field error “Enter a web address or an email address.” (§5.25). In `dur.quick` fade; out `dur.quick`. Clicking an existing link in the body places the caret; ⌘K on it opens the popover in edit mode.
 
@@ -1438,7 +1461,8 @@ A From change is one undoable edit: Edit › Undo in the body restores the body 
 | Field row focused (From, To, Cc, Bcc, Subject) | the **inset ring** (§4.1): 2 pt (3 pt in Increase Contrast) `focus`, from x = 78 to 16 pt before the trailing edge (6 pt before the Cc / Bcc buttons on the To row while they show), its outer edge 3 pt inside the row's top and bottom (30 pt tall in a 36 pt row, 36 pt in the Subject row, growing with wrapped token lines), radius `r.sm` (5); drawn inside the row, so it never touches the hairlines; never animated; not drawn while the window is not key. The From popup shows the same ring when focused. While a token is selected the ring moves from the row to that token (§5.21) |
 | Body focused | the insertion point (`accent`) and the selection only: the one exception in §4.1; no ring |
 | Prefilling | status “Loading original message…”; the folded-original chip appears when it loads |
-| Dragging files over | the body shows a 2 pt dashed `focus` outline inset 8 pt, radius `r.lg`, and “Drop to attach” in `label` `accent`, centred in the outline (`accent` on `sheet`, asserted at 4.5:1) |
+| Dragging files over | the body shows a 2 pt dashed `focus` outline inset 8 pt, radius `r.lg`, and “Drop to attach” in `label` `accent`, centred in the outline (`accent` on `sheet`, asserted at 4.5:1); over the text, only while one of them is not a picture |
+| Dragging pictures over the text | no outline: the insertion point (`accent`) shows where they will go in (Images in the body, above) |
 | Sending | the window closes into the undo-send panel (§5.31); after Send and Archive the conversation the message answers is archived as it closes (§5.23) |
 | Send failed | the window reopens with a multi-line danger banner (§5.38) under the field rows, inset 16 pt from the window's sides and 8 pt below the last row's hairline and above the body text: “Couldn't send: Microsoft 365 rejected the attachment size.” (the reason in plain words). No link: Send is the retry. It clears on the next send |
 | Offline | status “Will send when you're back online” |

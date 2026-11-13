@@ -48,6 +48,7 @@ final class SignatureEditorView: NSView, NSTextViewDelegate {
         textView.trailingInset = 0
         textView.topInset = (Quire.Layout.Settings.fieldHeight - ComposeTextView.bodyRole.lineHeight) / 2
         textView.allowsBlockFormatting = false
+        textView.allowsImages = false
         textView.delegate = self
         textView.setAccessibilityLabel("Signature")
         textView.onLinkRequest = { [weak self] _ in self?.showLinkPopover() }

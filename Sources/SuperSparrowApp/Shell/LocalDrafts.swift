@@ -67,7 +67,8 @@ final class LocalDrafts {
         guard let draftID = LocalDraftConversation.draftID(of: id), let record = records.first(where: { $0.id == draftID }) else { return nil }
         if let cached = bodies[draftID], cached.editedAt == record.editedAt { return cached.body }
         guard let draft = store.draft(id: draftID, accounts: accounts) else { return nil }
-        let body = LocalDraftConversation.body(text: draft.body.string, quoted: draft.quoted)
+        // The sheet sets the draft as text: a picture shows as its plain-text placeholder, never an empty box.
+        let body = LocalDraftConversation.body(text: ComposeInlineImages.readerText(of: draft.body), quoted: draft.quoted)
         bodies[draftID] = (record.editedAt, body)
         return body
     }

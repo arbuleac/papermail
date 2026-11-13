@@ -417,6 +417,7 @@ extension Quire {
             public static let linkPopoverAlign: String = "selectionStart"
             public static let linkPopoverOffsetY: CGFloat = 6
             public static let popoverEdgeMin: CGFloat = 8
+            public static let pictureSelectedWash: CGFloat = 0.45
         }
         public enum Token {
             public static let invalidGlyph: CGFloat = 10

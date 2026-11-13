@@ -261,4 +261,59 @@ final class MIMEBuilderTests: XCTestCase {
         XCTAssertEqual(MIMEBuilder.bracketed("<abc@x>"), "<abc@x>")
         XCTAssertEqual(MIMEBuilder.bracketed(" <abc@x> "), "<abc@x>")
     }
+
+    // MARK: Pictures from the composer (spec §5.20, Images in the body)
+
+    /// What the composer sends for a body holding pictures, built the way it builds it: the exporter's HTML and text,
+    /// each picture's part beside a file attachment.
+    private func composed(pictures: [(ComposerInlineImage, Data)], file: OutgoingAttachment? = nil) -> OutgoingMessage {
+        let body = NSMutableAttributedString(string: "The view:")
+        for (image, _) in pictures {
+            body.append(NSAttributedString(string: "\u{FFFC}", attributes: [ComposerInlineImage.attributeKey: image.contentID]))
+        }
+        body.append(NSAttributedString(string: " see you"))
+        let export = ComposerHTMLExporter().export(body, images: Dictionary(uniqueKeysWithValues: pictures.map { ($0.0.contentID, $0.0) }))
+        return OutgoingMessage(accountID: accountID, to: [EmailAddress(address: "ben@example.com")], subject: "Terrace",
+                               html: export.html, text: export.text,
+                               attachments: (file.map { [$0] } ?? []) + pictures.map { $0.0.outgoing($0.1) })
+    }
+
+    func testAComposerPictureTravelsAsARelatedPartItsImgPointsAt() throws {
+        let terrace = ComposerInlineImage(contentID: "0f2c9d3e-1@supersparrow.local", filename: "terrace.png", mimeType: "image/png",
+                                          width: 480, height: 300)
+        let pier = ComposerInlineImage(contentID: "7aa1c2b4-2@supersparrow.local", filename: "pier.jpg", mimeType: "image/jpeg",
+                                       width: 64, height: 48)
+        let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x01])
+        let jpeg = Data([0xFF, 0xD8, 0xFF, 0xE0, 0x02])
+        let pdf = OutgoingAttachment(filename: "plan.pdf", mimeType: "application/pdf", data: Data("%PDF-1.4".utf8))
+        let message = composed(pictures: [(terrace, png), (pier, jpeg)], file: pdf)
+
+        let root = ParsedPart.parse(String(decoding: MIMEBuilder(message: message).build(), as: UTF8.self))
+
+        XCTAssertEqual(root.mediaType, "multipart/mixed")
+        XCTAssertEqual(root.children.map(\.mediaType), ["multipart/alternative", "application/pdf"], "only the file is an attachment")
+        let alternative = root.children[0]
+        XCTAssertEqual(alternative.children.map(\.mediaType), ["text/plain", "multipart/related"])
+        XCTAssertEqual(String(decoding: alternative.children[0].decodedBody, as: UTF8.self),
+                       "The view:[image: terrace.png][image: pier.jpg] see you")
+        let related = alternative.children[1]
+        XCTAssertEqual(related.parameter("type", of: "content-type"), "text/html")
+        XCTAssertEqual(related.children.map(\.mediaType), ["text/html", "image/png", "image/jpeg"])
+        let html = String(decoding: related.children[0].decodedBody, as: UTF8.self)
+        for (image, part, bytes) in [(terrace, related.children[1], png), (pier, related.children[2], jpeg)] {
+            XCTAssertTrue(html.contains("<img src=\"cid:\(image.contentID)\""), "the HTML points at \(image.filename)")
+            XCTAssertEqual(part.headers["content-id"], "<\(image.contentID)>", "and its part answers to that id")
+            XCTAssertTrue(part.headers["content-disposition"]?.hasPrefix("inline;") ?? false)
+            XCTAssertEqual(part.parameter("filename", of: "content-disposition"), image.filename)
+            XCTAssertEqual(part.decodedBody, bytes)
+        }
+        XCTAssertTrue(html.contains("width=\"480\" height=\"300\""), "shown at its size on screen")
+    }
+
+    func testABodyWhosePictureWasDeletedSendsNoRelatedPart() {
+        let message = composed(pictures: [])
+        let root = ParsedPart.parse(String(decoding: MIMEBuilder(message: message).build(), as: UTF8.self))
+        XCTAssertEqual(root.children[0].children.map(\.mediaType), ["text/plain", "text/html"])
+        XCTAssertFalse(String(decoding: root.children[0].children[1].decodedBody, as: UTF8.self).contains("cid:"))
+    }
 }

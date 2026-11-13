@@ -15,6 +15,8 @@ struct ComposeDraft {
         /// What the user wrote: the body without the signature the composer inserted and the empty line before it.
         var bodyText = ""
         var attachmentIDs: Set<UUID> = []
+        /// The pictures in the body, in order: one picture swapped for another leaves the text as it was.
+        var pictureIDs: [String] = []
     }
 
     /// The draft's identity in `ComposeDraftStore`, kept across undo send and reopening.
@@ -25,7 +27,8 @@ struct ComposeDraft {
     var cc: [EmailAddress]
     var bcc: [EmailAddress]
     var subject: String
-    /// The editor's document as typed, list markers included; `ComposeBodyNormalizer` cleans it at send time.
+    /// The editor's document as typed, list markers included; `ComposeBodyNormalizer` cleans it at send time. Pictures
+    /// pasted or dropped into it (`ComposeImageAttachment`) live here alone, not in `attachments`.
     var body: NSAttributedString
     /// Files and forwarded parts. Inline parts (`contentID` set) are sent so the quoted original's images
     /// resolve again, but never shown as chips.
@@ -46,7 +49,8 @@ struct ComposeDraft {
             bcc: bcc.map(\.address),
             subject: subject,
             bodyText: ComposeSignature.typedText(of: body),
-            attachmentIDs: Set(attachments.map(\.id))
+            attachmentIDs: Set(attachments.map(\.id)),
+            pictureIDs: ComposeInlineImages.pictures(in: body).map(\.inlineImage.contentID)
         )
     }
 
@@ -57,9 +61,12 @@ struct ComposeDraft {
     }
 
     /// Builds what `MailClient.send` takes from the normalized body and the already-read attachment bytes
-    /// (reading file-backed attachments belongs off the main thread, so the caller does it first).
+    /// (reading file-backed attachments belongs off the main thread, so the caller does it first). The pictures in the
+    /// body are in memory already; each goes as a `cid:` part its `<img>` points at (§5.20, Images in the body).
     func outgoingMessage(normalizedBody: NSAttributedString, loadedAttachments: [OutgoingAttachment]) -> OutgoingMessage {
-        let export = ComposerHTMLExporter().export(normalizedBody, appending: quoted)
+        let pictures = ComposeInlineImages.pictures(in: normalizedBody)
+        let images = Dictionary(pictures.map { ($0.inlineImage.contentID, $0.inlineImage) }, uniquingKeysWith: { first, _ in first })
+        let export = ComposerHTMLExporter().export(normalizedBody, appending: quoted, images: images)
         // Threading headers name a message of one account; sending from another would hand the provider
         // an id it cannot resolve, so the message starts a fresh thread there.
         let threading = threading?.applicable(to: account.id)
@@ -75,7 +82,7 @@ struct ComposeDraft {
             inReplyToInternetMessageID: threading?.inReplyToInternetMessageID,
             references: threading?.references ?? [],
             isForward: threading?.isForward ?? false,
-            attachments: loadedAttachments
+            attachments: loadedAttachments + pictures.map { $0.inlineImage.outgoing($0.data) }
         )
     }
 }

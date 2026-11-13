@@ -239,6 +239,61 @@ final class GraphSendTests: GraphTestCase {
         XCTAssertNil(requests[3].header("Authorization"), "the upload URL is pre-authorized; a bearer token makes Graph refuse it")
     }
 
+    // MARK: Pictures from the composer (spec §5.20, Images in the body)
+
+    private let terrace = ComposerInlineImage(contentID: "0f2c9d3e-1@supersparrow.local", filename: "terrace.png", mimeType: "image/png",
+                                              width: 480, height: 300)
+
+    /// What the composer sends for “The view:” and a pasted picture, built the way it builds it.
+    private func composed(_ bytes: Data) -> OutgoingMessage {
+        let body = NSMutableAttributedString(string: "The view:")
+        body.append(NSAttributedString(string: "\u{FFFC}", attributes: [ComposerInlineImage.attributeKey: terrace.contentID]))
+        let export = ComposerHTMLExporter().export(body, images: [terrace.contentID: terrace])
+        return OutgoingMessage(accountID: accountID, to: [EmailAddress(address: "alice@example.com")], subject: "Terrace",
+                               html: export.html, text: export.text, attachments: [terrace.outgoing(bytes)])
+    }
+
+    func testAComposerPictureIsSentAsAnInlineAttachmentWithTheContentIDItsImgPointsAt() async throws {
+        route { request in request.method == "POST" && request.path == "/v1.0/me/sendMail" ? .status(202) : nil }
+
+        _ = try await makeProvider().send(composed(Data([9, 8, 7])))
+
+        let m = try XCTUnwrap(requests.first?.json()["message"] as? [String: Any])
+        let content = try XCTUnwrap((m["body"] as? [String: String])?["content"])
+        XCTAssertTrue(content.contains("<img src=\"cid:0f2c9d3e-1@supersparrow.local\""), content)
+        let attachments = try XCTUnwrap(m["attachments"] as? [[String: Any]])
+        XCTAssertEqual(attachments.count, 1)
+        XCTAssertEqual(attachments[0]["@odata.type"] as? String, "#microsoft.graph.fileAttachment")
+        XCTAssertEqual(attachments[0]["name"] as? String, "terrace.png")
+        XCTAssertEqual(attachments[0]["contentType"] as? String, "image/png")
+        XCTAssertEqual(attachments[0]["isInline"] as? Bool, true)
+        XCTAssertEqual(attachments[0]["contentId"] as? String, "0f2c9d3e-1@supersparrow.local")
+        XCTAssertEqual(attachments[0]["contentBytes"] as? String, Data([9, 8, 7]).base64EncodedString())
+    }
+
+    /// A picture too large to post whole goes up through an upload session that still names it inline, with its content
+    /// id, so Outlook shows it in the text rather than as a file.
+    func testALargePictureGoesUpThroughAnUploadSessionStillInline() async throws {
+        routeDraftFlow(createPath: "/v1.0/me/messages")
+
+        _ = try await makeProvider(sendLimits: smallLimits).send(composed(Data([1, 2, 3, 4])))
+
+        XCTAssertEqual(requests.map { "\($0.method) \($0.path)" }, [
+            "POST /v1.0/me/messages",
+            "POST /v1.0/me/messages/DRAFT-1/attachments/createUploadSession",
+            "PUT /api/v2.0/Users('me')/Messages('DRAFT-1')/AttachmentSessions('S1')",
+            "PUT /api/v2.0/Users('me')/Messages('DRAFT-1')/AttachmentSessions('S1')",
+            "POST /v1.0/me/messages/DRAFT-1/send",
+        ])
+        let draftBody = try XCTUnwrap((requests[0].json()["body"] as? [String: String])?["content"])
+        XCTAssertTrue(draftBody.contains("cid:0f2c9d3e-1@supersparrow.local"))
+        let session = try XCTUnwrap(requests[1].json()["AttachmentItem"] as? [String: Any])
+        XCTAssertEqual(session["name"] as? String, "terrace.png")
+        XCTAssertEqual(session["size"] as? Int, 4)
+        XCTAssertEqual(session["isInline"] as? Bool, true)
+        XCTAssertEqual(session["contentId"] as? String, "0f2c9d3e-1@supersparrow.local")
+    }
+
     func testReplyWithLargeAttachmentUsesUploadSession() async throws {
         routeDraftFlow(createPath: "/v1.0/me/messages/ORIG/createReply")
         var reply = message

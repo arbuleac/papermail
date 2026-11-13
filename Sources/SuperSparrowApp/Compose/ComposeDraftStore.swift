@@ -5,7 +5,10 @@ import os
 /// Keeps composer drafts on this Mac (spec §5.20: drafts are local and autosaved, so closing a composer never
 /// asks). One folder per draft, under its account's folder in Application Support: the `ComposeDraftRecord` as
 /// JSON, the body as an archived attributed string (lists, quotes and links survive; colours are re-derived on
-/// load because the Quire inks are dynamic colours an archive cannot carry), and the bytes of forwarded parts.
+/// load because the Quire inks are dynamic colours an archive cannot carry), the bytes of forwarded parts, and the
+/// bytes of the pictures in the body, which the archive holds only as marked characters (`ComposeInlineImages`), so
+/// a draft reopened after a relaunch has its pictures where they were. Files a draft no longer refers to (a picture
+/// deleted, a forwarded part removed) are removed as it is saved again.
 /// Grouping by account lets removing an account take its drafts with it (`removeDrafts(for:)`).
 ///
 /// Writes happen off the main thread except `saveNow`, which closing uses so the last edit is never lost.
@@ -207,13 +210,19 @@ final class ComposeDraftStore {
                                                  sizeBytes: attachment.sizeBytes, contentID: attachment.contentID,
                                                  fileURL: url, storedFile: stored)
         }
+        let images: [ComposeDraftRecord.Image] = ComposeInlineImages.pictures(in: draft.body).map { picture in
+            let name = ComposeDraftRecord.Image.storedFile(for: picture.inlineImage.contentID)
+            parts[name] = picture.data
+            return ComposeDraftRecord.Image(contentID: picture.inlineImage.contentID, filename: picture.inlineImage.filename,
+                                            mimeType: picture.inlineImage.mimeType, sizeBytes: picture.data.count, storedFile: name)
+        }
         let record = ComposeDraftRecord(
             id: draft.id, kind: kind(of: draft.mode), originalMessageID: draft.mode.originalMessageID,
             accountID: draft.account.id, to: draft.to, cc: draft.cc, bcc: draft.bcc, subject: draft.subject,
             attachments: attachments, quoted: draft.quoted, threading: draft.threading, editedAt: Date(),
             sendFailure: draft.sendFailure, preview: ComposeDraftRecord.preview(of: draft.body.string),
-            continuesDraft: draft.continuesDraft)
-        return Package(record: record, body: archive(draft.body), parts: parts)
+            continuesDraft: draft.continuesDraft, images: images.isEmpty ? nil : images)
+        return Package(record: record, body: archive(ComposeInlineImages.detached(draft.body)), parts: parts)
     }
 
     private nonisolated static func write(_ package: Package, to folder: URL) -> Bool {
@@ -226,6 +235,11 @@ final class ComposeDraftStore {
             }
             try package.body.write(to: folder.appendingPathComponent(ComposeDraftRecord.bodyFile), options: .atomic)
             try package.record.encoded().write(to: folder.appendingPathComponent(ComposeDraftRecord.recordFile), options: .atomic)
+            // Pasting and deleting pictures would otherwise leave their bytes behind until the draft is sent or discarded.
+            let kept = Set(package.parts.keys).union([ComposeDraftRecord.bodyFile, ComposeDraftRecord.recordFile])
+            for file in (try? fileManager.contentsOfDirectory(atPath: folder.path)) ?? [] where !kept.contains(file) {
+                try? fileManager.removeItem(at: folder.appendingPathComponent(file))
+            }
             return true
         } catch {
             logger.error("Saving a draft failed: \(error.localizedDescription, privacy: .public)")
@@ -249,10 +263,18 @@ final class ComposeDraftStore {
             return ComposeAttachment(id: item.id, filename: item.filename, mimeType: item.mimeType, sizeBytes: item.sizeBytes,
                                      source: source, contentID: item.contentID)
         }
+        var pictures: [String: ComposeImageAttachment] = [:]
+        for item in record.images ?? [] {
+            guard let bytes = try? Data(contentsOf: folder.appendingPathComponent(item.storedFile)),
+                  let picture = ComposeImageAttachment.restore(data: bytes, contentID: item.contentID, filename: item.filename,
+                                                               mimeType: item.mimeType) else { continue }
+            pictures[item.contentID] = picture
+        }
+        let body = ComposeInlineImages.attached(Self.unarchive(bodyData), pictures: pictures)
         let draft = ComposeDraft(
             id: record.id, mode: Self.mode(record.kind, original: record.originalMessageID), account: account,
             to: record.to, cc: record.cc, bcc: record.bcc, subject: record.subject,
-            body: Self.unarchive(bodyData), attachments: attachments, quoted: record.quoted, threading: record.threading,
+            body: body, attachments: attachments, quoted: record.quoted, threading: record.threading,
             sendFailure: record.sendFailure, continuesDraft: record.continuesDraft)
         return (draft, record.editedAt)
     }

@@ -223,7 +223,7 @@ LAYOUT = {
               "stripPadX": 16, "stripChipPadLeft": 8, "stripChipInnerGap": 6, "stripChipPadRight": 4, "stripChipSpacing": 8, "stripChipMaxWidth": 240,
               "formatRow": 36, "formatToggle": 28, "formatGap": 2, "formatGroupGap": 12,
               "linkPopoverWidth": 320, "linkPopoverPad": 12, "linkPopoverRadius": 8, "linkPopoverGap": 8,
-              "linkPopoverAlign": "selectionStart", "linkPopoverOffsetY": 6, "popoverEdgeMin": 8},
+              "linkPopoverAlign": "selectionStart", "linkPopoverOffsetY": 6, "popoverEdgeMin": 8, "pictureSelectedWash": 0.45},
  "token": {"invalidGlyph": 10, "height": 22, "padX": 9, "gap": 4, "lineGrow": 26, "maxLines": 3, "rowMax": 88, "moreGap": 6},
  "autocomplete": {"width": 320, "row": 40, "avatar": 24, "maxRows": 6, "radius": 8, "pad": 4, "rowRadius": 5, "rowPadX": 8, "avatarGap": 10, "keycapTrailing": 8, "highlightRule": 3,
                   "anchor": "tokenStart", "offsetX": -46, "offsetY": 4},

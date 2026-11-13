@@ -35,6 +35,10 @@ Once SuperSparrow is your default mail app, a `mailto:` link (an address in Safa
 
 Each account can have a signature: select the account in **Settings → Accounts** and type it in **Signature**, using bold (`⌘B`), italic (`⌘I`), underline (`⌘U`) and links (`⌘K`). It is saved when you leave the field or go to another window. New messages, replies and forwards then start with it below an empty line, above the quoted message; it is ordinary text you can edit or delete. Changing **From** swaps it for the other account's signature, unless you deleted it. Signatures stay on this Mac: SuperSparrow neither reads nor changes the one set in Gmail or Outlook.
 
+## Pictures in a message
+
+Paste a picture (`⌘V`) or drop one on the text of a message you are writing, and it goes in where the cursor is, or where you dropped it, and arrives in the text for the people you send it to. A screenshot copied to the clipboard, an image copied or dragged from a browser, and picture files copied in or dragged from the Finder all work; files that are not all pictures, and files dropped anywhere else in the window, are attached instead. PNG, JPEG and GIF pictures are sent as they are; others (HEIC from an iPhone, TIFF) are converted to JPEG or PNG first. A picture is shown no wider than the text, and sent at full size: like attachments, SuperSparrow puts no limit on it, so a message larger than Gmail or Microsoft accepts fails to send after the undo window, and the draft, pictures included, stays on this Mac to change and send again. Drafts keep their pictures when you quit. The signature field takes text only.
+
 ## Notifications
 
 A notification for one new conversation offers **Archive**, **Mark as Read** and **Reply**; a summary of several ("4 new messages") offers none. Archive and Mark as Read leave SuperSparrow in the background and sync like the same actions in the window, but they have no Undo. Reply brings SuperSparrow forward with a reply ready in a composer window. Clicking a notification for one conversation opens it.

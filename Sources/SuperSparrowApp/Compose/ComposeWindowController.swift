@@ -342,6 +342,8 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
 
         textView.delegate = self
         textView.onLinkRequest = { [weak self] _ in self?.showLinkPopover() }
+        // Files pasted or dropped on the text that are not all pictures attach, as files dropped anywhere else do.
+        textView.onAttachFiles = { [weak self] urls in self?.addAttachments(from: urls) }
         quoteView.onHeightChange = { [weak self] in self?.bodyDocument.needsLayout = true }
 
         bar.sendButton.target = self
@@ -961,6 +963,16 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
             draftChanged(body: false)
         }
         if !rejected.isEmpty { statusBoard.post(.rejectedDrop(rejected)) }
+    }
+
+    /// The demo's compose snapshot (`--snapshot-compose`, spec §5.43): its line of text and picture at the caret, typed
+    /// and pasted as a person would, so the snapshot shows a picture in the body (§5.20, Images in the body).
+    func writeDemoSample() {
+        guard let picture = ComposeImageAttachment.make(data: DemoComposerSample.picture, typeIdentifier: ComposerImageFormat.png.typeIdentifier,
+                                                        filename: DemoComposerSample.pictureName) else { return }
+        window?.makeFirstResponder(textView)
+        textView.insertText(DemoComposerSample.text + "\n", replacementRange: textView.selectedRange())
+        textView.insertPictures([picture])
     }
 
     private func removeAttachment(id: UUID) {
