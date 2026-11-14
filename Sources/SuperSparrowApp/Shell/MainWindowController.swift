@@ -297,18 +297,37 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         guard let scheduled = note.userInfo?[SendLaterScheduled.userInfoKey] as? SendLaterScheduled,
               (try? environment.store.pendingSendSummaries().contains { $0.id == scheduled.sendID }) == true else { return }
         let time = laterFormatter.dueTime(for: scheduled.date, reference: laterFormatter.reference(now: laterNow()))
+        let fromWindow = (note.object as? ConversationViewController).flatMap { source in
+            readerWindows.first { $0.conversation === source }
+        }
+        let windowConversation = fromWindow?.conversationID
+        weak var windowReader = fromWindow?.conversation
         let record = {
-            self.recordExternalUndo(command: SendLaterCopy.command, toast: SendLaterCopy.sends(time), symbol: Quire.Icon.later) {
+            self.recordExternalUndo(command: SendLaterCopy.command, toast: SendLaterCopy.sends(time), symbol: Quire.Icon.later) { [weak self] in
                 scheduled.undo()
+                // Its window has closed since (⌘W keeps no frame for an undo to open it again at): the reply's text is
+                // parked under its conversation, so a reader showing that conversation takes it, or the main window's
+                // says it was not sent; otherwise nothing on screen would show the undo.
+                guard let self, let id = windowConversation else { return }
+                if let open = windowReader, self.readerWindows.contains(where: { $0.conversation === open }) { return }
+                self.handUnsentQuickReply(under: id)
             }
         }
         // A reader window's quick reply scheduled it: the step is that window's, so its toast and its undo's confirmation
         // show there (spec, Reader window (Q3.5)); the window stays open, as nothing left the desk.
-        if let source = note.object as? ConversationViewController,
-           let reader = readerWindows.first(where: { $0.conversation === source }) {
+        if let reader = fromWindow {
             act(in: reader, closing: false) { _ = record() }
         } else {
             _ = record()
+        }
+    }
+
+    /// A reply scheduled in a reader window that has closed was taken back: the readers showing its conversation take the
+    /// parked text, the main window's first; with none, the main window's reader says it was not sent and where it waits.
+    private func handUnsentQuickReply(under id: ConversationID) {
+        let readers = [conversation] + readerWindows.map(\.conversation)
+        if readers.first(where: { $0.takeUnsentQuickReply(under: id, confirming: false) }) == nil {
+            conversation.takeUnsentQuickReply(under: id, confirming: true)
         }
     }
 

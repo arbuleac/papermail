@@ -339,6 +339,41 @@ final class ReaderWindowTests: XCTestCase {
         harness.close()
     }
 
+    /// A reply scheduled from a window's quick reply, the window closed with ⌘W and Z pressed in the main window within
+    /// the grace: the text comes into the main window's reader showing the conversation; showing another, its strip says
+    /// the reply was not sent, and the text is there when the conversation is. It was parked out of sight, and nothing on
+    /// screen showed the undo.
+    func testUndoingAWindowsSendLaterAfterItClosedBringsTheTextBack() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let date = Date().addingTimeInterval(86_400)
+        let (id, reader) = try open(0, harness)
+        harness.spin { harness.reader.currentConversationID == id }
+        reader.conversation.sendQuickReplyLater("See you Tuesday", mode: .reply, at: date)
+        XCTAssertEqual(try harness.environment.store.pendingSends().count, 1)
+        XCTAssertTrue(message(in: reader)?.hasPrefix("Sends") == true)
+        reader.close()
+        XCTAssertTrue(harness.controller.perform(.undo))
+        XCTAssertTrue(try harness.environment.store.pendingSends().isEmpty, "the schedule is taken back")
+        XCTAssertEqual(harness.reader.quickReplyBar.text, "See you Tuesday", "in the main window's reader, which shows it")
+
+        // Showing another conversation: the strip says so, and the text waits for the conversation.
+        harness.reader.quickReplyBar.text = ""
+        let (other, second) = try open(1, harness)
+        select(2, harness)
+        let third = harness.list.conversations[2].id
+        harness.spin { harness.reader.currentConversationID == third }
+        second.conversation.sendQuickReplyLater("For the second", mode: .reply, at: date)
+        second.close()
+        XCTAssertTrue(harness.controller.perform(.undo))
+        guard case .notSent? = harness.reader.quickReplyBar.stripState else {
+            return XCTFail("the main window's reader says it was not sent: \(String(describing: harness.reader.quickReplyBar.stripState))")
+        }
+        select(1, harness)
+        harness.spin { harness.reader.currentConversationID == other }
+        XCTAssertEqual(harness.reader.quickReplyBar.text, "For the second")
+    }
+
     /// The reader's own commands reach a window's conversation from the menus: Download Attachments, Print, and Find in
     /// Conversation with Find Next and Find Previous.
     func testTheWindowAnswersTheReadersCommands() throws {

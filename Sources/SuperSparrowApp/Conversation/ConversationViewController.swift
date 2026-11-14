@@ -1858,11 +1858,12 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
                     return
                 }
                 ComposeDraftStore.shared.remove(id: draft.id)
-                if let self {
+                if let self, self.currentConversationID != nil {
                     self.restoreUnsentQuickReply(text, under: conversation)
                 } else {
-                    // Scheduled in a reader window closed since: the text waits under its conversation for the next
-                    // reader to show it, as the window's own text does.
+                    // Scheduled in a reader window closed since (its reader shows nothing, or has gone): the text waits
+                    // under its conversation, as the window's own text does, and the main window hands it to a reader
+                    // showing that conversation (`MainWindowController.sendLaterScheduled`).
                     _ = shelf.drafts.restoreUnsent(text, under: conversation, shown: nil)
                 }
             }.post(from: self)
@@ -1871,6 +1872,24 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             ComposeDraftStore.shared.remove(id: draft.id)
             quickReply.status = .error
         }
+    }
+
+    /// A reply scheduled in a reader window that has closed since was taken back, its text parked under `conversation`:
+    /// it comes into this box when this reader shows that conversation (true); otherwise this reader's strip says it was
+    /// not sent, with Show Draft going to it, when `confirming` (false either way). Nothing shown, nothing changes.
+    @discardableResult
+    func takeUnsentQuickReply(under conversation: ConversationID, confirming: Bool) -> Bool {
+        guard isViewLoaded, let shown = currentConversationID else { return false }
+        if shown == conversation {
+            takeParkedQuickReply()
+            quickReply.focus()
+            return true
+        }
+        if confirming {
+            quickSendShown = conversation
+            quickReply.showStrip(.notSent(subject: RenderPayloadBuilder.subject(of: (try? client.store.messages(in: conversation)) ?? [])))
+        }
+        return false
     }
 
     /// An undone Send Later puts the reply back where it was written: in the bar when its conversation is on screen,
