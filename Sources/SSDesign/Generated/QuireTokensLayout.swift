@@ -750,6 +750,18 @@ extension Quire {
             public static let senderRowX: CGFloat = 12
             public static let senderActionGap: CGFloat = 12
             public static let senderRemoveInset: CGFloat = 9
+            public static let themeTile: [CGFloat] = [60, 40]
+            public static let themeTileGap: CGFloat = 15
+            public static let themeRow: CGFloat = 76
+            public static let themeNameGap: CGFloat = 6
+            public static let themeUnderline: CGFloat = 2
+            public static let themeUnderlineGap: CGFloat = 3
+            public static let themeCaptionLines: CGFloat = 2
+            public static let themeTileSpine: CGFloat = 8
+            public static let themeTilePaper: CGFloat = 18
+            public static let themeTilePip: CGFloat = 4
+            public static let themeTileLine: CGFloat = 1.5
+            public static let themeTileInset: CGFloat = 4
         }
         public enum Menu {
             public static let titleMenuOffsetY: CGFloat = 4

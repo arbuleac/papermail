@@ -34,8 +34,16 @@ public struct QuireSettingsGallery: View {
                 QuireGallerySection("Senders · Q4.2") { QuireGallerySenders() }
                 QuireGallerySection("Senders · empty") { QuireGallerySendersEmpty() }
             }
-            QuireGallerySection("Settings grid · General") { QuireGalleryGeneral() }
-                .frame(width: Quire.Layout.Settings.width - 2 * Quire.Layout.Settings.padX, alignment: .leading)
+            // Side by side: the sheet is rendered at 2× in one bitmap, which must stay within a texture's 8,192 pixels.
+            HStack(alignment: .top, spacing: Quire.Space.s9) {
+                QuireGallerySection("Settings grid · General") { QuireGalleryGeneral() }
+                    .frame(width: Quire.Layout.Settings.width - 2 * Quire.Layout.Settings.padX, alignment: .leading)
+                VStack(alignment: .leading, spacing: Quire.Space.s8) {
+                    QuireGallerySection("Theme tiles · §5.40") { QuireGalleryThemeTiles() }
+                    QuireGallerySection("Settings grid · Appearance") { QuireGalleryAppearance() }
+                        .frame(width: Quire.Layout.Settings.width - 2 * Quire.Layout.Settings.padX, alignment: .leading)
+                }
+            }
         }
         .padding(.top, Quire.Layout.Settings.padTop)
         .padding(.horizontal, Quire.Layout.Settings.padX)
@@ -387,6 +395,41 @@ struct QuireGallerySendersEmpty: View {
     var body: some View {
         QuireRemovableList(rows: [], emptyTitle: "No sender rules", emptyHint: "Set one from a message's menu.", onRemove: { _ in })
             .frame(width: Quire.Layout.Settings.sendersWidth - 2 * Quire.Layout.Settings.padX)
+    }
+}
+
+/// A tile is drawn in its own theme in every theme the gallery is shown in; only its name, bar, edge and ring follow
+/// the gallery's.
+struct QuireGalleryThemeTiles: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: Quire.Space.s4) {
+            HStack(alignment: .top, spacing: Quire.Space.s6) {
+                QuireThemeTile(.study, isChosen: true)
+                QuireThemeTile(.study, isChosen: true).environment(\.controlActiveState, .inactive)
+                QuireThemeTile(.gallery, isChosen: false)
+                QuireThemeTile(.rain, isChosen: false).quireForcedStates(.hovered)
+                QuireThemeTile(.grove, isChosen: false).quireForcedStates(.pressed)
+                QuireThemeTile(.dusk, isChosen: true).quireForcedStates(.focused)
+            }
+            QuireGalleryCaption("chosen · chosen, not key · not chosen · hover · pressed · chosen + focused")
+        }
+    }
+}
+
+struct QuireGalleryAppearance: View {
+    var body: some View {
+        QuireSettingsGrid {
+            QuireSettingsRow("Theme", alignment: .top) {
+                QuireThemePicker("Theme", selection: .constant(.study))
+            }
+            QuireSettingsRow("Appearance") {
+                QuireRadioGroup("Appearance", selection: .constant("Automatic"), options: ["Automatic", "Light", "Dark"]) { $0 }
+            }
+            QuireSettingsRow("Dark Mode") {
+                Toggle("Adapt mail that sets its own colours", isOn: .constant(true)).toggleStyle(.quireCheckbox)
+            }
+            QuireSettingsCaption("Off: it opens in the sender's colours, on a white page. ⇧⌘O switches one message.")
+        }
     }
 }
 

@@ -15,6 +15,7 @@ public struct QuireRadioGroup<Value: Hashable>: View {
     @Binding var selection: Value
     let options: [Value]
     let label: (Value) -> String
+    let spokenLabel: ((Value) -> String)?
     let focus: FocusState<Bool>.Binding?
 
     @FocusState private var ownFocus: Bool
@@ -24,12 +25,15 @@ public struct QuireRadioGroup<Value: Hashable>: View {
     ///   - title: the group's accessibility label (the Settings row label beside it).
     ///   - focus: an external focus binding, for forms that move focus themselves; the group tracks its own
     ///     otherwise.
+    ///   - accessibilityLabel: what VoiceOver reads for an option whose visible word needs more said (Appearance's
+    ///     “Automatic, follows macOS”); the visible label otherwise.
     public init(_ title: String, selection: Binding<Value>, options: [Value], focus: FocusState<Bool>.Binding? = nil,
-                label: @escaping (Value) -> String) {
+                accessibilityLabel: ((Value) -> String)? = nil, label: @escaping (Value) -> String) {
         self.title = title
         _selection = selection
         self.options = options
         self.focus = focus
+        self.spokenLabel = accessibilityLabel
         self.label = label
     }
 
@@ -59,7 +63,7 @@ public struct QuireRadioGroup<Value: Hashable>: View {
         .accessibilityRepresentation {
             Picker(title, selection: $selection) {
                 ForEach(options, id: \.self) { option in
-                    Text(label(option)).tag(option)
+                    Text(spokenLabel?(option) ?? label(option)).tag(option)
                 }
             }
             .pickerStyle(.radioGroup)

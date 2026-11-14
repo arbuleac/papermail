@@ -10,8 +10,8 @@ final class MetricDriftTests: XCTestCase {
     private let file = DesignTokensFile.shared
 
     func testEveryMetricIsCovered() {
-        // tokens.json had 700 leaves under layout, border and platform when this file was generated.
-        XCTAssertEqual(file.leafCount(under: ["layout", "border", "platform"]), 700, "regenerate with swift scripts/tools/quire-tokens.swift")
+        // tokens.json had 712 leaves under layout, border and platform when this file was generated.
+        XCTAssertEqual(file.leafCount(under: ["layout", "border", "platform"]), 712, "regenerate with swift scripts/tools/quire-tokens.swift")
     }
 
     func testLayoutWindow() {
@@ -792,6 +792,18 @@ final class MetricDriftTests: XCTestCase {
         number(Quire.Layout.Settings.senderRowX, "layout.settings.senderRowX")
         number(Quire.Layout.Settings.senderActionGap, "layout.settings.senderActionGap")
         number(Quire.Layout.Settings.senderRemoveInset, "layout.settings.senderRemoveInset")
+        numbers(Quire.Layout.Settings.themeTile.map { Double($0) }, "layout.settings.themeTile")
+        number(Quire.Layout.Settings.themeTileGap, "layout.settings.themeTileGap")
+        number(Quire.Layout.Settings.themeRow, "layout.settings.themeRow")
+        number(Quire.Layout.Settings.themeNameGap, "layout.settings.themeNameGap")
+        number(Quire.Layout.Settings.themeUnderline, "layout.settings.themeUnderline")
+        number(Quire.Layout.Settings.themeUnderlineGap, "layout.settings.themeUnderlineGap")
+        number(Quire.Layout.Settings.themeCaptionLines, "layout.settings.themeCaptionLines")
+        number(Quire.Layout.Settings.themeTileSpine, "layout.settings.themeTileSpine")
+        number(Quire.Layout.Settings.themeTilePaper, "layout.settings.themeTilePaper")
+        number(Quire.Layout.Settings.themeTilePip, "layout.settings.themeTilePip")
+        number(Quire.Layout.Settings.themeTileLine, "layout.settings.themeTileLine")
+        number(Quire.Layout.Settings.themeTileInset, "layout.settings.themeTileInset")
     }
 
     func testLayoutMenu() {

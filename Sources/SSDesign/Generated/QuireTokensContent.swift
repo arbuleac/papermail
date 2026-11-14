@@ -54,6 +54,7 @@ extension Quire {
         public static let accountsTab = "person.crop.circle"
         public static let oauthTab = "key"
         public static let generalTab = "gearshape"
+        public static let appearanceTab = "paintpalette"
         public static let viewInbox = "tray"
         public static let viewStarred = "star"
         public static let viewSent = "paperplane"

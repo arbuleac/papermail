@@ -2046,6 +2046,9 @@ SwiftUI `Settings { TabView { … } }` with the **system toolbar tab style**, 56
 | `monogramFieldWidth` | 64 | `colourPopupWidth` | 160 | `lastErrorMaxLines` | 3 | `signatureLines` | 3 |
 | `signatureFieldHeight` | 66 | `mailboxSizeGap` | 12 | `sendersWidth` | 440 | `senderRow` | 40 |
 | `senderRowsMax` | 8 | `senderRowX` | 12 | `senderActionGap` | 12 | `senderRemoveInset` | 9 |
+| `themeTile` | 60 / 40 | `themeTileGap` | 15 | `themeRow` | 76 | `themeNameGap` | 6 |
+| `themeUnderline` | 2 | `themeUnderlineGap` | 3 | `themeCaptionLines` | 2 | `themeTileSpine` | 8 |
+| `themeTilePaper` | 18 | `themeTilePip` | 4 | `themeTileLine` | 1.5 | `themeTileInset` | 4 |
 
 **Accounts.** An optional notice banner (below), then the account group (`sheet`, radius 8, hairline edge) of 56 pt rows, then the +/− buttons 8 pt below the group, then, 20 pt below the buttons (`settings.detailTop`), the detail of the selected account.
 
