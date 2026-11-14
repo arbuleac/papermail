@@ -576,6 +576,29 @@ final class ReaderWindowTests: XCTestCase {
         harness.close()
     }
 
+    /// Download all from a window that closes before the files are in: the download goes on (its task holds the reader),
+    /// and its saved toast, with Show in Finder, shows in the main window. It went to the window's controller, gone by
+    /// then, and nowhere showed it.
+    func testASaveThatEndsAfterItsWindowClosedToastsInTheMainWindow() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        var conversation: ConversationViewController?
+        weak var gone: ReaderWindowController?
+        try autoreleasepool {
+            let (_, reader) = try open(0, harness)
+            conversation = reader.conversation
+            gone = reader
+            reader.close()
+        }
+        harness.spin { gone == nil }
+        XCTAssertNil(gone, "the window's controller has gone")
+        let file = folder.appendingPathComponent("plan.pdf")
+        let outcome = AttachmentSaveOutcome(requested: 1, saved: [file], unfetched: 0)
+        try XCTUnwrap(conversation).onAction?(.attachmentsSaved(outcome))
+        XCTAssertEqual(harness.toastMessage, "Saved to Downloads")
+        XCTAssertTrue(harness.toasts.isVisible(in: harness.controller.listPane.toastView), "in the main window")
+    }
+
     /// The G-sequence HUD takes the toast's place in a reader window, 16 pt above the quick reply; placed as in the main
     /// window, 44 pt above the bottom of the window for a sync line it does not have, it covered the top of the bar.
     func testTheSequenceHUDSitsAboveTheQuickReply() throws {

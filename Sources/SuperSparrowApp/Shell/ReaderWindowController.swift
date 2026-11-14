@@ -76,7 +76,15 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
     }
 
     private func wire() {
-        conversation.onAction = { [weak self] action in self?.handle(action) }
+        conversation.onAction = { [weak self, weak opener] action in
+            if let self {
+                self.handle(action)
+            } else if case .attachmentsSaved = action {
+                // The window closed, and this controller went with it, while a download started from it went on (its
+                // task holds the reader): the saved toast, Show in Finder or Couldn't save, shows in the main window.
+                opener?.handle(action)
+            }
+        }
         conversation.onQuickSendChange = { UndoSendPanel.refreshUndoKeyOwner() }
         conversation.messageMenu = { [weak self] in self?.contextMenu() }
         conversation.isDraftInComposer = { ComposeWindowRegistry.shared.controller(holdingDraft: $0) != nil }
