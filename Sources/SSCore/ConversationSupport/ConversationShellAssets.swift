@@ -1566,8 +1566,10 @@ public enum ConversationShellAssets {
         save.addEventListener('click', function (event) {
           stop(event);
           setTarget(card, true);
-          // The app also ignores a second press while the file is saved; disabled here so it does not look pressable.
-          if (save.getAttribute('aria-disabled') === 'true') { return; }
+          // A double-click's second click is no second save: a file already on this Mac is saved before it lands, so
+          // the button is not yet disabled (event.detail is 0 from the keyboard, 1 for a single click). The app also
+          // ignores a second press while the file is saved; disabled here so it does not look pressable.
+          if (event.detail > 1 || save.getAttribute('aria-disabled') === 'true') { return; }
           action('downloadAttachment', card, attachment.id);
         });
         wrap.appendChild(chip);
@@ -1617,7 +1619,8 @@ public enum ConversationShellAssets {
         all.addEventListener('click', function (event) {
           stop(event);
           setTarget(card, true);
-          if (all.getAttribute('aria-disabled') === 'true') { return; }
+          // As on a chip's Download: a double-click saves the files once.
+          if (event.detail > 1 || all.getAttribute('aria-disabled') === 'true') { return; }
           action('downloadAllAttachments', card, null);
         });
         head.appendChild(all);

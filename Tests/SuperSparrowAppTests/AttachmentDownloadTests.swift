@@ -7,7 +7,8 @@ import XCTest
 
 /// Download on each attachment chip and Download all on a message with two files or more (spec §5.17): the shell's
 /// controls and the messages they post, the save itself (a free name, the quarantine kept, one progress for a batch),
-/// the saved toast (§5.30) and File › Download Attachments (⇧⌘D). Files go to a folder of the test's own, never to
+/// each file saved once whatever is pressed meanwhile, a batch that ends while its conversation is off screen, the
+/// saved toast (§5.30) and File › Download Attachments (⇧⌘D). Files go to a folder of the test's own, never to
 /// ~/Downloads; the engine runs over a throwaway store and a provider that serves files from memory, so nothing reaches
 /// the network, the Keychain or the user's mail.
 @MainActor
@@ -60,6 +61,20 @@ final class AttachmentDownloadTests: XCTestCase {
         try AttachmentSafety.write(Data("%PDF-1.4".utf8), to: source)
         try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: downloads.path)
         XCTAssertNil(AttachmentSaver.copy(source, into: downloads))
+    }
+
+    /// A copy that cannot be quarantined (a volume that keeps no extended attributes) is removed, not left unmarked
+    /// where a retry would only add another; it counts as not written.
+    func testACopyThatCannotBeMarkedIsRemoved() throws {
+        let source = folder.appendingPathComponent("run.command")
+        try Data("#!/bin/sh\n".utf8).write(to: source)
+        XCTAssertFalse(AttachmentSafety.isQuarantined(source))
+        struct Refused: Error {}
+        XCTAssertNil(AttachmentSaver.copy(source, into: downloads, mark: { _ in throw Refused() }))
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: downloads.path), [], "the unmarked copy is gone")
+        XCTAssertNil(AttachmentSaver.copy(source, into: downloads, mark: { _ in }), "a mark that does not stick is no mark")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: downloads.path), [])
+        XCTAssertEqual(AttachmentSaver.copy(source, into: downloads)?.lastPathComponent, "run.command", "the name was not taken")
     }
 
     /// Download all fetches the files one after another and reports one fraction for all of them, rising, by size; a
@@ -230,6 +245,175 @@ final class AttachmentDownloadTests: XCTestCase {
         fixture.close()
     }
 
+    /// Focus on a Download button or on Download all is reported as on an elision mark, so the app passes Space and ↩
+    /// to the page (which presses the control) instead of opening Quick Look or the conversation; focus on a chip is not.
+    func testAFocusedDownloadControlTakesSpaceAndReturn() throws {
+        let fixture = try ReaderFixture(folder: folder)
+        defer { fixture.close() }
+        let reader = fixture.reader
+        reader.attachmentPreview.presentsPanel = false
+        let slot = try XCTUnwrap(reader.pool.current)
+        let webView = fixture.webView
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700), styleMask: [.titled], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        reader.view.frame = window.contentLayoutRect
+        window.contentView?.addSubview(reader.view)
+        XCTAssertTrue(window.makeFirstResponder(webView))
+        XCTAssertFalse(slot.markFocused)
+
+        _ = evaluate("document.querySelector('.ss-chip-dl').focus(); true", in: webView)
+        XCTAssertTrue(ListTestSupport.spin(until: { slot.markFocused }, timeout: 5), "the shell says a Download button has focus")
+        XCTAssertTrue(reader.isMarkFocused)
+        XCTAssertFalse(reader.openQuickLookForSelectedMessage(), "Space goes on to the page, which presses the button")
+
+        _ = evaluate("document.querySelector('.ss-chip').focus(); true", in: webView)
+        XCTAssertTrue(ListTestSupport.spin(until: { !slot.markFocused }, timeout: 5), "and that it left it for the chip")
+        XCTAssertFalse(reader.isMarkFocused)
+
+        _ = evaluate("document.querySelector('.ss-dlall').focus(); true", in: webView)
+        XCTAssertTrue(ListTestSupport.spin(until: { slot.markFocused }, timeout: 5), "Download all too")
+        XCTAssertFalse(reader.openQuickLookForSelectedMessage())
+        _ = evaluate("document.activeElement.blur(); true", in: webView)
+        XCTAssertTrue(ListTestSupport.spin(until: { !slot.markFocused }, timeout: 5), "and when focus leaves it")
+        XCTAssertTrue(reader.openQuickLookForSelectedMessage(), "Space is Quick Look's again")
+    }
+
+    /// A double-click on Download saves the file once, even when it is already on this Mac and saved before the second
+    /// click lands: the shell drops the second click, and the app a second request that comes as soon. A later press
+    /// is a second save.
+    func testADoubleClickSavesAFileOnce() throws {
+        let fixture = try ReaderFixture(folder: folder)
+        defer { fixture.close() }
+        let reader = fixture.reader
+        reader.downloadsFolder = downloads
+        let webView = fixture.webView
+        let messageID = fixture.messageID
+        var outcomes: [AttachmentSaveOutcome] = []
+        var again = true
+        reader.onAction = { [unowned reader] action in
+            guard case .attachmentsSaved(let outcome) = action else { return }
+            outcomes.append(outcome)
+            // The second click of a double-click, landing right after the first saved the file.
+            if again {
+                again = false
+                reader.downloadAttachment(ReaderFixture.plan, of: messageID)
+            }
+        }
+        reader.downloadAttachment(ReaderFixture.plan, of: messageID)
+        reader.downloadAttachment(ReaderFixture.plan, of: messageID)
+        XCTAssertTrue(ListTestSupport.spin(until: { outcomes.count == 1 }, timeout: 5))
+        ListTestSupport.spin(for: 0.3)
+        XCTAssertFalse(again, "the second request came")
+        XCTAssertEqual(outcomes.count, 1)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: downloads.path), ["plan.pdf"])
+
+        // The shell posts nothing for a click that is a double-click's second.
+        let button = "document.querySelector('.ss-chip-dl[data-attachment-id=\"\(ReaderFixture.notes.id)\"]')"
+        let first = "new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 })"
+        let second = "new MouseEvent('click', { bubbles: true, cancelable: true, detail: 2 })"
+        _ = evaluate("\(button).dispatchEvent(\(second)); true", in: webView)
+        ListTestSupport.spin(for: 0.3)
+        XCTAssertEqual(outcomes.count, 1, "a second click alone saves nothing")
+        _ = evaluate("\(button).dispatchEvent(\(first)); \(button).dispatchEvent(\(second)); "
+                     + "document.querySelector('.ss-dlall').dispatchEvent(\(second)); true", in: webView)
+        XCTAssertTrue(ListTestSupport.spin(until: { outcomes.count == 2 }, timeout: 5))
+        ListTestSupport.spin(for: 0.3)
+        XCTAssertEqual(outcomes.count, 2, "one save for the double-click, none for Download all's second click")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: downloads.path).sorted(), ["notes.txt", "plan.pdf"])
+
+        // Past a double-click, a press is a second save.
+        ListTestSupport.spin(for: NSEvent.doubleClickInterval + 0.1)
+        reader.downloadAttachment(ReaderFixture.plan, of: messageID)
+        XCTAssertTrue(ListTestSupport.spin(until: { outcomes.count == 3 }, timeout: 5))
+        XCTAssertEqual(outcomes.last?.saved.map(\.lastPathComponent), ["plan 2.pdf"])
+    }
+
+    /// While Download all saves a message's files, a chip's Download (or its menu's Save to Downloads) does nothing:
+    /// the batch is saving that file.
+    func testAChipPressDuringDownloadAllSavesNothingMore() throws {
+        let gate = FileGate()
+        let fixture = try ReaderFixture(folder: folder, gate: gate)
+        defer { fixture.close() }
+        let reader = fixture.reader
+        reader.downloadsFolder = downloads
+        var outcomes: [AttachmentSaveOutcome] = []
+        reader.onAction = { action in
+            if case .attachmentsSaved(let outcome) = action { outcomes.append(outcome) }
+        }
+        reader.downloadAllAttachments(of: fixture.messageID)
+        ListTestSupport.spin(for: 0.05)
+        reader.downloadAttachment(ReaderFixture.plan, of: fixture.messageID)
+        gate.open()
+        XCTAssertTrue(ListTestSupport.spin(until: { !outcomes.isEmpty }, timeout: 5))
+        ListTestSupport.spin(for: 0.3)
+        XCTAssertEqual(outcomes.count, 1)
+        XCTAssertEqual(outcomes.first?.saved.map(\.lastPathComponent), ["plan.pdf", "notes.txt"])
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: downloads.path).sorted(), ["notes.txt", "plan.pdf"])
+    }
+
+    /// Download all leaves a file whose own Download is under way to it and saves the rest: every file once.
+    func testDownloadAllLeavesAFileBeingDownloadedToItsChip() throws {
+        let gate = FileGate()
+        let fixture = try ReaderFixture(folder: folder, gate: gate)
+        defer { fixture.close() }
+        let reader = fixture.reader
+        reader.downloadsFolder = downloads
+        var outcomes: [AttachmentSaveOutcome] = []
+        reader.onAction = { action in
+            if case .attachmentsSaved(let outcome) = action { outcomes.append(outcome) }
+        }
+        reader.downloadAttachment(ReaderFixture.plan, of: fixture.messageID)
+        ListTestSupport.spin(for: 0.05)
+        reader.downloadAllAttachments(of: fixture.messageID)
+        gate.open()
+        XCTAssertTrue(ListTestSupport.spin(until: { outcomes.count == 2 }, timeout: 5))
+        ListTestSupport.spin(for: 0.3)
+        XCTAssertEqual(outcomes.count, 2)
+        XCTAssertEqual(outcomes.map(\.requested), [1, 1])
+        XCTAssertEqual(Set(outcomes.flatMap(\.saved).map(\.lastPathComponent)), ["plan.pdf", "notes.txt"])
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: downloads.path).sorted(), ["notes.txt", "plan.pdf"])
+    }
+
+    /// A Download all that ends while another conversation is on screen ends in its own page all the same: coming back
+    /// is a swap with no render, and it shows the count and a pressable Download all again, with the file that could not
+    /// be fetched marked.
+    func testDownloadAllThatEndsElsewhereEndsInItsPage() throws {
+        let gate = FileGate()
+        let fixture = try ReaderFixture(folder: folder, served: [ReaderFixture.plan], gate: gate)
+        defer { fixture.close() }
+        let reader = fixture.reader
+        reader.downloadsFolder = downloads
+        var outcomes: [AttachmentSaveOutcome] = []
+        reader.onAction = { action in
+            if case .attachmentsSaved(let outcome) = action { outcomes.append(outcome) }
+        }
+        let page = try XCTUnwrap(reader.pool.current)
+        let webView = fixture.webView
+        _ = evaluate("document.querySelector('.ss-dlall').click(); true", in: webView)
+        XCTAssertTrue(ListTestSupport.spin(until: {
+            self.evaluate("document.querySelector('.ss-dlall').getAttribute('aria-disabled')", in: webView) as? String == "true"
+        }, timeout: 5), "the download shows")
+
+        XCTAssertTrue(fixture.show(fixture.otherConversation))
+        XCTAssertFalse(reader.pool.current === page)
+        XCTAssertTrue(reader.pool.slot(rendering: fixture.conversation) === page, "kept warm in the pool")
+        gate.open()
+        XCTAssertTrue(ListTestSupport.spin(until: { !outcomes.isEmpty }, timeout: 5))
+        XCTAssertEqual(outcomes.first?.saved.map(\.lastPathComponent), ["plan.pdf"])
+        XCTAssertEqual(outcomes.first?.unfetched, 1)
+
+        XCTAssertTrue(fixture.show(fixture.conversation))
+        XCTAssertTrue(reader.pool.current === page, "the same page, swapped back in")
+        XCTAssertTrue(ListTestSupport.spin(until: {
+            self.evaluate("document.querySelector('.ss-dlall').hasAttribute('aria-disabled')", in: webView) as? Bool == false
+        }, timeout: 5), "Download all is pressable again")
+        XCTAssertEqual(evaluate("document.querySelector('.ss-atts-head').classList.contains('ss-loading')", in: webView) as? Bool, false,
+                       "the count is back")
+        let failed = "document.querySelector('.ss-chip[data-attachment-id=\"\(ReaderFixture.notes.id)\"]').classList.contains('ss-failed')"
+        XCTAssertEqual(evaluate(failed, in: webView) as? Bool, true, "the file that could not be fetched says so")
+    }
+
     // MARK: The main window
 
     func testTheSavedToastOffersShowInFinder() throws {
@@ -317,34 +501,48 @@ private final class FractionLog: @unchecked Sendable {
 }
 
 /// A reader showing one conversation whose latest message carries two files and an inline image, over an engine whose
-/// provider serves the files from memory.
+/// provider serves the files from memory; a second conversation, with no files, is there to move to and back.
 @MainActor
 private final class ReaderFixture {
     static let plan = AttachmentInfo(id: "att-plan", filename: "plan.pdf", mimeType: "application/pdf", sizeBytes: 4_000, isInline: false)
     static let notes = AttachmentInfo(id: "att-notes", filename: "notes.txt", mimeType: "text/plain", sizeBytes: 12, isInline: false)
     static let logo = AttachmentInfo(id: "att-logo", filename: "logo.png", mimeType: "image/png", sizeBytes: 10, contentID: "logo", isInline: true)
     static let planBytes = Data(repeating: 7, count: 4_000)
+    static let notesBytes = Data("Notes, line 1".utf8)
 
     let reader: ConversationViewController
+    let conversation: ConversationID
+    let otherConversation: ConversationID
     let messageID: MessageID
     let webView: WKWebView
 
-    init(folder: URL, attachments: [AttachmentInfo]? = nil) throws {
+    /// - Parameters:
+    ///   - served: the files the provider has (both, when nil); any other fails, as a file the server no longer has would.
+    ///   - gate: holds every file back until it opens.
+    init(folder: URL, attachments: [AttachmentInfo]? = nil, served: [AttachmentInfo]? = nil, gate: FileGate? = nil) throws {
         let account = ListTestSupport.accountA
-        let conversation = ConversationID(accountID: account.id, providerID: "thread-plan")
+        conversation = ConversationID(accountID: account.id, providerID: "thread-plan")
+        otherConversation = ConversationID(accountID: account.id, providerID: "thread-other")
         messageID = MessageID(accountID: account.id, providerID: "msg-plan")
+        let otherMessage = MessageID(accountID: account.id, providerID: "msg-other")
         let store = InMemoryMailStore()
         try store.upsertAccount(account)
         try store.upsertMessages([MessageMetadata(
             id: messageID, conversationID: conversation, subject: "The plan", snippet: "Attached.",
             from: EmailAddress(name: "Ada Lovelace", address: "ada@example.com"), to: [EmailAddress(address: account.email)],
             date: Date(), roles: [.inbox], isRead: true, isStarred: false, hasAttachments: true
+        ), MessageMetadata(
+            id: otherMessage, conversationID: otherConversation, subject: "Lunch", snippet: "Noon?",
+            from: EmailAddress(name: "Ben Carter", address: "ben@example.com"), to: [EmailAddress(address: account.email)],
+            date: Date().addingTimeInterval(-60), roles: [.inbox], isRead: true, isStarred: false, hasAttachments: false
         )])
         try store.saveBody(StoredBody(body: MessageBody(html: "<p>Attached.</p>", text: "Attached.", attachments: attachments ?? [Self.plan, Self.logo, Self.notes]),
                                       renderedHTML: "<p>Attached.</p>", plainText: "Attached."), for: messageID)
-        let provider = ServedAttachmentProvider(accountID: account.id, files: [
-            Self.plan.id: Self.planBytes, Self.notes.id: Data("Notes, line 1".utf8),
-        ])
+        try store.saveBody(StoredBody(body: MessageBody(html: "<p>Noon?</p>", text: "Noon?", attachments: []),
+                                      renderedHTML: "<p>Noon?</p>", plainText: "Noon?"), for: otherMessage)
+        let bytes = [Self.plan.id: Self.planBytes, Self.notes.id: Self.notesBytes]
+        let servedIDs = Set((served ?? [Self.plan, Self.notes]).map(\.id))
+        let provider = ServedAttachmentProvider(accountID: account.id, files: bytes.filter { servedIDs.contains($0.key) }, gate: gate)
         let engine = MailEngine(store: store, tokenStore: InMemoryTokenStore(), tokenProvider: DemoTokenProvider(),
                                 authenticator: DemoAuthenticator(), sanitizer: HTMLSanitizer(), providerFactory: { _ in provider },
                                 attachmentCacheDirectory: folder.appendingPathComponent("attachments", isDirectory: true))
@@ -352,9 +550,20 @@ private final class ReaderFixture {
         _ = reader.view
         reader.show(conversation)
         let slot = try XCTUnwrap(reader.pool.current)
-        ListTestSupport.spin(until: { slot.isReady && slot.pendingRender == nil && !slot.renderInFlight && slot.renderedID == conversation },
+        let shown = conversation
+        ListTestSupport.spin(until: { slot.isReady && slot.pendingRender == nil && !slot.renderInFlight && slot.renderedID == shown },
                              timeout: 10)
         webView = slot.webView
+    }
+
+    /// Shows `id` and waits until its page is the one on screen, landed.
+    @discardableResult
+    func show(_ id: ConversationID) -> Bool {
+        reader.show(id)
+        return ListTestSupport.spin(until: {
+            guard let slot = self.reader.pool.current else { return false }
+            return slot.isReady && slot.pendingRender == nil && !slot.renderInFlight && slot.renderedID == id
+        }, timeout: 10)
     }
 
     func close() {
@@ -362,18 +571,49 @@ private final class ReaderFixture {
     }
 }
 
-/// Serves each file whole; an id it does not know fails, as a file the server no longer has would.
+/// Holds files back until the test lets them through, so it can act while a download is under way.
+private final class FileGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let now = lock.withLock { () -> Bool in
+                if isOpen { return true }
+                waiters.append(continuation)
+                return false
+            }
+            if now { continuation.resume() }
+        }
+    }
+
+    func open() {
+        let released = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+            isOpen = true
+            defer { waiters = [] }
+            return waiters
+        }
+        for waiter in released { waiter.resume() }
+    }
+}
+
+/// Serves each file whole, once its gate (if any) opens; an id it does not know fails, as a file the server no longer
+/// has would.
 private final class ServedAttachmentProvider: MailProvider, @unchecked Sendable {
     let accountID: AccountID
     let kind: ProviderKind = .gmail
     private let files: [String: Data]
+    private let gate: FileGate?
 
-    init(accountID: AccountID, files: [String: Data]) {
+    init(accountID: AccountID, files: [String: Data], gate: FileGate? = nil) {
         self.accountID = accountID
         self.files = files
+        self.gate = gate
     }
 
     func attachment(messageID providerID: String, attachmentID: String) async throws -> Data {
+        await gate?.wait()
         guard let data = files[attachmentID] else { throw ProviderError.notFound }
         return data
     }
