@@ -291,6 +291,57 @@ final class GmailThrottleTests: XCTestCase {
         XCTAssertEqual(batchIDs().count, 1)
     }
 
+    // MARK: A message Gmail will not return
+
+    /// A message whose metadata Gmail kept failing on its own (a 500 for that one message, a reply that does not decode)
+    /// failed every changes call after it had paged the whole history: the cursor never moved and the account stayed on
+    /// "Couldn't sync". It is left out now and kept as the store has it, since only a 404 says Gmail no longer has it.
+    func testAMessageGmailKeepsFailingNoLongerHoldsTheCursor() async throws {
+        server.on("GET", "/users/me/history", .json(GmailFixtures.history))
+        TestSupport.stubBatchRounds { _, index, id in
+            switch id {
+            case "m4": return StubBatchPart(index: index, status: 200, json: GmailFixtures.metadataM4)
+            case "m2": return StubBatchPart(index: index, status: 500, json: GmailFixtures.serverError)
+            default: return StubBatchPart(index: index, status: 404, json: GmailFixtures.notFoundError)
+            }
+        }
+        server.on("GET", "/users/me/messages/m2", .json(GmailFixtures.serverError, status: 500))
+
+        let page = try await TestSupport.makeProvider().changes(since: "8675309", limit: 100)
+
+        XCTAssertEqual(page.upserts.map(\.id.providerID), ["m4"])
+        XCTAssertEqual(Set(page.deletedIDs), ["m9", "m5"], "m2 failing says nothing about it; m5's 404 does")
+        XCTAssertEqual(page.cursor, "8675320", "the cursor moves on")
+    }
+
+    /// The same message no longer fails a backfill page or a server search: it is left out like an unknown one, and a
+    /// lookup says which, so a reconcile keeps it rather than deleting it.
+    func testMetadataLeavesOutAMessageGmailWillNotReturnAndSaysWhich() async throws {
+        TestSupport.stubBatchRounds { _, index, id in
+            id == "id3" ? StubBatchPart(index: index, status: 500, json: GmailFixtures.serverError) : self.success(index, id)
+        }
+        server.on("GET", "/users/me/messages/id3", .json(#"{"not":"a message"}"#))
+        let provider = TestSupport.makeProvider()
+
+        let messages = try await provider.metadata(for: ids)
+        XCTAssertEqual(messages.map(\.id.providerID), ids.filter { $0 != "id3" })
+        let lookup = try await provider.lookUpMetadata(for: ids)
+        XCTAssertEqual(lookup.unreadable, ["id3"])
+    }
+
+    /// What the next request would meet too still fails the call: the network, here on the one-by-one fetch.
+    func testTheNetworkFailingTheOneByOneFetchStillFailsTheCall() async {
+        TestSupport.stubBatchRounds { _, index, id in
+            id == "id3" ? StubBatchPart(index: index, status: 500, json: GmailFixtures.serverError) : self.success(index, id)
+        }
+        server.on("GET", "/users/me/messages/id3", .failure(URLError(.notConnectedToInternet)))
+        let provider = TestSupport.makeProvider()
+
+        let error = await TestSupport.providerError { _ = try await provider.metadata(for: self.ids) }
+
+        guard case .network? = error else { return XCTFail("expected network, got \(String(describing: error))") }
+    }
+
     func testThrottledChangesHydrationKeepsTheAnsweredParts() async throws {
         server.on("GET", "/users/me/history", .json(GmailFixtures.history))
         TestSupport.stubBatchRounds { round, index, id in

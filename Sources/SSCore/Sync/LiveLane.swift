@@ -587,6 +587,7 @@ actor LiveLane {
             if complete {
                 // The head was the whole mailbox, so what it did not list is gone. Swept before the state says
                 // complete: a crash in between leaves the old cursor, which the next poll rejects again.
+                try await markMailOutsideEnumerationSeen()
                 swept = try await removeLostTargets(listed: Set(head.messages.map(\.id.providerID)))
                 swept += try store.finishBackfill(accountID: accountID, sweepUnseen: true)
             }
@@ -599,6 +600,21 @@ actor LiveLane {
             return head
         }
         try await hydrateNewest(head.messages, afterHead: true)
+    }
+
+    /// Mail the enumeration leaves out that the provider still has (Gmail's Trash and Spam), marked seen so the sweep
+    /// keeps it: nothing after the reset would bring it back. Ids only, charged to the live share.
+    private func markMailOutsideEnumerationSeen() async throws {
+        guard provider.hasMailOutsideEnumeration else { return }
+        currentCall = "list"
+        var page: String?
+        repeat {
+            let listing = try await provider.mailOutsideEnumeration(page: page, limit: tuning.outsideEnumerationPageSize)
+            await budget.recordLive(budget.quota.listCost)
+            try Task.checkCancellation()
+            try store.markBackfillSeen(accountID: accountID, providerIDs: listing.ids)
+            page = listing.nextPage
+        } while page != nil
     }
 
     /// Stored messages a live operation targets that the head did not list and the provider no longer has

@@ -194,6 +194,26 @@ final class GmailProviderTests: XCTestCase {
         XCTAssertEqual(server.requests(to: "/users/me/messages").first?.query["maxResults"], ["500"])
     }
 
+    /// The enumeration leaves out Trash and Spam, which the store holds (trashed here, or reported by history), so a
+    /// reconcile's sweep took them though Gmail keeps them. Their ids are listed apart, 500 a page for 5 units, for the
+    /// reconcile to keep.
+    func testMailOutsideTheEnumerationIsTrashAndSpamListedByID() async throws {
+        server.on("GET", "/users/me/messages", .json(#"{"messages":[{"id":"t1","threadId":"x"},{"id":"s1","threadId":"y"}],"nextPageToken":"more"}"#))
+        let provider = TestSupport.makeProvider()
+        XCTAssertTrue(provider.hasMailOutsideEnumeration)
+
+        let listing = try await provider.mailOutsideEnumeration(page: "p2", limit: 5000)
+
+        XCTAssertEqual(listing.ids, ["t1", "s1"])
+        XCTAssertNil(listing.messages)
+        XCTAssertEqual(listing.nextPage, "more")
+        let query = try XCTUnwrap(server.requests(to: "/users/me/messages").first?.query)
+        XCTAssertEqual(query["q"], ["in:trash OR in:spam"])
+        XCTAssertEqual(query["includeSpamTrash"], ["true"])
+        XCTAssertEqual(query["maxResults"], ["500"])
+        XCTAssertEqual(query["pageToken"], ["p2"])
+    }
+
     // MARK: Changes
 
     func testChangesCollectsAddedDeletedAndRelabeledMessages() async throws {

@@ -54,6 +54,16 @@ final class ScriptedProvider: MailProvider, @unchecked Sendable {
     /// Ids the provider will not return on their own (Graph's 403 for one message): left out of `metadata(for:)` like
     /// unknown ones, and reported as unreadable by `lookUpMetadata(for:)`.
     var unreadableIDs: Set<String> = []
+    /// The pages `mailOutsideEnumeration` lists (Gmail's Trash and Spam), chained by their index as the page token; nil
+    /// for an enumeration that leaves nothing the store holds out.
+    var outsideEnumerationPages: [[String]]? {
+        get { locked { scriptedOutsidePages } }
+        set { locked { scriptedOutsidePages = newValue } }
+    }
+    private var scriptedOutsidePages: [[String]]?
+    /// The page tokens `mailOutsideEnumeration` was asked for.
+    var outsideEnumerationCalls: [String?] { locked { recordedOutsideCalls } }
+    private var recordedOutsideCalls: [String?] = []
     /// Called (outside the lock) at the start of every backfill listing, with its page token.
     var onBackfillListing: (@Sendable (String) -> Void)?
     /// How long each `changes` call takes.
@@ -228,6 +238,18 @@ final class ScriptedProvider: MailProvider, @unchecked Sendable {
                 return nil
             }
         }
+    }
+
+    var hasMailOutsideEnumeration: Bool { outsideEnumerationPages != nil }
+
+    func mailOutsideEnumeration(page: String?, limit: Int) async throws -> BackfillListing {
+        let pages: [[String]] = locked {
+            recordedOutsideCalls.append(page)
+            return scriptedOutsidePages ?? []
+        }
+        let index = page.flatMap { Int($0) } ?? 0
+        guard pages.indices.contains(index) else { return BackfillListing(ids: [], messages: nil, nextPage: nil) }
+        return BackfillListing(ids: pages[index], messages: nil, nextPage: index + 1 < pages.count ? String(index + 1) : nil)
     }
 
     func lookUpMetadata(for providerIDs: [String]) async throws -> MetadataLookup {

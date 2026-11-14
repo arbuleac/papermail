@@ -357,6 +357,7 @@ actor BackfillLane {
         var state = state
         if reconciling {
             // Before "listed" is saved: a failure here retries the last page, not the whole listing.
+            try await markMailOutsideEnumerationSeen(generation: generation)
             try await removeLostTargets(generation: generation)
             var listed = state
             var resumeNowhere = checkpoint
@@ -372,6 +373,24 @@ actor BackfillLane {
         let pages = state.pagesDone
         let messages = state.messagesSeen
         SyncLog.logger.info("backfill complete for \(self.accountID.rawValue, privacy: .public): \(messages, privacy: .public) messages in \(pages, privacy: .public) pages, reconciling \(reconciling, privacy: .public), removed \(swept, privacy: .public)")
+    }
+
+    /// Mail the enumeration leaves out that the provider still has (Gmail's Trash and Spam): marked seen so the sweep
+    /// keeps it, since nothing after the reset would bring it back. Ids only, paced like the listing.
+    private func markMailOutsideEnumerationSeen(generation: Int) async throws {
+        guard provider.hasMailOutsideEnumeration else { return }
+        let cost = budget.quota.listCost
+        let pageSize = tuning.outsideEnumerationPageSize
+        var page: String?
+        repeat {
+            let asked = page
+            let listing = try await request("list", cost: cost) {
+                try await self.provider.mailOutsideEnumeration(page: asked, limit: pageSize)
+            }
+            try Task.checkCancellation()
+            try fenced(generation) { try store.markBackfillSeen(accountID: accountID, providerIDs: listing.ids) }
+            page = listing.nextPage
+        } while page != nil
     }
 
     /// Stored messages a live operation targets that the provider no longer has (`LostTargets`): deleted before the

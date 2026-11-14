@@ -491,6 +491,48 @@ final class MailEngineLaneTests: XCTestCase {
         await harness.shutdown()
     }
 
+    /// Gmail's enumeration leaves out Trash and Spam, so a reconcile after an expired history took every stored trashed
+    /// message though Gmail keeps its Trash for 30 days, and no later poll brings one back. Their ids are listed apart
+    /// now and kept; one Gmail purged in the gap still goes. The backfill's sweep:
+    func testAReconcileKeepsTheTrashAndSpamTheEnumerationLeavesOut() async throws {
+        try await assertReconcileKeepsMailOutsideTheEnumeration(wholeMailboxInTheHead: false)
+    }
+
+    /// The same for the live lane's sweep, when the head page is the whole mailbox.
+    func testAResetWhoseHeadIsTheWholeMailboxKeepsTheTrashAndSpam() async throws {
+        try await assertReconcileKeepsMailOutsideTheEnumeration(wholeMailboxInTheHead: true)
+    }
+
+    private func assertReconcileKeepsMailOutsideTheEnumeration(wholeMailboxInTheHead: Bool) async throws {
+        let provider = ScriptedProvider(accountID: Fixtures.accountID)
+        provider.bootstrapRuns = wholeMailboxInTheHead
+            ? [["": .success(Fixtures.page(1...2, next: nil, cursor: "c9"))]]
+            : [["": .success(Fixtures.page(1...1, next: "p2", cursor: "c9")), "p2": .success(Fixtures.page(2...2, next: nil))]]
+        provider.changesQueue = [.failure(ProviderError.resetRequired)]
+        provider.outsideEnumerationPages = [["8"], ["10"]]
+        let harness = try EngineHarness(provider: provider)
+        let store = harness.store
+        let account = Fixtures.accountID
+        try store.upsertMessages((1...2).map { Fixtures.message($0) } + [
+            Fixtures.message(8, conversation: "t8", roles: [.trash]),
+            Fixtures.message(9, conversation: "t9", roles: [.trash]),
+            Fixtures.message(10, conversation: "t10", roles: [.spam]),
+        ])
+        try store.setSyncCursor("c0", for: account)
+        try store.setBootstrapState(BootstrapState(startedAt: Date(), pagesDone: 1, messagesSeen: 5, isComplete: true), for: account)
+        harness.engine.start()
+
+        try await waitUntil("reconcile complete") {
+            try store.syncCursor(for: account) == "c9" && store.bootstrapState(for: account)?.isComplete == true
+        }
+        XCTAssertNotNil(try store.message(id(8)), "Gmail keeps its Trash")
+        XCTAssertNotNil(try store.message(id(10)), "and its Spam")
+        XCTAssertNil(try store.message(id(9)), "one purged in the gap is gone")
+        XCTAssertNotNil(try store.message(id(1)))
+        XCTAssertEqual(provider.outsideEnumerationCalls, [nil, "1"])
+        await harness.shutdown()
+    }
+
     /// A folder purged in Outlook (emptied out of Deleted Items) answers 404 and leaves the polls, and no delta ever
     /// reports its mail; it stayed here for good, in All Mail and search. Its stored messages are looked up: the ones
     /// the provider no longer has go, one moved out before the purge takes its new folder, and one the provider will

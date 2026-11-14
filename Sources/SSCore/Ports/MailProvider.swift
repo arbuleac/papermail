@@ -102,6 +102,16 @@ public protocol MailProvider: Sendable {
     /// started with. The default implementation calls `bootstrap(page:limit:)` and returns its metadata inline.
     func backfillListing(page: String, limit: Int) async throws -> BackfillListing
 
+    /// Whether the enumeration leaves out mail the store can hold and only this provider's changes from before a reset
+    /// would report: Gmail's Spam and Trash, which history reports when mail lands there. A reconcile then lists those
+    /// ids too (`mailOutsideEnumeration`), so its sweep keeps what the provider still has rather than deleting it with
+    /// nothing to bring it back. False by default: Graph's fresh cursor seeds Deleted Items and Junk again.
+    var hasMailOutsideEnumeration: Bool { get }
+
+    /// The ids of that mail, without metadata, a page at a time (`page` nil starts; `nextPage` nil ends). The default
+    /// lists none.
+    func mailOutsideEnumeration(page: String?, limit: Int) async throws -> BackfillListing
+
     /// Changes since `cursor`. Throws `ProviderError.resetRequired` when the cursor is stale.
     func changes(since cursor: String, limit: Int) async throws -> ChangesPage
 
@@ -152,6 +162,14 @@ extension MailProvider {
 
     public func lookUpMetadata(for providerIDs: [String]) async throws -> MetadataLookup {
         MetadataLookup(messages: try await metadata(for: providerIDs))
+    }
+
+    public var hasMailOutsideEnumeration: Bool {
+        false
+    }
+
+    public func mailOutsideEnumeration(page: String?, limit: Int) async throws -> BackfillListing {
+        BackfillListing(ids: [], messages: nil, nextPage: nil)
     }
 
     public func downloadAttachment(messageID providerID: String, attachmentID: String, expectedSize: Int, to destination: URL,

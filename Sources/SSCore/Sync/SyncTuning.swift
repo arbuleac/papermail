@@ -36,6 +36,9 @@ struct SyncTuning: Sendable {
     /// no more than its share of the quota pays for); the backfill lane fetches the rest, paced.
     var liveHydrationLimit: Int = 20
     var liveHydrationConcurrency: Int = 2
+    /// Ids per page a reconcile lists of the mail the enumeration leaves out (`MailProvider.mailOutsideEnumeration`):
+    /// Gmail's most, since an ids-only page costs 5 units however many it lists.
+    var outsideEnumerationPageSize: Int = 500
     /// Messages per metadata request when a backfill listing returns ids only. Small, so a throttle mid-page
     /// loses at most one chunk; the page's retry skips what was written.
     var backfillMetadataChunk: Int = 10
