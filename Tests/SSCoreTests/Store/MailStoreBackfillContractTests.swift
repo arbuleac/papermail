@@ -48,6 +48,25 @@ extension MailStoreContractTests {
                        Set((stored + marked).map { ids[$0] }))
     }
 
+    // MARK: A folder gone
+
+    /// What a gone folder held, for the live lane to look up: this account's messages in that folder only.
+    func testStoredProviderIDsInAFolder() throws {
+        func filed(_ providerID: String, in folder: String?, account: AccountID? = nil) -> MessageMetadata {
+            var filed = message(providerID, in: "c-\(providerID)", account: account)
+            filed.folderID = folder
+            return filed
+        }
+        try store.upsertMessages([
+            filed("g2", in: "F-GONE"), filed("g1", in: "F-GONE"), filed("kept", in: "F-INBOX"), filed("none", in: nil),
+            filed("b1", in: "F-GONE", account: accountB),
+        ])
+
+        XCTAssertEqual(try store.storedProviderIDs(accountID: accountA, inFolder: "F-GONE"), ["g1", "g2"])
+        XCTAssertEqual(try store.storedProviderIDs(accountID: accountB, inFolder: "F-GONE"), ["b1"])
+        XCTAssertEqual(try store.storedProviderIDs(accountID: accountA, inFolder: "F-NONE"), [])
+    }
+
     // MARK: Writing a backfill page
 
     func testBackfillWriteAddsOnlyMissingUnmarkedMessages() throws {

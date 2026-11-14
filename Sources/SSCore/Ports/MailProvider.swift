@@ -54,12 +54,18 @@ public struct ChangesPage: Sendable {
     /// and every `$batch` part against the mailbox's limit, and one call can send a hundred); nil means one call
     /// plus per-message metadata as the quota prices it. The engine paces its live lane by it.
     public var requestCount: Int?
-    public init(upserts: [MessageMetadata], deletedIDs: [String], cursor: String, hasMore: Bool, requestCount: Int? = nil) {
+    /// Folders the provider stopped polling because they are gone (a Graph folder whose delta answers 404, or one two
+    /// folder walks in a row did not find). No delta will report their mail again, purged with them or not, so the
+    /// engine looks up the messages it stores in them (`MessageMetadata.folderID`).
+    public var goneFolders: [String]
+    public init(upserts: [MessageMetadata], deletedIDs: [String], cursor: String, hasMore: Bool, requestCount: Int? = nil,
+                goneFolders: [String] = []) {
         self.upserts = upserts
         self.deletedIDs = deletedIDs
         self.cursor = cursor
         self.hasMore = hasMore
         self.requestCount = requestCount
+        self.goneFolders = goneFolders
     }
 }
 

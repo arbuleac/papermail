@@ -6,8 +6,9 @@ import SSCore
 /// JSON shape: `{"folders": {folderId: deltaLink | null}, "nextLinks": {folderId: nextLink}, "wellKnown":
 /// {name: folderId}, "since": ISO date, "foldersResolvedAt": ISO date, "fullVisitAt": ISO date, "fullVisitAfter":
 /// folderId, "polledAt": ISO date, "walk": {"found": [folderId], "pending": [{"id": folderId, "depth": n,
-/// "nextLink": link, "failures": n}], "gaveUp": true}, "missed": [folderId], "folderScope": "tree", "deltaScope":
-/// "mailbox"}`. `fullVisitAt` is absent from cursors written before polls were thinned; a cursor without it starts a
+/// "nextLink": link, "failures": n}], "gaveUp": true}, "missed": [folderId], "recheck": {messageId: n},
+/// "folderFailures": {folderId: n}, "folderScope": "tree", "deltaScope": "mailbox"}`. `recheck` and `folderFailures`
+/// are absent while empty, so a healthy poll's cursor does not grow. `fullVisitAt` is absent from cursors written before polls were thinned; a cursor without it starts a
 /// full visit on its next call. `fullVisitAfter` and `walk` are absent from older cursors and whenever no full visit
 /// or folder walk is under way; a walk's `pending` names the top level with an empty id, and its optional keys are
 /// absent until a listing stops partway, fails or is given up on. `polledAt` is absent only from cursors written
@@ -75,6 +76,11 @@ struct GraphCursor: Equatable, Sendable {
     /// 5xx or the network, for the part or its whole `$batch`), with the calls that have failed it so far. The next
     /// call looks them up again first; the delta links move on meanwhile, so the outage holds no new mail back.
     var recheck: [String: Int]
+    /// Folders whose delta request failed on the last calls in a row (anything but a throttle, a refused token or a
+    /// 404: a 5xx, the network, a 403 or 400), and how many. A folder that failed waits behind the others for the seed
+    /// page; at `GraphProvider.maxFolderFailures` it is asked only on full visits, and one Graph refused (not the
+    /// service failing) starts a fresh round. Cleared for a folder once it answers.
+    var folderFailures: [String: Int]
 
     init(
         folders: [String: String?],
@@ -87,7 +93,8 @@ struct GraphCursor: Equatable, Sendable {
         polledAt: String? = nil,
         walk: GraphFolderWalk? = nil,
         missed: Set<String> = [],
-        recheck: [String: Int] = [:]
+        recheck: [String: Int] = [:],
+        folderFailures: [String: Int] = [:]
     ) {
         self.folders = folders
         self.nextLinks = nextLinks
@@ -100,6 +107,7 @@ struct GraphCursor: Equatable, Sendable {
         self.walk = walk
         self.missed = missed
         self.recheck = recheck
+        self.folderFailures = folderFailures
     }
 
     func deltaLink(for folderID: String) -> String? {
@@ -174,7 +182,7 @@ struct GraphCursor: Equatable, Sendable {
 extension GraphCursor: Codable {
     private enum CodingKeys: String, CodingKey {
         case folders, nextLinks, wellKnown, since, foldersResolvedAt, fullVisitAt, fullVisitAfter, polledAt, walk, missed
-        case recheck
+        case recheck, folderFailures
         case folderScope, deltaScope
     }
 
@@ -212,6 +220,7 @@ extension GraphCursor: Codable {
         walk = try container.decodeIfPresent(GraphFolderWalk.self, forKey: .walk)
         missed = Set(try container.decodeIfPresent([String].self, forKey: .missed) ?? [])
         recheck = try container.decodeIfPresent([String: Int].self, forKey: .recheck) ?? [:]
+        folderFailures = try container.decodeIfPresent([String: Int].self, forKey: .folderFailures) ?? [:]
     }
 
     func encode(to encoder: Encoder) throws {
@@ -237,6 +246,9 @@ extension GraphCursor: Codable {
         }
         if !recheck.isEmpty {
             try container.encode(recheck, forKey: .recheck)
+        }
+        if !folderFailures.isEmpty {
+            try container.encode(folderFailures, forKey: .folderFailures)
         }
         try container.encode(Self.treeScope, forKey: .folderScope)
         try container.encode(Self.mailboxScope, forKey: .deltaScope)

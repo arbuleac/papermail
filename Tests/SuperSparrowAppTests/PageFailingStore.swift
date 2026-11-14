@@ -59,6 +59,10 @@ final class PageFailingStore: MailStoring, @unchecked Sendable {
     func backfillSkippableIDs(accountID: AccountID, providerIDs: [String], includeStored: Bool) throws -> Set<String> {
         try base.backfillSkippableIDs(accountID: accountID, providerIDs: providerIDs, includeStored: includeStored)
     }
+
+    func storedProviderIDs(accountID: AccountID, inFolder folderID: String) throws -> [String] {
+        try base.storedProviderIDs(accountID: accountID, inFolder: folderID)
+    }
     func writeBackfillMessages(_ messages: [MessageMetadata], refreshExisting: Bool) throws -> Int {
         try base.writeBackfillMessages(messages, refreshExisting: refreshExisting)
     }

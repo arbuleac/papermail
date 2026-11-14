@@ -498,12 +498,47 @@ actor LiveLane {
             for id in deletedIDs { arrived[id] = nil }
             upserted += page.upserts.count
             deleted += deletedIDs.count
+            if !page.goneFolders.isEmpty {
+                deleted += try await settleGoneFolders(page.goneFolders)
+            }
             cursor = page.cursor
             try store.setSyncCursor(cursor, for: accountID)
             if !page.hasMore { break }
         }
         SyncLog.logger.debug("poll for \(self.accountID.rawValue, privacy: .public): \(upserted, privacy: .public) upserts, \(deleted, privacy: .public) deletes")
         return PolledChanges(arrived: Array(arrived.values), deferredFor: deferredFor)
+    }
+
+    /// A folder the provider reports gone (`ChangesPage.goneFolders`) took its mail with it if it was purged, and no
+    /// delta reports that; without a look the messages would stay here for good, in All Mail and search. So what the
+    /// store keeps in it is looked up before the cursor moves past the report: the messages the provider no longer has
+    /// go, one moved out before the purge takes its new place, and one it will not return stays as it is. Rare (a
+    /// folder deleted for good in Outlook) and charged to the live share like any lookup; a failure fails the poll
+    /// before the cursor is saved, so the next poll meets the same report and tries again. Returns how many went.
+    private func settleGoneFolders(_ folders: [String]) async throws -> Int {
+        var ids: [String] = []
+        var seen: Set<String> = []
+        for folder in folders {
+            for id in try store.storedProviderIDs(accountID: accountID, inFolder: folder) where seen.insert(id).inserted {
+                ids.append(id)
+            }
+        }
+        guard !ids.isEmpty else { return 0 }
+        currentCall = "metadata"
+        let lookup = try await provider.lookUpMetadata(for: ids)
+        await budget.recordLive(budget.quota.metadataCostPerMessage * Double(ids.count))
+        try Task.checkCancellation()
+        let found = lookup.messages.filter { $0.id.accountID == accountID }
+        let kept = Set(found.map(\.id.providerID)).union(lookup.unreadable)
+        let gone = ids.filter { !kept.contains($0) }
+        if try backfillIsRunning() {
+            try store.markLiveChanges(accountID: accountID, upserted: found.map(\.id.providerID), deleted: gone)
+        }
+        if !found.isEmpty { try store.upsertMessages(found) }
+        if !gone.isEmpty { try store.deleteMessages(gone.map { MessageID(accountID: accountID, providerID: $0) }) }
+        let id = accountID.rawValue
+        SyncLog.logger.notice("folders gone for \(id, privacy: .public): \(ids.count, privacy: .public) stored messages looked up, \(gone.count, privacy: .public) removed")
+        return gone.count
     }
 
     /// What a changes page cost: the requests the provider says it sent where it is charged per request (Graph: a

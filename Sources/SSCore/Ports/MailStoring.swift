@@ -101,6 +101,9 @@ public protocol MailStoring: AnyObject, Sendable {
     /// backfill began, plus, when `includeStored`, those the account already stores. Advisory, so a backfill can
     /// skip the metadata requests; `writeBackfillMessages` checks again in its own transaction.
     func backfillSkippableIDs(accountID: AccountID, providerIDs: [String], includeStored: Bool) throws -> Set<String>
+    /// Provider ids of the account's stored messages in `folderID` (`MessageMetadata.folderID`), for a folder the
+    /// provider reports gone (`ChangesPage.goneFolders`). Rare, so it scans rather than keep an index every write pays.
+    func storedProviderIDs(accountID: AccountID, inFolder folderID: String) throws -> [String]
     /// Writes a backfill page in one transaction: drops every message the live lane wrote or deleted since the
     /// backfill began and, unless `refreshExisting` (a reconciling backfill), every message already stored, then
     /// writes the rest exactly as `upsertMessages` would, pending operations winning. The check and the write

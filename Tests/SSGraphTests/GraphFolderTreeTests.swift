@@ -388,10 +388,15 @@ final class GraphFolderTreeTests: GraphTestCase {
         XCTAssertEqual(next.deltaLink(for: "F-ACME"), deltaLink("F-ACME", "d2"), "a folder that survives keeps its delta")
         XCTAssertEqual(next.missed, [deepest], "kept a day longer, in case the walk passed it by")
 
+        XCTAssertEqual(page.goneFolders, [], "missed once is not gone")
+
         clock.advance(by: GraphCursor.folderRefreshInterval)
         var current = page.cursor
+        var gone: [String] = []
         for _ in 0..<2 {
-            current = try await provider.changes(since: current, limit: 50).cursor
+            let nextPage = try await provider.changes(since: current, limit: 50)
+            current = nextPage.cursor
+            gone += nextPage.goneFolders
             clock.advance(by: 5)
         }
         let nextDay = try GraphCursor.decode(current)
@@ -399,6 +404,7 @@ final class GraphFolderTreeTests: GraphTestCase {
         XCTAssertFalse(nextDay.folders.keys.contains(deepest))
         XCTAssertTrue(nextDay.folders.keys.contains("F-ACME-2027"))
         XCTAssertEqual(nextDay.missed, [])
+        XCTAssertEqual(gone, [deepest], "a folder dropped from the polls is reported, so its stored mail is checked")
     }
 
     // MARK: Listings that fail

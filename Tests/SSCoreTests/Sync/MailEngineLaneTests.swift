@@ -491,6 +491,39 @@ final class MailEngineLaneTests: XCTestCase {
         await harness.shutdown()
     }
 
+    /// A folder purged in Outlook (emptied out of Deleted Items) answers 404 and leaves the polls, and no delta ever
+    /// reports its mail; it stayed here for good, in All Mail and search. Its stored messages are looked up: the ones
+    /// the provider no longer has go, one moved out before the purge takes its new folder, and one the provider will
+    /// not return is left as it is.
+    func testTheMailOfAFolderThatIsGoneIsCheckedAndWhatIsGoneGoes() async throws {
+        let provider = ScriptedProvider(accountID: Fixtures.accountID, kind: .microsoft)
+        var moved = Fixtures.message(2)
+        moved.folderID = "F-ARCHIVE"
+        provider.metadataByID = ["2": moved]
+        provider.unreadableIDs = ["3"]
+        var page = Fixtures.changes(cursor: "c1")
+        page.goneFolders = ["F-GONE"]
+        provider.changesQueue = [.success(page)]
+        let harness = try EngineHarness(provider: provider)
+        let store = harness.store
+        let account = Fixtures.accountID
+        var stored = (1...4).map { Fixtures.message($0) }
+        for index in 0..<3 { stored[index].folderID = "F-GONE" }
+        stored[3].folderID = "F-INBOX"
+        try store.upsertMessages(stored)
+        try store.setSyncCursor("c0", for: account)
+        try store.setBootstrapState(BootstrapState(startedAt: Date(), pagesDone: 1, messagesSeen: 4, isComplete: true), for: account)
+        harness.engine.start()
+
+        try await waitUntil("polled") { try store.syncCursor(for: account) == "c1" }
+        XCTAssertNil(try store.message(id(1)), "gone with its folder")
+        XCTAssertEqual(try store.message(id(2))?.folderID, "F-ARCHIVE")
+        XCTAssertNotNil(try store.message(id(3)), "unreadable is not gone")
+        XCTAssertNotNil(try store.message(id(4)), "another folder's mail is not asked about")
+        XCTAssertEqual(provider.metadataCalls.map { Set($0) }, [["1", "2", "3"]])
+        await harness.shutdown()
+    }
+
     // MARK: Parking and pacing
 
     /// A token the provider refuses on a backfill request parks both lanes: the live lane shows Sign in required

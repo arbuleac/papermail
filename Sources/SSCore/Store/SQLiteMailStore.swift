@@ -255,6 +255,13 @@ public final class SQLiteMailStore: MailStoring, MailStoreMaintenance, Sendable 
         }
     }
 
+    public func storedProviderIDs(accountID: AccountID, inFolder folderID: String) throws -> [String] {
+        try read { db in
+            try String.fetchAll(db, sql: "SELECT provider_id FROM messages WHERE account_id = ? AND folder_id = ? ORDER BY provider_id",
+                                arguments: [accountID.rawValue, folderID])
+        }
+    }
+
     @discardableResult
     public func writeBackfillMessages(_ messages: [MessageMetadata], refreshExisting: Bool) throws -> Int {
         guard !messages.isEmpty else { return 0 }

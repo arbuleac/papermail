@@ -354,6 +354,14 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         })
     }
 
+    public func storedProviderIDs(accountID: AccountID, inFolder folderID: String) throws -> [String] {
+        lock.lock(); defer { lock.unlock() }
+        return messagesByID.values
+            .filter { $0.id.accountID == accountID && $0.folderID == folderID }
+            .map(\.id.providerID)
+            .sorted()
+    }
+
     private func isBackfillSkippableLocked(_ id: MessageID, includeStored: Bool) -> Bool {
         liveMarks[id] != nil || (includeStored && messagesByID[id] != nil)
     }

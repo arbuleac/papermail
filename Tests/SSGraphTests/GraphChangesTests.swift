@@ -917,6 +917,105 @@ final class GraphChangesTests: GraphTestCase {
 
         XCTAssertEqual(Set(try GraphCursor.decode(page.cursor).folders.keys), ["F-INBOX"])
         XCTAssertFalse(page.hasMore)
+        XCTAssertEqual(page.goneFolders, ["F-OLD"], "its stored mail is the engine's to check: no delta will report it")
+    }
+
+    /// A folder whose delta Graph refuses (403 ErrorAccessDenied, a 400 on its stored link) failed the whole call on
+    /// every poll, the inbox's new mail thrown away each time. It waits now, as a folder the service fails does.
+    func testAFolderThatRefusesItsDeltaWaitsWhileTheOthersSync() async throws {
+        route { request in
+            guard request.method == "GET" else { return nil }
+            switch request.path {
+            case self.inboxDelta:
+                return .json(Fixtures.list([Fixtures.message(id: "m-new", folder: "F-INBOX")], deltaLink: self.inboxLink2))
+            case self.sentDelta:
+                return .json(#"{"error":{"code":"ErrorAccessDenied","message":"Access is denied."}}"#, status: 403)
+            default:
+                return nil
+            }
+        }
+
+        let page = try await makeProvider().changes(since: try cursor(folders: ["F-INBOX": inboxLink, "F-SENT": sentLink]), limit: 50)
+
+        XCTAssertEqual(page.upserts.map(\.id.providerID), ["m-new"])
+        let after = try GraphCursor.decode(page.cursor)
+        XCTAssertEqual(after.deltaLink(for: "F-INBOX"), inboxLink2)
+        XCTAssertEqual(after.deltaLink(for: "F-SENT"), sentLink)
+        XCTAssertEqual(after.folderFailures, ["F-SENT": 1])
+    }
+
+    /// A folder refused three calls in a row starts a fresh round (its stored link may be what Graph refuses) and is
+    /// asked only on full visits until it answers, so it costs a request every 30 s rather than one every poll.
+    func testAFolderRefusedThreeCallsInARowStartsAFreshRoundOnFullVisits() async throws {
+        var refusing = true
+        route { request in
+            guard request.method == "GET", request.path.hasSuffix("/messages/delta") else { return nil }
+            let folder = self.folder(of: request)
+            if folder == "F-AAA" {
+                if refusing || request.query["$deltatoken"] != nil {
+                    return .json(#"{"error":{"code":"ErrorInvalidRequest","message":"bad link"}}"#, status: 400)
+                }
+                return .json(Fixtures.list([Fixtures.message(id: "m-aaa", folder: "F-AAA")], deltaLink: self.deltaLink("F-AAA", "fresh")))
+            }
+            return .json(Fixtures.list([], deltaLink: self.deltaLink(folder, "\(folder)-d2")))
+        }
+        let clock = StepClock(now)
+        let provider = makeProvider(clock: clock)
+        var start = try GraphCursor.decode(try cursor(
+            folders: ["F-INBOX": deltaLink("F-INBOX", "F-INBOX-d1"), "F-AAA": deltaLink("F-AAA", "a1")],
+            fullVisitAt: "2000-01-01T00:00:00Z"
+        ))
+        start.folderFailures = ["F-AAA": 2]
+
+        let first = try await provider.changes(since: try start.encoded(), limit: 50)
+        XCTAssertEqual(trail(), ["F-INBOX delta F-INBOX-d1", "F-AAA delta a1"])
+        let parked = try GraphCursor.decode(first.cursor)
+        XCTAssertEqual(parked.folderFailures, ["F-AAA": 3])
+        XCTAssertTrue(parked.folders.keys.contains("F-AAA"))
+        XCTAssertNil(parked.deltaLink(for: "F-AAA"), "the refused link is dropped")
+
+        StubURLProtocol.clearRequests()
+        clock.advance(by: 5)
+        let second = try await provider.changes(since: first.cursor, limit: 50)
+        XCTAssertEqual(trail(), ["F-INBOX delta F-INBOX-d2"], "not asked between full visits, not even for a seed page")
+
+        StubURLProtocol.clearRequests()
+        refusing = false
+        clock.advance(by: GraphCursor.fullVisitInterval)
+        let third = try await provider.changes(since: second.cursor, limit: 50)
+        XCTAssertEqual(trail(), ["F-INBOX delta F-INBOX-d2", "F-AAA seed"])
+        XCTAssertEqual(third.upserts.map(\.id.providerID), ["m-aaa"])
+        let recovered = try GraphCursor.decode(third.cursor)
+        XCTAssertEqual(recovered.folderFailures, [:])
+        XCTAssertEqual(recovered.deltaLink(for: "F-AAA"), deltaLink("F-AAA", "fresh"))
+        XCTAssertFalse(third.cursor.contains("folderFailures"))
+    }
+
+    /// Each call's seed page went to the first folder still seeding; one whose page kept failing took it every time, so
+    /// no folder after it was ever seeded or polled. A folder that failed waits behind those that did not.
+    func testASeedThatKeepsFailingNoLongerHoldsBackTheOtherSeeds() async throws {
+        route { request in
+            guard request.method == "GET", request.path.hasSuffix("/messages/delta") else { return nil }
+            switch self.folder(of: request) {
+            case "F-AAA": return .status(500)
+            case "F-BBB": return .json(Fixtures.list([Fixtures.message(id: "m-b", folder: "F-BBB")], deltaLink: self.deltaLink("F-BBB", "b1")))
+            case let folder: return .json(Fixtures.list([], deltaLink: self.deltaLink(folder, "\(folder)-d2")))
+            }
+        }
+        let clock = StepClock(now)
+        let provider = makeProvider(clock: clock)
+        let start = try cursor(folders: ["F-INBOX": deltaLink("F-INBOX", "F-INBOX-d1"), "F-AAA": nil, "F-BBB": nil],
+                               fullVisitAt: nowString)
+
+        let first = try await provider.changes(since: start, limit: 50)
+        XCTAssertEqual(trail(), ["F-INBOX delta F-INBOX-d1", "F-AAA seed"])
+        StubURLProtocol.clearRequests()
+        clock.advance(by: 5)
+        let second = try await provider.changes(since: first.cursor, limit: 50)
+
+        XCTAssertEqual(trail(), ["F-INBOX delta F-INBOX-d2", "F-BBB seed"])
+        XCTAssertEqual(second.upserts.map(\.id.providerID), ["m-b"])
+        XCTAssertEqual(try GraphCursor.decode(second.cursor).folderFailures, ["F-AAA": 1])
     }
 
     func testFolderListIsRefreshedAfterADay() async throws {
