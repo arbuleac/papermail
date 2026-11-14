@@ -47,6 +47,9 @@ final class MessageListViewController: NSViewController {
     /// The host's context menu for conversation rows (spec §5.35). It acts on the selection, so a right-click
     /// on a row outside the selection selects that row first; heads and the list tail have none.
     var rowMenu: (() -> NSMenu?)?
+    /// Applies a swipe's change, or the same VoiceOver action, to that one conversation (spec §5.7, Swipe). The host
+    /// owns the key's path (store, undo, toast), so the list only says which row and what; nil offers no swipe at all.
+    var onRowAction: ((MetadataChange, ConversationID) -> Void)?
     /// After every refresh of the rows (the search field's result count and spinner follow it).
     var onRowsChange: (() -> Void)?
 
@@ -347,6 +350,50 @@ final class MessageListViewController: NSViewController {
         let id = conversations[index].id
         if !selectedConversationIDs.contains(id) { select(id, notify: true, scroll: false) }
         return rowMenu()
+    }
+
+    // MARK: Swipe (§5.7)
+
+    /// What a swipe uncovering `edge` offers on `id`'s row, or nil where the key would change nothing there or the host
+    /// takes no row actions. Read from the row as listed now, so a button and an action always say what the key would do.
+    private func swipeChange(for id: ConversationID, edge: RowSwipe.Edge) -> MetadataChange? {
+        guard onRowAction != nil, let index = indexByID[id] else { return nil }
+        return RowSwipe.change(for: conversations[index], edge: edge, view: query.view)
+    }
+
+    /// The row's VoiceOver actions: the swipe's, trailing first, so Archive leads where it applies.
+    private func accessibilityRowActions(for id: ConversationID) -> [NSAccessibilityCustomAction] {
+        RowSwipe.Edge.allCases.compactMap { edge in
+            guard let change = swipeChange(for: id, edge: edge) else { return nil }
+            return NSAccessibilityCustomAction(name: RowSwipe.title(for: change)) { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self else { return false }
+                    self.performRowAction(change, on: id)
+                    return true
+                }
+            }
+        }
+    }
+
+    private func performRowAction(_ change: MetadataChange, on id: ConversationID) {
+        closeRowActions()
+        onRowAction?(change, id)
+    }
+
+    /// The uncovered button closes before the change lands, so a row the change takes away never leaves with it out
+    /// (the list never animates a row leaving, §4.10). Under Reduce Motion it closes at once instead of sliding back.
+    private func closeRowActions() {
+        guard tableView.rowActionsVisible else { return }
+        guard QuireEnvironment.reduceMotion else {
+            tableView.rowActionsVisible = false
+            return
+        }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0
+            context.allowsImplicitAnimation = false
+            CATransaction.setDisableActions(true)
+            tableView.rowActionsVisible = false
+        }
     }
 
     /// Puts the selection on `ids` (an undo bringing several conversations back) without reporting it, as
@@ -882,6 +929,7 @@ final class MessageListViewController: NSViewController {
         let summary = conversations[index]
         let content = rowContentCache.content(for: summary, context: context(forConversation: index), environment: environmentKey)
         cell.configure(with: content, mark: mark(for: summary), density: density)
+        cell.conversationID = summary.id
     }
 
     private func reconfigureVisibleRows() {
@@ -1316,8 +1364,26 @@ extension MessageListViewController: NSTableViewDelegate {
         guard let index = layout.conversationIndex(atRow: row) else { return nil }
         let cell = (tableView.makeView(withIdentifier: ConversationCellView.identifier, owner: nil) as? ConversationCellView)
             ?? ConversationCellView(frame: NSRect(x: 0, y: 0, width: tableView.bounds.width, height: tableView.rowHeight))
+        if cell.rowActions == nil {
+            cell.rowActions = { [weak self] id in self?.accessibilityRowActions(for: id) ?? [] }
+        }
         configure(cell, forConversation: index)
         return cell
+    }
+
+    /// One button per edge, so a swipe carried across the row has one thing to do (spec §5.7, Swipe). Regular, not
+    /// destructive: AppKit gives a destructive button its own animation as the row goes, and the list never animates a
+    /// row leaving. The button keys to the conversation, not the row number, which a refresh can move meanwhile.
+    func tableView(_ tableView: NSTableView, rowActionsForRow row: Int, edge: NSTableView.RowActionEdge) -> [NSTableViewRowAction] {
+        guard let index = layout.conversationIndex(atRow: row), conversations.indices.contains(index) else { return [] }
+        let id = conversations[index].id
+        guard let change = swipeChange(for: id, edge: edge == .trailing ? .trailing : .leading) else { return [] }
+        let action = NSTableViewRowAction(style: .regular, title: RowSwipe.title(for: change)) { [weak self] _, _ in
+            MainActor.assumeIsolated { self?.performRowAction(change, on: id) }
+        }
+        // A native control, so the app's accent asset (§3.1): AppKit draws the title white, as on a default button.
+        action.backgroundColor = .controlAccentColor
+        return [action]
     }
 
     /// Heads, the footer and the server row are never selectable (spec §5.8, §5.10).

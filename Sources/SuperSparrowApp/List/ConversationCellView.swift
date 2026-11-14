@@ -336,9 +336,20 @@ final class ConversationCellView: NSView {
 
     // MARK: Accessibility
 
+    /// The conversation the row shows now, for its VoiceOver actions; the cell is reused, so it is set on every configure.
+    var conversationID: ConversationID?
+    /// The list's actions for a conversation (spec §5.7, Swipe), asked when VoiceOver asks, so they follow the row's
+    /// state (Mark as Read becomes Mark as Unread) without rebuilding anything on a refresh.
+    var rowActions: ((ConversationID) -> [NSAccessibilityCustomAction])?
+
     override func isAccessibilityElement() -> Bool { true }
     override func accessibilityRole() -> NSAccessibility.Role? { .staticText }
     override func accessibilityLabel() -> String? { content?.accessibilityLabel }
+
+    override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
+        guard let conversationID, let actions = rowActions?(conversationID), !actions.isEmpty else { return nil }
+        return actions
+    }
 }
 
 extension ConversationCellView: NSViewToolTipOwner {

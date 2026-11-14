@@ -143,6 +143,8 @@ Operators combine (`from:ben is:unread after:2026-01-01 -invoice`), ignore case,
 
 Single-letter shortcuts only apply when you are not typing in a text field.
 
+On a trackpad, swipe a conversation in the list with two fingers: left shows **Archive**, right **Mark as Read** or **Mark as Unread**. Click the button, or swipe all the way across to do it at once. It acts on that conversation alone, as `e` and `u` would, so **Undo** and `z` bring it back, and a conversation `e` would leave as it is (in the Trash, say) shows no Archive. VoiceOver offers the same actions on each conversation.
+
 ## Design
 
 SuperSparrow's look is **Quire**: New York subjects on warm paper, one blue-black ink (Iron Gall) for what needs you, and a still list beside a generous reading page. If you prefer a sans serif, **Settings → General → Font → SF Pro** sets every New York face in the app in SF Pro, at once. The spec is [docs/DESIGN-LANGUAGE.md](docs/DESIGN-LANGUAGE.md); [docs/design/specimen.html](docs/design/specimen.html) shows every token and component (rendered as [light](docs/design/specimen-light.png) and [dark](docs/design/specimen-dark.png)). [docs/design/tokens.json](docs/design/tokens.json) is the single source: the app's design runtime (`Sources/SSDesign`), the reader's CSS, the accent colour and the app icon are generated from it, and debug builds show every component in **Debug → Design Gallery**.
