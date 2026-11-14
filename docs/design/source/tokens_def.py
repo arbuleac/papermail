@@ -2,7 +2,7 @@
 and the rendered DESIGN-LANGUAGE.md. Colour order: light, dark, lightHC, darkHC."""
 
 NAME = "Quire"
-VERSION = "1.6.5"
+VERSION = "1.7.0"
 
 # (token, light, dark, lightHC, darkHC, group, use)
 COLOR = [
