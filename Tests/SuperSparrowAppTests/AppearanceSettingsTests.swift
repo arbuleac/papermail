@@ -159,6 +159,38 @@ final class AppearanceSettingsTests: XCTestCase {
         XCTAssertEqual(settings.theme, .study)
     }
 
+    /// Space on the focused tiles is a radio group's Space: the focused tile is the chosen one, so the choice stays, focus
+    /// stays on the group, and the key is the group's, not passed on to the window to beep.
+    func testSpaceOnTheTilesKeepsTheChoiceAndFocus() throws {
+        let settings = try throwawaySettings()
+        settings.theme = .rain
+        let view = NSHostingView(rootView: QuireThemeRoot(AppearanceSettingsView(settings: settings)))
+        let window = UnhandledKeyWindow(contentRect: NSRect(origin: .zero, size: view.fittingSize), styleMask: [.titled],
+                                        backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: .aqua)
+        window.contentView = view
+        window.setFrameOrigin(NSPoint(x: -20_000, y: -20_000))
+        window.orderFrontRegardless()
+        fit(view)
+        defer { close(window) }
+        let tiles = try XCTUnwrap(focusables(in: view).first)
+        XCTAssertTrue(window.makeFirstResponder(tiles))
+        ListTestSupport.spin(for: 0.05)
+
+        sendKey(" ", keyCode: 49, to: window)
+        XCTAssertEqual(settings.theme, .rain, "the chosen tile stays chosen")
+        XCTAssertEqual(QuireEnvironment.theme, .rain)
+        XCTAssertTrue(window.firstResponder === tiles, "focus stays on the tiles")
+        XCTAssertEqual(window.unhandledKeys, 0, "the group took Space")
+
+        // The window does hear a key nobody takes, so the count above means something.
+        sendKey("q", keyCode: 12, to: window)
+        XCTAssertEqual(window.unhandledKeys, 1, "a key the tiles do not take reaches the window")
+        sendArrow(.right, to: window)
+        XCTAssertEqual(settings.theme, .grove, "and the arrows still move the choice")
+    }
+
     // MARK: Dark Mode
 
     /// Under Light the default would change nothing, so the checkbox is disabled, its caption kept; Automatic keeps it,
@@ -315,6 +347,26 @@ final class AppearanceSettingsTests: XCTestCase {
 
         var keyCode: UInt16 { self == .left ? 123 : 124 }
         var characters: String { String(UnicodeScalar(self == .left ? NSLeftArrowFunctionKey : NSRightArrowFunctionKey)!) }
+    }
+
+    private func sendKey(_ characters: String, keyCode: UInt16, to window: NSWindow) {
+        for type in [NSEvent.EventType.keyDown, .keyUp] {
+            guard let event = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
+                                               context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false,
+                                               keyCode: keyCode)
+            else { return XCTFail("no event") }
+            window.sendEvent(event)
+        }
+        ListTestSupport.spin(for: 0.1)
+    }
+
+    /// Counts the key presses nothing in the window took: AppKit beeps for those.
+    private final class UnhandledKeyWindow: NSWindow {
+        private(set) var unhandledKeys = 0
+
+        override func noResponder(for eventSelector: Selector) {
+            if eventSelector == #selector(NSResponder.keyDown(with:)) { unhandledKeys += 1 } else { super.noResponder(for: eventSelector) }
+        }
     }
 
     private func sendArrow(_ arrow: Arrow, to window: NSWindow) {

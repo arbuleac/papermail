@@ -5,10 +5,10 @@ import SwiftUI
 /// reserved so a choice never moves the rows below.
 ///
 /// It is a radio group. The group is one Tab stop; ← → and ↑ ↓ move the choice and apply it at once, clamped at the
-/// ends as native radio groups are. Focus stays on the group through every step: the window re-themes in place under
-/// its `QuireThemeRoot`, so nothing is rebuilt. Clicking a tile chooses it on mouse-up. VoiceOver sees a native radio
-/// group named `title`, each tile its theme's name ("Study, 1 of 5, selected"), the pictures hidden and the caption as
-/// the group's help.
+/// ends as native radio groups are, and Space keeps the choice. Focus stays on the group through every step: the window
+/// re-themes in place under its `QuireThemeRoot`, so nothing is rebuilt. Clicking a tile chooses it on mouse-up.
+/// VoiceOver sees a native radio group named `title`, each tile its theme's name ("Study, 1 of 5, selected"), the
+/// pictures hidden and the caption as the group's help.
 ///
 ///     QuireThemePicker("Theme", selection: $settings.theme)
 public struct QuireThemePicker: View {
@@ -54,6 +54,9 @@ public struct QuireThemePicker: View {
                 default: break
                 }
             }
+            // Space chooses the focused radio in a native group. Here the focused tile is always the chosen one, so
+            // it changes nothing, but it is the group's key: passed on, it would reach the window and beep.
+            .onKeyPress(.space) { .handled }
             .accessibilityRepresentation {
                 Picker(title, selection: $selection) {
                     ForEach(Self.radios(selection: selection), id: \.theme) { radio in
