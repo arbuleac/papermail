@@ -19,7 +19,7 @@ public final class MailEngine: MailClient, @unchecked Sendable {
     private let sendClaimLock = NSLock()
     private let sendRunner: SendRunner
     private let snoozeRunner: SnoozeRunner
-    /// Wakes the snooze runner when the wall clock is set, which a wait slept on the continuous clock cannot see.
+    /// Wakes the snooze and send runners when the wall clock is set, which a wait slept on the continuous clock cannot see.
     private var clockObserver: NSObjectProtocol?
     private let sweeper: StorageSweeper
     private let storageFeed = StorageChangeFeed()
@@ -121,8 +121,11 @@ public final class MailEngine: MailClient, @unchecked Sendable {
         // At launch it returns whatever fell due while the app was closed, as each account's first check catches up.
         snoozeRunner.start()
         let snoozeRunner = snoozeRunner
+        let sendRunner = sendRunner
         let observer = NotificationCenter.default.addObserver(forName: .NSSystemClockDidChange, object: nil, queue: nil) { _ in
             snoozeRunner.wake()
+            // A Send Later time is kept on the wall clock too.
+            sendRunner.wake()
         }
         stateLock.withLock { clockObserver = observer }
         // The attachment cache's size is unknown until measured; measured and trimmed now, off the main thread, a
@@ -506,6 +509,15 @@ public final class MailEngine: MailClient, @unchecked Sendable {
 
     public func cancelSend(id: String) throws -> Bool {
         try sendRunner.cancel(id: id)
+    }
+
+    public func scheduleSend(_ message: OutgoingMessage, at date: Date, draftID: UUID?) throws -> String {
+        try sendRunner.enqueueLater(message, at: date, draftID: draftID)
+    }
+
+    @discardableResult
+    public func sendNow(_ ids: [String]) throws -> [String] {
+        try sendRunner.sendNow(ids: ids)
     }
 
     // MARK: Fetches

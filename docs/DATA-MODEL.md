@@ -126,7 +126,14 @@ A search (docs/ARCHITECTURE.md "Search") matches one MATCH expression per messag
 Target rows are kept when an operation is saved again with the same targets, so the priors survive status writes. The runner saves an operation with fewer targets when the provider took some of them and not the others (`PartialApplyError`, or a slice that went through beside one that failed): the rows of the targets dropped go, priors and all, so a later give-up puts back only what the provider never took.
 
 ### pending_sends
-`id TEXT PK, account_id, message_json (OutgoingMessage, attachments inline as base64), created_at, send_after, status, attempts, last_error`. Only `observePendingSends` (the sync line's sending count) observes it; no list observation reads it.
+`id TEXT PK, account_id, created_at, send_after, status, attempts, last_error, draft_id, summary_json, message_json (OutgoingMessage, attachments inline as base64)`, in that order since v18: the message is the last column, so a read of the others never walks its overflow pages. A Send Later message waits for days with its attachments, and the outbox is read every second while a send is on its way, so everything that looks at it often reads `pendingSendSummaries` (`PendingSendSummary`, from every column but `message_json`); the whole message is read by id (`pendingSend(id:)`) only to send it or to make a draft of it, and `updateSend` writes only `send_after`, `status`, `attempts` and `last_error`. Only `observePendingSends` observes it, with summaries (the sync line's sending count, and the main window's `SendLaterOutbox`, which lists Send Later messages in Drafts); no list observation reads it.
+
+| Column | Type | Notes |
+|---|---|---|
+| send_after | INTEGER | ms; when the send goes: the end of the undo window (or a throttle's retry) for `scheduled`, the time the user chose for `later` |
+| status | TEXT | `PendingSendStatus` raw values; never rename them. `scheduled` (held for the undo window or a retry), `later` (Send Later, waiting for its time; v18's builds), `missed` (a `later` time that passed while the app was closed, marked by the runner's first look at launch, never claimed until `sendNow` or `cancelSend`; v18's builds), `sending`, `sent`, `failed`. A value a build does not know reads as `scheduled` |
+| draft_id | TEXT NULL | the draft kept on this Mac (the app's `ComposeDraftStore`, a UUID) that a Send Later message was written in (v18); NULL for every undo-send and for the demo's sample. A send that carries one is left `sent` when it has gone, for the app to remove the draft and then the row (docs/ARCHITECTURE.md "Send Later"); one a throttle put back as `scheduled` keeps it, which is how the runner's first look at launch tells it from an undo-send and marks it `missed` once its retry time has passed |
+| summary_json | TEXT NULL | the message as the outbox's readers show it (v18): `to`, `cc`, `bcc`, `subject`, `text` (the plain-text part), `inReplyTo`, `isForward`, `hasFiles` (an attachment that is not an inline image). Written with the row; NULL for a row a build from before v18 wrote, whose summary is then read from `message_json` |
 
 ### contacts
 `account_id, address (PK with account_id), name, seen_count, last_seen_ms`. Updated from from/to/cc on upsert. Suggestions order by `seen_count * recency`.
@@ -213,6 +220,7 @@ Applied in order by GRDB's `DatabaseMigrator`; a migration is never edited once 
 - `v15-calendar-invitations`: `bodies.invitation_json` and `messages.invitation_reply`, NULL for every existing row.
 - `v16-conversation-mute`: `conversations.muted` (0 for every existing row) and the partial index `conversations_muted`.
 - `v17-sender-rules`: the table `sender_rules` (empty at first).
+- `v18-scheduled-sends`: `pending_sends` rebuilt (created as `pending_sends_v18`, filled, the old table dropped, the new one renamed; nothing references or indexes it) with `draft_id` and `summary_json`, NULL for every send already in the outbox (they are undo-sends, whose summaries are read from the message), and `message_json` moved last. The statuses `later` and `missed` need no change to the column; a build from before v18 would read them as `scheduled` and send them within a minute, so a Send Later message does not survive going back to such a build. Such a build reads and writes the columns by name, so the rebuilt table works for it otherwise; rows it writes have no summary.
 - `v20-sync-robustness`: the table `queued_lookups`, empty.
 
 ## Semantics

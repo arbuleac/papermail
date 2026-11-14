@@ -45,7 +45,7 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
     private var senderRuleObservers: [UUID: SenderRuleObserver] = [:]
     private var conversationObservers: [UUID: (ConversationQuery, ([ConversationSummary]) -> Void)] = [:]
     private var messageObservers: [UUID: (ConversationID, ([MessageMetadata]) -> Void)] = [:]
-    private var sendObservers: [UUID: ([PendingSend]) -> Void] = [:]
+    private var sendObservers: [UUID: ([PendingSendSummary]) -> Void] = [:]
 
     public init() {}
 
@@ -1110,9 +1110,24 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         return pendingSendsLocked()
     }
 
-    public func updateSend(_ send: PendingSend) throws {
+    public func pendingSendSummaries() throws -> [PendingSendSummary] {
         lock.lock(); defer { lock.unlock() }
-        sends[send.id] = send
+        return pendingSendsLocked().map(PendingSendSummary.init)
+    }
+
+    public func pendingSend(id: String) throws -> PendingSend? {
+        lock.lock(); defer { lock.unlock() }
+        return sends[id]
+    }
+
+    public func updateSend(_ send: PendingSendSummary) throws {
+        lock.lock(); defer { lock.unlock() }
+        guard var stored = sends[send.id] else { return }
+        stored.sendAfter = send.sendAfter
+        stored.status = send.status
+        stored.attempts = send.attempts
+        stored.lastError = send.lastError
+        sends[send.id] = stored
         notifySends()
     }
 
@@ -1122,11 +1137,11 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         notifySends()
     }
 
-    public func observePendingSends(onChange: @escaping @Sendable ([PendingSend]) -> Void) -> StoreObservation {
+    public func observePendingSends(onChange: @escaping @Sendable ([PendingSendSummary]) -> Void) -> StoreObservation {
         lock.lock(); defer { lock.unlock() }
         let token = UUID()
         sendObservers[token] = onChange
-        let current = pendingSendsLocked()
+        let current = pendingSendsLocked().map(PendingSendSummary.init)
         deliver { onChange(current) }
         return StoreObservation { [weak self] in
             guard let self else { return }
@@ -1213,7 +1228,7 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
     private func notifySends() {
         guard !sendObservers.isEmpty else { return }
         let callbacks = Array(sendObservers.values)
-        let current = pendingSendsLocked()
+        let current = pendingSendsLocked().map(PendingSendSummary.init)
         deliver {
             for callback in callbacks { callback(current) }
         }

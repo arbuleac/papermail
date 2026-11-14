@@ -250,9 +250,11 @@ final class FaultyStore: MailStoring, @unchecked Sendable {
     func pruneFailedOperations(accountID: AccountID, now: Date) throws -> Int { try base.pruneFailedOperations(accountID: accountID, now: now) }
     func enqueueSend(_ send: PendingSend) throws { try base.enqueueSend(send) }
     func pendingSends() throws -> [PendingSend] { try base.pendingSends() }
-    func updateSend(_ send: PendingSend) throws { try base.updateSend(send) }
+    func pendingSendSummaries() throws -> [PendingSendSummary] { try base.pendingSendSummaries() }
+    func pendingSend(id: String) throws -> PendingSend? { try base.pendingSend(id: id) }
+    func updateSend(_ send: PendingSendSummary) throws { try base.updateSend(send) }
     func deleteSend(id: String) throws { try base.deleteSend(id: id) }
-    func observePendingSends(onChange: @escaping @Sendable ([PendingSend]) -> Void) -> StoreObservation {
+    func observePendingSends(onChange: @escaping @Sendable ([PendingSendSummary]) -> Void) -> StoreObservation {
         base.observePendingSends(onChange: onChange)
     }
     func suggestAddresses(prefix: String, limit: Int) throws -> [EmailAddress] { try base.suggestAddresses(prefix: prefix, limit: limit) }

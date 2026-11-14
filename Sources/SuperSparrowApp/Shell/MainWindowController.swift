@@ -56,6 +56,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     var openUnsubscribePage: (URL) -> Void = { NSWorkspace.shared.open($0) }
     /// Drafts kept on this Mac, which the Drafts view lists and the reader shows beside the provider's.
     let localDrafts = LocalDrafts()
+    /// Send Later's half in the window (§5.23): its messages in Drafts, and what happens when one goes, fails or was missed.
+    private(set) lazy var sendLaterOutbox = SendLaterOutbox(client: environment.engine, localDrafts: localDrafts)
+    /// Shows the alert about times missed while the app was closed; tests replace it to answer it.
+    lazy var presentMissedSends: (AppAlert, @escaping @MainActor (Int) -> Void) -> Void = { [weak self] alert, completion in
+        alert.present(on: self?.window, completion: completion)
+    }
     let notifier: NewMailNotifier
     private var router: KeyboardRouter?
     private var statusObservation: StoreObservation?
@@ -215,6 +221,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         snoozeObservation = environment.store.observeSnoozes { [weak self] snoozes in
             MainActor.assumeIsolated { self?.snoozesChanged(snoozes) }
         }
+        sendLaterOutbox.onMissed = { [weak self] sends in self?.askAboutMissedSends(sends) }
+        sendLaterOutbox.onFailed = { [weak self] draft in self?.sendLaterFailed(draft) }
+        sendLaterOutbox.start()
         let router = KeyboardRouter(target: self)
         router.install()
         self.router = router
@@ -224,6 +233,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         SendArchive.archiver = self
         NotificationCenter.default.addObserver(self, selector: #selector(composeDraftDiscarded(_:)),
                                                name: ComposeWindowController.draftDiscardedNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(sendLaterScheduled(_:)),
+                                               name: SendLaterScheduled.didSchedule, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(signInProgressChanged(_:)),
                                                name: SignInProgress.didChange, object: nil)
         // A window built while a sign-in runs (the demo replaced mid-way) shows it from the start.
@@ -245,6 +256,18 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         recordExternalUndo(command: "Discard Draft", toast: "Draft discarded", symbol: Quire.Icon.trash) { undo.undo() }
     }
 
+    /// A composer or the quick reply scheduled a message (§5.23): “Sends Tue 09:00 · Undo”, joining the window's undo
+    /// history like a mail action, so Z and ⌘Z reach it in the order of §6.1. Undo takes the schedule back and returns the
+    /// message to where it was written. Only the window of the engine that holds the send answers.
+    @objc private func sendLaterScheduled(_ note: Notification) {
+        guard let scheduled = note.userInfo?[SendLaterScheduled.userInfoKey] as? SendLaterScheduled,
+              (try? environment.store.pendingSendSummaries().contains { $0.id == scheduled.sendID }) == true else { return }
+        let time = laterFormatter.dueTime(for: scheduled.date, reference: laterFormatter.reference(now: laterNow()))
+        recordExternalUndo(command: SendLaterCopy.command, toast: SendLaterCopy.sends(time), symbol: Quire.Icon.later) {
+            scheduled.undo()
+        }
+    }
+
     required init?(coder: NSCoder) {
         nil
     }
@@ -257,6 +280,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         statusObservation = nil
         snoozeObservation?.cancel()
         snoozeObservation = nil
+        sendLaterOutbox.stop()
         stripCollapseObservation?.invalidate()
         stripCollapseObservation = nil
         inboxMonitor.stop()
@@ -439,6 +463,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             list.accountsByID = byID
             conversation.accountsByID = byID
             localDrafts.accounts = fresh
+            sendLaterOutbox.refresh()
             showLocalDrafts()
             inboxMonitor.updateAccounts(fresh.map(\.id))
             listPane.setSearchEnabled(!fresh.isEmpty)
@@ -2013,6 +2038,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             guard let account = accounts.first(where: { $0.id == id.accountID }) ?? accounts.first else { return }
             ComposeWindowController.present(client: environment.engine, account: account, accounts: accounts, mode: .reply(id, all: all),
                                             body: body, attach: attach)
+        case .cancelSendLater(let id):
+            cancelSendLater(id)
         case .quickReplyFailed(let draft):
             // §5.18: the bar is not involved; the draft is already kept, so this toast only points at it.
             let engine = environment.engine
@@ -2049,6 +2076,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
     /// The draft a Drafts row stands for: a kept draft's own message, or the conversation's newest draft.
     private func draftMessageID(in id: ConversationID) -> MessageID? {
+        if let sendID = SendLaterConversation.sendID(of: id) {
+            return SendLaterConversation.messageID(sendID: sendID, account: id.accountID)
+        }
         if let draftID = LocalDraftConversation.draftID(of: id) {
             return LocalDraftConversation.messageID(draftID: draftID, account: id.accountID)
         }
@@ -2057,13 +2087,23 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     }
 
     /// Continue Editing: a kept draft reopens as it was left (its window comes forward if open), so sending it
-    /// leaves nothing behind; a provider's draft goes through `DraftReopener`.
+    /// leaves nothing behind; a provider's draft goes through `DraftReopener`. A Send Later message's schedule is
+    /// cancelled first (§5.19): what is being changed must not go at the old time.
     private func continueDraft(_ id: MessageID) {
+        if let sendID = SendLaterConversation.sendID(of: id) {
+            guard let send = localDrafts.laterSends.first(where: { $0.id == sendID }), let draft = sendLaterOutbox.cancel(send) else {
+                NSSound.beep()
+                return
+            }
+            sendLaterOutbox.refresh()
+            ComposeWindowController.present(client: environment.engine, accounts: accounts, draft: draft)
+            return
+        }
         if let draftID = LocalDraftConversation.draftID(of: id) {
             if !ComposeWindowController.reopenKeptDraft(id: draftID, client: environment.engine, accounts: accounts) { NSSound.beep() }
             return
         }
-        DraftReopener.present(id, client: environment.engine, accounts: accounts)
+        if !DraftReopener.present(id, client: environment.engine, accounts: accounts) { NSSound.beep() }
     }
 
     /// “Discard this draft?” (or “Discard 3 drafts?”), the reader's form (§5.33), from the header, the sheet's
@@ -2090,8 +2130,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     func discardDrafts(_ ids: [ConversationID]) {
         var kept: [ComposeDraft] = []
         var records: [MailActionRecord] = []
+        // Send Later messages discarded: their schedules come back with their drafts on Undo, while their times are ahead.
+        var rescheduled: [(draft: ComposeDraft, date: Date)] = []
         for id in ids {
-            if let draftID = LocalDraftConversation.draftID(of: id) {
+            if SendLaterConversation.sendID(of: id) != nil {
+                guard let send = localDrafts.laterSend(for: id), let draft = sendLaterOutbox.cancel(send) else { continue }
+                kept.append(draft)
+                rescheduled.append((draft, send.sendAfter))
+                ComposeDraftStore.shared.remove(id: draft.id)
+            } else if let draftID = LocalDraftConversation.draftID(of: id) {
                 guard let draft = localDrafts.draft(draftID) else { continue }
                 kept.append(draft)
                 ComposeWindowRegistry.shared.openControllers.first { $0.draftID == draftID }?.closeWithoutSaving()
@@ -2114,9 +2161,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             return
         }
         let engine = environment.engine
+        let now = laterNow
+        let outbox = sendLaterOutbox
         recordExternalUndo(command: "Discard Draft", toast: count == 1 ? "Draft discarded" : "Discarded \(count) drafts",
                            symbol: Quire.Icon.trash) {
-            for draft in kept { ComposeDraftStore.shared.save(draft) }
+            for draft in kept { ComposeDraftStore.shared.saveNow(draft) }
+            // A time that passed meanwhile is not sent on an Undo: the message comes back as a draft to send by hand.
+            for item in rescheduled where item.date > now() {
+                outbox.schedule(item.draft, at: item.date) { if $0 == nil { NSSound.beep() } }
+            }
             do {
                 for record in records.reversed() {
                     for step in record.inverse { try engine.perform(step.change, on: step.targets) }
@@ -2124,6 +2177,85 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             } catch {
                 Self.log.error("bringing back drafts failed: \(String(describing: error), privacy: .public)")
             }
+        }
+    }
+
+    // MARK: Send Later (§5.23)
+
+    /// Cancel beside a Send Later message's time: the schedule goes and the message stays in Drafts as the draft it was
+    /// written in, selected in place of the row, with “Send Later cancelled · Undo”; Undo schedules that draft again for
+    /// the same time while that is ahead.
+    ///
+    /// The draft is free to change once cancelled, so Undo schedules it as it is then, as the composer would, not the
+    /// message as it was cancelled; and not at all once it has gone (sent or discarded) or while a composer holds it,
+    /// where the message would be both scheduled and open for sending.
+    func cancelSendLater(_ id: ConversationID) {
+        guard let send = localDrafts.laterSend(for: id), let draft = sendLaterOutbox.cancel(send) else {
+            NSSound.beep()
+            return
+        }
+        // The rows change now rather than at the observation, so the draft can take the selection.
+        sendLaterOutbox.refresh()
+        let row = LocalDraftConversation.conversationID(draftID: draft.id, account: draft.account.id)
+        if list.selectedConversationID == id { list.selectConversations([row], lead: row) }
+        let now = laterNow
+        let date = send.sendAfter
+        recordExternalUndo(command: SendLaterCopy.command, toast: SendLaterCopy.command + " cancelled", symbol: Quire.Icon.later) { [weak self] in
+            guard let self, date > now(),
+                  !ComposeWindowRegistry.shared.openControllers.contains(where: { $0.draftID == draft.id }),
+                  let current = ComposeDraftStore.shared.draft(id: draft.id, accounts: self.accounts) else {
+                NSSound.beep()
+                return
+            }
+            self.sendLaterOutbox.schedule(current, at: date) { [weak self] sendID in
+                guard let self, let sendID else {
+                    NSSound.beep()
+                    return
+                }
+                self.sendLaterOutbox.refresh()
+                let restored = SendLaterConversation.conversationID(sendID: sendID, account: current.account.id)
+                if self.list.selectedConversationID == row { self.list.selectConversations([restored], lead: restored) }
+                self.confirmUndo(of: SendLaterCopy.command)
+            }
+        }
+    }
+
+    /// Times missed while the app was closed (§5.23): asked once, on the window, Keep in Drafts (the default, as the safe
+    /// choice is, §5.33) or Send Now. Nothing goes until the user says so; Keep in Drafts leaves each as the draft it was
+    /// written in.
+    private func askAboutMissedSends(_ sends: [PendingSendSummary]) {
+        let time = sends.count == 1
+            ? laterFormatter.dueTime(for: sends[0].sendAfter, reference: laterFormatter.reference(now: laterNow())) : nil
+        let first = sends[0]
+        let recipient = (first.to.first ?? first.cc.first ?? first.bcc.first).map(QuotedReply.authorName)
+        let alert = AppAlert.missedSends(count: sends.count, subject: first.subject, recipient: recipient, time: time)
+        presentMissedSends(alert) { [weak self] choice in
+            guard let self else { return }
+            let ids = sends.map(\.id)
+            if choice == 1 {
+                do {
+                    try self.environment.engine.sendNow(ids)
+                } catch {
+                    Self.log.error("sending missed messages failed: \(String(describing: error), privacy: .public)")
+                    NSSound.beep()
+                }
+            } else {
+                let current = (try? self.environment.store.pendingSendSummaries()) ?? []
+                for send in current where ids.contains(send.id) { self.sendLaterOutbox.cancel(send) }
+                self.sendLaterOutbox.refresh()
+            }
+        }
+    }
+
+    /// A Send Later message failed when its time came: its draft is kept with the reason (the composer opens with the
+    /// banner), and the toast offers it, as a quick reply's failure does (§5.18).
+    private func sendLaterFailed(_ draft: ComposeDraft) {
+        let engine = environment.engine
+        let subject = draft.subject.trimmingCharacters(in: .whitespaces)
+        let words = subject.isEmpty ? "Couldn\u{2019}t send your message" : "Couldn\u{2019}t send \u{201c}\(subject)\u{201d}"
+        listPane.toasts.show(words, kind: .error, symbol: Quire.Icon.error, actionTitle: "Open draft") { [weak self] in
+            guard let self else { return }
+            ComposeWindowController.present(client: engine, accounts: self.accounts, draft: draft)
         }
     }
 

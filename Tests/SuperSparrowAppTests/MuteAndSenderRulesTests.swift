@@ -354,7 +354,8 @@ final class MuteAndSenderRulesTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         try environment.store.upsertAccount(a)
         try environment.store.upsertAccount(ListTestSupport.accountB)
-        let controller = SettingsWindowController(environment: environment, settings: ListTestSupport.settings(), mailtoHandler: FakeMailtoHandler())
+        let controller = SettingsWindowController(environment: environment, settings: ListTestSupport.settings(), mailtoHandler: FakeMailtoHandler(),
+                                                  loginItem: FakeLoginItem())
         defer { controller.tearDown() }
         let model = controller.model
         var removed: [SenderRule] = []
@@ -390,7 +391,8 @@ final class MuteAndSenderRulesTests: XCTestCase {
         let environment = try AppEnvironment.makeScratch(in: directory)
         defer { try? FileManager.default.removeItem(at: directory) }
         try environment.store.upsertAccount(a)
-        let controller = SettingsWindowController(environment: environment, settings: ListTestSupport.settings(), mailtoHandler: FakeMailtoHandler())
+        let controller = SettingsWindowController(environment: environment, settings: ListTestSupport.settings(), mailtoHandler: FakeMailtoHandler(),
+                                                  loginItem: FakeLoginItem())
         defer { controller.tearDown() }
         let form = NSHostingView(rootView: AccountDetailForm(model: controller.model, account: a))
         // Colour, Monogram, the 82 pt Signature row, Rules and Remove…: one 40 pt row more than before.

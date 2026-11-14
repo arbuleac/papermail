@@ -469,16 +469,24 @@ public final class SQLiteMailStore: MailStoring, MailStoreMaintenance, Sendable 
         try read { try PendingSendTable.all($0) }
     }
 
-    public func updateSend(_ send: PendingSend) throws {
-        try write { try PendingSendTable.save(send, in: $0) }
+    public func pendingSendSummaries() throws -> [PendingSendSummary] {
+        try read { try PendingSendTable.summaries($0) }
+    }
+
+    public func pendingSend(id: String) throws -> PendingSend? {
+        try read { try PendingSendTable.send(id: id, in: $0) }
+    }
+
+    public func updateSend(_ send: PendingSendSummary) throws {
+        try write { try PendingSendTable.updateState(send, in: $0) }
     }
 
     public func deleteSend(id: String) throws {
         try write { try PendingSendTable.delete(id: id, in: $0) }
     }
 
-    public func observePendingSends(onChange: @escaping @Sendable ([PendingSend]) -> Void) -> StoreObservation {
-        let observation = ValueObservation.tracking { db in try PendingSendTable.all(db) }
+    public func observePendingSends(onChange: @escaping @Sendable ([PendingSendSummary]) -> Void) -> StoreObservation {
+        let observation = ValueObservation.tracking { db in try PendingSendTable.summaries(db) }
         let cancellable = database.startObservation(observation, firstValueOnCallingThread: false, onError: Self.reportObservationFailure, onChange: onChange)
         return StoreObservation { cancellable.cancel() }
     }

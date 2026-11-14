@@ -293,8 +293,9 @@ final class ConversationCellView: NSView {
 
     /// Where the row's tooltips answer and what they say, never overlapping, so each shows its own words: the
     /// account mark (the ringed face, the compact square, the initial tile) names the account in unified views
-    /// (spec §4.2), and the failed triangle says what failed, “Couldn't archive” (spec §5.7). A row-wide tooltip
-    /// would cover the face and hide the account. Internal so the list's tests can read it.
+    /// (spec §4.2), the failed triangle says what failed, “Couldn't archive” (spec §5.7), and a Send Later row's time says
+    /// on what condition it sends (§5.46). A row-wide tooltip would cover the face and hide the account. Internal so the
+    /// list's tests can read it.
     func toolTipRegions() -> [(rect: NSRect, text: String)] {
         guard let content else { return [] }
         let c = cluster(for: content)
@@ -314,6 +315,10 @@ final class ConversationCellView: NSView {
         if let failure = content.failureText, let status = c.status {
             // 16 pt around the 12 pt glyph: 2 pt into its 4 pt gap, so it never reaches the tag, tile or time.
             regions.append((lineBox(status), failure))
+        }
+        if let condition = content.timeToolTip {
+            // Over the time's own words, the sender line's height; the marks before it keep theirs.
+            regions.append((lineBox(c.time), condition))
         }
         // A cut sender or subject answers over its own words (§5.34), and only when it is cut: these regions
         // start at the text column, clear of the face, and end before the time cluster and the glyphs.

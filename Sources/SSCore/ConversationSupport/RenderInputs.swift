@@ -52,8 +52,16 @@ public struct RenderInputs: Hashable, Sendable {
     /// In card order, the one `RenderPayloadBuilder.visibleMessages` decides.
     public private(set) var messages: [Message]
     private var bodyIDs: Set<MessageID>
+    /// The Send Later states the builder was given: a draft sheet's date line and its Cancel follow them.
+    public private(set) var sendLater: [MessageID: SendLaterState] = [:]
 
     public static let empty = RenderInputs(messages: []) { _ in false }
+
+    /// - Parameter hasBody: asked once per visible message, in order.
+    public init(messages: [MessageMetadata], sendLater: [MessageID: SendLaterState] = [:], hasBody: (MessageID) -> Bool) {
+        self.init(messages: messages, hasBody: hasBody)
+        self.sendLater = sendLater
+    }
 
     /// - Parameter hasBody: asked once per visible message, in order.
     public init(messages: [MessageMetadata], hasBody: (MessageID) -> Bool) {
@@ -82,7 +90,7 @@ public struct RenderInputs: Hashable, Sendable {
     /// The patches that bring a slot rendered from `self` up to `fresh` when only read or star flags
     /// moved; nil when anything else changed and the slot needs a payload.
     public func flagPatches(to fresh: RenderInputs) -> [RenderPayload.FlagPatch]? {
-        guard messages.count == fresh.messages.count, bodyIDs == fresh.bodyIDs else { return nil }
+        guard messages.count == fresh.messages.count, bodyIDs == fresh.bodyIDs, sendLater == fresh.sendLater else { return nil }
         var patches: [RenderPayload.FlagPatch] = []
         for (old, new) in zip(messages, fresh.messages) {
             var comparable = new

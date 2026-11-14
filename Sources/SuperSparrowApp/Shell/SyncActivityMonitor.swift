@@ -80,7 +80,7 @@ final class SyncActivityMonitor {
         if reachable { onNetworkReturned?() }
     }
 
-    private func sendsArrived(_ sends: [PendingSend]) {
+    private func sendsArrived(_ sends: [PendingSendSummary]) {
         claimedSends = sends.filter { $0.status == .sending }.count
         windowEnds = sends.filter { $0.status == .scheduled }.map(\.sendAfter)
         recount()

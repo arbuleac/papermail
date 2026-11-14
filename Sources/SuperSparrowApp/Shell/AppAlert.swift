@@ -160,6 +160,25 @@ struct AppAlert {
     static let sendWithoutSubject = AppAlert(title: "Send without a subject?", body: "Messages without a subject are easy to miss.",
                                              buttons: [Button(title: "Add Subject", role: .cancel), Button(title: "Send Anyway")])
 
+    /// Main window, at launch (§5.23): Send Later times that passed while the app was closed. Keep in Drafts takes ↩ and
+    /// Esc, since a message sent late cannot be taken back; Send Now sends them at once. `time` is the one message's time,
+    /// written as its row wrote it.
+    static func missedSends(count: Int, subject: String, recipient: String?, time: String?) -> AppAlert {
+        let buttons = [Button(title: "Keep in Drafts", role: .cancel), Button(title: "Send Now")]
+        guard count > 1 else {
+            let trimmed = subject.trimmingCharacters(in: .whitespaces)
+            var message = trimmed.isEmpty ? "The message" : "\u{201c}\(trimmed)\u{201d}"
+            if let recipient { message += " to \(recipient)" }
+            let when = time.map { " at \($0)" } ?? ""
+            return AppAlert(title: "A scheduled message wasn't sent",
+                            body: "\(message) was due to send\(when), while SuperSparrow was closed. Send it now, or keep it in Drafts.",
+                            buttons: buttons)
+        }
+        return AppAlert(title: "\(count) scheduled messages weren't sent",
+                        body: "They were due to send while SuperSparrow was closed. Send them now, or keep them in Drafts.",
+                        buttons: buttons)
+    }
+
     /// Drafts reader and # in Drafts (§5.19): one draft or several. Cancel is the default here, unlike the
     /// composer's form, because nothing is being written.
     static func discardDrafts(count: Int, recipient: String?) -> AppAlert {
@@ -189,6 +208,7 @@ struct AppAlert {
                                addedAt: Date())
         return [
             sendWithoutSubject,
+            missedSends(count: 1, subject: "Re: Contoso rollout", recipient: "Ben Carter", time: "Mon 09:00"),
             discardDraft(recipient: "Ben Carter"),
             discardDrafts(count: 3, recipient: nil),
             remove(contoso),

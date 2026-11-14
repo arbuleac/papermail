@@ -51,6 +51,14 @@ final class MailSchemaMigrationTests: XCTestCase {
         DELETE FROM grdb_migrations WHERE identifier = 'v15-calendar-invitations';
         """
 
+    /// Takes v18 back out of a migrated file: a file from before it keeps no draft and no summary with a send (the column
+    /// order v18 changed is left as it is; nothing reads the table by position).
+    private let withoutV18 = """
+        ALTER TABLE pending_sends DROP COLUMN draft_id;
+        ALTER TABLE pending_sends DROP COLUMN summary_json;
+        DELETE FROM grdb_migrations WHERE identifier = 'v18-scheduled-sends';
+        """
+
     /// Takes v16 back out of a migrated file: a file from before it mutes nothing (the partial index goes first, since a
     /// column an index reads cannot be dropped).
     private let withoutV16 = """
@@ -322,7 +330,7 @@ final class MailSchemaMigrationTests: XCTestCase {
             try store.close()
         }
         // v9 to v15 came after v8, so a v7 file has none of them (`revertSQL` takes v12 and v13 back).
-        try execute(withoutV20 + withoutV17 + withoutV16 + withoutV15 + withoutV14 + """
+        try execute(withoutV20 + withoutV18 + withoutV17 + withoutV16 + withoutV15 + withoutV14 + """
             \(FullTextVersion10.revertSQL)
             DROP TABLE backfill_live_marks;
             DROP TABLE backfill_seen;
@@ -394,7 +402,7 @@ final class MailSchemaMigrationTests: XCTestCase {
             try store.setSyncCursor("cursor-8", for: a)
             try store.close()
         }
-        try execute(withoutV20 + withoutV17 + withoutV16 + withoutV15 + withoutV14 + """
+        try execute(withoutV20 + withoutV18 + withoutV17 + withoutV16 + withoutV15 + withoutV14 + """
             \(FullTextVersion10.revertSQL)
             ALTER TABLE accounts DROP COLUMN signature;
             DELETE FROM grdb_migrations WHERE identifier = 'v9-account-signature';
@@ -434,7 +442,7 @@ final class MailSchemaMigrationTests: XCTestCase {
             try store.setSignature("<div><p>Alex</p></div>", for: AccountID("acct-a"))
             try store.close()
         }
-        try execute(withoutV20 + withoutV17 + withoutV16 + withoutV15 + withoutV14 + """
+        try execute(withoutV20 + withoutV18 + withoutV17 + withoutV16 + withoutV15 + withoutV14 + """
             \(FullTextVersion10.revertSQL)
             ALTER TABLE bodies DROP COLUMN evicted;
             DELETE FROM grdb_migrations WHERE identifier = 'v10-body-eviction';
@@ -813,6 +821,47 @@ final class MailSchemaMigrationTests: XCTestCase {
                        "v20-sync-robustness")
         try execute("PRAGMA foreign_keys = ON; DELETE FROM accounts WHERE id = 'acct-a';", at: path)
         XCTAssertEqual(try query("SELECT COUNT(*) FROM queued_lookups", at: path), [["0"]], "an account's lookups go with it")
+    }
+
+    /// v18 rebuilds `pending_sends` with `draft_id` and `summary_json`, NULL for every send already in the outbox (those
+    /// are undo-sends, which keep no draft), and the message last, so a read of the summaries stops short of it. The file
+    /// is a real v15 one (a v1 file taken through the shipped migrations up to v15) with a send held in its undo window;
+    /// opened by the current build, the send reads as before, whole and as a summary made from its message, with no draft,
+    /// and the runner would still send it as an undo-send. The rebuilt table still goes with its account.
+    func testVersion15DatabaseGainsTheDraftColumnAndKeepsItsOutbox() throws {
+        let path = try XCTUnwrap(directory).appendingPathComponent("mail.sqlite").path
+        try writeVersion1Database(at: path)
+        try MailSchema.migrateFile(at: path, upTo: "v15-calendar-invitations")
+        XCTAssertFalse(try query("SELECT name FROM pragma_table_info('pending_sends')", at: path).compactMap(\.first).contains("draft_id"))
+        let message = try MailStoreCodec.json(OutgoingMessage(accountID: AccountID("acct-a"), to: [EmailAddress(address: "ben@example.com")],
+                                                              subject: "Lunch", html: "<p>Noon?</p>", text: "Noon?"))
+        try execute("""
+            INSERT INTO pending_sends (id, account_id, message_json, created_at, send_after, status, attempts, last_error)
+            VALUES ('s1', 'acct-a', '\(message.replacingOccurrences(of: "'", with: "''"))', \(base), \(base + 5_000), 'scheduled', 0, NULL);
+            """, at: path)
+
+        let store = try SQLiteMailStore(path: path)
+        let sends = try store.pendingSends()
+        XCTAssertEqual(sends.map(\.id), ["s1"])
+        XCTAssertEqual(sends.first?.status, .scheduled)
+        XCTAssertNil(sends.first?.draftID, "an undo-send keeps no draft")
+        XCTAssertEqual(sends.first?.message.subject, "Lunch")
+        let summaries = try store.pendingSendSummaries()
+        XCTAssertEqual(summaries, sends.map(PendingSendSummary.init), "read from the message, which it has no summary of")
+        XCTAssertNil(summaries.first.flatMap(SendLaterState.init), "and is never listed in Drafts")
+        try store.close()
+        XCTAssertEqual(try query("SELECT name FROM pragma_table_info('pending_sends') ORDER BY cid", at: path).compactMap(\.first),
+                       ["id", "account_id", "created_at", "send_after", "status", "attempts", "last_error", "draft_id", "summary_json",
+                        "message_json"], "the message last")
+        for column in ["draft_id", "summary_json"] {
+            XCTAssertEqual(try query("SELECT type, \"notnull\", dflt_value FROM pragma_table_info('pending_sends') WHERE name = '\(column)'",
+                                     at: path), [["TEXT", "0", nil]], "\(column): TEXT NULL with no default")
+        }
+        XCTAssertEqual(try query("SELECT draft_id, summary_json FROM pending_sends", at: path), [[nil, nil]])
+        XCTAssertEqual(try query("SELECT \"table\", \"from\", \"to\", on_delete FROM pragma_foreign_key_list('pending_sends')", at: path),
+                       [["accounts", "account_id", "id", "CASCADE"]])
+        XCTAssertTrue(try query("SELECT identifier FROM grdb_migrations ORDER BY rowid", at: path).compactMap(\.first)
+            .contains("v18-scheduled-sends"))
     }
 
     // MARK: Raw SQLite

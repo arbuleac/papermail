@@ -13,11 +13,11 @@ final class PendingSheetTests: XCTestCase {
     }
 
     private func send(_ id: String, replyingTo original: MessageID?, forward: Bool = false, status: PendingSendStatus = .scheduled,
-                      at seconds: TimeInterval = 10) -> PendingSend {
-        PendingSend(id: id, message: OutgoingMessage(accountID: account.id, to: [EmailAddress(address: "ben@example.com")], subject: "Re: Plans",
+                      at seconds: TimeInterval = 10) -> PendingSendSummary {
+        PendingSendSummary(PendingSend(id: id, message: OutgoingMessage(accountID: account.id, to: [EmailAddress(address: "ben@example.com")], subject: "Re: Plans",
                                                      html: "<p>Yes</p>", text: "Yes\n\nOn Monday, Ben wrote:\n> Plans?", inReplyTo: original,
                                                      isForward: forward),
-                    createdAt: Date(timeIntervalSince1970: seconds), sendAfter: Date(), status: status)
+                    createdAt: Date(timeIntervalSince1970: seconds), sendAfter: Date(), status: status))
     }
 
     func testOnlyRepliesOnTheirWayIntoThisConversationShow() {

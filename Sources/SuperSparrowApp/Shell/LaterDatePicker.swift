@@ -2,11 +2,20 @@ import AppKit
 import SSCore
 import SSDesign
 
-/// Later's Pick a Date… (spec §5.45): a system alert sheet on the main window, as every Quire sheet is (§5.33), whose
-/// accessory holds the system's graphical calendar and, below it, a time field. It opens on tomorrow at 09:00; Snooze
-/// (the default, ↩) is disabled while the chosen time is not in the future, and Cancel (Esc) closes it.
+/// Later's Pick a Date… (spec §5.45) and Send Later's Pick a Time… (§5.23): a system alert sheet on the window the action
+/// started in, as every Quire sheet is (§5.33), whose accessory holds the system's graphical calendar and, below it, a
+/// time field. It opens on tomorrow at 09:00; its default button (Snooze, or Schedule; ↩) is disabled while the chosen
+/// time is not in the future, and Cancel (Esc) closes it.
 @MainActor
 final class LaterDatePicker: NSObject {
+    /// What the sheet is for, which sets its words.
+    enum Purpose {
+        /// Later: `count` conversations come back at the time.
+        case snooze(count: Int)
+        /// Send Later: the message sends at the time.
+        case sendLater
+    }
+
     let alert: NSAlert
     let calendarPicker = NSDatePicker()
     let timePicker = NSDatePicker()
@@ -14,18 +23,31 @@ final class LaterDatePicker: NSObject {
     private let now: () -> Date
 
     /// `count` is how many conversations it snoozes, for its words.
-    init(count: Int, now: @escaping () -> Date = Date.init, calendar: Calendar = .autoupdatingCurrent) {
+    convenience init(count: Int, now: @escaping () -> Date = Date.init, calendar: Calendar = .autoupdatingCurrent) {
+        self.init(purpose: .snooze(count: count), now: now, calendar: calendar)
+    }
+
+    init(purpose: Purpose, now: @escaping () -> Date = Date.init, calendar: Calendar = .autoupdatingCurrent) {
         self.calendar = calendar
         self.now = now
         alert = NSAlert()
         super.init()
         let start = now()
         let initial = LaterPreset.tomorrowMorning(after: start, calendar: calendar) ?? start.addingTimeInterval(86_400)
-        alert.messageText = count > 1 ? "When should these \(count) come back?" : "When should this come back?"
-        alert.informativeText = count > 1 ? "They return to the Inbox at this time, marked unread."
-            : "It returns to the Inbox at this time, marked unread."
+        let confirm: String
+        switch purpose {
+        case .snooze(let count):
+            alert.messageText = count > 1 ? "When should these \(count) come back?" : "When should this come back?"
+            alert.informativeText = count > 1 ? "They return to the Inbox at this time, marked unread."
+                : "It returns to the Inbox at this time, marked unread."
+            confirm = "Snooze"
+        case .sendLater:
+            alert.messageText = "When should this send?"
+            alert.informativeText = "It sends at this time while SuperSparrow is open. Until then it waits in Drafts."
+            confirm = "Schedule"
+        }
         alert.alertStyle = .informational
-        let snooze = alert.addButton(withTitle: "Snooze")
+        let snooze = alert.addButton(withTitle: confirm)
         snooze.keyEquivalent = "\r"
         alert.addButton(withTitle: "Cancel")
 

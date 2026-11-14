@@ -84,6 +84,9 @@ public struct ConversationRowText: Hashable, Sendable {
     public let senderNames: String
     public let isSenderPlaceholder: Bool
     public let timeText: String
+    /// What the time says on hover, where the slot has no room for it: a waiting Send Later message's condition,
+    /// “Sends Mon 09:00 while SuperSparrow is open” (spec §5.46). Nil for every other row.
+    public let timeToolTip: String?
     public let subjectText: String
     public let isSubjectPlaceholder: Bool
     public let snippetText: String
@@ -139,16 +142,27 @@ public struct ConversationRowText: Hashable, Sendable {
                 isSenderPlaceholder = false
             }
         }
-        switch context.timeSource {
-        case .latestMessage:
-            timeText = formatter.string(for: summary.latestDate, reference: reference, style: context.timeStyle)
-        case .inbox:
-            timeText = formatter.string(for: summary.inboxDate, reference: reference, style: context.timeStyle)
-        case .snoozeEnd:
-            if let due = summary.snoozedUntil {
-                timeText = ConversationRowText.back + " " + formatter.dueTime(for: due, reference: reference)
+        // A Send Later row says when it sends, whatever view lists it (only Drafts does).
+        if let state = summary.sendLater {
+            timeText = SendLaterCopy.status(state, formatter: formatter, reference: reference)
+            if case .waiting(let date) = state {
+                timeToolTip = SendLaterCopy.help(formatter.dueTime(for: date, reference: reference))
             } else {
+                timeToolTip = nil
+            }
+        } else {
+            timeToolTip = nil
+            switch context.timeSource {
+            case .latestMessage:
                 timeText = formatter.string(for: summary.latestDate, reference: reference, style: context.timeStyle)
+            case .inbox:
+                timeText = formatter.string(for: summary.inboxDate, reference: reference, style: context.timeStyle)
+            case .snoozeEnd:
+                if let due = summary.snoozedUntil {
+                    timeText = ConversationRowText.back + " " + formatter.dueTime(for: due, reference: reference)
+                } else {
+                    timeText = formatter.string(for: summary.latestDate, reference: reference, style: context.timeStyle)
+                }
             }
         }
         let subject = ConversationRowText.singleLine(summary.subject)
@@ -189,7 +203,7 @@ public struct ConversationRowText: Hashable, Sendable {
         }
         parts.append(subjectText)
         if !snippetText.isEmpty { parts.append(snippetText) }
-        parts.append(timeText)
+        parts.append(summary.sendLater.map { SendLaterCopy.spoken($0, formatter: formatter, reference: reference) } ?? timeText)
         if let count = messageCount { parts.append("\(count) messages") }
         if hasAttachments { parts.append("Has attachments") }
         switch status {
@@ -362,6 +376,16 @@ public struct ConversationRowText: Hashable, Sendable {
         hasher.combine(summary.returnedAt ?? .distantPast)
         hasher.combine(summary.snoozedUntil ?? .distantPast)
         hasher.combine(summary.isMuted)
+        switch summary.sendLater {
+        case nil: hasher.combine(0)
+        case .waiting(let date)?:
+            hasher.combine(1)
+            hasher.combine(date)
+        case .missed(let date)?:
+            hasher.combine(2)
+            hasher.combine(date)
+        case .sending?: hasher.combine(3)
+        }
         hasher.combine(summary.subject)
         hasher.combine(summary.snippet)
         hasher.combine(summary.participants.count)

@@ -176,6 +176,9 @@ public struct RenderPayload: Hashable, Codable, Sendable {
         public var unsubscribe: Bool
         /// The invitation card above the body; nil (and absent from the JSON) for every message without one.
         public var invitation: Invitation?
+        /// A Send Later message still waiting for its time (Drafts, spec §5.19): its date line reads “Sends Mon 09:00”
+        /// and Cancel follows it, which takes the schedule back and leaves the draft.
+        public var cancelsSendLater: Bool
 
         public init(
             id: String,
@@ -200,7 +203,8 @@ public struct RenderPayload: Hashable, Codable, Sendable {
             declaresColors: Bool = true,
             coveredByNewYork: Bool = false,
             unsubscribe: Bool = false,
-            invitation: Invitation? = nil
+            invitation: Invitation? = nil,
+            cancelsSendLater: Bool = false
         ) {
             self.id = id
             self.from = from
@@ -225,6 +229,7 @@ public struct RenderPayload: Hashable, Codable, Sendable {
             self.coveredByNewYork = coveredByNewYork
             self.unsubscribe = unsubscribe
             self.invitation = invitation
+            self.cancelsSendLater = cancelsSendLater
         }
     }
 

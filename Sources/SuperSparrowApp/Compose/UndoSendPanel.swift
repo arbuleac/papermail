@@ -190,7 +190,7 @@ final class UndoSendPanel: NSPanel {
 
     /// The outbox is in the store: a sent message's row is removed, a failed one stays with its reason.
     private func pollOutcome() {
-        guard let sends = try? client.store.pendingSends() else { return }
+        guard let sends = try? client.store.pendingSendSummaries() else { return }
         let send = sends.first { $0.id == sendID }
         switch send?.status {
         case nil, .sent?:
@@ -199,7 +199,8 @@ final class UndoSendPanel: NSPanel {
         case .failed?:
             pollTimer?.invalidate()
             showFailed(reason: send?.lastError)
-        case .scheduled?, .sending?:
+        case .scheduled?, .sending?, .later?, .missed?:
+            // An undo-send is never `later` or `missed`; those are Send Later's.
             break
         }
     }

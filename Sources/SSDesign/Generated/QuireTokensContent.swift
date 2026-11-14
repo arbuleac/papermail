@@ -232,12 +232,12 @@ extension Quire {
         ]),
         QuireCheatSheetSection(title: "Write", rows: [
             QuireCheatSheetRow(keys: "C", label: "New message"),
-            QuireCheatSheetRow(keys: "R", label: "Reply"),
-            QuireCheatSheetRow(keys: "A", label: "Reply all"),
+            QuireCheatSheetRow(keys: "R A", label: "Reply · reply all"),
             QuireCheatSheetRow(keys: "F", label: "Forward"),
             QuireCheatSheetRow(keys: "⇧⌘R", label: "Open in composer"),
             QuireCheatSheetRow(keys: "⌘↩", label: "Send"),
             QuireCheatSheetRow(keys: "⇧⌘↩", label: "Send and archive"),
+            QuireCheatSheetRow(keys: "⇧⌘L", label: "Send later"),
             QuireCheatSheetRow(keys: "⇧⌘A", label: "Attach files"),
         ]),
         QuireCheatSheetSection(title: "Format", rows: [

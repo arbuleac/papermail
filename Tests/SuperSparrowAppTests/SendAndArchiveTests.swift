@@ -149,9 +149,10 @@ final class SendAndArchiveTests: XCTestCase {
         XCTAssertEqual(bar.sendButtonHelp.toolTip, "Send and Archive  ⌘↩")
         XCTAssertEqual(bar.sendButtonHelp.label, "Send and Archive")
 
+        // The two choices lead the menu; Send Later's times follow them (SendLaterTests).
         let menu = composer.sendOptionsMenu()
-        XCTAssertEqual(menu.items.map(\.title), ["Send and Archive", "Send"])
-        XCTAssertEqual(menu.items.map(\.state), [.on, .off], "the default is checked")
+        XCTAssertEqual(menu.items.prefix(2).map(\.title), ["Send and Archive", "Send"])
+        XCTAssertEqual(menu.items.prefix(2).map(\.state), [.on, .off], "the default is checked")
         XCTAssertTrue(menu.items.allSatisfy { $0.keyEquivalent.isEmpty }, "choices, not commands: no key equivalents")
         try choose(1, in: menu)
 
@@ -167,12 +168,12 @@ final class SendAndArchiveTests: XCTestCase {
         }
         XCTAssertEqual(bar.sendAction, .send, "and the quick reply")
         XCTAssertEqual(bar.sendButtonHelp.toolTip, "Send  ⌘↩")
-        XCTAssertEqual(other.sendOptionsMenu().items.map(\.state), [.off, .on])
+        XCTAssertEqual(other.sendOptionsMenu().items.prefix(2).map(\.state), [.off, .on])
 
         // The quick reply's drop-down: the same choice, back to Send and Archive.
         let barMenu = bar.sendOptionsMenu()
-        XCTAssertEqual(barMenu.items.map(\.title), ["Send and Archive", "Send"])
-        XCTAssertEqual(barMenu.items.map(\.state), [.off, .on])
+        XCTAssertEqual(barMenu.items.prefix(2).map(\.title), ["Send and Archive", "Send"])
+        XCTAssertEqual(barMenu.items.prefix(2).map(\.state), [.off, .on])
         try choose(0, in: barMenu)
         XCTAssertEqual(settings.sendAction, .sendAndArchive)
         XCTAssertEqual(AppSettings(defaults: defaults).sendAction, .sendAndArchive)
@@ -318,7 +319,7 @@ final class SendAndArchiveTests: XCTestCase {
         let composer = ComposeWindowController.present(client: harness.environment.engine, accounts: harness.controller.accounts, draft: draft)
         XCTAssertEqual(composer.sendAction, .send)
         XCTAssertEqual(composer.sendButtonHelp.toolTip, "Send  ⌘↩", "nothing to archive, so it says Send")
-        XCTAssertEqual(composer.sendOptionsMenu().items.map(\.state), [.on, .off], "the default it would use elsewhere stays checked")
+        XCTAssertEqual(composer.sendOptionsMenu().items.prefix(2).map(\.state), [.on, .off], "the default it would use elsewhere stays checked")
         try pressSend(shift: true, in: try XCTUnwrap(composer.window))
         let panel = try panel(harness)
         XCTAssertEqual(panel.summary, "Lisbon \u{00b7} to Ben Carter", "no archive to mention")

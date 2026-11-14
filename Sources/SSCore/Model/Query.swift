@@ -96,6 +96,9 @@ public struct ConversationSummary: Hashable, Sendable, Identifiable {
     /// Muted with M (docs/DATA-MODEL.md, `conversations.muted`): mail arriving in it is archived as it arrives, and its
     /// row carries the muted glyph wherever it is listed.
     public var isMuted: Bool
+    /// Set only on a Drafts row that stands for a Send Later message (`SendLaterConversation`), whose time slot then
+    /// reads “Sends Mon 09:00”.
+    public var sendLater: SendLaterState?
 
     /// The date the Inbox sorts, pages and groups by, and its rows show: the latest message's, or the return's when
     /// that came later, so mail that comes back lands under Today rather than under the day it first arrived.
@@ -121,7 +124,8 @@ public struct ConversationSummary: Hashable, Sendable, Identifiable {
         failedOperation: OperationKind? = nil,
         returnedAt: Date? = nil,
         snoozedUntil: Date? = nil,
-        isMuted: Bool = false
+        isMuted: Bool = false,
+        sendLater: SendLaterState? = nil
     ) {
         self.id = id
         self.subject = subject
@@ -140,5 +144,6 @@ public struct ConversationSummary: Hashable, Sendable, Identifiable {
         self.returnedAt = returnedAt
         self.snoozedUntil = snoozedUntil
         self.isMuted = isMuted
+        self.sendLater = sendLater
     }
 }

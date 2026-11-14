@@ -536,6 +536,63 @@ class MailStoreContractTests: XCTestCase {
         XCTAssertEqual(try store.pendingSends(), [second])
     }
 
+    /// Send Later's statuses and the draft a message was written in are stored and read back as written (v18).
+    func testSendLaterStatusesAndDraftRoundTrip() throws {
+        let draft = UUID()
+        let waiting = PendingSend(id: "l1", message: outgoing(from: accountA), createdAt: date(10), sendAfter: date(3_600),
+                                  status: .later, draftID: draft)
+        try store.enqueueSend(waiting)
+        XCTAssertEqual(try store.pendingSends(), [waiting])
+        var missed = waiting
+        missed.status = .missed
+        try store.updateSend(missed)
+        XCTAssertEqual(try store.pendingSends(), [missed])
+        var sent = missed
+        sent.status = .sent
+        try store.updateSend(sent)
+        XCTAssertEqual(try store.pendingSends().first?.draftID, draft, "kept with the row until the app clears it")
+        XCTAssertEqual(try store.pendingSends().first?.status, .sent)
+    }
+
+    /// The outbox's readers see summaries, as `PendingSendSummary` makes them from the whole send; the whole send is read
+    /// by id. A state write never touches the message, the draft or the creation time, and does nothing once the row
+    /// has gone, so a runner that lost the row to a removed account does not bring it back.
+    func testOutboxSummariesAndStateWrites() throws {
+        let file = OutgoingAttachment(filename: "plan.pdf", mimeType: "application/pdf", data: Data(repeating: 7, count: 2_048))
+        var message = outgoing(from: accountA)
+        message.attachments = [file]
+        let draft = UUID()
+        let waiting = PendingSend(id: "l1", message: message, createdAt: date(10), sendAfter: date(3_600), status: .later, draftID: draft)
+        let undo = PendingSend(id: "s1", message: outgoing(from: accountB), createdAt: date(20), sendAfter: date(25))
+        try store.enqueueSend(undo)
+        try store.enqueueSend(waiting)
+        XCTAssertEqual(try store.pendingSendSummaries(), [PendingSendSummary(waiting), PendingSendSummary(undo)], "oldest first")
+        XCTAssertEqual(try store.pendingSendSummaries().first?.hasFiles, true)
+        XCTAssertEqual(try store.pendingSend(id: "l1"), waiting)
+        XCTAssertNil(try store.pendingSend(id: "gone"))
+
+        var changed = waiting
+        changed.status = .sending
+        changed.attempts = 1
+        changed.lastError = "429"
+        changed.sendAfter = date(3_700)
+        changed.message.subject = "Not this"
+        changed.draftID = nil
+        changed.createdAt = date(99)
+        try store.updateSend(changed)
+        var expected = waiting
+        expected.status = .sending
+        expected.attempts = 1
+        expected.lastError = "429"
+        expected.sendAfter = date(3_700)
+        XCTAssertEqual(try store.pendingSend(id: "l1"), expected, "the state only")
+
+        try store.deleteSend(id: "l1")
+        try store.updateSend(changed)
+        XCTAssertNil(try store.pendingSend(id: "l1"), "not brought back")
+        XCTAssertEqual(try store.pendingSendSummaries().map(\.id), ["s1"])
+    }
+
     func outgoing(from accountID: AccountID) -> OutgoingMessage {
         OutgoingMessage(
             accountID: accountID,

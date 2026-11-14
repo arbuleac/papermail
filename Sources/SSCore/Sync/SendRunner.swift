@@ -1,15 +1,23 @@
 import Foundation
 
-/// Sends queued messages once their undo window has passed.
+/// Sends queued messages once their undo window has passed, and Send Later messages at the time the user chose.
 ///
 /// Between sends it sleeps until the earliest held send falls due, or until woken: a send was queued, or the Mac
-/// woke (`MailEngine.checkForMail`, which also runs when the app comes to the front and when the network returns).
-/// An empty outbox keeps no timer faster than the background poll.
+/// woke (`MailEngine.checkForMail`, which also runs when the app comes to the front and when the network returns),
+/// or the wall clock was set, which a Send Later time is kept on. An empty outbox keeps no timer faster than the
+/// background poll.
 ///
-/// Claiming a send (scheduled → sending) and cancelling one both run under `claimLock`, so a message is never
+/// Claiming a send (scheduled or later → sending) and cancelling one both run under `claimLock`, so a message is never
 /// both cancelled and sent. Only a throttle and a failure before any request left this Mac (no connection, a token
 /// that could not be fetched: `ProviderError.neverLeftThisMac`) are retried: after any other failure the provider may
 /// already have delivered the message and a retry would send it twice, so the send is marked failed for the user to see.
+///
+/// A Send Later time that passed while the app was closed is never sent at launch: the runner's first read marks it
+/// `missed`, which it never claims, and the app asks the user (spec §5.23); `sendNow` sends it once they say so.
+///
+/// It reads the outbox as summaries (`MailStoring.pendingSendSummaries`), which leave the attachments out, and writes only
+/// a send's state back: a Send Later message waits for days, and the runner looks at the outbox at every poll interval.
+/// The whole message is read once, for the provider.
 actor SendRunner {
     private let store: MailStoring
     private let registry: AccountRegistry
@@ -18,7 +26,7 @@ actor SendRunner {
     private let clock: SendClock
     private let waker: SyncWaker
     private let loop = LoopHandle()
-    private var recoveredInterrupted = false
+    private var recoveredPreviousRun = false
     /// Each held send's due time on `clock.uptime`, recorded when it is queued (`enqueue`) or throttled, so setting
     /// the Mac's clock neither sends a message inside its undo window nor holds it past its time, however late the
     /// runner first reads it (it may be delivering another send for a while). A send an earlier run left gets one at
@@ -76,18 +84,50 @@ actor SendRunner {
         return pending.id
     }
 
-    /// Cancels a send that is still held. False once it has been claimed for sending, or was never queued.
+    /// Stores a Send Later message held until `date` on the wall clock (the time the user chose, which daylight saving
+    /// and a clock set by hand move with the wall), with the draft it was written in, and wakes the runner. Returns the
+    /// pending send id.
+    nonisolated func enqueueLater(_ message: OutgoingMessage, at date: Date, draftID: UUID?) throws -> String {
+        let pending = PendingSend(message: message, createdAt: clock.now(), sendAfter: date, status: .later, draftID: draftID)
+        try store.enqueueSend(pending)
+        wake()
+        return pending.id
+    }
+
+    /// Cancels a send that is still held: in its undo window, waiting for its Send Later time, or missed while the app
+    /// was closed. False once it has been claimed for sending, or was never queued.
     nonisolated func cancel(id: String) throws -> Bool {
         claimLock.lock(); defer { claimLock.unlock() }
-        guard let send = try store.pendingSends().first(where: { $0.id == id }), send.status == .scheduled else {
+        guard let send = try store.pendingSendSummaries().first(where: { $0.id == id }),
+              send.status == .scheduled || send.isHeldForLater else {
             return false
         }
         try store.deleteSend(id: id)
         return true
     }
 
+    /// Sends these Send Later messages now, whether their time has come or was missed while the app was closed (the user
+    /// said Send Now). Returns the ids it found still held; the rest had gone, or been cancelled.
+    nonisolated func sendNow(ids: [String]) throws -> [String] {
+        let wanted = Set(ids)
+        var released: [String] = []
+        try claimLock.withLock {
+            let now = clock.now()
+            for var send in try store.pendingSendSummaries() where wanted.contains(send.id) && send.isHeldForLater {
+                // Still `later`, not `scheduled`: if the app quits before it goes, the next launch asks again rather than
+                // sending a message the user may since have thought better of.
+                send.status = .later
+                send.sendAfter = now
+                try store.updateSend(send)
+                released.append(send.id)
+            }
+        }
+        if !released.isEmpty { wake() }
+        return released
+    }
+
     private func run() async {
-        recoverInterruptedSends()
+        recoverPreviousRun()
         while !Task.isCancelled {
             let nextDue = await tick()
             // Every way the app queues a send wakes the runner, so with nothing held it has nothing to time. It still
@@ -99,16 +139,30 @@ actor SendRunner {
         }
     }
 
-    /// A row left in `sending` by a previous process may or may not have gone out; nobody can tell, so it is
-    /// reported as failed rather than silently sent twice.
-    private func recoverInterruptedSends() {
-        guard !recoveredInterrupted else { return }
-        recoveredInterrupted = true
+    /// What the previous process left, read once before the first claim. A row left in `sending` may or may not have
+    /// gone out; nobody can tell, so it is reported as failed rather than silently sent twice. A Send Later time that
+    /// passed while the app was closed becomes `missed`: the user may have changed their mind meanwhile, so it waits for
+    /// them to say (spec §5.23) instead of going the moment the app opens. So does a Send Later message a throttle put
+    /// back to retry (`scheduled`, still carrying its draft id) whose retry time passed while the app was closed: it is
+    /// that message, not an undo-send left behind, which goes within a minute of launch.
+    private func recoverPreviousRun() {
+        guard !recoveredPreviousRun else { return }
+        recoveredPreviousRun = true
         claimLock.lock(); defer { claimLock.unlock() }
-        guard let sends = try? store.pendingSends() else { return }
-        for var send in sends where send.status == .sending {
-            send.status = .failed
-            send.lastError = "interrupted while sending; check Sent before sending again"
+        guard let sends = try? store.pendingSendSummaries() else { return }
+        let now = clock.now()
+        for var send in sends {
+            switch send.status {
+            case .sending:
+                send.status = .failed
+                send.lastError = "interrupted while sending; check Sent before sending again"
+            case .later where send.sendAfter <= now:
+                send.status = .missed
+            case .scheduled where send.draftID != nil && send.sendAfter <= now:
+                send.status = .missed
+            default:
+                continue
+            }
             try? store.updateSend(send)
         }
     }
@@ -119,7 +173,7 @@ actor SendRunner {
         // Reads again after every delivery: a throttled send is back in the outbox with a later time, which the read
         // before could not count, and a send queued meanwhile may be due already. Not once stopped (quit, leaving
         // the demo): a send claimed then would reach the provider under a cancelled task and fail as "cancelled",
-        // where left scheduled it goes at the next launch.
+        // where left scheduled (or later) it goes, or is asked about, at the next launch.
         while !Task.isCancelled {
             let (claimed, nextDue) = claimNextDueSend()
             guard let claimed else { return nextDue }
@@ -127,16 +181,23 @@ actor SendRunner {
                 release(claimed)
                 return nil
             }
-            await deliver(claimed)
+            await deliver(claimed.send)
         }
         return nil
     }
 
-    /// Puts a claimed send that never reached the provider back as it was before the claim.
-    private func release(_ send: PendingSend) {
+    /// A send marked `sending`, with the status it had before: a stop puts it back as it was.
+    private struct Claim {
+        var send: PendingSendSummary
+        let from: PendingSendStatus
+    }
+
+    /// Puts a claimed send that never reached the provider back as it was before the claim: a Send Later message
+    /// waits for its time again, so the next launch asks about it rather than sending it.
+    private func release(_ claim: Claim) {
         claimLock.lock(); defer { claimLock.unlock() }
-        var send = send
-        send.status = .scheduled
+        var send = claim.send
+        send.status = claim.from
         send.attempts -= 1
         try? store.updateSend(send)
     }
@@ -145,23 +206,24 @@ actor SendRunner {
     /// others held. One at a time: a crash or a force quit leaves in doubt ("interrupted while sending") only the send
     /// actually handed to the provider, never one claimed beside it and not yet tried, and Undo can still take those.
     /// An extra read of the small outbox per send that falls due beside another; nothing on the poll's path.
-    private func claimNextDueSend() -> (claimed: PendingSend?, nextDue: TimeInterval?) {
+    private func claimNextDueSend() -> (claimed: Claim?, nextDue: TimeInterval?) {
         claimLock.lock(); defer { claimLock.unlock() }
-        var claimed: PendingSend?
+        var claimed: Claim?
         var nextDue: TimeInterval?
         do {
             let now = clock.now()
             let uptime = clock.uptime()
             var stillHeld: [String: HeldSend] = [:]
-            for var send in try store.pendingSends() where send.status == .scheduled {
+            for var send in try store.pendingSendSummaries() where send.status == .scheduled || send.status == .later {
                 let due = dueTime(of: send, now: now, uptime: uptime)
                 if claimed == nil, due <= uptime + Self.dueTolerance {
+                    let from = send.status
                     send.status = .sending
                     send.attempts += 1
                     try store.updateSend(send)
-                    claimed = send
+                    claimed = Claim(send: send, from: from)
                 } else {
-                    stillHeld[send.id] = HeldSend(sendAfter: send.sendAfter, due: due)
+                    if send.status == .scheduled { stillHeld[send.id] = HeldSend(sendAfter: send.sendAfter, due: due) }
                     nextDue = nextDue.map { min($0, due) } ?? due
                 }
             }
@@ -176,27 +238,50 @@ actor SendRunner {
     /// the wall clock, once, and that clock may have been set since; so it is held no longer than the runner ever
     /// holds a send itself, a throttle's retry (`userRetryAfterCap`; the app's undo windows are shorter), and a
     /// clock set back between runs cannot keep it in the outbox for the size of the jump.
-    private func dueTime(of send: PendingSend, now: Date, uptime: TimeInterval) -> TimeInterval {
+    ///
+    /// A Send Later message is timed by the wall clock at every read instead: its time is one the user named on the
+    /// wall (“Monday 09:00”), so setting the clock moves it as it moves the meeting it was written for. The engine wakes
+    /// the runner when the clock is set, which a wait on the continuous clock cannot see.
+    private func dueTime(of send: PendingSendSummary, now: Date, uptime: TimeInterval) -> TimeInterval {
+        if send.status == .later {
+            return uptime + max(0, send.sendAfter.timeIntervalSince(now))
+        }
         if let known = held[send.id], abs(known.sendAfter.timeIntervalSince(send.sendAfter)) < Self.storedTimePrecision {
             return known.due
         }
         return uptime + min(max(0, send.sendAfter.timeIntervalSince(now)), tuning.userRetryAfterCap)
     }
 
-    private func deliver(_ send: PendingSend) async {
+    private func deliver(_ send: PendingSendSummary) async {
         var send = send
-        let accountID = send.message.accountID
+        let accountID = send.accountID
         guard let context = registry.context(for: accountID) else {
             send.status = .failed
             send.lastError = "account is not available"
             try? store.updateSend(send)
             return
         }
+        let message: OutgoingMessage
         do {
-            _ = try await context.provider.send(send.message)
+            // The claim read the outbox without the attachments; the provider needs them. A row gone meanwhile went with
+            // its account.
+            guard let whole = try store.pendingSend(id: send.id) else { return }
+            message = whole.message
+        } catch {
+            let description = SyncErrorDescription.describe(error)
+            send.status = .failed
+            send.lastError = description
+            try? store.updateSend(send)
+            SyncLog.logger.error("send: could not read the message for \(accountID.rawValue, privacy: .public): \(description, privacy: .private)")
+            return
+        }
+        do {
+            _ = try await context.provider.send(message)
             send.status = .sent
             try? store.updateSend(send)
-            try? store.deleteSend(id: send.id)
+            // A Send Later message stays, `sent`, until the app has removed the draft it was written in and then the
+            // row: a row deleted here would leave that draft in Drafts if the app quit before it saw the delivery.
+            if send.draftID == nil { try? store.deleteSend(id: send.id) }
             SyncLog.logger.info("send: delivered for \(accountID.rawValue, privacy: .public)")
             // The sent copy arrives through a poll; ask for it now rather than at the next interval.
             context.syncer.wake(.poll)
@@ -221,8 +306,10 @@ actor SendRunner {
         }
     }
 
-    /// Puts a send back in the outbox to go again in `delay` seconds, timed on the continuous clock from now.
-    private func reschedule(_ send: PendingSend, after delay: TimeInterval, error: ProviderError) {
+    /// Puts a send back in the outbox to go again in `delay` seconds, timed on the continuous clock from now. A Send
+    /// Later message keeps its draft id, so the Drafts row still reads “Sending…” and a quit before the retry makes it
+    /// `missed` at the next launch (`recoverPreviousRun`).
+    private func reschedule(_ send: PendingSendSummary, after delay: TimeInterval, error: ProviderError) {
         var send = send
         let due = clock.uptime() + delay
         send.status = .scheduled

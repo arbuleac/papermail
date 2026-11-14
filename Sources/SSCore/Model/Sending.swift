@@ -89,15 +89,21 @@ public struct SendReceipt: Hashable, Codable, Sendable {
     }
 }
 
+/// Raw values are stored in `pending_sends.status`; never rename them.
 public enum PendingSendStatus: String, Codable, Sendable {
-    /// Held locally during the undo window.
+    /// Held locally during the undo window (or a throttle's retry), and sent at `sendAfter`.
     case scheduled
+    /// Send Later: held until the time the user chose (`sendAfter`, on the wall clock) and sent then, while the app runs.
+    case later
+    /// Send Later whose time passed while the app was closed: held until the user says to send it (`MailClient.sendNow`)
+    /// or keeps it as a draft (`MailClient.cancelSend`). The runner never claims one.
+    case missed
     case sending
     case sent
     case failed
 }
 
-/// A send waiting in the outbox. `sendAfter` implements undo-send.
+/// A send waiting in the outbox. `sendAfter` implements undo-send and Send Later.
 public struct PendingSend: Hashable, Codable, Sendable, Identifiable {
     public var id: String
     public var message: OutgoingMessage
@@ -106,6 +112,11 @@ public struct PendingSend: Hashable, Codable, Sendable, Identifiable {
     public var status: PendingSendStatus
     public var attempts: Int
     public var lastError: String?
+    /// The draft kept on this Mac that a Send Later message was written in (the app's `ComposeDraftStore`), so opening
+    /// it from Drafts brings back what was written. Opaque to the engine, which only keeps a delivered send that has one
+    /// as `sent`, for the app to remove the draft and then the row, and tells by it that a `scheduled` send left by a
+    /// quit is a Send Later message waiting out a throttle, which the next launch asks about. Nil for every other send.
+    public var draftID: UUID?
 
     public init(
         id: String = UUID().uuidString,
@@ -114,7 +125,8 @@ public struct PendingSend: Hashable, Codable, Sendable, Identifiable {
         sendAfter: Date,
         status: PendingSendStatus = .scheduled,
         attempts: Int = 0,
-        lastError: String? = nil
+        lastError: String? = nil,
+        draftID: UUID? = nil
     ) {
         self.id = id
         self.message = message
@@ -123,5 +135,12 @@ public struct PendingSend: Hashable, Codable, Sendable, Identifiable {
         self.status = status
         self.attempts = attempts
         self.lastError = lastError
+        self.draftID = draftID
+    }
+
+    /// Waiting for a time the user chose with Send Later, or holding one that passed while the app was closed: the
+    /// Drafts view lists it, and `MailClient.cancelSend` can still take it back.
+    public var isHeldForLater: Bool {
+        status == .later || status == .missed
     }
 }

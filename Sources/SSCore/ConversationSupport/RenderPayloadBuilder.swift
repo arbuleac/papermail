@@ -28,6 +28,8 @@ public struct RenderPayloadBuilder: Sendable {
     ///   - pending: messages that are replies still in the outbox (`PendingSheet`), shown as sending.
     ///   - invitationPermissionNeeded: accounts whose answered invitations wait for permission to update the calendar
     ///     (`AccountSyncStatus.permissionsNeeded`): their cards ask to reconnect.
+    ///   - sendLater: drafts that are Send Later messages (`SendLaterConversation`): their date line says when they send
+    ///     instead of when they were edited, and one still waiting offers Cancel.
     public func build(
         messages: [MessageMetadata],
         bodies: [MessageID: StoredBody],
@@ -39,10 +41,12 @@ public struct RenderPayloadBuilder: Sendable {
         colorsNoticeDismissed: Bool = false,
         pending: Set<MessageID> = [],
         invitationPermissionNeeded: Set<AccountID> = [],
+        sendLater: [MessageID: SendLaterState] = [:],
         now: Date = Date()
     ) -> RenderPayload {
         let visible = Self.visibleMessages(messages)
         let formatters = makeFormatters()
+        let dueTimes = sendLater.isEmpty ? nil : DateFormatting(locale: locale, calendar: calendar, timeZone: timeZone)
         let ownAddresses = Set(accounts.values.map { $0.email.lowercased() })
         let cards = InvitationCardText(calendar: calendar, locale: locale, timeZone: timeZone)
         // Every revision of an invitation the conversation shows, so an earlier one offers no answer.
@@ -56,9 +60,15 @@ public struct RenderPayloadBuilder: Sendable {
             let isFromMe = message.from.map { ownAddresses.contains($0.address.lowercased()) } ?? false
             let isDraft = message.roles.contains(.drafts)
             let isPending = pending.contains(message.id)
-            let date = isDraft
-                ? draftDateDisplay(for: message.date, now: now, formatters: formatters)
-                : dateDisplay(for: message.date, now: now, formatters: formatters)
+            let later = isDraft ? sendLater[message.id] : nil
+            let date: String
+            if let later, let dueTimes {
+                date = SendLaterCopy.status(later, formatter: dueTimes, reference: dueTimes.reference(now: now))
+            } else if isDraft {
+                date = draftDateDisplay(for: message.date, now: now, formatters: formatters)
+            } else {
+                date = dateDisplay(for: message.date, now: now, formatters: formatters)
+            }
             return RenderPayload.Message(
                 id: RenderPayload.messageKey(for: message.id),
                 from: Self.sender(for: message.from),
@@ -101,7 +111,8 @@ public struct RenderPayloadBuilder: Sendable {
                                ownAddresses: Set(accounts[message.id.accountID].map { [$0.email.lowercased()] } ?? []),
                                needsPermission: invitationPermissionNeeded.contains(message.id.accountID),
                                superseded: revisions.contains { $0.supersedes(invitation) }, now: now)
-                }
+                },
+                cancelsSendLater: { if case .waiting? = later { return true } else { return false } }()
             )
         }
         let resolvedSubject = subject ?? Self.subject(of: visible)

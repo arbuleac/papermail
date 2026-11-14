@@ -100,7 +100,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     private var watchedSends: [String: ComposeDraft] = [:]
     /// Replies on their way out (scheduled or sending, not forwards): the open conversation shows the ones that
     /// answer it as pending sheets (spec §5.14). Read on events and on each outbox tick, never per selection.
-    private var outbox: [PendingSend] = []
+    private var outbox: [PendingSendSummary] = []
     /// Ticks once a second while a send is watched or a reply is on its way, and stops as soon as neither is, so an
     /// idle reader keeps no timer. It predates the store's outbox observation (`observePendingSends`), which could
     /// replace it.
@@ -238,6 +238,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         header.onAction = { [weak self] action in self?.headerAction(action) }
         quickReply.onSend = { [weak self] text, mode, action in self?.sendQuickReply(text, mode: mode, action: action) }
         quickReply.onChooseSendAction = { SendActionPreference.choose($0) }
+        quickReply.onSendLater = { [weak self] text, mode, date in self?.sendQuickReplyLater(text, mode: mode, at: date) }
         quickReply.sendAction = SendActionPreference.current
         quickReply.onEscape = { [weak self] in self?.quickReplyEscape() }
         quickReply.onHeightChange = { [weak self] _ in self?.applyBottomInset() }
@@ -708,13 +709,16 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         for sheet in sheets { bodies[sheet.metadata.id] = sheet.body }
         let all = messages + sheets.map(\.metadata)
         let settings = AppSettings.shared
+        // A Send Later message's sheet says when it sends (§5.19); only the drafts on screen are passed, so the inputs of
+        // every other conversation stay as they were.
+        let laterStates = localDrafts?.sendLaterStates.filter { state in messages.contains { $0.id == state.key } } ?? [:]
         let payload = builder.build(
             messages: all, bodies: bodies, accounts: accountsByID, bodyStates: states,
             loadRemoteImages: Self.loadRemoteImages, readingSans: QuireEnvironment.typeface == .sfPro,
             colorsNoticeDismissed: settings.originalColorsNoticeDismissed, pending: Set(sheets.map(\.metadata.id)),
-            invitationPermissionNeeded: invitationPermissionNeeded
+            invitationPermissionNeeded: invitationPermissionNeeded, sendLater: laterStates
         )
-        return (payload, RenderInputs(messages: all) { bodies[$0] != nil })
+        return (payload, RenderInputs(messages: all, sendLater: laterStates) { bodies[$0] != nil })
     }
 
     private func applyMessages(_ messages: [MessageMetadata], for id: ConversationID) {
@@ -1016,6 +1020,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
                 onAction?(.continueDraft(messageID))
             case "discardDraft":
                 if let id = currentConversationID { onAction?(.discardDrafts([id])) }
+            case "cancelSendLater":
+                if let id = currentConversationID { onAction?(.cancelSendLater(id)) }
             case "answerInvitation":
                 guard let response = value.flatMap(InvitationResponse.init(rawValue:)) else { return }
                 answerInvitation(response, messageID)
@@ -1608,6 +1614,68 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         }
     }
 
+    /// A Send Later time from the quick reply's drop-down or ⇧⌘L (nil: Pick a Time…, asked first); internal so the app's
+    /// tests can schedule one. The reply waits in the outbox until then and, like a composer's, is kept as a draft on this
+    /// Mac that its Drafts row stands in for; the bar clears and the main window says when it sends, with Undo, which puts
+    /// the text back in the bar. Nothing is archived: the reply has not gone (§5.23).
+    func sendQuickReplyLater(_ text: String, mode: QuickReplyView.Mode, at date: Date?) {
+        guard let date else {
+            SendLaterPicker.present(view.window) { [weak self] chosen in
+                guard let chosen else { return }
+                self?.sendQuickReplyLater(text, mode: mode, at: chosen)
+            }
+            return
+        }
+        guard let conversation = currentConversationID, let latest = replyTarget(in: currentMessages),
+              let account = accountsByID[latest.id.accountID] else { return }
+        let message = QuickReplyComposer.outgoingMessage(text: text, replyingTo: latest, accounts: accountsByID, all: mode == .replyAll,
+                                                         signature: ComposeSignature.export(html: account.signature))
+        guard !message.to.isEmpty else {
+            quickReply.status = .noRecipients
+            return
+        }
+        let body = ComposeSignature.startingBody(typed: ComposeTextView.plainBody(text),
+                                                 signature: ComposeSignature.body(html: account.signature)).body
+        let draft = ComposeDraft(id: UUID(), mode: .reply(latest.id, all: mode == .replyAll), account: account, to: message.to,
+                                 cc: message.cc, bcc: message.bcc, subject: message.subject, body: body,
+                                 attachments: [], quoted: nil, threading: ReplyThreading(original: latest, isReply: true))
+        guard ComposeDraftStore.shared.saveNow(draft) else {
+            quickReply.status = .error
+            return
+        }
+        do {
+            let sendID = try client.scheduleSend(message, at: date, draftID: draft.id)
+            quickReply.clear()
+            drafts.park("", under: conversation)
+            let client = client
+            SendLaterScheduled(sendID: sendID, date: date) { [weak self] in
+                guard (try? client.cancelSend(id: sendID)) == true else {
+                    NSSound.beep()
+                    return
+                }
+                ComposeDraftStore.shared.remove(id: draft.id)
+                self?.restoreUnsentQuickReply(text, under: conversation)
+            }.post()
+        } catch {
+            ConversationSignposts.log.error("quick reply schedule failed: \(String(describing: error), privacy: .public)")
+            ComposeDraftStore.shared.remove(id: draft.id)
+            quickReply.status = .error
+        }
+    }
+
+    /// An undone Send Later puts the reply back where it was written: in the bar when its conversation is on screen,
+    /// else waiting under that conversation, with the strip saying so.
+    private func restoreUnsentQuickReply(_ text: String, under conversation: ConversationID) {
+        if drafts.restoreUnsent(text, under: conversation, shown: currentConversationID) {
+            let typed = quickReply.text
+            quickReply.restoreDraft(typed.isEmpty ? text : text + "\n\n" + typed)
+            quickReply.focus()
+        } else {
+            quickSendShown = conversation
+            quickReply.showStrip(.notSent(subject: RenderPayloadBuilder.subject(of: (try? client.store.messages(in: conversation)) ?? [])))
+        }
+    }
+
     private var quickSendShown: ConversationID?
 
     /// The undo window ran out: "Sent", or "Will send when you're back online" while the account is offline.
@@ -1634,7 +1702,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     /// One read of the outbox serves both the watched sends and the pending sheets; the timer runs only while
     /// either has something to follow.
     func outboxTick() {
-        if let sends = try? client.store.pendingSends() {
+        if let sends = try? client.store.pendingSendSummaries() {
             settleWatchedSends(sends)
             updateOutbox(sends)
         }
@@ -1660,7 +1728,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
 
     /// A sent reply's row is gone (or marked sent); a failed one stays with its reason. The failure is kept
     /// as a draft on this Mac before the toast offers to open it, so closing the toast loses nothing.
-    private func settleWatchedSends(_ sends: [PendingSend]) {
+    private func settleWatchedSends(_ sends: [PendingSendSummary]) {
         guard !watchedSends.isEmpty else { return }
         let byID = Dictionary(sends.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         for (id, draft) in watchedSends {
@@ -1674,15 +1742,16 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
                 kept.sendFailure = SendFailureWording.banner(lastError: send?.lastError, provider: draft.account.kind)
                 ComposeDraftStore.shared.save(kept)
                 onAction?(.quickReplyFailed(kept))
-            case .scheduled?, .sending?:
+            case .scheduled?, .sending?, .later?, .missed?:
+                // A quick reply sent now is never `later` or `missed`; those are Send Later's, which `SendLaterOutbox` follows.
                 break
             }
         }
     }
 
     /// The replies on their way changed: the open conversation gains or loses its pending sheets.
-    private func updateOutbox(_ sends: [PendingSend]) {
-        let leaving = sends.filter { ($0.status == .scheduled || $0.status == .sending) && !$0.message.isForward && $0.message.inReplyTo != nil }
+    private func updateOutbox(_ sends: [PendingSendSummary]) {
+        let leaving = sends.filter { ($0.status == .scheduled || $0.status == .sending) && !$0.isForward && $0.inReplyTo != nil }
         guard leaving.map(\.id) != outbox.map(\.id) else { return }
         outbox = leaving
         if case .one(let id) = selection, !currentMessages.isEmpty { refreshCurrentIfStale(currentMessages, id: id) }
