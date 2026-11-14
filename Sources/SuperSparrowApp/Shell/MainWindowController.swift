@@ -2079,10 +2079,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     @objc func loadImages(_ sender: Any?) { conversation.loadImages(sender) }
     @objc func toggleOriginalColors(_ sender: Any?) { conversation.toggleOriginalColors(sender) }
     @objc func saveAttachments(_ sender: Any?) { conversation.saveAttachments(sender) }
+    @objc func printConversation(_ sender: Any?) { conversation.printConversation(sender) }
 
     private static let readerCommands: Set<Selector> = [
         #selector(nextMessage(_:)), #selector(previousMessage(_:)), #selector(toggleQuotedText(_:)), #selector(loadImages(_:)),
-        #selector(toggleOriginalColors(_:)), #selector(saveAttachments(_:)),
+        #selector(toggleOriginalColors(_:)), #selector(saveAttachments(_:)), #selector(printConversation(_:)),
     ]
 
     @objc func selectAccountShortcut(_ sender: Any?) {

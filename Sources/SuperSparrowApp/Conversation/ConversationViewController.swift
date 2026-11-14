@@ -63,6 +63,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
 
     /// Internal, not private, so the reader's tests can ask the pooled shells what they were told.
     let pool: WebViewPool
+    /// File › Print… (spec §5.46): a web view of its own for each print, none between prints.
+    private(set) lazy var printer = ConversationPrinter(client: client)
     private let preview: AttachmentPreviewController
     private let builder = RenderPayloadBuilder()
     /// Internal so tests can read the headline as set.
@@ -1839,6 +1841,31 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         }
     }
 
+    /// File › Print… (spec §5.46): the open conversation's sheets, every message open, as the reader shows each one. The
+    /// shell is asked first what it shows (images loaded, quoted text and the message under a card unfolded); the payload is
+    /// built again from the store, as a render builds it, so the printout has every body whether or not its card was ever
+    /// opened. The print panel follows as a sheet once the printout's images are in.
+    @objc func printConversation(_ sender: Any?) {
+        guard case .one(let id) = selection, let current = pool.current, current.renderedID == id, let window = view.window,
+              !printer.isBusy else {
+            NSSound.beep()
+            return
+        }
+        let messages = currentMessages
+        let printWith: (Any?) -> Void = { [weak self] states in
+            guard let self, self.currentConversationID == id, !self.printer.isBusy else { return }
+            let payload = self.prepare(messages).payload
+            let sheets = PrintSheetState.states(fromShell: states, loadRemoteImages: payload.loadRemoteImages)
+            let document = PrintDocumentBuilder(imageWait: Quire.Motion.printImageWait).document(for: payload, sheets: sheets)
+            self.printer.print(document, title: PrintDocumentBuilder.title(of: payload), imageWait: Quire.Motion.printImageWait, on: window)
+        }
+        // A shell still loading has shown nothing yet: the conversation prints as it opens.
+        guard current.isReady else { return printWith(nil) }
+        current.webView.evaluateJavaScript("window.ss.cardStates()") { result, _ in
+            MainActor.assumeIsolated { printWith(result) }
+        }
+    }
+
     /// The message Save Attachments… acts on: the target message (spec §5.14).
     private var attachmentTarget: MessageID? {
         guard case .one = selection else { return nil }
@@ -1859,6 +1886,9 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             return showsOne
         case #selector(saveAttachments(_:)):
             return attachmentTarget.map { !attachments(of: $0).isEmpty } ?? false
+        case #selector(printConversation(_:)):
+            // One printout at a time: Print… waits while one is prepared or its panel is up (§5.46).
+            return showsOne && !printer.isBusy
         default:
             return true
         }

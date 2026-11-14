@@ -161,7 +161,8 @@ MOTION = {
  "duration": {"instant": 0, "quick": 120, "standard": 180, "slow": 240, "reducedFade": 120,
               "spinnerDelay": 150, "skeletonDelay": 300, "gHudDelay": 500, "gSequenceWindow": 2000,
               "toastLife": 5000, "undoSendChoices": [5000, 10000, 20000], "toastCoalesce": 1000, "undoKeyGrace": 10000, "undoSendDefault": 5000,
-              "sentConfirm": 1500, "toastConfirm": 2000, "stripNotice": 3000, "spinnerTurn": 900, "contrailSweep": 1200},
+              "sentConfirm": 1500, "toastConfirm": 2000, "stripNotice": 3000, "spinnerTurn": 900, "contrailSweep": 1200,
+              "printImageWait": 3000},
  "curve": {"settle": [0.2, 0.8, 0.2, 1.0], "leave": [0.4, 0.0, 1.0, 1.0], "glide": [0.4, 0.0, 0.2, 1.0], "linear": [0.0, 0.0, 1.0, 1.0]},
 }
 LAYOUT = {
@@ -208,6 +209,8 @@ LAYOUT = {
  "invitation": {"radius": 8, "padX": 16, "padTop": 12, "padBottom": 12, "kickerGlyph": 14, "kickerGap": 6, "titleTop": 6, "whenTop": 2,
                 "detailsTop": 8, "labelColumn": 72, "rowGap": 2, "actionsTop": 12, "actionsPad": 10, "answerGap": 4, "answerSize": "small",
                 "answerGlyph": 12, "attendeesMax": 4, "noticeTop": 10, "gapBelow": 16},
+ "print": {"pageMargin": 36, "messageGap": 24, "partsTop": 6, "noteTop": 12, "noteGlyph": 14, "noteGap": 6, "attachmentGap": 2,
+           "imageWait": "motion.duration.printImageWait"},
  "attachmentChip": {"height": 44, "minWidth": 196, "maxWidth": 264, "radius": 8, "padLeft": 8, "padRight": 14, "gap": 10, "tile": 28, "tileRadius": 5,
                     "tileGlyph": 15, "progressWidth": 120, "progressHeight": 2, "chipGap": 8},
  "quickReply": {"rest": 60, "barPadY": 11, "field": 38, "fieldRadius": 8, "fieldPadTop": 9, "fieldPadBottom": 8,
@@ -283,7 +286,7 @@ ICON = {
  "removeAccount": "minus", "bold": "bold", "italic": "italic", "underline": "underline", "bulletedList": "list.bullet", "numberedList": "list.number",
  "blockQuote": "text.quote", "link": "link", "undone": "arrow.uturn.backward", "demo": "info.circle",
  "addAccountProvider": "envelope", "attention": "exclamationmark", "waitingToSync": "clock", "discardDraft": "trash",
- "reveal": "eye", "conceal": "eye.slash", "invitation": "calendar", "answered": "checkmark",
+ "reveal": "eye", "conceal": "eye.slash", "invitation": "calendar", "answered": "checkmark", "print": "printer",
 }
 GLYPHS = {
  "ss.quire": {"grid": 16, "stroke": 1.5, "paths": ["M2.75 6.25h10.5a1 1 0 0 1 1 1v5.5a1 1 0 0 1-1 1H2.75a1 1 0 0 1-1-1v-5.5a1 1 0 0 1 1-1z", "M2.1 7 8 10.6 13.9 7", "M3.5 3.75h9", "M5.25 1.5h5.5"], "fills": [], "meaning": "All Inboxes: a gathering of letters"},
@@ -332,6 +335,6 @@ CHEAT_SHEET = [
            ("⇧⌘A", "Attach files")]),
  ("Format", [("⇧⌘T", "Format row"), ("⌘B ⌘I ⌘U", "Bold · italic · underline"), ("⇧⌘8 ⇧⌘7", "Bulleted · numbered list"), ("⌘'", "Quote"),
              ("⌘K", "Add link"), ("⇧⌘C ⇧⌘B", "Cc · Bcc field")]),
- ("View", [("⇧⌘I", "Load images"), ("⇧⌘O", "Original colors"), ("⌥⌘C", "Compact rows"), ("⌃⌘S", "Show · hide the rail"),
+ ("View", [("⇧⌘I", "Load images"), ("⇧⌘O", "Original colors"), ("⌘P", "Print the conversation"), ("⌥⌘C", "Compact rows"), ("⌃⌘S", "Show · hide the rail"),
            ("⇧⌘N", "Check for new mail"), ("?", "This sheet")]),
 ]

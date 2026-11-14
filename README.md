@@ -84,6 +84,10 @@ The first time you answer, the account needs permission to update your calendar,
 
 In demo mode the newest mail in each mailbox is an invitation: one to answer, an updated one you already accepted that repeats in another time zone, a cancelled one, and a weekly Teams meeting on the Outlook side.
 
+## Print
+
+**File → Print…** (`⌘P`) prints the open conversation through the Mac's print panel, whose **PDF** menu saves it as a PDF. Every message prints open, oldest first, with its sender, recipients and full date, on light paper even when the app is dark. Each message prints as the reader shows it: remote images print only if you loaded them (otherwise a line says how many were left out, and nothing is fetched to print them), and quoted text you have not unfolded is left out, so unfold it with `.` first if you want it on paper.
+
 ## Keep mail on this Mac
 
 **Settings → General → Keep mail on this Mac** chooses how far back messages keep their full content on your Mac: **Everything** (the default), **1 year** or **3 months**, with the space your mail takes beside it ("292 MB"). Older messages stay in the list and in search; their full content is removed from this Mac (older mail arriving during the first download is never stored in full) and downloads again when you open one (so opening old mail needs a connection); mail you have opened keeps its content until you quit. Choosing a shorter time cleans up at once; choosing a longer one removes nothing more and downloads nothing back. Drafts, messages waiting to send and changes still syncing are never touched. Attachments you open are cached up to 1 GB, the least recently used going first.
@@ -121,6 +125,7 @@ Operators combine (`from:ben is:unread after:2026-01-01 -invoice`), ignore case,
 | `⇧I`, `⇧⌘I` | Move to Inbox (restores from the Trash) |
 | `z`, `⌘Z` | Undo the last mail action (last 20 are kept) |
 | `⇧⌘U` | Unsubscribe from the open conversation's list, then archive it |
+| `⌘P` | Print the open conversation, or save it as a PDF |
 | `r` / `a` / `f` | Reply / reply all / forward |
 | `⌘↩` | Send (sends and archives unless you chose **Send** with the arrow beside it) |
 | `⇧⌘↩` | Send and archive, whatever Send does |

@@ -118,6 +118,7 @@ extension Quire {
         public static let stripNotice: TimeInterval = 3
         public static let spinnerTurn: TimeInterval = 0.9
         public static let contrailSweep: TimeInterval = 1.2
+        public static let printImageWait: TimeInterval = 3
 
         public enum Curve: String, CaseIterable, Sendable {
             case settle

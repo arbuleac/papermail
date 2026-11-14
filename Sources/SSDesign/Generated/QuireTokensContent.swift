@@ -88,6 +88,7 @@ extension Quire {
         public static let conceal = "eye.slash"
         public static let invitation = "calendar"
         public static let answered = "checkmark"
+        public static let print = "printer"
     }
 
     /// The custom glyphs (spec §4.11): SVG path data in grid units, y down.
@@ -243,6 +244,7 @@ extension Quire {
         QuireCheatSheetSection(title: "View", rows: [
             QuireCheatSheetRow(keys: "⇧⌘I", label: "Load images"),
             QuireCheatSheetRow(keys: "⇧⌘O", label: "Original colors"),
+            QuireCheatSheetRow(keys: "⌘P", label: "Print the conversation"),
             QuireCheatSheetRow(keys: "⌥⌘C", label: "Compact rows"),
             QuireCheatSheetRow(keys: "⌃⌘S", label: "Show · hide the rail"),
             QuireCheatSheetRow(keys: "⇧⌘N", label: "Check for new mail"),
