@@ -255,11 +255,9 @@ public final class SQLiteMailStore: MailStoring, MailStoreMaintenance, Sendable 
         }
     }
 
-    public func storedProviderIDs(accountID: AccountID, inFolder folderID: String) throws -> [String] {
-        try read { db in
-            try String.fetchAll(db, sql: "SELECT provider_id FROM messages WHERE account_id = ? AND folder_id = ? ORDER BY provider_id",
-                                arguments: [accountID.rawValue, folderID])
-        }
+    public func storedRoles(accountID: AccountID, providerIDs: [String]) throws -> [String: Set<MailboxRole>] {
+        guard !providerIDs.isEmpty else { return [:] }
+        return try read { try BackfillMarks.storedRoles(accountID: accountID, providerIDs: providerIDs, in: $0) }
     }
 
     @discardableResult
@@ -281,6 +279,23 @@ public final class SQLiteMailStore: MailStoring, MailStoreMaintenance, Sendable 
     @discardableResult
     public func finishBackfill(accountID: AccountID, sweepUnseen: Bool) throws -> Int {
         try write { try BackfillMarks.finish(accountID: accountID, sweepUnseen: sweepUnseen, in: $0) }
+    }
+
+    // MARK: Queued lookups
+
+    @discardableResult
+    public func queueLookups(accountID: AccountID, inFolders folderIDs: [String]) throws -> Int {
+        guard !folderIDs.isEmpty else { return 0 }
+        return try write { try LookupQueue.queue(accountID: accountID, folderIDs: folderIDs, in: $0) }
+    }
+
+    public func queuedLookups(accountID: AccountID, limit: Int) throws -> [String: Int] {
+        try read { try LookupQueue.next(accountID: accountID, limit: limit, in: $0) }
+    }
+
+    public func settleQueuedLookups(accountID: AccountID, settled: [String], retried: [String]) throws {
+        guard !settled.isEmpty || !retried.isEmpty else { return }
+        try write { try LookupQueue.settle(accountID: accountID, settled: settled, retried: retried, in: $0) }
     }
 
     // MARK: Conversations

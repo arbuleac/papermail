@@ -7,8 +7,8 @@ import SSCore
 /// {name: folderId}, "since": ISO date, "foldersResolvedAt": ISO date, "fullVisitAt": ISO date, "fullVisitAfter":
 /// folderId, "polledAt": ISO date, "walk": {"found": [folderId], "pending": [{"id": folderId, "depth": n,
 /// "nextLink": link, "failures": n}], "gaveUp": true}, "missed": [folderId], "recheck": {messageId: n},
-/// "folderFailures": {folderId: n}, "folderScope": "tree", "deltaScope": "mailbox"}`. `recheck` and `folderFailures`
-/// are absent while empty, so a healthy poll's cursor does not grow. `fullVisitAt` is absent from cursors written before polls were thinned; a cursor without it starts a
+/// "recheckAt": ISO date, "folderFailures": {folderId: n}, "folderScope": "tree", "deltaScope": "mailbox"}`.
+/// `recheck` (with `recheckAt`) and `folderFailures` are absent while empty, so a healthy poll's cursor does not grow. `fullVisitAt` is absent from cursors written before polls were thinned; a cursor without it starts a
 /// full visit on its next call. `fullVisitAfter` and `walk` are absent from older cursors and whenever no full visit
 /// or folder walk is under way; a walk's `pending` names the top level with an empty id, and its optional keys are
 /// absent until a listing stops partway, fails or is given up on. `polledAt` is absent only from cursors written
@@ -73,9 +73,13 @@ struct GraphCursor: Equatable, Sendable {
     /// already sent; dropped at once, it would go unpolled until the next walk a day later.
     var missed: Set<String>
     /// Messages a delta reported (a removal, or a change with only what changed) whose lookup the service failed (a
-    /// 5xx or the network, for the part or its whole `$batch`), with the calls that have failed it so far. The next
-    /// call looks them up again first; the delta links move on meanwhile, so the outage holds no new mail back.
+    /// 5xx or the network, for the part or its whole `$batch`), with the tries that have failed it so far. A call at
+    /// least `recheckSpacing` after the last try looks them up again; the delta links move on meanwhile, so the
+    /// outage holds no new mail back.
     var recheck: [String: Int]
+    /// When `recheck`'s messages were last looked up; absent with `recheck`. The engine calls again at once while a
+    /// page says `hasMore`, so counting calls would spend every try within a second of one burst of failures.
+    var recheckAt: String?
     /// Folders whose delta request failed on the last calls in a row (anything but a throttle, a refused token or a
     /// 404: a 5xx, the network, a 403 or 400), and how many. A folder that failed waits behind the others for the seed
     /// page; at `GraphProvider.maxFolderFailures` it is asked only on full visits, and one Graph refused (not the
@@ -94,6 +98,7 @@ struct GraphCursor: Equatable, Sendable {
         walk: GraphFolderWalk? = nil,
         missed: Set<String> = [],
         recheck: [String: Int] = [:],
+        recheckAt: String? = nil,
         folderFailures: [String: Int] = [:]
     ) {
         self.folders = folders
@@ -107,6 +112,7 @@ struct GraphCursor: Equatable, Sendable {
         self.walk = walk
         self.missed = missed
         self.recheck = recheck
+        self.recheckAt = recheckAt
         self.folderFailures = folderFailures
     }
 
@@ -126,6 +132,14 @@ struct GraphCursor: Equatable, Sendable {
         guard let stamp = fullVisitAt, let visited = GraphDate.parse(stamp) else { return true }
         let elapsed = now.timeIntervalSince(visited)
         return elapsed < 0 || elapsed >= Self.fullVisitInterval
+    }
+
+    /// Whether a call at `now` looks `recheck`'s messages up again: without a readable stamp, or with one in the future
+    /// because the clock was set back, it does, so a carried message is never held for good.
+    func recheckDue(at now: Date) -> Bool {
+        guard let stamp = recheckAt, let tried = GraphDate.parse(stamp) else { return true }
+        let elapsed = now.timeIntervalSince(tried)
+        return elapsed < 0 || elapsed >= GraphProvider.recheckSpacing
     }
 
     /// How many quiet folders a call at `now` may poll: `quietVisitsPerSecond` for each second since the last call,
@@ -182,7 +196,7 @@ struct GraphCursor: Equatable, Sendable {
 extension GraphCursor: Codable {
     private enum CodingKeys: String, CodingKey {
         case folders, nextLinks, wellKnown, since, foldersResolvedAt, fullVisitAt, fullVisitAfter, polledAt, walk, missed
-        case recheck, folderFailures
+        case recheck, recheckAt, folderFailures
         case folderScope, deltaScope
     }
 
@@ -220,6 +234,7 @@ extension GraphCursor: Codable {
         walk = try container.decodeIfPresent(GraphFolderWalk.self, forKey: .walk)
         missed = Set(try container.decodeIfPresent([String].self, forKey: .missed) ?? [])
         recheck = try container.decodeIfPresent([String: Int].self, forKey: .recheck) ?? [:]
+        recheckAt = try container.decodeIfPresent(String.self, forKey: .recheckAt)
         folderFailures = try container.decodeIfPresent([String: Int].self, forKey: .folderFailures) ?? [:]
     }
 
@@ -246,6 +261,7 @@ extension GraphCursor: Codable {
         }
         if !recheck.isEmpty {
             try container.encode(recheck, forKey: .recheck)
+            try container.encodeIfPresent(recheckAt, forKey: .recheckAt)
         }
         if !folderFailures.isEmpty {
             try container.encode(folderFailures, forKey: .folderFailures)

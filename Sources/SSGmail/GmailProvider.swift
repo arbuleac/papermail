@@ -10,6 +10,7 @@ public final class GmailProvider: MailProvider, Sendable {
 
     private let http: GmailHTTPClient
     private let throttleRetry: GmailThrottleRetry
+    private let clock: @Sendable () -> Date
     private let log = Logger(subsystem: "io.supersparrow.mac", category: "gmail")
 
     /// Bootstrap excludes spam and trash so the first paint matches "All mail". Chat history (Hangouts and
@@ -31,15 +32,24 @@ public final class GmailProvider: MailProvider, Sendable {
     /// 6,000 a minute and Google runs the parts concurrently: 50 parts spend 1,000 units at once and trip
     /// the concurrency limit, where 10 spend 200 and leave room for the live lane's polls beside them.
     static let metadataBatchSize = 10
+    /// Tries a message whose metadata Gmail failed for now (`GmailHistoryCursor.recheck`) gets before the history
+    /// moves on without it: the failed one and two more, `recheckSpacing` apart. A backendError rarely outlasts a
+    /// minute; the bound keeps a message Gmail always fails from being asked for on every poll for ever.
+    static let maxRecheckTries = 3
+    /// The least time between two tries of a carried message. The engine calls again at once while a page says
+    /// `hasMore`, so tries counted per call could all fall within a second of one burst of failures.
+    static let recheckSpacing: TimeInterval = 30
 
     public convenience init(accountID: AccountID, tokens: AccessTokenProvider, session: URLSession = .shared) {
         self.init(accountID: accountID, tokens: tokens, session: session, throttleRetry: .standard)
     }
 
-    init(accountID: AccountID, tokens: AccessTokenProvider, session: URLSession, throttleRetry: GmailThrottleRetry) {
+    init(accountID: AccountID, tokens: AccessTokenProvider, session: URLSession, throttleRetry: GmailThrottleRetry,
+         clock: @escaping @Sendable () -> Date = { Date() }) {
         self.accountID = accountID
         self.http = GmailHTTPClient(accountID: accountID, tokens: tokens, session: session)
         self.throttleRetry = throttleRetry
+        self.clock = clock
     }
 
     // MARK: Profile
@@ -60,13 +70,20 @@ public final class GmailProvider: MailProvider, Sendable {
         // The cursor must predate enumeration so changes made while paging are replayed, never lost. The same
         // read gives the mailbox's size, an estimate for “Downloading · 3,412 of 8,120” at no extra request.
         let profile: GmailProfile? = page == nil ? try await fetchProfile() : nil
-        let changeCursor = profile?.historyId
         let list = try await listMessages(page: page, limit: limit)
         let ids = (list.messages ?? []).map(\.id)
-        let messages = try await fetchMetadata(ids: ids)
+        let fetched = try await fetchMessages(ids: ids)
+        let messages = map(fetched.messages)
+        // A message Gmail failed for now is asked for again by the polls that follow, so new mail among the newest is
+        // not lost to a backendError; one it refused is only reported, for a reconcile to count as listed.
+        let changeCursor = profile.map { profile in
+            GmailHistoryCursor(startHistoryID: profile.historyId,
+                               recheck: Dictionary(fetched.failing.map { ($0, 1) }, uniquingKeysWith: max),
+                               recheckAt: clock()).encoded
+        }
         log.debug("bootstrap page: \(ids.count, privacy: .public) listed, \(messages.count, privacy: .public) hydrated")
         return BootstrapPage(messages: messages, nextPage: list.nextPageToken, changeCursor: changeCursor,
-                             estimatedTotal: profile?.messagesTotal)
+                             estimatedTotal: profile?.messagesTotal, unreadableIDs: fetched.unreadable)
     }
 
     /// Ids only: listing costs 5 quota units a page where metadata costs 20 a message, so the engine lists
@@ -110,8 +127,15 @@ public final class GmailProvider: MailProvider, Sendable {
 
     // MARK: Changes
 
+    /// History since the cursor, and the metadata of every message it names. A message Gmail fails for now (a 500 for
+    /// it alone) is neither upserted nor taken as deleted: the history moves on and the cursor carries it
+    /// (`GmailHistoryCursor.recheck`), for a call `recheckSpacing` later to ask again, up to `maxRecheckTries` tries.
+    /// One Gmail refused (a 400, a reply that does not decode) keeps what the store has; only a 404 is gone.
     public func changes(since cursor: String, limit: Int) async throws -> ChangesPage {
         let start = GmailHistoryCursor(parsing: cursor)
+        let now = clock()
+        let carried = start.recheck ?? [:]
+        let recheckDue = !carried.isEmpty && start.recheckDue(at: now, spacing: Self.recheckSpacing)
         var affected: [String] = []
         var affectedSet: Set<String> = []
         var deleted: [String] = []
@@ -162,30 +186,54 @@ public final class GmailProvider: MailProvider, Sendable {
             }
         }
 
-        let toFetch = affected.filter { !deletedSet.contains($0) }
-        let (served, unreadable) = try await fetchMessages(ids: toFetch)
+        var toFetch = affected.filter { !deletedSet.contains($0) }
+        var asked = Set(toFetch)
+        if recheckDue {
+            for id in carried.keys.sorted() where !deletedSet.contains(id) && asked.insert(id).inserted {
+                toFetch.append(id)
+            }
+        }
+        let served = try await fetchMessages(ids: toFetch)
         // A message that history still mentions but Gmail no longer serves (404) was deleted after the record. One it
         // would not return on its own says nothing of the kind: it keeps what the store has, and the cursor moves on.
-        let answered = Set(served.map(\.id)).union(unreadable)
+        let answered = Set(served.messages.map(\.id)).union(served.unreadable)
         for id in toFetch where !answered.contains(id) && deletedSet.insert(id).inserted {
             deleted.append(id)
         }
         // Chat history rides along in history.list; it is never shown, so it is neither upserted nor
         // reported as deleted (the store never held it).
-        let fetched = served
-            .filter { !GmailMessageMapper.isChat($0) }
-            .map { GmailMessageMapper.metadata(from: $0, accountID: accountID) }
+        let fetched = map(served.messages)
 
-        let nextCursor: String
+        // Carried messages not asked this call keep their place; those Gmail failed again count a try.
+        var recheck = carried.filter { !asked.contains($0.key) && !deletedSet.contains($0.key) }
+        var recheckAt = start.recheckAt.map { Date(timeIntervalSince1970: $0) }
+        var givenUp = 0
+        for id in served.failing {
+            let tries = (carried[id] ?? 0) + 1
+            if tries < Self.maxRecheckTries {
+                recheck[id] = tries
+                recheckAt = now
+            } else {
+                givenUp += 1
+            }
+        }
+        if givenUp > 0 {
+            log.notice("changes: \(givenUp, privacy: .public) messages Gmail kept failing are left as stored")
+        }
+
+        var nextStart = start.startHistoryID
+        var nextPageToken: String?
         if !hasMore {
-            nextCursor = finalHistoryID ?? lastRecordID ?? start.startHistoryID
+            nextStart = finalHistoryID ?? lastRecordID ?? start.startHistoryID
         } else if let lastRecordID {
             // Records were seen: Gmail serves everything after the last one from its id alone.
-            nextCursor = lastRecordID
+            nextStart = lastRecordID
         } else {
             // Only empty pages so far: the page token is the only way to make progress through the run.
-            nextCursor = GmailHistoryCursor(startHistoryID: start.startHistoryID, pageToken: pageToken).encoded
+            nextPageToken = pageToken
         }
+        let nextCursor = GmailHistoryCursor(startHistoryID: nextStart, pageToken: nextPageToken, recheck: recheck,
+                                            recheckAt: recheckAt).encoded
         log.debug("changes: \(fetched.count, privacy: .public) upserts, \(deleted.count, privacy: .public) deletions")
         return ChangesPage(upserts: fetched, deletedIDs: deleted, cursor: nextCursor, hasMore: hasMore)
     }
@@ -216,8 +264,8 @@ public final class GmailProvider: MailProvider, Sendable {
     }
 
     public func lookUpMetadata(for providerIDs: [String]) async throws -> MetadataLookup {
-        let (messages, unreadable) = try await fetchMessages(ids: providerIDs)
-        return MetadataLookup(messages: map(messages), unreadable: unreadable)
+        let fetched = try await fetchMessages(ids: providerIDs)
+        return MetadataLookup(messages: map(fetched.messages), refused: fetched.refused, failing: fetched.failing)
     }
 
     private func fetchMetadata(ids: [String]) async throws -> [MessageMetadata] {
@@ -230,27 +278,44 @@ public final class GmailProvider: MailProvider, Sendable {
             .map { GmailMessageMapper.metadata(from: $0, accountID: accountID) }
     }
 
+    /// What a fetch by id found. An id in none of the lists is one Gmail no longer knows (404).
+    struct Fetched {
+        var messages: [GmailMessage] = []
+        /// Refused for that message alone: a 4xx other than a rate limit, a reply that does not decode.
+        var refused: [String] = []
+        /// Failed by the service for now: a 500 for that message, on the batch and again on its own.
+        var failing: [String] = []
+
+        var unreadable: [String] { refused + failing }
+
+        static func + (lhs: Fetched, rhs: Fetched) -> Fetched {
+            Fetched(messages: lhs.messages + rhs.messages, refused: lhs.refused + rhs.refused, failing: lhs.failing + rhs.failing)
+        }
+    }
+
     /// Hydrates ids in list order, 10 per batch call, dropping ids Gmail no longer knows and setting aside those it
     /// would not return on their own.
-    private func fetchMessages(ids: [String]) async throws -> (messages: [GmailMessage], unreadable: [String]) {
-        guard !ids.isEmpty else { return ([], []) }
+    private func fetchMessages(ids: [String]) async throws -> Fetched {
+        guard !ids.isEmpty else { return Fetched() }
         var byID: [String: GmailMessage] = [:]
-        var unreadable: [String] = []
+        var fetched = Fetched()
         for chunk in ids.chunked(into: Self.metadataBatchSize) {
-            let fetched = try await metadataChunk(chunk, hasFetched: !byID.isEmpty)
-            for message in fetched.messages {
+            let part = try await metadataChunk(chunk, hasFetched: !byID.isEmpty)
+            for message in part.messages {
                 byID[message.id] = message
             }
-            unreadable += fetched.unreadable
+            fetched.refused += part.refused
+            fetched.failing += part.failing
         }
-        return (ids.compactMap { byID[$0] }, unreadable)
+        fetched.messages = ids.compactMap { byID[$0] }
+        return fetched
     }
 
     /// One chunk, keeping every part Google answered: throttled parts go out again in a smaller batch after
     /// a wait, parts that failed otherwise are fetched one by one once the throttled ones are in. Waits run
     /// between sends, never inside the auth retry, so nothing is held while sleeping. `hasFetched` says
     /// whether earlier chunks of the call returned messages, which a reported throttle would discard.
-    private func metadataChunk(_ ids: [String], hasFetched: Bool) async throws -> (messages: [GmailMessage], unreadable: [String]) {
+    private func metadataChunk(_ ids: [String], hasFetched: Bool) async throws -> Fetched {
         var messages: [GmailMessage] = []
         var failed: [String] = []
         var pending = ids
@@ -277,9 +342,8 @@ public final class GmailProvider: MailProvider, Sendable {
             try await throttleRetry.wait(delay)
             pending = outcome.throttled
         }
-        guard !failed.isEmpty else { return (messages, []) }
-        let fetched = try await sequentialMetadata(failed)
-        return (messages + fetched.messages, fetched.unreadable)
+        guard !failed.isEmpty else { return Fetched(messages: messages) }
+        return Fetched(messages: messages) + (try await sequentialMetadata(failed))
     }
 
     /// What one batch send settled. Ids are the requested ones, matched to parts by Content-ID.
@@ -362,25 +426,29 @@ public final class GmailProvider: MailProvider, Sendable {
         }
     }
 
-    /// Fetches, one at a time, the ids a batch did not settle. A message Gmail will not return on its own even then (a
-    /// 400 or 5xx for that one message, a 403 that is not a rate limit, a reply that does not decode) is set aside as
-    /// unreadable rather than thrown: failing the call for it would fail `changes` after it paged the history, on every
-    /// poll, and hold the cursor for good; a bootstrap would never get its cursor and a backfill page would never end.
-    /// What the next request would meet too (a throttle, a refused token, the network, a cancellation) still fails it.
-    private func sequentialMetadata(_ ids: [String]) async throws -> (messages: [GmailMessage], unreadable: [String]) {
-        var messages: [GmailMessage] = []
-        var unreadable: [String] = []
+    /// Fetches, one at a time, the ids a batch did not settle. A message Gmail will not return on its own even then is
+    /// set aside rather than thrown: refused (a 400, a 403 that is not a rate limit, a reply that does not decode) or
+    /// failing (a 500, Gmail's backendError, which may well pass). Failing the call for it would fail `changes` after it
+    /// paged the history, on every poll, and hold the cursor for good; a bootstrap would never get its cursor and a
+    /// backfill page would never end. What the next request would meet too (a throttle, a refused token, the network,
+    /// a 502 to 504, a cancellation) still fails it.
+    private func sequentialMetadata(_ ids: [String]) async throws -> Fetched {
+        var fetched = Fetched()
         for id in ids {
             do {
-                messages.append(try await fetchMessage(id, query: GmailRequest.metadataQuery()))
+                fetched.messages.append(try await fetchMessage(id, query: GmailRequest.metadataQuery()))
             } catch ProviderError.notFound {
                 continue
             } catch let error where Self.isItemFailure(error) {
                 log.notice("metadata: a message Gmail would not return is left out: \(Self.failureLabel(error), privacy: .public)")
-                unreadable.append(id)
+                if Self.isServiceFailure(error) {
+                    fetched.failing.append(id)
+                } else {
+                    fetched.refused.append(id)
+                }
             }
         }
-        return (messages, unreadable)
+        return fetched
     }
 
     /// A failure of one message's request that the next request would not meet.
@@ -389,6 +457,12 @@ public final class GmailProvider: MailProvider, Sendable {
         case .server?, .decoding?: return true
         default: return false
         }
+    }
+
+    /// An item failure of the service rather than of the message (a 500): a later request may find it.
+    static func isServiceFailure(_ error: Error) -> Bool {
+        if case .server(let status, _)? = error as? ProviderError { return status >= 500 }
+        return false
     }
 
     /// For public logs: the status, never Google's message.

@@ -647,7 +647,8 @@ final class GraphChangesTests: GraphTestCase {
         XCTAssertEqual(carried.recheck, ["r-moved": 1])
 
         lookupsWork = true
-        let second = try await provider.changes(since: first.cursor, limit: 50)
+        let second = try await makeProvider(now: now.addingTimeInterval(GraphProvider.recheckSpacing))
+            .changes(since: first.cursor, limit: 50)
         XCTAssertEqual(second.upserts.map(\.id.providerID), ["r-moved"])
         XCTAssertEqual(second.upserts.first?.folderID, "F-ARCHIVE")
         XCTAssertEqual(second.deletedIDs, [])
@@ -714,8 +715,35 @@ final class GraphChangesTests: GraphTestCase {
         let first = try await provider.changes(since: try cursor(folders: ["F-INBOX": nil]), limit: 50)
         XCTAssertEqual(first.upserts.map(\.id.providerID), [])
         lookupsWork = true
-        let second = try await provider.changes(since: first.cursor, limit: 50)
+        let second = try await makeProvider(now: now.addingTimeInterval(GraphProvider.recheckSpacing))
+            .changes(since: first.cursor, limit: 50)
         XCTAssertEqual(second.upserts.map(\.id.providerID), ["m-read"])
+    }
+
+    /// The engine calls again at once while a page says `hasMore`, so three tries counted per call all fell within a
+    /// second of one burst of failures, and a message deleted on the phone stayed here for good. A carried lookup is
+    /// asked again only `recheckSpacing` after its last try; the calls between neither ask nor count.
+    func testACarriedLookupIsAskedAgainOnlyAfterItsSpacing() async throws {
+        route { request in
+            if request.method == "GET", request.path == self.inboxDelta {
+                if request.query["$deltatoken"] != nil { return .json(Fixtures.list([], deltaLink: self.inboxLink2)) }
+                return .json(Fixtures.list([Fixtures.removed("r-1")], deltaLink: self.inboxLink))
+            }
+            return self.batchReply(request) { id, _ in Fixtures.BatchItem(id: id, status: 503) }
+        }
+
+        let first = try await makeProvider().changes(since: try cursor(folders: ["F-INBOX": nil]), limit: 50)
+        let burst = try await makeProvider(now: now.addingTimeInterval(0.5)).changes(since: first.cursor, limit: 50)
+        let again = try await makeProvider(now: now.addingTimeInterval(1)).changes(since: burst.cursor, limit: 50)
+
+        XCTAssertEqual(innerBatchRequests().count, 1, "only the first call asked")
+        XCTAssertEqual(try GraphCursor.decode(again.cursor).recheck, ["r-1": 1], "the calls in between count no try")
+        XCTAssertEqual(again.deletedIDs, [])
+
+        let spaced = try await makeProvider(now: now.addingTimeInterval(1 + GraphProvider.recheckSpacing))
+            .changes(since: again.cursor, limit: 50)
+        XCTAssertEqual(innerBatchRequests().count, 2)
+        XCTAssertEqual(try GraphCursor.decode(spaced.cursor).recheck, ["r-1": 2])
     }
 
     /// A message whose lookup keeps failing is not carried for ever: after three calls it is left as the store has it,

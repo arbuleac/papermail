@@ -28,6 +28,8 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
     private var liveMarks: [MessageID: Bool] = [:]
     /// `backfill_seen`: what a reconciling backfill's listing has returned.
     private var backfillSeen: Set<MessageID> = []
+    /// `queued_lookups`: stored messages of a gone folder still to look up, with their failed tries.
+    private var lookupQueue: [MessageID: Int] = [:]
     private var contactCounts: [AccountID: [String: (name: String?, count: Int, lastSeen: Date)]] = [:]
     /// `snoozes`: kept when a wipe drops the conversation, as the SQLite store keeps them (the rules are written out on
     /// `SnoozeTable`). Dates are held to the millisecond, as that store keeps them.
@@ -129,6 +131,7 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         bootstraps[accountID] = nil
         contactCounts[accountID] = nil
         clearBackfillMarksLocked(accountID)
+        lookupQueue = lookupQueue.filter { $0.key.accountID != accountID }
         dropOrphanedMarksLocked()
         // The summary rows go with the wipe, and the return mark lives on them; the snoozes stay.
         returnedMarks = returnedMarks.filter { $0.key.accountID != accountID }
@@ -357,12 +360,13 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         })
     }
 
-    public func storedProviderIDs(accountID: AccountID, inFolder folderID: String) throws -> [String] {
+    public func storedRoles(accountID: AccountID, providerIDs: [String]) throws -> [String: Set<MailboxRole>] {
         lock.lock(); defer { lock.unlock() }
-        return messagesByID.values
-            .filter { $0.id.accountID == accountID && $0.folderID == folderID }
-            .map(\.id.providerID)
-            .sorted()
+        var roles: [String: Set<MailboxRole>] = [:]
+        for providerID in providerIDs {
+            if let stored = messagesByID[MessageID(accountID: accountID, providerID: providerID)] { roles[providerID] = stored.roles }
+        }
+        return roles
     }
 
     private func isBackfillSkippableLocked(_ id: MessageID, includeStored: Bool) -> Bool {
@@ -406,6 +410,36 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         clearBackfillMarksLocked(accountID)
         if !swept.isEmpty { notifyAll() }
         return swept.count
+    }
+
+    // MARK: Queued lookups
+
+    @discardableResult
+    public func queueLookups(accountID: AccountID, inFolders folderIDs: [String]) throws -> Int {
+        lock.lock(); defer { lock.unlock() }
+        let folders = Set(folderIDs)
+        var queued = 0
+        for message in messagesByID.values where message.id.accountID == accountID {
+            guard let folder = message.folderID, folders.contains(folder), lookupQueue[message.id] == nil else { continue }
+            lookupQueue[message.id] = 0
+            queued += 1
+        }
+        return queued
+    }
+
+    public func queuedLookups(accountID: AccountID, limit: Int) throws -> [String: Int] {
+        lock.lock(); defer { lock.unlock() }
+        let queued = lookupQueue.filter { $0.key.accountID == accountID }.sorted { $0.key.providerID < $1.key.providerID }
+        return Dictionary(uniqueKeysWithValues: queued.prefix(max(0, limit)).map { ($0.key.providerID, $0.value) })
+    }
+
+    public func settleQueuedLookups(accountID: AccountID, settled: [String], retried: [String]) throws {
+        lock.lock(); defer { lock.unlock() }
+        for providerID in settled { lookupQueue[MessageID(accountID: accountID, providerID: providerID)] = nil }
+        for providerID in retried {
+            let id = MessageID(accountID: accountID, providerID: providerID)
+            if let tries = lookupQueue[id] { lookupQueue[id] = tries + 1 }
+        }
     }
 
     private func clearBackfillMarksLocked(_ accountID: AccountID) {

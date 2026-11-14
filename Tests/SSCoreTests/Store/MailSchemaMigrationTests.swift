@@ -51,6 +51,12 @@ final class MailSchemaMigrationTests: XCTestCase {
         DELETE FROM grdb_migrations WHERE identifier = 'v15-calendar-invitations';
         """
 
+    /// Takes v20 back out of a migrated file: a file from before it has no lookup queue.
+    private let withoutV20 = """
+        DROP TABLE queued_lookups;
+        DELETE FROM grdb_migrations WHERE identifier = 'v20-sync-robustness';
+        """
+
     /// Twelve accounts, inserted out of creation order, two of them created in the same millisecond so the id
     /// has to break the tie.
     private let accounts: [(id: String, addedAt: Int64)] = [
@@ -302,7 +308,7 @@ final class MailSchemaMigrationTests: XCTestCase {
             try store.close()
         }
         // v9 to v15 came after v8, so a v7 file has none of them (`revertSQL` takes v12 and v13 back).
-        try execute(withoutV15 + withoutV14 + """
+        try execute(withoutV20 + withoutV15 + withoutV14 + """
             \(FullTextVersion10.revertSQL)
             DROP TABLE backfill_live_marks;
             DROP TABLE backfill_seen;
@@ -374,7 +380,7 @@ final class MailSchemaMigrationTests: XCTestCase {
             try store.setSyncCursor("cursor-8", for: a)
             try store.close()
         }
-        try execute(withoutV15 + withoutV14 + """
+        try execute(withoutV20 + withoutV15 + withoutV14 + """
             \(FullTextVersion10.revertSQL)
             ALTER TABLE accounts DROP COLUMN signature;
             DELETE FROM grdb_migrations WHERE identifier = 'v9-account-signature';
@@ -414,7 +420,7 @@ final class MailSchemaMigrationTests: XCTestCase {
             try store.setSignature("<div><p>Alex</p></div>", for: AccountID("acct-a"))
             try store.close()
         }
-        try execute(withoutV15 + withoutV14 + """
+        try execute(withoutV20 + withoutV15 + withoutV14 + """
             \(FullTextVersion10.revertSQL)
             ALTER TABLE bodies DROP COLUMN evicted;
             DELETE FROM grdb_migrations WHERE identifier = 'v10-body-eviction';
@@ -701,7 +707,30 @@ final class MailSchemaMigrationTests: XCTestCase {
         XCTAssertEqual(try query("SELECT type, \"notnull\", dflt_value FROM pragma_table_info('messages') WHERE name = 'invitation_reply'", at: path),
                        [["TEXT", "0", nil]], "TEXT NULL with no default")
         XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations ORDER BY rowid", at: path).compactMap(\.first).last,
-                       "v15-calendar-invitations")
+                       "v20-sync-robustness")
+    }
+
+    /// v20 adds the queue of lookups for a folder the provider reports gone (`queued_lookups`) and nothing else. The
+    /// file is a real v15 one; opened by the current build its mail reads as before, the queue is empty, and an
+    /// account's lookups go with the account.
+    func testVersion15DatabaseGainsAnEmptyLookupQueueAndKeepsItsData() throws {
+        let path = try XCTUnwrap(directory).appendingPathComponent("mail.sqlite").path
+        try writeVersion1Database(at: path)
+        try MailSchema.migrateFile(at: path, upTo: "v15-calendar-invitations")
+        try execute("UPDATE messages SET folder_id = 'F-GONE' WHERE provider_id = 'm1'", at: path)
+        XCTAssertTrue(try query("SELECT name FROM sqlite_master WHERE name = 'queued_lookups'", at: path).isEmpty)
+
+        let account = AccountID("acct-a")
+        let store = try SQLiteMailStore(path: path)
+        XCTAssertEqual(try store.body(for: MessageID(accountID: account, providerID: "m1"))?.plainText, "Hello there")
+        XCTAssertEqual(try store.queuedLookups(accountID: account, limit: 10), [:])
+        XCTAssertEqual(try store.queueLookups(accountID: account, inFolders: ["F-GONE"]), 1)
+        XCTAssertEqual(try store.queuedLookups(accountID: account, limit: 10), ["m1": 0])
+        try store.close()
+        XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations ORDER BY rowid", at: path).compactMap(\.first).last,
+                       "v20-sync-robustness")
+        try execute("PRAGMA foreign_keys = ON; DELETE FROM accounts WHERE id = 'acct-a';", at: path)
+        XCTAssertEqual(try query("SELECT COUNT(*) FROM queued_lookups", at: path), [["0"]], "an account's lookups go with it")
     }
 
     // MARK: Raw SQLite

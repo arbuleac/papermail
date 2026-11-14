@@ -67,7 +67,7 @@ public final class GraphProvider: MailProvider, Sendable {
 
     public func lookUpMetadata(for providerIDs: [String]) async throws -> MetadataLookup {
         let lookup = try await lookUp(providerIDs, folders: try await wellKnownFolders())
-        return MetadataLookup(messages: lookup.messages, unreadable: lookup.refused + lookup.failing)
+        return MetadataLookup(messages: lookup.messages, refused: lookup.refused, failing: lookup.failing)
     }
 
     /// What a lookup by id found. An id in none of the lists is one Graph does not know (404): gone.

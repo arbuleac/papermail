@@ -51,9 +51,20 @@ final class ScriptedProvider: MailProvider, @unchecked Sendable {
     var metadataByID: [String: MessageMetadata] = [:]
     /// Consumed in order, one per `metadata(for:)` call; once empty every call succeeds.
     var metadataResults: [Result<Void, Error>] = []
-    /// Ids the provider will not return on their own (Graph's 403 for one message): left out of `metadata(for:)` like
-    /// unknown ones, and reported as unreadable by `lookUpMetadata(for:)`.
-    var unreadableIDs: Set<String> = []
+    /// Ids the provider refuses on their own (Graph's 403 for one message): left out of `metadata(for:)` like unknown
+    /// ones, and reported as refused by `lookUpMetadata(for:)`.
+    var refusedIDs: Set<String> {
+        get { locked { scriptedRefused } }
+        set { locked { scriptedRefused = newValue } }
+    }
+    private var scriptedRefused: Set<String> = []
+    /// Ids whose metadata the service fails for now (a Gmail 500 for one message): left out of `metadata(for:)`, and
+    /// reported as failing by `lookUpMetadata(for:)`. A test clears it to let them through.
+    var failingIDs: Set<String> {
+        get { locked { scriptedFailing } }
+        set { locked { scriptedFailing = newValue } }
+    }
+    private var scriptedFailing: Set<String> = []
     /// The pages `mailOutsideEnumeration` lists (Gmail's Trash and Spam), chained by their index as the page token; nil
     /// for an enumeration that leaves nothing the store holds out.
     var outsideEnumerationPages: [[String]]? {
@@ -227,7 +238,7 @@ final class ScriptedProvider: MailProvider, @unchecked Sendable {
         try result.get()
         return locked {
             providerIDs.compactMap { id in
-                if unreadableIDs.contains(id) { return nil }
+                if scriptedRefused.contains(id) || scriptedFailing.contains(id) { return nil }
                 if let known = metadataByID[id] { return known }
                 for run in bootstrapRuns {
                     for case .success(let page) in run.values {
@@ -253,8 +264,9 @@ final class ScriptedProvider: MailProvider, @unchecked Sendable {
     }
 
     func lookUpMetadata(for providerIDs: [String]) async throws -> MetadataLookup {
+        let (refused, failing) = locked { (providerIDs.filter(scriptedRefused.contains), providerIDs.filter(scriptedFailing.contains)) }
         let messages = try await metadata(for: providerIDs)
-        return MetadataLookup(messages: messages, unreadable: locked { providerIDs.filter(unreadableIDs.contains) })
+        return MetadataLookup(messages: messages, refused: refused, failing: failing)
     }
 
     func body(for providerID: String) async throws -> MessageBody {

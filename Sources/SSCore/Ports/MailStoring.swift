@@ -101,9 +101,10 @@ public protocol MailStoring: AnyObject, Sendable {
     /// backfill began, plus, when `includeStored`, those the account already stores. Advisory, so a backfill can
     /// skip the metadata requests; `writeBackfillMessages` checks again in its own transaction.
     func backfillSkippableIDs(accountID: AccountID, providerIDs: [String], includeStored: Bool) throws -> Set<String>
-    /// Provider ids of the account's stored messages in `folderID` (`MessageMetadata.folderID`), for a folder the
-    /// provider reports gone (`ChangesPage.goneFolders`). Rare, so it scans rather than keep an index every write pays.
-    func storedProviderIDs(accountID: AccountID, inFolder folderID: String) throws -> [String]
+    /// The roles of the account's stored messages among `providerIDs`; an id it does not store is absent. For a
+    /// reconcile, which keeps mail the enumeration leaves out (Gmail's Trash and Spam) only where the store already
+    /// shows it there.
+    func storedRoles(accountID: AccountID, providerIDs: [String]) throws -> [String: Set<MailboxRole>]
     /// Writes a backfill page in one transaction: drops every message the live lane wrote or deleted since the
     /// backfill began and, unless `refreshExisting` (a reconciling backfill), every message already stored, then
     /// writes the rest exactly as `upsertMessages` would, pending operations winning. The check and the write
@@ -129,6 +130,21 @@ public protocol MailStoring: AnyObject, Sendable {
     /// the account's marks. Returns how many messages it deleted.
     @discardableResult
     func finishBackfill(accountID: AccountID, sweepUnseen: Bool) throws -> Int
+
+    // MARK: Queued lookups (docs/DATA-MODEL.md, `queued_lookups`)
+    // A folder the provider reports gone (`ChangesPage.goneFolders`) takes its mail with it if it was purged, and no
+    // delta reports that. Its stored messages are queued, and the live lane looks them up a few per poll, so the work
+    // survives a failed poll or a quit and no poll has to look up a whole folder. Sync bookkeeping: no observation
+    // reads it.
+
+    /// Queues a lookup of every stored message of the account in `folderIDs` (`MessageMetadata.folderID`); one already
+    /// queued keeps its tries. Rare, so it scans rather than keep an index every write pays. Returns how many it queued.
+    @discardableResult
+    func queueLookups(accountID: AccountID, inFolders folderIDs: [String]) throws -> Int
+    /// Up to `limit` of the account's queued lookups, with the tries each has failed so far.
+    func queuedLookups(accountID: AccountID, limit: Int) throws -> [String: Int]
+    /// Ends the queued lookups in `settled` and counts a failed try against each of `retried`, in one transaction.
+    func settleQueuedLookups(accountID: AccountID, settled: [String], retried: [String]) throws
 
     // MARK: Conversations
     func conversations(_ query: ConversationQuery) throws -> [ConversationSummary]

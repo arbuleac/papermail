@@ -146,7 +146,7 @@ extension GraphProvider {
         // Every folder failing is the service down, not a folder: the call fails as it would have.
         if !anyAnswered, let firstSkipped { throw firstSkipped }
 
-        let deletedIDs = try await lookUpReported(removed: removed, partial: partial, in: &cursor, folders: folders,
+        let deletedIDs = try await lookUpReported(removed: removed, partial: partial, in: &cursor, at: now, folders: folders,
                                                   upserts: &upserts, upsertOrder: &upsertOrder)
 
         return ChangesPage(
@@ -200,34 +200,44 @@ extension GraphProvider {
             .min { (cursor.folderFailures[$0] ?? 0) < (cursor.folderFailures[$1] ?? 0) }
     }
 
-    /// Calls on which a message whose lookup the service failed is looked up (`GraphCursor.recheck`) before it is left
-    /// as the store has it. Through Exchange's November 2026 outage a part failed now and then, so a second or third
-    /// try settles nearly every one; the bound keeps a message the service always fails from being carried for ever.
+    /// Tries a message whose lookup the service failed gets (`GraphCursor.recheck`) before it is left as the store has
+    /// it: the failed one and two more, `recheckSpacing` apart. Through Exchange's November 2026 outage a part failed
+    /// now and then, so a second or third try settles nearly every one; the bound keeps a message the service always
+    /// fails from being carried for ever.
     static let maxLookupCalls = 3
+
+    /// The least time between two tries of a carried lookup. The engine calls again at once while a page says
+    /// `hasMore`, so tries counted per call could all fall within a second of one burst of failures and leave a
+    /// message deleted on the phone here for good; the quiet folders' full visit has the same rhythm.
+    static let recheckSpacing: TimeInterval = GraphCursor.fullVisitInterval
 
     /// Looks up what the delta did not report whole, and returns the deletions. A removal is a move or a deletion and
     /// only a lookup tells them apart (dropping a merely moved message would throw away its cached body, and with the
     /// conversation's last message its snooze); a change reported with only what changed needs the rest of its
-    /// metadata. Messages whose lookup the service failed on an earlier call (`GraphCursor.recheck`) are asked again
-    /// with them, unless another folder has reported them since.
+    /// metadata. Messages whose lookup the service failed before (`GraphCursor.recheck`) are asked again with them once
+    /// `recheckSpacing` has passed, unless another folder has reported them since.
     ///
     /// Found: an upsert. Unknown (404): a removal, or a message asked again, is gone; a partial change's removal comes
     /// through the delta like any other. Refused for that one message (a 400 or 403, a reply that does not decode): a
     /// removal is taken as gone, which is what Graph's 403 ErrorAccessDenied for a deleted item means, and a move comes
     /// back through its new folder's delta; anything else keeps what the store has. Failed by the service (a 5xx, the
     /// network, for the part or its whole `$batch`): that says nothing about the message, so it keeps what the store has
-    /// and is asked again on the next call, up to `maxLookupCalls`. The delta links move on meanwhile, so new mail never
-    /// waits on a lookup. A throttle or a refused token still fails the call.
+    /// and is asked again, up to `maxLookupCalls` tries. The delta links move on meanwhile, so new mail never waits on a
+    /// lookup. A throttle or a refused token still fails the call.
     private func lookUpReported(
         removed: [String],
         partial: [String],
         in cursor: inout GraphCursor,
+        at now: Date,
         folders: GraphWellKnownFolders,
         upserts: inout [String: MessageMetadata],
         upsertOrder: inout [String]
     ) async throws -> [String] {
         let carried = cursor.recheck
-        cursor.recheck = [:]
+        let recheckDue = cursor.recheckDue(at: now)
+        // A carried message not asked this call keeps its place and its count; one another folder reported is settled.
+        cursor.recheck = recheckDue ? [:] : carried.filter { upserts[$0.key] == nil }
+        if cursor.recheck.isEmpty { cursor.recheckAt = nil }
         var removals: Set<String> = []
         var asked: [String] = []
         var seen: Set<String> = []
@@ -235,8 +245,10 @@ extension GraphProvider {
             removals.insert(id)
             asked.append(id)
         }
-        for id in carried.keys.sorted() where upserts[id] == nil && seen.insert(id).inserted {
-            asked.append(id)
+        if recheckDue {
+            for id in carried.keys.sorted() where upserts[id] == nil && seen.insert(id).inserted {
+                asked.append(id)
+            }
         }
         for id in partial where upserts[id] == nil && seen.insert(id).inserted {
             asked.append(id)
@@ -246,11 +258,14 @@ extension GraphProvider {
         for message in lookup.messages where upserts.updateValue(message, forKey: message.id.providerID) == nil {
             upsertOrder.append(message.id.providerID)
         }
+        // Asked this call, a carried message settles or counts another try, whether or not its turn had come.
+        for id in asked { cursor.recheck.removeValue(forKey: id) }
         var givenUp = 0
         for id in lookup.failing {
-            let calls = (carried[id] ?? 0) + 1
-            if calls < Self.maxLookupCalls {
-                cursor.recheck[id] = calls
+            let tries = (carried[id] ?? 0) + 1
+            if tries < Self.maxLookupCalls {
+                cursor.recheck[id] = tries
+                cursor.recheckAt = GraphDate.string(now)
             } else {
                 givenUp += 1
             }
@@ -258,11 +273,13 @@ extension GraphProvider {
         if givenUp > 0 {
             Self.folderLog.notice("lookup: \(givenUp, privacy: .public) messages the service kept failing are left as stored")
         }
+        if cursor.recheck.isEmpty { cursor.recheckAt = nil }
         let refused = Set(lookup.refused)
         let failing = Set(lookup.failing)
         return asked.filter { id in
             guard upserts[id] == nil, !failing.contains(id) else { return false }
-            return removals.contains(id) || (!refused.contains(id) && carried[id] != nil)
+            if removals.contains(id) { return true }
+            return !refused.contains(id) && carried[id] != nil
         }
     }
 

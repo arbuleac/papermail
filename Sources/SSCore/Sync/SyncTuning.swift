@@ -42,6 +42,18 @@ struct SyncTuning: Sendable {
     /// Messages per metadata request when a backfill listing returns ids only. Small, so a throttle mid-page
     /// loses at most one chunk; the page's retry skips what was written.
     var backfillMetadataChunk: Int = 10
+    /// Turns a backfill page gets whose metadata the service failed for some of its messages (a Gmail 500 for one
+    /// message) before it moves on without them. Each later turn asks only for those, after the lane's backoff
+    /// (2, 4, 8, 16 s), so a passing failure costs the page nothing and one that lasts cannot hold the backfill.
+    var failingPageTries: Int = 5
+    /// Stored messages of a gone folder the live lane looks up per poll (`queued_lookups`), at most, and never more
+    /// than its share has room for: one Graph `$batch`, so a folder of thousands is worked through without holding new
+    /// mail back or outrunning the mailbox's limit.
+    var queuedLookupsPerPoll: Int = 20
+    /// Tries a queued lookup the service fails gets before its message is left as it is.
+    var maxQueuedLookupTries: Int = 5
+    /// How long the queued lookups wait after the service failed one, so the tries are spread past a passing outage.
+    var queuedLookupRetryDelay: TimeInterval = 60
     /// How long the backfill lane sleeps with nothing to do before looking again on its own.
     var backfillIdleInterval: TimeInterval = 300
     var hydrationBatchSize: Int = 50

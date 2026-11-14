@@ -88,6 +88,8 @@ enum AccountTable {
         try db.execute(sql: "DELETE FROM contacts WHERE account_id = ?", arguments: [accountID])
         // The marks describe a backfill of the mail just dropped; one that starts over must start unmarked.
         try BackfillMarks.clear(id, in: db)
+        // Lookups of mail just dropped; a fresh bootstrap starts without them.
+        try LookupQueue.clear(id, in: db)
         try db.execute(sql: "UPDATE accounts SET sync_cursor = NULL, bootstrap_json = NULL WHERE id = ?", arguments: [accountID])
     }
 

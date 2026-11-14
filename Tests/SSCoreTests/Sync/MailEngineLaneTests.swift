@@ -473,7 +473,7 @@ final class MailEngineLaneTests: XCTestCase {
             : [["": .success(Fixtures.page(1...1, next: "p2", cursor: "c9")), "p2": .success(Fixtures.page(2...2, next: nil))]]
         provider.changesQueue = [.failure(ProviderError.resetRequired)]
         provider.applyResults = Array(repeating: .failure(ProviderError.network("offline")), count: 20)
-        provider.unreadableIDs = ["3"]
+        provider.refusedIDs = ["3"]
         let harness = try EngineHarness(provider: provider) { $0.backoffBase = 10; $0.backoffCap = 60 }
         let store = harness.store
         let account = Fixtures.accountID
@@ -509,7 +509,9 @@ final class MailEngineLaneTests: XCTestCase {
             ? [["": .success(Fixtures.page(1...2, next: nil, cursor: "c9"))]]
             : [["": .success(Fixtures.page(1...1, next: "p2", cursor: "c9")), "p2": .success(Fixtures.page(2...2, next: nil))]]
         provider.changesQueue = [.failure(ProviderError.resetRequired)]
-        provider.outsideEnumerationPages = [["8"], ["10"]]
+        provider.outsideEnumerationPages = [["8", "11", "12", "13"], ["10"]]
+        // Trashed on the phone during the gap: stored here in the Inbox still. 12 was purged since.
+        provider.metadataByID = ["11": Fixtures.message(11, conversation: "t11", roles: [.trash])]
         let harness = try EngineHarness(provider: provider)
         let store = harness.store
         let account = Fixtures.accountID
@@ -517,6 +519,8 @@ final class MailEngineLaneTests: XCTestCase {
             Fixtures.message(8, conversation: "t8", roles: [.trash]),
             Fixtures.message(9, conversation: "t9", roles: [.trash]),
             Fixtures.message(10, conversation: "t10", roles: [.spam]),
+            Fixtures.message(11, conversation: "t11", roles: [.inbox]),
+            Fixtures.message(12, conversation: "t12", roles: [.inbox]),
         ])
         try store.setSyncCursor("c0", for: account)
         try store.setBootstrapState(BootstrapState(startedAt: Date(), pagesDone: 1, messagesSeen: 5, isComplete: true), for: account)
@@ -530,39 +534,186 @@ final class MailEngineLaneTests: XCTestCase {
         XCTAssertNil(try store.message(id(9)), "one purged in the gap is gone")
         XCTAssertNotNil(try store.message(id(1)))
         XCTAssertEqual(provider.outsideEnumerationCalls, [nil, "1"])
+        // Marked seen as it was, a message trashed on the phone in the gap stayed in the Inbox here for good.
+        XCTAssertEqual(try store.message(id(11))?.roles, [.trash], "moved to Trash in the gap: refreshed, not kept stale")
+        XCTAssertNil(try store.message(id(12)), "stored elsewhere and no longer known: swept as before")
+        XCTAssertEqual(provider.metadataCalls.map { Set($0) }.last, ["11", "12"], "only what the store shows elsewhere is fetched")
+        await harness.shutdown()
+    }
+
+    /// A head page whose metadata the provider would not return for one message (a Gmail 500 twice, or a 400) left it
+    /// out, and both reconcile head paths marked only the messages they hydrated as seen: the sweep deleted a message
+    /// the provider still had. Every id the head listed is marked seen now. The live lane's head, a part of the mailbox:
+    func testAReconcileKeepsWhatItsHeadListedButCouldNotHydrate() async throws {
+        try await assertReconcileKeepsAnUnreadableHeadMessage(.liveHeadPartOfTheMailbox)
+    }
+
+    /// The live lane's head when it is the whole mailbox and the lane sweeps at once.
+    func testAResetWhoseHeadIsTheWholeMailboxKeepsWhatItCouldNotHydrate() async throws {
+        try await assertReconcileKeepsAnUnreadableHeadMessage(.liveHeadWholeMailbox)
+    }
+
+    /// The backfill lane's head, when a reconcile lists again from the top.
+    func testAReconcileListingAgainFromTheTopKeepsWhatItsHeadCouldNotHydrate() async throws {
+        try await assertReconcileKeepsAnUnreadableHeadMessage(.backfillHead)
+    }
+
+    private enum HeadPath { case liveHeadPartOfTheMailbox, liveHeadWholeMailbox, backfillHead }
+
+    private func assertReconcileKeepsAnUnreadableHeadMessage(_ path: HeadPath) async throws {
+        let provider = ScriptedProvider(accountID: Fixtures.accountID)
+        var head = path == .liveHeadPartOfTheMailbox
+            ? Fixtures.page(1...1, next: "p2", cursor: "c9")
+            : Fixtures.page(1...2, next: nil, cursor: "c9")
+        head.unreadableIDs = ["3"]
+        provider.bootstrapRuns = [["": .success(head), "p2": .success(Fixtures.page(2...2, next: nil))]]
+        let harness = try EngineHarness(provider: provider)
+        let store = harness.store
+        let account = Fixtures.accountID
+        try store.upsertMessages((1...4).map { Fixtures.message($0) })
+        try store.setSyncCursor("c0", for: account)
+        if path == .backfillHead {
+            // A reconcile that must list again from the top: nowhere to resume from.
+            try store.setBootstrapState(BootstrapState(startedAt: Date(), isComplete: false, reconciling: true), for: account)
+        } else {
+            provider.changesQueue = [.failure(ProviderError.resetRequired)]
+            try store.setBootstrapState(BootstrapState(startedAt: Date(), pagesDone: 1, messagesSeen: 4, isComplete: true), for: account)
+        }
+        harness.engine.start()
+
+        let cursor = path == .backfillHead ? "c0" : "c9"
+        try await waitUntil("reconcile complete") {
+            try store.syncCursor(for: account) == cursor && store.bootstrapState(for: account)?.isComplete == true
+        }
+        XCTAssertNotNil(try store.message(id(3)), "listed, so not gone, though its metadata did not come")
+        XCTAssertNil(try store.message(id(4)), "not listed: gone")
+        await harness.shutdown()
+    }
+
+    /// The metadata of a backfill page's message the service failed for now (a Gmail 500, on the batch and again on its
+    /// own) was left out, and no later page lists it: old mail missing for good. The page goes again on a later turn,
+    /// asking for those messages alone, until they come.
+    func testABackfillPageWhoseMetadataTheServiceFailsGoesAgainForThoseAlone() async throws {
+        let provider = ScriptedProvider(accountID: Fixtures.accountID)
+        provider.backfillIDsOnly = true
+        provider.bootstrapRuns = [[
+            "": .success(Fixtures.page(1...2, next: "p2", cursor: "c0")),
+            "p2": .success(Fixtures.page(1...6, next: nil)),
+        ]]
+        provider.failingIDs = ["5"]
+        let harness = try EngineHarness(provider: provider) { $0.failingPageTries = 1_000 }
+        let store = harness.store
+        harness.engine.start()
+
+        try await waitUntil("the rest of the page") { try store.message(self.id(6)) != nil }
+        try await waitUntil("asked again") { provider.metadataCalls.count >= 2 }
+        XCTAssertNil(try store.message(id(5)))
+        XCTAssertFalse(try XCTUnwrap(try store.bootstrapState(for: Fixtures.accountID)).isComplete, "the page is not done")
+        provider.failingIDs = []
+
+        try await waitUntil("backfill complete") { try store.bootstrapState(for: Fixtures.accountID)?.isComplete == true }
+        XCTAssertNotNil(try store.message(id(5)))
+        let calls = provider.metadataCalls
+        XCTAssertEqual(calls.first, ["3", "4", "5", "6"])
+        XCTAssertTrue(calls.dropFirst().allSatisfy { $0 == ["5"] }, "a retry asks for the failed message alone: \(calls)")
+        await harness.shutdown()
+    }
+
+    /// One the service keeps failing cannot hold the backfill: after `failingPageTries` turns the page moves on.
+    func testABackfillPageMovesOnWithoutAMessageTheServiceKeepsFailing() async throws {
+        let provider = ScriptedProvider(accountID: Fixtures.accountID)
+        provider.backfillIDsOnly = true
+        provider.bootstrapRuns = [[
+            "": .success(Fixtures.page(1...2, next: "p2", cursor: "c0")),
+            "p2": .success(Fixtures.page(1...6, next: nil)),
+        ]]
+        provider.failingIDs = ["5"]
+        let harness = try EngineHarness(provider: provider) { $0.failingPageTries = 3 }
+        let store = harness.store
+        harness.engine.start()
+
+        try await waitUntil("backfill complete", timeout: 10) { try store.bootstrapState(for: Fixtures.accountID)?.isComplete == true }
+        XCTAssertNil(try store.message(id(5)))
+        XCTAssertEqual(provider.metadataCalls, [["3", "4", "5", "6"], ["5"], ["5"]])
         await harness.shutdown()
     }
 
     /// A folder purged in Outlook (emptied out of Deleted Items) answers 404 and leaves the polls, and no delta ever
     /// reports its mail; it stayed here for good, in All Mail and search. Its stored messages are looked up: the ones
-    /// the provider no longer has go, one moved out before the purge takes its new folder, and one the provider will
-    /// not return is left as it is.
+    /// the provider no longer has go, and so does one it refuses (Graph's 403 for an item deleted for good, as a delta's
+    /// removal takes it); one moved out before the purge takes its new folder; one the service fails for now stays and
+    /// is asked again on a later poll.
     func testTheMailOfAFolderThatIsGoneIsCheckedAndWhatIsGoneGoes() async throws {
         let provider = ScriptedProvider(accountID: Fixtures.accountID, kind: .microsoft)
         var moved = Fixtures.message(2)
         moved.folderID = "F-ARCHIVE"
-        provider.metadataByID = ["2": moved]
-        provider.unreadableIDs = ["3"]
+        var later = Fixtures.message(5)
+        later.folderID = "F-ARCHIVE"
+        provider.metadataByID = ["2": moved, "5": later]
+        provider.refusedIDs = ["3"]
+        provider.failingIDs = ["5"]
         var page = Fixtures.changes(cursor: "c1")
         page.goneFolders = ["F-GONE"]
         provider.changesQueue = [.success(page)]
-        let harness = try EngineHarness(provider: provider)
+        let harness = try EngineHarness(provider: provider) { $0.queuedLookupRetryDelay = 0.3 }
         let store = harness.store
         let account = Fixtures.accountID
-        var stored = (1...4).map { Fixtures.message($0) }
-        for index in 0..<3 { stored[index].folderID = "F-GONE" }
+        var stored = (1...5).map { Fixtures.message($0) }
+        for index in [0, 1, 2, 4] { stored[index].folderID = "F-GONE" }
         stored[3].folderID = "F-INBOX"
         try store.upsertMessages(stored)
         try store.setSyncCursor("c0", for: account)
-        try store.setBootstrapState(BootstrapState(startedAt: Date(), pagesDone: 1, messagesSeen: 4, isComplete: true), for: account)
+        try store.setBootstrapState(BootstrapState(startedAt: Date(), pagesDone: 1, messagesSeen: 5, isComplete: true), for: account)
         harness.engine.start()
 
-        try await waitUntil("polled") { try store.syncCursor(for: account) == "c1" }
-        XCTAssertNil(try store.message(id(1)), "gone with its folder")
+        try await waitUntil("looked up") { try store.message(self.id(1)) == nil }
+        XCTAssertEqual(try store.syncCursor(for: account), "c1")
         XCTAssertEqual(try store.message(id(2))?.folderID, "F-ARCHIVE")
-        XCTAssertNotNil(try store.message(id(3)), "unreadable is not gone")
+        XCTAssertNil(try store.message(id(3)), "refused for good is gone")
+        XCTAssertEqual(try store.message(id(5))?.folderID, "F-GONE", "failing for now is not gone")
         XCTAssertNotNil(try store.message(id(4)), "another folder's mail is not asked about")
-        XCTAssertEqual(provider.metadataCalls.map { Set($0) }, [["1", "2", "3"]])
+        XCTAssertEqual(provider.metadataCalls.first.map(Set.init), ["1", "2", "3", "5"])
+
+        provider.failingIDs = []
+        try await waitUntil("asked again") { try store.message(self.id(5))?.folderID == "F-ARCHIVE" }
+        XCTAssertEqual(provider.metadataCalls.last, ["5"])
+        XCTAssertEqual(try store.queuedLookups(accountID: account, limit: 10), [:])
+        await harness.shutdown()
+    }
+
+    /// The whole of a gone folder was looked up in the poll, in one all-or-nothing call before the cursor was saved: a
+    /// folder of thousands outran the mailbox's limit, the throttle failed the poll, and the next poll started over,
+    /// so the account got no new mail for as long as that went on. The lookups are queued now and go a few a poll
+    /// after the poll's own work; a failure of the whole lookup fails no poll and loses nothing done.
+    func testAGoneFolderIsLookedUpAFewAPollAndAFailureLosesNothing() async throws {
+        let provider = ScriptedProvider(accountID: Fixtures.accountID, kind: .microsoft)
+        provider.metadataResults = [.success(()), .failure(ProviderError.server(status: 500, message: "batch"))]
+        var page = Fixtures.changes(cursor: "c1")
+        page.goneFolders = ["F-GONE"]
+        provider.changesQueue = [.success(page)]
+        let harness = try EngineHarness(provider: provider) {
+            $0.queuedLookupsPerPoll = 2
+            $0.queuedLookupRetryDelay = 0.2
+        }
+        let store = harness.store
+        let account = Fixtures.accountID
+        var stored = (1...5).map { Fixtures.message($0, conversation: "t\($0)") }
+        for index in stored.indices { stored[index].folderID = "F-GONE" }
+        try store.upsertMessages(stored)
+        try store.setSyncCursor("c0", for: account)
+        try store.setBootstrapState(BootstrapState(startedAt: Date(), pagesDone: 1, messagesSeen: 5, isComplete: true), for: account)
+        let statuses = PhaseRecorder()
+        let observation = harness.engine.observeStatus { statuses.record($0) }
+        harness.engine.start()
+
+        try await waitUntil("all looked up", timeout: 10) { try (1...5).allSatisfy { try store.message(self.id($0)) == nil } }
+        XCTAssertEqual(try store.syncCursor(for: account), "c1")
+        let calls = provider.metadataCalls
+        XCTAssertTrue(calls.allSatisfy { $0.count <= 2 }, "a few a poll: \(calls)")
+        XCTAssertEqual(calls.flatMap { $0 }.count, 7, "only the failed call's two are asked again: \(calls)")
+        XCTAssertFalse(statuses.seen.contains(.error), "the failed lookup failed no poll")
+        XCTAssertEqual(try store.queuedLookups(accountID: account, limit: 10), [:])
+        observation.cancel()
         await harness.shutdown()
     }
 

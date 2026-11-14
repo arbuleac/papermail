@@ -74,6 +74,12 @@ actor LiveLane {
     private var phase: AccountSyncPhase = .idle
     /// Whether the park is a refused keychain rather than a refused token.
     private var parkedForKeychain = false
+    /// Whether `queued_lookups` may hold work for this account: unknown at launch, so the first poll looks once; then
+    /// only after a gone folder queued some, so a poll never reads the table for nothing.
+    private var lookupsMayBeQueued = true
+    /// After the service failed a queued lookup, the queue waits until then: a poll every 5 s would otherwise spend
+    /// every try within seconds of one burst of failures.
+    private var queuedLookupsHeldUntil: Date?
     private var consecutiveFailures = 0
     private var consecutiveResets = 0
     /// When the next full cycle is due; nil means "as soon as the loop runs". Outbox-only cycles leave it alone.
@@ -444,6 +450,7 @@ actor LiveLane {
         }
         signposter.endInterval("sync.poll", interval)
         try await hydrateNewest(polled.arrived)
+        if polled.deferredFor == nil { try await lookUpQueued() }
         return polled.deferredFor.map(PollResult.deferred) ?? .polled
     }
 
@@ -510,8 +517,9 @@ actor LiveLane {
             for id in deletedIDs { arrived[id] = nil }
             upserted += page.upserts.count
             deleted += deletedIDs.count
-            if !page.goneFolders.isEmpty {
-                deleted += try await settleGoneFolders(page.goneFolders)
+            // Queued before the cursor moves past the report: the lookups themselves go a few per poll.
+            if !page.goneFolders.isEmpty, try store.queueLookups(accountID: accountID, inFolders: page.goneFolders) > 0 {
+                lookupsMayBeQueued = true
             }
             cursor = page.cursor
             try store.setSyncCursor(cursor, for: accountID)
@@ -521,36 +529,75 @@ actor LiveLane {
         return PolledChanges(arrived: Array(arrived.values), deferredFor: deferredFor)
     }
 
-    /// A folder the provider reports gone (`ChangesPage.goneFolders`) took its mail with it if it was purged, and no
-    /// delta reports that; without a look the messages would stay here for good, in All Mail and search. So what the
-    /// store keeps in it is looked up before the cursor moves past the report: the messages the provider no longer has
-    /// go, one moved out before the purge takes its new place, and one it will not return stays as it is. Rare (a
-    /// folder deleted for good in Outlook) and charged to the live share like any lookup; a failure fails the poll
-    /// before the cursor is saved, so the next poll meets the same report and tries again. Returns how many went.
-    private func settleGoneFolders(_ folders: [String]) async throws -> Int {
-        var ids: [String] = []
-        var seen: Set<String> = []
-        for folder in folders {
-            for id in try store.storedProviderIDs(accountID: accountID, inFolder: folder) where seen.insert(id).inserted {
-                ids.append(id)
+    /// Looks up a few of the messages queued because their folder is gone (`ChangesPage.goneFolders`, `queueLookups`).
+    /// A purged folder takes its mail with it and no delta reports that; without a look the messages would stay here
+    /// for good, in All Mail and search. Found: it takes its new place (moved out before the purge). Unknown, or refused
+    /// for that message (Graph's 403 for an item deleted for good, as the delta's removals take it): it goes. Failed by
+    /// the service: it stays queued for a later poll, up to `maxQueuedLookupTries` tries, then is left as it is.
+    ///
+    /// At most `queuedLookupsPerPoll` a poll, and only what the live share has room for, after the poll's own pages and
+    /// bodies, so a folder of thousands never holds new mail back nor outruns the mailbox's limit; the queue is in the
+    /// store, so a failure or a quit loses nothing done. A failure of the whole lookup that is not the account's (the
+    /// network, the service) holds the queue back `queuedLookupRetryDelay` without counting a try; a throttle or a
+    /// refused token fails the poll as any request's would.
+    private func lookUpQueued() async throws {
+        guard lookupsMayBeQueued else { return }
+        if let held = queuedLookupsHeldUntil, held > Date() { return }
+        let quota = budget.quota
+        let headroom = await budget.liveHeadroom
+        let room = headroom.isFinite && quota.metadataCostPerMessage > 0
+            ? Int(max(0, headroom) / quota.metadataCostPerMessage) : Int.max
+        let limit = min(room, tuning.queuedLookupsPerPoll)
+        guard limit > 0 else { return }
+        let queued = try store.queuedLookups(accountID: accountID, limit: limit)
+        guard !queued.isEmpty else {
+            lookupsMayBeQueued = false
+            return
+        }
+        let ids = queued.keys.sorted()
+        currentCall = "metadata"
+        let lookup: MetadataLookup
+        do {
+            lookup = try await provider.lookUpMetadata(for: ids)
+        } catch let error where !Self.failsThePoll(error) {
+            queuedLookupsHeldUntil = Date().addingTimeInterval(tuning.queuedLookupRetryDelay)
+            SyncLog.logger.notice("queued lookups for \(self.accountID.rawValue, privacy: .public) wait: \(SyncErrorDescription.describe(error), privacy: .private)")
+            return
+        }
+        await budget.recordLive(quota.metadataCostPerMessage * Double(ids.count))
+        try Task.checkCancellation()
+        let found = lookup.messages.filter { $0.id.accountID == accountID && queued[$0.id.providerID] != nil }
+        let foundIDs = Set(found.map(\.id.providerID))
+        let failing = Set(lookup.failing)
+        let gone = ids.filter { !foundIDs.contains($0) && !failing.contains($0) }
+        var retried: [String] = []
+        var givenUp: [String] = []
+        for id in ids where failing.contains(id) && !foundIDs.contains(id) {
+            if (queued[id] ?? 0) + 1 < tuning.maxQueuedLookupTries {
+                retried.append(id)
+            } else {
+                givenUp.append(id)
             }
         }
-        guard !ids.isEmpty else { return 0 }
-        currentCall = "metadata"
-        let lookup = try await provider.lookUpMetadata(for: ids)
-        await budget.recordLive(budget.quota.metadataCostPerMessage * Double(ids.count))
-        try Task.checkCancellation()
-        let found = lookup.messages.filter { $0.id.accountID == accountID }
-        let kept = Set(found.map(\.id.providerID)).union(lookup.unreadable)
-        let gone = ids.filter { !kept.contains($0) }
+        if !retried.isEmpty { queuedLookupsHeldUntil = Date().addingTimeInterval(tuning.queuedLookupRetryDelay) }
         if try backfillIsRunning() {
-            try store.markLiveChanges(accountID: accountID, upserted: found.map(\.id.providerID), deleted: gone)
+            try store.markLiveChanges(accountID: accountID, upserted: Array(foundIDs), deleted: gone)
         }
         if !found.isEmpty { try store.upsertMessages(found) }
         if !gone.isEmpty { try store.deleteMessages(gone.map { MessageID(accountID: accountID, providerID: $0) }) }
+        try store.settleQueuedLookups(accountID: accountID, settled: Array(foundIDs) + gone + givenUp, retried: retried)
         let id = accountID.rawValue
-        SyncLog.logger.notice("folders gone for \(id, privacy: .public): \(ids.count, privacy: .public) stored messages looked up, \(gone.count, privacy: .public) removed")
-        return gone.count
+        SyncLog.logger.notice("gone folders for \(id, privacy: .public): \(ids.count, privacy: .public) stored messages looked up, \(gone.count, privacy: .public) removed, \(retried.count, privacy: .public) to ask again")
+    }
+
+    /// What fails the poll when a lookup meets it: the account's own trouble (a throttle, a refused token or keychain)
+    /// or a stop.
+    private static func failsThePoll(_ error: Error) -> Bool {
+        if error is CancellationError || error is AuthError { return true }
+        switch error as? ProviderError {
+        case .throttled?, .unauthorized?, .cancelled?: return true
+        default: return false
+        }
     }
 
     /// What a changes page cost: the requests the provider says it sent where it is charged per request (Graph: a
@@ -593,14 +640,15 @@ actor LiveLane {
             // The old backfill's marks end before the new one records any: `finishBackfill` returns first.
             try store.finishBackfill(accountID: accountID, sweepUnseen: false)
             try store.upsertMessages(head.messages)
-            try store.markBackfillSeen(accountID: accountID, providerIDs: head.messages.map(\.id.providerID))
+            // Every id it listed, those whose metadata the provider would not return included: they are not gone.
+            try store.markBackfillSeen(accountID: accountID, providerIDs: head.listedIDs)
             let complete = head.nextPage == nil
             var swept = 0
             if complete {
                 // The head was the whole mailbox, so what it did not list is gone. Swept before the state says
                 // complete: a crash in between leaves the old cursor, which the next poll rejects again.
                 try await markMailOutsideEnumerationSeen()
-                swept = try await removeLostTargets(listed: Set(head.messages.map(\.id.providerID)))
+                swept = try await removeLostTargets(listed: Set(head.listedIDs))
                 swept += try store.finishBackfill(accountID: accountID, sweepUnseen: true)
             }
             var state = BootstrapState(startedAt: Date(), pagesDone: 1, messagesSeen: head.messages.count,
@@ -614,17 +662,29 @@ actor LiveLane {
         try await hydrateNewest(head.messages, afterHead: true)
     }
 
-    /// Mail the enumeration leaves out that the provider still has (Gmail's Trash and Spam), marked seen so the sweep
-    /// keeps it: nothing after the reset would bring it back. Ids only, charged to the live share.
+    /// Mail the enumeration leaves out that the provider still has (Gmail's Trash and Spam): what the store already
+    /// shows there is marked seen so the sweep keeps it, since nothing after the reset would bring it back; what it
+    /// shows elsewhere moved there in the gap and is refreshed first (`OutsideEnumeration`). Charged to the live share.
     private func markMailOutsideEnumerationSeen() async throws {
         guard provider.hasMailOutsideEnumeration else { return }
-        currentCall = "list"
+        let quota = budget.quota
         var page: String?
         repeat {
+            currentCall = "list"
             let listing = try await provider.mailOutsideEnumeration(page: page, limit: tuning.outsideEnumerationPageSize)
-            await budget.recordLive(budget.quota.listCost)
+            await budget.recordLive(quota.listCost)
             try Task.checkCancellation()
-            try store.markBackfillSeen(accountID: accountID, providerIDs: listing.ids)
+            let sorted = try OutsideEnumeration.sort(listing.ids, store: store, accountID: accountID)
+            try store.markBackfillSeen(accountID: accountID, providerIDs: sorted.kept)
+            currentCall = "metadata"
+            for chunk in sorted.moved.chunked(tuning.backfillMetadataChunk) {
+                let lookup = try await provider.lookUpMetadata(for: chunk)
+                await budget.recordLive(quota.metadataCostPerMessage * Double(chunk.count))
+                try Task.checkCancellation()
+                let found = OutsideEnumeration.refreshed(lookup, asked: chunk, accountID: accountID)
+                try store.upsertMessages(found)
+                try store.markBackfillSeen(accountID: accountID, providerIDs: found.map(\.id.providerID))
+            }
             page = listing.nextPage
         } while page != nil
     }

@@ -133,6 +133,20 @@ enum MailSchema {
                 ALTER TABLE messages ADD COLUMN invitation_reply TEXT;
                 """)
         }
+        migrator.registerMigration("v20-sync-robustness") { db in
+            // Stored messages of a folder the provider reports gone, which the live lane looks up a few at a time
+            // (`LookupQueue`): in a table, so the work survives a failed poll and a quit, and one poll never has to
+            // look up a whole folder. Empty unless a folder went; WITHOUT ROWID like the backfill marks, which no
+            // observation reads either.
+            try db.execute(sql: """
+                CREATE TABLE queued_lookups (
+                    account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                    provider_id TEXT NOT NULL,
+                    tries INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (account_id, provider_id)
+                ) WITHOUT ROWID;
+                """)
+        }
         return migrator
     }
 
