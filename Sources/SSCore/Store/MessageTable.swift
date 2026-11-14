@@ -127,8 +127,10 @@ enum MessageTable {
             try ConversationTable.touch(metadata.conversationID, in: db)
             if existing == nil {
                 try ContactTable.record(metadata, in: db)
-                try SnoozeTable.endForArrival(of: metadata, in: db)
-                try arrivals.consider(metadata, in: db)
+                // The rules first: mail a mute or a sender rule covers leaves the snooze for the refresh to judge.
+                if try !arrivals.consider(metadata, in: db) {
+                    try SnoozeTable.endForArrival(of: metadata, in: db)
+                }
             }
         }
         // Stored as the provider reported them first, so each change records that as its prior, then changed and queued

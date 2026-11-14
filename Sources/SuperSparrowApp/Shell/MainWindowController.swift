@@ -1669,10 +1669,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         }
         let command = MailActionCopy.muteCommand(muting: muting)
         let inverse = archived.reversed().flatMap(\.inverse)
+        // A conversation back from Later loses its mark with the archive; the undo puts it back, as Z after E does.
+        var returnMarks: [ConversationID: Date] = [:]
+        for record in archived {
+            if let id = record.conversation, let returnedAt = record.returnedAt { returnMarks[id] = returnedAt }
+        }
         let fromLater = listView == .later
         let revert: () -> Void = { [weak self] in
             do {
-                try engine.setMuted(!muting, conversations: changing, performing: inverse)
+                try engine.setMuted(!muting, conversations: changing, performing: inverse, returnMarks: returnMarks)
             } catch {
                 Self.log.error("undoing a mute failed: \(String(describing: error), privacy: .public)")
                 NSSound.beep()
@@ -1744,7 +1749,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         let inverse = record?.inverse ?? []
         let conversationID = message.conversationID
         let fromLater = listView == .later
-        recordExternalUndo(command: command, toast: MailActionCopy.senderRuleSet(action),
+        recordExternalUndo(command: command, toast: MailActionCopy.senderRuleSet(action, address: sender),
                            symbol: action == .trash ? Quire.Icon.blockSender : Quire.Icon.alwaysArchiveSender) { [weak self] in
             do {
                 try engine.setSenderRule(previous, for: address, accountID: accountID, performing: inverse)

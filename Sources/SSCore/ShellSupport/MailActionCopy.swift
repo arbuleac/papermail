@@ -94,11 +94,14 @@ public enum MailActionCopy {
         }
     }
 
-    /// The toast a new sender rule leaves (spec, Sender rules (Q4.2)): always shown, since no row shows a rule.
-    public static func senderRuleSet(_ action: SenderRule.Action) -> String {
+    /// The toast a new sender rule leaves (spec, Sender rules (Q4.2)): “Blocked deals@shop.example”, “Always archiving
+    /// news@letter.example”. Always shown, since no row shows a rule, and naming the address the rule now holds, since
+    /// the context menu's and the Message menu's items do not say whose mail in the conversation they take. The address
+    /// goes last, so a long one loses its end to the slip's truncation and the verb stays.
+    public static func senderRuleSet(_ action: SenderRule.Action, address: String) -> String {
         switch action {
-        case .archive: return "Sender always archived"
-        case .trash: return "Sender blocked"
+        case .archive: return "Always archiving \(address)"
+        case .trash: return "Blocked \(address)"
         }
     }
 

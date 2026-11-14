@@ -90,19 +90,23 @@ struct ArrivalRules {
         ruledAccounts = senderRules ? try SenderRuleTable.accounts(db) : []
     }
 
-    /// Looks at one message the upsert has just stored for the first time, as stored (live operations replayed).
-    mutating func consider(_ message: MessageMetadata, in db: Database) throws {
+    /// Looks at one message the upsert has just stored for the first time, as stored (live operations replayed). Returns
+    /// whether the mute or a sender rule covers it (`ArrivalRule.keepsSnooze`), which the caller asks before ending its
+    /// conversation's snooze.
+    mutating func consider(_ message: MessageMetadata, in db: Database) throws -> Bool {
         let account = message.id.accountID.rawValue
         let checksMute = mutedAccounts.contains(account)
         let checksSender = ruledAccounts.contains(account)
-        guard checksMute || checksSender else { return }
+        guard checksMute || checksSender else { return false }
         let muted = try checksMute && MuteTable.isMuted(message.conversationID, in: db)
         var senderRule: SenderRule.Action?
         if checksSender, let from = message.from {
             senderRule = try SenderRuleTable.action(accountID: account, address: SenderRule.normalizedAddress(from.address), in: db)
         }
-        guard let change = ArrivalRule.change(for: message, inMutedConversation: muted, senderRule: senderRule) else { return }
-        hits.append(Hit(message: message.id, conversation: message.conversationID, change: change, muted: muted && change == .archive))
+        if let change = ArrivalRule.change(for: message, inMutedConversation: muted, senderRule: senderRule) {
+            hits.append(Hit(message: message.id, conversation: message.conversationID, change: change, muted: muted && change == .archive))
+        }
+        return ArrivalRule.keepsSnooze(inMutedConversation: muted, senderRule: senderRule)
     }
 
     /// Queues what the rules found, before the upsert's summary refresh: per account one Move to Trash and one Archive.

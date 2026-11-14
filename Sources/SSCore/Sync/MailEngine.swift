@@ -374,9 +374,10 @@ public final class MailEngine: MailClient, @unchecked Sendable {
         snoozeRunner.wake()
     }
 
-    public func setMuted(_ muted: Bool, conversations: [ConversationID], performing steps: [MailActionRecord.Step]) throws {
+    public func setMuted(_ muted: Bool, conversations: [ConversationID], performing steps: [MailActionRecord.Step],
+                         returnMarks: [ConversationID: Date]) throws {
         let operations = Self.operations(of: steps, at: Date())
-        try store.setMuted(muted, conversations: conversations, enqueueing: operations)
+        try store.setMuted(muted, conversations: conversations, enqueueing: operations, returnMarks: returnMarks)
         wakeOutbox(for: operations)
     }
 

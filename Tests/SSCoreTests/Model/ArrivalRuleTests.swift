@@ -54,6 +54,14 @@ final class ArrivalRuleTests: XCTestCase {
         XCTAssertEqual(SenderRule.Action.allCases.map(\.rawValue), ["archive", "trash"], "stored raw values")
     }
 
+    /// Mail a mute or a sender rule covers is not news, whatever the rule does to it: it never ends a snooze.
+    func testOnlyMailNoMuteOrRuleCoversCanEndASnooze() {
+        XCTAssertFalse(ArrivalRule.keepsSnooze(inMutedConversation: false, senderRule: nil))
+        XCTAssertTrue(ArrivalRule.keepsSnooze(inMutedConversation: true, senderRule: nil))
+        XCTAssertTrue(ArrivalRule.keepsSnooze(inMutedConversation: false, senderRule: .archive))
+        XCTAssertTrue(ArrivalRule.keepsSnooze(inMutedConversation: false, senderRule: .trash))
+    }
+
     // MARK: Copy
 
     func testTheWords() {
@@ -64,8 +72,8 @@ final class ArrivalRuleTests: XCTestCase {
         XCTAssertEqual(MailActionCopy.muted(false, count: 1_200), "Unmuted \(1_200.formatted(.number.grouping(.automatic))) conversations")
         XCTAssertEqual(MailActionCopy.senderRuleCommand(.archive), "Always Archive Mail from This Sender")
         XCTAssertEqual(MailActionCopy.senderRuleCommand(.trash), "Block Sender")
-        XCTAssertEqual(MailActionCopy.senderRuleSet(.archive), "Sender always archived")
-        XCTAssertEqual(MailActionCopy.senderRuleSet(.trash), "Sender blocked")
+        XCTAssertEqual(MailActionCopy.senderRuleSet(.archive, address: "news@letter.example"), "Always archiving news@letter.example")
+        XCTAssertEqual(MailActionCopy.senderRuleSet(.trash, address: "deals@shop.example"), "Blocked deals@shop.example")
         XCTAssertEqual(MailActionCopy.senderRuleDescription(.archive), "Always archived")
         XCTAssertEqual(MailActionCopy.senderRuleDescription(.trash), "Blocked")
     }

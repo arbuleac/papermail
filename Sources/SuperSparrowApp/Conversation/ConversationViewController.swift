@@ -1100,20 +1100,24 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     private func showMoreMenu(for id: MessageID, at point: CGPoint, in slot: PooledConversationView) {
         slot.webView.evaluateJavaScript("window.ss.targetState()") { [weak self] result, _ in
             guard let self, slot === self.pool.current else { return }
-            let state = result as? [String: Any] ?? [:]
-            let message = self.currentMessages.first { $0.id == id }
-            let options = MessageMoreMenu.Options(
-                isStarred: message?.isStarred ?? false,
-                imagesBlocked: state["imagesBlocked"] as? Bool ?? false,
-                offersOriginal: state["offersOriginal"] as? Bool ?? false,
-                showsOriginal: state["original"] as? Bool ?? false,
-                hasSenderAddress: !(message?.from?.address ?? "").isEmpty,
-                canUnsubscribe: message.map(Self.offersUnsubscribe) ?? false,
-                offersSenderRules: message.map(self.offersSenderRule) ?? false,
-                senderRule: message.flatMap(self.senderRule(for:))
-            )
-            self.moreMenu.menu(options).popUp(positioning: nil, at: point, in: slot.webView)
+            self.makeMoreMenu(for: id, shellState: result as? [String: Any] ?? [:]).popUp(positioning: nil, at: point, in: slot.webView)
         }
+    }
+
+    /// The More menu of message `id` as it stands; `state` is the shell's `targetState()` (images blocked, original
+    /// colours offered or shown). Its items act on the target message, which the click on More has just made `id`.
+    func makeMoreMenu(for id: MessageID, shellState state: [String: Any]) -> NSMenu {
+        let message = currentMessages.first { $0.id == id }
+        return moreMenu.menu(MessageMoreMenu.Options(
+            isStarred: message?.isStarred ?? false,
+            imagesBlocked: state["imagesBlocked"] as? Bool ?? false,
+            offersOriginal: state["offersOriginal"] as? Bool ?? false,
+            showsOriginal: state["original"] as? Bool ?? false,
+            hasSenderAddress: !(message?.from?.address ?? "").isEmpty,
+            canUnsubscribe: message.map(Self.offersUnsubscribe) ?? false,
+            offersSenderRules: message.map(offersSenderRule) ?? false,
+            senderRule: message.flatMap(senderRule(for:))
+        ))
     }
 
     private func performMore(_ command: MessageMoreMenu.Command) {

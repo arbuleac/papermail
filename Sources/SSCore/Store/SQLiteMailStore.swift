@@ -359,12 +359,15 @@ public final class SQLiteMailStore: MailStoring, MailStoreMaintenance, Sendable 
 
     // MARK: Mute and sender rules
 
-    public func setMuted(_ muted: Bool, conversations: [ConversationID], enqueueing operations: [Operation]) throws {
-        guard !conversations.isEmpty || !operations.isEmpty else { return }
+    public func setMuted(_ muted: Bool, conversations: [ConversationID], enqueueing operations: [Operation],
+                         returnMarks: [ConversationID: Date]) throws {
+        guard !conversations.isEmpty || !operations.isEmpty || !returnMarks.isEmpty else { return }
         try write { db in
             for operation in operations { try OperationTable.enqueue(operation, in: db) }
-            // After the operations, whose summary refresh carries the old flag over.
+            // After the operations, whose summary refresh carries the old flag over; the marks last, once an undo's inverse
+            // steps have put the conversations back in the Inbox, which a mark needs.
             try MuteTable.set(muted, conversations: conversations, in: db)
+            for (conversation, date) in returnMarks { try SnoozeTable.markReturned(conversation, at: date, in: db) }
         }
     }
 

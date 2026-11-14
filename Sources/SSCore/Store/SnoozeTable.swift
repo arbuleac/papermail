@@ -7,7 +7,8 @@ import GRDB
 ///   Inbox and out of the Trash, counting the user's own copies out), after the operations written with it;
 /// - it ends on its own when a summary refresh finds its conversation no longer holding mail put away (back in the
 ///   Inbox, in the Trash, or gone: every message deleted or in Spam), and when mail that is not the user's own arrives
-///   in it after it was snoozed: the provider puts such mail in the Inbox anyway;
+///   in it after it was snoozed: the provider puts such mail in the Inbox anyway. Mail the mute or a sender rule covers
+///   is not news, so it leaves the snooze to the refresh (`ArrivalRule.keepsSnooze`);
 /// - returning deletes it, applies and queues the operations, and marks the conversation `returned_at`, which a
 ///   refresh keeps only while the conversation is in the Inbox and no newer mail has come; an undo of what took it out
 ///   of the Inbox puts the mark back with its inverse operations (`Snooze.Change.returnedAt`).
@@ -78,7 +79,7 @@ enum SnoozeTable {
 
     /// Marks the conversation returned at `date` if it is in the Inbox and its newest mail is older, the rule a refresh
     /// keeps the mark by; otherwise the mark would be dropped by the next refresh anyway.
-    private static func markReturned(_ conversation: ConversationID, at date: Date, in db: Database) throws {
+    static func markReturned(_ conversation: ConversationID, at date: Date, in db: Database) throws {
         let ms = MailStoreCodec.milliseconds(date)
         try db.cachedStatement(sql: """
             UPDATE conversations SET returned_at = ?
@@ -87,7 +88,8 @@ enum SnoozeTable {
     }
 
     /// Mail new to the store arrived in the conversation: a snooze set before it was received ends. The user's own sent
-    /// mail and drafts never end one (replying to a snoozed conversation keeps it put away), and nor does spam.
+    /// mail and drafts never end one (replying to a snoozed conversation keeps it put away), and nor does spam. The upsert
+    /// does not call it for mail the mute or a sender rule covers (`ArrivalRule.keepsSnooze`).
     static func endForArrival(of message: MessageMetadata, in db: Database) throws {
         guard message.roles.isDisjoint(with: [.sent, .drafts, .spam]) else { return }
         try db.cachedStatement(sql: "DELETE FROM snoozes WHERE account_id = ? AND provider_id = ? AND created_at < ?")

@@ -183,11 +183,13 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
             messagesByID[incoming.id] = metadata
             touched.insert(metadata.conversationID)
             if previous == nil {
-                endSnoozeForArrivalLocked(of: metadata)
                 let muted = mutedConversations.contains(metadata.conversationID)
                 let rule = senderRules ? metadata.from.flatMap { senderRuleLocked(metadata.id.accountID, $0.address)?.action } : nil
                 if let change = ArrivalRule.change(for: metadata, inMutedConversation: muted, senderRule: rule) {
                     arrivals.append(Arrival(message: metadata, change: change, muted: muted && change == .archive))
+                }
+                if !ArrivalRule.keepsSnooze(inMutedConversation: muted, senderRule: rule) {
+                    endSnoozeForArrivalLocked(of: metadata)
                 }
             }
             recordContacts(of: metadata)
@@ -742,13 +744,15 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         var callback: ([SenderRule]) -> Void
     }
 
-    public func setMuted(_ muted: Bool, conversations: [ConversationID], enqueueing operations: [Operation]) throws {
+    public func setMuted(_ muted: Bool, conversations: [ConversationID], enqueueing operations: [Operation],
+                         returnMarks: [ConversationID: Date]) throws {
         lock.lock(); defer { lock.unlock() }
-        guard !conversations.isEmpty || !operations.isEmpty else { return }
+        guard !conversations.isEmpty || !operations.isEmpty || !returnMarks.isEmpty else { return }
         for operation in operations { enqueueLocked(operation) }
         for id in conversations where summaryLocked(id) != nil {
             if muted { mutedConversations.insert(id) } else { mutedConversations.remove(id) }
         }
+        for (id, date) in returnMarks { markReturnedLocked(id, at: date) }
         notifyAll()
     }
 

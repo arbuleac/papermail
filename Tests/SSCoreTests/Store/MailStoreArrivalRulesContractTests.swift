@@ -68,6 +68,31 @@ extension MailStoreContractTests {
         XCTAssertEqual(try conversationIDs(ConversationQuery(view: .inbox)), ["c1"])
     }
 
+    /// Undoing a mute that took a conversation back from Later out of the Inbox puts its return mark back with the
+    /// inverse steps, in the same write, as an undone archive does (`setSnoozes` with a `returnedAt`).
+    func testAnUndoneMutePutsTheReturnMarkBack() throws {
+        try store.upsertMessages([message("m1", in: "c1", date: date(10))])
+        try store.setSnoozes([Snooze.Change(conversationID: conversation("c1"), until: date(500))],
+                             enqueueing: [archive(["m1"], at: 100)], at: date(100))
+        try store.returnDueSnoozes(at: date(600), limit: 10) { id, messages in
+            [SSCore.Operation(accountID: id.accountID, change: .moveToInbox, targets: messages.map(\.id), createdAt: self.date(600))]
+        }
+        XCTAssertEqual(try summary("c1", view: .inbox).returnedAt, date(600))
+
+        try store.setMuted(true, conversations: [conversation("c1")], enqueueing: [archive(["m1"], at: 700)])
+        XCTAssertNil(try summary("c1").returnedAt, "out of the Inbox, the mark goes")
+        let back = SSCore.Operation(accountID: accountA, change: .moveToInbox, targets: [id("m1")], createdAt: date(800))
+        try store.setMuted(false, conversations: [conversation("c1")], enqueueing: [back], returnMarks: [conversation("c1"): date(600)])
+        let row = try summary("c1", view: .inbox)
+        XCTAssertFalse(row.isMuted)
+        XCTAssertEqual(row.returnedAt, date(600), "back under the time it came back")
+
+        // As `setSnoozes` keeps it: never on a conversation out of the Inbox.
+        try store.setMuted(true, conversations: [conversation("c1")], enqueueing: [archive(["m1"], at: 900)])
+        try store.setMuted(false, conversations: [conversation("c1")], enqueueing: [], returnMarks: [conversation("c1"): date(600)])
+        XCTAssertNil(try summary("c1").returnedAt)
+    }
+
     func testAConversationTheStoreLacksIsNotMuted() throws {
         try store.setMuted(true, conversations: [conversation("nowhere")], enqueueing: [])
         try store.upsertMessages([message("m1", in: "nowhere")])
@@ -148,6 +173,26 @@ extension MailStoreContractTests {
         XCTAssertTrue(try conversationIDs(ConversationQuery(view: .inbox)).isEmpty)
     }
 
+    /// Snoozed (L) and then muted, the conversation keeps its snooze through a reply: the mute says new mail in it is not
+    /// news, and the reply it archives brings nothing back, so ending the snooze would leave it archived for good. It
+    /// still comes back at its time.
+    func testAMutedArrivalLeavesTheSnoozeToComeDue() throws {
+        try store.upsertMessages([message("m1", in: "c1", date: date(10))])
+        try store.setSnoozes([Snooze.Change(conversationID: conversation("c1"), until: date(9_000))],
+                             enqueueing: [archive(["m1"], at: 100)], at: date(100))
+        try mute("c1", archiving: [])
+        try store.upsertMessages([message("m2", in: "c1", date: date(200), isRead: false)])
+        XCTAssertEqual(try store.message(id("m2"))?.roles, [], "archived as it arrived")
+        XCTAssertEqual(try store.snoozes().map(\.conversationID), [conversation("c1")], "still snoozed")
+        XCTAssertEqual(try conversationIDs(ConversationQuery(view: .later)), ["c1"])
+
+        let returned = try store.returnDueSnoozes(at: date(9_000), limit: 10) { id, messages in
+            [SSCore.Operation(accountID: id.accountID, change: .moveToInbox, targets: messages.map(\.id), createdAt: self.date(9_000))]
+        }
+        XCTAssertEqual(returned, [conversation("c1")], "it comes back at its time")
+        XCTAssertEqual(try conversationIDs(ConversationQuery(view: .inbox)), ["c1"])
+    }
+
     func testAMuteInOneAccountTakesNothingFromAnother() throws {
         try store.upsertMessages([message("m1", in: "c1"), message("b1", in: "c1", account: accountB, from: bea)])
         try mute("c1", archiving: ["m1"])
@@ -219,6 +264,40 @@ extension MailStoreContractTests {
         try store.upsertMessages([message("m2", in: "c1", from: newsletter, date: date(200))])
         XCTAssertEqual(try pending().first?.targets, [id("m2")])
         XCTAssertEqual(try store.message(id("m1"))?.roles, [.inbox])
+    }
+
+    /// The row shows the conversation's newest mail, the archived message included: a sender's archive in a conversation
+    /// the Inbox holds for someone else's mail leaves the row there with that message's time, snippet and unread count,
+    /// as any archived message in it would. Only the notification is held back (the window's `NewMailNotifier`).
+    func testASendersArchiveInAConversationTheInboxHoldsStillShowsOnItsRow() throws {
+        try store.upsertMessages([message("m1", in: "c1", date: date(10), isRead: true)])
+        try store.setSenderRule(.archive, for: newsletter.address, accountID: accountA, enqueueing: [], at: date(100))
+        try store.upsertMessages([message("m2", in: "c1", from: newsletter, date: date(200), isRead: false)])
+        XCTAssertEqual(try store.message(id("m2"))?.roles, [])
+        let row = try summary("c1", view: .inbox)
+        XCTAssertEqual(row.latestMessageID, id("m2"))
+        XCTAssertEqual(row.latestDate, date(200))
+        XCTAssertEqual(row.snippet, "snippet of m2")
+        XCTAssertEqual(row.unreadCount, 1)
+    }
+
+    /// Mail from a sender with a rule leaves a snooze alone, as the mute's does: a blocked sender's reply goes to the
+    /// Trash, and an always-archived sender's message a provider's filter put away already stays where it is. Mail from
+    /// anyone else still ends it.
+    func testMailFromASenderWithARuleLeavesTheSnooze() throws {
+        try store.upsertMessages([message("m1", in: "c1", date: date(10)), message("n1", in: "c2", date: date(20))])
+        try store.setSnoozes([Snooze.Change(conversationID: conversation("c1"), until: date(9_000)),
+                              Snooze.Change(conversationID: conversation("c2"), until: date(9_000))],
+                             enqueueing: [archive(["m1", "n1"], at: 100)], at: date(100))
+        try store.setSenderRule(.trash, for: spammer.address, accountID: accountA, enqueueing: [], at: date(110))
+        try store.setSenderRule(.archive, for: newsletter.address, accountID: accountA, enqueueing: [], at: date(110))
+        try store.upsertMessages([message("m2", in: "c1", from: spammer, date: date(200)),
+                                  message("n2", in: "c2", from: newsletter, date: date(210), roles: [])])
+        XCTAssertEqual(try store.message(id("m2"))?.roles, [.trash])
+        XCTAssertEqual(try store.snoozes().map(\.conversationID), [conversation("c1"), conversation("c2")])
+
+        try store.upsertMessages([message("m3", in: "c1", date: date(300), roles: [])])
+        XCTAssertEqual(try store.snoozes().map(\.conversationID), [conversation("c2")])
     }
 
     func testRulesLeaveTheUsersOwnMailSpamOtherAccountsAndStoredMailAlone() throws {

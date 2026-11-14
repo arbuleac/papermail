@@ -102,6 +102,36 @@ final class MuteAndSenderRulesTests: XCTestCase {
         XCTAssertEqual(try summary(first, harness)?.isMuted, true)
     }
 
+    /// M takes a conversation back from Later out of the Inbox, which ends its mark; Z puts the row back where it was,
+    /// first under Today with its mark, as Z after E does, not eight rows down under its old date.
+    func testUndoingAMutePutsAReturnedRowBackUnderToday() throws {
+        let harness = try MainWindowHarness(threads: 10, spacing: 86_400)
+        defer { harness.close() }
+        let store = store(harness)
+        let old = harness.list.conversations[8].id // eight days back
+        let targets = try store.messages(in: old).map(\.id)
+        try store.setSnoozes([Snooze.Change(conversationID: old, until: Date().addingTimeInterval(-60))],
+                             enqueueing: [SSCore.Operation(accountID: old.accountID, change: .archive, targets: targets)],
+                             at: Date().addingTimeInterval(-600))
+        let now = Date()
+        try store.returnDueSnoozes(at: now, limit: 10) { id, messages in
+            [SSCore.Operation(accountID: id.accountID, change: .moveToInbox, targets: messages.map(\.id), createdAt: now)]
+        }
+        harness.spin { harness.list.conversations.first?.id == old }
+        let mark = try XCTUnwrap(harness.list.conversations.first?.returnedAt)
+
+        open(old, in: harness)
+        XCTAssertTrue(harness.controller.perform(.toggleMute))
+        harness.spin { !harness.list.conversations.contains { $0.id == old } }
+        XCTAssertFalse(harness.list.conversations.contains { $0.id == old }, "archived with the mute")
+        harness.controller.performUndo(harness.controller.zTarget)
+        harness.spin { harness.list.conversations.first?.id == old }
+        XCTAssertEqual(harness.list.conversations.first?.id, old, "back first")
+        XCTAssertEqual(harness.list.conversations.first?.returnedAt, mark, "with its mark")
+        XCTAssertEqual(harness.list.conversations.first?.isMuted, false)
+        if case .head(.today)? = harness.list.layout.items.first {} else { XCTFail("under Today") }
+    }
+
     func testSeveralAreMutedAsOneStep() throws {
         let harness = try MainWindowHarness()
         defer { harness.close() }
@@ -192,7 +222,7 @@ final class MuteAndSenderRulesTests: XCTestCase {
         XCTAssertEqual(try store(harness).senderRules().map(\.address), [address.lowercased()])
         XCTAssertEqual(try store(harness).senderRules().map(\.action), [.trash])
         XCTAssertEqual(try store(harness).message(target.id)?.roles.contains(.trash), true, "their mail here goes to the Trash")
-        XCTAssertEqual(harness.toastMessage, "Sender blocked")
+        XCTAssertEqual(harness.toastMessage, "Blocked \(address.lowercased())", "the toast names whose mail it takes")
         XCTAssertEqual(harness.toasts.visibleKind, .undoable)
         XCTAssertEqual(harness.controller.undoMenuTitle(for: harness.controller.zTarget), "Undo Block Sender")
 
@@ -220,7 +250,7 @@ final class MuteAndSenderRulesTests: XCTestCase {
         harness.controller.handle(.senderRule(.archive, target.id))
         XCTAssertEqual(try store(harness).senderRules().map(\.action), [.archive])
         XCTAssertEqual(try store(harness).message(target.id)?.roles.contains(.inbox), false)
-        XCTAssertEqual(harness.toastMessage, "Sender always archived")
+        XCTAssertEqual(harness.toastMessage, "Always archiving \(sender.address.lowercased())")
         XCTAssertEqual(harness.controller.undoMenuTitle(for: harness.controller.zTarget), "Undo Always Archive Mail from This Sender")
 
         let next = MessageMetadata(id: MessageID(accountID: target.id.accountID, providerID: "next"),
@@ -230,6 +260,66 @@ final class MuteAndSenderRulesTests: XCTestCase {
         try store(harness).upsertMessages([next])
         ListTestSupport.spin(for: 0.1)
         XCTAssertFalse(harness.list.conversations.contains { $0.id == next.conversationID }, "never in the Inbox")
+    }
+
+    /// The message's More menu (§5.14) offers both rules only for mail someone else sent, the rule the sender has checked
+    /// and disabled and the other one enabled to replace it; each item is its own command.
+    func testTheMoreMenuOffersBothRulesAndChecksTheSendersOwn() throws {
+        var chosen: [MessageMoreMenu.Command] = []
+        let more = MessageMoreMenu { chosen.append($0) }
+        func menu(offers: Bool, rule: SenderRule.Action?) -> NSMenu {
+            more.menu(MessageMoreMenu.Options(isStarred: false, imagesBlocked: false, offersOriginal: false, showsOriginal: false,
+                                              hasSenderAddress: true, offersSenderRules: offers, senderRule: rule))
+        }
+        let archive = MailActionCopy.senderRuleCommand(.archive), block = MailActionCopy.senderRuleCommand(.trash)
+        XCTAssertEqual(archive, "Always Archive Mail from This Sender")
+        XCTAssertEqual(block, "Block Sender")
+        XCTAssertFalse(menu(offers: false, rule: nil).items.contains { [archive, block].contains($0.title) }, "hidden, not disabled")
+
+        let titles = menu(offers: true, rule: nil).items.map { $0.isSeparatorItem ? "—" : $0.title }
+        XCTAssertEqual(Array(titles.suffix(4)), ["—", archive, block, "Copy Sender Address"], "beside the sender's other items")
+        for (rule, expected) in [(nil, [archive: (NSControl.StateValue.off, true), block: (.off, true)]),
+                                 (SenderRule.Action.archive, [archive: (.on, false), block: (.off, true)]),
+                                 (.trash, [archive: (.off, true), block: (.on, false)])] as [(SenderRule.Action?, [String: (NSControl.StateValue, Bool)])] {
+            let items = menu(offers: true, rule: rule).items
+            for (title, (state, enabled)) in expected {
+                let item = try XCTUnwrap(items.first { $0.title == title })
+                XCTAssertEqual(item.state, state, "\(title) with \(String(describing: rule))")
+                XCTAssertEqual(item.isEnabled, enabled, "\(title) with \(String(describing: rule))")
+            }
+        }
+
+        for title in [archive, block] {
+            let item = try XCTUnwrap(menu(offers: true, rule: nil).items.first { $0.title == title })
+            _ = (item.target as AnyObject?)?.perform(try XCTUnwrap(item.action), with: item)
+        }
+        XCTAssertEqual(chosen, [.alwaysArchiveSender, .blockSender])
+    }
+
+    /// The reader's own More menu reads the rule the sender has, and its Block Sender sets the rule for the target
+    /// message's sender, replacing the other one, with the toast that names the address.
+    func testBlockSenderFromTheReadersMoreMenu() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        open(harness.list.conversations[0].id, in: harness)
+        let target = try XCTUnwrap(harness.reader.senderRuleTarget)
+        let address = try XCTUnwrap(target.from?.address).lowercased()
+        try store(harness).setSenderRule(.archive, for: address, accountID: target.id.accountID, enqueueing: [], at: Date())
+
+        let menu = harness.reader.makeMoreMenu(for: target.id, shellState: [:])
+        let archive = try XCTUnwrap(menu.items.first { $0.title == MailActionCopy.senderRuleCommand(.archive) })
+        XCTAssertEqual(archive.state, .on, "the rule the sender has")
+        XCTAssertFalse(archive.isEnabled)
+        let block = try XCTUnwrap(menu.items.first { $0.title == MailActionCopy.senderRuleCommand(.trash) })
+        XCTAssertTrue(block.isEnabled)
+        XCTAssertTrue(NSApp.sendAction(try XCTUnwrap(block.action), to: block.target, from: block))
+
+        XCTAssertEqual(try store(harness).senderRules().map(\.address), [address])
+        XCTAssertEqual(try store(harness).senderRules().map(\.action), [.trash], "Block replaced Always Archive")
+        XCTAssertEqual(try store(harness).message(target.id)?.roles.contains(.trash), true)
+        XCTAssertEqual(harness.toastMessage, "Blocked \(address)")
+        harness.controller.performUndo(harness.controller.zTarget)
+        XCTAssertEqual(try store(harness).senderRules().map(\.action), [.archive], "the undo puts back the rule it had")
     }
 
     /// Rules are set from someone else's mail, one conversation at a time.

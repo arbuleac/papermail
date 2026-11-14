@@ -17,4 +17,13 @@ public enum ArrivalRule {
         if muted || (senderRule == .archive && !isOwn) { return .archive }
         return nil
     }
+
+    /// Whether mail arriving in the conversation leaves its snooze alone (docs/DATA-MODEL.md, "Snoozes"): mail in a muted
+    /// conversation, or from a sender with a rule, is mail the user has said is not news, whatever the rule does to it (an
+    /// archive, a Move to Trash, or nothing where a provider's filter put it away already). Ending the snooze for it would
+    /// leave the conversation archived with nothing to bring it back at its time; the summary refresh still ends the
+    /// snooze when the conversation is back in the Inbox, in the Trash or gone, as for any write.
+    public static func keepsSnooze(inMutedConversation muted: Bool, senderRule: SenderRule.Action?) -> Bool {
+        muted || senderRule != nil
+    }
 }

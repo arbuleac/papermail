@@ -174,9 +174,12 @@ public protocol MailStoring: AnyObject, Sendable {
     // live on this Mac; what they do round-trips.
 
     /// In one transaction: applies and queues `operations` as `enqueue` does (muting archives what is in the Inbox, an
-    /// undo passes the inverse steps), then marks the conversations muted, or not. A conversation the store holds no
-    /// summary row for is left alone.
-    func setMuted(_ muted: Bool, conversations: [ConversationID], enqueueing operations: [Operation]) throws
+    /// undo passes the inverse steps), then marks the conversations muted, or not, and puts back each of `returnMarks`
+    /// as `setSnoozes` puts back a `Snooze.Change.returnedAt` (an undo of a mute that took a conversation back from Later
+    /// out of the Inbox): only where the conversation is now in the Inbox and its newest mail is older. A conversation
+    /// the store holds no summary row for is left alone.
+    func setMuted(_ muted: Bool, conversations: [ConversationID], enqueueing operations: [Operation],
+                  returnMarks: [ConversationID: Date]) throws
     /// Every sender rule, by account and then address.
     func senderRules() throws -> [SenderRule]
     /// In one transaction: applies and queues `operations` as `enqueue` does (the rule's change on the sender's mail in
@@ -236,6 +239,11 @@ extension MailStoring {
     public func returnDueSnoozes(at now: Date, limit: Int,
                                  operations: (ConversationID, [MessageMetadata]) -> [Operation]) throws -> [ConversationID] {
         try returnDueSnoozes(at: now, dueBy: [:], limit: limit, operations: operations)
+    }
+
+    /// `setMuted(_:conversations:enqueueing:returnMarks:)` with no return mark to put back.
+    public func setMuted(_ muted: Bool, conversations: [ConversationID], enqueueing operations: [Operation]) throws {
+        try setMuted(muted, conversations: conversations, enqueueing: operations, returnMarks: [:])
     }
 
     /// One at a time, for a store that cannot do better (the test doubles that wrap a real store); both stores
