@@ -52,6 +52,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     let mailLinks = MailLinkInbox()
     /// Clicks and actions on new-mail notifications, held until there is a main window (internal for the same reason).
     let notificationResponses = NewMailNotificationResponder()
+    /// The Services menu's New Message with Selection and Send with SuperSparrow, held until there is a main window
+    /// (internal for the same reason).
+    let services = MailServicesProvider()
 
     init(options: LaunchOptions) {
         self.options = options
@@ -64,6 +67,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // An action that launches the app reaches only a center delegate set before launch ends; it waits in the
         // responder until `install` has a main window to apply it.
         if let center = NewMailNotifier.systemCenter { notificationResponses.connect(to: center) }
+        // Before launch ends, so a service that launches the app finds its provider; the request waits there until
+        // `install` has a main window to open it in.
+        NSApp.servicesProvider = services
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -460,10 +466,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         window.onLeaveDemo = { [weak self] in self?.confirmLeavingDemo(origin: .main) }
         window.beforeCompose = { [weak self] in self?.saveSettingsEdits() }
         mainWindow = window
-        // Last, on either path below: the window is on screen, so a composer for a held link or a notification's
-        // Reply opens in front of it.
+        // Last, on either path below: the window is on screen, so a composer for a held link or service, or a
+        // notification's Reply, opens in front of it.
         defer {
             openMailLinks(in: window)
+            openServiceRequests(in: window)
             answerNotifications(in: window)
         }
         observeForNotifier(environment)
@@ -494,6 +501,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// the delegate a window over a throwaway store.
     func openMailLinks(in window: MainWindowController) {
         mailLinks.receiver = { [weak window] link in window?.openMailLink(link) }
+    }
+
+    /// Services requests open in `window`, as mail links do (`openMailLinks(in:)`): a held one at once, later ones as they
+    /// come. Internal so the app's tests can give the delegate a window over a throwaway store.
+    func openServiceRequests(in window: MainWindowController) {
+        services.receiver = { [weak window] request in window?.openServiceRequest(request) }
     }
 
     /// Notification clicks and actions are answered by `window`, the main window `install` just put on screen, which

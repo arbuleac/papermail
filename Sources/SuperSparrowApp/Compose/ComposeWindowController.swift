@@ -48,6 +48,9 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     /// Everything the window holds, as a kept draft would (the app's tests read the fields through it).
     var contents: ComposeDraft { currentDraft() }
 
+    /// What the bottom bar's status says now (the app's tests read it).
+    var status: ComposeStatus? { statusBoard.current }
+
     /// The message this composer replies to (not a forward): the reader disables its quick reply while one
     /// of its conversation's messages has a reply open here (§5.18).
     var repliesTo: MessageID? {
@@ -172,6 +175,18 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
             // The end of the link's body, above the signature.
             controller.textView.setSelectedRange(NSRange(location: bodyEnd, length: 0))
         }
+        return controller
+    }
+
+    /// A new message from a Services menu item (spec §5.20 Services): the selected text as its body, above the signature,
+    /// or the files attached through the same path as a drop, so a folder or an unreadable file is skipped with the
+    /// rejected-drop status. As for a mail link, what the service filled in is the window's starting point, so closing
+    /// it untouched keeps no draft. Focus goes to To, which no service fills.
+    @discardableResult
+    static func present(client: MailClient, account: Account, accounts: [Account], service: ServiceRequest) -> ComposeWindowController {
+        let controller = ComposeWindowController(client: client, account: account, accounts: accounts, mode: .new)
+        controller.fill(from: service)
+        controller.show()
         return controller
     }
 
@@ -849,6 +864,21 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         return bodyEnd
     }
 
+    /// A service's text or files. The caret waits at the end of the text, above the signature, for when the user gets
+    /// to the body.
+    private func fill(from service: ServiceRequest) {
+        switch service {
+        case .selection(let text):
+            startBody(typed: text.isEmpty ? nil : ComposeTextView.plainBody(text))
+        case .files(let urls):
+            startBody(typed: nil)
+            attach(urls)
+        }
+        baseline = currentDraft().fingerprint
+        updateTitle()
+        updateSendEnabled()
+    }
+
     /// Content worth keeping: anything the user typed, chose or attached; at most the prefilled reply, its folded
     /// original and the signature is not (§5.20).
     private var isWorthKeeping: Bool {
@@ -941,10 +971,16 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         }
     }
 
-    /// Attaches the readable files; folders and unreadable files become the rejected-drop status (§5.20),
-    /// never an alert.
+    /// Attaches the readable files as the user's change to the draft.
     private func addAttachments(from urls: [URL]) {
         guard !isSending else { return }
+        if attach(urls) { draftChanged(body: false) }
+    }
+
+    /// Attaches the readable files; folders and unreadable files become the rejected-drop status (§5.20),
+    /// never an alert. Returns whether anything was attached.
+    @discardableResult
+    private func attach(_ urls: [URL]) -> Bool {
         var rejected = ComposeStatus.RejectedDrop()
         var added: [ComposeAttachment] = []
         for url in urls {
@@ -956,11 +992,9 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
                 rejected.unreadable.append(url.lastPathComponent)
             }
         }
-        if !added.isEmpty {
-            attachments.append(contentsOf: added)
-            draftChanged(body: false)
-        }
+        if !added.isEmpty { attachments.append(contentsOf: added) }
         if !rejected.isEmpty { statusBoard.post(.rejectedDrop(rejected)) }
+        return !added.isEmpty
     }
 
     private func removeAttachment(id: UUID) {
