@@ -187,7 +187,16 @@ On a trackpad, swipe a conversation in the list with two fingers: left shows **A
 
 ## Design
 
-SuperSparrow's look is **Quire**: New York subjects on warm paper, one blue-black ink (Iron Gall) for what needs you, and a still list beside a generous reading page. If you prefer a sans serif, **Settings → General → Font → SF Pro** sets every New York face in the app in SF Pro, at once, and **Settings → General → Text size** (Small, Default, Large, Larger) sets the list, the reader and the composer a point smaller or up to two larger; **⌘+** and **⌘−** change the reader alone. The spec is [docs/DESIGN-LANGUAGE.md](docs/DESIGN-LANGUAGE.md); [docs/design/specimen.html](docs/design/specimen.html) shows every token and component (rendered as [light](docs/design/specimen-light.png) and [dark](docs/design/specimen-dark.png)). [docs/design/tokens.json](docs/design/tokens.json) is the single source: the app's design runtime (`Sources/SSDesign`), the reader's CSS, the accent colour and the app icon are generated from it, and debug builds show every component in **Debug → Design Gallery**.
+SuperSparrow's look is **Quire**: New York subjects on warm paper, one blue-black ink (Iron Gall) for what needs you, and a still list beside a generous reading page.
+
+**Settings → Appearance** holds how it looks, and every change applies at once, with nothing to relaunch:
+
+- **Theme**: five tiles, each a small picture of the window in that theme. **Study** is the default (warm paper and blue-black ink, the look above); **Gallery** is neutral grey paper with an ink that has no colour, so links are underlined; **Rain** is cool blue-grey paper with a petrol ink; **Grove** is sage paper with a deep teal ink; **Dusk** is heather paper by day and a dimmer window at night. Each theme keeps every contrast of the default, in Light and Dark, with Increase Contrast and with the Graphite accent, and colours that mean something (your accounts' colours, the star, warnings) never change.
+- **Appearance**: **Automatic** follows macOS; **Light** or **Dark** keeps SuperSparrow in that half of the theme whatever macOS does.
+- **Dark Mode**: **Adapt mail that sets its own colours** (on) shows a newsletter that brings its own colours in the theme's inks on the dark page. Off, such mail opens as its sender designed it, on a white page. Either way **⇧⌘O** (View → Original Colors) switches one message.
+- **Font**: **SF Pro** sets every New York face in the app in SF Pro. **Text size** (Small, Default, Large, Larger) sets the list, the reader and the composer a point smaller or up to two larger; **⌘+** and **⌘−** change the reader alone.
+
+The spec is [docs/DESIGN-LANGUAGE.md](docs/DESIGN-LANGUAGE.md); [docs/design/specimen.html](docs/design/specimen.html) shows every token and component (rendered as [light](docs/design/specimen-light.png) and [dark](docs/design/specimen-dark.png)). [docs/design/tokens.json](docs/design/tokens.json) is the single source: the app's design runtime (`Sources/SSDesign`), the reader's CSS, the accent colour and the app icon are generated from it, and debug builds show every component in **Debug → Design Gallery**.
 
 ## Privacy
 

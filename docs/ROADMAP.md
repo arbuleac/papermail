@@ -14,7 +14,7 @@ Four guardrails. A feature that cannot pass all four is not on the roadmap, howe
 
 **Light.** Two dependencies (GRDB, SwiftSoup) and no third without the decision in §7. No helper processes, no launch agents, no menu-bar extra, no web runtime. The release binary stays under 20 MB stripped; the app's idle footprint under 120 MB on a 100,000-message mailbox, and under 200 MB with its three warm web views; idle CPU under 1 %, with the poll timers (5 s active, 30 s in the background), the backfill's five-minute wake and the send queue's tick the only periodic work, and that tick made to wait for its next due send (Q1). Disk is bounded by the retention setting of Q1. Mail goes to Google, Microsoft and this Mac, and nowhere else; the update check of Q1 is the one other request the app makes, and it can be turned off.
 
-**Simple.** Six views, one list, one reader, one composer. No folders, no labels, no tabs, no categories, no modes, no plugins. One way to do each thing, and a feature ships complete or not at all (no flags, no beta switches in a release). New settings are rationed: this year adds at most four to General (updates, retention, text size, launch at login) and two per-account fields to Accounts (signature, send-as addresses), and General never scrolls. A feature exists on both providers, or says plainly where it does not.
+**Simple.** Six views, one list, one reader, one composer. No folders, no labels, no tabs, no categories, no modes, no plugins. One way to do each thing, and a feature ships complete or not at all (no flags, no beta switches in a release). New settings are rationed: this year adds at most four to General (updates, retention, text size, launch at login), three in one Appearance tab (theme, appearance, the Dark Mode default for mail colours), and two per-account fields to Accounts (signature, send-as addresses), and no Settings tab ever scrolls. A feature exists on both providers, or says plainly where it does not.
 
 **Fast.** The budgets in `docs/ARCHITECTURE.md` are unchanged and every new interaction gets a row there before it is built and a measurement before it ships. Nothing waits on the network between a keystroke and a pixel: every action is a store transaction first and an `Operation` second, as today. The `SS_PERF=1` run goes before every release; a regression blocks it.
 
@@ -53,7 +53,8 @@ What it does not do is the subject of §4. The deliberate omissions of Quire §9
 | Source | 60,127 lines of Swift in five modules; 30,027 lines of tests; 1,434 tests in the last full run | no limit, but a feature's tests land with it |
 | New mail visible | 5 s active, 30 s in the background | unchanged; under 1 s on JMAP push (Q4) |
 | Launch to usable inbox, move selection, open conversation, search keystroke, list refresh | the budgets, 500 / 16 / 50 (100 with a cached body) / 50 / 50 ms, last checked by the `SS_PERF=1` run; not re-measured today | unchanged (`docs/ARCHITECTURE.md`), measured on every release |
-| Settings controls in General | 7 | 12 |
+| Settings controls in General | 7 | 12; 9 after Q3.9 moves Font and Text size |
+| Settings controls in Appearance | — | 5 (three new, Font and Text size moved from General) |
 | Views in the rail | 6 | 6, plus Later while something is snoozed (Q2) |
 
 ## 3. The year at a glance
@@ -62,7 +63,7 @@ What it does not do is the subject of §4. The deliberate omissions of Quire §9
 |---|---|---|---|
 | Q1 · November 2026 to January 2027 | 1.0 | It ships | Signed and notarized, Check for Updates, mailto and default mail app, notification actions, signatures, storage bounds, engine debt |
 | Q2 · February to April 2027 | 1.1 | Triage | Snooze (Later), send later, mark as spam, unsubscribe, search operators, text size, launch at login, Services |
-| Q3 · May to July 2027 | 1.2 | Reading and writing | Search the server for mail not on this Mac, calendar invitations, inline images in the composer, print, a conversation in its own window, find in conversation, mute, send-as aliases |
+| Q3 · May to July 2027 | 1.2 | Reading and writing | Search the server for mail not on this Mac, calendar invitations, inline images in the composer, print, a conversation in its own window, find in conversation, mute, send-as aliases, themes |
 | Q4 · August to October 2027 | 1.3 | Reach | JMAP (Fastmail) with push, sender rules, the 300,000-message check, macOS 26 as the floor, Shortcuts |
 
 Each quarter keeps a fifth of its time for what use of the previous release turns up. Sizes: **S** a few days, **M** one to two weeks, **L** three to six weeks.
@@ -111,7 +112,7 @@ The actions people reach for a hundred times a day in Superhuman and Gmail, done
 
 **8. Services (S).** "New Message with Selection" and "Send with SuperSparrow" (files) in the Services menu, from `NSServices` in `Info.plist`, no extension bundle needed.
 
-*1.1 ships at the end of April 2027.* General then holds eleven settings and the default-mail button, at the limit of twelve controls; the next setting has to replace one.
+*1.1 ships at the end of April 2027.* General then holds eleven settings and the default-mail button, at the limit of twelve controls; the next setting has to replace one. Q3.9 moves Font and Text size to a new Appearance tab, which leaves General nine (ten with the update check).
 
 ### Q3 · May to July 2027 · 1.2, reading and writing
 
@@ -132,6 +133,8 @@ Depth in the two places people spend their time, and the one provider feature th
 **7. Mute (S to M).** `M`. New messages in a muted conversation are archived as they arrive: the archive is applied inside the poll's upsert transaction, as "pending operations win" is, and its operation enqueued in the same transaction, so the row never flashes into the Inbox, no notification fires, and every device agrees once the operation lands. A `muted` column on the conversation carries the glyph; `M` again unmutes. *Why not Gmail's mute:* it is not in the API; this form round-trips.
 
 **8. Send-as aliases (S to M).** Addresses the user adds to an account in its detail form ("Also send as"); the From popup lists them under the account, a reply defaults to the address the message came to, and the account's signature follows them. Gmail sends from any address verified in its own Send mail as settings and Outlook from any alias of the mailbox, so no scope is added; an address the provider refuses fails the send with its reason. *Costs:* one per-account field.
+
+**9. Themes (M).** Five themes: Study, the default and today's look unchanged, and Gallery (no coloured ink), Rain, Grove and Dusk, derived from Study's table by one rule that keeps every luminance, so every contrast pair keeps its ratio, and checked pair by pair (Quire §4.16). A Settings › Appearance tab holds Theme (five tiles), Appearance (Automatic · Light · Dark) and Dark Mode (Adapt mail that sets its own colours); Font and Text size move there, and General drops to nine controls. *Costs:* three settings and one tab; up to 7.7 KB of reader CSS for a non-default theme, none for Study. *Budget:* a switch redraws the list within 50 ms and restyles every pooled reader shell within 100 ms, with nothing re-measured; nothing at idle. *Stays inside* because a theme is data: one field in the colour providers' snapshot, one SwiftUI environment value, and one replaced stylesheet in the reader. *Spec:* §4.16, §5.40.
 
 **Stretch:** search hits highlighted in the row snippet and the reader; reply quoting only the selected text; "Remind me if no reply", the pair to Later: a sent conversation comes back at the time only if nobody answered (one flag on the `snoozes` row).
 
@@ -169,7 +172,7 @@ A limit crossed is a roadmap item for the next quarter, ahead of any feature.
 - **Cloud AI** (summaries, drafting, "ask your inbox"). The privacy promise is that mail goes only to Google, Microsoft and this Mac, and the client stays small. The Mac's own Writing Tools already sit in the composer. On-device features are not revisited before 2028, and then only opt-in and off by default.
 - **Folders, labels, tabs, categories, split inboxes.** The architecture's rule, and the filter tabs were removed in Quire 1.4 for the same reason.
 - **Open tracking of sent mail and read receipts.** The client blocks trackers; it will not plant them.
-- **Themes and arbitrary accents.** One design language; Graphite and Increase Contrast are honoured, as now.
+- **Custom themes and arbitrary accents.** Five built-in themes (Quire §4.16) are the whole set. Each is derived from the default by one rule and checked pair by pair in four modes and under Graphite; a colour a user picks cannot be. No colour picker, no theme editor or import, no per-account themes, no accent beyond the theme's ink. Graphite and Increase Contrast are honoured in every theme.
 - **Plugins or extensions.**
 - **A command palette (⌘K).** The menu bar, the cheat sheet and the single keys already reach every command; a palette would be a second way to each of them.
 - **Analytics, crash reporting, telemetry.** The welcome screen says "No analytics, ever." A "Report a Problem…" item that opens the issue page with the version filled in is enough, and sends nothing on its own.
