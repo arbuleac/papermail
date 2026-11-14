@@ -569,6 +569,33 @@ final class ReaderWindowTests: XCTestCase {
         harness.close()
     }
 
+    /// Find's words are the session's (§5.50), not one reader's: found in the main window, Find Next is enabled in a
+    /// reader window opened afterwards and ⌘G there opens the bar with them, as ⌥⌘F does; words typed in a window reach
+    /// the main window's ⌘G too. Each reader kept its own, so a new window's Find Next was disabled and ⌘G beeped.
+    func testFindsWordsAreTheSessionsInEveryWindow() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        select(0, harness)
+        harness.controller.findInConversation(nil)
+        harness.reader.find.open(query: "lisbon")
+        harness.reader.find.close(returningFocus: false)
+
+        let (_, first) = try open(1, harness)
+        XCTAssertTrue(first.validateMenuItem(menuItem(#selector(ReaderWindowController.findNextMatch(_:)))), "Find Next is enabled")
+        first.findNextMatch(nil)
+        XCTAssertEqual(first.conversation.find.bar?.query, "lisbon", "⌘G opens the bar with the session's words")
+        first.conversation.find.close(returningFocus: false)
+        first.findInConversation(nil)
+        XCTAssertEqual(first.conversation.find.bar?.query, "lisbon", "and so does ⌥⌘F")
+
+        // Typed in a window, the words are the main window's next ⌘G.
+        first.conversation.find.open(query: "porto")
+        first.conversation.find.close(returningFocus: false)
+        XCTAssertEqual(harness.reader.find.stepQuery, "porto")
+        harness.controller.findNextMatch(nil)
+        XCTAssertEqual(harness.reader.find.bar?.query, "porto")
+    }
+
     /// The quick reply's Reply · Reply all tabs choose with ← →, so the main window lets a focused tab group have them
     /// (`ShellKeyHandling`, asked before the router acts); ← went back to the list instead.
     func testTheReplyTabsKeepTheirArrowsInTheMainWindow() throws {

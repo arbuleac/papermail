@@ -34,15 +34,16 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
     var conversationID: ConversationID { place.conversation }
 
     /// `drafts` is the mailbox's quick-reply text, shared with the main window's reader: what is typed here outlives the
-    /// window, for the window an undo opens again or the main window showing the conversation. `settings` are the main
-    /// window's, whose reader Text size this window's reader follows (spec §4.15).
+    /// window, for the window an undo opens again or the main window showing the conversation. `findSession` is Find in
+    /// conversation's last query, the main window's (§5.50). `settings` are the main window's, whose reader Text size this
+    /// window's reader follows (spec §4.15).
     init(place: ReaderWindowPlace, client: MailClient, accountsByID: [AccountID: Account], drafts: QuickReplyDraftShelf,
-         settings: AppSettings, undoCenter: MailUndoCenter, opener: MainWindowController) {
+         findSession: FindSession, settings: AppSettings, undoCenter: MailUndoCenter, opener: MainWindowController) {
         self.place = place
         self.undoCenter = undoCenter
         self.settings = settings
         self.opener = opener
-        conversation = ConversationViewController(client: client, poolSize: 1, drafts: drafts, settings: settings)
+        conversation = ConversationViewController(client: client, poolSize: 1, drafts: drafts, settings: settings, findSession: findSession)
         conversation.accountsByID = accountsByID
         conversation.mailboxView = place.view
         let size = Self.savedSize() ?? QuireWindowChrome.readerWindowDefaultSize

@@ -70,7 +70,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     /// Internal so tests can read the headline as set.
     let header = ReaderHeaderView()
     /// Find in conversation's bar and its shell traffic (spec §5.50).
-    let find = ReaderFind()
+    let find: ReaderFind
     private let webContainer = NSView()
     private let quickReply = QuickReplyView()
     private let emptyState = QuireEmptyStateView(sentence: "No conversation selected")
@@ -166,8 +166,11 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     /// `poolSize` 1 is a reader window's (§5.49): it shows one conversation and pre-renders nothing. A pool of its own
     /// rather than a slot of the main window's, which that reader hands to whatever neighbour it pre-renders next.
     /// `drafts` is the mailbox's quick-reply text, which every reader of it shares; a reader alone keeps its own.
-    init(client: MailClient, poolSize: Int = 3, drafts: QuickReplyDraftShelf? = nil, settings: AppSettings? = nil) {
+    /// `findSession` holds Find in conversation's words for the session, shared with the mailbox's other readers.
+    init(client: MailClient, poolSize: Int = 3, drafts: QuickReplyDraftShelf? = nil, settings: AppSettings? = nil,
+         findSession: FindSession? = nil) {
         appSettings = settings ?? AppSettings.shared
+        find = ReaderFind(session: findSession ?? FindSession())
         self.client = client
         self.draftShelf = drafts ?? QuickReplyDraftShelf()
         self.pool = WebViewPool(client: client, size: poolSize)

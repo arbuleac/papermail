@@ -66,6 +66,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// The quick-reply text parked under each conversation, which this window's reader shares with its reader windows
     /// (§5.49): text typed in a window that closes is kept for the next reader to show the conversation.
     let quickReplyDrafts = QuickReplyDraftShelf()
+    /// Find in conversation's words for the session, which this window's reader shares with its reader windows (§5.50).
+    let findSession = FindSession()
     let notifier: NewMailNotifier
     private var router: KeyboardRouter?
     private var statusObservation: StoreObservation?
@@ -186,7 +188,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         scopeToRestore = remembersScope ? settings.savedAccountScope(demo: environment.isDemo) : nil
         list = MessageListViewController(store: environment.store)
         listPane = ListPaneViewController(list: list)
-        conversation = ConversationViewController(client: environment.engine, drafts: quickReplyDrafts, settings: settings)
+        conversation = ConversationViewController(client: environment.engine, drafts: quickReplyDrafts, settings: settings,
+                                                  findSession: findSession)
         conversationPane = ConversationPaneViewController(conversation: conversation)
         undoCenter = MailUndoCenter(toasts: listPane.toasts)
         inboxMonitor = InboxMonitor(store: environment.store, dockBadge: dockBadge)
@@ -2221,7 +2224,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     @discardableResult
     private func present(_ place: ReaderWindowPlace, at frame: NSRect?) -> ReaderWindowController {
         let reader = ReaderWindowController(place: place, client: environment.engine, accountsByID: accountsByID,
-                                            drafts: quickReplyDrafts, settings: settings, undoCenter: undoCenter, opener: self)
+                                            drafts: quickReplyDrafts, findSession: findSession, settings: settings,
+                                            undoCenter: undoCenter, opener: self)
         readerWindows.append(reader)
         reader.place(at: frame, cascadingFrom: readerWindows.dropLast().last?.window ?? window)
         bringForward(reader)

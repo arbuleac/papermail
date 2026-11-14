@@ -3,10 +3,19 @@ import SSCore
 import SSDesign
 import WebKit
 
+/// The last query Find in conversation had something to find for, kept while the app runs (spec §5.50, "the last query
+/// of the session"). The main window holds one and hands it to its reader and to every reader window it opens (§5.49),
+/// so ⌥⌘F opens with the same words and ⌘G finds them again whichever window they were typed in.
+@MainActor
+final class FindSession {
+    var lastQuery = ""
+}
+
 /// Find in conversation (spec §5.50): the bar over the reader and its traffic with the shell, which does the finding.
 ///
 /// The bar belongs to the conversation it searched: showing another conversation, several or none closes it. The query
-/// is kept for the session, so ⌥⌘F opens with it selected and ⌘G finds it again in the next conversation. One shell call
+/// is kept for the session (`FindSession`, shared by every reader of the mailbox's windows), so ⌥⌘F opens with it
+/// selected and ⌘G finds it again in the next conversation, in this window or another. One shell call
 /// is in flight at a time and a newer query replaces any not yet sent, so a fast typist never queues finds the page
 /// will not show; the shell's reports name their query, and only the bar's own is shown. While the selected
 /// conversation's page has not landed (its render is still on its way to another slot), nothing is sent: the page on
@@ -19,8 +28,10 @@ final class ReaderFind {
     private(set) weak var slot: PooledConversationView?
     /// The conversation the bar searches: the one selected when it opened.
     private(set) var conversation: ConversationID?
-    /// The last query with something to find, kept while the app runs.
-    private(set) var lastQuery = ""
+    /// The words kept for the session, with every other reader's.
+    let session: FindSession
+    /// The last query with something to find, typed in this reader or another.
+    var lastQuery: String { session.lastQuery }
     /// The shell's latest report for the bar's query.
     private(set) var result: ConversationFind.Result?
 
@@ -37,6 +48,10 @@ final class ReaderFind {
     private var queue: [String] = []
     private var inFlight = false
     private var generation = 0
+
+    init(session: FindSession) {
+        self.session = session
+    }
 
     var isOpen: Bool { bar != nil }
 
@@ -153,7 +168,7 @@ final class ReaderFind {
     }
 
     private func queryChanged(_ query: String) {
-        if ConversationFind.isSearchable(query) { lastQuery = query }
+        if ConversationFind.isSearchable(query) { session.lastQuery = query }
         result = nil
         // Steps queued for the words before are about matches that are gone.
         queue.removeAll()
