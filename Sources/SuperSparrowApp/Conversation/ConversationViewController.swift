@@ -40,7 +40,11 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
 
     private(set) var selection: Selection = .none
     private(set) var currentConversationID: ConversationID?
-    private(set) var currentMessages: [MessageMetadata] = []
+    private(set) var currentMessages: [MessageMetadata] = [] {
+        didSet { onMessagesChange?() }
+    }
+    /// The conversation's messages were read again (a show, a store refresh): a reader window names itself after them.
+    var onMessagesChange: (() -> Void)?
     /// The target message (spec §5.14): R, A, F and Space act on it. The last expanded message on open, then
     /// the one last clicked or reached with N, P or Tab. The quick reply answers it, so its placeholder and
     /// Reply all follow it.

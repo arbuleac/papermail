@@ -62,8 +62,7 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
         wire()
         place.window = self
         conversation.show(place.conversation)
-        let subject = RenderPayloadBuilder.subject(of: conversation.currentMessages).trimmingCharacters(in: .whitespacesAndNewlines)
-        window.title = subject.isEmpty ? "No subject" : subject
+        updateTitle()
         let router = KeyboardRouter(target: self)
         router.install()
         self.router = router
@@ -82,10 +81,22 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
         conversation.messageMenu = { [weak self] in self?.contextMenu() }
         conversation.isDraftInComposer = { ComposeWindowRegistry.shared.controller(holdingDraft: $0) != nil }
         conversation.onBottomOverlayChange = { [weak self] in self?.window?.contentView?.needsLayout = true }
+        conversation.onMessagesChange = { [weak self] in self?.updateTitle() }
         conversation.onQuickSendArchived = { [weak self] in
             guard let self else { return }
             self.opener?.quickReplyArchived(in: self)
         }
+    }
+
+    /// The window is named by its subject (§5.49: the Window menu, Mission Control and VoiceOver), read again whenever the
+    /// reader's messages are: one opened while its mail was still out of every view (an undo's window, say) takes the
+    /// subject once the mail is back. A conversation that empties keeps the name it had.
+    private func updateTitle() {
+        guard let window else { return }
+        let messages = conversation.currentMessages
+        guard !messages.isEmpty || window.title.isEmpty else { return }
+        let subject = RenderPayloadBuilder.subject(of: messages).trimmingCharacters(in: .whitespacesAndNewlines)
+        window.title = subject.isEmpty ? "No subject" : subject
     }
 
     // MARK: Placing

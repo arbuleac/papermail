@@ -1943,7 +1943,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     }
 
     /// Reverts group `groupID` where it was taken (§5.49): a step taken in a reader window confirms itself there, and one
-    /// that closed its window opens it again first, where it was, so the conversation comes back where the user left it.
+    /// that closed its window opens it again where it was, so the conversation comes back where the user left it. A mail
+    /// action's window opens once its revert has brought the mail back, so the window never shows (or is named after) a
+    /// conversation still in Spam or the archive; any other step's opens first, for that step's undo to act in.
     @discardableResult
     private func undo(groupID: Int) -> Bool {
         let place = undoCenter.place(of: groupID).reader
@@ -1952,7 +1954,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             return true
         }
         defer { UndoSendPanel.refreshUndoKeyOwner() }
-        if let place, place.window == nil, let frame = place.closedFrame { reopen(place, at: frame) }
+        let reopenIfClosed = { [weak self] in
+            if let place, place.window == nil, let frame = place.closedFrame { self?.reopen(place, at: frame) }
+        }
+        if group.change == nil { reopenIfClosed() }
         let previous = actingReader
         actingReader = place
         defer { actingReader = previous }
@@ -1972,8 +1977,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         } catch {
             Self.log.error("undo failed: \(String(describing: error), privacy: .public)")
             NSSound.beep()
+            reopenIfClosed()
             return true
         }
+        reopenIfClosed()
         let words = unsubscribeUndoConfirmations.removeValue(forKey: groupID) ?? MailActionCopy.undoConfirmation(for: change)
         confirmUndo(words)
         let restored = group.records.compactMap(\.conversation)

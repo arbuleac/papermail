@@ -250,6 +250,8 @@ final class ReaderWindowTests: XCTestCase {
     func testMarkAsSpamClosesTheWindowAndItsUndoOpensItAgain() throws {
         let harness = try MainWindowHarness()
         let (id, reader) = try open(0, harness)
+        let subject = try XCTUnwrap(reader.window?.title)
+        XCTAssertNotEqual(subject, "No subject")
         XCTAssertTrue(reader.validateMenuItem(menuItem(#selector(ReaderWindowController.markSelectionSpam(_:)))))
         XCTAssertTrue(reader.perform(.markSpam))
         XCTAssertTrue(try harness.environment.store.messages(in: id).contains { $0.roles.contains(.spam) })
@@ -259,6 +261,11 @@ final class ReaderWindowTests: XCTestCase {
         XCTAssertTrue(harness.controller.perform(.undo))
         XCTAssertTrue(try inInbox(id, harness))
         XCTAssertEqual(harness.controller.readerWindows.map(\.conversationID), [id])
+        // Opened before the mail was out of Spam, the window was named "No subject" for good.
+        let reopened = try XCTUnwrap(harness.controller.readerWindows.first)
+        XCTAssertEqual(reopened.window?.title, subject, "named by its subject")
+        XCTAssertFalse(reopened.conversation.currentMessages.isEmpty, "showing its mail")
+        XCTAssertEqual(message(in: reopened), "Undid Mark as Spam", "undone where it was taken")
         harness.close()
     }
 
