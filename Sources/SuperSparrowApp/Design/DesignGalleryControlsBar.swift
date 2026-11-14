@@ -47,6 +47,8 @@ final class DesignGalleryControlsBar: NSView {
         for control in [appearancePopup, fontPopup, themePopup] + checks.map(\.0) as [NSControl] {
             control.target = self
             control.action = #selector(changed(_:))
+            // System controls set no pointer of their own; the gallery's bar shows the app's (§4.17).
+            QuirePointerOverlay.install(on: control)
         }
         let stack = NSStackView(views: [appearancePopup, fontPopup, themePopup] + checks.map(\.0))
         stack.orientation = .horizontal

@@ -49,7 +49,10 @@ final class LaterDatePicker: NSObject {
         alert.alertStyle = .informational
         let snooze = alert.addButton(withTitle: confirm)
         snooze.keyEquivalent = "\r"
-        alert.addButton(withTitle: "Cancel")
+        let cancel = alert.addButton(withTitle: "Cancel")
+        // The hand over both buttons, from overlays since the buttons are AppKit's; Snooze's follows it as it is
+        // enabled and disabled (§4.17).
+        for button in [snooze, cancel] { QuirePointerOverlay.install(on: button) }
 
         for picker in [calendarPicker, timePicker] {
             picker.calendar = calendar
