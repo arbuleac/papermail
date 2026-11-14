@@ -2,6 +2,8 @@
 
 **Revision: 7 November 2026.** One year of features for the Mac client, chosen and ordered so that the four things SuperSparrow is for stay true: it is usable, light, simple and fast. Every entry says what it costs on those four and how it stays inside. Dates are targets; each quarter is re-planned at its end from what shipped and what the measurements say.
 
+**Status, 14 November 2026.** Built ahead of their quarters, and described in `docs/ARCHITECTURE.md` and Quire 1.7.0 rather than here: from Q2, Send later (Q2.2), Mark as spam (Q2.3), Text size (Q2.6), Launch at login (Q2.7) and Services (Q2.8); from Q3, inline images in the composer (Q3.3), Print and PDF (Q3.4), a conversation in its own window (Q3.5), find in conversation (Q3.6) and Mute (Q3.7); from Q4, sender rules (Q4.2). The entries below keep their plan as written; where a built feature differs, the architecture and the spec say what it does (Send later's key, for one, is ⇧⌘L, since ⇧⌘↩ is Send and Archive).
+
 `docs/ARCHITECTURE.md` says what v1 is; this document says what comes after it, and in what order. Where the two disagree, the architecture wins until the roadmap item that changes it has shipped and the architecture has been updated with it.
 
 ## 1. What this roadmap protects
