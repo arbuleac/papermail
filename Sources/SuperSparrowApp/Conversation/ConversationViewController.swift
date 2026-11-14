@@ -120,12 +120,12 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     /// toast of §5.18 (“Couldn't send your reply · Open draft”). Keyed by send id.
     private var watchedSends: [String: ComposeDraft] = [:]
     /// Replies on their way out (scheduled or sending, not forwards): the open conversation shows the ones that
-    /// answer it as pending sheets (spec §5.14). Read on events and on each outbox tick, never per selection.
+    /// answer it as pending sheets (spec §5.14). Read on events and as the outbox changes, never per selection.
     private var outbox: [PendingSendSummary] = []
-    /// Ticks once a second while a send is watched or a reply is on its way, and stops as soon as neither is, so an
-    /// idle reader keeps no timer. It predates the store's outbox observation (`observePendingSends`), which could
-    /// replace it.
-    private var outboxTimer: Timer?
+    /// The store's word of each change to the outbox (`observePendingSends`, read off the main thread), followed only
+    /// while a send is watched or a reply is on its way, and dropped as soon as neither is. No reader polls the outbox:
+    /// a once-a-second tick in each reader, a reader window's too, ran for as long as a reply waited (offline, say).
+    private var outboxObservation: StoreObservation?
     private var notificationTokens: [NSObjectProtocol] = []
     private var keyMonitor: Any?
     private var motionFinisher: ShellMotionFinisher?
@@ -237,7 +237,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         markReadTimer?.invalidate()
         acknowledgeTimer?.invalidate()
         quickSendTimer?.invalidate()
-        outboxTimer?.invalidate()
+        outboxObservation?.cancel()
         for token in notificationTokens { NotificationCenter.default.removeObserver(token) }
     }
 
@@ -1928,25 +1928,37 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         outboxTick()
     }
 
-    /// One read of the outbox serves both the watched sends and the pending sheets; the timer runs only while
-    /// either has something to follow.
+    /// One read of the outbox serves both the watched sends and the pending sheets, on the events that may change them
+    /// (a send, a watch, the view loading); the outbox is then followed through the store's observation while either has
+    /// something to follow.
     func outboxTick() {
         if let sends = try? client.store.pendingSendSummaries() {
-            settleWatchedSends(sends)
-            updateOutbox(sends)
+            outboxChanged(sends)
         }
-        if watchedSends.isEmpty, outbox.isEmpty {
-            outboxTimer?.invalidate()
-            outboxTimer = nil
-        } else if outboxTimer == nil {
-            let timer = Timer(timeInterval: 1, repeats: true) { [weak self] timer in
-                MainActor.assumeIsolated {
-                    guard let self else { return timer.invalidate() }
-                    self.outboxTick()
-                }
+        guard outboxObservation == nil, !isOutboxIdle else { return }
+        let observation = client.store.observePendingSends { [weak self] sends in
+            if Thread.isMainThread {
+                MainActor.assumeIsolated { self?.outboxChanged(sends) }
+            } else {
+                DispatchQueue.main.async { MainActor.assumeIsolated { self?.outboxChanged(sends) } }
             }
-            RunLoop.main.add(timer, forMode: .common)
-            outboxTimer = timer
+        }
+        // A store that delivers its first value at once may have settled everything already.
+        if isOutboxIdle { observation.cancel() } else { outboxObservation = observation }
+    }
+
+    /// Whether the reader has nothing in the outbox to follow.
+    private var isOutboxIdle: Bool { watchedSends.isEmpty && outbox.isEmpty }
+
+    /// Whether the reader follows the outbox now (tests).
+    var followsOutbox: Bool { outboxObservation != nil }
+
+    private func outboxChanged(_ sends: [PendingSendSummary]) {
+        settleWatchedSends(sends)
+        updateOutbox(sends)
+        if isOutboxIdle {
+            outboxObservation?.cancel()
+            outboxObservation = nil
         }
     }
 

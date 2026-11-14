@@ -115,6 +115,32 @@ final class QuickReplyBehaviourTests: XCTestCase {
         XCTAssertTrue(harness.reader.pendingSheetIDs.isEmpty, "the undone reply leaves the conversation")
     }
 
+    /// A reply on its way is followed through the store's observation of the outbox, not a timer: a failure past the
+    /// undo window reaches the reader with no tick, at once, and once nothing is on its way the reader follows nothing.
+    /// Each reader (every reader window's too) ran a once-a-second outbox read on the main thread while a reply waited.
+    func testTheOutboxIsFollowedByObservationAndOnlyWhileAReplyIsOnItsWay() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        _ = try openThreeMessageThread(harness)
+        XCTAssertFalse(harness.reader.followsOutbox, "an idle reader follows nothing")
+        ConversationViewController.undoWindow = 0.05
+        harness.reader.sendQuickReply("Thanks, sounds good", mode: .reply)
+        XCTAssertTrue(harness.reader.followsOutbox)
+        harness.spin { harness.reader.liveQuickSend == nil }
+        let store = harness.environment.store
+        var send = try XCTUnwrap(try store.pendingSends().first)
+        XCTAssertTrue(harness.reader.watchedSendIDs.contains(send.id))
+
+        send.status = .failed
+        send.lastError = "network"
+        try store.updateSend(send)
+        XCTAssertTrue(ListTestSupport.spin(until: { harness.reader.watchedSendIDs.isEmpty }, timeout: 0.5),
+                      "the failure arrives as the outbox changes, not at the next second's tick")
+        XCTAssertEqual(harness.toastMessage, "Couldn\u{2019}t send your reply")
+        XCTAssertFalse(harness.reader.followsOutbox, "nothing on its way: the observation ends")
+        ComposeDraftStore.shared.waitForWrites()
+    }
+
     func testEscFromTheQuickReplyDismissesAToastFirstThenReturnsToTheList() throws {
         let harness = try MainWindowHarness()
         defer { harness.close() }
