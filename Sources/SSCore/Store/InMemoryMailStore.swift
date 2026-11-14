@@ -754,7 +754,13 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
     public func updateOperation(_ operation: Operation) throws {
         lock.lock(); defer { lock.unlock() }
         let previous = operations[operation.id]?.status
+        let targetsBefore = Set(operations[operation.id]?.targets ?? [])
         operations[operation.id] = operation
+        // A target dropped from the operation (the provider took it) loses its prior with its row, as in SQLite: a
+        // give-up never puts back what the provider has.
+        if !targetsBefore.subtracting(operation.targets).isEmpty {
+            priors[operation.id] = priors[operation.id]?.filter { operation.targets.contains($0.key) }
+        }
         if operation.status == .failed, let previous, previous.isLive { giveBackLocked(operation) }
         operationWrittenLocked(operation, previousStatus: previous)
         applySnoozeRulesLocked(touched: conversationsLocked(targetedBy: operation))

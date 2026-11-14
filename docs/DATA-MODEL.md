@@ -122,7 +122,7 @@ A search (docs/ARCHITECTURE.md "Search") matches one MATCH expression per messag
 | operation_id, account_id, provider_id | PK | FK operations (cascade) |
 | prior_roles, prior_is_read, prior_is_starred | INTEGER NULL | what the operation's change replaced on this target (v6), in the encoding of `messages.roles`, `is_read`, `is_starred`. Written at enqueue (the message as it was) and rewritten by every upsert that replays the operation (the provider's report with the older live operations applied), so it follows the provider. A give-up puts it back (see "Failed operations"). NULL when the target was not known at enqueue and no poll has reported it since, and for operations queued before v6 |
 
-Target rows are kept when an operation is saved again with the same targets, so the priors survive status writes.
+Target rows are kept when an operation is saved again with the same targets, so the priors survive status writes. The runner saves an operation with fewer targets when the provider took some of them and not the others (`PartialApplyError`, or a slice that went through beside one that failed): the rows of the targets dropped go, priors and all, so a later give-up puts back only what the provider never took.
 
 ### pending_sends
 `id TEXT PK, account_id, message_json (OutgoingMessage, attachments inline as base64), created_at, send_after, status, attempts, last_error`. Only `observePendingSends` (the sync line's sending count) observes it; no list observation reads it.

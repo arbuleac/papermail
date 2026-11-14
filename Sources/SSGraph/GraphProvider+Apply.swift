@@ -2,7 +2,19 @@ import Foundation
 import SSCore
 
 extension GraphProvider {
+    /// The waits before the parts the service failed in an apply are sent again, as Gmail's metadata batch retries
+    /// its throttled parts: through Exchange's November 2026 outage a part failed now and then, so a second or third
+    /// try lands nearly every one, where failing the call sent every part again on the outbox's backoff.
+    static let applyRetryDelays: [TimeInterval] = [1, 2]
+
     /// Replays a local change as PATCHes and moves, 20 messages per `$batch` round trip.
+    ///
+    /// Every batch goes out, whatever a part of an earlier one answered, except after a throttle or a refused token,
+    /// which the next request would meet too. A part the service failed (a 5xx, or a 503 or 504 without Retry-After) is
+    /// sent again on its own after `applyRetryDelays`; one Graph refused (a 403, ErrorMoveCopyFailed) is not. What is
+    /// still owed then is thrown: the error alone when nothing landed, otherwise a `PartialApplyError` naming the
+    /// messages not changed, so the outbox retries and gives up on those alone. The error is the gravest met: a refused
+    /// token, then a throttle (the longest Retry-After), then a failed request, then the service, then a refusal.
     public func apply(_ change: MetadataChange, to providerIDs: [String]) async throws {
         // Not a change to messages: the engine sends an unsubscribe request itself.
         if case .unsubscribe = change { return }
@@ -12,25 +24,89 @@ extension GraphProvider {
         }
         var seen: Set<String> = []
         let unique = providerIDs.filter { seen.insert($0).inserted }
-        for chunk in unique.chunks(of: GraphBatch.maxRequests) {
-            let requests = chunk.enumerated().map { index, id in
-                Self.batchRequest(for: change, messageID: id, requestID: String(index + 1))
-            }
-            var missing: GraphBatchResponse?
-            for response in try await client.batch(requests) {
-                if response.status == 404 {
-                    missing = missing ?? response
+        guard !unique.isEmpty else { return }
+        var owed = GraphApplyOwed()
+        var pending = unique
+        var delays = Self.applyRetryDelays[...]
+        while true {
+            var failing: [String] = []
+            for chunk in pending.chunks(of: GraphBatch.maxRequests) {
+                guard !owed.stopsTheCall else {
+                    owed.unsent += chunk
                     continue
                 }
-                try GraphBatch.check(response)
+                failing += try await applyChunk(change, chunk, into: &owed)
             }
-            // A message deleted meanwhile has nothing left to change; the operation is still satisfied. But a
-            // move into Archive also answers 404 when the mailbox has no Archive folder (Outlook creates it
-            // lazily), and calling that done would leave the message in the server inbox for good.
-            if let missing, case .archive = change, try await !hasArchiveFolder() {
-                throw ProviderError.server(status: missing.status, message: "This mailbox has no Archive folder")
+            guard !failing.isEmpty else { break }
+            guard !owed.stopsTheCall, let delay = delays.popFirst() else {
+                owed.failing += failing
+                break
+            }
+            try await applyRetryWait(delay)
+            pending = failing
+        }
+        // A message deleted meanwhile has nothing left to change; the operation is still satisfied. But a move into
+        // Archive also answers 404 when the mailbox has no Archive folder (Outlook creates it lazily), and calling that
+        // done would leave the message in the server inbox for good.
+        if let missing = owed.missing, case .archive = change, try await !hasArchiveFolder() {
+            owed.refuse(missing.ids, ProviderError.server(status: missing.status, message: "This mailbox has no Archive folder"))
+        }
+        guard let error = owed.gravest else { return }
+        let unapplied = Set(owed.failing + owed.refused + owed.unsent)
+        guard unapplied.count < unique.count else { throw error }
+        throw PartialApplyError(unapplied: unique.filter(unapplied.contains), error: error)
+    }
+
+    /// Sends one `$batch` and sorts its parts into `owed`. Returns the messages whose part the service failed, to send
+    /// again.
+    private func applyChunk(_ change: MetadataChange, _ chunk: [String], into owed: inout GraphApplyOwed) async throws -> [String] {
+        let requests = chunk.enumerated().map { index, id in
+            Self.batchRequest(for: change, messageID: id, requestID: String(index + 1))
+        }
+        let responses: [String: GraphBatchResponse]
+        do {
+            responses = GraphBatch.byID(try await client.batch(requests))
+        } catch let error as ProviderError {
+            // The request itself failed: the batches after it would meet the same.
+            owed.stop(error)
+            owed.unsent += chunk
+            return []
+        }
+        var failing: [String] = []
+        let refusedBefore = owed.refused.count
+        defer {
+            let failed = owed.refused.count - refusedBefore + failing.count
+            if failed > 0 {
+                Self.folderLog.notice("apply: \(failed, privacy: .public) of \(chunk.count, privacy: .public) parts failed")
             }
         }
+        for (request, id) in zip(requests, chunk) {
+            guard let response = responses[request.id] else {
+                failing.append(id)
+                owed.note(serviceFailure: ProviderError.decoding("$batch response missing item \(request.id)"))
+                continue
+            }
+            if response.status == 404 {
+                owed.missing = owed.missing ?? (response.status, [])
+                owed.missing?.ids.append(id)
+                continue
+            }
+            do {
+                try GraphBatch.check(response)
+            } catch let error as ProviderError {
+                switch error {
+                case .unauthorized, .throttled:
+                    owed.stop(error)
+                    owed.unsent.append(id)
+                case _ where Self.isServiceFailure(error):
+                    owed.note(serviceFailure: error)
+                    failing.append(id)
+                default:
+                    owed.refuse([id], error)
+                }
+            }
+        }
+        return failing
     }
 
     private func hasArchiveFolder() async throws -> Bool {

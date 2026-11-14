@@ -370,29 +370,81 @@ struct OperationRunner: Sendable {
             }
             marked.append(operation)
         }
-        do {
-            var start = 0
-            while start < providerIDs.count {
-                let end = min(start + tuning.maxApplyTargets, providerIDs.count)
-                try await provider.apply(change, to: Array(providerIDs[start..<end]))
-                start = end
+        // Slice by slice, and past a slice the provider refused in part or whole: one message it will not change must not
+        // keep the others from going out, on this attempt or on every retry. Only a failure every request would meet
+        // (a throttle, a refused token, the network, a cancellation) leaves the slices after it unsent.
+        var unapplied: [String] = []
+        var failure: Error?
+        var start = 0
+        while start < providerIDs.count {
+            let end = min(start + tuning.maxApplyTargets, providerIDs.count)
+            let slice = Array(providerIDs[start..<end])
+            start = end
+            let error: Error
+            do {
+                try await provider.apply(change, to: slice)
+                continue
+            } catch let partial as PartialApplyError {
+                unapplied += partial.unapplied
+                error = partial.error
+            } catch let whole {
+                unapplied += slice
+                error = whole
             }
-            for operation in marked {
-                do {
-                    try store.confirmOperation(id: operation.id)
-                } catch {
-                    // The provider has the change; an uncertain row lets the next poll settle the local copy.
-                    var settled = operation
-                    settled.status = .uncertain
-                    settled.lastError = String(describing: error)
-                    try? store.updateOperation(settled)
-                }
+            guard Self.failsEveryRequest(error) else {
+                failure = failure ?? error
+                continue
             }
+            failure = error
+            unapplied += providerIDs[start...]
+            break
+        }
+        guard let failure else {
+            confirm(marked)
             let count = providerIDs.count
             SyncLog.logger.debug("outbox: applied \(String(describing: change), privacy: .public) to \(count, privacy: .public) messages")
             return .applied
-        } catch {
-            return record(error, for: marked)
+        }
+        // What went through is done: an operation keeps only the targets still owed, so a retry sends those alone and a
+        // give-up puts back only those. One with none left is confirmed.
+        let owed = Set(unapplied)
+        var settled: [Operation] = []
+        var narrowed: [Operation] = []
+        for operation in marked {
+            let left = operation.targets.filter { owed.contains($0.providerID) }
+            if left.isEmpty {
+                settled.append(operation)
+            } else {
+                var remaining = operation
+                remaining.targets = left
+                narrowed.append(remaining)
+            }
+        }
+        confirm(settled)
+        guard !narrowed.isEmpty else { return .applied }
+        return record(failure, for: narrowed)
+    }
+
+    private func confirm(_ operations: [Operation]) {
+        for operation in operations {
+            do {
+                try store.confirmOperation(id: operation.id)
+            } catch {
+                // The provider has the change; an uncertain row lets the next poll settle the local copy.
+                var settled = operation
+                settled.status = .uncertain
+                settled.lastError = String(describing: error)
+                try? store.updateOperation(settled)
+            }
+        }
+    }
+
+    /// A failure the next request would meet too, after which the rest of an apply is not sent.
+    static func failsEveryRequest(_ error: Error) -> Bool {
+        if error is CancellationError || error is AuthError { return true }
+        switch error as? ProviderError {
+        case .throttled?, .unauthorized?, .network?, .cancelled?: return true
+        default: return false
         }
     }
 

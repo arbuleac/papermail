@@ -14,6 +14,8 @@ public final class GraphProvider: MailProvider, Sendable {
     let folderCache = GraphFolderCache()
     let clock: @Sendable () -> Date
     let sendLimits: GraphSendLimits
+    /// How an apply waits before sending again the parts the service failed (`applyRetryDelays`). Tests record it.
+    let applyRetryWait: @Sendable (TimeInterval) async throws -> Void
 
     /// `internetMessageHeaders` is not selectable on list calls, so In-Reply-To and References are never mapped.
     static let metadataSelect = "id,conversationId,conversationIndex,internetMessageId,subject,bodyPreview,from,toRecipients,ccRecipients,bccRecipients,replyTo,receivedDateTime,isRead,flag,inferenceClassification,parentFolderId,hasAttachments,changeKey,isDraft"
@@ -38,12 +40,14 @@ public final class GraphProvider: MailProvider, Sendable {
         tokens: AccessTokenProvider,
         session: URLSession,
         clock: @escaping @Sendable () -> Date,
-        sendLimits: GraphSendLimits = .graph
+        sendLimits: GraphSendLimits = .graph,
+        applyRetryWait: @escaping @Sendable (TimeInterval) async throws -> Void = { try await Task.sleep(for: .seconds($0)) }
     ) {
         self.accountID = accountID
         self.client = GraphHTTPClient(accountID: accountID, tokens: tokens, session: session)
         self.clock = clock
         self.sendLimits = sendLimits
+        self.applyRetryWait = applyRetryWait
     }
 
     // MARK: Profile

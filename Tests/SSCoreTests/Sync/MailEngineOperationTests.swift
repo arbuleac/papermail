@@ -183,6 +183,44 @@ final class MailEngineOperationTests: XCTestCase {
         await harness.shutdown()
     }
 
+    /// One target the provider refused stopped the rest of an operation: the later slices never went out, every retry
+    /// failed at the same place, and the give-up put back every target, the ones never sent included. The later slices
+    /// go now, and the give-up puts back only what the provider did not take.
+    func testATargetTheProviderRefusesNoLongerHoldsBackTheRest() async throws {
+        let harness = try await bootstrappedHarness(
+            applyResults: [.failure(ProviderError.server(status: 403, message: "ErrorAccessDenied")), .success(())]
+        ) { tuning in
+            tuning.maxApplyTargets = 2
+            tuning.maxOperationAttempts = 1
+        }
+        let conversation = ConversationID(accountID: Fixtures.accountID, providerID: "t1")
+        let targets = (1...3).map { MessageID(accountID: Fixtures.accountID, providerID: String($0)) }
+        try harness.engine.perform(.archive, on: targets)
+
+        try await waitUntil("given up") { try self.failedMark(harness, conversation) == .archive }
+        XCTAssertEqual(harness.provider.applyCalls.map(\.ids), [["1", "2"], ["3"]])
+        XCTAssertEqual(try harness.store.message(targets[0])?.roles, [.inbox])
+        XCTAssertEqual(try harness.store.message(targets[1])?.roles, [.inbox])
+        XCTAssertEqual(try harness.store.message(targets[2])?.roles, [], "the slice that went out stays archived")
+        await harness.shutdown()
+    }
+
+    /// A provider that changed some targets of a call and not others says which (`PartialApplyError`): the operation
+    /// keeps only those, so its retry sends them alone rather than all of them again.
+    func testAnOperationIsNarrowedToTheTargetsTheProviderDidNotChange() async throws {
+        let harness = try await bootstrappedHarness(
+            applyResults: [.failure(PartialApplyError(unapplied: ["2"], error: .server(status: 500, message: "boom")))]
+        )
+        let targets = (1...3).map { MessageID(accountID: Fixtures.accountID, providerID: String($0)) }
+        try harness.engine.perform(.archive, on: targets)
+
+        try await waitUntil("retried") { harness.provider.applyCalls.count == 2 }
+        XCTAssertEqual(harness.provider.applyCalls.map(\.ids), [["1", "2", "3"], ["2"]])
+        try await waitUntil("confirmed") { try self.pendingOperations(harness).isEmpty }
+        XCTAssertTrue(try targets.allSatisfy { try harness.store.message($0)?.roles == [] })
+        await harness.shutdown()
+    }
+
     func testPollSettlingALaterUncertainOperationKeepsAnEarlierFailureMarked() async throws {
         let harness = try await bootstrappedHarness()
         let conversation = ConversationID(accountID: Fixtures.accountID, providerID: "t1")

@@ -83,7 +83,9 @@ final class GraphApplyTests: GraphTestCase {
                     : Fixtures.BatchItem(id: id, status: 200)
             }
         }
-        await expectProviderError({ try await self.makeProvider().apply(.setRead(true), to: ["ok", "busy"]) }) { $0.retryAfter == 3 }
+        let partial = try await expectPartialApply { try await self.makeProvider().apply(.setRead(true), to: ["ok", "busy"]) }
+        XCTAssertEqual(partial.unapplied, ["busy"], "the part that went through is not sent again")
+        XCTAssertEqual(partial.error.retryAfter, 3)
     }
 
     func testApplySurfacesPerItemServerError() async throws {
@@ -93,6 +95,102 @@ final class GraphApplyTests: GraphTestCase {
             }
         }
         await expectProviderError({ try await self.makeProvider().apply(.trash, to: ["a"]) }) { $0.serverStatus == 500 }
+    }
+
+    /// One message Graph refuses (403 ErrorAccessDenied, ErrorMoveCopyFailed) stopped the apply at its part: the call's
+    /// later batches never went out, and every retry failed at the same place, so most of an archive of thirty
+    /// conversations never reached the server. Every batch goes now, and the call says which messages it did not change.
+    func testApplyGoesOnPastAMessageGraphRefuses() async throws {
+        route { request in
+            self.batchReply(request) { id, url in
+                url.contains("/id-3/")
+                    ? Fixtures.BatchItem(id: id, status: 403, body: #"{"error":{"code":"ErrorAccessDenied","message":"Access is denied."}}"#)
+                    : Fixtures.BatchItem(id: id, status: 200)
+            }
+        }
+        let ids = (1...45).map { "id-\($0)" }
+
+        let partial = try await expectPartialApply { try await self.makeProvider().apply(.archive, to: ids) }
+
+        XCTAssertEqual(partial.unapplied, ["id-3"])
+        XCTAssertEqual(partial.error.serverStatus, 403)
+        XCTAssertEqual(requests(to: "/v1.0/$batch").count, 3, "every batch went out")
+        XCTAssertEqual(applyWaits.waits, [], "a refusal is not asked again within the call")
+    }
+
+    /// Through Exchange's November 2026 outage a part answered 502, 503 or 504 now and then, and the whole apply failed
+    /// with it: an action on twenty messages almost never got through, and every retry sent the parts that had landed
+    /// again. The parts the service failed are sent again on their own after a second, then two.
+    func testApplySendsAgainOnlyThePartsTheServiceFailed() async throws {
+        var round = 0
+        route { request in
+            guard request.method == "POST", request.path == "/v1.0/$batch" else { return nil }
+            defer { round += 1 }
+            return self.batchReply(request) { id, url in
+                if round < 2, url.hasSuffix("/id-2") { return Fixtures.BatchItem(id: id, status: 503) }
+                if round < 2, url.hasSuffix("/id-22") { return Fixtures.BatchItem(id: id, status: 502) }
+                return Fixtures.BatchItem(id: id, status: 200)
+            }
+        }
+        let ids = (1...25).map { "id-\($0)" }
+
+        try await makeProvider().apply(.setRead(true), to: ids)
+
+        let sent = requests(to: "/v1.0/$batch").map { ($0.json()["requests"] as? [[String: Any]])?.map { $0["url"] as? String } ?? [] }
+        XCTAssertEqual(sent.map(\.count), [20, 5, 2], "only the two failed parts go out again")
+        XCTAssertEqual(sent.last, ["/me/messages/id-2", "/me/messages/id-22"])
+        XCTAssertEqual(applyWaits.waits, [1])
+    }
+
+    /// Parts the service keeps failing are tried twice more, then left to the outbox, which knows they alone are owed.
+    func testApplyLeavesPartsTheServiceKeepsFailingToTheOutbox() async throws {
+        route { request in
+            self.batchReply(request) { id, url in
+                url.hasSuffix("/id-2")
+                    ? Fixtures.BatchItem(id: id, status: 504)
+                    : Fixtures.BatchItem(id: id, status: 200)
+            }
+        }
+
+        let partial = try await expectPartialApply { try await self.makeProvider().apply(.setStarred(true), to: ["id-1", "id-2", "id-3"]) }
+
+        XCTAssertEqual(partial.unapplied, ["id-2"])
+        XCTAssertTrue(partial.error.isNetwork)
+        XCTAssertEqual(requests(to: "/v1.0/$batch").count, 3)
+        XCTAssertEqual(applyWaits.waits, [1, 2])
+    }
+
+    /// A throttle or a refused token in a part is the mailbox's: the batches after it are not sent, and the call says
+    /// they are owed with the part.
+    func testAThrottledPartStopsTheBatchesAfterIt() async throws {
+        route { request in
+            self.batchReply(request) { id, url in
+                url.contains("/id-5/")
+                    ? Fixtures.BatchItem(id: id, status: 429, headers: ["Retry-After": "8"])
+                    : Fixtures.BatchItem(id: id, status: 200)
+            }
+        }
+        let ids = (1...45).map { "id-\($0)" }
+
+        let partial = try await expectPartialApply { try await self.makeProvider().apply(.archive, to: ids) }
+
+        XCTAssertEqual(partial.unapplied, ["id-5"] + (21...45).map { "id-\($0)" })
+        XCTAssertEqual(partial.error.retryAfter, 8)
+        XCTAssertEqual(requests(to: "/v1.0/$batch").count, 1)
+    }
+
+    private func expectPartialApply(_ body: () async throws -> Void, file: StaticString = #filePath,
+                                    line: UInt = #line) async throws -> PartialApplyError {
+        do {
+            try await body()
+        } catch let partial as PartialApplyError {
+            return partial
+        } catch {
+            XCTFail("expected a partial apply, got \(error)", file: file, line: line)
+            throw error
+        }
+        XCTFail("expected a partial apply", file: file, line: line)
+        throw PartialApplyError(unapplied: [], error: .cancelled)
     }
 
     func testApplyWithNoTargetsMakesNoRequest() async throws {
