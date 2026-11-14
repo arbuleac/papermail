@@ -8,7 +8,8 @@ import WebKit
 /// The document goes into a web view of its own rather than one of the reader's pool: the pooled views are sized for the
 /// screen, may be dark, and are busy pre-rendering, while this one is Aqua, as the paper is light whatever the app shows,
 /// and lives only for one print. It serves inline images through the reader's own scheme handler, so they print as the
-/// reader shows them, and navigates nowhere but its document. The print operation runs as a sheet on the window, the one
+/// reader shows them, and navigates nowhere but its document. JavaScript is on for the document's own script, the one
+/// its policy lets run (`PrintDocumentAssets.scriptPolicy`). The print operation runs as a sheet on the window, the one
 /// way WebKit's printing view lays out its pages (run synchronously it keeps asking for pages it has not measured).
 @MainActor
 final class ConversationPrinter: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
@@ -47,15 +48,22 @@ final class ConversationPrinter: NSObject, WKNavigationDelegate, WKScriptMessage
 
     /// A printout is being prepared or its panel is up; Print… waits for it.
     var isBusy: Bool { job != nil }
+    /// The print operation has begun: the document said it was ready, or never did in time, and what it shows now is
+    /// what prints.
+    var isPrinting: Bool { job?.printing == true }
 
-    /// `schemeHandlers` are the tests' stand-ins for the network: a scheme of their own that counts what a printout fetches.
+    /// `schemeHandlers` are the tests' stand-ins for the network: a scheme of their own that counts what a printout fetches,
+    /// or one in place of the inline images' (`ss-cid`), to answer them as slowly as a download would.
     init(client: MailClient, schemeHandlers: [String: WKURLSchemeHandler] = [:]) {
         let configuration = WKWebViewConfiguration()
-        configuration.setURLSchemeHandler(InlineImageSchemeHandler(client: client), forURLScheme: RenderURLScheme.inlineImage)
+        if schemeHandlers[RenderURLScheme.inlineImage] == nil {
+            configuration.setURLSchemeHandler(InlineImageSchemeHandler(client: client), forURLScheme: RenderURLScheme.inlineImage)
+        }
         for (scheme, handler) in schemeHandlers { configuration.setURLSchemeHandler(handler, forURLScheme: scheme) }
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
         configuration.preferences.shouldPrintBackgrounds = true
-        configuration.suppressesIncrementalRendering = true
+        // Incremental rendering stays on: suppressed, WebKit paints nothing until the page's load has ended, which an
+        // image that never comes holds off, and the page would print blank once its wait was over.
         self.configuration = configuration
         super.init()
         configuration.userContentController.add(WeakScriptMessageHandler(target: self), name: PrintDocumentBuilder.readyHandlerName)
@@ -75,8 +83,9 @@ final class ConversationPrinter: NSObject, WKNavigationDelegate, WKScriptMessage
         webView.navigationDelegate = self
         let job = Job(webView: webView, title: title, window: window, destination: destination)
         self.job = job
-        // The document says when it is ready; this is for a page that never does (its script failed, its process ended).
-        job.fallback = Timer.scheduledTimer(withTimeInterval: imageWait + 2, repeats: false) { [weak self, weak job] _ in
+        // The document says when it is ready, after two image waits at most (`PrintDocumentAssets.script`); this is for a
+        // page that never does (its script failed, its process ended).
+        job.fallback = Timer.scheduledTimer(withTimeInterval: 2 * imageWait + 2, repeats: false) { [weak self, weak job] _ in
             MainActor.assumeIsolated {
                 guard let self, let job, self.job === job else { return }
                 self.runOperation(for: job)
@@ -158,7 +167,8 @@ final class ConversationPrinter: NSObject, WKNavigationDelegate, WKScriptMessage
 
     // MARK: WKNavigationDelegate
 
-    /// The document is the only page this view shows; a body cannot navigate (it holds no script), and nothing else may.
+    /// The document is the only page this view shows; a body cannot navigate (no script of its own runs), and nothing
+    /// else may.
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         let initial = navigationAction.navigationType == .other && navigationAction.targetFrame?.isMainFrame == true

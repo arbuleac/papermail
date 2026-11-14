@@ -30,6 +30,61 @@ final class PrintConversationTests: XCTestCase {
         func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {}
     }
 
+    /// A remote image that is asked for and never comes, as a slow tracking pixel's.
+    @MainActor
+    private final class StalledRemote: NSObject, WKURLSchemeHandler {
+        private(set) var paths: [String] = []
+        private var open: [ObjectIdentifier: WKURLSchemeTask] = [:]
+
+        func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
+            paths.append(urlSchemeTask.request.url?.path ?? "")
+            open[ObjectIdentifier(urlSchemeTask)] = urlSchemeTask
+        }
+
+        func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
+            open[ObjectIdentifier(urlSchemeTask)] = nil
+        }
+    }
+
+    /// The inline images' scheme answered as a download would answer it: `image` after `delay`, unless the page stopped
+    /// asking first.
+    @MainActor
+    private final class SlowInlineImages: NSObject, WKURLSchemeHandler {
+        let delay: TimeInterval
+        let image: Data
+        private(set) var requested: [String] = []
+        private(set) var served: [String] = []
+        /// Told as each answer goes out.
+        var onServe: (() -> Void)?
+        private var open: [ObjectIdentifier: WKURLSchemeTask] = [:]
+
+        init(delay: TimeInterval, image: Data) {
+            self.delay = delay
+            self.image = image
+        }
+
+        func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
+            guard let url = urlSchemeTask.request.url else { return }
+            requested.append(url.path)
+            let key = ObjectIdentifier(urlSchemeTask)
+            open[key] = urlSchemeTask
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self, let task = self.open.removeValue(forKey: key) else { return }
+                    task.didReceive(URLResponse(url: url, mimeType: "image/png", expectedContentLength: self.image.count, textEncodingName: nil))
+                    task.didReceive(self.image)
+                    task.didFinish()
+                    self.served.append(url.path)
+                    self.onServe?()
+                }
+            }
+        }
+
+        func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
+            open[ObjectIdentifier(urlSchemeTask)] = nil
+        }
+    }
+
     private var folder: URL!
     private var environment: AppEnvironment?
     private var window: NSWindow?
@@ -122,6 +177,67 @@ final class PrintConversationTests: XCTestCase {
         return answer ?? ""
     }
 
+    /// The payload a render of the stored conversation draws.
+    private func payload(_ environment: AppEnvironment) throws -> RenderPayload {
+        let messages = try environment.store.messages(in: conversation)
+        let bodies = Dictionary(uniqueKeysWithValues: try messages.map { ($0.id, try XCTUnwrap(try environment.store.body(for: $0.id))) })
+        return RenderPayloadBuilder().build(messages: messages, bodies: bodies, accounts: [account.id: account])
+    }
+
+    /// A window for a printer of the test's own to print on.
+    private func printingWindow() -> NSWindow {
+        let window = NSWindow(contentRect: NSRect(x: -20_000, y: -20_000, width: 600, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.orderFrontRegardless()
+        self.window = window
+        return window
+    }
+
+    /// Prints `document` with `printer` to a PDF file and reads it back.
+    private func print(_ document: String, with printer: ConversationPrinter, imageWait: TimeInterval) throws -> PDFDocument {
+        let url = folder.appendingPathComponent("direct-\(UUID().uuidString).pdf")
+        printer.destination = .file(url)
+        var finished: Bool?
+        printer.onFinish = { finished = $0 }
+        XCTAssertTrue(printer.print(document, title: "Direct", imageWait: imageWait, on: window ?? printingWindow()))
+        XCTAssertTrue(ListTestSupport.spin(until: { finished != nil }, timeout: 20), "the print ran")
+        XCTAssertEqual(finished, true)
+        return try XCTUnwrap(PDFDocument(url: url), "a PDF was written")
+    }
+
+    /// `page` drawn at one pixel per point (or the screen's scale), white where nothing is drawn.
+    private func bitmap(of page: PDFPage) throws -> NSBitmapImageRep {
+        let image = page.thumbnail(of: page.bounds(for: .mediaBox).size, for: .mediaBox)
+        return try XCTUnwrap(image.tiffRepresentation.flatMap(NSBitmapImageRep.init(data:)))
+    }
+
+    /// How many of the pixels in `rect` (page points, origin at the bottom left) pass `test`.
+    private func count(in bitmap: NSBitmapImageRep, page: PDFPage, rect: CGRect? = nil, where test: (NSColor) -> Bool) -> Int {
+        let size = page.bounds(for: .mediaBox).size
+        let scale = CGFloat(bitmap.pixelsWide) / size.width
+        let area = (rect ?? CGRect(origin: .zero, size: size)).intersection(CGRect(origin: .zero, size: size))
+        var found = 0
+        for y in Int(area.minY * scale)..<Int(area.maxY * scale) {
+            for x in Int(area.minX * scale)..<Int(area.maxX * scale) {
+                guard let color = bitmap.colorAt(x: x, y: bitmap.pixelsHigh - 1 - y)?.usingColorSpace(.sRGB) else { continue }
+                if test(color) { found += 1 }
+            }
+        }
+        return found
+    }
+
+    private static func luminance(_ color: NSColor) -> CGFloat {
+        0.2126 * color.redComponent + 0.7152 * color.greenComponent + 0.0722 * color.blueComponent
+    }
+
+    /// An 8-pixel square PNG of pure red, which nothing else on a printout is.
+    private static func redPNG() throws -> Data {
+        let rep = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 8, pixelsHigh: 8, bitsPerSample: 8, samplesPerPixel: 4,
+                                                 hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        for y in 0..<8 { for x in 0..<8 { rep.setColor(NSColor(deviceRed: 1, green: 0, blue: 0, alpha: 1), atX: x, y: y) } }
+        return try XCTUnwrap(rep.representation(using: .png, properties: [:]))
+    }
+
     // MARK: Tests
 
     func testEveryMessagePrintsWhateverTheReaderCollapsed() throws {
@@ -180,26 +296,12 @@ final class PrintConversationTests: XCTestCase {
                         + "<img src=\"ss-remote://images/held-live.gif\" width=\"20\" height=\"20\">"
                         + "<img src=\"\(placeholder)\" data-ss-src=\"ss-remote://images/held-parked.gif\" width=\"20\" height=\"20\">", blocked: 1)),
         ])
-        let messages = try environment.store.messages(in: conversation)
-        let bodies = Dictionary(uniqueKeysWithValues: try messages.map { ($0.id, try XCTUnwrap(try environment.store.body(for: $0.id))) })
-        let payload = RenderPayloadBuilder().build(messages: messages, bodies: bodies, accounts: [account.id: account])
+        let payload = try payload(environment)
         let recorder = RemoteRecorder()
         let printer = ConversationPrinter(client: environment.engine, schemeHandlers: [RemoteRecorder.scheme: recorder])
-        let window = NSWindow(contentRect: NSRect(x: -20_000, y: -20_000, width: 600, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.orderFrontRegardless()
-        self.window = window
 
         func run(_ sheets: [String: PrintSheetState]) throws -> String {
-            let url = folder.appendingPathComponent("images-\(UUID().uuidString).pdf")
-            printer.destination = .file(url)
-            var finished: Bool?
-            printer.onFinish = { finished = $0 }
-            let document = PrintDocumentBuilder().document(for: payload, sheets: sheets)
-            XCTAssertTrue(printer.print(document, title: "Images", imageWait: 3, on: window))
-            XCTAssertTrue(ListTestSupport.spin(until: { finished != nil }, timeout: 20))
-            XCTAssertEqual(finished, true)
-            return PDFDocument(url: url)?.string ?? ""
+            try print(PrintDocumentBuilder().document(for: payload, sheets: sheets), with: printer, imageWait: 3).string ?? ""
         }
 
         let mixed = try run([RenderPayload.messageKey(for: shown.id): PrintSheetState(imagesShown: true),
@@ -216,6 +318,91 @@ final class PrintConversationTests: XCTestCase {
                      RenderPayload.messageKey(for: held.id): PrintSheetState(imagesShown: true)])
         XCTAssertEqual(Set(recorder.paths.dropFirst(before)), ["/shown.gif", "/held-band.gif", "/held-live.gif", "/held-parked.gif"],
                        "with every image shown, everything the reader would load is fetched")
+    }
+
+    /// Each step has a wait of its own. With Load remote images off, a reply with an inline screenshot prints in the
+    /// second step, its images held back; a slow remote image in a body shown before it has used up the first step's wait,
+    /// and the screenshot, answered as a download would be, still comes in before the page says it is ready.
+    func testAHeldBackBodysInlineImagesGetAWaitOfTheirOwn() throws {
+        let ada = EmailAddress(name: "Ada Lovelace", address: "ada@contoso.test")
+        let ben = EmailAddress(name: "Ben Carter", address: "ben@contoso.test")
+        let shown = message(1, from: ada)
+        let held = message(2, from: ben)
+        let environment = try store([
+            (shown, body("<p>The newsletter</p><img src=\"ss-remote://images/pixel.gif\" width=\"20\" height=\"20\">")),
+            (held, body("<p>The screenshot</p><img src=\"ss-cid://account/message/screenshot\" width=\"80\" height=\"80\">")),
+        ])
+        let stalled = StalledRemote()
+        let inline = SlowInlineImages(delay: 0.6, image: try Self.redPNG())
+        let printer = ConversationPrinter(client: environment.engine,
+                                          schemeHandlers: [RemoteRecorder.scheme: stalled, RenderURLScheme.inlineImage: inline])
+        var printingWhenServed: [Bool] = []
+        inline.onServe = { [weak printer] in printingWhenServed.append(printer?.isPrinting ?? true) }
+        let wait: TimeInterval = 1
+        let document = PrintDocumentBuilder(imageWait: wait).document(for: try payload(environment), sheets: [
+            RenderPayload.messageKey(for: shown.id): PrintSheetState(imagesShown: true),
+            RenderPayload.messageKey(for: held.id): PrintSheetState(imagesShown: false),
+        ])
+        let started = Date()
+        let pdf = try print(document, with: printer, imageWait: wait)
+        XCTAssertEqual(stalled.paths, ["/pixel.gif"], "the shown body's image was asked for and never came")
+        XCTAssertGreaterThanOrEqual(Date().timeIntervalSince(started), wait + inline.delay, "the first step waited all of its wait, then the second")
+        XCTAssertEqual(inline.requested.count, 1, "the held-back body's inline image was asked for")
+        XCTAssertEqual(inline.served, inline.requested, "and came in")
+        XCTAssertEqual(printingWhenServed, [false], "before the page said it was ready")
+        let page = try XCTUnwrap(pdf.page(at: 0))
+        let red = count(in: try bitmap(of: page), page: page) { $0.redComponent > 0.8 && $0.greenComponent < 0.25 && $0.blueComponent < 0.25 }
+        XCTAssertGreaterThan(red, 1_000, "the screenshot printed, not an empty box: \(red) red pixels")
+    }
+
+    /// In the reader a body is a frame that contains whatever it places; on paper its host does the same, so a block a
+    /// sender pins to the top left lands at the top of its own body, under its own sender, and never over the masthead
+    /// or another message's header.
+    func testABodysPositionedContentStaysInItsSheet() throws {
+        let ada = EmailAddress(name: "Ada Lovelace", address: "ada@contoso.test")
+        let ben = EmailAddress(name: "Ben Carter", address: "ben@contoso.test")
+        let cover = "<div style=\"position:absolute;top:0;left:0;width:420px;height:400px;background:#fff;z-index:2147483647\">Forged words</div>"
+        let reader = try reader(showing: [
+            (message(1, from: ada), body("<p>The first word on the plan.</p>")),
+            (message(2, from: ben, isRead: false), body(cover + "<p>The latest word on the plan.</p>")),
+        ])
+        let pdf = try print(reader)
+        let page = try XCTUnwrap(pdf.page(at: 0))
+        func bounds(_ words: String) throws -> CGRect {
+            try XCTUnwrap(pdf.findString(words, withOptions: []).first, words).bounds(for: page)
+        }
+        let forged = try bounds("Forged words")
+        let sender = try bounds("ben@contoso.test")
+        let first = try bounds("The first word on the plan.")
+        XCTAssertLessThanOrEqual(forged.maxY, sender.minY, "the block sits in its own body, below its sender's line")
+        XCTAssertLessThanOrEqual(forged.maxY, first.minY, "and below the first message")
+        // Painted over, text still reads in a PDF's text; so look at the paper: the masthead and the other message still
+        // show their ink.
+        let paper = try bitmap(of: page)
+        for words in ["Quarterly plan", "The first word on the plan.", "ben@contoso.test"] {
+            let ink = count(in: paper, page: page, rect: try bounds(words)) { $0.alphaComponent > 0.5 && Self.luminance($0) < 0.6 }
+            XCTAssertGreaterThan(ink, 10, "\(words) still shows on the paper")
+        }
+    }
+
+    /// The reader runs none of a body's script (its frame's sandbox); the printout's page lets none run either, from the
+    /// first byte: an event handler or a script element that got past the sanitizer fetches nothing.
+    func testNoScriptInABodyRuns() throws {
+        let ada = EmailAddress(name: "Ada Lovelace", address: "ada@contoso.test")
+        let shown = message(1, from: ada)
+        let environment = try store([
+            (shown, body("<p>Shown</p><img src=\"ss-remote://images/pixel.gif\" width=\"20\" height=\"20\" "
+                         + "onload=\"new Image().src='ss-remote://images/onload.gif'\">"
+                         + "<img src=\"ss-nowhere://images/missing.gif\" onerror=\"new Image().src='ss-remote://images/onerror.gif'\">"
+                         + "<script>new Image().src='ss-remote://images/script.gif'</script>")),
+        ])
+        let recorder = RemoteRecorder()
+        let printer = ConversationPrinter(client: environment.engine, schemeHandlers: [RemoteRecorder.scheme: recorder])
+        let document = PrintDocumentBuilder().document(for: try payload(environment),
+                                                       sheets: [RenderPayload.messageKey(for: shown.id): PrintSheetState(imagesShown: true)])
+        let text = try XCTUnwrap(try print(document, with: printer, imageWait: 3).string)
+        XCTAssertTrue(text.contains("Shown"), "the document's own script ran and attached the body")
+        XCTAssertEqual(recorder.paths, ["/pixel.gif"], "nothing a body's script asks for is fetched")
     }
 
     func testTheReaderShowsLoadedImagesAndThePrintoutFollows() throws {
@@ -242,20 +429,40 @@ final class PrintConversationTests: XCTestCase {
         let reader = try reader(showing: [(message(1, from: ada, isRead: false), body(words))], appearance: .darkAqua)
         XCTAssertEqual(reader.view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]), .darkAqua)
         let page = try XCTUnwrap(try print(reader).page(at: 0))
-        // Light ink on white paper would leave almost nothing dark; the printout's ink is Light's, near black.
-        let image = page.thumbnail(of: NSSize(width: 612, height: 792), for: .mediaBox)
-        let bitmap = try XCTUnwrap(image.tiffRepresentation.flatMap(NSBitmapImageRep.init(data:)))
-        var dark = 0
-        var total = 0
-        for y in stride(from: 0, to: bitmap.pixelsHigh, by: 2) {
-            for x in stride(from: 0, to: bitmap.pixelsWide, by: 2) {
-                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
-                total += 1
-                let luminance = 0.2126 * color.redComponent + 0.7152 * color.greenComponent + 0.0722 * color.blueComponent
-                if color.alphaComponent > 0.5, luminance < 0.4 { dark += 1 }
+        // Light ink on white paper would leave almost nothing dark, and dark paper almost nothing light: the printout is
+        // Light's near-black ink on paper that stays light.
+        let paper = try bitmap(of: page)
+        let total = paper.pixelsWide * paper.pixelsHigh
+        let dark = count(in: paper, page: page) { $0.alphaComponent > 0.5 && Self.luminance($0) < 0.4 }
+        let light = count(in: paper, page: page) { $0.alphaComponent > 0.5 && Self.luminance($0) > 0.9 }
+        XCTAssertGreaterThan(Double(dark) / Double(max(1, total)), 0.01, "dark ink on the page: \(dark) of \(total) pixels")
+        XCTAssertGreaterThan(Double(light) / Double(max(1, total)), 0.8, "on light paper: \(light) of \(total) pixels")
+    }
+
+    /// The page declares `color-scheme: light` over the Quire head's `light dark`, so even in a dark web view a sender's
+    /// text with no colour of its own takes the light scheme's ink. The printer's web view is Aqua as well; this holds the
+    /// document to its own half.
+    func testThePageDeclaresALightSchemeOverTheQuireHead() throws {
+        let ada = EmailAddress(name: "Ada Lovelace", address: "ada@contoso.test")
+        let only = message(1, from: ada)
+        let environment = try store([(only, body("<table><tr><td><p id=\"plain\">A styled body that names no colour</p></td></tr></table>"))])
+        let document = PrintDocumentBuilder().document(for: try payload(environment))
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 600, height: 800))
+        webView.appearance = NSAppearance(named: .darkAqua)
+        webView.loadHTMLString(document, baseURL: nil)
+        func value(_ script: String) -> String {
+            var answer: String?
+            webView.evaluateJavaScript("(function () { try { return String(\(script)); } catch (e) { return ''; } })()") { value, _ in
+                answer = value as? String ?? ""
             }
+            ListTestSupport.spin(until: { answer != nil }, timeout: 5)
+            return answer ?? ""
         }
-        XCTAssertGreaterThan(Double(dark) / Double(max(1, total)), 0.01, "dark ink on the page: \(dark) of \(total) samples")
+        XCTAssertTrue(ListTestSupport.spin(until: { value("document.documentElement.hasAttribute('data-ss-ready')") == "true" }, timeout: 10))
+        XCTAssertEqual(value("matchMedia('(prefers-color-scheme: dark)').matches"), "true", "a dark web view")
+        XCTAssertEqual(value("getComputedStyle(document.documentElement).colorScheme"), "light")
+        XCTAssertEqual(value("getComputedStyle(document.querySelector('.ss-pbody').shadowRoot.getElementById('plain')).color"), "rgb(0, 0, 0)",
+                       "a sender's text with no colour of its own is black")
     }
 
     func testPrintIsOfferedForOneOpenConversationAndOneAtATime() throws {
@@ -281,6 +488,49 @@ final class PrintConversationTests: XCTestCase {
         XCTAssertTrue(ListTestSupport.spin(until: { !reader.validateMenuItem(item) }, timeout: 5), "nor with nothing open")
     }
 
+    /// The budget row "Print: ⌘P to the print panel": 500 ms for a conversation of 20 messages. Measured from ⌘P to the
+    /// PDF written, which is the panel's moment plus the pages laid out and saved, so an upper bound. Gated, as the other
+    /// benchmarks are: `SS_PERF=1 swift test --filter PrintConversationTests/testPrintingTwentyMessagesStaysWithinBudget`.
+    func testPrintingTwentyMessagesStaysWithinBudget() throws {
+        guard ProcessInfo.processInfo.environment["SS_PERF"] == "1" else {
+            throw XCTSkip("set SS_PERF=1 to measure printing")
+        }
+        let people = [EmailAddress(name: "Ada Lovelace", address: "ada@contoso.test"), EmailAddress(name: "Ben Carter", address: "ben@contoso.test"),
+                      EmailAddress(name: "Carol Diaz", address: "carol@contoso.test")]
+        let reply = (1...8).map { "<p>Paragraph \($0) of the reply, long enough to run over two lines on paper, as most of a thread's words do.</p>" }
+            .joined()
+        let messages = (1...20).map { number in
+            (message(number, from: people[number % people.count], isRead: number < 20),
+             body(reply + "<div class=\"ss-quote\"><p>What was said before, folded.</p></div>", quoted: true))
+        }
+        let reader = try reader(showing: messages)
+        func printOnce() throws -> (milliseconds: Double, pages: Int) {
+            let url = folder.appendingPathComponent("perf-\(UUID().uuidString).pdf")
+            reader.printer.destination = .file(url)
+            var finished: Bool?
+            reader.printer.onFinish = { finished = $0 }
+            let start = DispatchTime.now()
+            reader.printConversation(nil)
+            XCTAssertTrue(ListTestSupport.spin(until: { finished != nil }, timeout: 20))
+            let elapsed = Double(DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1e6
+            XCTAssertEqual(finished, true)
+            return (elapsed, PDFDocument(url: url)?.pageCount ?? 0)
+        }
+        _ = try printOnce()  // the first print starts the web view's content process
+        var times: [Double] = []
+        var pages = 0
+        for _ in 0..<7 {
+            let run = try printOnce()
+            times.append(run.milliseconds)
+            pages = run.pages
+        }
+        let sorted = times.sorted()
+        let median = sorted[sorted.count / 2]
+        Swift.print("SS_PERF print 20 messages (\(pages) pages): median \(String(format: "%.1f", median)) ms, max \(String(format: "%.1f", sorted.last ?? 0)) ms")
+        XCTAssertGreaterThan(pages, 1)
+        XCTAssertLessThan(median, 500, "⌘P to a written PDF of 20 messages")
+    }
+
     /// The printout's stylesheet lives in SSCore, which cannot read the tokens, so its metrics are written out there; this
     /// holds them to `layout.print` and the reader's own (`layout.reader`, `layout.invitation`).
     func testThePrintoutsMetricsAreTheTokens() {
@@ -298,7 +548,7 @@ final class PrintConversationTests: XCTestCase {
             ".ss-phead { display: flex; gap: \(px(reader.headerGap));",
             ".ss-paddr { margin-left: \(px(reader.addressGap));",
             ".ss-pind { margin-left: \(px(reader.bodyIndent)); }",
-            ".ss-pbody { margin-top: \(px(reader.bodyTop)); }",
+            ".ss-pbody { margin-top: \(px(reader.bodyTop));",
             ".ss-patts { list-style: none; margin-top: \(px(reader.attachmentsTop));",
             ".ss-av36 { width: \(px(reader.headerAvatar)); height: \(px(reader.headerAvatar));",
             ".ss-pinvite { margin-top: \(px(reader.bodyTop)); max-width: \(px(reader.measure)); padding: \(px(invitation.padTop)) \(px(invitation.padX));",

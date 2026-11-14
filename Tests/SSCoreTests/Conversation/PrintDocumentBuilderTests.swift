@@ -81,7 +81,7 @@ final class PrintDocumentBuilderTests: XCTestCase {
         XCTAssertFalse(html.contains("<script>alert"))
         XCTAssertTrue(html.contains("&lt;/title&gt;&lt;script&gt;alert(1)&lt;/script&gt;"))
         XCTAssertTrue(html.contains("&lt;b&gt;Eve&lt;/b&gt; &amp; co"))
-        XCTAssertEqual(occurrences(of: "<script>", in: html), 1, "the document's own script only")
+        XCTAssertEqual(occurrences(of: "<script", in: html), 1, "the document's own script only")
     }
 
     func testDraftsAndRepliesOnTheirWaySayWhatTheyAre() {
@@ -255,7 +255,31 @@ final class PrintDocumentBuilderTests: XCTestCase {
         // Light whatever the app shows, with the Quire variables the page and the bodies draw with.
         XCTAssertTrue(html.contains("<meta name=\"color-scheme\" content=\"light\">"))
         XCTAssertTrue(html.contains(QuireCSS.head))
-        XCTAssertFalse(html.contains("Content-Security-Policy\" content"), "the policy is added by the script, after the shown bodies")
+        XCTAssertFalse(html.contains("content=\"" + PrintDocumentAssets.blockingPolicy), "the blocking policy is added by the script, after the shown bodies")
+        XCTAssertFalse(sheets(of: html).contains("<meta"))
+    }
+
+    /// The reader's frames run none of a body's script; on paper the page's own policy keeps it so from the first byte:
+    /// only the script carrying the document's nonce runs, and nothing in the policy holds back an image.
+    func testOnlyTheDocumentsOwnScriptMayRun() throws {
+        let message = F.message("m1")
+        let html = printer.document(for: payload([message], bodies: [message.id: F.body(html: "<p>Words</p>")]), nonce: "n0Nce+/=")
+        let policy = "<meta http-equiv=\"Content-Security-Policy\" content=\"script-src 'nonce-n0Nce+/='; object-src 'none'\">"
+        XCTAssertTrue(html.hasPrefix("<!DOCTYPE html><html class=\"ss-print\" lang=\"en\"><head><meta charset=\"utf-8\">" + policy),
+                      "the policy comes first in the head, before any style or body")
+        XCTAssertTrue(html.contains("<script nonce=\"n0Nce+/=\">var SS_PRINT_WAIT"), "the document's script carries the nonce")
+        XCTAssertEqual(occurrences(of: "<script", in: html), 1)
+        XCTAssertEqual(occurrences(of: "<meta http-equiv=\"Content-Security-Policy\"", in: html), 1, "the blocking policy is the script's to add")
+        for directive in ["default-src", "img-src", "style-src", "font-src"] {
+            XCTAssertFalse(PrintDocumentAssets.scriptPolicy(nonce: "x").contains(directive), "images and styles are the reader's policies' to decide")
+        }
+        // A new nonce for every document, which no stored body can know.
+        let nonces = Set((0..<4).map { _ in PrintDocumentBuilder.makeNonce() })
+        XCTAssertEqual(nonces.count, 4)
+        XCTAssertTrue(nonces.allSatisfy { Data(base64Encoded: $0)?.count == 16 })
+        let fresh = printer.document(for: payload([message], bodies: [:]))
+        let nonce = try XCTUnwrap(fresh.components(separatedBy: "'nonce-").dropFirst().first?.components(separatedBy: "'").first)
+        XCTAssertTrue(fresh.contains("<script nonce=\"" + nonce + "\">"))
     }
 
     func testTheScriptAndItsBodyStylesheetParse() throws {

@@ -8,7 +8,8 @@ import Foundation
 /// its quoted text, and the message under an invitation card. Bodies are not put in frames, which a printer cuts through
 /// mid-line, but into shadow roots in the one page flow, so they paginate like the rest of the page while their styles
 /// stay their own. The bodies sit inert in `<template>`s until the document's script attaches them, so nothing a body
-/// holds is fetched before the script has applied the reader's image policy (see `PrintDocumentAssets.script`).
+/// holds is fetched before the script has applied the reader's image policy (see `PrintDocumentAssets.script`), and a
+/// policy in the head lets no script run but that one, as the reader's sandboxed frames run none of a body's.
 public struct PrintDocumentBuilder: Sendable {
     /// The script message handler the document posts `ready` to once its bodies are attached and their images have come
     /// in, or the wait is over.
@@ -17,7 +18,8 @@ public struct PrintDocumentBuilder: Sendable {
     public var locale: Locale
     public var timeZone: TimeZone
     public var calendar: Calendar
-    /// How long the document waits for its images before it says it is ready (`motion.duration.printImageWait`). An image
+    /// How long the document waits for images before it says it is ready (`motion.duration.printImageWait`), once for
+    /// the bodies whose images print and once for those holding them back, whose inline images still load. An image
     /// still loading then prints as it stands, empty, rather than keeping the print panel away.
     public var imageWait: TimeInterval
 
@@ -29,11 +31,15 @@ public struct PrintDocumentBuilder: Sendable {
     }
 
     /// The print document. `sheets` holds what the reader shows of each message, by render key; a message missing from it
-    /// prints as a fresh render shows it (`PrintSheetState.fresh`).
-    public func document(for payload: RenderPayload, sheets: [String: PrintSheetState] = [:]) -> String {
+    /// prints as a fresh render shows it (`PrintSheetState.fresh`). `nonce` marks the document's own script, the only one
+    /// its policy lets run (`PrintDocumentAssets.scriptPolicy`); a new one for every document, so no body can name it.
+    public func document(for payload: RenderPayload, sheets: [String: PrintSheetState] = [:],
+                         nonce: String = PrintDocumentBuilder.makeNonce()) -> String {
         let dates = makeDates()
         var html = "<!DOCTYPE html><html class=\"ss-print" + (payload.readingSans ? " ss-sf" : "") + "\" lang=\""
         html += Self.escape(locale.language.languageCode?.identifier ?? "en") + "\"><head><meta charset=\"utf-8\">"
+        // Before anything else, so it holds from the first byte of every body.
+        html += "<meta http-equiv=\"Content-Security-Policy\" content=\"" + PrintDocumentAssets.scriptPolicy(nonce: Self.escape(nonce)) + "\">"
         // Light whatever the app shows: the paper is light, and the web view printing it is set to Aqua as well.
         html += "<meta name=\"color-scheme\" content=\"light\"><title>" + Self.escape(Self.title(of: payload)) + "</title>"
         html += "<style>" + QuireCSS.head + "\n" + PrintDocumentAssets.css + "</style></head><body><main class=\"ss-pdoc\">"
@@ -42,8 +48,14 @@ public struct PrintDocumentBuilder: Sendable {
             let state = sheets[message.id] ?? .fresh(loadRemoteImages: payload.loadRemoteImages)
             html += sheet(message, index: index, state: state, payload: payload, dates: dates)
         }
-        html += "</main><script>" + PrintDocumentAssets.script(imageWait: imageWait) + "</script></body></html>"
+        html += "</main><script nonce=\"" + Self.escape(nonce) + "\">" + PrintDocumentAssets.script(imageWait: imageWait) + "</script></body></html>"
         return html
+    }
+
+    /// A fresh nonce for a document's script: 128 random bits, in base64.
+    public static func makeNonce() -> String {
+        var generator = SystemRandomNumberGenerator()
+        return Data((0..<16).map { _ in UInt8.random(in: .min ... .max, using: &generator) }).base64EncodedString()
     }
 
     /// The print job's name, which Save as PDF offers as the file's: the subject, or the reader's placeholder.

@@ -8,6 +8,17 @@ enum PrintDocumentAssets {
     /// inline images and fonts. A test holds the two equal.
     static let blockingPolicy = "default-src 'none'; img-src ss-cid: data:; style-src 'unsafe-inline'; font-src ss-cid: data:"
 
+    /// The page's own policy, from its first byte: no script runs but the document's own, the one carrying `nonce`.
+    ///
+    /// In the reader each body is a document of its own in a frame whose sandbox runs no script; on paper every body is in
+    /// this one page, beside the script that attaches them and the handler it reports to, so a script or event handler
+    /// that got past the sanitizer would run here with every other message in reach. Inline handlers, `javascript:` URLs
+    /// and script elements without the nonce are refused; images, styles and fonts are left to the reader's policies,
+    /// the blocking one added for the held-back bodies (`script`).
+    static func scriptPolicy(nonce: String) -> String {
+        "script-src 'nonce-" + nonce + "'; object-src 'none'"
+    }
+
     /// The elision mark's glyph (`ss.elide`), exactly as the shell draws it, for the lines that stand where the reader
     /// folds something away. A test holds it to the shell's.
     static let elideSVG = #"<svg viewBox="0 0 16 16" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4.75 2.75h-2v10.5h2"/><path d="M11.25 2.75h2v10.5h-2"/></g><g fill="currentColor"><circle cx="5.6" cy="10.6" r="0.95"/><circle cx="8" cy="10.6" r="0.95"/><circle cx="10.4" cy="10.6" r="0.95"/></g></svg>"#
@@ -16,7 +27,8 @@ enum PrintDocumentAssets {
     /// Backgrounds print (avatars, a newsletter's bands), as the reader shows them.
     static let css: String = #"""
     * { box-sizing: border-box; }
-    html { color-scheme: light; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    /* `html:root`, not `html`: it must outrank the `:root { color-scheme: light dark }` of the Quire head above it. */
+    html:root { color-scheme: light; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     html, body { margin: 0; padding: 0; background: transparent; color: var(--q-ink); }
     body { font: var(--q-font-body); letter-spacing: var(--q-track-body); }
     .ss-ph { font-style: italic; font-weight: 400; color: var(--q-ink3); }
@@ -42,7 +54,12 @@ enum PrintDocumentAssets {
 
     /* The indent: plain and unstyled bodies, the card, the notes and the attachments sit at the name column. */
     .ss-pind { margin-left: 48px; }
-    .ss-pbody { margin-top: 18px; }
+    /* A body's own containing block, formatting context and paint scope, as its frame is in the reader: what it positions
+       absolutely, floats or lifts with a z-index or a negative margin stays in its sheet and never lands on the masthead
+       or another message's header. Clipped top and bottom only, so a newsletter wider than the paper still shrinks to
+       fit; what a body places beyond the end of its own flow is cut there (the reader's frame would grow to it), the
+       price of no message drawing over another. */
+    .ss-pbody { margin-top: 18px; display: flow-root; position: relative; isolation: isolate; overflow-y: clip; }
     .ss-ppreview { margin-top: 18px; margin-bottom: 0; max-width: 576px; font: var(--q-font-reading); letter-spacing: var(--q-track-reading); color: var(--q-ink2); }
     .ss-ppreview.ss-sans { font: var(--q-font-readingSans); letter-spacing: var(--q-track-readingSans); }
     .ss-pnote {
@@ -132,6 +149,10 @@ enum PrintDocumentAssets {
     /// images hidden, the reader's blocking policy is added to the page, which WebKit enforces on every fetch asked for
     /// after it, and only then are those bodies attached: whatever a body still holds live (one stored while Load remote
     /// images was on) is never fetched. A body is inert in its template until it is attached, so nothing loads early.
+    ///
+    /// Each step waits for its own images, up to `imageWait` each: the held-back bodies still load their inline images
+    /// (`ss-cid`, answered from the attachment cache or a download), which a first step spent on a slow remote image
+    /// must not leave empty. So a page is ready at most twice `imageWait` after it loads.
     static func script(imageWait: TimeInterval) -> String {
         let wait = Int((max(0, imageWait) * 1000).rounded())
         return "var SS_PRINT_WAIT = \(wait);\nvar SS_PRINT_POLICY = " + ConversationShellAssets.jsStringLiteral(blockingPolicy)
@@ -141,8 +162,6 @@ enum PrintDocumentAssets {
     private static let scriptBody: String = #"""
     (function () {
       'use strict';
-      var started = Date.now();
-      var images = [];
       var ready = false;
 
       function post() {
@@ -166,7 +185,8 @@ enum PrintDocumentAssets {
         }
       }
 
-      function attach(host) {
+      // Attaches one body and adds its images to `images`, the ones its step waits for.
+      function attach(host, images) {
         var template = document.getElementById('ss-pb-' + host.getAttribute('data-body'));
         if (!template) { return; }
         // Still inert: a source set here is fetched only once the body joins the page.
@@ -189,32 +209,49 @@ enum PrintDocumentAssets {
         for (var j = 0; j < found.length; j++) { images.push(found[j]); }
       }
 
-      // Waits a turn at least, so what layout asked for is under way, then until every image has come in or failed, or
-      // the print's wait is over.
-      function settle(then) {
-        setTimeout(function poll() {
-          var pending = false;
-          for (var i = 0; i < images.length; i++) { if (!images[i].complete) { pending = true; break; } }
-          if (pending && Date.now() - started < SS_PRINT_WAIT) { setTimeout(poll, 25); } else { then(); }
+      // Waits a turn at least, so what layout asked for is under way, then until each of a step's images has come in or
+      // failed, or the step's own wait is over: a wait from when the step began, so the second step's images get theirs
+      // however long the first took. Load and error events, not a poll: WebKit holds a hidden page's repeating timers to
+      // one a second, and this page is never on screen.
+      function settle(images, then) {
+        var done = false;
+        function finish() {
+          if (done) { return; }
+          done = true;
+          clearTimeout(deadline);
+          then();
+        }
+        var deadline = setTimeout(finish, SS_PRINT_WAIT);
+        setTimeout(function () {
+          var pending = 0;
+          function arrived() { if (--pending === 0) { finish(); } }
+          for (var i = 0; i < images.length; i++) {
+            if (images[i].complete) { continue; }
+            pending++;
+            images[i].addEventListener('load', arrived, { once: true });
+            images[i].addEventListener('error', arrived, { once: true });
+          }
+          if (pending === 0) { finish(); }
         }, 0);
       }
 
       var hosts = document.querySelectorAll('.ss-pbody[data-body]');
+      var shownImages = [];
       var hidden = [];
       for (var i = 0; i < hosts.length; i++) {
-        if (hosts[i].getAttribute('data-images') === 'shown') { attach(hosts[i]); } else { hidden.push(hosts[i]); }
+        if (hosts[i].getAttribute('data-images') === 'shown') { attach(hosts[i], shownImages); } else { hidden.push(hosts[i]); }
       }
       void document.body.offsetHeight;
-      settle(function () {
-        if (hidden.length) {
-          var policy = document.createElement('meta');
-          policy.httpEquiv = 'Content-Security-Policy';
-          policy.content = SS_PRINT_POLICY;
-          document.head.appendChild(policy);
-          for (var j = 0; j < hidden.length; j++) { attach(hidden[j]); }
-          void document.body.offsetHeight;
-        }
-        settle(post);
+      settle(shownImages, function () {
+        if (!hidden.length) { return post(); }
+        var policy = document.createElement('meta');
+        policy.httpEquiv = 'Content-Security-Policy';
+        policy.content = SS_PRINT_POLICY;
+        document.head.appendChild(policy);
+        var hiddenImages = [];
+        for (var j = 0; j < hidden.length; j++) { attach(hidden[j], hiddenImages); }
+        void document.body.offsetHeight;
+        settle(hiddenImages, post);
       });
     })();
     """#
