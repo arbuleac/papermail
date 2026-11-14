@@ -217,7 +217,7 @@ public final class QuireButton: QuireControl {
             let wash: [NSColor] = state == .pressed ? [.qPressed] : state == .hover ? [.qHover] : []
             return Look(fill: wash, label: state == .rest ? .qInk2 : .qInk)
         case .link:
-            let underline = state != .rest || QuireEnvironment.isGraphite
+            let underline = state != .rest || QuireEnvironment.underlinesLinksAtRest(for: effectiveAppearance)
             return Look(label: state == .pressed ? .qInk2 : .qAccent, underline: underline)
         }
     }

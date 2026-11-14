@@ -30,11 +30,11 @@ public struct QuireRuleSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             Text(title)
                 .quireLine(.title)
-                .foregroundStyle(Color.qInk)
+                .foregroundStyle(.qInk)
                 .accessibilityAddTraits(.isHeader)
             Text(caption)
                 .quireParagraph(.meta)
-                .foregroundStyle(Color.qInk3)
+                .foregroundStyle(.qInk3)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, s.captionGap)
             QuireRemovableList(rows: rows, emptyTitle: emptyTitle, emptyHint: emptyHint, onRemove: onRemove)
@@ -52,7 +52,7 @@ public struct QuireRuleSheet: View {
         .padding(.bottom, s.padBottom)
         .frame(width: s.sendersWidth, alignment: .topLeading)
         .fixedSize(horizontal: false, vertical: true)
-        .background(Color.qCanvas)
+        .background(.qCanvas)
         .onExitCommand(perform: onDone)
     }
 }

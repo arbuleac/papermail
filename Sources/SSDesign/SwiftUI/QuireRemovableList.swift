@@ -68,7 +68,7 @@ public struct QuireRemovableList: View {
                 content
             }
         }
-        .background(Color.qSheet)
+        .background(.qSheet)
         .clipShape(shape)
         .overlay(alignment: .top) {
             if scrolls && edges.top { QuireSettingsHairline() }
@@ -109,12 +109,12 @@ struct QuireRemovableRow: View {
             Text(verbatim: row.title)
                 .quireLine(.body)
                 .truncationMode(.middle)
-                .foregroundStyle(Color.qInk)
+                .foregroundStyle(.qInk)
                 .padding(.leading, s.senderRowX)
             Spacer(minLength: s.senderActionGap)
             Text(verbatim: row.detail)
                 .quireLine(.snippet)
-                .foregroundStyle(Color.qInk2)
+                .foregroundStyle(.qInk2)
                 .fixedSize()
                 .padding(.trailing, s.senderActionGap)
             Button(action: onRemove) {
@@ -158,7 +158,7 @@ struct QuireRemoveButtonChrome<Label: View>: View {
         let look = QuireJoinedButtonAppearance.resolve(state: state)
         let shape = RoundedRectangle(cornerRadius: radius, style: .circular)
         label()
-            .foregroundStyle(look.glyph.swiftUIColor)
+            .foregroundStyle(look.glyph.style)
             .frame(width: side, height: side)
             .background { QuireFace(shape: shape, fill: look.face, edge: look.edge) }
             .overlay {

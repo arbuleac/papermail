@@ -46,12 +46,12 @@ public struct QuirePopupLabel: View {
             Text(value)
                 .quireFont(.body)
                 .lineLimit(1)
-                .foregroundStyle(a.label.swiftUIColor)
+                .foregroundStyle(a.label.style)
             if width != nil {
                 Spacer(minLength: 0)
             }
             QuireSymbolImage(name: Quire.Icon.popup, size: .custom(p.chevron))
-                .foregroundStyle(a.chevron.swiftUIColor)
+                .foregroundStyle(a.chevron.style)
         }
         .padding(.leading, p.padLeft)
         .padding(.trailing, p.padRight)
@@ -80,7 +80,7 @@ struct QuirePopupSwatch: View {
             .frame(width: side, height: side)
             .background {
                 if halo {
-                    Circle().fill(Color.qRaised).padding(-Quire.Layout.Popup.inkHalo)
+                    Circle().fill(.qRaised).padding(-Quire.Layout.Popup.inkHalo)
                 }
             }
     }

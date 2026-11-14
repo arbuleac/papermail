@@ -122,7 +122,7 @@ public struct QuireAccountGroup<AddMenu: View>: View {
                 rows(showsRing: showsRing)
             }
         }
-        .background(Color.qSheet)
+        .background(.qSheet)
         .clipShape(shape)
         .overlay(alignment: .top) {
             if scrolls && edges.top { QuireSettingsHairline() }
@@ -220,7 +220,7 @@ struct QuireGroupEdge: View {
         // An inset stroke of a shape one hairline larger: whole-pixel geometry at every scale (see
         // `QuireFocusRingView`).
         RoundedRectangle(cornerRadius: cornerRadius + width, style: .circular)
-            .strokeBorder(Color.qRule, lineWidth: width)
+            .strokeBorder(.qRule, lineWidth: width)
             .padding(-width)
             .allowsHitTesting(false)
     }
@@ -241,8 +241,8 @@ struct QuireAccountEmptyRow: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Text(title).quireLine(.body).foregroundStyle(Color.qInk2)
-            Text(hint).quireLine(.snippet).foregroundStyle(Color.qInk3)
+            Text(title).quireLine(.body).foregroundStyle(.qInk2)
+            Text(hint).quireLine(.snippet).foregroundStyle(.qInk3)
         }
         .frame(maxWidth: .infinity)
         .frame(height: Quire.Layout.Settings.accountRow)
@@ -261,8 +261,8 @@ struct QuireAccountPendingRow: View {
                 .padding(.leading, s.accountFaceX)
                 .padding(.trailing, s.accountHairlineX - s.accountFaceX - s.accountFace)
             VStack(alignment: .leading, spacing: 0) {
-                Text(pending.title).quireLine(.body).foregroundStyle(Color.qInk)
-                Text(pending.provider).quireLine(.snippet).foregroundStyle(Color.qInk2)
+                Text(pending.title).quireLine(.body).foregroundStyle(.qInk)
+                Text(pending.provider).quireLine(.snippet).foregroundStyle(.qInk2)
             }
             .accessibilityElement(children: .combine)
             Spacer(minLength: s.statusGap)

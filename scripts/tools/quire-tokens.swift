@@ -304,6 +304,21 @@ struct AvatarTint {
     let ink: [String: String]
 }
 
+/// One theme of `themes` (spec §4.16): its full colour table and Graphite values, its link flags and its page colours.
+struct Theme {
+    let id: String
+    let name: String
+    let caption: String
+    let inkless: Bool
+    let colors: [String: [String: String]]
+    let graphite: [String: [String: String]]
+    let links: [String: Bool]
+    let quoteLinks: [String: Bool]
+    let focusOnPage: [String: String]
+    let sheetIsPage: [String: Bool]
+    let declaredDeeper: [String: [String]]
+}
+
 struct Pair {
     let use: String
     let fg: [String]
@@ -319,6 +334,9 @@ final class Tokens {
     let accounts: [Account]
     let avatars: [AvatarTint]
     let graphite: [(String, [String])]
+    let themes: [Theme]
+    /// `linkOnPage`: a link its sender left uncoloured, outside Graphite, in every theme (spec §5.14).
+    let linkOnPage: [String: String]
 
     init(_ root: JSON) {
         self.root = root
@@ -357,6 +375,52 @@ final class Tokens {
             if colorByName[key] == nil { fail("graphite substitutes unknown token \(key)") }
             for t in stack where colorByName[t] == nil { fail("graphite.\(key) refers to unknown token \(t)") }
         }
+        let colorNames = colors.map(\.name)
+        let graphiteNames = graphite.map(\.0)
+        func modeMap<T>(_ v: JSON, _ path: String, _ read: (JSON) -> T?) -> [String: T] {
+            var out: [String: T] = [:]
+            for m in modes { out[m] = read(v.require(m, path)) ?? fail("\(path).\(m) has the wrong type") }
+            return out
+        }
+        func bool(_ j: JSON) -> Bool? { if case .bool(let b) = j { return b }; return nil }
+        func table(_ v: JSON, _ path: String, _ names: [String]) -> [String: [String: String]] {
+            guard let obj = v.object else { fail("\(path) must be an object") }
+            if obj.map(\.0) != names { fail("\(path) must list \(names.count) tokens in the order of `color`") }
+            return Dictionary(uniqueKeysWithValues: obj.map { name, values in (name, modeMap(values, "\(path).\(name)") { $0.string }) })
+        }
+        themes = (root.require("themes", "").array ?? []).map { th in
+            let id = th.require("id", "themes").string ?? fail("themes.id must be a string")
+            let path = "themes.\(id)"
+            return Theme(id: id, name: th.require("name", path).string ?? fail("\(path).name"),
+                         caption: th.require("caption", path).string ?? fail("\(path).caption"),
+                         inkless: bool(th.require("inkless", path)) ?? fail("\(path).inkless must be a boolean"),
+                         colors: table(th.require("color", path), "\(path).color", colorNames),
+                         graphite: table(th.require("graphite", path), "\(path).graphite", graphiteNames),
+                         links: modeMap(th.require("linkUnderlineAtRest", path), "\(path).linkUnderlineAtRest", bool),
+                         quoteLinks: modeMap(th.require("quoteLinkUnderlineAtRest", path), "\(path).quoteLinkUnderlineAtRest", bool),
+                         focusOnPage: modeMap(th.require("focusOnPage", path), "\(path).focusOnPage") { $0.string },
+                         sheetIsPage: modeMap(th.require("sheetIsPage", path), "\(path).sheetIsPage", bool),
+                         declaredDeeper: modeMap(th.require("declaredDeeper", path), "\(path).declaredDeeper") { $0.array?.compactMap(\.string) })
+        }
+        linkOnPage = modeMap(root.require("linkOnPage", ""), "linkOnPage") { $0.string }
+        guard let first = themes.first else { fail("themes must list at least the default theme") }
+        // The default theme is `color` itself, so every reader of `color` keeps drawing what it drew before themes.
+        for c in colors where first.colors[c.name] != c.values { fail("themes[0] (\(first.id)) must equal `color`: \(c.name) differs") }
+        for (key, stack) in graphite where first.graphite[key] != Dictionary(uniqueKeysWithValues: modes.map { ($0, rgb2hex(composite(stack, $0))) }) {
+            fail("themes[0].graphite.\(key) must be the substitution resolved against `color`")
+        }
+        if Set(themes.map(\.id)).count != themes.count { fail("theme ids must be unique") }
+    }
+
+    /// The theme's Graphite value of `token` in `mode` (`--q-focusOnPage` and `--q-linkOnPage` included).
+    func graphitePage(_ theme: Theme, _ mode: String) -> [(String, String)] {
+        let light = mode.hasSuffix("HC") ? "lightHC" : "light"
+        return [("focusOnPage", theme.graphite["focus"]![light]!), ("linkOnPage", theme.graphite["accent"]![mode]!)]
+    }
+
+    /// `--q-focusOnPage` and `--q-linkOnPage` outside Graphite (`page_variables()` in build.py).
+    func page(_ theme: Theme, _ mode: String) -> [(String, String)] {
+        [("focusOnPage", theme.focusOnPage[mode]!), ("linkOnPage", linkOnPage[mode]!)]
     }
 
     /// `hexof()` from build.py.
@@ -486,18 +550,38 @@ func graphiteValues(_ t: Tokens, _ stack: [String]) -> [String: String] {
 
 func colorProperty(_ name: String) -> String { "q" + upperFirst(memberName(name).trimmingCharacters(in: CharacterSet(charactersIn: "`"))) }
 
+/// A token is themed when any theme gives it another value, or another Graphite value, than the default theme does.
+/// Every other token keeps one set of values and the single-set provider it had before themes.
+func isThemed(_ t: Tokens, _ name: String) -> Bool {
+    let first = t.themes[0]
+    return t.themes.contains { $0.colors[name] != first.colors[name] || $0.graphite[name] != first.graphite[name] }
+}
+
+func themeArrayLiteral(_ values: [[String: String]], indent: String) -> String {
+    "[\n" + values.map { "\(indent)    \(colorValuesLiteral($0))," }.joined(separator: "\n") + "\n\(indent)]"
+}
+
 func emitColors(_ t: Tokens) -> String {
     let graphite = Dictionary(uniqueKeysWithValues: t.graphite)
+    let themed = t.colors.filter { isThemed(t, $0.name) }
     var out = header + "\nimport AppKit\nimport SwiftUI\n\n"
     out += "// One dynamic provider per colour token (spec §8.2). The provider resolves Light, Dark and both Increase\n"
     out += "// Contrast variants through `bestMatch`; accent-family tokens also carry their Graphite substitution (§3.1),\n"
-    out += "// pre-composited per mode by the generator, and return it while `QuireEnvironment.isGraphite` is on.\n"
+    out += "// pre-composited per mode by the generator, and return it while `QuireEnvironment.isGraphite` is on. A token\n"
+    out += "// that differs across themes (§4.16) carries one set of values per theme, in `QuireTheme` order, and returns the\n"
+    out += "// set of `QuireEnvironment`'s theme.\n"
     out += "extension NSColor {\n"
     for c in t.colors {
         let use = c.use.isEmpty ? c.group : "\(c.use) (\(c.group))"
         out += docComment("`color.\(c.name)`: \(use).", indent: "    ")
         if let stack = graphite[c.name] {
             out += docComment("Under Graphite: \(stack.map { "`\($0)`" }.joined(separator: " + ")).", indent: "    ")
+        }
+        let m = memberName(c.name)
+        if isThemed(t, c.name) {
+            let g = graphite[c.name] != nil ? ", graphite: QuireThemeTable.\(graphiteTableName(c.name))" : ""
+            out += "    public static let \(colorProperty(c.name)) = NSColor.quire(\(swiftString(c.name)), themes: QuireThemeTable.\(m)\(g))\n"
+        } else if let stack = graphite[c.name] {
             out += "    public static let \(colorProperty(c.name)) = NSColor.quire(\(swiftString(c.name)), \(colorValuesLiteral(c.values)),\n"
             out += "        graphite: \(colorValuesLiteral(graphiteValues(t, stack))))\n"
         } else {
@@ -510,6 +594,23 @@ func emitColors(_ t: Tokens) -> String {
         out += "    public static let \(colorProperty(c.name)) = Color(nsColor: .\(colorProperty(c.name)))\n"
     }
     out += "}\n\n"
+    out += "// `.qInk`, `.qCanvas`, … wherever SwiftUI takes a shape style: resolved from the view's `quireTheme`, so a theme\n"
+    out += "// switch redraws in place (spec §4.16).\n"
+    out += "extension ShapeStyle where Self == QuireColorStyle {\n"
+    for c in t.colors {
+        out += "    public static var \(colorProperty(c.name)): QuireColorStyle { QuireColorStyle(.\(memberName(c.name))) }\n"
+    }
+    out += "}\n\n"
+    out += "/// Every themed token's values per theme, in `QuireTheme` order: static integers, so a theme never drawn costs no\n"
+    out += "/// colour object.\n"
+    out += "enum QuireThemeTable {\n"
+    for c in themed {
+        out += "    static let \(memberName(c.name)): [QuireColorValues] = \(themeArrayLiteral(t.themes.map { $0.colors[c.name]! }, indent: "    "))\n"
+        if graphite[c.name] != nil {
+            out += "    static let \(graphiteTableName(c.name)): [QuireColorValues] = \(themeArrayLiteral(t.themes.map { $0.graphite[c.name]! }, indent: "    "))\n"
+        }
+    }
+    out += "}\n\n"
     out += "/// Every colour token by its tokens.json name, for code that looks tokens up by name (tests, the CSS bridge).\n"
     out += "public enum QuireColorToken: String, CaseIterable, Sendable {\n"
     for c in t.colors {
@@ -520,10 +621,30 @@ func emitColors(_ t: Tokens) -> String {
     out += "    public var color: NSColor {\n        switch self {\n"
     for c in t.colors { out += "        case .\(memberName(c.name)): return .\(colorProperty(c.name))\n" }
     out += "        }\n    }\n\n"
-    out += "    /// The four values from tokens.json, alpha kept.\n"
+    out += "    /// The four values from tokens.json, alpha kept: the default theme's.\n"
     out += "    public var values: QuireColorValues {\n        switch self {\n"
     for c in t.colors { out += "        case .\(memberName(c.name)): return \(colorValuesLiteral(c.values))\n" }
     out += "        }\n    }\n\n"
+    out += "    /// The four values in `theme`, alpha kept.\n"
+    out += "    public func values(theme: QuireTheme) -> QuireColorValues {\n        switch self {\n"
+    for c in themed { out += "        case .\(memberName(c.name)): return QuireThemeTable.\(memberName(c.name))[theme.index]\n" }
+    if themed.count < t.colors.count { out += "        default: return values\n" }
+    out += "        }\n    }\n\n"
+    out += "    /// The four Graphite values in `theme`, or nil when Graphite leaves the token unchanged.\n"
+    out += "    public func graphiteValues(theme: QuireTheme) -> QuireColorValues? {\n        switch self {\n"
+    for c in t.colors {
+        guard let stack = graphite[c.name] else { continue }
+        if isThemed(t, c.name) {
+            out += "        case .\(memberName(c.name)): return QuireThemeTable.\(graphiteTableName(c.name))[theme.index]\n"
+        } else {
+            out += "        case .\(memberName(c.name)): return \(colorValuesLiteral(graphiteValues(t, stack)))\n"
+        }
+    }
+    out += "        default: return nil\n        }\n    }\n\n"
+    out += "    /// True when some theme gives the token another value than the default theme does.\n"
+    out += "    public var isThemed: Bool {\n        switch self {\n"
+    for c in themed { out += "        case .\(memberName(c.name)): return true\n" }
+    out += "        default: return false\n        }\n    }\n\n"
     out += "    /// The token's Graphite stack (composited left to right), or nil when Graphite leaves it unchanged.\n"
     out += "    public var graphiteStack: [String]? {\n        switch self {\n"
     for c in t.colors where graphite[c.name] != nil {
@@ -534,6 +655,46 @@ func emitColors(_ t: Tokens) -> String {
     out += "    public var group: String {\n        switch self {\n"
     for c in t.colors { out += "        case .\(memberName(c.name)): return \(swiftString(c.group))\n" }
     out += "        }\n    }\n}\n"
+    return out
+}
+
+func graphiteTableName(_ name: String) -> String {
+    memberName(name).trimmingCharacters(in: CharacterSet(charactersIn: "`")) + "Graphite"
+}
+
+/// `QuireTheme` (spec §4.16): the themes in Settings order, the first the default, with what each needs at run time.
+func emitThemes(_ t: Tokens) -> String {
+    var out = header + "\n"
+    out += "/// The themes (spec §4.16), in the order Settings shows them. The first is the default and is `color` itself.\n"
+    out += "public enum QuireTheme: String, CaseIterable, Sendable {\n"
+    for th in t.themes {
+        out += docComment(th.caption, indent: "    ")
+        let m = memberName(th.id)
+        out += m == th.id ? "    case \(m)\n" : "    case \(m) = \(swiftString(th.id))\n"
+    }
+    func property(_ name: String, _ type: String, _ doc: String, _ value: (Theme) -> String) {
+        out += "\n" + docComment(doc, indent: "    ")
+        out += "    public var \(name): \(type) {\n        switch self {\n"
+        for th in t.themes { out += "        case .\(memberName(th.id)): return \(value(th))\n" }
+        out += "        }\n    }\n"
+    }
+    func perMode(_ name: String, _ doc: String, _ value: (Theme) -> [String: Bool]) {
+        out += "\n" + docComment(doc, indent: "    ")
+        out += "    public func \(name)(_ mode: QuireMode) -> Bool {\n        switch self {\n"
+        for th in t.themes {
+            let v = value(th)
+            out += "        case .\(memberName(th.id)): return [\(modes.map { v[$0]! ? "true" : "false" }.joined(separator: ", "))][mode.index]\n"
+        }
+        out += "        }\n    }\n"
+    }
+    property("name", "String", "The name under the theme's tile.") { swiftString($0.name) }
+    property("caption", "String", "What the theme is, in every mode: the line under the tiles.") { swiftString($0.caption) }
+    property("index", "Int", "The theme's place in `allCases`, which indexes every per-theme table.") { th in String(t.themes.firstIndex { $0.id == th.id }!) }
+    property("isInkless", "Bool", "True when the theme writes in its text ink (its accent family is its own Graphite substitution).") { $0.inkless ? "true" : "false" }
+    perMode("underlinesLinksAtRest", "True where the theme's ink sits too near its text ink for colour alone to mark a link (R10): every link draws its underline at rest.") { $0.links }
+    perMode("underlinesQuoteLinksAtRest", "True where the ink sits too near `ink2` (R10): links inside quoted text draw their underline at rest.") { $0.quoteLinks }
+    perMode("sheetIsPage", "True where the sheet is the white page a sender designed for (R1), so styled mail is shown on it as sent.") { $0.sheetIsPage }
+    out += "}\n"
     return out
 }
 
@@ -857,6 +1018,7 @@ func cssHead(_ t: Tokens) -> [String] {
     func block(_ mode: String) -> String {
         var parts: [String] = []
         for c in t.colors { parts.append("--q-\(c.name):\(c.values[mode]!)") }
+        for (name, value) in t.page(t.themes[0], mode) { parts.append("--q-\(name):\(value)") }
         for (i, a) in t.accounts.enumerated() {
             parts.append("--q-acct-\(i + 1):\(a.values[mode]!)")
             parts.append("--q-acct-\(a.name.lowercased()):\(a.values[mode]!)")
@@ -892,7 +1054,8 @@ func cssHead(_ t: Tokens) -> [String] {
     }
 
     func graphiteBlock(_ mode: String) -> String {
-        t.graphite.map { "--q-\($0.0):\(rgb2hex(t.composite($0.1, mode)))" }.joined(separator: ";") + ";"
+        (t.graphite.map { "--q-\($0.0):\(rgb2hex(t.composite($0.1, mode)))" } + t.graphitePage(t.themes[0], mode).map { "--q-\($0.0):\($0.1)" })
+            .joined(separator: ";") + ";"
     }
 
     return [
@@ -941,6 +1104,40 @@ func cssTextSizes(_ t: Tokens) -> [String] {
     return lines
 }
 
+/// The theme's sheet (spec §4.16): the head's own colour selectors in the head's order, each holding only the variables
+/// whose value in this theme differs from the default theme's in some mode, so it overrides the head and nothing else. It
+/// follows the head in the document, so Increase Contrast and Graphite still win by the same specificity. The default
+/// theme's sheet is empty.
+func cssThemeSheet(_ t: Tokens, _ theme: Theme) -> [String] {
+    let study = t.themes[0]
+    let colorNames = t.colors.map(\.name) + ["focusOnPage", "linkOnPage"]
+    func value(_ th: Theme, _ name: String, _ mode: String) -> String {
+        th.colors[name]?[mode] ?? t.page(th, mode).first { $0.0 == name }!.1
+    }
+    func graphiteValue(_ th: Theme, _ name: String, _ mode: String) -> String {
+        th.graphite[name]?[mode] ?? t.graphitePage(th, mode).first { $0.0 == name }!.1
+    }
+    let names = colorNames.filter { n in modes.contains { value(theme, n, $0) != value(study, n, $0) } }
+    let graphiteNames = (t.graphite.map(\.0) + ["focusOnPage", "linkOnPage"]).filter { n in modes.contains { graphiteValue(theme, n, $0) != graphiteValue(study, n, $0) } }
+    if names.isEmpty && graphiteNames.isEmpty { return [] }
+    func block(_ mode: String) -> String { names.map { "--q-\($0):\(value(theme, $0, mode))" }.joined(separator: ";") + ";" }
+    func graphiteBlock(_ mode: String) -> String { graphiteNames.map { "--q-\($0):\(graphiteValue(theme, $0, mode))" }.joined(separator: ";") + ";" }
+    return [
+        ":root{\(block("light"))}",
+        "@media (prefers-color-scheme:dark){:root{\(block("dark"))}}",
+        "@media (prefers-contrast:more){:root{\(block("lightHC"))}}",
+        "@media (prefers-color-scheme:dark) and (prefers-contrast:more){:root{\(block("darkHC"))}}",
+        "html.ss-ic{\(block("lightHC"))}",
+        "@media (prefers-color-scheme:dark){html.ss-ic{\(block("darkHC"))}}",
+        "html.ss-graphite{\(graphiteBlock("light"))}",
+        "@media (prefers-color-scheme:dark){html.ss-graphite{\(graphiteBlock("dark"))}}",
+        "@media (prefers-contrast:more){html.ss-graphite{\(graphiteBlock("lightHC"))}}",
+        "@media (prefers-color-scheme:dark) and (prefers-contrast:more){html.ss-graphite{\(graphiteBlock("darkHC"))}}",
+        "html.ss-ic.ss-graphite{\(graphiteBlock("lightHC"))}",
+        "@media (prefers-color-scheme:dark){html.ss-ic.ss-graphite{\(graphiteBlock("darkHC"))}}",
+    ]
+}
+
 func emitCSS(_ t: Tokens) -> String {
     var out = header + "\n"
     out += "/// The reader's Quire custom properties (spec §8.4): every colour as `--q-<token>` for Light, Dark and both\n"
@@ -955,7 +1152,26 @@ func emitCSS(_ t: Tokens) -> String {
     out += "    /// every body document carry the reader's class. Not part of the specimen's head.\n"
     out += "    public static let textSizes: String = [\n"
     for line in cssTextSizes(t) { out += "        \(swiftString(line)),\n" }
-    out += "    ].joined(separator: \"\\n\")\n"
+    out += "    ].joined(separator: \"\\n\")\n\n"
+    out += "    /// The theme ids (spec §4.16), in Settings order; the first is the default.\n"
+    out += "    public static let themeIDs: [String] = [\(t.themes.map { swiftString($0.id) }.joined(separator: ", "))]\n\n"
+    out += "    /// The sheet the reader puts in `<style id=\"ss-theme\">` for theme `id` (spec §4.16): the head's colour selectors,\n"
+    out += "    /// in the head's order, holding only the variables that differ from the default theme's, so it goes after the head\n"
+    out += "    /// and overrides nothing else. Empty for the default theme and for an id no theme has.\n"
+    out += "    public static func themeSheet(_ id: String) -> String {\n"
+    out += "        switch id {\n"
+    for th in t.themes where !cssThemeSheet(t, th).isEmpty {
+        out += "        case \(swiftString(th.id)): return \(memberName(th.id))Sheet\n"
+    }
+    out += "        default: return \"\"\n"
+    out += "        }\n    }\n"
+    for th in t.themes {
+        let lines = cssThemeSheet(t, th)
+        if lines.isEmpty { continue }
+        out += "\n    private static let \(memberName(th.id))Sheet: String = [\n"
+        for line in lines { out += "        \(swiftString(line)),\n" }
+        out += "    ].joined(separator: \"\\n\")\n"
+    }
     out += "}\n"
     return out
 }
@@ -966,32 +1182,43 @@ func emitContrastTests(_ t: Tokens) -> String {
     let groups: [(String, String, [Pair])] = [("contrastPairs", "testContrastPairs", t.pairs("contrastPairs")),
                                               ("graphiteContrastPairs", "testGraphiteContrastPairs", t.pairs("graphiteContrastPairs"))]
     var out = header + "\nimport XCTest\n@testable import SSDesign\n\n"
-    out += "/// Every pair of `contrastPairs` and `graphiteContrastPairs` in all four modes (spec §7, §8.7): colours come from\n"
-    out += "/// the generated providers (Graphite forced off: the Graphite pairs already name the substituted tokens) and\n"
-    out += "/// are composited exactly as docs/design/source/build.py does. A failure here is a token change that broke a\n"
-    out += "/// pair, never a threshold to relax.\n"
+    out += "/// Every pair of `contrastPairs` and `graphiteContrastPairs` in all four modes and in every theme (spec §7, §8.7,\n"
+    out += "/// §4.16): colours come from the generated providers, with the theme set as an override (Graphite forced off: the\n"
+    out += "/// Graphite pairs already name the substituted tokens), and are composited exactly as docs/design/source/build.py\n"
+    out += "/// does. A failure here is a token change that broke a pair, never a threshold to relax.\n"
     out += "final class DesignContrastTests: XCTestCase {\n"
     out += "    override func setUp() {\n        super.setUp()\n        QuireTestEnvironment.forceDefaults()\n    }\n\n"
-    out += "    override func tearDown() {\n        QuireTestEnvironment.reset()\n        super.tearDown()\n    }\n"
+    out += "    override func tearDown() {\n        QuireTestEnvironment.reset()\n        super.tearDown()\n    }\n\n"
+    out += "    private func inEveryTheme(_ body: () -> Void) {\n"
+    out += "        for theme in QuireTheme.allCases {\n"
+    out += "            QuireTestEnvironment.forceDefaults(theme: theme)\n"
+    out += "            body()\n"
+    out += "        }\n"
+    out += "        QuireTestEnvironment.forceDefaults()\n"
+    out += "    }\n"
     let chunk = 40
     for (key, prefix, pairs) in groups {
         for start in stride(from: 0, to: pairs.count, by: chunk) {
             let end = min(start + chunk, pairs.count)
             out += "\n    /// `\(key)[\(start)..<\(end)]`\n"
             out += "    func \(prefix)\(String(format: "%03d", start))() {\n"
+            out += "        inEveryTheme {\n"
             for p in pairs[start..<end] {
                 let fg = "[" + p.fg.map(swiftString).joined(separator: ", ") + "]"
                 let bg = "[" + p.bg.map(swiftString).joined(separator: ", ") + "]"
                 let ic = p.needIC.map { ", needIC: \(swiftNumber($0))" } ?? ""
-                out += "        assertContrast(\(swiftString(p.use)), fg: \(fg), bg: \(bg), need: \(swiftNumber(p.need))\(ic))\n"
+                out += "            assertContrast(\(swiftString(p.use)), fg: \(fg), bg: \(bg), need: \(swiftNumber(p.need))\(ic))\n"
             }
+            out += "        }\n"
             out += "    }\n"
         }
     }
     out += "\n    func testPairCounts() {\n"
-    out += "        // tokens.json lists \(groups[0].2.count) contrast pairs and \(groups[1].2.count) Graphite pairs; a regenerated file must keep them all.\n"
+    out += "        // tokens.json lists \(groups[0].2.count) contrast pairs and \(groups[1].2.count) Graphite pairs, each asserted in \(t.themes.count) themes; a regenerated\n"
+    out += "        // file must keep them all.\n"
     out += "        XCTAssertEqual(DesignTokensFile.shared.pairCount(\"contrastPairs\"), \(groups[0].2.count))\n"
     out += "        XCTAssertEqual(DesignTokensFile.shared.pairCount(\"graphiteContrastPairs\"), \(groups[1].2.count))\n"
+    out += "        XCTAssertEqual(QuireTheme.allCases.count, \(t.themes.count))\n"
     out += "    }\n"
     out += "}\n"
     return out
@@ -1004,13 +1231,21 @@ func emitAccountPaletteTests(_ t: Tokens) -> String {
         return v
     }
     let accountPairs = t.pairs("contrastPairs").filter { $0.fg.count == 1 && $0.fg[0].hasPrefix("account:") }
+    guard let inklessFloor = t.root.require("themeRules", "")["inklessAccentVsAccountMinDE00"]?.double else { fail("themeRules.inklessAccentVsAccountMinDE00 is missing") }
     var out = header + "\nimport XCTest\n@testable import SSDesign\n\n"
-    out += "/// The account palette's rules (`accountRules`, spec §4.2, §8.7): Machado 2009 colour-vision simulation at full\n"
-    out += "/// severity in linear sRGB, then CIEDE2000, mirroring docs/design/source/build.py. Inks come from the generated\n"
-    out += "/// providers, resolved per mode.\n"
+    out += "/// The account palette's rules (`accountRules`, spec §4.2, §8.7) in every theme (§4.16): Machado 2009 colour-vision\n"
+    out += "/// simulation at full severity in linear sRGB, then CIEDE2000, mirroring docs/design/source/build.py. Inks come from\n"
+    out += "/// the generated providers, resolved per mode with the theme set as an override.\n"
     out += "final class AccountPaletteTests: XCTestCase {\n"
     out += "    override func setUp() {\n        super.setUp()\n        QuireTestEnvironment.forceDefaults()\n    }\n\n"
     out += "    override func tearDown() {\n        QuireTestEnvironment.reset()\n        super.tearDown()\n    }\n\n"
+    out += "    private func inEveryTheme(_ body: (QuireTheme) -> Void) {\n"
+    out += "        for theme in QuireTheme.allCases {\n"
+    out += "            QuireTestEnvironment.forceDefaults(theme: theme)\n"
+    out += "            body(theme)\n"
+    out += "        }\n"
+    out += "        QuireTestEnvironment.forceDefaults()\n"
+    out += "    }\n\n"
     let promised = Int(rule("promisedDistinct"))
     out += "    /// `firstSixMinCVD` \(swiftNumber(rule("firstSixMinCVD"))): the first `promisedDistinct` (\(promised)) inks stay apart for normal vision and every dichromacy.\n"
     out += "    func testPromisedInksStayApartUnderEveryVision() {\n"
@@ -1038,20 +1273,95 @@ func emitAccountPaletteTests(_ t: Tokens) -> String {
         ("Star", "star", "minFromStarNormal", "[.normal]"),
     ]
     for (label, token, key, kinds) in refs {
-        out += "    /// `\(key)` \(swiftNumber(rule(key))): no ink sits within that distance of `\(token)`.\n"
+        let floor = token == "accent"
+            ? "theme.isInkless ? \(swiftNumber(inklessFloor)) : \(swiftNumber(rule(key)))"
+            : swiftNumber(rule(key))
+        out += "    /// `\(key)` \(swiftNumber(rule(key))): no ink sits within that distance of `\(token)`, in any theme.\n"
+        if token == "accent" {
+            out += "    /// An inkless theme's ink is its text ink: the rule is read as under Graphite, and the inks keep\n"
+            out += "    /// `themeRules.inklessAccentVsAccountMinDE00` (\(swiftNumber(inklessFloor))) from it instead.\n"
+        }
         out += "    func testInksKeepClearOf\(label)() {\n"
-        out += "        for mode in QuireMode.allCases {\n"
-        out += "            let closest = PaletteMath.closestTo(\(swiftString(token)), mode: mode, kinds: \(kinds))\n"
-        out += "            XCTAssertGreaterThanOrEqual(closest.distance, \(swiftNumber(rule(key))) - 1e-9, \"\\(mode): \\(closest.label)\")\n"
+        out += "        inEveryTheme { theme in\n"
+        out += "            for mode in QuireMode.allCases {\n"
+        out += "                let closest = PaletteMath.closestTo(\(swiftString(token)), mode: mode, kinds: \(kinds))\n"
+        out += "                XCTAssertGreaterThanOrEqual(closest.distance, \(floor) - 1e-9, \"\\(theme) \\(mode): \\(closest.label)\")\n"
+        out += "            }\n"
         out += "        }\n    }\n\n"
     }
     out += "    /// `standardMinContrast` \(swiftNumber(rule("standardMinContrast"))) and `icMinContrast` \(swiftNumber(rule("icMinContrast"))): every surface an account ink is\n"
-    out += "    /// drawn on (the account pairs of `contrastPairs`), held to the rule's floors rather than the pair's own need.\n"
+    out += "    /// drawn on (the account pairs of `contrastPairs`), in every theme, held to the rule's floors rather than the pair's own need.\n"
     out += "    func testInksMeetTheRuleContrastFloors() {\n"
+    out += "        inEveryTheme { _ in\n"
     for p in accountPairs {
         let bg = "[" + p.bg.map(swiftString).joined(separator: ", ") + "]"
-        out += "        assertContrast(\(swiftString(p.use)), fg: [\(swiftString(p.fg[0]))], bg: \(bg), need: \(swiftNumber(rule("standardMinContrast"))), needIC: \(swiftNumber(rule("icMinContrast"))))\n"
+        out += "            assertContrast(\(swiftString(p.use)), fg: [\(swiftString(p.fg[0]))], bg: \(bg), need: \(swiftNumber(rule("standardMinContrast"))), needIC: \(swiftNumber(rule("icMinContrast"))))\n"
     }
+    out += "        }\n"
+    out += "    }\n"
+    out += "}\n"
+    return out
+}
+
+/// The theme rules R0–R11 (spec §4.16) for every theme, with `themeRules`' constants and each theme's declared depth
+/// written in, so a rule or a value edited in tokens.json without regenerating fails here.
+func emitThemeRuleTests(_ t: Tokens) -> String {
+    guard let rules = t.root.require("themeRules", "").object else { fail("themeRules must be an object") }
+    let lookup = Dictionary(uniqueKeysWithValues: rules)
+    func number(_ k: String) -> String { swiftNumber(lookup[k]?.double ?? fail("themeRules.\(k) must be a number")) }
+    func strings(_ k: String) -> String {
+        "[" + (lookup[k]?.array ?? fail("themeRules.\(k) must be a list")).map { swiftString($0.string ?? fail("themeRules.\(k)")) }.joined(separator: ", ") + "]"
+    }
+    func modeStrings(_ v: JSON?, _ k: String, list: Bool) -> String {
+        guard let v else { fail("\(k) is missing") }
+        return "[" + modes.map { m -> String in
+            let x = v.require(m, k)
+            let literal = list ? "[" + (x.array ?? []).map { swiftString($0.string ?? fail(k)) }.joined(separator: ", ") + "]" : swiftString(x.string ?? fail(k))
+            return ".\(m): \(literal)"
+        }.joined(separator: ", ") + "]"
+    }
+    let ratioLock = (lookup["ratioLock"]?.object ?? fail("themeRules.ratioLock must be an object")).map { "(\(swiftString($0.0)), \(swiftString($0.1.string ?? fail("themeRules.ratioLock"))))" }
+    var out = header + "\nimport XCTest\n@testable import SSDesign\n\n"
+    out += "/// The theme rules (`themeRules`, spec §4.16) for every theme, beside the pairs `DesignContrastTests` asserts in every\n"
+    out += "/// theme: the light sheet is the page, the fill stays near the accent asset, the luminance lock and the ratio lock,\n"
+    out += "/// the ink against info, the account inks and the meanings, banners, selection, avatar faces, both link flags and the\n"
+    out += "/// link colour on a sender's page (`ThemeRuleChecks`, mirroring docs/design/source/theme_rules.py).\n"
+    out += "final class ThemeRuleTests: XCTestCase {\n"
+    out += "    private let checks = ThemeRuleChecks(rules: .init(\n"
+    for k in ["sheetWhiteMaxDE00", "sheetMaxChroma", "focusOnPageMinContrast", "fillVsAccentAssetMaxDE00", "neutralLuminanceTolerance",
+              "ratioLockTolerance", "nightInkMinOnFindCurrent", "accentVsInfoMinDE00", "accentVsInfoMinAnyVision", "accentVsAccountMinAnyVision",
+              "inklessAccentVsAccountMinDE00", "accentVsMeaningMinDE00", "textVsMeaningMinAnyVision", "bannerVsPageMinDE00",
+              "selectionKeyVsIdleMinDE00", "avatarFaceVsSurfaceMinDE00", "linkUnderlineMinDE00", "linkUnderlineMinAnyVision"] {
+        out += "        \(k): \(number(k)),\n"
+    }
+    out += "        neutralTokens: \(strings("neutralTokens")),\n"
+    out += "        ratioLock: [\(ratioLock.joined(separator: ", "))],\n"
+    out += "        bannerWashes: \(strings("bannerWashes")),\n"
+    out += "        avatarSurfaces: \(strings("avatarSurfaces")),\n"
+    out += "        pageText: \(modeStrings(lookup["pageText"], "themeRules.pageText", list: true)),\n"
+    out += "        accentAsset: \(modeStrings(lookup["accentAsset"], "themeRules.accentAsset", list: false)),\n"
+    out += "        linkOnPage: \(modeStrings(t.root["linkOnPage"], "linkOnPage", list: false))))\n"
+    for th in t.themes {
+        let deeper = modes.filter { !(th.declaredDeeper[$0] ?? []).isEmpty }.map { m in
+            ".\(m): [\((th.declaredDeeper[m] ?? []).map(swiftString).joined(separator: ", "))]"
+        }
+        out += "\n    func test\(typeName(th.id))KeepsEveryThemeRule() {\n"
+        out += "        XCTAssertEqual(checks.failures(.\(memberName(th.id)), declaredDeeper: [\(deeper.isEmpty ? ":" : deeper.joined(separator: ", "))]), [])\n"
+        out += "    }\n"
+    }
+    out += "\n    /// R0: every theme has every token in every mode, and the default theme is `color` value for value.\n"
+    out += "    func testTheDefaultThemeIsColor() {\n"
+    out += "        XCTAssertEqual(QuireTheme.allCases.first, .\(memberName(t.themes[0].id)))\n"
+    out += "        for token in QuireColorToken.allCases {\n"
+    out += "            XCTAssertEqual(token.values(theme: .\(memberName(t.themes[0].id))), token.values, token.rawValue)\n"
+    out += "        }\n"
+    out += "    }\n"
+    out += "\n    /// The reader offers original colours only in a dark appearance, because the light sheet is the page; a theme that\n"
+    out += "    /// tinted its light sheet would need the reader to adapt in light too.\n"
+    out += "    func testTheSheetIsThePageExactlyWhenTheModeIsLight() {\n"
+    out += "        for theme in QuireTheme.allCases {\n"
+    out += "            for mode in QuireMode.allCases { XCTAssertEqual(theme.sheetIsPage(mode), !mode.isDark, \"\\(theme) \\(mode)\") }\n"
+    out += "        }\n"
     out += "    }\n"
     out += "}\n"
     return out
@@ -1287,11 +1597,13 @@ let outputs: [(String, String)] = [
     ("\(designGenerated)/QuireTokensScales.swift", emitScales(tokens)),
     ("\(designGenerated)/QuireTokensLayout.swift", emitLayout(tokens)),
     ("\(designGenerated)/QuireTokensContent.swift", emitContent(tokens)),
+    ("\(designGenerated)/QuireTokensThemes.swift", emitThemes(tokens)),
     ("Sources/SSCore/ConversationSupport/QuireCSS.swift", emitCSS(tokens)),
     ("\(testsGenerated)/DesignContrastTests.swift", emitContrastTests(tokens)),
     ("\(testsGenerated)/AccountPaletteTests.swift", emitAccountPaletteTests(tokens)),
     ("\(testsGenerated)/RadiusScaleTests.swift", emitRadiusTests(tokens)),
     ("\(testsGenerated)/MetricDriftTests.swift", emitMetricTests(tokens)),
+    ("\(testsGenerated)/ThemeRuleTests.swift", emitThemeRuleTests(tokens)),
     ("Resources/Assets.xcassets/Contents.json", emitAssetCatalogRoot()),
     ("Resources/Assets.xcassets/AccentColor.colorset/Contents.json", emitAccentColorset(tokens)),
 ]

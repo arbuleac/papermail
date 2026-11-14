@@ -13,12 +13,12 @@ struct SettingsSuccessStatus: View {
             if let glyph = QuireSymbol.image(Quire.Icon.success, size: .custom(s.statusGlyph)) {
                 Image(nsImage: glyph)
                     .renderingMode(.template)
-                    .foregroundStyle(Color.qSuccess)
+                    .foregroundStyle(.qSuccess)
             }
             Text(words)
                 .font(.quire(.snippet))
                 .tracking(QuireFont.Role.snippet.tracking)
-                .foregroundStyle(Color.qInk2)
+                .foregroundStyle(.qInk2)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(words)

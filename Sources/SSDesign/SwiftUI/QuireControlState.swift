@@ -14,15 +14,19 @@ public struct QuireControlState: Equatable, Sendable {
     /// The system accent is Graphite (spec §3.1). Colours follow it on their own through the token providers;
     /// this flag carries the one structural change, the link underline at rest.
     public var isGraphite: Bool
+    /// The theme's ink sits too near its text ink for colour alone to mark a link here (spec §4.16): links draw their
+    /// underline at rest, as under Graphite.
+    public var underlinesLinksAtRest: Bool
 
     public init(isHovered: Bool = false, isPressed: Bool = false, isFocused: Bool = false, isEnabled: Bool = true,
-                isWindowKey: Bool = true, isGraphite: Bool = false) {
+                isWindowKey: Bool = true, isGraphite: Bool = false, underlinesLinksAtRest: Bool = false) {
         self.isHovered = isHovered
         self.isPressed = isPressed
         self.isFocused = isFocused
         self.isEnabled = isEnabled
         self.isWindowKey = isWindowKey
         self.isGraphite = isGraphite
+        self.underlinesLinksAtRest = underlinesLinksAtRest
     }
 
     /// The state with `forced` added on top of the live one.

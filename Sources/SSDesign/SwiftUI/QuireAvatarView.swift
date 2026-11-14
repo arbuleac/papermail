@@ -27,7 +27,8 @@ public struct QuireAvatarView: View {
     let monogram: String
     let diameter: CGFloat
     let ringSlot: Int?
-    /// Read in `body`, so SwiftUI redraws the letters when the Font setting changes.
+    /// Read in `body`, so SwiftUI redraws the letters when the Font setting changes. The theme needs no such state:
+    /// an account face's `sheet` and `ink` are shape styles, which follow the environment's theme (spec §4.16).
     @State private var typeface = QuireEnvironment.typeface
 
     /// A sender's avatar, tinted by `address`.
@@ -75,13 +76,13 @@ public struct QuireAvatarView: View {
                     .font(Font(QuireAvatarView.monogramFont(face: face, monogram: monogram, diameter: diameter, typeface: typeface) as CTFont))
                     .foregroundStyle(Color(nsColor: tint.ink))
             case .account(let slot):
-                Circle().fill(Color.qSheet)
+                Circle().fill(.qSheet)
                 Circle().fill(Color.qAccount(slot).opacity(Quire.Layout.Rail.faceAlpha))
                 Text(monogram)
                     .font(Font(QuireAvatarView.monogramFont(face: face, monogram: monogram, diameter: diameter, typeface: typeface) as CTFont))
-                    .foregroundStyle(Color.qInk)
+                    .foregroundStyle(.qInk)
             case .pending:
-                Circle().fill(Color.qFill)
+                Circle().fill(.qFill)
                 QuireSpinner(.medium, delay: 0)
             }
         }
@@ -109,7 +110,7 @@ public struct QuireAvatarView: View {
         } else if face == .pending {
             // The dashed ring's outer edge meets where the account ring's will be.
             Circle()
-                .strokeBorder(Color.qRuleStrong, style: StrokeStyle(lineWidth: Quire.Border.Strong.width,
+                .strokeBorder(.qRuleStrong, style: StrokeStyle(lineWidth: Quire.Border.Strong.width,
                                                                    dash: [QuireAvatarView.pendingDash, QuireAvatarView.pendingDash]))
                 .padding(-outer)
                 .allowsHitTesting(false)

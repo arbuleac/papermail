@@ -2,9 +2,9 @@ import AppKit
 import os
 
 /// The system settings Quire draws differently for (spec §3.1, §3.3): the Graphite accent, Increase Contrast,
-/// Reduce Motion and Reduce Transparency; and the two app settings Quire draws type for, the Font setting
-/// (spec §4.4) and Text size (spec §4.15), which the app sets with `setTypeface(_:)` and `setTextSize(_:)` because
-/// no system setting holds them.
+/// Reduce Motion and Reduce Transparency; the two app settings Quire draws type for, the Font setting (spec §4.4) and
+/// Text size (spec §4.15); and the theme (spec §4.16), which every themed colour provider draws. The app sets those
+/// three with `setTypeface(_:)`, `setTextSize(_:)` and `setTheme(_:)` because no system setting holds them.
 ///
 /// The flags live in a lock-protected snapshot rather than main-actor state because the dynamic colour
 /// providers read `isGraphite`, and AppKit resolves colours on whatever thread draws. Changes are observed
@@ -26,6 +26,8 @@ public final class QuireEnvironment: NSObject, @unchecked Sendable {
         var typeface: QuireFont.Typeface
         /// The app's Text size, kept apart for the same reason.
         var textSize: QuireFont.TextSize
+        /// The app's theme, kept apart for the same reason.
+        var theme: QuireTheme
         var overrides: Overrides
         var current: Snapshot
     }
@@ -34,7 +36,7 @@ public final class QuireEnvironment: NSObject, @unchecked Sendable {
 
     private override init() {
         let system = QuireEnvironment.readSystem()
-        state = OSAllocatedUnfairLock(initialState: State(system: system, typeface: .newYork, textSize: .default,
+        state = OSAllocatedUnfairLock(initialState: State(system: system, typeface: .newYork, textSize: .default, theme: .study,
                                                              overrides: Overrides(), current: system))
         super.init()
         NotificationCenter.default.addObserver(self, selector: #selector(systemSettingsDidChange(_:)),
@@ -62,11 +64,23 @@ public final class QuireEnvironment: NSObject, @unchecked Sendable {
     /// Settings › General › Text size (spec §4.15): Default until the app says otherwise. Only the surfaces where
     /// mail is read and written ask for it.
     public static var textSize: QuireFont.TextSize { shared.snapshot.textSize }
+    /// The theme every themed colour draws (spec §4.16): Study until the app says otherwise.
+    public static var theme: QuireTheme { shared.snapshot.theme }
+
+    /// Whether a link in the ink draws its underline at rest under `appearance` (spec §3.1, §4.16): under Graphite, and
+    /// wherever the theme's ink sits too near its text ink for colour alone to mark a link. Per appearance, because the
+    /// theme's flag is per mode. False for Study outside Graphite in every mode.
+    public static func underlinesLinksAtRest(for appearance: NSAppearance) -> Bool {
+        let s = shared.snapshot
+        return s.isGraphite || s.theme.underlinesLinksAtRest(QuireMode(appearance, environmentContrast: s.increaseContrast))
+    }
 
     /// The part of the environment drawn colours and type depend on: the resolved mode (Increase Contrast
     /// included), the Graphite flag and the typeface. Row and avatar caches key on it, never on window key state
     /// (spec §8.2). Not the Text size, which only the surfaces that ask for it depend on: they add it to their own
-    /// keys, so an avatar face, which no size changes, is never drawn again for one.
+    /// keys, so an avatar face, which no size changes, is never drawn again for one. Not the theme either, for the same
+    /// reason: a sender's face is drawn only from the avatar palette, which no theme changes; the row content and the
+    /// account faces, which draw themed tokens, add it to their keys.
     public static func cacheKey(for appearance: NSAppearance) -> String {
         let s = shared.snapshot
         return "\(QuireMode(appearance).rawValue)|ic\(s.increaseContrast ? 1 : 0)|g\(s.isGraphite ? 1 : 0)|f\(s.typeface.rawValue)"
@@ -101,28 +115,59 @@ public final class QuireEnvironment: NSObject, @unchecked Sendable {
         update { $0.textSize = textSize }
     }
 
+    /// The theme (spec §4.16). Like the Text size: set at launch, before the first window, and on every change, which is
+    /// posted once. A change then marks every view of every window for redrawing (`redrawEveryWindow()`).
+    public func setTheme(_ theme: QuireTheme) {
+        update { $0.theme = theme }
+    }
+
     @objc private func systemSettingsDidChange(_ note: Notification) {
         refresh()
     }
 
     private func update(_ change: (inout State) -> Void) {
-        let changed: Bool = state.withLock { s in
+        let (changed, themeChanged): (Bool, Bool) = state.withLock { s in
             let before = s.current
             change(&s)
             var base = s.system
             base.typeface = s.typeface
             base.textSize = s.textSize
+            base.theme = s.theme
             s.current = QuireEnvironment.apply(s.overrides, to: base)
-            return s.current != before
+            return (s.current != before, s.current.theme != before.theme)
         }
         guard changed else { return }
-        if Thread.isMainThread {
+        let announce = {
             NotificationCenter.default.post(name: QuireEnvironment.didChangeNotification, object: self)
-        } else {
-            DispatchQueue.main.async {
-                NotificationCenter.default.post(name: QuireEnvironment.didChangeNotification, object: self)
-            }
+            if themeChanged { MainActor.assumeIsolated { QuireEnvironment.redrawEveryWindow() } }
         }
+        if Thread.isMainThread {
+            announce()
+        } else {
+            DispatchQueue.main.async(execute: announce)
+        }
+    }
+
+    /// The redraw sweep after a theme change (spec §4.16). Graphite and Increase Contrast touch only accent tokens, which
+    /// every view already resolves while drawing; a theme changes every surface, and views that paint `paper`, `sheet`,
+    /// `rule` or `ink` in `draw(_:)` otherwise redraw only on an appearance change. So every view of every window is
+    /// marked, from the frame view down so the window background redraws too, and a window whose background is a Quire
+    /// token takes it again, because AppKit keeps the resolved background until the colour is assigned.
+    @MainActor
+    static func redrawEveryWindow() {
+        for window in NSApplication.shared.windows {
+            if let background = window.backgroundColor, background.isQuireToken {
+                window.backgroundColor = background
+            }
+            guard let root = window.contentView?.superview ?? window.contentView else { continue }
+            markNeedsDisplay(root)
+        }
+    }
+
+    @MainActor
+    private static func markNeedsDisplay(_ view: NSView) {
+        view.needsDisplay = true
+        for subview in view.subviews { markNeedsDisplay(subview) }
     }
 
     // MARK: System
@@ -133,7 +178,8 @@ public final class QuireEnvironment: NSObject, @unchecked Sendable {
                  reduceMotion: o.reduceMotion ?? s.reduceMotion,
                  reduceTransparency: o.reduceTransparency ?? s.reduceTransparency,
                  typeface: o.typeface ?? s.typeface,
-                 textSize: o.textSize ?? s.textSize)
+                 textSize: o.textSize ?? s.textSize,
+                 theme: o.theme ?? s.theme)
     }
 
     static func readSystem() -> Snapshot {

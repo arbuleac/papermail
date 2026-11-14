@@ -52,31 +52,32 @@ def get(path):
 # ---------------------------------------------------------------- colour resolution
 ACC = {a['name']: a for a in T.ACCOUNTS}
 AV = {a['name']: a for a in T.AVATARS}
-def hexof(tok, mode):
+def hexof(tok, mode, colors=None):
+    """A token's value in `mode`, from `colors` (a theme's table) or Study's `color`."""
     if tok.startswith('account:'):
         return ACC[tok[8:]][mode]
     if tok.startswith('avatarInk:'):
         return AV[tok[10:]][mode][1]
     if tok.startswith('avatarFace:'):
         return AV[tok[11:]][mode][0]
-    return color[tok][mode]
-def resolve_stack(stack, mode):
+    return (color if colors is None else colors)[tok][mode]
+def resolve_stack(stack, mode, colors=None):
     base = stack[0]
     if base.startswith('accountFace:'):
         acct = ACC[base[12:]][mode]
         a = int(round(T.LAYOUT['rail']['faceAlpha'] * 255))
-        cur = c.over(H(acct + '%02X' % a), H(color['sheet'][mode]))
+        cur = c.over(H(acct + '%02X' % a), H(hexof('sheet', mode, colors)))
     else:
-        cur = H(hexof(base, mode))
+        cur = H(hexof(base, mode, colors))
     for t in stack[1:]:
-        cur = c.over(H(hexof(t, mode)), cur)
+        cur = c.over(H(hexof(t, mode, colors)), cur)
     return cur
-def ratio(fg, stack, mode):
-    bg = resolve_stack(stack, mode)
+def ratio(fg, stack, mode, colors=None):
+    bg = resolve_stack(stack, mode, colors)
     if isinstance(fg, list):  # a foreground that is itself a stack (a pressed knob face)
-        f = resolve_stack(fg, mode)
+        f = resolve_stack(fg, mode, colors)
     else:
-        f = H(hexof(fg, mode))
+        f = H(hexof(fg, mode, colors))
     if f[3] < 1:
         f = c.over(f, bg)
     return c.contrast(f, bg)
@@ -128,11 +129,11 @@ for p in ALL_PAIRS:
 tokens['graphite'] = {k: {'value': v[0], 'use': v[1]} for k, v in T.GRAPHITE.items()}
 tokens['graphiteContrastPairs'] = [pair_json(p) for p in GRAPHITE_PAIRS]
 
-def run(pairs):
+def run(pairs, colors=None):
     res, bad = [], []
     for p in pairs:
         use, fg, stack, need = p[:4]
-        vals = {m: ratio(fg, stack, m) for m in MODES}
+        vals = {m: ratio(fg, stack, m, colors) for m in MODES}
         ok = all(v >= need_for(p, m) - 1e-9 for m, v in vals.items())
         res.append((use, fg, stack, need, vals, ok, p[4] if len(p) > 4 else None))
         if not ok:
@@ -144,7 +145,8 @@ fails += g_fails
 
 # ---------------------------------------------------------------- account palette analysis
 from palette2 import BG as PAL_BG
-def acct_analysis():
+def acct_analysis(colors=None):
+    colors = color if colors is None else colors
     out = {}
     for m in MODES:
         labs = [c.cvd_lab(H(a[m])) for a in T.ACCOUNTS]
@@ -170,7 +172,7 @@ def acct_analysis():
         for key in ('accent', 'danger', 'info', 'star', 'success', 'warning'):
             mins = {kind: (1e9, None) for kind in c.KINDS}
             for a in T.ACCOUNTS:
-                d = c.de_all(H(a[m]), H(color[key][m]))
+                d = c.de_all(H(a[m]), H(colors[key][m]))
                 for kind in c.KINDS:
                     if d[kind] < mins[kind][0]:
                         mins[kind] = (d[kind], a['name'])
@@ -179,15 +181,20 @@ def acct_analysis():
     return out
 ACCT = acct_analysis()
 # hard rules enforced by the build (mirrors DesignContrastTests)
-rule_fail = []
-for m in MODES:
-    a = ACCT[m]
-    if a['prefix'][4] < 13.0: rule_fail.append('%s: first six accounts only %.1f dE under CVD' % (m, a['prefix'][4]))
-    if a['prefixN'][8] < 13.0: rule_fail.append('%s: ten accounts only %.1f dE (normal vision)' % (m, a['prefixN'][8]))
-    if a['refs']['accent']['normal'][0] < 15: rule_fail.append('%s: account vs accent %.1f' % (m, a['refs']['accent']['normal'][0]))
-    if min(v[0] for v in a['refs']['danger'].values()) < 10: rule_fail.append('%s: account vs danger under CVD %.1f' % (m, min(v[0] for v in a['refs']['danger'].values())))
-    if a['refs']['info']['normal'][0] < 10: rule_fail.append('%s: account vs info %.1f' % (m, a['refs']['info']['normal'][0]))
-    if a['refs']['star']['normal'][0] < 8: rule_fail.append('%s: account vs star %.1f' % (m, a['refs']['star']['normal'][0]))
+def account_rule_fails(acct, inkless=False):
+    out = []
+    for m in MODES:
+        a = acct[m]
+        if a['prefix'][4] < 13.0: out.append('%s: first six accounts only %.1f dE under CVD' % (m, a['prefix'][4]))
+        if a['prefixN'][8] < 13.0: out.append('%s: ten accounts only %.1f dE (normal vision)' % (m, a['prefixN'][8]))
+        # an inkless theme's ink is its text ink: the rule is read as under the system Graphite accent, which the
+        # account rules never measure; theme rule R5 holds the inks 13 from it instead
+        if a['refs']['accent']['normal'][0] < 15 and not inkless: out.append('%s: account vs accent %.1f' % (m, a['refs']['accent']['normal'][0]))
+        if min(v[0] for v in a['refs']['danger'].values()) < 10: out.append('%s: account vs danger under CVD %.1f' % (m, min(v[0] for v in a['refs']['danger'].values())))
+        if a['refs']['info']['normal'][0] < 10: out.append('%s: account vs info %.1f' % (m, a['refs']['info']['normal'][0]))
+        if a['refs']['star']['normal'][0] < 8: out.append('%s: account vs star %.1f' % (m, a['refs']['star']['normal'][0]))
+    return out
+rule_fail = account_rule_fails(ACCT)
 
 # every radius metric in layout is a scale value, except the listed exceptions
 SCALE = set(v for k, v in T.RADIUS.items() if k != 'pill')
@@ -202,6 +209,80 @@ for path, v in _radii([], T.LAYOUT):
         continue
     if v not in SCALE and not path.endswith('pill'):
         rule_fail.append('radius off scale: layout.%s = %g' % (path, v))
+
+# ---------------------------------------------------------------- themes (§4.16)
+# Every theme is checked as Study is: the same pairs, the same Graphite pairs and the same account rules against its own
+# table, plus the theme rules. A theme that fails anything fails the build, so the values are settled before any Swift.
+import themes_def, themes_lib, theme_rules
+def graphite_values(colors):
+    out = {}
+    for k, (v, _) in T.GRAPHITE.items():
+        out[k] = {m: c.rgb2hex(resolve_stack(v if isinstance(v, list) else [v], m, colors)) for m in MODES}
+    return out
+def page_variables(colors, mode, graphite=None):
+    """`--q-focusOnPage` and `--q-linkOnPage` in `mode` (§5.14): the original-colours page is white in both appearances,
+    so its focus ring is the light (or Light IC) focus; a link its sender left uncoloured keeps Study's accent (R11).
+    Under Graphite both are the theme's Graphite values, so Study under Graphite draws what it drew before themes."""
+    light = 'lightHC' if mode.endswith('HC') else 'light'
+    if graphite is not None:
+        return [('focusOnPage', graphite['focus'][light]), ('linkOnPage', graphite['accent'][mode])]
+    return [('focusOnPage', theme_rules.focus_on_page(colors, mode)), ('linkOnPage', theme_rules.link_on_page(mode))]
+def _passes(res, m):
+    return sum(1 for r in res if r[3] > 0 and r[4][m] >= (r[6] if (r[6] is not None and m in IC_MODES) else r[3]) - 1e-9)
+def _tightest(res, m):
+    best = None
+    for use, fg, stack, need, vals, ok, nic in res:
+        if need < 3: continue
+        nd = nic if (nic is not None and m in IC_MODES) else need
+        if best is None or vals[m] - nd < best[0]:
+            best = (vals[m] - nd, use, vals[m])
+    return [best[1], round(best[2], 3), round(best[0], 3)]
+theme_fail = []
+THEME_RESULTS = []
+for th in themes_def.THEMES:
+    spec = th['spec'] or {}
+    inkless = bool(spec.get('inkless'))
+    tab = themes_lib.table(th)
+    t_res, t_bad = run(ALL_PAIRS, tab)
+    t_gres, t_gbad = run(GRAPHITE_PAIRS, tab)
+    t_acct = acct_analysis(tab)
+    t_rules = account_rule_fails(t_acct, inkless)
+    waived = [r for r in account_rule_fails(t_acct) if r not in t_rules]
+    t_theme, t_flags, t_vals = theme_rules.check(tab, spec, is_default=th['spec'] is None)
+    sheet_page = {m: theme_rules.sheet_is_page(tab, m) for m in MODES}
+    # the reader offers original colours only in dark appearances, because the light sheet is the page (R1)
+    t_theme += ['%s: sheetIsPage is %s' % (m, sheet_page[m]) for m in MODES if sheet_page[m] == m.startswith('dark')]
+    for b in t_bad + t_gbad:
+        theme_fail.append('%s: %s %s' % (th['name'], b[0], b[4]))
+    theme_fail.extend('%s: %s' % (th['name'], r) for r in t_rules + t_theme)
+    THEME_RESULTS.append({'theme': th, 'results': t_res, 'graphiteResults': t_gres, 'waived': waived})
+    tokens.setdefault('themes', []).append({
+        'id': th['id'], 'name': th['name'], 'caption': th['caption'], 'inkless': inkless,
+        'color': {k: {m: tab[k][m] for m in MODES} for k in themes_lib.ORDER},
+        'graphite': graphite_values(tab),
+        'linkUnderlineAtRest': t_flags['links'],
+        'quoteLinkUnderlineAtRest': t_flags['quoteLinks'],
+        'focusOnPage': {m: theme_rules.focus_on_page(tab, m) for m in MODES},
+        'sheetIsPage': sheet_page,
+        'declaredDeeper': {m: [k for k in themes_lib.ORDER if (k, m) in themes_lib.declared(spec)] for m in MODES},
+    })
+    tokens.setdefault('themeChecks', {})[th['id']] = {m: {
+        'pairs': '%d/%d' % (_passes(t_res, m), sum(1 for r in t_res if r[3] > 0)),
+        'graphitePairs': '%d/%d' % (_passes(t_gres, m), len(t_gres)),
+        'tightestPair': _tightest(t_res, m),
+        'tightestGraphitePair': _tightest(t_gres, m),
+        'accountRules': 'pass' if not any(w.startswith(m + ':') for w in waived) else
+                        'pass; "no account ink within 15 of the ink" read as under Graphite (inkless): %s' % '; '.join(w for w in waived if w.startswith(m + ':')),
+        'themeRules': 'pass' if not [r for r in t_theme if r.startswith('R0') or r.split(' ')[1:2] == [m] or r.startswith(m + ':')] else 'FAIL',
+    } for m in MODES}
+tokens['linkOnPage'] = {m: theme_rules.link_on_page(m) for m in MODES}
+tokens['themeRules'] = dict(theme_rules.RULES, accentAsset=themes_lib.ASSET)
+tokens['themeChecks'] = tokens.pop('themeChecks')
+def themes_summary():
+    n = sum(1 for r in results if r[3] > 0)
+    k = len(THEME_RESULTS)
+    return '%d themes × %d pairs × 4 modes = %s checks, plus %d × %d Graphite pairs × 4 = %s, plus the theme rules, %d failures' % (
+        k, n, format(k * n * 4, ','), k, len(g_results), format(k * len(g_results) * 4, ','), len(theme_fail))
 
 # ---------------------------------------------------------------- markdown tables
 def md_table(header, rows):
@@ -366,6 +447,8 @@ def css_block(mode):
     parts = []
     for name, *vals in T.COLOR:
         parts.append('%s:%s' % (css_name(name), color[name][mode]))
+    for name, value in page_variables(color, mode):
+        parts.append('%s:%s' % (css_name(name), value))
     for i, a in enumerate(T.ACCOUNTS, 1):
         parts.append('--q-acct-%d:%s' % (i, a[mode]))
         parts.append('--q-acct-%s:%s' % (a['name'].lower(), a[mode]))
@@ -394,6 +477,8 @@ def css_graphite_block(mode):
     for k, (v, _) in T.GRAPHITE.items():
         st = v if isinstance(v, list) else [v]
         parts.append('%s:%s' % (css_name(k), c.rgb2hex(resolve_stack(st, mode))))
+    for name, value in page_variables(color, mode, graphite_values(color)):
+        parts.append('%s:%s' % (css_name(name), value))
     return ';'.join(parts) + ';'
 def css_all(scope_ic_class='html.ss-ic'):
     out = [css_static(),
@@ -511,6 +596,9 @@ if __name__ == '__main__':
     for r in rule_fail:
         print('RULE FAIL', r)
     print(contrast_summary())
+    for f in theme_fail:
+        print('THEME FAIL', f)
+    print(themes_summary())
     for m in MODES:
         print(m, 'first6 CVD %.1f normal10 %.1f' % (ACCT[m]['prefix'][4], ACCT[m]['prefixN'][8]))
     if os.path.exists('DESIGN-LANGUAGE.template.md'):
@@ -519,5 +607,5 @@ if __name__ == '__main__':
     if os.path.exists('specimen.template.html'):
         open(REPO + '/docs/design/specimen.html', 'w').write(render(open('specimen.template.html').read()))
         print('specimen.html written')
-    if fails or rule_fail:
+    if fails or rule_fail or theme_fail:
         sys.exit(1)

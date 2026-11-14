@@ -87,9 +87,11 @@ public final class QuireAvatarRenderer: @unchecked Sendable {
         "\(QuireEnvironment.cacheKey(for: appearance))|\(diameter)@\(scale)|t\(tint.rawValue)|\(initials)"
     }
 
+    /// The account face cache key: as a sender's, plus the theme, because an account face draws `sheet` and `ink`
+    /// (spec §4.16); a sender's face draws only the avatar palette, which no theme changes.
     public static func accountCacheKey(monogram: String, slot: Int, diameter: CGFloat, appearance: NSAppearance,
                                        scale: CGFloat = 2) -> String {
-        "\(QuireEnvironment.cacheKey(for: appearance))|\(diameter)@\(scale)|a\(slot)|\(monogram)"
+        "\(QuireEnvironment.cacheKey(for: appearance))|th\(QuireEnvironment.theme.rawValue)|\(diameter)@\(scale)|a\(slot)|\(monogram)"
     }
 
     // MARK: Faces

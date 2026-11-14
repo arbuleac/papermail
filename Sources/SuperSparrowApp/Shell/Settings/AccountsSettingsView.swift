@@ -149,6 +149,6 @@ extension View {
             .padding(.bottom, s.padBottom)
             .frame(width: s.width, alignment: .topLeading)
             .fixedSize(horizontal: false, vertical: true)
-            .background(Color.qCanvas)
+            .background(.qCanvas)
     }
 }

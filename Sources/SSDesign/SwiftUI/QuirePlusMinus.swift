@@ -102,7 +102,7 @@ struct QuireJoinedButtonChrome<Label: View>: View {
                                            bottomTrailingRadius: isLeading ? 0 : r, topTrailingRadius: isLeading ? 0 : r,
                                            style: .circular)
         label()
-            .foregroundStyle(a.glyph.swiftUIColor)
+            .foregroundStyle(a.glyph.style)
             .frame(width: side, height: side)
             .background { QuireFace(shape: shape, fill: a.face, edge: a.edge) }
             .overlay {

@@ -96,7 +96,7 @@ public struct QuireButtonAppearance: Equatable, Sendable {
             } else {
                 a.label = state.isPressed ? .ink2 : .accent
             }
-            a.underline = state.isGraphite || (state.isEnabled && (state.isPressed || state.isHovered))
+            a.underline = state.isGraphite || state.underlinesLinksAtRest || (state.isEnabled && (state.isPressed || state.isHovered))
         }
         return a
     }

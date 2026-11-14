@@ -138,7 +138,9 @@ final class ListFooterRowView: NSTableRowView {
     }
 
     /// “Retry”: a link in `metaStrong` `accent` (spec §5.10). Link buttons never take a wash, because the
-    /// accent label must keep 4.5:1; hover and press show as the underline. The hit area is 24 pt tall.
+    /// accent label must keep 4.5:1; hover and press show as the underline, which is there at rest too wherever colour
+    /// alone does not mark a link (under Graphite, and in a theme whose ink sits near its text ink). The hit area is
+    /// 24 pt tall.
     private final class RetryButton: NSControl {
         var onPress: (() -> Void)?
         private var isHovered = false { didSet { needsDisplay = true } }
@@ -215,7 +217,7 @@ final class ListFooterRowView: NSTableRowView {
         override func draw(_ dirtyRect: NSRect) {
             let rect = labelRect
             RetryButton.label.draw(with: rect, options: QuireFont.drawingOptions, context: nil)
-            if isHovered || isPressedDown {
+            if isHovered || isPressedDown || QuireEnvironment.underlinesLinksAtRest(for: effectiveAppearance) {
                 NSColor.qAccent.setFill()
                 NSRect(x: rect.minX, y: rect.maxY - 2, width: rect.width, height: 1).fill()
             }

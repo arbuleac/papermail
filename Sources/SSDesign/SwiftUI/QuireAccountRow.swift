@@ -45,7 +45,7 @@ public struct QuireAccountRow: View {
                         Text(content.name)
                             .quireLine(.bodyStrong)
                             .truncationMode(.tail)
-                            .foregroundStyle(Color.qInk)
+                            .foregroundStyle(.qInk)
                         QuireSettingsTag(content.tag)
                             .fixedSize()
                             .layoutPriority(1)
@@ -64,7 +64,7 @@ public struct QuireAccountRow: View {
         .frame(height: s.accountRow)
         .background {
             if let wash = selection.wash {
-                wash.swiftUIColor
+                Rectangle().fill(wash.style)
             }
         }
         .overlay(alignment: .leading) {
@@ -91,12 +91,12 @@ public struct QuireAccountRow: View {
                 QuireSymbolImage(name: Quire.Icon.signIn, size: .custom(Quire.Layout.Settings.statusGlyph))
                 Text(replacement).quireLine(.snippet)
             }
-            .foregroundStyle(Color.qDanger)
+            .foregroundStyle(.qDanger)
         } else {
             Text(content.address)
                 .quireLine(.snippet)
                 .truncationMode(.tail)
-                .foregroundStyle(Color.qInk2)
+                .foregroundStyle(.qInk2)
         }
     }
 
@@ -116,7 +116,7 @@ struct QuireSettingsMarginRule: View {
         let r = Quire.Border.MarginRule.radius
         UnevenRoundedRectangle(topLeadingRadius: r[0], bottomLeadingRadius: r[3], bottomTrailingRadius: r[2],
                                topTrailingRadius: r[1], style: .circular)
-            .fill(color.swiftUIColor)
+            .fill(color.style)
             .frame(width: Quire.Border.MarginRule.width)
     }
 }
@@ -134,7 +134,7 @@ struct QuireSettingsTag: View {
         Text(text)
             .quireFont(.tag)
             .lineLimit(1)
-            .foregroundStyle(Color.qInk2)
+            .foregroundStyle(.qInk2)
             .padding(.horizontal, t.padX)
             .frame(height: t.height)
             .background {
@@ -159,14 +159,14 @@ struct QuireAccountStatusView: View {
                         EmptyView()
                     case .glyph(let name, let color):
                         QuireSymbolImage(name: name, size: .custom(s.statusGlyph))
-                            .foregroundStyle(color.swiftUIColor)
+                            .foregroundStyle(color.style)
                     case .spinner:
                         QuireSpinner(.small)
                     }
                     if let words = status.words {
                         Text(words)
                             .quireLine(.snippet)
-                            .foregroundStyle(status.wordsColor.swiftUIColor)
+                            .foregroundStyle(status.wordsColor.style)
                     }
                 }
                 .overlay(alignment: .bottomTrailing) {
@@ -198,8 +198,8 @@ struct QuireDeterminateBar: View {
         let p = Quire.Layout.Progress.self
         GeometryReader { geometry in
             ZStack(alignment: .leading) {
-                Capsule(style: .circular).fill(Color.qFill)
-                Capsule(style: .circular).fill(Color.qAccent)
+                Capsule(style: .circular).fill(.qFill)
+                Capsule(style: .circular).fill(.qAccent)
                     .frame(width: geometry.size.width * min(1, max(0, progress)))
             }
         }

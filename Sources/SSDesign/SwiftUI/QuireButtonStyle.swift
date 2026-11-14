@@ -55,12 +55,14 @@ struct QuireButtonChrome<Label: View>: View {
     @Environment(\.isFocused) private var isFocused
     @Environment(\.controlActiveState) private var activeState
     @Environment(\.quireForcedStates) private var forced
+    @Environment(\.quireUnderlinesLinksAtRest) private var underlinesLinksAtRest
     @State private var isHovered = false
 
     var body: some View {
         let state = QuireControlState(isHovered: isHovered, isPressed: isPressed, isFocused: isFocused,
                                       isEnabled: isEnabled, isWindowKey: activeState != .inactive,
-                                      isGraphite: QuireEnvironment.isGraphite).forcing(forced)
+                                      isGraphite: QuireEnvironment.isGraphite,
+                                      underlinesLinksAtRest: underlinesLinksAtRest).forcing(forced)
         let a = QuireButtonAppearance.resolve(variant, size: size, state: state)
         let shape = RoundedRectangle(cornerRadius: a.cornerRadius, style: .circular)
         label()
@@ -71,13 +73,13 @@ struct QuireButtonChrome<Label: View>: View {
                 // own underline takes the font's position and thickness, which crosses the descenders.
                 if a.underline {
                     Rectangle()
-                        .fill(a.label.swiftUIColor)
+                        .fill(a.label.style)
                         .frame(height: Quire.Layout.TextStyle.linkUnderline)
                         .alignmentGuide(.firstTextBaseline) { _ in -Quire.Layout.TextStyle.linkUnderlineOffset }
                         .accessibilityHidden(true)
                 }
             }
-            .foregroundStyle(a.label.swiftUIColor)
+            .foregroundStyle(a.label.style)
             .environment(\.quireButtonSize, size)
             .padding(.horizontal, a.padX)
             .frame(width: a.width, height: a.height)

@@ -40,7 +40,7 @@ public struct QuireSettingsGallery: View {
         .padding(.top, Quire.Layout.Settings.padTop)
         .padding(.horizontal, Quire.Layout.Settings.padX)
         .padding(.bottom, Quire.Layout.Settings.padBottom)
-        .background(Color.qCanvas)
+        .background(.qCanvas)
         .environment(\.controlActiveState, .key)
     }
 }
@@ -57,7 +57,7 @@ struct QuireGallerySection<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Quire.Space.s5) {
-            Text(title).quireLine(.title).foregroundStyle(Color.qInk)
+            Text(title).quireLine(.title).foregroundStyle(.qInk)
             content()
         }
     }
@@ -72,7 +72,7 @@ struct QuireGalleryCaption: View {
     }
 
     var body: some View {
-        Text(text).quireLine(.meta).foregroundStyle(Color.qInk3)
+        Text(text).quireLine(.meta).foregroundStyle(.qInk3)
     }
 }
 
@@ -349,7 +349,7 @@ struct QuireGalleryAccountsEmpty: View {
             .quireForcedStates(.focused)
             QuireAccountRow(QuireAccountRowContent(id: "fabrikam", name: "Fabrikam", tag: "Microsoft 365", address: "alex@fabrikam.test",
                                                    monogram: "F", inkSlot: 2, status: .reconnecting), onAction: {})
-                .background(Color.qSheet)
+                .background(.qSheet)
         }
         .frame(width: Quire.Layout.Settings.width - 2 * Quire.Layout.Settings.padX)
     }
@@ -435,9 +435,9 @@ struct QuireGalleryGeneral: View {
             }
             // The app's field is the composer's AppKit editor; this stands in for it with the same container and lines.
             QuireSettingsRow("Signature", alignment: .top) {
-                (Text("Alex Morgan").bold() + Text("\nContoso · ") + Text("contoso.test").foregroundColor(.qAccent).underline())
+                (Text("Alex Morgan").bold() + Text("\nContoso · ") + Text("contoso.test").foregroundStyle(.qAccent).underline())
                     .quireParagraph(.writing)
-                    .foregroundStyle(Color.qInk)
+                    .foregroundStyle(.qInk)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     .padding(.top, (Quire.Layout.Settings.fieldHeight - QuireFont.Role.writing.lineHeight) / 2)
                     .quireTextAreaStyle(height: Quire.Layout.Settings.signatureFieldHeight, isFocused: false)

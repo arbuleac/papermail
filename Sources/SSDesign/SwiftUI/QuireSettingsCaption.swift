@@ -51,7 +51,7 @@ public struct QuireSettingsCaption: View {
             QuireFieldHelp(text: text)
         } else {
             QuireInlineLinkText(text, link: link, role: .meta, linkRole: .meta)
-                .foregroundStyle(Color.qInk3)
+                .foregroundStyle(.qInk3)
         }
     }
 }

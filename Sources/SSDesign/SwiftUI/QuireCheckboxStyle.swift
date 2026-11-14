@@ -64,7 +64,7 @@ struct QuireChoiceChrome<Label: View>: View {
             QuireChoiceMark(kind: kind, isOn: isOn, appearance: a)
             label()
                 .quireFont(.body)
-                .foregroundStyle(a.label.swiftUIColor)
+                .foregroundStyle(a.label.style)
         }
         .contentShape(Rectangle())
         .onHover { isHovered = $0 }
@@ -92,17 +92,17 @@ struct QuireChoiceMark: View {
                 if mixed {
                     let bar = Quire.Layout.Checkbox.mixedBar
                     RoundedRectangle(cornerRadius: bar[1] / 2, style: .circular)
-                        .fill(a.mark.swiftUIColor)
+                        .fill(a.mark.style)
                         .frame(width: bar[0], height: bar[1])
                 } else if isOn {
                     QuireSymbolImage(name: "checkmark", size: .custom(Quire.Layout.Checkbox.glyph))
-                        .foregroundStyle(a.mark.swiftUIColor)
+                        .foregroundStyle(a.mark.style)
                 }
             case .radio:
                 QuireFace(shape: Circle(), fill: a.face, edge: a.edge)
                 if isOn {
                     Circle()
-                        .fill(a.mark.swiftUIColor)
+                        .fill(a.mark.style)
                         .frame(width: Quire.Layout.Radio.dot, height: Quire.Layout.Radio.dot)
                 }
             }

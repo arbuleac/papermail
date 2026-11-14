@@ -10,15 +10,18 @@ extension QuireEnvironment {
         public var typeface: QuireFont.Typeface?
         /// Wins over the app's Text size, for tests and snapshots at a given size.
         public var textSize: QuireFont.TextSize?
+        /// Wins over the app's theme, so the Design Gallery and renders can show a theme without saving it.
+        public var theme: QuireTheme?
 
         public init(isGraphite: Bool? = nil, increaseContrast: Bool? = nil, reduceMotion: Bool? = nil, reduceTransparency: Bool? = nil,
-                    typeface: QuireFont.Typeface? = nil, textSize: QuireFont.TextSize? = nil) {
+                    typeface: QuireFont.Typeface? = nil, textSize: QuireFont.TextSize? = nil, theme: QuireTheme? = nil) {
             self.isGraphite = isGraphite
             self.increaseContrast = increaseContrast
             self.reduceMotion = reduceMotion
             self.reduceTransparency = reduceTransparency
             self.typeface = typeface
             self.textSize = textSize
+            self.theme = theme
         }
     }
 }

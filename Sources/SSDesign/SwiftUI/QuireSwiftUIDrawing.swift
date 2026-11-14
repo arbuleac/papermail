@@ -3,9 +3,9 @@ import SwiftUI
 // Drawing helpers shared by the SwiftUI styles. Internal: the public surface is the styles and views.
 
 extension QuireColorToken {
-    /// The token as a SwiftUI colour. SwiftUI resolves the dynamic provider for the view's appearance, so the
-    /// same value serves every mode.
-    var swiftUIColor: Color { Color(nsColor: color) }
+    /// The token as a SwiftUI shape style, resolved from the view's environment (its theme, Graphite and Increase
+    /// Contrast), so a switch of any of them redraws in place.
+    var style: QuireColorStyle { QuireColorStyle(self) }
 }
 
 /// A control face: base, wash and inset edge, in one shape.
@@ -16,9 +16,9 @@ struct QuireFace<S: InsettableShape>: View {
 
     var body: some View {
         ZStack {
-            if let base = fill.base { shape.fill(base.swiftUIColor) }
-            if let wash = fill.wash { shape.fill(wash.swiftUIColor) }
-            if let edge { shape.strokeBorder(edge.token.swiftUIColor, lineWidth: edge.width) }
+            if let base = fill.base { shape.fill(base.style) }
+            if let wash = fill.wash { shape.fill(wash.style) }
+            if let edge { shape.strokeBorder(edge.token.style, lineWidth: edge.width) }
         }
     }
 }
@@ -46,7 +46,7 @@ struct QuireFocusRingView: View {
     /// half-point outset would snap the ring onto the control's edge.
     @ViewBuilder
     private func ring(outerOffset: CGFloat, width: CGFloat) -> some View {
-        let color = QuireColorToken.focus.swiftUIColor
+        let color = QuireColorToken.focus.style
         switch shape {
         case .roundedRectangle(let radius):
             RoundedRectangle(cornerRadius: max(0, radius + outerOffset), style: .circular)
@@ -87,7 +87,7 @@ struct QuireSettingsHairline: View {
     var body: some View {
         let width = QuireSettingsHairline.width(displayScale: displayScale, increasedContrast: contrast == .increased)
         Rectangle()
-            .fill(QuireColorToken.rule.swiftUIColor)
+            .fill(QuireColorToken.rule.style)
             .frame(width: axis == .vertical ? width : nil, height: axis == .horizontal ? width : nil)
     }
 

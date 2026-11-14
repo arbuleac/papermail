@@ -16,7 +16,7 @@ public struct QuireSettingsSection: View {
         GridRow {
             Text(title)
                 .quireLine(.title)
-                .foregroundStyle(Color.qInk)
+                .foregroundStyle(.qInk)
                 .accessibilityAddTraits(.isHeader)
                 .padding(.top, isFirst ? 0 : Quire.Layout.Settings.sectionGap)
                 .gridCellColumns(2)

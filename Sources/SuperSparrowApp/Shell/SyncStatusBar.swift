@@ -244,7 +244,7 @@ final class SyncLineActionButton: QuireControl {
         let lineHeight = QuireFont.Role.metaStrong.lineHeight
         let textRect = NSRect(x: face.minX + Self.padX, y: (face.midY - lineHeight / 2).rounded(), width: width + 1, height: lineHeight)
         text.draw(with: textRect, options: QuireFont.drawingOptions, context: nil)
-        if isEnabled, state != .rest || QuireEnvironment.isGraphite {
+        if isEnabled, state != .rest || QuireEnvironment.underlinesLinksAtRest(for: effectiveAppearance) {
             color.setFill()
             NSRect(x: textRect.minX, y: (face.midY + lineHeight / 2 - 2).rounded(), width: width, height: 1).fill()
         }

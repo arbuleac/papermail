@@ -6,112 +6,101 @@ import SwiftUI
 
 // One dynamic provider per colour token (spec §8.2). The provider resolves Light, Dark and both Increase
 // Contrast variants through `bestMatch`; accent-family tokens also carry their Graphite substitution (§3.1),
-// pre-composited per mode by the generator, and return it while `QuireEnvironment.isGraphite` is on.
+// pre-composited per mode by the generator, and return it while `QuireEnvironment.isGraphite` is on. A token
+// that differs across themes (§4.16) carries one set of values per theme, in `QuireTheme` order, and returns the
+// set of `QuireEnvironment`'s theme.
 extension NSColor {
     /// `color.spine`: Account rail (opaque) (surface).
-    public static let qSpine = NSColor.quire("spine", QuireColorValues(light: 0xECE9E1FF, dark: 0x121110FF, lightHC: 0xE4E0D6FF, darkHC: 0x080807FF))
+    public static let qSpine = NSColor.quire("spine", themes: QuireThemeTable.spine)
     /// `color.paper`: List pane, list and reader headers, composer chrome, quick-reply bar, welcome (surface).
-    public static let qPaper = NSColor.quire("paper", QuireColorValues(light: 0xFBFAF6FF, dark: 0x1C1B18FF, lightHC: 0xFDFCFAFF, darkHC: 0x121110FF))
+    public static let qPaper = NSColor.quire("paper", themes: QuireThemeTable.paper)
     /// `color.canvas`: Reader desk behind sheets, Settings window background (surface).
-    public static let qCanvas = NSColor.quire("canvas", QuireColorValues(light: 0xF4F2ECFF, dark: 0x171614FF, lightHC: 0xF1EFE9FF, darkHC: 0x0D0C0BFF))
+    public static let qCanvas = NSColor.quire("canvas", themes: QuireThemeTable.canvas)
     /// `color.sheet`: Message sheets and stack, fields, composer body, Settings groups (surface).
-    public static let qSheet = NSColor.quire("sheet", QuireColorValues(light: 0xFFFEFBFF, dark: 0x24221FFF, lightHC: 0xFFFFFFFF, darkHC: 0x1C1B19FF))
+    public static let qSheet = NSColor.quire("sheet", themes: QuireThemeTable.sheet)
     /// `color.raised`: Selected rail tile (folder or All Inboxes), secondary button face, keycaps, popovers, cheat sheet (surface).
-    public static let qRaised = NSColor.quire("raised", QuireColorValues(light: 0xFFFFFFFF, dark: 0x2C2A26FF, lightHC: 0xFFFFFFFF, darkHC: 0x252320FF))
+    public static let qRaised = NSColor.quire("raised", themes: QuireThemeTable.raised)
     /// `color.slip`: Toast, undo-send panel, g-sequence HUD (a dark slip in both appearances) (surface).
-    public static let qSlip = NSColor.quire("slip", QuireColorValues(light: 0x24221FFF, dark: 0x36332EFF, lightHC: 0x12100EFF, darkHC: 0x2E2B27FF))
+    public static let qSlip = NSColor.quire("slip", themes: QuireThemeTable.slip)
     /// `color.slipEdge`: 1 pt edge around the slip in dark appearances (surface).
     public static let qSlipEdge = NSColor.quire("slipEdge", QuireColorValues(light: 0x00000000, dark: 0xFFFFFF1A, lightHC: 0x00000000, darkHC: 0xFFFFFF73))
     /// `color.knob`: Toggle knob face (its boundary is the 1 pt ruleStrong knob edge, layout.toggle) (surface).
     /// Under Graphite: `paper`.
-    public static let qKnob = NSColor.quire("knob", QuireColorValues(light: 0xFFFFFFFF, dark: 0xDCD7CEFF, lightHC: 0xFFFFFFFF, darkHC: 0xFFFFFFFF),
-        graphite: QuireColorValues(light: 0xFBFAF6FF, dark: 0x1C1B18FF, lightHC: 0xFDFCFAFF, darkHC: 0x121110FF))
+    public static let qKnob = NSColor.quire("knob", themes: QuireThemeTable.knob, graphite: QuireThemeTable.knobGraphite)
     /// `color.originalPage`: Page under a styled message shown in its original colours (drawn only in dark appearances: the sender designed for white) (surface).
     public static let qOriginalPage = NSColor.quire("originalPage", QuireColorValues(light: 0xFFFFFFFF, dark: 0xFFFFFFFF, lightHC: 0xFFFFFFFF, darkHC: 0xFFFFFFFF))
     /// `color.scrimSolid`: The cheat-sheet scrim under Reduce Transparency: opaque, the value `scrim` gives over `canvas`, so the window behind is hidden instead of dimmed (surface).
-    public static let qScrimSolid = NSColor.quire("scrimSolid", QuireColorValues(light: 0xB8B6B1FF, dark: 0x0B0B0AFF, lightHC: 0x9C9A95FF, darkHC: 0x050504FF))
+    public static let qScrimSolid = NSColor.quire("scrimSolid", themes: QuireThemeTable.scrimSolid)
     /// `color.ink`: Primary text, headlines, active quick-reply mode underline (ink).
-    public static let qInk = NSColor.quire("ink", QuireColorValues(light: 0x1D1B18FF, dark: 0xEDE9E2FF, lightHC: 0x0F0E0CFF, darkHC: 0xFFFFFFFF))
+    public static let qInk = NSColor.quire("ink", themes: QuireThemeTable.ink)
     /// `color.ink2`: Secondary text and resting glyphs: snippets, recipients, labels, icons (ink).
-    public static let qInk2 = NSColor.quire("ink2", QuireColorValues(light: 0x55504AFF, dark: 0xB8B2A8FF, lightHC: 0x3A3631FF, darkHC: 0xDCD7CEFF))
+    public static let qInk2 = NSColor.quire("ink2", themes: QuireThemeTable.ink2)
     /// `color.ink3`: Tertiary text: times, running heads, placeholders, captions; idle selection rule (ink).
-    public static let qInk3 = NSColor.quire("ink3", QuireColorValues(light: 0x625C55FF, dark: 0xA8A297FF, lightHC: 0x4A4540FF, darkHC: 0xC8C2B8FF))
+    public static let qInk3 = NSColor.quire("ink3", themes: QuireThemeTable.ink3)
     /// `color.inkDisabled`: Disabled text and glyphs only (exempt from contrast minimums) (ink).
-    public static let qInkDisabled = NSColor.quire("inkDisabled", QuireColorValues(light: 0xA9A398FF, dark: 0x5F5A53FF, lightHC: 0x8A8479FF, darkHC: 0x7D776FFF))
+    public static let qInkDisabled = NSColor.quire("inkDisabled", themes: QuireThemeTable.inkDisabled)
     /// `color.onSlip`: Text and glyphs on the slip (ink).
-    public static let qOnSlip = NSColor.quire("onSlip", QuireColorValues(light: 0xF3F0EAFF, dark: 0xEDE9E2FF, lightHC: 0xFFFFFFFF, darkHC: 0xFFFFFFFF))
+    public static let qOnSlip = NSColor.quire("onSlip", themes: QuireThemeTable.onSlip)
     /// `color.onSlip2`: Secondary text and glyphs on the slip; keycap legends on a resting slip action (onSlip while it is hovered or pressed) (ink).
-    public static let qOnSlip2 = NSColor.quire("onSlip2", QuireColorValues(light: 0xB8B2A8FF, dark: 0xC2BCB2FF, lightHC: 0xD9D4CBFF, darkHC: 0xDCD7CEFF))
+    public static let qOnSlip2 = NSColor.quire("onSlip2", themes: QuireThemeTable.onSlip2)
     /// `color.rule`: Decorative hairline: row separators, pane dividers, sheet edges, header bottoms (line).
-    public static let qRule = NSColor.quire("rule", QuireColorValues(light: 0xE4E0D7FF, dark: 0x34312DFF, lightHC: 0xB9B3A8FF, darkHC: 0x55514AFF))
+    public static let qRule = NSColor.quire("rule", themes: QuireThemeTable.rule)
     /// `color.ruleStrong`: State-bearing 1 pt edge (>= 3:1): fields, search, checkbox, toggle-off track, secondary buttons, tags (line).
-    public static let qRuleStrong = NSColor.quire("ruleStrong", QuireColorValues(light: 0x7F796FFF, dark: 0x8B857BFF, lightHC: 0x5E5952FF, darkHC: 0xA39D93FF))
+    public static let qRuleStrong = NSColor.quire("ruleStrong", themes: QuireThemeTable.ruleStrong)
     /// `color.onSlipEdge`: Keycap outline, toast divider and the undo panel's resting action outline on the slip (>= 3:1 on slip) (line).
-    public static let qOnSlipEdge = NSColor.quire("onSlipEdge", QuireColorValues(light: 0xF3F0EA73, dark: 0xEDE9E273, lightHC: 0xFFFFFF80, darkHC: 0xFFFFFF80))
+    public static let qOnSlipEdge = NSColor.quire("onSlipEdge", themes: QuireThemeTable.onSlipEdge)
     /// `color.hover`: Pointer hover wash (never on selected rows) (wash).
-    public static let qHover = NSColor.quire("hover", QuireColorValues(light: 0x1D1B180C, dark: 0xEDE9E20E, lightHC: 0x1D1B1812, darkHC: 0xFFFFFF17))
+    public static let qHover = NSColor.quire("hover", themes: QuireThemeTable.hover)
     /// `color.pressed`: Pressed wash (wash).
-    public static let qPressed = NSColor.quire("pressed", QuireColorValues(light: 0x1D1B1817, dark: 0xEDE9E21A, lightHC: 0x1D1B1821, darkHC: 0xFFFFFF26))
+    public static let qPressed = NSColor.quire("pressed", themes: QuireThemeTable.pressed)
     /// `color.fill`: Quiet fill: count badge, quoted-text toggle, address token, toggle-off track, skeleton (a composer picture still being prepared) (wash).
-    public static let qFill = NSColor.quire("fill", QuireColorValues(light: 0x1D1B180F, dark: 0xEDE9E214, lightHC: 0x1D1B1817, darkHC: 0xFFFFFF1F))
+    public static let qFill = NSColor.quire("fill", themes: QuireThemeTable.fill)
     /// `color.slipHover`: Hover wash on slip actions (wash).
-    public static let qSlipHover = NSColor.quire("slipHover", QuireColorValues(light: 0xF3F0EA24, dark: 0xEDE9E21F, lightHC: 0xFFFFFF2E, darkHC: 0xFFFFFF33))
+    public static let qSlipHover = NSColor.quire("slipHover", themes: QuireThemeTable.slipHover)
     /// `color.slipPressed`: Pressed wash on slip actions (wash).
-    public static let qSlipPressed = NSColor.quire("slipPressed", QuireColorValues(light: 0xF3F0EA38, dark: 0xEDE9E233, lightHC: 0xFFFFFF42, darkHC: 0xFFFFFF47))
+    public static let qSlipPressed = NSColor.quire("slipPressed", themes: QuireThemeTable.slipPressed)
     /// `color.scrim`: Dimming behind the cheat-sheet overlay, the only app-drawn modal surface and the only translucent app-drawn surface (AppKit dims system sheets itself) (wash).
-    public static let qScrim = NSColor.quire("scrim", QuireColorValues(light: 0x1D1B1847, dark: 0x00000080, lightHC: 0x1D1B1866, darkHC: 0x00000099))
+    public static let qScrim = NSColor.quire("scrim", themes: QuireThemeTable.scrim)
     /// `color.accent`: Iron Gall as a mark: unread pip, unread time, links, margin rule, progress (accent).
     /// Under Graphite: `ink`.
-    public static let qAccent = NSColor.quire("accent", QuireColorValues(light: 0x1E5468FF, dark: 0x6DB6C9FF, lightHC: 0x123E4DFF, darkHC: 0x93D3E3FF),
-        graphite: QuireColorValues(light: 0x1D1B18FF, dark: 0xEDE9E2FF, lightHC: 0x0F0E0CFF, darkHC: 0xFFFFFFFF))
+    public static let qAccent = NSColor.quire("accent", themes: QuireThemeTable.accent, graphite: QuireThemeTable.accentGraphite)
     /// `color.accentFill`: Iron Gall as a fill: primary button, unread count badge, checkbox/toggle on, selected token, NSAccentColor (accent).
     /// Under Graphite: `ink`.
-    public static let qAccentFill = NSColor.quire("accentFill", QuireColorValues(light: 0x1E5468FF, dark: 0x2D788BFF, lightHC: 0x123E4DFF, darkHC: 0x246F83FF),
-        graphite: QuireColorValues(light: 0x1D1B18FF, dark: 0xEDE9E2FF, lightHC: 0x0F0E0CFF, darkHC: 0xFFFFFFFF))
+    public static let qAccentFill = NSColor.quire("accentFill", themes: QuireThemeTable.accentFill, graphite: QuireThemeTable.accentFillGraphite)
     /// `color.accentFillHover`: Primary button hover; checkbox and radio on, hover (>= 3:1 on sheet and canvas, white label >= 4.5:1) (accent).
     /// Under Graphite: `ink2`.
-    public static let qAccentFillHover = NSColor.quire("accentFillHover", QuireColorValues(light: 0x18475AFF, dark: 0x307F93FF, lightHC: 0x0D3240FF, darkHC: 0x27788CFF),
-        graphite: QuireColorValues(light: 0x55504AFF, dark: 0xB8B2A8FF, lightHC: 0x3A3631FF, darkHC: 0xDCD7CEFF))
+    public static let qAccentFillHover = NSColor.quire("accentFillHover", themes: QuireThemeTable.accentFillHover, graphite: QuireThemeTable.accentFillHoverGraphite)
     /// `color.accentFillPressed`: Primary button pressed only (darker in every mode, white label >= 4.5:1). Never a control's on fill: it falls below 3:1 on dark surfaces (accent).
     /// Under Graphite: `ink3`.
-    public static let qAccentFillPressed = NSColor.quire("accentFillPressed", QuireColorValues(light: 0x123A4AFF, dark: 0x286C7EFF, lightHC: 0x082733FF, darkHC: 0x1F6375FF),
-        graphite: QuireColorValues(light: 0x625C55FF, dark: 0xA8A297FF, lightHC: 0x4A4540FF, darkHC: 0xC8C2B8FF))
+    public static let qAccentFillPressed = NSColor.quire("accentFillPressed", themes: QuireThemeTable.accentFillPressed, graphite: QuireThemeTable.accentFillPressedGraphite)
     /// `color.controlOnPressed`: Checkbox and radio on, pressed: darker in light modes, lighter in dark modes, so the only mark of the on state keeps >= 3:1 on sheet and canvas (toggles show the press on the knob instead) (accent).
     /// Under Graphite: `ink3`.
-    public static let qControlOnPressed = NSColor.quire("controlOnPressed", QuireColorValues(light: 0x123A4AFF, dark: 0x368699FF, lightHC: 0x082733FF, darkHC: 0x2A7E95FF),
-        graphite: QuireColorValues(light: 0x625C55FF, dark: 0xA8A297FF, lightHC: 0x4A4540FF, darkHC: 0xC8C2B8FF))
+    public static let qControlOnPressed = NSColor.quire("controlOnPressed", themes: QuireThemeTable.controlOnPressed, graphite: QuireThemeTable.controlOnPressedGraphite)
     /// `color.onAccent`: Text and glyphs on accentFill (accent).
     /// Under Graphite: `paper`.
-    public static let qOnAccent = NSColor.quire("onAccent", QuireColorValues(light: 0xFFFFFFFF, dark: 0xFFFFFFFF, lightHC: 0xFFFFFFFF, darkHC: 0xFFFFFFFF),
-        graphite: QuireColorValues(light: 0xFBFAF6FF, dark: 0x1C1B18FF, lightHC: 0xFDFCFAFF, darkHC: 0x121110FF))
+    public static let qOnAccent = NSColor.quire("onAccent", themes: QuireThemeTable.onAccent, graphite: QuireThemeTable.onAccentGraphite)
     /// `color.accentWash`: On state of quiet toggles (Hide quoted text, Original colors action, composer format toggles) (accent).
     /// Under Graphite: `selWashIdle`.
-    public static let qAccentWash = NSColor.quire("accentWash", QuireColorValues(light: 0xDCE8EAFF, dark: 0x1F363CFF, lightHC: 0xC8DCE0FF, darkHC: 0x1A4049FF),
-        graphite: QuireColorValues(light: 0xEAE7DFFF, dark: 0x2B2925FF, lightHC: 0xDCD8CEFF, darkHC: 0x302D29FF))
+    public static let qAccentWash = NSColor.quire("accentWash", themes: QuireThemeTable.accentWash, graphite: QuireThemeTable.accentWashGraphite)
     /// `color.accentWashHover`: Quiet toggle on, hover (accent).
     /// Under Graphite: `selWashIdle` + `hover`.
-    public static let qAccentWashHover = NSColor.quire("accentWashHover", QuireColorValues(light: 0xD2E2E5FF, dark: 0x233D44FF, lightHC: 0xBDD5DAFF, darkHC: 0x1F4A55FF),
-        graphite: QuireColorValues(light: 0xE0DDD6FF, dark: 0x36342FFF, lightHC: 0xCFCBC1FF, darkHC: 0x43403CFF))
+    public static let qAccentWashHover = NSColor.quire("accentWashHover", themes: QuireThemeTable.accentWashHover, graphite: QuireThemeTable.accentWashHoverGraphite)
     /// `color.accentWashPressed`: Quiet toggle on, pressed (darker in every mode: the toggle is pushed in) (accent).
     /// Under Graphite: `selWashIdle` + `pressed`.
-    public static let qAccentWashPressed = NSColor.quire("accentWashPressed", QuireColorValues(light: 0xC8DBDFFF, dark: 0x182D33FF, lightHC: 0xB2CDD3FF, darkHC: 0x15363EFF),
-        graphite: QuireColorValues(light: 0xD8D5CDFF, dark: 0x3F3D38FF, lightHC: 0xC3C0B6FF, darkHC: 0x4F4C49FF))
+    public static let qAccentWashPressed = NSColor.quire("accentWashPressed", themes: QuireThemeTable.accentWashPressed, graphite: QuireThemeTable.accentWashPressedGraphite)
     /// `color.focus`: Keyboard focus ring (accent).
     /// Under Graphite: `ink`.
-    public static let qFocus = NSColor.quire("focus", QuireColorValues(light: 0x1E5468FF, dark: 0x6DB6C9FF, lightHC: 0x123E4DFF, darkHC: 0x93D3E3FF),
-        graphite: QuireColorValues(light: 0x1D1B18FF, dark: 0xEDE9E2FF, lightHC: 0x0F0E0CFF, darkHC: 0xFFFFFFFF))
+    public static let qFocus = NSColor.quire("focus", themes: QuireThemeTable.focus, graphite: QuireThemeTable.focusGraphite)
     /// `color.selWash`: Selected row (main window key) and selected Settings account row (Settings key) (accent).
     /// Under Graphite: `selWashIdle`.
-    public static let qSelWash = NSColor.quire("selWash", QuireColorValues(light: 0xD0E0E5FF, dark: 0x213A41FF, lightHC: 0xC2D6DCFF, darkHC: 0x1A4049FF),
-        graphite: QuireColorValues(light: 0xEAE7DFFF, dark: 0x2B2925FF, lightHC: 0xDCD8CEFF, darkHC: 0x302D29FF))
+    public static let qSelWash = NSColor.quire("selWash", themes: QuireThemeTable.selWash, graphite: QuireThemeTable.selWashGraphite)
     /// `color.selRule`: 3 pt margin rule of the selection, window key (accent).
     /// Under Graphite: `ink`.
-    public static let qSelRule = NSColor.quire("selRule", QuireColorValues(light: 0x1E5468FF, dark: 0x6DB6C9FF, lightHC: 0x123E4DFF, darkHC: 0x93D3E3FF),
-        graphite: QuireColorValues(light: 0x1D1B18FF, dark: 0xEDE9E2FF, lightHC: 0x0F0E0CFF, darkHC: 0xFFFFFFFF))
+    public static let qSelRule = NSColor.quire("selRule", themes: QuireThemeTable.selRule, graphite: QuireThemeTable.selRuleGraphite)
     /// `color.selWashIdle`: Selected row, window not key (accent).
-    public static let qSelWashIdle = NSColor.quire("selWashIdle", QuireColorValues(light: 0xEAE7DFFF, dark: 0x2B2925FF, lightHC: 0xDCD8CEFF, darkHC: 0x302D29FF))
+    public static let qSelWashIdle = NSColor.quire("selWashIdle", themes: QuireThemeTable.selWashIdle)
     /// `color.selRuleIdle`: 3 pt margin rule of the selection, window not key (>= 3:1, always drawn) (accent).
-    public static let qSelRuleIdle = NSColor.quire("selRuleIdle", QuireColorValues(light: 0x625C55FF, dark: 0xA8A297FF, lightHC: 0x4A4540FF, darkHC: 0xC8C2B8FF))
+    public static let qSelRuleIdle = NSColor.quire("selRuleIdle", themes: QuireThemeTable.selRuleIdle)
     /// `color.star`: Star glyph (always the filled shape) (semantic).
     public static let qStar = NSColor.quire("star", QuireColorValues(light: 0x7A5500FF, dark: 0xE0B04AFF, lightHC: 0x5E4100FF, darkHC: 0xF0C565FF))
     /// `color.success`: Success text and glyph (semantic).
@@ -123,13 +112,13 @@ extension NSColor {
     /// `color.info`: Info text and glyph (semantic).
     public static let qInfo = NSColor.quire("info", QuireColorValues(light: 0x365693FF, dark: 0x97B0E6FF, lightHC: 0x24417AFF, darkHC: 0xB8CBF2FF))
     /// `color.successWash`: Success banner (semantic).
-    public static let qSuccessWash = NSColor.quire("successWash", QuireColorValues(light: 0xE5EFE5FF, dark: 0x1D2E21FF, lightHC: 0xD3E6D5FF, darkHC: 0x1E3A25FF))
+    public static let qSuccessWash = NSColor.quire("successWash", themes: QuireThemeTable.successWash)
     /// `color.warningWash`: Warning banner (Original colors notice) (semantic).
     public static let qWarningWash = NSColor.quire("warningWash", QuireColorValues(light: 0xF6ECD8FF, dark: 0x33291AFF, lightHC: 0xEEDDBAFF, darkHC: 0x3F311AFF))
     /// `color.dangerWash`: Error banner, invalid token (semantic).
     public static let qDangerWash = NSColor.quire("dangerWash", QuireColorValues(light: 0xF8E3DFFF, dark: 0x3A201CFF, lightHC: 0xF0CEC8FF, darkHC: 0x4A231EFF))
     /// `color.infoWash`: Info banner (semantic).
-    public static let qInfoWash = NSColor.quire("infoWash", QuireColorValues(light: 0xE4EAF5FF, dark: 0x1E2638FF, lightHC: 0xD0DAEEFF, darkHC: 0x22304AFF))
+    public static let qInfoWash = NSColor.quire("infoWash", themes: QuireThemeTable.infoWash)
     /// `color.findWash`: Every match of Find in conversation, behind text set in `ink` (opaque, so it reads on any page a sender designed) (semantic).
     public static let qFindWash = NSColor.quire("findWash", QuireColorValues(light: 0xF2DF9FFF, dark: 0x3E3420FF, lightHC: 0xEFD893FF, darkHC: 0x463A1EFF))
     /// `color.findCurrent`: The current match of Find in conversation, behind text in `ink`, with a 1 pt `ruleStrong` ring (semantic).
@@ -199,6 +188,434 @@ extension Color {
     public static let qDangerFillHover = Color(nsColor: .qDangerFillHover)
     public static let qDangerFillPressed = Color(nsColor: .qDangerFillPressed)
     public static let qOnDanger = Color(nsColor: .qOnDanger)
+}
+
+// `.qInk`, `.qCanvas`, … wherever SwiftUI takes a shape style: resolved from the view's `quireTheme`, so a theme
+// switch redraws in place (spec §4.16).
+extension ShapeStyle where Self == QuireColorStyle {
+    public static var qSpine: QuireColorStyle { QuireColorStyle(.spine) }
+    public static var qPaper: QuireColorStyle { QuireColorStyle(.paper) }
+    public static var qCanvas: QuireColorStyle { QuireColorStyle(.canvas) }
+    public static var qSheet: QuireColorStyle { QuireColorStyle(.sheet) }
+    public static var qRaised: QuireColorStyle { QuireColorStyle(.raised) }
+    public static var qSlip: QuireColorStyle { QuireColorStyle(.slip) }
+    public static var qSlipEdge: QuireColorStyle { QuireColorStyle(.slipEdge) }
+    public static var qKnob: QuireColorStyle { QuireColorStyle(.knob) }
+    public static var qOriginalPage: QuireColorStyle { QuireColorStyle(.originalPage) }
+    public static var qScrimSolid: QuireColorStyle { QuireColorStyle(.scrimSolid) }
+    public static var qInk: QuireColorStyle { QuireColorStyle(.ink) }
+    public static var qInk2: QuireColorStyle { QuireColorStyle(.ink2) }
+    public static var qInk3: QuireColorStyle { QuireColorStyle(.ink3) }
+    public static var qInkDisabled: QuireColorStyle { QuireColorStyle(.inkDisabled) }
+    public static var qOnSlip: QuireColorStyle { QuireColorStyle(.onSlip) }
+    public static var qOnSlip2: QuireColorStyle { QuireColorStyle(.onSlip2) }
+    public static var qRule: QuireColorStyle { QuireColorStyle(.rule) }
+    public static var qRuleStrong: QuireColorStyle { QuireColorStyle(.ruleStrong) }
+    public static var qOnSlipEdge: QuireColorStyle { QuireColorStyle(.onSlipEdge) }
+    public static var qHover: QuireColorStyle { QuireColorStyle(.hover) }
+    public static var qPressed: QuireColorStyle { QuireColorStyle(.pressed) }
+    public static var qFill: QuireColorStyle { QuireColorStyle(.fill) }
+    public static var qSlipHover: QuireColorStyle { QuireColorStyle(.slipHover) }
+    public static var qSlipPressed: QuireColorStyle { QuireColorStyle(.slipPressed) }
+    public static var qScrim: QuireColorStyle { QuireColorStyle(.scrim) }
+    public static var qAccent: QuireColorStyle { QuireColorStyle(.accent) }
+    public static var qAccentFill: QuireColorStyle { QuireColorStyle(.accentFill) }
+    public static var qAccentFillHover: QuireColorStyle { QuireColorStyle(.accentFillHover) }
+    public static var qAccentFillPressed: QuireColorStyle { QuireColorStyle(.accentFillPressed) }
+    public static var qControlOnPressed: QuireColorStyle { QuireColorStyle(.controlOnPressed) }
+    public static var qOnAccent: QuireColorStyle { QuireColorStyle(.onAccent) }
+    public static var qAccentWash: QuireColorStyle { QuireColorStyle(.accentWash) }
+    public static var qAccentWashHover: QuireColorStyle { QuireColorStyle(.accentWashHover) }
+    public static var qAccentWashPressed: QuireColorStyle { QuireColorStyle(.accentWashPressed) }
+    public static var qFocus: QuireColorStyle { QuireColorStyle(.focus) }
+    public static var qSelWash: QuireColorStyle { QuireColorStyle(.selWash) }
+    public static var qSelRule: QuireColorStyle { QuireColorStyle(.selRule) }
+    public static var qSelWashIdle: QuireColorStyle { QuireColorStyle(.selWashIdle) }
+    public static var qSelRuleIdle: QuireColorStyle { QuireColorStyle(.selRuleIdle) }
+    public static var qStar: QuireColorStyle { QuireColorStyle(.star) }
+    public static var qSuccess: QuireColorStyle { QuireColorStyle(.success) }
+    public static var qWarning: QuireColorStyle { QuireColorStyle(.warning) }
+    public static var qDanger: QuireColorStyle { QuireColorStyle(.danger) }
+    public static var qInfo: QuireColorStyle { QuireColorStyle(.info) }
+    public static var qSuccessWash: QuireColorStyle { QuireColorStyle(.successWash) }
+    public static var qWarningWash: QuireColorStyle { QuireColorStyle(.warningWash) }
+    public static var qDangerWash: QuireColorStyle { QuireColorStyle(.dangerWash) }
+    public static var qInfoWash: QuireColorStyle { QuireColorStyle(.infoWash) }
+    public static var qFindWash: QuireColorStyle { QuireColorStyle(.findWash) }
+    public static var qFindCurrent: QuireColorStyle { QuireColorStyle(.findCurrent) }
+    public static var qDangerFill: QuireColorStyle { QuireColorStyle(.dangerFill) }
+    public static var qDangerFillHover: QuireColorStyle { QuireColorStyle(.dangerFillHover) }
+    public static var qDangerFillPressed: QuireColorStyle { QuireColorStyle(.dangerFillPressed) }
+    public static var qOnDanger: QuireColorStyle { QuireColorStyle(.onDanger) }
+}
+
+/// Every themed token's values per theme, in `QuireTheme` order: static integers, so a theme never drawn costs no
+/// colour object.
+enum QuireThemeTable {
+    static let spine: [QuireColorValues] = [
+        QuireColorValues(light: 0xECE9E1FF, dark: 0x121110FF, lightHC: 0xE4E0D6FF, darkHC: 0x080807FF),
+        QuireColorValues(light: 0xE9E9E9FF, dark: 0x111111FF, lightHC: 0xE0E0E0FF, darkHC: 0x080808FF),
+        QuireColorValues(light: 0xDEEBF2FF, dark: 0x0B1215FF, lightHC: 0xD2E3EBFF, darkHC: 0x01090EFF),
+        QuireColorValues(light: 0xE5EBE0FF, dark: 0x0F120DFF, lightHC: 0xDCE2D6FF, darkHC: 0x060902FF),
+        QuireColorValues(light: 0xEBE8F4FF, dark: 0x0E0C12FF, lightHC: 0xE2DEECFF, darkHC: 0x06050CFF),
+    ]
+    static let paper: [QuireColorValues] = [
+        QuireColorValues(light: 0xFBFAF6FF, dark: 0x1C1B18FF, lightHC: 0xFDFCFAFF, darkHC: 0x121110FF),
+        QuireColorValues(light: 0xFAFAFAFF, dark: 0x1B1B1BFF, lightHC: 0xFCFCFCFF, darkHC: 0x111111FF),
+        QuireColorValues(light: 0xF5FBFEFF, dark: 0x171C1EFF, lightHC: 0xF9FDFEFF, darkHC: 0x0B1215FF),
+        QuireColorValues(light: 0xF8FBF5FF, dark: 0x191C17FF, lightHC: 0xFBFDFAFF, darkHC: 0x0F120DFF),
+        QuireColorValues(light: 0xFBF9FFFF, dark: 0x161519FF, lightHC: 0xFCFCFFFF, darkHC: 0x0E0C12FF),
+    ]
+    static let canvas: [QuireColorValues] = [
+        QuireColorValues(light: 0xF4F2ECFF, dark: 0x171614FF, lightHC: 0xF1EFE9FF, darkHC: 0x0D0C0BFF),
+        QuireColorValues(light: 0xF2F2F2FF, dark: 0x161616FF, lightHC: 0xEFEFEFFF, darkHC: 0x0C0C0CFF),
+        QuireColorValues(light: 0xEAF4F8FF, dark: 0x121719FF, lightHC: 0xE7F1F5FF, darkHC: 0x050D11FF),
+        QuireColorValues(light: 0xEFF4EBFF, dark: 0x151713FF, lightHC: 0xECF1E8FF, darkHC: 0x0A0D07FF),
+        QuireColorValues(light: 0xF3F1FAFF, dark: 0x121015FF, lightHC: 0xF0EEF7FF, darkHC: 0x0A080EFF),
+    ]
+    static let sheet: [QuireColorValues] = [
+        QuireColorValues(light: 0xFFFEFBFF, dark: 0x24221FFF, lightHC: 0xFFFFFFFF, darkHC: 0x1C1B19FF),
+        QuireColorValues(light: 0xFEFEFEFF, dark: 0x222222FF, lightHC: 0xFFFFFFFF, darkHC: 0x1B1B1BFF),
+        QuireColorValues(light: 0xFDFEFFFF, dark: 0x1E2326FF, lightHC: 0xFFFFFFFF, darkHC: 0x171C1EFF),
+        QuireColorValues(light: 0xFEFFFDFF, dark: 0x21231EFF, lightHC: 0xFFFFFFFF, darkHC: 0x1A1C18FF),
+        QuireColorValues(light: 0xFEFEFFFF, dark: 0x1C1B20FF, lightHC: 0xFFFFFFFF, darkHC: 0x161519FF),
+    ]
+    static let raised: [QuireColorValues] = [
+        QuireColorValues(light: 0xFFFFFFFF, dark: 0x2C2A26FF, lightHC: 0xFFFFFFFF, darkHC: 0x252320FF),
+        QuireColorValues(light: 0xFFFFFFFF, dark: 0x2A2A2AFF, lightHC: 0xFFFFFFFF, darkHC: 0x232323FF),
+        QuireColorValues(light: 0xFFFFFFFF, dark: 0x242B2FFF, lightHC: 0xFFFFFFFF, darkHC: 0x1F2427FF),
+        QuireColorValues(light: 0xFFFFFFFF, dark: 0x282B25FF, lightHC: 0xFFFFFFFF, darkHC: 0x22241FFF),
+        QuireColorValues(light: 0xFFFFFFFF, dark: 0x232228FF, lightHC: 0xFFFFFFFF, darkHC: 0x1D1C21FF),
+    ]
+    static let slip: [QuireColorValues] = [
+        QuireColorValues(light: 0x24221FFF, dark: 0x36332EFF, lightHC: 0x12100EFF, darkHC: 0x2E2B27FF),
+        QuireColorValues(light: 0x222222FF, dark: 0x333333FF, lightHC: 0x101010FF, darkHC: 0x2B2B2BFF),
+        QuireColorValues(light: 0x1E2326FF, dark: 0x2C3539FF, lightHC: 0x0D1113FF, darkHC: 0x252D30FF),
+        QuireColorValues(light: 0x21231EFF, dark: 0x31352DFF, lightHC: 0x0F110DFF, darkHC: 0x292D26FF),
+        QuireColorValues(light: 0x232226FF, dark: 0x34323AFF, lightHC: 0x111013FF, darkHC: 0x2C2B31FF),
+    ]
+    static let knob: [QuireColorValues] = [
+        QuireColorValues(light: 0xFFFFFFFF, dark: 0xDCD7CEFF, lightHC: 0xFFFFFFFF, darkHC: 0xFFFFFFFF),
+        QuireColorValues(light: 0xFAFAFAFF, dark: 0x1B1B1BFF, lightHC: 0xFCFCFCFF, darkHC: 0x111111FF),
+        QuireColorValues(light: 0xFFFFFFFF, dark: 0xCBDAE2FF, lightHC: 0xFFFFFFFF, darkHC: 0xFFFFFFFF),
+        QuireColorValues(light: 0xFFFFFFFF, dark: 0xD3DACDFF, lightHC: 0xFFFFFFFF, darkHC: 0xFFFFFFFF),
+        QuireColorValues(light: 0xFFFFFFFF, dark: 0xD9D6E3FF, lightHC: 0xFFFFFFFF, darkHC: 0xFFFFFFFF),
+    ]
+    static let knobGraphite: [QuireColorValues] = [
+        QuireColorValues(light: 0xFBFAF6FF, dark: 0x1C1B18FF, lightHC: 0xFDFCFAFF, darkHC: 0x121110FF),
+        QuireColorValues(light: 0xFAFAFAFF, dark: 0x1B1B1BFF, lightHC: 0xFCFCFCFF, darkHC: 0x111111FF),
+        QuireColorValues(light: 0xF5FBFEFF, dark: 0x171C1EFF, lightHC: 0xF9FDFEFF, darkHC: 0x0B1215FF),
+        QuireColorValues(light: 0xF8FBF5FF, dark: 0x191C17FF, lightHC: 0xFBFDFAFF, darkHC: 0x0F120DFF),
+        QuireColorValues(light: 0xFBF9FFFF, dark: 0x161519FF, lightHC: 0xFCFCFFFF, darkHC: 0x0E0C12FF),
+    ]
+    static let scrimSolid: [QuireColorValues] = [
+        QuireColorValues(light: 0xB8B6B1FF, dark: 0x0B0B0AFF, lightHC: 0x9C9A95FF, darkHC: 0x050504FF),
+        QuireColorValues(light: 0xB6B6B6FF, dark: 0x0B0B0BFF, lightHC: 0x9A9A9AFF, darkHC: 0x050505FF),
+        QuireColorValues(light: 0xAFB8BCFF, dark: 0x090B0CFF, lightHC: 0x949C9FFF, darkHC: 0x020507FF),
+        QuireColorValues(light: 0xB4B8B0FF, dark: 0x0A0B09FF, lightHC: 0x989C94FF, darkHC: 0x040503FF),
+        QuireColorValues(light: 0xB7B5BDFF, dark: 0x09080AFF, lightHC: 0x9B9AA1FF, darkHC: 0x040306FF),
+    ]
+    static let ink: [QuireColorValues] = [
+        QuireColorValues(light: 0x1D1B18FF, dark: 0xEDE9E2FF, lightHC: 0x0F0E0CFF, darkHC: 0xFFFFFFFF),
+        QuireColorValues(light: 0x1B1B1BFF, dark: 0xE9E9E9FF, lightHC: 0x0E0E0EFF, darkHC: 0xFFFFFFFF),
+        QuireColorValues(light: 0x181C1EFF, dark: 0xE2EBF0FF, lightHC: 0x0C0F10FF, darkHC: 0xFFFFFFFF),
+        QuireColorValues(light: 0x1A1C18FF, dark: 0xE6EBE2FF, lightHC: 0x0D0E0CFF, darkHC: 0xFFFFFFFF),
+        QuireColorValues(light: 0x1C1B1FFF, dark: 0xE6E3ECFF, lightHC: 0x0E0E10FF, darkHC: 0xFFFFFFFF),
+    ]
+    static let ink2: [QuireColorValues] = [
+        QuireColorValues(light: 0x55504AFF, dark: 0xB8B2A8FF, lightHC: 0x3A3631FF, darkHC: 0xDCD7CEFF),
+        QuireColorValues(light: 0x515151FF, dark: 0xB3B3B3FF, lightHC: 0x373737FF, darkHC: 0xD7D7D7FF),
+        QuireColorValues(light: 0x495257FF, dark: 0xA7B5BCFF, lightHC: 0x30383BFF, darkHC: 0xCDDAE0FF),
+        QuireColorValues(light: 0x4E524AFF, dark: 0xAEB5A9FF, lightHC: 0x343831FF, darkHC: 0xD4D9CFFF),
+        QuireColorValues(light: 0x525058FF, dark: 0xB4B1BEFF, lightHC: 0x37363CFF, darkHC: 0xD9D6E1FF),
+    ]
+    static let ink3: [QuireColorValues] = [
+        QuireColorValues(light: 0x625C55FF, dark: 0xA8A297FF, lightHC: 0x4A4540FF, darkHC: 0xC8C2B8FF),
+        QuireColorValues(light: 0x5D5D5DFF, dark: 0xA3A3A3FF, lightHC: 0x464646FF, darkHC: 0xC3C3C3FF),
+        QuireColorValues(light: 0x545F64FF, dark: 0x96A5ACFF, lightHC: 0x3F474BFF, darkHC: 0xB7C5CCFF),
+        QuireColorValues(light: 0x5A5E55FF, dark: 0x9EA599FF, lightHC: 0x434740FF, darkHC: 0xBEC5B9FF),
+        QuireColorValues(light: 0x5E5C65FF, dark: 0xA4A1ADFF, lightHC: 0x47454CFF, darkHC: 0xC4C1CEFF),
+    ]
+    static let inkDisabled: [QuireColorValues] = [
+        QuireColorValues(light: 0xA9A398FF, dark: 0x5F5A53FF, lightHC: 0x8A8479FF, darkHC: 0x7D776FFF),
+        QuireColorValues(light: 0xA4A4A4FF, dark: 0x5B5B5BFF, lightHC: 0x858585FF, darkHC: 0x787878FF),
+        QuireColorValues(light: 0x97A6ADFF, dark: 0x525C61FF, lightHC: 0x78878EFF, darkHC: 0x6E7A7FFF),
+        QuireColorValues(light: 0x9FA69AFF, dark: 0x575C53FF, lightHC: 0x80877BFF, darkHC: 0x747A6FFF),
+        QuireColorValues(light: 0xA5A2AEFF, dark: 0x5C5963FF, lightHC: 0x86838FFF, darkHC: 0x797681FF),
+    ]
+    static let onSlip: [QuireColorValues] = [
+        QuireColorValues(light: 0xF3F0EAFF, dark: 0xEDE9E2FF, lightHC: 0xFFFFFFFF, darkHC: 0xFFFFFFFF),
+        QuireColorValues(light: 0xF0F0F0FF, dark: 0xE9E9E9FF, lightHC: 0xFFFFFFFF, darkHC: 0xFFFFFFFF),
+        QuireColorValues(light: 0xEAF2F6FF, dark: 0xE2EBF0FF, lightHC: 0xFFFFFFFF, darkHC: 0xFFFFFFFF),
+        QuireColorValues(light: 0xEEF2EAFF, dark: 0xE6EBE2FF, lightHC: 0xFFFFFFFF, darkHC: 0xFFFFFFFF),
+        QuireColorValues(light: 0xF1EFF7FF, dark: 0xEAE8F1FF, lightHC: 0xFFFFFFFF, darkHC: 0xFFFFFFFF),
+    ]
+    static let onSlip2: [QuireColorValues] = [
+        QuireColorValues(light: 0xB8B2A8FF, dark: 0xC2BCB2FF, lightHC: 0xD9D4CBFF, darkHC: 0xDCD7CEFF),
+        QuireColorValues(light: 0xB3B3B3FF, dark: 0xBDBDBDFF, lightHC: 0xD4D4D4FF, darkHC: 0xD7D7D7FF),
+        QuireColorValues(light: 0xA7B5BCFF, dark: 0xB1BFC6FF, lightHC: 0xCAD7DDFF, darkHC: 0xCDDAE0FF),
+        QuireColorValues(light: 0xAEB5A9FF, dark: 0xB8BFB3FF, lightHC: 0xD1D6CCFF, darkHC: 0xD4D9CFFF),
+        QuireColorValues(light: 0xB4B1BEFF, dark: 0xBEBBC8FF, lightHC: 0xD6D3DEFF, darkHC: 0xD9D6E1FF),
+    ]
+    static let rule: [QuireColorValues] = [
+        QuireColorValues(light: 0xE4E0D7FF, dark: 0x34312DFF, lightHC: 0xB9B3A8FF, darkHC: 0x55514AFF),
+        QuireColorValues(light: 0xE0E0E0FF, dark: 0x313131FF, lightHC: 0xB4B4B4FF, darkHC: 0x515151FF),
+        QuireColorValues(light: 0xD4E3EAFF, dark: 0x2B3336FF, lightHC: 0xA6B6BEFF, darkHC: 0x475359FF),
+        QuireColorValues(light: 0xDCE3D6FF, dark: 0x2F332CFF, lightHC: 0xAFB6AAFF, darkHC: 0x4E5349FF),
+        QuireColorValues(light: 0xE2DFECFF, dark: 0x2D2B32FF, lightHC: 0xB5B2BFFF, darkHC: 0x4F4D57FF),
+    ]
+    static let ruleStrong: [QuireColorValues] = [
+        QuireColorValues(light: 0x7F796FFF, dark: 0x8B857BFF, lightHC: 0x5E5952FF, darkHC: 0xA39D93FF),
+        QuireColorValues(light: 0x7A7A7AFF, dark: 0x868686FF, lightHC: 0x5A5A5AFF, darkHC: 0x9E9E9EFF),
+        QuireColorValues(light: 0x6D7C83FF, dark: 0x79888FFF, lightHC: 0x4F5C62FF, darkHC: 0x91A0A8FF),
+        QuireColorValues(light: 0x767C70FF, dark: 0x82887CFF, lightHC: 0x565C51FF, darkHC: 0x99A094FF),
+        QuireColorValues(light: 0x7B7884FF, dark: 0x878490FF, lightHC: 0x5B5863FF, darkHC: 0x9F9CA8FF),
+    ]
+    static let onSlipEdge: [QuireColorValues] = [
+        QuireColorValues(light: 0xF3F0EA73, dark: 0xEDE9E273, lightHC: 0xFFFFFF80, darkHC: 0xFFFFFF80),
+        QuireColorValues(light: 0xF0F0F073, dark: 0xE9E9E973, lightHC: 0xFFFFFF80, darkHC: 0xFFFFFF80),
+        QuireColorValues(light: 0xEAF2F673, dark: 0xE2EBF073, lightHC: 0xFFFFFF80, darkHC: 0xFFFFFF80),
+        QuireColorValues(light: 0xEEF2EA73, dark: 0xE6EBE273, lightHC: 0xFFFFFF80, darkHC: 0xFFFFFF80),
+        QuireColorValues(light: 0xF1EFF773, dark: 0xEAE8F173, lightHC: 0xFFFFFF80, darkHC: 0xFFFFFF80),
+    ]
+    static let hover: [QuireColorValues] = [
+        QuireColorValues(light: 0x1D1B180C, dark: 0xEDE9E20E, lightHC: 0x1D1B1812, darkHC: 0xFFFFFF17),
+        QuireColorValues(light: 0x1B1B1B0C, dark: 0xE9E9E90E, lightHC: 0x1B1B1B12, darkHC: 0xFFFFFF17),
+        QuireColorValues(light: 0x171C1F0C, dark: 0xE0EBF10E, lightHC: 0x171C1F12, darkHC: 0xFFFFFF17),
+        QuireColorValues(light: 0x1A1C170C, dark: 0xE6EBE10E, lightHC: 0x1A1C1712, darkHC: 0xFFFFFF17),
+        QuireColorValues(light: 0x1C1B200C, dark: 0xEBE8F30E, lightHC: 0x1C1B2012, darkHC: 0xFFFFFF17),
+    ]
+    static let pressed: [QuireColorValues] = [
+        QuireColorValues(light: 0x1D1B1817, dark: 0xEDE9E21A, lightHC: 0x1D1B1821, darkHC: 0xFFFFFF26),
+        QuireColorValues(light: 0x1B1B1B17, dark: 0xE9E9E91A, lightHC: 0x1B1B1B21, darkHC: 0xFFFFFF26),
+        QuireColorValues(light: 0x171C1F17, dark: 0xE0EBF11A, lightHC: 0x171C1F21, darkHC: 0xFFFFFF26),
+        QuireColorValues(light: 0x1A1C1717, dark: 0xE6EBE11A, lightHC: 0x1A1C1721, darkHC: 0xFFFFFF26),
+        QuireColorValues(light: 0x1C1B2017, dark: 0xEBE8F31A, lightHC: 0x1C1B2021, darkHC: 0xFFFFFF26),
+    ]
+    static let fill: [QuireColorValues] = [
+        QuireColorValues(light: 0x1D1B180F, dark: 0xEDE9E214, lightHC: 0x1D1B1817, darkHC: 0xFFFFFF1F),
+        QuireColorValues(light: 0x1B1B1B0F, dark: 0xE9E9E914, lightHC: 0x1B1B1B17, darkHC: 0xFFFFFF1F),
+        QuireColorValues(light: 0x171C1F0F, dark: 0xE0EBF114, lightHC: 0x171C1F17, darkHC: 0xFFFFFF1F),
+        QuireColorValues(light: 0x1A1C170F, dark: 0xE6EBE114, lightHC: 0x1A1C1717, darkHC: 0xFFFFFF1F),
+        QuireColorValues(light: 0x1C1B200F, dark: 0xEBE8F314, lightHC: 0x1C1B2017, darkHC: 0xFFFFFF1F),
+    ]
+    static let slipHover: [QuireColorValues] = [
+        QuireColorValues(light: 0xF3F0EA24, dark: 0xEDE9E21F, lightHC: 0xFFFFFF2E, darkHC: 0xFFFFFF33),
+        QuireColorValues(light: 0xF0F0F024, dark: 0xE9E9E91F, lightHC: 0xFFFFFF2E, darkHC: 0xFFFFFF33),
+        QuireColorValues(light: 0xE8F2F724, dark: 0xE0EBF11F, lightHC: 0xFFFFFF2E, darkHC: 0xFFFFFF33),
+        QuireColorValues(light: 0xEDF2E924, dark: 0xE6EBE11F, lightHC: 0xFFFFFF2E, darkHC: 0xFFFFFF33),
+        QuireColorValues(light: 0xF1EFF824, dark: 0xEBE8F31F, lightHC: 0xFFFFFF2E, darkHC: 0xFFFFFF33),
+    ]
+    static let slipPressed: [QuireColorValues] = [
+        QuireColorValues(light: 0xF3F0EA38, dark: 0xEDE9E233, lightHC: 0xFFFFFF42, darkHC: 0xFFFFFF47),
+        QuireColorValues(light: 0xF0F0F038, dark: 0xE9E9E933, lightHC: 0xFFFFFF42, darkHC: 0xFFFFFF47),
+        QuireColorValues(light: 0xE8F2F738, dark: 0xE0EBF133, lightHC: 0xFFFFFF42, darkHC: 0xFFFFFF47),
+        QuireColorValues(light: 0xEDF2E938, dark: 0xE6EBE133, lightHC: 0xFFFFFF42, darkHC: 0xFFFFFF47),
+        QuireColorValues(light: 0xF1EFF838, dark: 0xEBE8F333, lightHC: 0xFFFFFF42, darkHC: 0xFFFFFF47),
+    ]
+    static let scrim: [QuireColorValues] = [
+        QuireColorValues(light: 0x1D1B1847, dark: 0x00000080, lightHC: 0x1D1B1866, darkHC: 0x00000099),
+        QuireColorValues(light: 0x1B1B1B47, dark: 0x00000080, lightHC: 0x1B1B1B66, darkHC: 0x00000099),
+        QuireColorValues(light: 0x171C1F47, dark: 0x00000080, lightHC: 0x171C1F66, darkHC: 0x00000099),
+        QuireColorValues(light: 0x1A1C1747, dark: 0x00000080, lightHC: 0x1A1C1766, darkHC: 0x00000099),
+        QuireColorValues(light: 0x1C1B2047, dark: 0x00000080, lightHC: 0x1C1B2066, darkHC: 0x00000099),
+    ]
+    static let accent: [QuireColorValues] = [
+        QuireColorValues(light: 0x1E5468FF, dark: 0x6DB6C9FF, lightHC: 0x123E4DFF, darkHC: 0x93D3E3FF),
+        QuireColorValues(light: 0x1B1B1BFF, dark: 0xE9E9E9FF, lightHC: 0x0E0E0EFF, darkHC: 0xFFFFFFFF),
+        QuireColorValues(light: 0x0C3E45FF, dark: 0x66CAD8FF, lightHC: 0x00323DFF, darkHC: 0x83D6E2FF),
+        QuireColorValues(light: 0x013A3DFF, dark: 0x86D8DAFF, lightHC: 0x002C31FF, darkHC: 0x8CD6D6FF),
+        QuireColorValues(light: 0x00556EFF, dark: 0x77C8F4FF, lightHC: 0x053D4EFF, darkHC: 0xACE7FFFF),
+    ]
+    static let accentGraphite: [QuireColorValues] = [
+        QuireColorValues(light: 0x1D1B18FF, dark: 0xEDE9E2FF, lightHC: 0x0F0E0CFF, darkHC: 0xFFFFFFFF),
+        QuireColorValues(light: 0x1B1B1BFF, dark: 0xE9E9E9FF, lightHC: 0x0E0E0EFF, darkHC: 0xFFFFFFFF),
+        QuireColorValues(light: 0x181C1EFF, dark: 0xE2EBF0FF, lightHC: 0x0C0F10FF, darkHC: 0xFFFFFFFF),
+        QuireColorValues(light: 0x1A1C18FF, dark: 0xE6EBE2FF, lightHC: 0x0D0E0CFF, darkHC: 0xFFFFFFFF),
+        QuireColorValues(light: 0x1C1B1FFF, dark: 0xE6E3ECFF, lightHC: 0x0E0E10FF, darkHC: 0xFFFFFFFF),
+    ]
+    static let accentFill: [QuireColorValues] = [
+        QuireColorValues(light: 0x1E5468FF, dark: 0x2D788BFF, lightHC: 0x123E4DFF, darkHC: 0x246F83FF),
+        QuireColorValues(light: 0x1B1B1BFF, dark: 0xE9E9E9FF, lightHC: 0x0E0E0EFF, darkHC: 0xFFFFFFFF),
+        QuireColorValues(light: 0x27555BFF, dark: 0x017B87FF, lightHC: 0x103F4AFF, darkHC: 0x03727EFF),
+        QuireColorValues(light: 0x22555AFF, dark: 0x247A7EFF, lightHC: 0x173F44FF, darkHC: 0x147278FF),
+        QuireColorValues(light: 0x00556EFF, dark: 0x1E779CFF, lightHC: 0x083E4FFF, darkHC: 0x276E86FF),
+    ]
+    static let accentFillGraphite: [QuireColorValues] = [
+        QuireColorValues(light: 0x1D1B18FF, dark: 0xEDE9E2FF, lightHC: 0x0F0E0CFF, darkHC: 0xFFFFFFFF),
+        QuireColorValues(light: 0x1B1B1BFF, dark: 0xE9E9E9FF, lightHC: 0x0E0E0EFF, darkHC: 0xFFFFFFFF),
+        QuireColorValues(light: 0x181C1EFF, dark: 0xE2EBF0FF, lightHC: 0x0C0F10FF, darkHC: 0xFFFFFFFF),
+        QuireColorValues(light: 0x1A1C18FF, dark: 0xE6EBE2FF, lightHC: 0x0D0E0CFF, darkHC: 0xFFFFFFFF),
+        QuireColorValues(light: 0x1C1B1FFF, dark: 0xE6E3ECFF, lightHC: 0x0E0E10FF, darkHC: 0xFFFFFFFF),
+    ]
+    static let accentFillHover: [QuireColorValues] = [
+        QuireColorValues(light: 0x18475AFF, dark: 0x307F93FF, lightHC: 0x0D3240FF, darkHC: 0x27788CFF),
+        QuireColorValues(light: 0x515151FF, dark: 0xB3B3B3FF, lightHC: 0x373737FF, darkHC: 0xD7D7D7FF),
+        QuireColorValues(light: 0x1F484EFF, dark: 0x01828FFF, lightHC: 0x09333DFF, darkHC: 0x007A87FF),
+        QuireColorValues(light: 0x1A484CFF, dark: 0x268185FF, lightHC: 0x103337FF, darkHC: 0x167A80FF),
+        QuireColorValues(light: 0x00485EFF, dark: 0x207EA5FF, lightHC: 0x033341FF, darkHC: 0x2B7790FF),
+    ]
+    static let accentFillHoverGraphite: [QuireColorValues] = [
+        QuireColorValues(light: 0x55504AFF, dark: 0xB8B2A8FF, lightHC: 0x3A3631FF, darkHC: 0xDCD7CEFF),
+        QuireColorValues(light: 0x515151FF, dark: 0xB3B3B3FF, lightHC: 0x373737FF, darkHC: 0xD7D7D7FF),
+        QuireColorValues(light: 0x495257FF, dark: 0xA7B5BCFF, lightHC: 0x30383BFF, darkHC: 0xCDDAE0FF),
+        QuireColorValues(light: 0x4E524AFF, dark: 0xAEB5A9FF, lightHC: 0x343831FF, darkHC: 0xD4D9CFFF),
+        QuireColorValues(light: 0x525058FF, dark: 0xB4B1BEFF, lightHC: 0x37363CFF, darkHC: 0xD9D6E1FF),
+    ]
+    static let accentFillPressed: [QuireColorValues] = [
+        QuireColorValues(light: 0x123A4AFF, dark: 0x286C7EFF, lightHC: 0x082733FF, darkHC: 0x1F6375FF),
+        QuireColorValues(light: 0x5D5D5DFF, dark: 0xA3A3A3FF, lightHC: 0x464646FF, darkHC: 0xC3C3C3FF),
+        QuireColorValues(light: 0x183B3FFF, dark: 0x016F7AFF, lightHC: 0x052830FF, darkHC: 0x016570FF),
+        QuireColorValues(light: 0x143B3FFF, dark: 0x1F6E71FF, lightHC: 0x0A282CFF, darkHC: 0x0F656AFF),
+        QuireColorValues(light: 0x003B4EFF, dark: 0x196B8DFF, lightHC: 0x012834FF, darkHC: 0x216278FF),
+    ]
+    static let accentFillPressedGraphite: [QuireColorValues] = [
+        QuireColorValues(light: 0x625C55FF, dark: 0xA8A297FF, lightHC: 0x4A4540FF, darkHC: 0xC8C2B8FF),
+        QuireColorValues(light: 0x5D5D5DFF, dark: 0xA3A3A3FF, lightHC: 0x464646FF, darkHC: 0xC3C3C3FF),
+        QuireColorValues(light: 0x545F64FF, dark: 0x96A5ACFF, lightHC: 0x3F474BFF, darkHC: 0xB7C5CCFF),
+        QuireColorValues(light: 0x5A5E55FF, dark: 0x9EA599FF, lightHC: 0x434740FF, darkHC: 0xBEC5B9FF),
+        QuireColorValues(light: 0x5E5C65FF, dark: 0xA4A1ADFF, lightHC: 0x47454CFF, darkHC: 0xC4C1CEFF),
+    ]
+    static let controlOnPressed: [QuireColorValues] = [
+        QuireColorValues(light: 0x123A4AFF, dark: 0x368699FF, lightHC: 0x082733FF, darkHC: 0x2A7E95FF),
+        QuireColorValues(light: 0x5D5D5DFF, dark: 0xA3A3A3FF, lightHC: 0x464646FF, darkHC: 0xC3C3C3FF),
+        QuireColorValues(light: 0x183B3FFF, dark: 0x008997FF, lightHC: 0x052830FF, darkHC: 0x01818EFF),
+        QuireColorValues(light: 0x143B3FFF, dark: 0x2E888CFF, lightHC: 0x0A282CFF, darkHC: 0x158188FF),
+        QuireColorValues(light: 0x003B4EFF, dark: 0x2985ADFF, lightHC: 0x012834FF, darkHC: 0x2C7D98FF),
+    ]
+    static let controlOnPressedGraphite: [QuireColorValues] = [
+        QuireColorValues(light: 0x625C55FF, dark: 0xA8A297FF, lightHC: 0x4A4540FF, darkHC: 0xC8C2B8FF),
+        QuireColorValues(light: 0x5D5D5DFF, dark: 0xA3A3A3FF, lightHC: 0x464646FF, darkHC: 0xC3C3C3FF),
+        QuireColorValues(light: 0x545F64FF, dark: 0x96A5ACFF, lightHC: 0x3F474BFF, darkHC: 0xB7C5CCFF),
+        QuireColorValues(light: 0x5A5E55FF, dark: 0x9EA599FF, lightHC: 0x434740FF, darkHC: 0xBEC5B9FF),
+        QuireColorValues(light: 0x5E5C65FF, dark: 0xA4A1ADFF, lightHC: 0x47454CFF, darkHC: 0xC4C1CEFF),
+    ]
+    static let onAccent: [QuireColorValues] = [
+        QuireColorValues(light: 0xFFFFFFFF, dark: 0xFFFFFFFF, lightHC: 0xFFFFFFFF, darkHC: 0xFFFFFFFF),
+        QuireColorValues(light: 0xFAFAFAFF, dark: 0x1B1B1BFF, lightHC: 0xFCFCFCFF, darkHC: 0x111111FF),
+        QuireColorValues(light: 0xFFFFFFFF, dark: 0xFFFFFFFF, lightHC: 0xFFFFFFFF, darkHC: 0xFFFFFFFF),
+        QuireColorValues(light: 0xFFFFFFFF, dark: 0xFFFFFFFF, lightHC: 0xFFFFFFFF, darkHC: 0xFFFFFFFF),
+        QuireColorValues(light: 0xFFFFFFFF, dark: 0xFFFFFFFF, lightHC: 0xFFFFFFFF, darkHC: 0xFFFFFFFF),
+    ]
+    static let onAccentGraphite: [QuireColorValues] = [
+        QuireColorValues(light: 0xFBFAF6FF, dark: 0x1C1B18FF, lightHC: 0xFDFCFAFF, darkHC: 0x121110FF),
+        QuireColorValues(light: 0xFAFAFAFF, dark: 0x1B1B1BFF, lightHC: 0xFCFCFCFF, darkHC: 0x111111FF),
+        QuireColorValues(light: 0xF5FBFEFF, dark: 0x171C1EFF, lightHC: 0xF9FDFEFF, darkHC: 0x0B1215FF),
+        QuireColorValues(light: 0xF8FBF5FF, dark: 0x191C17FF, lightHC: 0xFBFDFAFF, darkHC: 0x0F120DFF),
+        QuireColorValues(light: 0xFBF9FFFF, dark: 0x161519FF, lightHC: 0xFCFCFFFF, darkHC: 0x0E0C12FF),
+    ]
+    static let accentWash: [QuireColorValues] = [
+        QuireColorValues(light: 0xDCE8EAFF, dark: 0x1F363CFF, lightHC: 0xC8DCE0FF, darkHC: 0x1A4049FF),
+        QuireColorValues(light: 0xE7E7E7FF, dark: 0x292929FF, lightHC: 0xD8D8D8FF, darkHC: 0x2D2D2DFF),
+        QuireColorValues(light: 0xDEE8E9FF, dark: 0x18373CFF, lightHC: 0xC9DCE2FF, darkHC: 0x0B4148FF),
+        QuireColorValues(light: 0xDDE8E8FF, dark: 0x1D3737FF, lightHC: 0xCADCDEFF, darkHC: 0x154142FF),
+        QuireColorValues(light: 0xDCE8EEFF, dark: 0x17303EFF, lightHC: 0xC9DBE5FF, darkHC: 0x183C48FF),
+    ]
+    static let accentWashGraphite: [QuireColorValues] = [
+        QuireColorValues(light: 0xEAE7DFFF, dark: 0x2B2925FF, lightHC: 0xDCD8CEFF, darkHC: 0x302D29FF),
+        QuireColorValues(light: 0xE7E7E7FF, dark: 0x292929FF, lightHC: 0xD8D8D8FF, darkHC: 0x2D2D2DFF),
+        QuireColorValues(light: 0xE5E7E8FF, dark: 0x232A2EFF, lightHC: 0xD5D9DBFF, darkHC: 0x272F32FF),
+        QuireColorValues(light: 0xE3E9DFFF, dark: 0x272A24FF, lightHC: 0xD4DACEFF, darkHC: 0x2B2F28FF),
+        QuireColorValues(light: 0xE8E7E9FF, dark: 0x26242AFF, lightHC: 0xDAD6E4FF, darkHC: 0x2C2A31FF),
+    ]
+    static let accentWashHover: [QuireColorValues] = [
+        QuireColorValues(light: 0xD2E2E5FF, dark: 0x233D44FF, lightHC: 0xBDD5DAFF, darkHC: 0x1F4A55FF),
+        QuireColorValues(light: 0xDDDDDDFF, dark: 0x343434FF, lightHC: 0xCBCBCBFF, darkHC: 0x404040FF),
+        QuireColorValues(light: 0xD4E1E3FF, dark: 0x1A3E43FF, lightHC: 0xBED4DCFF, darkHC: 0x0D4C53FF),
+        QuireColorValues(light: 0xD4E2E2FF, dark: 0x213E3FFF, lightHC: 0xC0D5D8FF, darkHC: 0x194C4CFF),
+        QuireColorValues(light: 0xD2E1EAFF, dark: 0x1A3747FF, lightHC: 0xBED4DFFF, darkHC: 0x1D4654FF),
+    ]
+    static let accentWashHoverGraphite: [QuireColorValues] = [
+        QuireColorValues(light: 0xE0DDD6FF, dark: 0x36342FFF, lightHC: 0xCFCBC1FF, darkHC: 0x43403CFF),
+        QuireColorValues(light: 0xDDDDDDFF, dark: 0x343434FF, lightHC: 0xCBCBCBFF, darkHC: 0x404040FF),
+        QuireColorValues(light: 0xDBDDDFFF, dark: 0x2D3539FF, lightHC: 0xC8CCCEFF, darkHC: 0x3A4244FF),
+        QuireColorValues(light: 0xDADFD6FF, dark: 0x31352EFF, lightHC: 0xC7CDC1FF, darkHC: 0x3E423BFF),
+        QuireColorValues(light: 0xDEDDE0FF, dark: 0x312F35FF, lightHC: 0xCDC9D6FF, darkHC: 0x3F3D44FF),
+    ]
+    static let accentWashPressed: [QuireColorValues] = [
+        QuireColorValues(light: 0xC8DBDFFF, dark: 0x182D33FF, lightHC: 0xB2CDD3FF, darkHC: 0x15363EFF),
+        QuireColorValues(light: 0xD5D5D5FF, dark: 0x3D3D3DFF, lightHC: 0xC0C0C0FF, darkHC: 0x4C4C4CFF),
+        QuireColorValues(light: 0xCBDADDFF, dark: 0x112E32FF, lightHC: 0xB3CCD5FF, darkHC: 0x08373DFF),
+        QuireColorValues(light: 0xCADBDBFF, dark: 0x162E2EFF, lightHC: 0xB5CDD0FF, darkHC: 0x103738FF),
+        QuireColorValues(light: 0xC8DAE5FF, dark: 0x0F2733FF, lightHC: 0xB3CCD9FF, darkHC: 0x13323DFF),
+    ]
+    static let accentWashPressedGraphite: [QuireColorValues] = [
+        QuireColorValues(light: 0xD8D5CDFF, dark: 0x3F3D38FF, lightHC: 0xC3C0B6FF, darkHC: 0x4F4C49FF),
+        QuireColorValues(light: 0xD5D5D5FF, dark: 0x3D3D3DFF, lightHC: 0xC0C0C0FF, darkHC: 0x4C4C4CFF),
+        QuireColorValues(light: 0xD2D5D6FF, dark: 0x363E42FF, lightHC: 0xBCC1C3FF, darkHC: 0x474E51FF),
+        QuireColorValues(light: 0xD1D7CDFF, dark: 0x3A3E37FF, lightHC: 0xBCC1B6FF, darkHC: 0x4B4E48FF),
+        QuireColorValues(light: 0xD6D5D7FF, dark: 0x3A383EFF, lightHC: 0xC1BECBFF, darkHC: 0x4B4A50FF),
+    ]
+    static let focus: [QuireColorValues] = [
+        QuireColorValues(light: 0x1E5468FF, dark: 0x6DB6C9FF, lightHC: 0x123E4DFF, darkHC: 0x93D3E3FF),
+        QuireColorValues(light: 0x1B1B1BFF, dark: 0xE9E9E9FF, lightHC: 0x0E0E0EFF, darkHC: 0xFFFFFFFF),
+        QuireColorValues(light: 0x0C3E45FF, dark: 0x66CAD8FF, lightHC: 0x00323DFF, darkHC: 0x83D6E2FF),
+        QuireColorValues(light: 0x013A3DFF, dark: 0x86D8DAFF, lightHC: 0x002C31FF, darkHC: 0x8CD6D6FF),
+        QuireColorValues(light: 0x00556EFF, dark: 0x77C8F4FF, lightHC: 0x053D4EFF, darkHC: 0xACE7FFFF),
+    ]
+    static let focusGraphite: [QuireColorValues] = [
+        QuireColorValues(light: 0x1D1B18FF, dark: 0xEDE9E2FF, lightHC: 0x0F0E0CFF, darkHC: 0xFFFFFFFF),
+        QuireColorValues(light: 0x1B1B1BFF, dark: 0xE9E9E9FF, lightHC: 0x0E0E0EFF, darkHC: 0xFFFFFFFF),
+        QuireColorValues(light: 0x181C1EFF, dark: 0xE2EBF0FF, lightHC: 0x0C0F10FF, darkHC: 0xFFFFFFFF),
+        QuireColorValues(light: 0x1A1C18FF, dark: 0xE6EBE2FF, lightHC: 0x0D0E0CFF, darkHC: 0xFFFFFFFF),
+        QuireColorValues(light: 0x1C1B1FFF, dark: 0xE6E3ECFF, lightHC: 0x0E0E10FF, darkHC: 0xFFFFFFFF),
+    ]
+    static let selWash: [QuireColorValues] = [
+        QuireColorValues(light: 0xD0E0E5FF, dark: 0x213A41FF, lightHC: 0xC2D6DCFF, darkHC: 0x1A4049FF),
+        QuireColorValues(light: 0xDDDDDDFF, dark: 0x363636FF, lightHC: 0xD2D2D2FF, darkHC: 0x3B3B3BFF),
+        QuireColorValues(light: 0xD0E0E5FF, dark: 0x193B41FF, lightHC: 0xC2D6DCFF, darkHC: 0x0B4148FF),
+        QuireColorValues(light: 0xD0E0E5FF, dark: 0x1E3A40FF, lightHC: 0xC1D6DAFF, darkHC: 0x134146FF),
+        QuireColorValues(light: 0xCFE0E9FF, dark: 0x1E3A49FF, lightHC: 0xC2D6DFFF, darkHC: 0x1C3F4CFF),
+    ]
+    static let selWashGraphite: [QuireColorValues] = [
+        QuireColorValues(light: 0xEAE7DFFF, dark: 0x2B2925FF, lightHC: 0xDCD8CEFF, darkHC: 0x302D29FF),
+        QuireColorValues(light: 0xE7E7E7FF, dark: 0x292929FF, lightHC: 0xD8D8D8FF, darkHC: 0x2D2D2DFF),
+        QuireColorValues(light: 0xE5E7E8FF, dark: 0x232A2EFF, lightHC: 0xD5D9DBFF, darkHC: 0x272F32FF),
+        QuireColorValues(light: 0xE3E9DFFF, dark: 0x272A24FF, lightHC: 0xD4DACEFF, darkHC: 0x2B2F28FF),
+        QuireColorValues(light: 0xE8E7E9FF, dark: 0x26242AFF, lightHC: 0xDAD6E4FF, darkHC: 0x2C2A31FF),
+    ]
+    static let selRule: [QuireColorValues] = [
+        QuireColorValues(light: 0x1E5468FF, dark: 0x6DB6C9FF, lightHC: 0x123E4DFF, darkHC: 0x93D3E3FF),
+        QuireColorValues(light: 0x1B1B1BFF, dark: 0xE9E9E9FF, lightHC: 0x0E0E0EFF, darkHC: 0xFFFFFFFF),
+        QuireColorValues(light: 0x0C3E45FF, dark: 0x66CAD8FF, lightHC: 0x00323DFF, darkHC: 0x83D6E2FF),
+        QuireColorValues(light: 0x013A3DFF, dark: 0x86D8DAFF, lightHC: 0x002C31FF, darkHC: 0x8CD6D6FF),
+        QuireColorValues(light: 0x00556EFF, dark: 0x77C8F4FF, lightHC: 0x053D4EFF, darkHC: 0xACE7FFFF),
+    ]
+    static let selRuleGraphite: [QuireColorValues] = [
+        QuireColorValues(light: 0x1D1B18FF, dark: 0xEDE9E2FF, lightHC: 0x0F0E0CFF, darkHC: 0xFFFFFFFF),
+        QuireColorValues(light: 0x1B1B1BFF, dark: 0xE9E9E9FF, lightHC: 0x0E0E0EFF, darkHC: 0xFFFFFFFF),
+        QuireColorValues(light: 0x181C1EFF, dark: 0xE2EBF0FF, lightHC: 0x0C0F10FF, darkHC: 0xFFFFFFFF),
+        QuireColorValues(light: 0x1A1C18FF, dark: 0xE6EBE2FF, lightHC: 0x0D0E0CFF, darkHC: 0xFFFFFFFF),
+        QuireColorValues(light: 0x1C1B1FFF, dark: 0xE6E3ECFF, lightHC: 0x0E0E10FF, darkHC: 0xFFFFFFFF),
+    ]
+    static let selWashIdle: [QuireColorValues] = [
+        QuireColorValues(light: 0xEAE7DFFF, dark: 0x2B2925FF, lightHC: 0xDCD8CEFF, darkHC: 0x302D29FF),
+        QuireColorValues(light: 0xE7E7E7FF, dark: 0x292929FF, lightHC: 0xD8D8D8FF, darkHC: 0x2D2D2DFF),
+        QuireColorValues(light: 0xE5E7E8FF, dark: 0x232A2EFF, lightHC: 0xD5D9DBFF, darkHC: 0x272F32FF),
+        QuireColorValues(light: 0xE3E9DFFF, dark: 0x272A24FF, lightHC: 0xD4DACEFF, darkHC: 0x2B2F28FF),
+        QuireColorValues(light: 0xE8E7E9FF, dark: 0x26242AFF, lightHC: 0xDAD6E4FF, darkHC: 0x2C2A31FF),
+    ]
+    static let selRuleIdle: [QuireColorValues] = [
+        QuireColorValues(light: 0x625C55FF, dark: 0xA8A297FF, lightHC: 0x4A4540FF, darkHC: 0xC8C2B8FF),
+        QuireColorValues(light: 0x5D5D5DFF, dark: 0xA3A3A3FF, lightHC: 0x464646FF, darkHC: 0xC3C3C3FF),
+        QuireColorValues(light: 0x545F64FF, dark: 0x96A5ACFF, lightHC: 0x3F474BFF, darkHC: 0xB7C5CCFF),
+        QuireColorValues(light: 0x5A5E55FF, dark: 0x9EA599FF, lightHC: 0x434740FF, darkHC: 0xBEC5B9FF),
+        QuireColorValues(light: 0x5E5C65FF, dark: 0xA4A1ADFF, lightHC: 0x47454CFF, darkHC: 0xC4C1CEFF),
+    ]
+    static let successWash: [QuireColorValues] = [
+        QuireColorValues(light: 0xE5EFE5FF, dark: 0x1D2E21FF, lightHC: 0xD3E6D5FF, darkHC: 0x1E3A25FF),
+        QuireColorValues(light: 0xE5EFE5FF, dark: 0x1D2E21FF, lightHC: 0xD3E6D5FF, darkHC: 0x1E3A25FF),
+        QuireColorValues(light: 0xE5EFE5FF, dark: 0x1D2E21FF, lightHC: 0xD3E6D5FF, darkHC: 0x1E3A25FF),
+        QuireColorValues(light: 0xDFF1DFFF, dark: 0x1D2E21FF, lightHC: 0xD3E6D5FF, darkHC: 0x1E3A25FF),
+        QuireColorValues(light: 0xE5EFE5FF, dark: 0x1D2E21FF, lightHC: 0xD3E6D5FF, darkHC: 0x1E3A25FF),
+    ]
+    static let infoWash: [QuireColorValues] = [
+        QuireColorValues(light: 0xE4EAF5FF, dark: 0x1E2638FF, lightHC: 0xD0DAEEFF, darkHC: 0x22304AFF),
+        QuireColorValues(light: 0xE3EAF8FF, dark: 0x1E2638FF, lightHC: 0xD0DAEEFF, darkHC: 0x22304AFF),
+        QuireColorValues(light: 0xE0EAFCFF, dark: 0x1E2638FF, lightHC: 0xD0DAEEFF, darkHC: 0x22304AFF),
+        QuireColorValues(light: 0xE4EAF5FF, dark: 0x1E2638FF, lightHC: 0xD0DAEEFF, darkHC: 0x22304AFF),
+        QuireColorValues(light: 0xDFEAFEFF, dark: 0x1E2638FF, lightHC: 0xD0DAEEFF, darkHC: 0x22304AFF),
+    ]
 }
 
 /// Every colour token by its tokens.json name, for code that looks tokens up by name (tests, the CSS bridge).
@@ -318,7 +735,7 @@ public enum QuireColorToken: String, CaseIterable, Sendable {
         }
     }
 
-    /// The four values from tokens.json, alpha kept.
+    /// The four values from tokens.json, alpha kept: the default theme's.
     public var values: QuireColorValues {
         switch self {
         case .spine: return QuireColorValues(light: 0xECE9E1FF, dark: 0x121110FF, lightHC: 0xE4E0D6FF, darkHC: 0x080807FF)
@@ -375,6 +792,118 @@ public enum QuireColorToken: String, CaseIterable, Sendable {
         case .dangerFillHover: return QuireColorValues(light: 0x9C251BFF, dark: 0xC8402FFF, lightHC: 0x7A170FFF, darkHC: 0xC8402FFF)
         case .dangerFillPressed: return QuireColorValues(light: 0x8A2018FF, dark: 0xA93226FF, lightHC: 0x68130CFF, darkHC: 0xA93226FF)
         case .onDanger: return QuireColorValues(light: 0xFFFFFFFF, dark: 0xFFFFFFFF, lightHC: 0xFFFFFFFF, darkHC: 0xFFFFFFFF)
+        }
+    }
+
+    /// The four values in `theme`, alpha kept.
+    public func values(theme: QuireTheme) -> QuireColorValues {
+        switch self {
+        case .spine: return QuireThemeTable.spine[theme.index]
+        case .paper: return QuireThemeTable.paper[theme.index]
+        case .canvas: return QuireThemeTable.canvas[theme.index]
+        case .sheet: return QuireThemeTable.sheet[theme.index]
+        case .raised: return QuireThemeTable.raised[theme.index]
+        case .slip: return QuireThemeTable.slip[theme.index]
+        case .knob: return QuireThemeTable.knob[theme.index]
+        case .scrimSolid: return QuireThemeTable.scrimSolid[theme.index]
+        case .ink: return QuireThemeTable.ink[theme.index]
+        case .ink2: return QuireThemeTable.ink2[theme.index]
+        case .ink3: return QuireThemeTable.ink3[theme.index]
+        case .inkDisabled: return QuireThemeTable.inkDisabled[theme.index]
+        case .onSlip: return QuireThemeTable.onSlip[theme.index]
+        case .onSlip2: return QuireThemeTable.onSlip2[theme.index]
+        case .rule: return QuireThemeTable.rule[theme.index]
+        case .ruleStrong: return QuireThemeTable.ruleStrong[theme.index]
+        case .onSlipEdge: return QuireThemeTable.onSlipEdge[theme.index]
+        case .hover: return QuireThemeTable.hover[theme.index]
+        case .pressed: return QuireThemeTable.pressed[theme.index]
+        case .fill: return QuireThemeTable.fill[theme.index]
+        case .slipHover: return QuireThemeTable.slipHover[theme.index]
+        case .slipPressed: return QuireThemeTable.slipPressed[theme.index]
+        case .scrim: return QuireThemeTable.scrim[theme.index]
+        case .accent: return QuireThemeTable.accent[theme.index]
+        case .accentFill: return QuireThemeTable.accentFill[theme.index]
+        case .accentFillHover: return QuireThemeTable.accentFillHover[theme.index]
+        case .accentFillPressed: return QuireThemeTable.accentFillPressed[theme.index]
+        case .controlOnPressed: return QuireThemeTable.controlOnPressed[theme.index]
+        case .onAccent: return QuireThemeTable.onAccent[theme.index]
+        case .accentWash: return QuireThemeTable.accentWash[theme.index]
+        case .accentWashHover: return QuireThemeTable.accentWashHover[theme.index]
+        case .accentWashPressed: return QuireThemeTable.accentWashPressed[theme.index]
+        case .focus: return QuireThemeTable.focus[theme.index]
+        case .selWash: return QuireThemeTable.selWash[theme.index]
+        case .selRule: return QuireThemeTable.selRule[theme.index]
+        case .selWashIdle: return QuireThemeTable.selWashIdle[theme.index]
+        case .selRuleIdle: return QuireThemeTable.selRuleIdle[theme.index]
+        case .successWash: return QuireThemeTable.successWash[theme.index]
+        case .infoWash: return QuireThemeTable.infoWash[theme.index]
+        default: return values
+        }
+    }
+
+    /// The four Graphite values in `theme`, or nil when Graphite leaves the token unchanged.
+    public func graphiteValues(theme: QuireTheme) -> QuireColorValues? {
+        switch self {
+        case .knob: return QuireThemeTable.knobGraphite[theme.index]
+        case .accent: return QuireThemeTable.accentGraphite[theme.index]
+        case .accentFill: return QuireThemeTable.accentFillGraphite[theme.index]
+        case .accentFillHover: return QuireThemeTable.accentFillHoverGraphite[theme.index]
+        case .accentFillPressed: return QuireThemeTable.accentFillPressedGraphite[theme.index]
+        case .controlOnPressed: return QuireThemeTable.controlOnPressedGraphite[theme.index]
+        case .onAccent: return QuireThemeTable.onAccentGraphite[theme.index]
+        case .accentWash: return QuireThemeTable.accentWashGraphite[theme.index]
+        case .accentWashHover: return QuireThemeTable.accentWashHoverGraphite[theme.index]
+        case .accentWashPressed: return QuireThemeTable.accentWashPressedGraphite[theme.index]
+        case .focus: return QuireThemeTable.focusGraphite[theme.index]
+        case .selWash: return QuireThemeTable.selWashGraphite[theme.index]
+        case .selRule: return QuireThemeTable.selRuleGraphite[theme.index]
+        default: return nil
+        }
+    }
+
+    /// True when some theme gives the token another value than the default theme does.
+    public var isThemed: Bool {
+        switch self {
+        case .spine: return true
+        case .paper: return true
+        case .canvas: return true
+        case .sheet: return true
+        case .raised: return true
+        case .slip: return true
+        case .knob: return true
+        case .scrimSolid: return true
+        case .ink: return true
+        case .ink2: return true
+        case .ink3: return true
+        case .inkDisabled: return true
+        case .onSlip: return true
+        case .onSlip2: return true
+        case .rule: return true
+        case .ruleStrong: return true
+        case .onSlipEdge: return true
+        case .hover: return true
+        case .pressed: return true
+        case .fill: return true
+        case .slipHover: return true
+        case .slipPressed: return true
+        case .scrim: return true
+        case .accent: return true
+        case .accentFill: return true
+        case .accentFillHover: return true
+        case .accentFillPressed: return true
+        case .controlOnPressed: return true
+        case .onAccent: return true
+        case .accentWash: return true
+        case .accentWashHover: return true
+        case .accentWashPressed: return true
+        case .focus: return true
+        case .selWash: return true
+        case .selRule: return true
+        case .selWashIdle: return true
+        case .selRuleIdle: return true
+        case .successWash: return true
+        case .infoWash: return true
+        default: return false
         }
     }
 

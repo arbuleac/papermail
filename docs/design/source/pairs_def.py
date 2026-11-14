@@ -375,6 +375,9 @@ PAIRS = [
  ("General At login approval glyph on desk", "ink2", ["canvas"], U),
  ("General At login approval text on desk", "ink2", ["canvas"], T),
  ("OAuth section title on desk", "ink", ["canvas"], T),
+ # the chosen theme tile is marked as the active tab is, by weight and an underline under its name (§5.40)
+ ("Theme name underline, chosen, Settings key", "selRule", ["canvas"], U),
+ ("Theme name underline, chosen, Settings not key", "selRuleIdle", ["canvas"], U),
  ("Mono field text", "ink", ["sheet"], T),
  # ---- welcome
  ("Welcome mark", "accent", ["paper"], U),

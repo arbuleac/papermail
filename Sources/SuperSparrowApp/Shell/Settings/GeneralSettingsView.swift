@@ -145,12 +145,12 @@ struct LaunchAtLoginApproval: View {
                 if let glyph = QuireSymbol.image(Quire.Icon.loginApproval, size: .custom(s.statusGlyph)) {
                     Image(nsImage: glyph)
                         .renderingMode(.template)
-                        .foregroundStyle(Color.qInk2)
+                        .foregroundStyle(.qInk2)
                 }
                 Text(LaunchAtLoginModel.approvalWords)
                     .font(.quire(.snippet))
                     .tracking(QuireFont.Role.snippet.tracking)
-                    .foregroundStyle(Color.qInk2)
+                    .foregroundStyle(.qInk2)
             }
             .accessibilityElement(children: .combine)
             .accessibilityLabel(LaunchAtLoginModel.approvalWords)
@@ -175,7 +175,7 @@ struct KeepMailControl: View {
                 Text(size)
                     .font(.quire(.meta))
                     .tracking(QuireFont.Role.meta.tracking)
-                    .foregroundStyle(Color.qInk2)
+                    .foregroundStyle(.qInk2)
                     .help("The mail database and the attachment cache on this Mac")
                     .accessibilityLabel("\(size) on this Mac")
             }

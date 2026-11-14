@@ -55,7 +55,7 @@ public struct QuireBanner: View {
 
     private var glyphView: some View {
         QuireSymbolImage(name: glyph ?? variant.defaultGlyph, size: .custom(Quire.Layout.Banner.glyph))
-            .foregroundStyle((glyphColor ?? variant.glyphColor).swiftUIColor)
+            .foregroundStyle((glyphColor ?? variant.glyphColor).style)
     }
 
     /// The one-line banner. `fixed` keeps the words at their full width so `ViewThatFits` can tell when they
@@ -66,7 +66,7 @@ public struct QuireBanner: View {
             glyphView
             Text(message)
                 .quireLine(.snippet)
-                .foregroundStyle(Color.qInk)
+                .foregroundStyle(.qInk)
                 .fixedSize(horizontal: fixed, vertical: false)
             Spacer(minLength: 0)
             if let link {
@@ -89,7 +89,7 @@ public struct QuireBanner: View {
             glyphView
                 .frame(height: line)
             QuireInlineLinkText(message, link: link, role: .snippet, linkRole: QuireButtonSize.small.font)
-                .foregroundStyle(Color.qInk)
+                .foregroundStyle(.qInk)
                 .frame(maxWidth: .infinity, alignment: .leading)
             if let onDismiss {
                 QuireBannerDismiss(action: onDismiss)
@@ -147,7 +147,7 @@ struct QuireBannerDismissChrome<Label: View>: View {
         // The specimen's 16 pt box (`.banner .bx`); the hit area grows to 24 pt.
         let side = Quire.Space.s6
         label()
-            .foregroundStyle((state.isHovered || state.isPressed ? QuireColorToken.ink : .ink2).swiftUIColor)
+            .foregroundStyle((state.isHovered || state.isPressed ? QuireColorToken.ink : .ink2).style)
             .frame(width: side, height: side)
             .overlay {
                 if state.showsFocusRing {

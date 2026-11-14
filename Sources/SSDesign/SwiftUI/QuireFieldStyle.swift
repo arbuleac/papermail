@@ -22,6 +22,8 @@ public struct QuireFieldStyle: ViewModifier {
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.controlActiveState) private var activeState
     @Environment(\.quireForcedStates) private var forced
+    @Environment(\.quireTheme) private var theme
+    @Environment(\.quireDrawingFlags) private var flags
     @State private var isHovered = false
 
     /// - Parameters:
@@ -53,8 +55,8 @@ public struct QuireFieldStyle: ViewModifier {
             content
                 .textFieldStyle(.plain)
                 .quireFont(variant.role)
-                .foregroundStyle(a.text.swiftUIColor)
-                .tint(Color.qAccent)
+                .foregroundStyle(a.text.style)
+                .tint(Color.quire(.accent, theme: theme, flags: flags))
                 .focusEffectDisabled()
                 .modifier(QuireFieldFocusBinding(external: focus, own: $ownFocus, isBridged: bridgedFocus != nil))
                 // A long value ends in an ellipsis inside the 8 pt padding (§5.25); views no longer clip, and the
@@ -94,7 +96,7 @@ struct QuirePlaceholderStyle: ShapeStyle {
     }
 
     func resolve(in environment: EnvironmentValues) -> Color {
-        QuirePlaceholderStyle.token(isEnabled: environment.isEnabled).swiftUIColor
+        QuirePlaceholderStyle.token(isEnabled: environment.isEnabled).style.resolve(in: environment)
     }
 }
 
@@ -127,7 +129,7 @@ struct QuireFieldHelp: View {
                 .quireParagraph(.meta)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .foregroundStyle(Color.qDanger)
+        .foregroundStyle(.qDanger)
         .accessibilityElement(children: .combine)
     }
 }

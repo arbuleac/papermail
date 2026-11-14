@@ -62,7 +62,7 @@ struct QuireToggleChrome<Label: View>: View {
                              isPressed: state.isPressed)
             label()
                 .quireFont(.body)
-                .foregroundStyle(a.label.swiftUIColor)
+                .foregroundStyle(a.label.style)
         }
         .contentShape(Rectangle())
     }

@@ -44,7 +44,7 @@ struct QuireSettingsLabel: View {
             if let text {
                 Text(text)
                     .quireLine(.body)
-                    .foregroundStyle(Color.qInk)
+                    .foregroundStyle(.qInk)
                     .accessibilityAddTraits(.isStaticText)
             } else {
                 Color.clear.frame(height: 0)

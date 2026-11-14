@@ -130,8 +130,9 @@ public final class QuireEmptyStateView: NSView {
                 var link = attributes
                 link[.foregroundColor] = isLinkPressed ? NSColor.qInk2 : NSColor.qAccent
                 link[Self.linkAttribute] = true
-                if isLinkHovered || isLinkPressed || QuireEnvironment.isGraphite {
-                    // Graphite draws links underlined at rest, since `accent` is then grey (§3.1).
+                if isLinkHovered || isLinkPressed || QuireEnvironment.underlinesLinksAtRest(for: effectiveAppearance) {
+                    // Links draw their underline at rest where colour alone does not mark them: under Graphite, where
+                    // `accent` is grey, and in a theme whose ink sits near its text ink (§3.1, §4.16).
                     link[.underlineStyle] = NSUnderlineStyle.single.rawValue
                 }
                 result.append(NSAttributedString(string: words.replacingOccurrences(of: " ", with: Self.noBreakSpace), attributes: link))
