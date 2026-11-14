@@ -26,10 +26,17 @@ final class WebViewPool: NSObject, WKScriptMessageHandler {
 
     private let navigation = ConversationNavigationPolicy()
     private var tick: UInt64 = 0
-    /// The shell with the reader symbols rasterised into it once for the pool (spec §4.11).
-    private let document: String
+    /// The shell with the reader symbols rasterised into it once for the pool (spec §4.11), in the theme the pool was made
+    /// in, so a new reader window's shell paints its first frame in it. A view made later (after a crash) may load it in
+    /// an older theme; `markReady` tells it the current one before anything renders. Internal so tests can read it.
+    let document: String
     /// The script that mirrors the display modes onto a shell, kept so a slot that becomes ready gets it too.
     private var modesScript = ""
+    /// The theme the shells draw in (spec §4.16), and the script that tells a shell, kept for the slots that become ready.
+    private var theme: QuireTheme
+    private var themeScript: String
+    /// For tests: every ready shell has restyled itself in the theme. Nil in the app.
+    var onThemed: ((QuireTheme) -> Void)?
     /// The last preferences told to the shells (Font, colours notice). A slot still loading its shell misses the
     /// broadcast and later replays a payload built before it, so `markReady` sends this after that replay.
     private var preferencesScript = ""
@@ -37,8 +44,12 @@ final class WebViewPool: NSObject, WKScriptMessageHandler {
     private var fullKeyboardAccessObservation: NSKeyValueObservation?
 
     init(client: MailClient, size: Int = 3) {
-        let document = ConversationShellAssets.document(symbolCSS: ReaderSymbolSheet.css)
+        let theme = QuireEnvironment.theme
+        let shellTheme = ShellTheme(theme)
+        let document = ConversationShellAssets.document(symbolCSS: ReaderSymbolSheet.css, theme: shellTheme)
         self.document = document
+        self.theme = theme
+        themeScript = shellTheme.script
         let configuration = Self.newConfiguration()
         configuration.setURLSchemeHandler(ShellSchemeHandler(document: document), forURLScheme: ConversationShellAssets.scheme)
         configuration.setURLSchemeHandler(InlineImageSchemeHandler(client: client), forURLScheme: RenderURLScheme.inlineImage)
@@ -115,7 +126,25 @@ final class WebViewPool: NSObject, WKScriptMessageHandler {
     @objc private func environmentDidChange(_ note: Notification) {
         modesScript = Self.modesScript()
         broadcast(modesScript)
+        themeMayHaveChanged()
+        // Increase Contrast and the theme change `canvas` without changing the appearance.
+        for slot in slots { (slot.webView as? ReaderWebView)?.updateUnderPageColour() }
         updateTabFocusesLinks()
+    }
+
+    /// A theme switch replaces one style element in every ready shell and its bodies: no reload, nothing measured. The
+    /// interval (the theme budget in docs/ARCHITECTURE.md) ends with the last shell's reply, which follows its `themed`,
+    /// posted once style is resolved in every document.
+    private func themeMayHaveChanged() {
+        let theme = QuireEnvironment.theme
+        guard theme != self.theme else { return }
+        self.theme = theme
+        themeScript = ShellTheme(theme).script
+        let interval = ConversationSignposts.begin(ConversationSignposts.theme)
+        broadcast(themeScript) { [weak self] in
+            ConversationSignposts.end(ConversationSignposts.theme, interval)
+            self?.onThemed?(theme)
+        }
     }
 
     /// Tells every ready shell the reader's preferences and keeps them for the shells that become ready later.
@@ -298,6 +327,7 @@ final class WebViewPool: NSObject, WKScriptMessageHandler {
         assign(nil, to: slot)
         slot.renderedInputs = nil
         slot.pendingRender = nil
+        slot.originalColorsShown = []
         let waiters = slot.tracker.reset()
         if slot.isReady {
             slot.webView.evaluateJavaScript("window.ss.clear()") { _, _ in }
@@ -314,7 +344,7 @@ final class WebViewPool: NSObject, WKScriptMessageHandler {
         webView.allowsBackForwardNavigationGestures = false
         webView.allowsMagnification = true
         // The desk behind the sheets (spec §4.1), also what shows while a render lands or the page overscrolls.
-        webView.underPageBackgroundColor = .qCanvas
+        webView.updateUnderPageColour()
         webView.loadHTMLString(document, baseURL: ConversationShellAssets.baseURL)
         return webView
     }
@@ -342,11 +372,13 @@ final class WebViewPool: NSObject, WKScriptMessageHandler {
     }
 
     /// The shell announces readiness on both handlers; the second arrival must not replay a render. Scripts run
-    /// in the order they are sent, so the preferences after the replay win over the queued payload's.
+    /// in the order they are sent, so the preferences after the replay win over the queued payload's, and the theme,
+    /// sent before the replay, is the one the first render paints in (a shell loaded in an older theme included).
     private func markReady(_ slot: PooledConversationView) {
         guard !slot.isReady else { return }
         slot.isReady = true
         slot.webView.evaluateJavaScript(modesScript) { _, _ in }
+        slot.webView.evaluateJavaScript(themeScript) { _, _ in }
         if let pending = slot.pendingRender {
             slot.pendingRender = nil
             render(pending.payload, inputs: pending.inputs, id: pending.id, into: slot, completion: pending.completion)

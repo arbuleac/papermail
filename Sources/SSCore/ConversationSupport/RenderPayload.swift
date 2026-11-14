@@ -276,6 +276,10 @@ public struct RenderPayload: Hashable, Codable, Sendable {
     public var textSize: String
     /// The Original colors notice was dismissed for good (`originalColorsNoticeDismissed`, spec §5.16).
     public var colorsNoticeDismissed: Bool
+    /// Settings › Appearance › Dark Mode, “Adapt mail that sets its own colours” (spec §5.14): in a dark appearance, styled
+    /// mail that declares its own colours opens adapted (true) or as sent on the white page (false). Nil leaves the shell
+    /// with the default it was last told, adapted until told otherwise, and is not encoded.
+    public var adaptsColours: Bool?
 
     public init(
         subject: String,
@@ -285,7 +289,8 @@ public struct RenderPayload: Hashable, Codable, Sendable {
         inkSlot: Int = 0,
         readingSans: Bool = false,
         textSize: String = "default",
-        colorsNoticeDismissed: Bool = false
+        colorsNoticeDismissed: Bool = false,
+        adaptsColours: Bool? = nil
     ) {
         self.subject = subject
         self.participants = participants
@@ -295,6 +300,7 @@ public struct RenderPayload: Hashable, Codable, Sendable {
         self.readingSans = readingSans
         self.textSize = textSize
         self.colorsNoticeDismissed = colorsNoticeDismissed
+        self.adaptsColours = adaptsColours
     }
 
     // MARK: Message keys

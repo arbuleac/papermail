@@ -854,7 +854,7 @@ final class ConversationShellWebViewTests: XCTestCase {
         try await waitForFramedCards(in: webView)
         root = try await evaluate("document.querySelector('.ss-card iframe').contentDocument.documentElement.className", in: webView) as? String
         XCTAssertEqual(root, "ss-original")
-        let inset = try await count(".ss-original iframe", in: webView)
+        let inset = try await count(".ss-page.ss-inset-on iframe", in: webView)
         XCTAssertEqual(inset, 1, "the body sits on the originalPage inset")
         let shown = try await evaluate("document.querySelector('.ss-banner.ss-warn .ss-btxt').textContent", in: webView) as? String
         XCTAssertEqual(shown, "Showing the sender\u{2019}s colours.")
@@ -1150,12 +1150,12 @@ final class ConversationShellWebViewTests: XCTestCase {
         try await waitForFramedCards(in: webView)
         let after = try await evaluate(notice, in: webView) as? String
         XCTAssertEqual(after, "Showing the sender\u{2019}s colours. | visible", "the switch shows where it can be seen")
-        let inset = try await count(".ss-original iframe", in: webView)
+        let inset = try await count(".ss-page.ss-inset-on iframe", in: webView)
         XCTAssertEqual(inset, 1, "rebuilt on the inset under the fold")
         let stillFolded = try await evaluate("document.querySelector('.ss-card').classList.contains('ss-mfolded')", in: webView) as? Bool
         XCTAssertEqual(stillFolded, true, "and left folded, as quoted text is")
         _ = try await evaluate("document.querySelector('.ss-mrow .ss-elide').click()", in: webView)
-        let shown = numbers(try await evaluate("[document.querySelector('.ss-original').getBoundingClientRect().height]", in: webView))
+        let shown = numbers(try await evaluate("[document.querySelector('.ss-page.ss-inset-on').getBoundingClientRect().height]", in: webView))
         XCTAssertGreaterThan(shown.first ?? 0, 24, "the inset shows once unfolded")
     }
 

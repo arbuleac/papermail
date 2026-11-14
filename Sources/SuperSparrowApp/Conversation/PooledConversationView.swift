@@ -31,6 +31,9 @@ final class PooledConversationView {
     var markFocused = false
     /// The page's keyboard focus is on an attachment chip or its Download button, where ← → move along the files.
     var arrowsFocused = false
+    /// The messages this page shows in the sender's colours, as its shell last said, for View › Original Colors'
+    /// checkmark. Kept per slot, since each shell remembers its own switches and a slot swapped in shows what it holds.
+    var originalColorsShown: Set<MessageID> = []
 
     init(webView: WKWebView) {
         self.webView = webView
@@ -67,6 +70,7 @@ final class PooledConversationView {
         pendingRender = nil
         markFocused = false
         arrowsFocused = false
+        originalColorsShown = []
         let waiters = tracker.reset()
         for waiter in waiters { waiter(false) }
     }
