@@ -1,4 +1,5 @@
 import AppKit
+import SSCore
 import SSDesign
 
 /// The sheet header's More menu (spec §5.14): a system menu acting on one message, every item with its
@@ -14,10 +15,15 @@ final class MessageMoreMenu: NSObject {
         var hasSenderAddress: Bool
         /// The message's list headers offer a way to unsubscribe (its sheet shows the link).
         var canUnsubscribe = false
+        /// Someone other than the user sent it, so a sender rule can be set from it (spec, Sender rules (Q4.2)).
+        var offersSenderRules = false
+        /// The rule its sender has now: that item shows checked and disabled.
+        var senderRule: SenderRule.Action?
     }
 
     enum Command {
         case reply, replyAll, forward, toggleStar, markUnreadFromHere, loadImages, toggleOriginal, unsubscribe, copySenderAddress
+        case alwaysArchiveSender, blockSender
     }
 
     private let perform: (Command) -> Void
@@ -49,11 +55,20 @@ final class MessageMoreMenu: NSObject {
                     key: "o", modifiers: [.command, .shift], to: menu)
             }
         }
-        if options.hasSenderAddress || options.canUnsubscribe {
+        if options.hasSenderAddress || options.canUnsubscribe || options.offersSenderRules {
             menu.addItem(.separator())
-            // Beside the sender's other item: both are about who sent it.
+            // Beside the sender's other items: all are about who sent it.
             if options.canUnsubscribe {
                 add(.unsubscribe, "Unsubscribe", nil, key: "u", modifiers: [.command, .shift], to: menu)
+            }
+            if options.offersSenderRules {
+                for (command, action) in [(Command.alwaysArchiveSender, SenderRule.Action.archive), (.blockSender, .trash)] {
+                    let item = add(command, MailActionCopy.senderRuleCommand(action),
+                                   action == .trash ? Quire.Icon.blockSender : Quire.Icon.alwaysArchiveSender, key: "", to: menu)
+                    // The rule the sender has is checked and has nothing more to do; the other replaces it.
+                    item.state = options.senderRule == action ? .on : .off
+                    item.isEnabled = options.senderRule != action
+                }
             }
             if options.hasSenderAddress {
                 add(.copySenderAddress, "Copy Sender Address", nil, key: "", to: menu)
@@ -63,8 +78,9 @@ final class MessageMoreMenu: NSObject {
     }
 
     /// Single-key shortcuts are shown as text: the router handles them, so they never fire from a menu.
+    @discardableResult
     private func add(_ command: Command, _ title: String, _ symbol: String?, key: String,
-                     modifiers: NSEvent.ModifierFlags = [], to menu: NSMenu) {
+                     modifiers: NSEvent.ModifierFlags = [], to menu: NSMenu) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: #selector(choose(_:)), keyEquivalent: modifiers.isEmpty ? "" : key)
         item.keyEquivalentModifierMask = modifiers
         item.target = self
@@ -75,6 +91,7 @@ final class MessageMoreMenu: NSObject {
             item.attributedTitle = Self.title(title, shortcut: key.uppercased())
         }
         menu.addItem(item)
+        return item
     }
 
     private static func title(_ title: String, shortcut: String) -> NSAttributedString {

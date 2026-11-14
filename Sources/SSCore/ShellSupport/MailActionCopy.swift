@@ -72,6 +72,44 @@ public enum MailActionCopy {
         return fits(sentence) ? sentence : "Until \(time)"
     }
 
+    /// M's command as Message › Mute and Edit › Undo name it: “Mute”, or “Unmute” for a selection that is all muted.
+    public static func muteCommand(muting: Bool) -> String {
+        muting ? "Mute" : "Unmute"
+    }
+
+    /// “Muted”, or “Muted 3 conversations”; “Unmuted” likewise (spec, Mute (Q3.7)). Said when a row leaves the list
+    /// (muting archives what is in the Inbox) or several change at once; otherwise the row's glyph says it.
+    public static func muted(_ muting: Bool, count: Int = 1) -> String {
+        let n = count.formatted(.number.grouping(.automatic))
+        let word = muting ? "Muted" : "Unmuted"
+        return count > 1 ? "\(word) \(n) conversations" : word
+    }
+
+    /// A sender rule's command as the menus name it (spec, Sender rules (Q4.2)), which Edit › Undo and the undo
+    /// confirmation repeat.
+    public static func senderRuleCommand(_ action: SenderRule.Action) -> String {
+        switch action {
+        case .archive: return "Always Archive Mail from This Sender"
+        case .trash: return "Block Sender"
+        }
+    }
+
+    /// The toast a new sender rule leaves (spec, Sender rules (Q4.2)): always shown, since no row shows a rule.
+    public static func senderRuleSet(_ action: SenderRule.Action) -> String {
+        switch action {
+        case .archive: return "Sender always archived"
+        case .trash: return "Sender blocked"
+        }
+    }
+
+    /// What Settings › Accounts › Senders… says a rule does, beside its address (spec, Sender rules (Q4.2)).
+    public static func senderRuleDescription(_ action: SenderRule.Action) -> String {
+        switch action {
+        case .archive: return "Always archived"
+        case .trash: return "Blocked"
+        }
+    }
+
     /// “Undid Archive”: the action-less toast an undo confirms itself with.
     public static func undoConfirmation(for change: MetadataChange) -> String {
         "Undid \(commandName(for: change))"

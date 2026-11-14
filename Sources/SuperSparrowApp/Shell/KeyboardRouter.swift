@@ -25,6 +25,8 @@ enum KeyCommand: Equatable {
     case moveToInbox
     /// L: the Later menu for the selection (spec §5.45).
     case later
+    /// M: mute the selection, or unmute it when every conversation in it is muted (spec, Mute (Q3.7)).
+    case toggleMute
     case undo
     case goTo(MailboxView)
 }
@@ -221,6 +223,7 @@ final class KeyboardRouter {
         case "f": return (.forward, false)
         case "c": return (.compose, false)
         case "l": return (.later, false)
+        case "m": return (.toggleMute, false)
         case "/": return (.search, false)
         case "z": return (.undo, false)
         case "g": return (nil, true)

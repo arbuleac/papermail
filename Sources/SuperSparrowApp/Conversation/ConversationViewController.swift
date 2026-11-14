@@ -1108,7 +1108,9 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
                 offersOriginal: state["offersOriginal"] as? Bool ?? false,
                 showsOriginal: state["original"] as? Bool ?? false,
                 hasSenderAddress: !(message?.from?.address ?? "").isEmpty,
-                canUnsubscribe: message.map(Self.offersUnsubscribe) ?? false
+                canUnsubscribe: message.map(Self.offersUnsubscribe) ?? false,
+                offersSenderRules: message.map(self.offersSenderRule) ?? false,
+                senderRule: message.flatMap(self.senderRule(for:))
             )
             self.moreMenu.menu(options).popUp(positioning: nil, at: point, in: slot.webView)
         }
@@ -1138,6 +1140,10 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             evaluate("window.ss.toggleOriginal()", in: current)
         case .unsubscribe:
             onAction?(.unsubscribe(id))
+        case .alwaysArchiveSender:
+            onAction?(.senderRule(.archive, id))
+        case .blockSender:
+            onAction?(.senderRule(.trash, id))
         case .copySenderAddress:
             guard let address = currentMessages.first(where: { $0.id == id })?.from?.address else { return }
             NSPasteboard.general.clearContents()
@@ -1158,6 +1164,36 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     /// The rule the shell's link follows (`RenderPayload.Message.unsubscribe`), drafts left out.
     private static func offersUnsubscribe(_ message: MessageMetadata) -> Bool {
         !message.roles.contains(.drafts) && UnsubscribeMethod(message: message) != nil
+    }
+
+    // MARK: Sender rules
+
+    /// Whose mail the context menu's and the Message menu's sender rules take (spec, Sender rules (Q4.2)): with one
+    /// conversation open, the target message when someone other than the user sent it, else the newest message someone
+    /// else sent. Nil with nothing or several selected and for a conversation of the user's own mail alone, which is how
+    /// those items know to be disabled without reading the store.
+    var senderRuleTarget: MessageMetadata? {
+        guard case .one = selection else { return nil }
+        if let id = selectedMessageID, let target = currentMessages.first(where: { $0.id == id }), offersSenderRule(target) {
+            return target
+        }
+        return currentMessages.last(where: offersSenderRule)
+    }
+
+    /// A rule is set from mail someone else sent: never the user's own sent mail or drafts (which a rule would never
+    /// take), nor mail from the account's own address, which a rule would turn on everything the user sends themselves.
+    func offersSenderRule(_ message: MessageMetadata) -> Bool {
+        guard !LocalDraftConversation.isLocal(message.id), message.roles.isDisjoint(with: [.sent, .drafts]),
+              let from = message.from?.address, !SenderRule.normalizedAddress(from).isEmpty else { return false }
+        guard let own = accountsByID[message.id.accountID]?.email else { return true }
+        return SenderRule.normalizedAddress(own) != SenderRule.normalizedAddress(from)
+    }
+
+    /// The rule the message's sender has now, read when a menu opens (the rules are a handful of rows).
+    func senderRule(for message: MessageMetadata) -> SenderRule.Action? {
+        guard let from = message.from?.address else { return nil }
+        let address = SenderRule.normalizedAddress(from)
+        return (try? client.store.senderRules())?.first { $0.accountID == message.id.accountID && $0.address == address }?.action
     }
 
     // MARK: Header actions

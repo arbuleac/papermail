@@ -98,6 +98,8 @@ public struct ConversationRowText: Hashable, Sendable {
     public let hasAttachments: Bool
     /// The Inbox row came back from Later and is unread: it carries the “Back” tag before the time (spec §5.7).
     public let showsBackTag: Bool
+    /// Muted with M: the row carries the muted glyph in its glyph cluster (spec §5.7; Mute (Q3.7)).
+    public let isMuted: Bool
     public let status: Status
     /// What VoiceOver reads for the row (spec §4.14).
     public let accessibilityLabel: String
@@ -163,6 +165,7 @@ public struct ConversationRowText: Hashable, Sendable {
         isStarred = summary.isStarred
         hasAttachments = summary.hasAttachments
         showsBackTag = context.timeSource == .inbox && summary.unreadCount > 0 && summary.inboxDate != summary.latestDate
+        isMuted = summary.isMuted
         if let failed = summary.failedOperation {
             status = .failed(failed)
         } else if summary.hasPendingOperations {
@@ -174,6 +177,7 @@ public struct ConversationRowText: Hashable, Sendable {
         var parts: [String] = []
         if isUnread { parts.append("Unread") }
         if isStarred { parts.append("Starred") }
+        if isMuted { parts.append("Muted") }
         if showsBackTag { parts.append("Back from Later") }
         let names = senderNames
         if isSenderPlaceholder {
@@ -355,6 +359,7 @@ public struct ConversationRowText: Hashable, Sendable {
         hasher.combine(summary.failedOperation?.rawValue ?? "")
         hasher.combine(summary.returnedAt ?? .distantPast)
         hasher.combine(summary.snoozedUntil ?? .distantPast)
+        hasher.combine(summary.isMuted)
         hasher.combine(summary.subject)
         hasher.combine(summary.snippet)
         hasher.combine(summary.participants.count)

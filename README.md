@@ -72,6 +72,12 @@ Replying usually finishes a conversation, so **Send** sends and archives the con
 
 Press `l` (or **Message → Later…**, or **Later** in a conversation's right-click menu) to put the selected conversations away until **Later Today**, **This Evening**, **Tomorrow**, **Next Week** or a date you pick. They are archived now and come back to the Inbox at that time, their latest message unread, at the top under Today with a **Back** tag until you read them. While anything is snoozed a **Later** folder shows in the rail below Inbox (`g` then `l`), listing what comes back when, soonest first; there `l` picks a new time, `e` keeps a conversation archived and stops its return, `⇧I` brings it back now and `#` moves it to the Trash. A reply from someone else, or moving the conversation back to the Inbox yourself (here or on another device), ends the snooze early. Both halves are the ordinary archive and move to Inbox, so your phone and the web show the same state; only the timer lives on this Mac, so mail comes back while SuperSparrow is running, or as soon as it next opens or the Mac wakes, once it has checked for anything that came in the meantime. Gmail's and Outlook's own snooze cannot be reached through their APIs, so mail snoozed there does not show in Later.
 
+## Mute and sender rules
+
+Press `m` (or **Message → Mute**) to mute the selected conversations: they leave the Inbox now, and anything new in them is archived as it arrives, before it can reach the Inbox or a notification. A muted conversation shows a muted bell in its row wherever it is listed; `m` again unmutes it. The archive is the ordinary one, so your phone and the web show the same state once it has gone through (Gmail's own mute cannot be reached through its API).
+
+From a message's menu (right-click it, or its **⋯** button, or the **Message** menu), **Always Archive Mail from This Sender** archives that sender's mail as it arrives, and **Block Sender** moves it to the Trash; either one also moves the sender's mail in the conversation you set it from, with **Undo** in the toast. Rules are kept per account and listed in **Settings → Accounts → Rules → Senders…**, where `−` removes one. They act on mail as it arrives, never on mail already on this Mac or downloaded from further back, and never on your own sent mail.
+
 ## Unsubscribe
 
 A newsletter or other list mail that says how to leave its list shows **Unsubscribe** beside the sender's name in the reader. One click, or `⇧⌘U` (**Message → Unsubscribe**), asks to stop it and archives the conversation, without a confirmation: SuperSparrow uses the one-click request the sender offers (RFC 8058), otherwise sends the unsubscribe email the sender asks for from your account (it appears in Sent), otherwise opens the sender's unsubscribe page in your browser. On a conversation in **Later**, it stops the conversation's return instead, as `e` does there, and it stays archived. **Undo** in the toast brings the conversation back (to Later, if it was there); the request itself cannot be taken back. Mail downloaded before this version shows no link until it is downloaded again.
@@ -115,6 +121,7 @@ Operators combine (`from:ben is:unread after:2026-01-01 -invoice`), ignore case,
 | `Return` | Open the conversation in the reader |
 | `e` | Archive |
 | `l` | Later: snooze until a time |
+| `m` | Mute / unmute: new mail in the conversation skips the Inbox |
 | `s` | Star / unstar |
 | `u` | Mark read / unread |
 | `#`, `⌘⌫` | Move to Trash |

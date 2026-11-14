@@ -252,9 +252,16 @@ enum MainMenu {
             item("Move to Inbox", #selector(MainWindowController.moveSelectionToInbox(_:)), "I", [.shift], symbol: Quire.Icon.moveToInbox),
             item("Star", #selector(MainWindowController.toggleStarSelection(_:)), "s", [], symbol: Quire.Icon.star),
             item("Mark as Unread", #selector(MainWindowController.markSelectionUnread(_:)), "u", [], symbol: Quire.Icon.markUnread),
+            // Titled Unmute when every selected conversation is muted, as Star reads Unstar.
+            item("Mute", #selector(MainWindowController.toggleMuteSelection(_:)), "m", [], symbol: Quire.Icon.mute),
             item("Undo", #selector(MainWindowController.undoMailAction(_:)), "z", [], symbol: Quire.Icon.undo),
             .separator(),
             item("Unsubscribe", #selector(MainWindowController.unsubscribeFromConversation(_:)), "u", [.command, .shift]),
+            // The open conversation's sender, as the context menu's items (spec, Sender rules (Q4.2)); no key: a rule is
+            // set rarely, and a single key could set one by a slip.
+            item(MailActionCopy.senderRuleCommand(.archive), #selector(MainWindowController.alwaysArchiveSender(_:)),
+                 symbol: Quire.Icon.alwaysArchiveSender),
+            item(MailActionCopy.senderRuleCommand(.trash), #selector(MainWindowController.blockSender(_:)), symbol: Quire.Icon.blockSender),
             .separator(),
             item("Next Message", #selector(MainWindowController.nextMessage(_:)), "n", []),
             item("Previous Message", #selector(MainWindowController.previousMessage(_:)), "p", []),

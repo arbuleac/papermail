@@ -407,6 +407,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             guard let self, self.window?.isKeyWindow == true else { return nil }
             return self.conversation.currentConversationID
         }
+        let store = environment.store
+        notifier.latestMessageIsInInbox = { id in
+            guard let message = (try? store.message(id)) ?? nil else { return true }
+            return message.isInInbox
+        }
         activity.onChange = { [weak self] in self?.refreshSyncLine() }
         // Back online: check now rather than when the engine's backoff next allows.
         activity.onNetworkReturned = { [weak self] in self?.checkAllAccounts() }
@@ -1092,6 +1097,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             return moveSelectionToInbox()
         case .later:
             return showLaterMenu()
+        case .toggleMute:
+            return toggleMute()
         case .undo:
             // The router acts only outside text, so typing is never ⌘Z's target here; Z never cancels a send.
             let commandZ = NSApp.currentEvent?.modifierFlags.contains(.command) == true
@@ -1620,6 +1627,148 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         listPane.toasts.show("Undid \(command)", kind: .confirmation, symbol: Quire.Icon.undone)
     }
 
+    // MARK: Mute (Q3.7)
+
+    /// What M acts on: the selection, less drafts kept on this Mac, which the store does not hold.
+    private var muteSelection: [ConversationID] {
+        selectedIDs.filter { !LocalDraftConversation.isLocal($0) }
+    }
+
+    /// M mutes the selection unless every conversation in it is muted already, then it unmutes, as S stars or unstars.
+    private var mutesSelection: Bool {
+        let selected = Set(muteSelection)
+        let rows = list.conversations.filter { selected.contains($0.id) }
+        return rows.isEmpty || rows.contains { !$0.isMuted }
+    }
+
+    /// M and Message › Mute: mutes the selection, archiving what is in the Inbox as E would, in one store transaction, so
+    /// the rows leave the Inbox with E's toast and undo; mail arriving in a muted conversation is archived as it arrives
+    /// (the store's arrival rules). Unmuting moves nothing. Out of the Inbox the row stays and its glyph says it, so a
+    /// single mute there has no toast, as a star has none; Z still reaches it for the grace period.
+    @discardableResult
+    func toggleMute() -> Bool {
+        let ids = muteSelection
+        guard !showingWelcome, !ids.isEmpty else { return false }
+        let muting = mutesSelection
+        let rows = Dictionary(list.conversations.map { ($0.id, $0.isMuted) }, uniquingKeysWith: { first, _ in first })
+        // Only those it changes, so the undo puts back exactly what M changed.
+        let changing = ids.filter { rows[$0].map { $0 != muting } ?? true }
+        guard !changing.isEmpty else {
+            NSSound.beep()
+            return true
+        }
+        let archived = muting ? actionRecords(.archive, on: changing) : []
+        let engine = environment.engine
+        do {
+            try engine.setMuted(muting, conversations: changing,
+                                performing: archived.map { MailActionRecord.Step(change: .archive, targets: $0.targets) })
+        } catch {
+            Self.log.error("mute failed: \(String(describing: error), privacy: .public)")
+            NSSound.beep()
+            return true
+        }
+        let command = MailActionCopy.muteCommand(muting: muting)
+        let inverse = archived.reversed().flatMap(\.inverse)
+        let fromLater = listView == .later
+        let revert: () -> Void = { [weak self] in
+            do {
+                try engine.setMuted(!muting, conversations: changing, performing: inverse)
+            } catch {
+                Self.log.error("undoing a mute failed: \(String(describing: error), privacy: .public)")
+                NSSound.beep()
+                return
+            }
+            self?.confirmUndo(of: command)
+            if !archived.isEmpty { self?.reselect(changing, inLater: fromLater) }
+        }
+        // The list's own query: while searching, its view is the one the search looks through.
+        let leaves = !archived.isEmpty && MailActionCopy.wantsToast(for: .archive, in: list.query.view, search: list.query.search)
+        if leaves || changing.count > 1 {
+            recordExternalUndo(command: command, toast: MailActionCopy.muted(muting, count: changing.count),
+                               symbol: muting ? Quire.Icon.mute : Quire.Icon.unmute, revert: revert)
+        } else {
+            recordQuietExternalUndo(command: command, revert: revert)
+        }
+        return true
+    }
+
+    /// A step the row itself shows (one mute on a row that stays): no toast, and Z reaches it for the grace period, as
+    /// a star's undo does.
+    private func recordQuietExternalUndo(command: String, revert: @escaping () -> Void) {
+        let id = undoHistory.addExternal(command: command, at: Date(), toasted: false)
+        externalUndos[id] = revert
+        rememberLaterGroup(id)
+        let live = Set(undoHistory.groups.map(\.id))
+        externalUndos = externalUndos.filter { live.contains($0.key) }
+        UndoSendPanel.refreshUndoKeyOwner()
+    }
+
+    // MARK: Sender rules (Q4.2)
+
+    /// The rule the account has for mail from the message's sender.
+    private func senderRule(for message: MessageMetadata) -> SenderRule.Action? {
+        conversation.senderRule(for: message)
+    }
+
+    /// Sets the rule for `messageID`'s sender from a message's menu, in one store transaction with what the rule would
+    /// have done to that sender's mail in the conversation had it come after the rule (Block: theirs out of the Trash;
+    /// Always Archive: theirs in the Inbox), so the row leaves as it will for the next one. The toast always shows, since
+    /// no row shows a rule; its Undo puts back the rule the sender had (none, or the other one) and the mail it moved.
+    /// The rule is listed and removed in Settings › Accounts › Senders…, and nowhere else.
+    @discardableResult
+    func setSenderRule(_ action: SenderRule.Action, from messageID: MessageID) -> Bool {
+        guard !showingWelcome, accountsByID[messageID.accountID] != nil, let message = (try? environment.store.message(messageID)) ?? nil,
+              conversation.offersSenderRule(message), let address = message.from?.address else {
+            NSSound.beep()
+            return false
+        }
+        let previous = senderRule(for: message)
+        guard previous != action else { return true }
+        let sender = SenderRule.normalizedAddress(address)
+        let theirs = ((try? environment.store.messages(in: message.conversationID)) ?? []).filter { other in
+            other.from.map { SenderRule.normalizedAddress($0.address) == sender } ?? false
+                && ArrivalRule.change(for: other, inMutedConversation: false, senderRule: action) == action.change
+        }
+        let record = MailActionRecord.make(action.change, on: theirs, conversation: message.conversationID)
+        let engine = environment.engine
+        let accountID = messageID.accountID
+        do {
+            try engine.setSenderRule(action, for: address, accountID: accountID,
+                                     performing: record.map { [MailActionRecord.Step(change: action.change, targets: $0.targets)] } ?? [])
+        } catch {
+            Self.log.error("setting a sender rule failed: \(String(describing: error), privacy: .public)")
+            NSSound.beep()
+            return false
+        }
+        let command = MailActionCopy.senderRuleCommand(action)
+        let inverse = record?.inverse ?? []
+        let conversationID = message.conversationID
+        let fromLater = listView == .later
+        recordExternalUndo(command: command, toast: MailActionCopy.senderRuleSet(action),
+                           symbol: action == .trash ? Quire.Icon.blockSender : Quire.Icon.alwaysArchiveSender) { [weak self] in
+            do {
+                try engine.setSenderRule(previous, for: address, accountID: accountID, performing: inverse)
+            } catch {
+                Self.log.error("undoing a sender rule failed: \(String(describing: error), privacy: .public)")
+                NSSound.beep()
+                return
+            }
+            self?.confirmUndo(of: command)
+            if record != nil { self?.reselect([conversationID], inLater: fromLater) }
+        }
+        return true
+    }
+
+    /// Message › Always Archive Mail from This Sender, Block Sender and the context menu's items: the sender of the open
+    /// conversation's target message, or of its newest mail from someone else (`senderRuleTarget`).
+    private func setSenderRuleFromMenu(_ action: SenderRule.Action) {
+        guard let target = conversation.senderRuleTarget else {
+            NSSound.beep()
+            return
+        }
+        setSenderRule(action, from: target.id)
+    }
+
     // MARK: Rows dropped on the rail (§5.2)
 
     /// Whether the rail's folder `tile` takes these dragged conversations. `RailDrop` decides from the rows as
@@ -1827,6 +1976,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             }
         case .unsubscribe(let id):
             unsubscribe(from: id)
+        case .senderRule(let action, let id):
+            setSenderRule(action, from: id)
         case .escapeQuickReply:
             // §6.1: a visible toast takes the first Esc; the next returns to the list, the bar keeping its text.
             if listPane.toasts.isVisible {
@@ -2004,14 +2155,26 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             laterSubmenuItem(),
             MainMenu.item("Star", #selector(toggleStarSelection(_:)), "s", [], symbol: Quire.Icon.star, target: self),
             MainMenu.item("Mark as Unread", #selector(markSelectionUnread(_:)), "u", [], symbol: Quire.Icon.markUnread, target: self),
+            MainMenu.item("Mute", #selector(toggleMuteSelection(_:)), "m", [], symbol: Quire.Icon.mute, target: self),
             MainMenu.item("Move to Inbox", #selector(moveSelectionToInbox(_:)), "I", [.shift], symbol: Quire.Icon.moveToInbox, target: self),
             .separator(),
             MainMenu.item("Move to Trash", #selector(trashSelection(_:)), "#", [], symbol: Quire.Icon.trash, target: self),
         ]
         items.forEach(menu.addItem)
-        if !isSeveralSelected, conversation.unsubscribeTarget != nil {
+        let unsubscribes = !isSeveralSelected && conversation.unsubscribeTarget != nil
+        // Only where someone other than the user wrote, as Unsubscribe shows only where a list did.
+        let setsRules = !isSeveralSelected && conversation.senderRuleTarget != nil
+        if unsubscribes || setsRules {
             menu.addItem(.separator())
+        }
+        if unsubscribes {
             menu.addItem(MainMenu.item("Unsubscribe", #selector(unsubscribeFromConversation(_:)), "u", [.command, .shift], target: self))
+        }
+        if setsRules {
+            menu.addItem(MainMenu.item(MailActionCopy.senderRuleCommand(.archive), #selector(alwaysArchiveSender(_:)),
+                                       symbol: Quire.Icon.alwaysArchiveSender, target: self))
+            menu.addItem(MainMenu.item(MailActionCopy.senderRuleCommand(.trash), #selector(blockSender(_:)),
+                                       symbol: Quire.Icon.blockSender, target: self))
         }
         return menu
     }
@@ -2048,6 +2211,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     @objc func markSelectionUnread(_ sender: Any?) {
         if let change = readChangeForSelection { mailAction(change) }
     }
+    /// Message › Mute (M), Unmute for a selection that is all muted.
+    @objc func toggleMuteSelection(_ sender: Any?) { toggleMute() }
+    @objc func alwaysArchiveSender(_ sender: Any?) { setSenderRuleFromMenu(.archive) }
+    @objc func blockSender(_ sender: Any?) { setSenderRuleFromMenu(.trash) }
     @objc func replyToSelection(_ sender: Any?) { _ = composeReply(all: false) }
     @objc func replyAllToSelection(_ sender: Any?) { _ = composeReply(all: true) }
     @objc func forwardSelection(_ sender: Any?) { _ = composeForward() }
@@ -2159,6 +2326,19 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         case #selector(unsubscribeFromConversation(_:)):
             // One conversation open, whose messages offer it; the reader knows without a store read.
             return !showingWelcome && !isSeveralSelected && conversation.unsubscribeTarget != nil
+        case #selector(toggleMuteSelection(_:)):
+            menuItem.title = MailActionCopy.muteCommand(muting: mutesSelection)
+            return !showingWelcome && !typing && !muteSelection.isEmpty
+        case #selector(alwaysArchiveSender(_:)), #selector(blockSender(_:)):
+            // One conversation open with mail from someone else; the rule its sender has is checked and has nothing to do.
+            let action: SenderRule.Action = menuItem.action == #selector(blockSender(_:)) ? .trash : .archive
+            guard !showingWelcome, !isSeveralSelected, let target = conversation.senderRuleTarget else {
+                menuItem.state = .off
+                return false
+            }
+            let current = senderRule(for: target)
+            menuItem.state = current == action ? .on : .off
+            return current != action
         default:
             return true
         }
@@ -2198,6 +2378,7 @@ extension MainWindowController {
         let states = Set(argument.dropFirst("--snapshot-state=".count).split(separator: ",").map(String.init))
         let second = accounts.dropFirst().first
         applyDebugLaterStates(states)
+        applyDebugMuteStates(states)
         if states.contains("ic") || states.contains("graphite") {
             QuireEnvironment.shared.setOverrides(QuireEnvironment.Overrides(
                 isGraphite: states.contains("graphite") ? true : nil, increaseContrast: states.contains("ic") ? true : nil))
@@ -2329,6 +2510,19 @@ extension MainWindowController {
         // The observation would bring these on the next turn; the first selection is made now.
         if let current = try? store.snoozes() { snoozesChanged(current) }
         if states.contains("later") { setView(.later) }
+    }
+
+    /// `muted`: three demo conversations muted as M mutes them (archived with it), and the window on All Mail, where their
+    /// rows show the muted glyph.
+    fileprivate func applyDebugMuteStates(_ states: Set<String>) {
+        guard states.contains("muted") else { return }
+        let store = environment.store
+        for row in list.conversations.dropFirst(1).prefix(3) {
+            let targets = ((try? store.messages(in: row.id)) ?? []).filter(\.isInInbox).map(\.id)
+            let archive = targets.isEmpty ? [] : [SSCore.Operation(accountID: row.id.accountID, change: .archive, targets: targets)]
+            try? store.setMuted(true, conversations: [row.id], enqueueing: archive)
+        }
+        setView(.all)
     }
 
     /// `later-menu` and `later-sheet`, once `path`'s window snapshot is written: opens the Later menu at the first row,
