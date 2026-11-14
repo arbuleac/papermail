@@ -22,7 +22,15 @@ final class GraphHTTPClient: Sendable {
 
     func send(_ request: GraphRequest) async throws -> GraphResponse {
         let (http, data) = try await exchange(request) { urlRequest in
-            let (data, response) = try await session.data(for: urlRequest)
+            let probe = SentBytesProbe()
+            let data: Data
+            let response: URLResponse
+            do {
+                (data, response) = try await session.data(for: urlRequest, delegate: probe)
+            } catch let error as URLError {
+                // Whether the request left decides whether a send may go again.
+                throw ProviderError.transport(error, bytesSent: probe.bytesSent)
+            }
             guard let http = response as? HTTPURLResponse else {
                 throw ProviderError.network("non-HTTP response")
             }

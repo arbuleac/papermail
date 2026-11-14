@@ -59,12 +59,31 @@ final class MailEngineSendTests: XCTestCase {
     func testASendThatNeverLeftThisMacIsSentAgain() async throws {
         let harness = try startedHarness()
         harness.provider.sendResults = [
-            .failure(ProviderError.transport(URLError(.notConnectedToInternet))),
+            .failure(ProviderError.transport(URLError(.notConnectedToInternet), bytesSent: 0)),
             .failure(ProviderError.notSent("token endpoint unreachable")),
         ]
         _ = try harness.engine.send(Fixtures.outgoing(), undoWindow: 0)
         try await waitUntil("sent on the third attempt") { harness.provider.sendCalls.count == 3 }
         try await waitUntil("outbox empty") { try harness.store.pendingSends().isEmpty }
+        await harness.shutdown()
+    }
+
+    /// URLSession reports "no network" (-1009) also for a request already on its way when the interface goes down: the
+    /// message may have reached the provider whole, the reply lost. Taken as never sent, a send was sent again and the
+    /// recipient got it twice. Only a request no byte of which left this Mac goes again; one whose task sent bytes, or
+    /// one whose bytes are unknown, fails as before.
+    func testANoNetworkFailureAfterTheRequestLeftStillFails() async throws {
+        XCTAssertTrue(ProviderError.transport(URLError(.notConnectedToInternet), bytesSent: 0).neverLeftThisMac)
+        XCTAssertFalse(ProviderError.transport(URLError(.notConnectedToInternet), bytesSent: 1_412).neverLeftThisMac)
+        XCTAssertFalse(ProviderError.transport(URLError(.notConnectedToInternet)).neverLeftThisMac, "unknown may have left")
+        XCTAssertTrue(ProviderError.transport(URLError(.cannotConnectToHost)).neverLeftThisMac, "no connection was ever made")
+
+        let harness = try startedHarness()
+        harness.provider.sendResults = [.failure(ProviderError.transport(URLError(.notConnectedToInternet), bytesSent: 1_412))]
+        _ = try harness.engine.send(Fixtures.outgoing(), undoWindow: 0)
+        try await waitUntil("send failed") { try harness.store.pendingSends().first?.status == .failed }
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(harness.provider.sendCalls.count, 1, "it may have gone out")
         await harness.shutdown()
     }
 

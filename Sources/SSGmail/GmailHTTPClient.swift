@@ -47,12 +47,14 @@ struct GmailHTTPClient: Sendable {
     /// One attempt with a given token. Non-2xx statuses become errors here; the auth retry lives above.
     func sendOnce(_ request: GmailRequest, token: String) async throws -> Response {
         let urlRequest = request.urlRequest(token: token)
+        let probe = SentBytesProbe()
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await session.data(for: urlRequest)
+            (data, response) = try await session.data(for: urlRequest, delegate: probe)
         } catch {
-            throw Self.transportError(error)
+            // Whether the request left decides whether a send may go again.
+            throw Self.transportError(error, bytesSent: probe.bytesSent)
         }
         guard let http = response as? HTTPURLResponse else {
             throw ProviderError.network("Response was not HTTP")
@@ -84,10 +86,11 @@ struct GmailHTTPClient: Sendable {
         }
     }
 
-    /// What a failed transfer means to the engine: a cancellation, or a network failure worth retrying.
-    static func transportError(_ error: Error) -> ProviderError {
+    /// What a failed transfer means to the engine: a cancellation, or a network failure worth retrying. `bytesSent`
+    /// says how much of the request left, where it is known (`SentBytesProbe`).
+    static func transportError(_ error: Error, bytesSent: Int64? = nil) -> ProviderError {
         switch error {
-        case let error as URLError: return ProviderError.transport(error)
+        case let error as URLError: return ProviderError.transport(error, bytesSent: bytesSent)
         case is CancellationError: return .cancelled
         case let error as ProviderError: return error
         default: return .network(String(describing: error))
