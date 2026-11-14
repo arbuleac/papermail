@@ -27,6 +27,10 @@ public struct MailActionRecord: Sendable {
     /// Trash take it out of the Inbox, which ends the mark, and their undo puts it back with the inverse steps, so the
     /// row returns under Today with its Back tag rather than under its old date.
     public var returnedAt: Date?
+    /// Whether the conversation was muted before a Mark as Spam. The mute lives on the summary row, which goes once
+    /// every message is in Spam (`MuteTable`); the undo mutes it again with the inverse steps, in one transaction
+    /// (`MailClient.setMuted`), so the row never comes back unmuted and the next reply never reaches the Inbox.
+    public var wasMuted = false
 
     /// The messages of a conversation that a conversation-level action should touch.
     ///

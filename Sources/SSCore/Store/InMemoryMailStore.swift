@@ -915,6 +915,9 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         operations[operation.id] = operation
         operationWrittenLocked(operation, previousStatus: previous)
         applySnoozeRulesLocked(touched: conversationsLocked(targetedBy: operation))
+        // Mark as Spam of the last message outside Spam takes the summary row away in SQLite, and the mute and the
+        // failed mark with it.
+        dropOrphanedMarksLocked()
     }
 
     public func pendingOperations(accountID: AccountID, limit: Int) throws -> [Operation] {

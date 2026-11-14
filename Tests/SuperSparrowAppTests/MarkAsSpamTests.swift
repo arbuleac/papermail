@@ -148,6 +148,30 @@ final class MarkAsSpamTests: XCTestCase {
         XCTAssertTrue(try messages(id, harness).allSatisfy { $0.roles.isEmpty }, "archived again, out of Spam and the Inbox")
     }
 
+    /// A muted conversation of other people's mail keeps its mute on its summary row, which goes once every message is in
+    /// Spam; Z brought the row back unmuted, so the next reply reached the Inbox and notified. The undo mutes it again.
+    func testTheUndoKeepsAMutedConversationMuted() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let store = harness.environment.store
+        let id = harness.list.conversations[2].id
+        let inbox = try messages(id, harness).filter(\.isInInbox).map(\.id)
+        try harness.environment.engine.setMuted(true, conversations: [id], performing: [MailActionRecord.Step(change: .archive, targets: inbox)])
+        XCTAssertTrue(try store.isMuted(id))
+        XCTAssertTrue(harness.controller.perform(.goTo(.all)))
+        harness.spin { harness.list.query.view == .all && self.listed(id, harness) }
+        select(id, harness)
+
+        XCTAssertTrue(harness.controller.perform(.markSpam))
+        harness.spin { !self.listed(id, harness) }
+        XCTAssertFalse(try store.isMuted(id), "the mute went with the row")
+        XCTAssertTrue(harness.controller.perform(.undo))
+        harness.spin { self.listed(id, harness) }
+        XCTAssertTrue(try store.isMuted(id), "muted again")
+        XCTAssertEqual(harness.list.conversations.first { $0.id == id }?.isMuted, true, "the row shows it")
+        XCTAssertTrue(try messages(id, harness).allSatisfy { $0.roles.isEmpty }, "archived, as the mute left it")
+    }
+
     /// The Trash and Drafts take no Mark as Spam: the menu items are disabled and ! beeps, changing nothing.
     func testNothingIsMarkedAsSpamFromTheTrashOrDrafts() throws {
         let harness = try MainWindowHarness()

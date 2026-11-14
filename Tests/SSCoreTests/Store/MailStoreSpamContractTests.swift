@@ -70,6 +70,30 @@ extension MailStoreContractTests {
                        "replayed in the order they were applied")
     }
 
+    /// A muted conversation of other people's mail loses its summary row to Spam, and the mute on it, in both stores
+    /// (the in-memory one kept it, so the two disagreed); the undo's steps with the mute (`MailClient.setMuted`, as the
+    /// app's undo of ! calls it) bring it back muted, so the next reply is archived as it arrives.
+    func testAnUndoneMarkAsSpamOfAMutedConversationIsMutedAgain() throws {
+        try store.upsertMessages([message("m1", in: "c1", date: date(10))])
+        let id = ConversationID(accountID: accountA, providerID: "c1")
+        try store.setMuted(true, conversations: [id], enqueueing: [spamOperation(.archive, ["m1"], at: 50)])
+        XCTAssertTrue(try store.isMuted(id))
+
+        let before = try store.messages(in: id)
+        let record = try XCTUnwrap(MailActionRecord.make(.markSpam, on: MailActionRecord.targets(for: .markSpam, in: before, kind: .gmail),
+                                                         conversation: id))
+        try store.enqueue(spamOperation(.markSpam, ["m1"], at: 100))
+        XCTAssertFalse(try store.isMuted(id), "the row and its mute went to Spam with the mail")
+
+        try store.setMuted(true, conversations: [id], enqueueing: spamUndo(record, at: 200))
+        XCTAssertTrue(try store.isMuted(id))
+        XCTAssertEqual(try store.messages(in: id).map(\.roles), before.map(\.roles), "archived, as before")
+        XCTAssertEqual(try store.conversations(ConversationQuery(view: .all)).first { $0.id == id }?.isMuted, true)
+        try store.upsertMessages([message("m2", in: "c1", date: date(300))])
+        XCTAssertEqual(try store.message(spamID("m2"))?.roles, [], "a reply is archived as it arrives")
+        XCTAssertEqual(try conversationIDs(ConversationQuery(view: .inbox)), [])
+    }
+
     /// A provider report that still has the message in the Inbox, before the change has landed, does not bring it back.
     func testAPendingMarkAsSpamWinsOverAnOlderReport() throws {
         try store.upsertMessages([message("m1", in: "c1", date: date(10))])

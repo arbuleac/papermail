@@ -1273,6 +1273,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             if var record = MailActionRecord.make(change, on: messages, conversation: id) {
                 record.snoozedUntil = snoozed[id]
                 record.returnedAt = returned[id]
+                // Spam takes the summary row, and the mute on it, away; the undo mutes it again (`revert`).
+                record.wasMuted = change == .markSpam && ((try? store.isMuted(id)) ?? false)
                 records.append(record)
             }
         }
@@ -1978,20 +1980,26 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// Applies the inverse of `records`, newest first. A Move to Inbox, Move to Trash or Mark as Spam that ended a snooze puts
     /// it back with the inverse steps, in one transaction, so the conversation never shows in the Inbox between the two; an
     /// Archive, Move to Trash or Mark as Spam of a conversation back from Later puts its return mark back, so the row returns
-    /// under Today with its Back tag.
+    /// under Today with its Back tag. A Mark as Spam of a muted conversation mutes it again (the mute went with its summary
+    /// row): with the inverse steps, in one transaction, when nothing else is put back; right after the snoozes and marks
+    /// otherwise, which take a transaction of their own.
     private func revert(_ records: [MailActionRecord]) throws {
+        let engine = environment.engine
         let snoozes = records.compactMap { record -> Snooze.Change? in
             guard let id = record.conversation, record.snoozedUntil != nil || record.returnedAt != nil else { return nil }
             return Snooze.Change(conversationID: id, until: record.snoozedUntil, returnedAt: record.returnedAt)
         }
-        if snoozes.isEmpty {
-            for record in records.reversed() {
-                for step in record.inverse {
-                    try environment.engine.perform(step.change, on: step.targets)
-                }
-            }
+        let muted = records.filter(\.wasMuted).compactMap(\.conversation)
+        let inverse = records.reversed().flatMap(\.inverse)
+        if !snoozes.isEmpty {
+            try engine.setSnoozes(snoozes, performing: inverse)
+            if !muted.isEmpty { try engine.setMuted(true, conversations: muted, performing: []) }
+        } else if !muted.isEmpty {
+            try engine.setMuted(true, conversations: muted, performing: inverse)
         } else {
-            try environment.engine.setSnoozes(snoozes, performing: records.reversed().flatMap(\.inverse))
+            for step in inverse {
+                try engine.perform(step.change, on: step.targets)
+            }
         }
     }
 
