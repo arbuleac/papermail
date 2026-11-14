@@ -4,8 +4,9 @@ import SSCore
 import SSDesign
 
 /// The body editor. Rich text is limited to what mail reliably carries: bold, italic, underline, links,
-/// bulleted and numbered lists, and block quotes. Everything else the text system could do (fonts, sizes,
-/// colors, images, rulers) is switched off or folded back into those few styles.
+/// bulleted and numbered lists, block quotes, and pictures pasted or dropped into the text (spec §5.20, Images in the
+/// body), which are sent as `cid:` parts. Everything else the text system could do (fonts, sizes, colors, rulers,
+/// editing a picture) is switched off or folded back into those few styles; text arrives plain however it is pasted.
 ///
 /// Lists use `NSTextList` paragraph styles with the marker typed into the text, as TextEdit does, so the
 /// editor shows real markers; `ComposeBodyNormalizer` strips them before export. Quotes are a paragraph
@@ -36,6 +37,24 @@ final class ComposeTextView: NSTextView {
     /// Lists and quotes. Off in the Settings signature field, which keeps to the inline styles (bold, italic,
     /// underline, links): their commands and shortcuts then do nothing, and validation reports them disabled.
     var allowsBlockFormatting = true
+
+    /// Pictures pasted or dropped into the text (§5.20, Images in the body). Off in the Settings signature field, which
+    /// is kept as the composer's HTML and has nowhere to keep a picture: there the body reads text alone, as before.
+    var allowsImages = true {
+        didSet {
+            guard oldValue != allowsImages else { return }
+            importsGraphics = allowsImages
+            updateDragTypeRegistration()
+        }
+    }
+
+    /// Files pasted or dropped on the text that are not all pictures, and pictures the Mac cannot read: the composer
+    /// attaches them, as it does files dropped anywhere else in its window (§5.20).
+    var onAttachFiles: (([URL]) -> Void)?
+
+    /// A picture prepared off the main thread is in (`ComposeImageAttachment`): the composer saves its draft again, since
+    /// the save before left the picture out.
+    var onPictureReady: (() -> Void)?
 
     /// Where the text starts and stops across the view: the composer's value axis (x = 84) and 24 pt before the
     /// trailing edge by default; the Settings signature field sets its own.
@@ -85,7 +104,7 @@ final class ComposeTextView: NSTextView {
         usesFontPanel = false
         usesRuler = false
         usesInspectorBar = false
-        importsGraphics = false
+        importsGraphics = allowsImages
         allowsImageEditing = false
         isAutomaticLinkDetectionEnabled = true
         isAutomaticDataDetectionEnabled = false
@@ -128,15 +147,20 @@ final class ComposeTextView: NSTextView {
 
     /// Text typed or pasted never carries the signature's mark, wherever the caret is (spec §5.20): the mark covers
     /// only what the composer inserted, so a From change replaces the signature and keeps what was written after it.
+    /// Nor does it carry a picture's mark, which a caret just after a picture would otherwise hand on.
     override var typingAttributes: [NSAttributedString.Key: Any] {
         get {
             var attributes = super.typingAttributes
             attributes[ComposeSignature.attributeKey] = nil
+            attributes[ComposerInlineImage.attributeKey] = nil
+            attributes[.attachment] = nil
             return attributes
         }
         set {
             var attributes = newValue
             attributes[ComposeSignature.attributeKey] = nil
+            attributes[ComposerInlineImage.attributeKey] = nil
+            attributes[.attachment] = nil
             super.typingAttributes = attributes
         }
     }
@@ -261,17 +285,280 @@ final class ComposeTextView: NSTextView {
     /// Plain text's legacy pasteboard name: AppKit asks a Services requestor with it, as it asks every NSTextView.
     static let legacyStringType = NSPasteboard.PasteboardType("NSStringPboardType")
 
-    /// Plain text only, under both of its names: `validRequestor(forSendType:returnType:)` wants the return type among
-    /// these, so with `.string` alone no service that hands text back (Convert Text to Full Width, the Chinese
-    /// converters) was offered in the body.
-    override var readablePasteboardTypes: [NSPasteboard.PasteboardType] { [.string, Self.legacyStringType] }
-    override var acceptableDragTypes: [NSPasteboard.PasteboardType] { [.string] }
+    /// Plain text under both of its names: `validRequestor(forSendType:returnType:)` wants the return type among these,
+    /// so with `.string` alone no service that hands text back (Convert Text to Full Width, the Chinese converters) was
+    /// offered in the body. Then, where pictures are allowed, the body's own copy, pictures and files; never styled
+    /// text, which no paste brings.
+    override var readablePasteboardTypes: [NSPasteboard.PasteboardType] {
+        let text: [NSPasteboard.PasteboardType] = [.string, Self.legacyStringType]
+        guard allowsImages else { return text }
+        return [ComposeBodyPasteboard.fragmentType] + text + ComposeBodyPasteboard.imageTypes + [.fileURL]
+    }
+
+    override var acceptableDragTypes: [NSPasteboard.PasteboardType] {
+        guard allowsImages else { return [.string] }
+        return [ComposeBodyPasteboard.fragmentType, .string] + ComposeBodyPasteboard.imageTypes + [.fileURL]
+    }
+
+    /// Where ⌘V looks for pictures, the body's own copy and files; the app's tests hand it a private pasteboard, never
+    /// the user's clipboard. Text is pasted plain from the clipboard by the text system.
+    var pasteboard: NSPasteboard = .general
 
     override func paste(_ sender: Any?) {
+        if allowsImages, readPicturesOrFiles(from: pasteboard, actionName: "Paste") { return }
         let start = selectedRange().location
         pasteAsPlainText(sender)
         // Pasted paragraphs inherit the list style of the insertion point but arrive without markers.
         repairListMarkers(in: NSRange(location: start, length: max(0, selectedRange().location - start)))
+    }
+
+    /// Services, and the drags NSTextView places itself (text, the body's own copy), read through here.
+    override func readSelection(from pboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
+        if allowsImages, readPicturesOrFiles(from: pboard, actionName: nil) { return true }
+        // Only text is read the text system's way; a picture type that held no readable picture inserts nothing.
+        guard type == .string || type == Self.legacyStringType else { return false }
+        return super.readSelection(from: pboard, type: type)
+    }
+
+    /// Puts what `pboard` offers into the text when it is pictures or the body's own copy, or hands files to the
+    /// composer to attach (§5.20, Images in the body); false when it is text, which the caller pastes plain.
+    @discardableResult
+    func readPicturesOrFiles(from pboard: NSPasteboard, actionName: String?) -> Bool {
+        let offer = ComposeBodyPasteboard.offer(pboard)
+        switch offer.content {
+        case .text:
+            return false
+        case .files:
+            onAttachFiles?(offer.fileURLs)
+            return true
+        case .fragment:
+            guard let data = pboard.data(forType: ComposeBodyPasteboard.fragmentType),
+                  let segments = ComposeBodyPasteboard.segments(from: data) else { return false }
+            insertFragment(segments, actionName: actionName)
+            return true
+        case .image, .imageFiles:
+            let read = ComposeBodyPasteboard.pictures(of: offer, from: pboard)
+            if !read.pictures.isEmpty { insertPictures(read.pictures, actionName: actionName) }
+            if !read.unattached.isEmpty { onAttachFiles?(read.unattached) }
+            return !read.pictures.isEmpty || !read.unattached.isEmpty
+        }
+    }
+
+    // MARK: Pictures
+
+    /// Puts `pictures` in place of the selection as one undoable edit, the caret after them. A picture takes the text's
+    /// attributes where it lands (a link, a list item's paragraph) but sits on the baseline, not raised with the text,
+    /// and typing after it goes on in the style it interrupted.
+    func insertPictures(_ pictures: [ComposeImageAttachment], actionName: String? = nil) {
+        let typing = typingAttributes
+        let inserted = NSMutableAttributedString()
+        for picture in pictures {
+            inserted.append(Self.character(for: picture, in: typing))
+        }
+        replaceSelection(with: inserted, actionName: actionName)
+        typingAttributes = typing
+        for picture in pictures where picture.isPreparing {
+            picture.whenPrepared { [weak self] picture in self?.pictureDidFinish(picture) }
+        }
+    }
+
+    /// Picture files chosen with Format › Insert Picture… (§5.20): at the caret, as one undoable edit, as pasting them
+    /// would put them; any the Mac cannot read as a picture attach instead.
+    func insertPictureFiles(_ urls: [URL]) {
+        let read = ComposeBodyPasteboard.pictures(fromFiles: urls)
+        if !read.pictures.isEmpty { insertPictures(read.pictures, actionName: "Insert Picture") }
+        if !read.unattached.isEmpty { onAttachFiles?(read.unattached) }
+    }
+
+    /// Waits for every picture in the text still being prepared (closing saves the draft with them).
+    func finishPreparingPictures() {
+        if let storage = textStorage { ComposeInlineImages.finishPreparing(in: storage) }
+    }
+
+    /// A picture prepared off the main thread is ready, or could not be read after all. A ready one is drawn where its
+    /// skeleton was (its size was known from the start, so nothing moves). One that could not be read comes out of the
+    /// text as an edit of its own, and its file, if it had one, is attached instead, as one that never read is.
+    private func pictureDidFinish(_ picture: ComposeImageAttachment) {
+        guard let storage = textStorage else { return }
+        var ranges: [NSRange] = []
+        storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+            if (value as? ComposeImageAttachment) === picture { ranges.append(range) }
+        }
+        if picture.isReady {
+            for range in ranges { layoutManager?.invalidateDisplay(forCharacterRange: range) }
+            onPictureReady?()
+            return
+        }
+        guard !ranges.isEmpty else { return }
+        for range in ranges.reversed() where shouldChangeText(in: range, replacementString: "") {
+            storage.replaceCharacters(in: range, with: "")
+            didChangeText()
+        }
+        if let url = picture.fileURL { onAttachFiles?([url]) }
+    }
+
+    /// The body's own copy: its text plain in the style at the caret, its pictures as parts of their own.
+    private func insertFragment(_ segments: [ComposeBodyPasteboard.Segment], actionName: String?) {
+        let typing = typingAttributes
+        let inserted = NSMutableAttributedString()
+        for segment in segments {
+            switch segment {
+            case .text(let text):
+                inserted.append(NSAttributedString(string: text, attributes: typing))
+            case .picture(let data, let filename, let mimeType):
+                guard let picture = ComposeImageAttachment.restore(data: data, contentID: ComposerInlineImage.makeContentID(),
+                                                                   filename: filename, mimeType: mimeType) else { continue }
+                inserted.append(Self.character(for: picture, in: typing))
+            }
+        }
+        let start = selectedRange().location
+        replaceSelection(with: inserted, actionName: actionName)
+        typingAttributes = typing
+        repairListMarkers(in: NSRange(location: start, length: inserted.length))
+    }
+
+    /// A picture's attachment character, marked with its content id, in `attributes` less the text's raised baseline.
+    static func character(for picture: ComposeImageAttachment, in attributes: [NSAttributedString.Key: Any]) -> NSAttributedString {
+        var attributes = attributes
+        attributes[.baselineOffset] = nil
+        attributes[.attachment] = picture
+        attributes[ComposerInlineImage.attributeKey] = picture.inlineImage.contentID
+        return NSAttributedString(string: "\u{FFFC}", attributes: attributes)
+    }
+
+    private func replaceSelection(with inserted: NSAttributedString, actionName: String?) {
+        let range = rangeForUserTextChange
+        guard let storage = textStorage, range.location != NSNotFound, inserted.length > 0,
+              shouldChangeText(in: range, replacementString: inserted.string) else { return }
+        // Its own undo step: typing just before or after must not fold into it.
+        breakUndoCoalescing()
+        storage.replaceCharacters(in: range, with: inserted)
+        didChangeText()
+        if let actionName { undoManager?.setActionName(actionName) }
+        breakUndoCoalescing()
+        setSelectedRange(NSRange(location: range.location + inserted.length, length: 0))
+    }
+
+    /// The selection's ranges that lie inside the text.
+    private var selectedTextRanges: [NSRange] {
+        let length = textStorage?.length ?? 0
+        return selectedRanges.map(\.rangeValue).filter { $0.length > 0 && NSMaxRange($0) <= length }
+    }
+
+    /// The pictures in the selection, each once.
+    private var selectedPictures: [ComposeImageAttachment] {
+        guard let storage = textStorage else { return [] }
+        return selectedTextRanges.flatMap { ComposeInlineImages.pictures(in: storage.attributedSubstring(from: $0)) }
+    }
+
+    /// The picture when the selection is that one picture and nothing else.
+    private var soleSelectedPicture: ComposeImageAttachment? {
+        let ranges = selectedTextRanges
+        guard ranges.count == 1, let range = ranges.first, range.length == 1 else { return nil }
+        return textStorage?.attribute(.attachment, at: range.location, effectiveRange: nil) as? ComposeImageAttachment
+    }
+
+    // MARK: Copying
+
+    private static let richTextWithAttachments: Set<NSPasteboard.PasteboardType> = [
+        .rtfd, NSPasteboard.PasteboardType("NeXT RTFD pasteboard type"), NSPasteboard.PasteboardType("com.apple.flat-rtfd"),
+    ]
+
+    /// What a copy or a drag of the selection writes: the text system's own types without RTFD (a picture here is no
+    /// file attachment it could carry, and text never needed it), and, when the selection holds pictures, the body's
+    /// own copy first and, for one picture alone, the picture itself, for other apps.
+    override var writablePasteboardTypes: [NSPasteboard.PasteboardType] {
+        let types = super.writablePasteboardTypes.filter { !Self.richTextWithAttachments.contains($0) }
+        guard allowsImages, !selectedPictures.isEmpty else { return types }
+        var own = [ComposeBodyPasteboard.fragmentType]
+        if let only = soleSelectedPicture, let format = ComposerImageFormat(mimeType: only.inlineImage.mimeType) {
+            own.append(NSPasteboard.PasteboardType(format.typeIdentifier))
+        }
+        return own + types
+    }
+
+    override func writeSelection(to pboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
+        guard allowsImages, let storage = textStorage else { return super.writeSelection(to: pboard, type: type) }
+        if type == ComposeBodyPasteboard.fragmentType {
+            let selection = NSMutableAttributedString()
+            for range in selectedTextRanges { selection.append(storage.attributedSubstring(from: range)) }
+            guard let data = ComposeBodyPasteboard.fragment(of: selection) else { return false }
+            return pboard.setData(data, forType: type)
+        }
+        if let only = soleSelectedPicture, ComposerImageFormat(mimeType: only.inlineImage.mimeType)?.typeIdentifier == type.rawValue {
+            // A picture still being prepared is waited for: its bytes are what is copied.
+            only.finishNow()
+            return only.isReady && pboard.setData(only.data, forType: type)
+        }
+        if type == .string || type == Self.legacyStringType, !selectedPictures.isEmpty {
+            // A picture is no words: its attachment character stays out of what other apps receive as text.
+            let text = selectedTextRanges.map { (storage.string as NSString).substring(with: $0) }.joined(separator: "\n")
+            return pboard.setString(text.replacingOccurrences(of: "\u{FFFC}", with: ""), forType: .string)
+        }
+        return super.writeSelection(to: pboard, type: type)
+    }
+
+    // MARK: Dropping
+
+    /// Files dropped on the text that are not all pictures attach, like files dropped anywhere else in the window: the
+    /// composer's content view takes them and shows its outline, since this view, registered for files, keeps the drag
+    /// from it.
+    private var fileDropTarget: ComposeContentView? {
+        sequence(first: superview, next: { $0?.superview }).lazy.compactMap { $0 as? ComposeContentView }.first
+    }
+
+    /// What the drag under way offers, read once per drag: AppKit asks again at every move of the pointer.
+    private var dragOffer: (drag: String, offer: ComposeBodyPasteboard.Offer)?
+
+    private func offer(of drag: NSDraggingInfo) -> ComposeBodyPasteboard.Offer {
+        let board = drag.draggingPasteboard
+        let key = "\(drag.draggingSequenceNumber) \(board.name.rawValue) \(board.changeCount)"
+        if let cached = dragOffer, cached.drag == key { return cached.offer }
+        let offer = ComposeBodyPasteboard.offer(board)
+        dragOffer = (key, offer)
+        return offer
+    }
+
+    private func attaches(_ drag: NSDraggingInfo) -> Bool {
+        allowsImages && offer(of: drag).content == .files
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        if attaches(sender) { return fileDropTarget?.draggingEntered(sender) ?? [] }
+        return super.draggingEntered(sender)
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        if attaches(sender) { return fileDropTarget?.draggingUpdated(sender) ?? [] }
+        return super.draggingUpdated(sender)
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        if let sender, attaches(sender) { fileDropTarget?.draggingExited(sender) }
+        super.draggingExited(sender)
+    }
+
+    override func draggingEnded(_ sender: NSDraggingInfo) {
+        if attaches(sender) { fileDropTarget?.draggingEnded(sender) }
+        super.draggingEnded(sender)
+        dragOffer = nil
+    }
+
+    /// Pictures go in where they are dropped; text and the body's own copy are NSTextView's to place (a drag inside the
+    /// body moves); files attach.
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        guard allowsImages else { return super.performDragOperation(sender) }
+        switch offer(of: sender).content {
+        case .files:
+            return fileDropTarget?.performDragOperation(sender) ?? false
+        case .image, .imageFiles:
+            window?.makeFirstResponder(self)
+            let index = characterIndexForInsertion(at: convert(sender.draggingLocation, from: nil))
+            setSelectedRange(NSRange(location: min(index, (string as NSString).length), length: 0))
+            return readPicturesOrFiles(from: sender.draggingPasteboard, actionName: "Drop")
+        case .fragment, .text:
+            return super.performDragOperation(sender)
+        }
     }
 
     // MARK: Key equivalents

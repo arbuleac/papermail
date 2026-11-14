@@ -2,14 +2,18 @@ import CoreText
 import Foundation
 
 /// Converts the composer's attributed string into the simple HTML `OutgoingMessage.html` promises
-/// (`div`, `p`, `b`, `i`, `u`, `a`, `ul`/`ol`/`li`, `blockquote`) plus a plain-text alternative.
+/// (`div`, `p`, `b`, `i`, `u`, `a`, `ul`/`ol`/`li`, `blockquote`, and `img` for pictures in the body) plus a
+/// plain-text alternative.
 ///
 /// Inline styling is read from the standard text-system attributes (font traits, underline, link) through
 /// CoreText so this stays AppKit-free; paragraph structure is read from `ComposerBlock.attributeKey`,
 /// which the composer stamps on every paragraph before exporting. Paragraph direction is kept as `dir`,
 /// from an explicit writing direction or, for natural ones, the first strong character, so right-to-left
-/// text arrives the way it was typed. Anything else (colors, sizes, fonts) is intentionally dropped: the
-/// composer promises plain mail, and recipients' clients render it their way.
+/// text arrives the way it was typed. A picture is an attachment character marked with `ComposerInlineImage.attributeKey`:
+/// it becomes an `<img>` pointing at its `cid:` part, and `[image: name]` in the plain text, only when the caller
+/// passes that part in `images`, so the HTML never points at a part the message does not carry. Anything else
+/// (colors, sizes, fonts) is intentionally dropped: the composer promises plain mail, and recipients' clients render
+/// it their way.
 public struct ComposerHTMLExporter: Sendable {
     public struct Output: Hashable, Sendable {
         public var html: String
@@ -22,9 +26,11 @@ public struct ComposerHTMLExporter: Sendable {
 
     public init() {}
 
-    /// Exports `body`; a quoted original (see `QuotedReply`) is appended verbatim after the typed content.
-    public func export(_ body: NSAttributedString, appending quoted: QuotedReply.Rendering? = nil) -> Output {
-        let paragraphs = self.paragraphs(of: body)
+    /// Exports `body`; a quoted original (see `QuotedReply`) is appended verbatim after the typed content. `images` are
+    /// the pictures sent with the message, by content id.
+    public func export(_ body: NSAttributedString, appending quoted: QuotedReply.Rendering? = nil,
+                       images: [String: ComposerInlineImage] = [:]) -> Output {
+        let paragraphs = self.paragraphs(of: body, images: images)
         var html = "<div>"
         var lines: [String] = []
 
@@ -95,7 +101,7 @@ public struct ComposerHTMLExporter: Sendable {
         }
     }
 
-    private func paragraphs(of body: NSAttributedString) -> [Paragraph] {
+    private func paragraphs(of body: NSAttributedString, images: [String: ComposerInlineImage]) -> [Paragraph] {
         let string = body.string as NSString
         guard string.length > 0 else { return [] }
         var result: [Paragraph] = []
@@ -103,13 +109,14 @@ public struct ComposerHTMLExporter: Sendable {
             // The newline carries a paragraph's attributes when it is otherwise empty.
             let probe = enclosing.length > 0 ? enclosing.location : range.location
             let attributes = probe < string.length ? body.attributes(at: probe, effectiveRange: nil) : [:]
-            let runs = self.runs(in: body, range: range)
+            let runs = self.runs(in: body, range: range, images: images)
             let text = self.text(for: runs)
             result.append(Paragraph(
                 kind: ComposerBlock.from(attributes: attributes),
                 html: self.html(for: runs),
                 text: text,
-                dir: TextDirection.attribute(for: text, explicit: Self.explicitDirection(attributes))
+                // A picture's placeholder is Latin; it must not turn a right-to-left paragraph around.
+                dir: TextDirection.attribute(for: self.text(for: runs, withImages: false), explicit: Self.explicitDirection(attributes))
             ))
         }
         // Foundation does not enumerate the empty paragraph after a trailing newline, yet the editor shows
@@ -129,6 +136,8 @@ public struct ComposerHTMLExporter: Sendable {
         var italic = false
         var underline = false
         var link: String?
+        /// Set on a run that is one picture and no text.
+        var image: ComposerInlineImage?
     }
 
     private static let fontKey = NSAttributedString.Key("NSFont")
@@ -136,19 +145,38 @@ public struct ComposerHTMLExporter: Sendable {
     private static let linkKey = NSAttributedString.Key("NSLink")
     private static let allowedLinkSchemes: Set<String> = ["http", "https", "mailto", "ftp"]
 
-    private func runs(in body: NSAttributedString, range: NSRange) -> [(style: InlineStyle, text: String)] {
+    private func runs(in body: NSAttributedString, range: NSRange, images: [String: ComposerInlineImage]) -> [(style: InlineStyle, text: String)] {
         var runs: [(style: InlineStyle, text: String)] = []
         guard range.length > 0 else { return runs }
         let string = body.string as NSString
-        body.enumerateAttributes(in: range, options: []) { attributes, runRange, _ in
-            let style = self.style(from: attributes)
-            let text = string.substring(with: runRange).replacingOccurrences(of: "\u{FFFC}", with: "")
+        func append(_ text: String, _ style: InlineStyle) {
             guard !text.isEmpty else { return }
-            if let last = runs.last, last.style == style {
+            if let last = runs.last, last.style == style, style.image == nil {
                 runs[runs.count - 1].text += text
             } else {
                 runs.append((style, text))
             }
+        }
+        body.enumerateAttributes(in: range, options: []) { attributes, runRange, _ in
+            let style = self.style(from: attributes)
+            let raw = string.substring(with: runRange)
+            guard let id = attributes[ComposerInlineImage.attributeKey] as? String, let image = images[id] else {
+                // An attachment character that is no picture sent with the message has nothing to show.
+                append(raw.replacingOccurrences(of: "\u{FFFC}", with: ""), style)
+                return
+            }
+            // Each attachment character is the picture once; a run of them (the same picture pasted twice) is each.
+            var text = ""
+            for character in raw {
+                if character == "\u{FFFC}" {
+                    append(text, style)
+                    text = ""
+                    runs.append((InlineStyle(link: style.link, image: image), "\u{FFFC}"))
+                } else {
+                    text.append(character)
+                }
+            }
+            append(text, style)
         }
         return runs
     }
@@ -209,6 +237,7 @@ public struct ComposerHTMLExporter: Sendable {
     }
 
     private func markup(_ run: (style: InlineStyle, text: String)) -> String {
+        if let image = run.style.image { return image.html }
         var html = Self.escape(run.text)
             .replacingOccurrences(of: "\u{2028}", with: "<br>")
             .replacingOccurrences(of: "\n", with: "<br>")
@@ -218,14 +247,18 @@ public struct ComposerHTMLExporter: Sendable {
         return html
     }
 
-    private func text(for runs: [(style: InlineStyle, text: String)]) -> String {
+    private func text(for runs: [(style: InlineStyle, text: String)], withImages: Bool = true) -> String {
         var text = ""
         var index = 0
         while index < runs.count {
             let link = runs[index].style.link
             var inner = ""
             while index < runs.count, runs[index].style.link == link {
-                inner += runs[index].text
+                if let image = runs[index].style.image {
+                    if withImages { inner += image.plainText }
+                } else {
+                    inner += runs[index].text
+                }
                 index += 1
             }
             if let link, inner.trimmingCharacters(in: .whitespaces) != link {

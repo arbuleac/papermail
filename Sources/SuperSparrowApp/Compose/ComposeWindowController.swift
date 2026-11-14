@@ -362,6 +362,10 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
 
         textView.delegate = self
         textView.onLinkRequest = { [weak self] _ in self?.showLinkPopover() }
+        // Files pasted or dropped on the text that are not all pictures attach, as files dropped anywhere else do.
+        textView.onAttachFiles = { [weak self] urls in self?.addAttachments(from: urls) }
+        // The autosave before a picture was ready left it out; the next one takes it in.
+        textView.onPictureReady = { [weak self] in self?.scheduleAutosave() }
         quoteView.onHeightChange = { [weak self] in self?.bodyDocument.needsLayout = true }
 
         bar.sendButton.target = self
@@ -976,6 +980,26 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         }
     }
 
+    /// Format › Insert Picture… (⌥⌘I; §5.20, Images in the body): the keyboard's way to put picture files into the text,
+    /// at the body's caret, as pasting them would; Attach Files… puts files on the strip instead. The panel lists
+    /// pictures only.
+    @objc func insertPicture(_ sender: Any?) {
+        guard let window, !isSending else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = true
+        panel.allowedContentTypes = [.image]
+        panel.prompt = "Insert"
+        panel.beginSheetModal(for: window) { [weak self] response in
+            MainActor.assumeIsolated {
+                guard response == .OK, let self, !self.isSending else { return }
+                self.window?.makeFirstResponder(self.textView)
+                self.textView.insertPictureFiles(panel.urls)
+            }
+        }
+    }
+
     /// Attaches the readable files as the user's change to the draft.
     private func addAttachments(from urls: [URL]) {
         guard !isSending else { return }
@@ -1000,6 +1024,23 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         if !added.isEmpty { attachments.append(contentsOf: added) }
         if !rejected.isEmpty { statusBoard.post(.rejectedDrop(rejected)) }
         return !added.isEmpty
+    }
+
+    /// The demo's compose snapshot (`--snapshot-compose`, spec §5.43): its line of text and picture at the caret, typed
+    /// and pasted as a person would, so the snapshot shows a picture in the body (§5.20, Images in the body).
+    ///
+    /// The sample is the snapshot's, not the user's: this composer keeps no draft, so the next run does not reopen it
+    /// with the sample in it (and write the sample a second time), and the demo's Drafts never show it. A reply that
+    /// already holds the sample (kept by a run before this rule) is left as it is.
+    func writeDemoSample() {
+        autosaveTimer?.invalidate()
+        closesWithoutSaving = true
+        guard !textView.string.contains(DemoComposerSample.text),
+              let picture = ComposeImageAttachment.make(data: DemoComposerSample.picture, typeIdentifier: ComposerImageFormat.png.typeIdentifier,
+                                                        filename: DemoComposerSample.pictureName) else { return }
+        window?.makeFirstResponder(textView)
+        textView.insertText(DemoComposerSample.text + "\n", replacementRange: textView.selectedRange())
+        textView.insertPictures([picture])
     }
 
     private func removeAttachment(id: UUID) {
@@ -1200,6 +1241,9 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         setSending(true)
 
         Task { [weak self] in
+            // A picture pasted just before Send may still be being prepared: it goes with the message, so Send waits for
+            // it, the button showing it is sending (§5.20, Images in the body).
+            await ComposeInlineImages.waitUntilPrepared(normalized)
             // File-backed attachments are read here, off the main thread, so a large file never stalls the window.
             let outcome: (parts: [OutgoingAttachment], failure: UUID?) = await Task.detached(priority: .userInitiated) {
                 var parts: [OutgoingAttachment] = []
@@ -1344,7 +1388,8 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
             return !isSending && !KeyboardRouter.isTextInput(window?.firstResponder)
         }
         switch action {
-        case #selector(discardDraft(_:)), #selector(attachFile(_:)), #selector(addCcField(_:)), #selector(addBccField(_:)):
+        case #selector(discardDraft(_:)), #selector(attachFile(_:)), #selector(insertPicture(_:)), #selector(addCcField(_:)),
+             #selector(addBccField(_:)):
             return !isSending
         case #selector(send(_:)), #selector(sendAndArchive(_:)), #selector(sendLater(_:)):
             return !isSending && bar.sendButton.isEnabled
@@ -1370,6 +1415,8 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     /// The synchronous save behind closing and quitting: content worth keeping is written before returning,
     /// a draft that no longer holds anything worth keeping is removed.
     private func keepDraftNow() {
+        // A picture still being prepared goes into this save: the window will not be there to save it later.
+        textView.finishPreparingPictures()
         autosaveTimer?.invalidate()
         if isWorthKeeping {
             ComposeDraftStore.shared.saveNow(currentDraft())

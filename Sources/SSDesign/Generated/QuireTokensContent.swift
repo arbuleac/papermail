@@ -253,6 +253,7 @@ extension Quire {
             QuireCheatSheetRow(keys: "⇧⌘8 ⇧⌘7", label: "Bulleted · numbered list"),
             QuireCheatSheetRow(keys: "⌘'", label: "Quote"),
             QuireCheatSheetRow(keys: "⌘K", label: "Add link"),
+            QuireCheatSheetRow(keys: "⌥⌘I", label: "Insert picture"),
             QuireCheatSheetRow(keys: "⇧⌘C ⇧⌘B", label: "Cc · Bcc field"),
         ]),
         QuireCheatSheetSection(title: "View", rows: [

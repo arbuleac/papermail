@@ -180,6 +180,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             Self.log.error("snapshot: no conversation to reply to")
             return
         }
+        // A line and a picture in the body, so the snapshot shows how a pasted picture sits in the text (§5.20).
+        ComposeWindowRegistry.shared.openControllers.first?.writeDemoSample()
         // Let the composer lay out and load the quoted original.
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
             MainActor.assumeIsolated {

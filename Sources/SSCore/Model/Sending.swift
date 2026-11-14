@@ -21,7 +21,8 @@ public struct OutgoingMessage: Hashable, Codable, Sendable {
     public var cc: [EmailAddress]
     public var bcc: [EmailAddress]
     public var subject: String
-    /// Simple HTML produced by the composer: p, br, b, i, u, a, ul, ol, li, blockquote, div, span.
+    /// Simple HTML produced by the composer: p, br, b, i, u, a, ul, ol, li, blockquote, div, span, and img for a
+    /// picture in the body, whose `cid:` names one of `attachments` (`ComposerInlineImage`).
     public var html: String
     /// Plain-text alternative.
     public var text: String

@@ -52,7 +52,7 @@ extension NSColor {
     public static let qHover = NSColor.quire("hover", QuireColorValues(light: 0x1D1B180C, dark: 0xEDE9E20E, lightHC: 0x1D1B1812, darkHC: 0xFFFFFF17))
     /// `color.pressed`: Pressed wash (wash).
     public static let qPressed = NSColor.quire("pressed", QuireColorValues(light: 0x1D1B1817, dark: 0xEDE9E21A, lightHC: 0x1D1B1821, darkHC: 0xFFFFFF26))
-    /// `color.fill`: Quiet fill: count badge, quoted-text toggle, address token, toggle-off track, skeleton (wash).
+    /// `color.fill`: Quiet fill: count badge, quoted-text toggle, address token, toggle-off track, skeleton (a composer picture still being prepared) (wash).
     public static let qFill = NSColor.quire("fill", QuireColorValues(light: 0x1D1B180F, dark: 0xEDE9E214, lightHC: 0x1D1B1817, darkHC: 0xFFFFFF1F))
     /// `color.slipHover`: Hover wash on slip actions (wash).
     public static let qSlipHover = NSColor.quire("slipHover", QuireColorValues(light: 0xF3F0EA24, dark: 0xEDE9E21F, lightHC: 0xFFFFFF2E, darkHC: 0xFFFFFF33))

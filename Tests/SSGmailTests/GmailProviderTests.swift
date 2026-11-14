@@ -595,6 +595,45 @@ final class GmailProviderTests: XCTestCase {
         XCTAssertTrue(mime.contains(encoded), "the attachment travels base64 inside the MIME, not base64url again outside it")
     }
 
+    /// A picture pasted into the composer (spec §5.20, Images in the body) as large as a photo: the message goes up raw
+    /// like any large one, the picture a related part of the HTML that points at it, never a file attachment.
+    func testSendWithALargePictureInTheBodyUploadsItAsARelatedPart() async throws {
+        server.on("GET", "/users/me/profile", .json(GmailFixtures.profile))
+        server.on("POST", "/users/me/messages/send", .json(GmailFixtures.sendResponse))
+        let provider = TestSupport.makeProvider()
+        let photo = ComposerInlineImage(contentID: "5b1e7c2a-1@supersparrow.local", filename: "terrace.jpg", mimeType: "image/jpeg",
+                                        width: 1600, height: 1200)
+        let bytes = Data((0..<GmailProvider.uploadThresholdBytes).map { UInt8(truncatingIfNeeded: $0 &* 13) })
+        let body = NSMutableAttributedString(string: "From the terrace:")
+        body.append(NSAttributedString(string: "\u{FFFC}", attributes: [ComposerInlineImage.attributeKey: photo.contentID]))
+        let export = ComposerHTMLExporter().export(body, images: [photo.contentID: photo])
+        let outgoing = OutgoingMessage(accountID: TestSupport.accountID, to: [EmailAddress(address: "ben@example.com")], subject: "Terrace",
+                                       html: export.html, text: export.text, attachments: [photo.outgoing(bytes)])
+
+        _ = try await provider.send(outgoing)
+
+        let upload = try XCTUnwrap(server.requests.first { $0.path == "/upload/gmail/v1/users/me/messages/send" })
+        let parts = TestSupport.uploadParts(of: upload)
+        guard parts.count == 2 else { return XCTFail("expected metadata and media parts, got \(parts.count)") }
+        let mime = String(decoding: parts[1].body, as: UTF8.self)
+        XCTAssertTrue(mime.contains("Content-Type: multipart/related; boundary="))
+        XCTAssertTrue(mime.contains("Content-Type: image/jpeg; name=\"terrace.jpg\"\r\nContent-Transfer-Encoding: base64\r\n"
+                                    + "Content-ID: <5b1e7c2a-1@supersparrow.local>\r\nContent-Disposition: inline; filename=\"terrace.jpg\"\r\n"))
+        XCTAssertFalse(mime.contains("Content-Disposition: attachment"), "the picture is no attachment")
+        let encoded = bytes.base64EncodedString(options: [.lineLength76Characters, .endLineWithCarriageReturn, .endLineWithLineFeed])
+        XCTAssertTrue(mime.contains(encoded))
+        let html = Data(base64Encoded: try XCTUnwrap(Self.base64Body(after: "Content-Type: text/html; charset=\"UTF-8\"", in: mime)))
+        XCTAssertTrue(String(decoding: try XCTUnwrap(html), as: UTF8.self).contains("<img src=\"cid:5b1e7c2a-1@supersparrow.local\""))
+    }
+
+    /// The base64 lines of the part whose headers start with `header`, joined.
+    private static func base64Body(after header: String, in mime: String) -> String? {
+        guard let start = mime.range(of: header), let blank = mime.range(of: "\r\n\r\n", range: start.upperBound..<mime.endIndex) else { return nil }
+        let rest = mime[blank.upperBound...]
+        let end = rest.range(of: "\r\n--")?.lowerBound ?? rest.endIndex
+        return rest[..<end].replacingOccurrences(of: "\r\n", with: "")
+    }
+
     func testSendStillSucceedsWhenRepliedMessageIsGone() async throws {
         server.on("GET", "/users/me/profile", .json(GmailFixtures.profile))
         server.on("GET", "/users/me/messages/gone", .json(GmailFixtures.notFoundError, status: 404))

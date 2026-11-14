@@ -6,7 +6,8 @@ import SSDesign
 /// rows start directly below. From the top: the rows, the body (`sheet`), the attachment strip, the format row
 /// and the bottom bar, laid out by hand to the token metrics.
 ///
-/// Files dropped anywhere on the window become attachments; while a file drag hovers, the body shows the drop
+/// Files dropped anywhere on the window become attachments, except pictures dropped on the body's text, which go into
+/// it (`ComposeTextView`, §5.20 Images in the body); while a file drag that will attach hovers, the body shows the drop
 /// outline. The composer's window-wide shortcuts (⌘↩, ⇧⌘↩, ⇧⌘A, ⇧⌘T, ⇧⌘C, ⇧⌘B) are answered here, before the
 /// menus, so they work from every field.
 @MainActor
