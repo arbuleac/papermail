@@ -367,6 +367,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         list.onSelectionChange = { [weak self] _ in self?.listSelectionDidChange() }
         list.onSelectionSetChange = { [weak self] _ in self?.listSelectionDidChange() }
         list.rowMenu = { [weak self] in self?.selectionContextMenu() }
+        list.onRowAction = { [weak self] change, id in self?.rowAction(change, on: id) }
         conversation.messageMenu = { [weak self] in self?.selectionContextMenu() }
         list.onOpen = { [weak self] id in
             guard let self else { return }
@@ -1645,6 +1646,20 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             return true
         }
         return mailAction(change, on: ids.filter { !LocalDraftConversation.isLocal($0) })
+    }
+
+    // MARK: Swipe (§5.7)
+
+    /// A swipe on a row, or the row's VoiceOver action: the key's change on that one conversation, whatever is selected,
+    /// through the key's own path (E's in Later, where it ends the snooze), so the toast, the coalescing, the undo and
+    /// the selection moving on are the key's. The list offers only what the key would change (`RowSwipe`).
+    private func rowAction(_ change: MetadataChange, on id: ConversationID) {
+        guard !showingWelcome else { return }
+        if change == .archive {
+            archive([id])
+        } else {
+            mailAction(change, on: [id])
+        }
     }
 
     @discardableResult
