@@ -10,8 +10,8 @@ final class MetricDriftTests: XCTestCase {
     private let file = DesignTokensFile.shared
 
     func testEveryMetricIsCovered() {
-        // tokens.json had 685 leaves under layout, border and platform when this file was generated.
-        XCTAssertEqual(file.leafCount(under: ["layout", "border", "platform"]), 685, "regenerate with swift scripts/tools/quire-tokens.swift")
+        // tokens.json had 695 leaves under layout, border and platform when this file was generated.
+        XCTAssertEqual(file.leafCount(under: ["layout", "border", "platform"]), 695, "regenerate with swift scripts/tools/quire-tokens.swift")
     }
 
     func testLayoutWindow() {
@@ -300,6 +300,19 @@ final class MetricDriftTests: XCTestCase {
         number(Quire.Layout.QuotedToggle.gap, "layout.quotedToggle.gap")
         number(Quire.Layout.QuotedToggle.glyph, "layout.quotedToggle.glyph")
         number(Quire.Layout.QuotedToggle.composerChip, "layout.quotedToggle.composerChip")
+    }
+
+    func testLayoutFindBar() {
+        number(Quire.Layout.FindBar.width, "layout.findBar.width")
+        number(Quire.Layout.FindBar.height, "layout.findBar.height")
+        number(Quire.Layout.FindBar.pad, "layout.findBar.pad")
+        number(Quire.Layout.FindBar.radius, "layout.findBar.radius")
+        number(Quire.Layout.FindBar.top, "layout.findBar.top")
+        number(Quire.Layout.FindBar.trailing, "layout.findBar.trailing")
+        number(Quire.Layout.FindBar.fieldGap, "layout.findBar.fieldGap")
+        number(Quire.Layout.FindBar.buttonGap, "layout.findBar.buttonGap")
+        number(Quire.Layout.FindBar.matchRadius, "layout.findBar.matchRadius")
+        number(Quire.Layout.FindBar.currentRing, "layout.findBar.currentRing")
     }
 
     func testLayoutBanner() {

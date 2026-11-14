@@ -279,6 +279,18 @@ extension Quire {
             public static let glyph: CGFloat = 14
             public static let composerChip: CGFloat = 22
         }
+        public enum FindBar {
+            public static let width: CGFloat = 320
+            public static let height: CGFloat = 40
+            public static let pad: CGFloat = 6
+            public static let radius: CGFloat = 8
+            public static let top: CGFloat = 8
+            public static let trailing: CGFloat = 16
+            public static let fieldGap: CGFloat = 6
+            public static let buttonGap: CGFloat = 2
+            public static let matchRadius: CGFloat = 3
+            public static let currentRing: CGFloat = 1
+        }
         public enum Banner {
             public static let height: CGFloat = 32
             public static let radius: CGFloat = 6

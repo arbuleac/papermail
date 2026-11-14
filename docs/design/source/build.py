@@ -312,7 +312,7 @@ def contrast_summary():
     n = sum(1 for r in results if r[3] > 0)
     cue = sum(1 for r in results if 0 < r[3] < 3)
     ng = len(g_results)
-    s = '%d pairs × 4 modes = %d checks, plus %d Graphite pairs × 4 = %d, %d failures (%d of the pairs are selection scan cues with a 1.25 floor; account inks need 3.0, or 3.5 in IC; the rest need 4.5 or 3.0). Smallest margins: ' % (
+    s = '%d pairs × 4 modes = %d checks, plus %d Graphite pairs × 4 = %d, %d failures (%d of the pairs are scan cues with a 1.25 floor; account inks need 3.0, or 3.5 in IC; the rest need 4.5 or 3.0). Smallest margins: ' % (
         n, n * 4, ng, ng * 4, len(fails), cue)
     s += '; '.join('%s %.2f (%s, needs %.1f)' % (u, v, MODE_LABEL[m], nd) for _, u, m, v, nd in _margins(results)) + '.'
     return s

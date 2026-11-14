@@ -19,6 +19,8 @@ enum ConversationScriptMessage: Equatable {
     case originalColors(MessageID, Bool)
     /// A height animation started; the next key press finishes it.
     case motion
+    /// Find in conversation reported its count and current match (spec §5.50).
+    case find(ConversationFind.Result)
 
     init?(body: Any) {
         guard let dictionary = body as? [String: Any], let kind = dictionary["kind"] as? String else { return nil }
@@ -50,6 +52,9 @@ enum ConversationScriptMessage: Equatable {
         case "originalColors":
             guard let messageID, let on = dictionary["on"] as? Bool else { return nil }
             self = .originalColors(messageID, on)
+        case "find":
+            guard let result = ConversationFind.Result(body: dictionary) else { return nil }
+            self = .find(result)
         default:
             return nil
         }

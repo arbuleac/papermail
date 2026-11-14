@@ -130,6 +130,10 @@ extension NSColor {
     public static let qDangerWash = NSColor.quire("dangerWash", QuireColorValues(light: 0xF8E3DFFF, dark: 0x3A201CFF, lightHC: 0xF0CEC8FF, darkHC: 0x4A231EFF))
     /// `color.infoWash`: Info banner (semantic).
     public static let qInfoWash = NSColor.quire("infoWash", QuireColorValues(light: 0xE4EAF5FF, dark: 0x1E2638FF, lightHC: 0xD0DAEEFF, darkHC: 0x22304AFF))
+    /// `color.findWash`: Every match of Find in conversation, behind text set in `ink` (opaque, so it reads on any page a sender designed) (semantic).
+    public static let qFindWash = NSColor.quire("findWash", QuireColorValues(light: 0xF2DF9FFF, dark: 0x3E3420FF, lightHC: 0xEFD893FF, darkHC: 0x463A1EFF))
+    /// `color.findCurrent`: The current match of Find in conversation, behind text in `ink`, with a 1 pt `ruleStrong` ring (semantic).
+    public static let qFindCurrent = NSColor.quire("findCurrent", QuireColorValues(light: 0xEDBE45FF, dark: 0x80600FFF, lightHC: 0xE6B030FF, darkHC: 0x7A5A0CFF))
     /// `color.dangerFill`: Destructive button, attention badge (semantic).
     public static let qDangerFill = NSColor.quire("dangerFill", QuireColorValues(light: 0xAE2A1FFF, dark: 0xC0392BFF, lightHC: 0x8C1C13FF, darkHC: 0xC0392BFF))
     /// `color.dangerFillHover`: Destructive button hover (semantic).
@@ -189,6 +193,8 @@ extension Color {
     public static let qWarningWash = Color(nsColor: .qWarningWash)
     public static let qDangerWash = Color(nsColor: .qDangerWash)
     public static let qInfoWash = Color(nsColor: .qInfoWash)
+    public static let qFindWash = Color(nsColor: .qFindWash)
+    public static let qFindCurrent = Color(nsColor: .qFindCurrent)
     public static let qDangerFill = Color(nsColor: .qDangerFill)
     public static let qDangerFillHover = Color(nsColor: .qDangerFillHover)
     public static let qDangerFillPressed = Color(nsColor: .qDangerFillPressed)
@@ -245,6 +251,8 @@ public enum QuireColorToken: String, CaseIterable, Sendable {
     case warningWash
     case dangerWash
     case infoWash
+    case findWash
+    case findCurrent
     case dangerFill
     case dangerFillHover
     case dangerFillPressed
@@ -301,6 +309,8 @@ public enum QuireColorToken: String, CaseIterable, Sendable {
         case .warningWash: return .qWarningWash
         case .dangerWash: return .qDangerWash
         case .infoWash: return .qInfoWash
+        case .findWash: return .qFindWash
+        case .findCurrent: return .qFindCurrent
         case .dangerFill: return .qDangerFill
         case .dangerFillHover: return .qDangerFillHover
         case .dangerFillPressed: return .qDangerFillPressed
@@ -359,6 +369,8 @@ public enum QuireColorToken: String, CaseIterable, Sendable {
         case .warningWash: return QuireColorValues(light: 0xF6ECD8FF, dark: 0x33291AFF, lightHC: 0xEEDDBAFF, darkHC: 0x3F311AFF)
         case .dangerWash: return QuireColorValues(light: 0xF8E3DFFF, dark: 0x3A201CFF, lightHC: 0xF0CEC8FF, darkHC: 0x4A231EFF)
         case .infoWash: return QuireColorValues(light: 0xE4EAF5FF, dark: 0x1E2638FF, lightHC: 0xD0DAEEFF, darkHC: 0x22304AFF)
+        case .findWash: return QuireColorValues(light: 0xF2DF9FFF, dark: 0x3E3420FF, lightHC: 0xEFD893FF, darkHC: 0x463A1EFF)
+        case .findCurrent: return QuireColorValues(light: 0xEDBE45FF, dark: 0x80600FFF, lightHC: 0xE6B030FF, darkHC: 0x7A5A0CFF)
         case .dangerFill: return QuireColorValues(light: 0xAE2A1FFF, dark: 0xC0392BFF, lightHC: 0x8C1C13FF, darkHC: 0xC0392BFF)
         case .dangerFillHover: return QuireColorValues(light: 0x9C251BFF, dark: 0xC8402FFF, lightHC: 0x7A170FFF, darkHC: 0xC8402FFF)
         case .dangerFillPressed: return QuireColorValues(light: 0x8A2018FF, dark: 0xA93226FF, lightHC: 0x68130CFF, darkHC: 0xA93226FF)
@@ -437,6 +449,8 @@ public enum QuireColorToken: String, CaseIterable, Sendable {
         case .warningWash: return "semantic"
         case .dangerWash: return "semantic"
         case .infoWash: return "semantic"
+        case .findWash: return "semantic"
+        case .findCurrent: return "semantic"
         case .dangerFill: return "semantic"
         case .dangerFillHover: return "semantic"
         case .dangerFillPressed: return "semantic"

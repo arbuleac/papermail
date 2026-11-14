@@ -90,6 +90,9 @@ extension Quire {
         public static let invitation = "calendar"
         public static let answered = "checkmark"
         public static let print = "printer"
+        public static let findInConversation = "text.magnifyingglass"
+        public static let findPrevious = "chevron.up"
+        public static let findNext = "chevron.down"
         public static let loginApproval = "info.circle"
         public static let mute = "bell.slash"
         public static let unmute = "bell"
@@ -256,6 +259,8 @@ extension Quire {
             QuireCheatSheetRow(keys: "⇧⌘I", label: "Load images"),
             QuireCheatSheetRow(keys: "⇧⌘O", label: "Original colors"),
             QuireCheatSheetRow(keys: ".", label: "Show · hide quoted text"),
+            QuireCheatSheetRow(keys: "⌥⌘F", label: "Find in conversation"),
+            QuireCheatSheetRow(keys: "⌘G ⇧⌘G", label: "Next · previous match"),
             QuireCheatSheetRow(keys: "⌘P", label: "Print the conversation"),
             QuireCheatSheetRow(keys: "⌥⌘C", label: "Compact rows"),
             QuireCheatSheetRow(keys: "⌃⌘S", label: "Show · hide the rail"),

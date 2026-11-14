@@ -211,6 +211,17 @@ enum DesignGalleryCards {
             S.sized(searching, NSSize(width: 250, height: Quire.Layout.ListHeader.searchHeight))
             block.row("Searching", [searching])
             block.row("Disabled", [S.forced(QuireSearchField(), nil, enabled: false)])
+
+            // Find in conversation (§5.50): the bar over the reader, with matches and without.
+            let finding = QuireFindBar()
+            finding.query = "lisbon"
+            finding.countText = "3 of 12"
+            finding.hasMatches = true
+            block.row("Find bar", [finding])
+            let notFound = QuireFindBar()
+            notFound.query = "turbine"
+            notFound.countText = "No matches"
+            block.row("No matches", [notFound])
         }
     }
 }

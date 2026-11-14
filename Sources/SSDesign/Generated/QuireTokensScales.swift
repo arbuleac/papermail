@@ -76,7 +76,7 @@ extension Quire {
         public enum IcOutline {
             public static let width: CGFloat = 1
             public static let color: String = "ruleStrong"
-            public static let appliesTo: String = "sheets, stack, quick-reply field, autocomplete, link popover and cheat sheet in increased contrast (slips use slipEdge instead)"
+            public static let appliesTo: String = "sheets, stack, quick-reply field, autocomplete, link popover, find bar and cheat sheet in increased contrast (slips use slipEdge instead)"
         }
     }
 
