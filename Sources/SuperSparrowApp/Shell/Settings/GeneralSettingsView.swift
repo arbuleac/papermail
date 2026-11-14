@@ -2,13 +2,14 @@ import SSDesign
 import SwiftUI
 
 /// Settings › General (spec §5.40): a two-column grid, hairlines between the reading group, the mail group, Keep mail on
-/// this Mac and Mail links. Font applies live across the app (spec §4.4).
+/// this Mac, and At login with Mail links. Font applies live across the app (spec §4.4).
 struct GeneralSettingsView: View {
     static let keepMailCaption = "Older mail stays in the list and in search, and downloads again when you open it."
 
     @ObservedObject var settings: AppSettings
     @ObservedObject var defaultMailApp: DefaultMailAppModel
     @ObservedObject var mailboxSize: MailboxSizeModel
+    @ObservedObject var launchAtLogin: LaunchAtLoginModel
 
     var body: some View {
         QuireSettingsGrid {
@@ -53,6 +54,20 @@ struct GeneralSettingsView: View {
             }
             QuireSettingsCaption(Self.keepMailCaption)
             QuireSettingsDivider()
+            QuireSettingsRow("At login") {
+                LaunchAtLoginToggle(model: launchAtLogin)
+            }
+            if launchAtLogin.row.needsApproval {
+                QuireSettingsRow(nil) {
+                    LaunchAtLoginApproval { launchAtLogin.openLoginItems() }
+                }
+            }
+            if let caption = launchAtLogin.row.caption {
+                QuireSettingsCaption(caption)
+            }
+            if let failure = launchAtLogin.row.failure {
+                QuireSettingsCaption(failure, isError: true)
+            }
             QuireSettingsRow("Mail links") {
                 DefaultMailAppControl(model: defaultMailApp)
             }
@@ -61,10 +76,12 @@ struct GeneralSettingsView: View {
             }
         }
         .settingsTabContent()
-        // The user can pick another mail app in Mail's settings while this tab is away; the window asks again as it
-        // reopens on this tab and as the app comes back to the front. The mailbox's size is measured again as well.
+        // The user can pick another mail app in Mail's settings, or approve the login item in System Settings, while
+        // this tab is away; the window asks again as it reopens on this tab and as the app comes back to the front. The
+        // mailbox's size is measured again as well.
         .onAppear {
             defaultMailApp.refresh()
+            launchAtLogin.refresh()
             mailboxSize.refresh()
         }
     }
@@ -90,6 +107,51 @@ struct DefaultMailAppControl: View {
                 .disabled(!row.isButtonEnabled)
         } else {
             Color.clear.frame(width: 1, height: 1).accessibilityHidden(true)
+        }
+    }
+}
+
+/// At login's toggle (§5.40): where macOS says SuperSparrow stands, or where a change is taking it. Nothing until the
+/// first answer, rather than a toggle that may flip.
+struct LaunchAtLoginToggle: View {
+    @ObservedObject var model: LaunchAtLoginModel
+
+    var body: some View {
+        let row = model.row
+        if row.isOn != nil {
+            Toggle(LaunchAtLoginModel.toggleTitle, isOn: Binding(get: { model.row.isOn ?? false }, set: { model.setOn($0) }))
+                .toggleStyle(.quire)
+                .disabled(!row.isToggleEnabled)
+                .accessibilityLabel(LaunchAtLoginModel.accessibilityLabel)
+        } else {
+            Color.clear.frame(width: 1, height: 1).accessibilityHidden(true)
+        }
+    }
+}
+
+/// At login's second row while macOS waits for the user's approval (§5.40): the account rows' status shape, glyph and
+/// words, then the button that takes the user to the one place the approval can be given.
+struct LaunchAtLoginApproval: View {
+    let openLoginItems: () -> Void
+
+    var body: some View {
+        let s = Quire.Layout.Settings.self
+        HStack(spacing: s.statusButtonGap) {
+            HStack(spacing: s.statusGlyphGap) {
+                if let glyph = QuireSymbol.image(Quire.Icon.loginApproval, size: .custom(s.statusGlyph)) {
+                    Image(nsImage: glyph)
+                        .renderingMode(.template)
+                        .foregroundStyle(Color.qInk2)
+                }
+                Text(LaunchAtLoginModel.approvalWords)
+                    .font(.quire(.snippet))
+                    .tracking(QuireFont.Role.snippet.tracking)
+                    .foregroundStyle(Color.qInk2)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(LaunchAtLoginModel.approvalWords)
+            Button(LaunchAtLoginModel.openLoginItemsTitle, action: openLoginItems)
+                .buttonStyle(.quire(.secondary, size: .small))
         }
     }
 }

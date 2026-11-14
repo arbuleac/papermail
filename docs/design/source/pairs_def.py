@@ -356,6 +356,8 @@ PAIRS = [
  ("General Mail links status glyph on desk", "success", ["canvas"], U),
  ("General Mail links status text on desk", "ink2", ["canvas"], T),
  ("General Mail links failure line on desk", "danger", ["canvas"], T),
+ ("General At login approval glyph on desk", "ink2", ["canvas"], U),
+ ("General At login approval text on desk", "ink2", ["canvas"], T),
  ("OAuth section title on desk", "ink", ["canvas"], T),
  ("Mono field text", "ink", ["sheet"], T),
  # ---- welcome

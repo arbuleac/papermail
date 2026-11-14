@@ -88,6 +88,7 @@ extension Quire {
         public static let conceal = "eye.slash"
         public static let invitation = "calendar"
         public static let answered = "checkmark"
+        public static let loginApproval = "info.circle"
     }
 
     /// The custom glyphs (spec §4.11): SVG path data in grid units, y down.
