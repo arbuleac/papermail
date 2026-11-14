@@ -71,6 +71,10 @@ final class NewMailNotifierTests: XCTestCase {
         settings.notificationsEnabled = true
         XCTAssertTrue(notifier.plan((1...200).map { row($0) }, accounts: [account.id: account], now: Date()).isEmpty, "seen while off")
         XCTAssertTrue(reads.isEmpty)
+        // Older mail the backfill brings after launch is not read about either: a row's newest is never older than its arrival.
+        let old = Date().addingTimeInterval(-86_400)
+        XCTAssertTrue(notifier.plan((301...400).map { row($0, date: old) }, accounts: [account.id: account], now: Date()).isEmpty)
+        XCTAssertTrue(reads.isEmpty, "backfilled rows: no store read")
         let posts = notifier.plan([row(201), row(202), row(203)], accounts: [account.id: account], now: Date())
         XCTAssertEqual(posts.count, 3)
         XCTAssertEqual(reads, [[row(201).id, row(202).id, row(203).id]], "one read for the rows that could notify")

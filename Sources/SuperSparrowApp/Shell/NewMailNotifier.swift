@@ -101,7 +101,7 @@ final class NewMailNotifier {
         // Every row's newest message counts as seen, notifications on or off; the rest is judged only while they are on.
         var candidates: [ConversationSummary] = []
         for row in rows where seenLatest.insert(row.latestMessageID).inserted {
-            guard seeded, settings.notificationsEnabled, row.unreadCount > 0 else { continue }
+            guard seeded, settings.notificationsEnabled, row.unreadCount > 0, row.latestDate > newSince(row) else { continue }
             // Back from Later is not new mail: the Inbox badge and the row's Back tag say it came back (§5.41).
             guard row.returnedAt == nil else { continue }
             guard !accountsInFirstSync.contains(row.id.accountID) else { continue }
@@ -128,10 +128,7 @@ final class NewMailNotifier {
                     if let from = message.from { shown.participants = [from] }
                 }
             }
-            // Downloaded pages land after launch too; only mail dated after launch, and after its account's first sync
-            // ended, is new to the user.
-            let newSince = max(launchDate, firstSyncEndedAt[row.id.accountID] ?? launchDate)
-            guard shown.latestDate > newSince.addingTimeInterval(-60) else { continue }
+            guard shown.latestDate > newSince(row) else { continue }
             fresh.append(shown)
         }
         guard !fresh.isEmpty else { return [] }
@@ -156,6 +153,13 @@ final class NewMailNotifier {
             }
         }
         return posts
+    }
+
+    /// Downloaded pages land after launch too; only mail dated after launch, and after its account's first sync ended, is
+    /// new to the user, less a minute. A row's newest message is never older
+    /// than the arrival it notifies about, so a row older than this is left out before anything is read.
+    private func newSince(_ row: ConversationSummary) -> Date {
+        max(launchDate, firstSyncEndedAt[row.id.accountID] ?? launchDate).addingTimeInterval(-60)
     }
 
     private func post(_ post: Post, to center: UNUserNotificationCenter) {
