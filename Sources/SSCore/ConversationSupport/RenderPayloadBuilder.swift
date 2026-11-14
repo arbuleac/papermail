@@ -73,6 +73,19 @@ public struct RenderPayloadBuilder: Sendable {
             } else {
                 date = dateDisplay(for: message.date, now: now, formatters: formatters)
             }
+            let attachments = (body?.body.attachments ?? [])
+                .filter { !$0.isInline }
+                .map { attachment in
+                    let type = Self.attachmentType(filename: attachment.filename, mimeType: attachment.mimeType)
+                    return RenderPayload.Attachment(
+                        id: attachment.id,
+                        name: attachment.filename.isEmpty ? "Attachment" : attachment.filename,
+                        size: Self.sizeString(bytes: attachment.sizeBytes),
+                        mime: attachment.mimeType,
+                        symbol: type.symbol,
+                        kind: type.kind
+                    )
+                }
             return RenderPayload.Message(
                 id: RenderPayload.messageKey(for: message.id),
                 from: Self.sender(for: message.from),
@@ -91,19 +104,7 @@ public struct RenderPayloadBuilder: Sendable {
                 html: html,
                 hasQuotedContent: stored?.hasQuotedContent ?? Self.hasQuotedContent(in: html),
                 blockedRemoteImageCount: stored?.blockedRemoteImageCount ?? Self.blockedRemoteImageCount(in: html),
-                attachments: (body?.body.attachments ?? [])
-                    .filter { !$0.isInline }
-                    .map { attachment in
-                        let type = Self.attachmentType(filename: attachment.filename, mimeType: attachment.mimeType)
-                        return RenderPayload.Attachment(
-                            id: attachment.id,
-                            name: attachment.filename.isEmpty ? "Attachment" : attachment.filename,
-                            size: Self.sizeString(bytes: attachment.sizeBytes),
-                            mime: attachment.mimeType,
-                            symbol: type.symbol,
-                            kind: type.kind
-                        )
-                    },
+                attachments: attachments,
                 typesetting: design.typesetting,
                 declaresColors: design.declaresColors,
                 coveredByNewYork: design.coveredByNewYork,
@@ -116,7 +117,10 @@ public struct RenderPayloadBuilder: Sendable {
                                needsPermission: invitationPermissionNeeded.contains(message.id.accountID),
                                superseded: revisions.contains { $0.supersedes(invitation) }, now: now)
                 },
-                cancelsSendLater: { if case .waiting? = later { return true } else { return false } }()
+                cancelsSendLater: { if case .waiting? = later { return true } else { return false } }(),
+                // The body knows what the reader will show; before it arrives, the flag the list row draws from.
+                // Gmail's flag is a guess from the content type (multipart/mixed), so the body corrects it.
+                hasAttachments: body != nil ? !attachments.isEmpty : message.hasAttachments
             )
         }
         let resolvedSubject = subject ?? Self.subject(of: visible)

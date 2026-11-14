@@ -311,7 +311,7 @@ GLYPHS = {
 READER_SYMBOLS = ["star", "star.fill", "arrowshape.turn.up.left", "arrowshape.turn.up.left.2", "arrowshape.turn.up.right", "ellipsis",
                   "circle.lefthalf.filled", "xmark", "photo", "exclamationmark.triangle.fill", "wifi.slash",
                   "doc", "doc.richtext", "tablecells", "doc.zipper", "film", "calendar", "checkmark", "info.circle",
-                  "arrow.down.circle"]
+                  "arrow.down.circle", "paperclip"]
 
 # Graphite system accent (§3.1): every accent-family token, mapped to the neutral ramp. A value is a token or a stack
 # (composited left to right). Tokens not listed are unchanged, including selWashIdle, selRuleIdle and every account ink.

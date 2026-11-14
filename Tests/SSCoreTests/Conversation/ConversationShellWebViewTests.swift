@@ -107,6 +107,39 @@ final class ConversationShellWebViewTests: XCTestCase {
 
     /// Reading a thread marks it read half a second after it opens; the store change that follows must
     /// not fold the cards the user is looking at, jump to the top, or re-block the images they loaded.
+    /// A message with attachments carries the list's paperclip on its collapsed row and in its open header, left of
+    /// the star and the date, and says so to VoiceOver; one without carries none.
+    func testMessagesWithAttachmentsShowThePaperclip() async throws {
+        let (webView, _) = try await loadedShell()
+        typealias F = ConversationFixtures
+        let flagged = F.message("m1", date: F.utc(2025, 3, 1, 9, 0), isStarred: true, hasAttachments: true)
+        let plain = F.message("m2", date: F.utc(2025, 3, 2, 9, 0))
+        let newest = F.message("m3", date: F.utc(2025, 3, 3, 9, 0))
+        let file = AttachmentInfo(id: "a1", filename: "plan.pdf", mimeType: "application/pdf", sizeBytes: 2_048, isInline: false)
+        let payload = F.builder.build(messages: [flagged, plain, newest],
+                                      bodies: [newest.id: F.body(html: "<p>Plan attached</p>", attachments: [file])],
+                                      accounts: F.accounts, now: F.utc(2025, 3, 7, 15, 0))
+        _ = try await evaluate("window.ss.render(\(try payload.jsonString()))", in: webView)
+
+        let probe = """
+        Array.from(document.querySelectorAll('.ss-card')).map(function (c) {
+          var row = c.querySelector('.ss-row .ss-rclip'), head = c.querySelector('.ss-meta .ss-hclip');
+          var next = row && row.nextElementSibling ? row.nextElementSibling.className : '';
+          return [c.classList.contains('ss-collapsed'), !!row, row ? Math.round(row.getBoundingClientRect().width) : 0,
+                  next, !!head, /has attachments/.test(c.getAttribute('aria-label') || '')].join('|');
+        }).join('\\n')
+        """
+        let rows = (try await evaluate(probe, in: webView) as? String)?.components(separatedBy: "\n")
+        XCTAssertEqual(rows?.count, 3)
+        // Collapsed, a visible paperclip before the star, the header carries one too, announced.
+        XCTAssertEqual(rows?[0].components(separatedBy: "|").enumerated().filter { [0, 1, 3, 4, 5].contains($0.offset) }.map(\.element),
+                       ["true", "true", "ss-sym ss-sym-star-fill ss-rstar", "true", "true"])
+        XCTAssertGreaterThan(Int(rows?[0].components(separatedBy: "|")[2] ?? "0") ?? 0, 0, "the glyph takes room in the row")
+        XCTAssertEqual(rows?[1], "true|false|0||false|false", "no attachments, no paperclip")
+        XCTAssertEqual(rows?[2].components(separatedBy: "|")[4], "true", "the open message's header shows it beside the date")
+        XCTAssertEqual(rows?[2].components(separatedBy: "|")[0], "false", "the newest message opens")
+    }
+
     func testUpdateKeepsWhatTheReaderIsLookingAt() async throws {
         let (webView, _) = try await loadedShell()
         typealias F = ConversationFixtures

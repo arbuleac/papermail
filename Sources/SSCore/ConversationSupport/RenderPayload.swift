@@ -179,6 +179,10 @@ public struct RenderPayload: Hashable, Codable, Sendable {
         /// A Send Later message still waiting for its time (Drafts, spec §5.19): its date line reads “Sends Mon 09:00”
         /// and Cancel follows it, which takes the schedule back and leaves the draft.
         public var cancelsSendLater: Bool
+        /// The paperclip on the row and the header (spec §5.13), as in the list. Once the body is here it means
+        /// attachments the reader shows (inline pictures are part of the body, not attachments); until then it is
+        /// the provider's flag, the one the list row draws from.
+        public var hasAttachments: Bool
 
         public init(
             id: String,
@@ -204,7 +208,8 @@ public struct RenderPayload: Hashable, Codable, Sendable {
             coveredByNewYork: Bool = false,
             unsubscribe: Bool = false,
             invitation: Invitation? = nil,
-            cancelsSendLater: Bool = false
+            cancelsSendLater: Bool = false,
+            hasAttachments: Bool? = nil
         ) {
             self.id = id
             self.from = from
@@ -230,6 +235,7 @@ public struct RenderPayload: Hashable, Codable, Sendable {
             self.unsubscribe = unsubscribe
             self.invitation = invitation
             self.cancelsSendLater = cancelsSendLater
+            self.hasAttachments = hasAttachments ?? !attachments.isEmpty
         }
     }
 

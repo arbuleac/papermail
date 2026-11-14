@@ -141,6 +141,28 @@ final class RenderPayloadBuilderTests: XCTestCase {
         XCTAssertEqual(builder.build(messages: [F.message("m1")], bodies: [:], accounts: F.accounts, now: now).textSize, "default")
     }
 
+    /// The paperclip the list draws travels to the reader's rows and headers: from the provider's flag until the body
+    /// is here, then from what the reader shows, since inline pictures are not attachments and Gmail's flag is a guess.
+    func testPaperclipFollowsTheBodyAndUntilThenTheListsFlag() {
+        let flagged = F.message("m1", date: F.utc(2025, 1, 1), hasAttachments: true)
+        let plain = F.message("m2", date: F.utc(2025, 1, 2))
+        let guessedWrong = F.message("m3", date: F.utc(2025, 1, 3))
+        let inlineOnly = F.message("m4", date: F.utc(2025, 1, 4), hasAttachments: true)
+        let file = AttachmentInfo(id: "a1", filename: "plan.pdf", mimeType: "application/pdf", sizeBytes: 2_048, isInline: false)
+        let picture = AttachmentInfo(id: "a2", filename: "logo.png", mimeType: "image/png", sizeBytes: 512,
+                                     contentID: "logo", isInline: true)
+        let payload = builder.build(
+            messages: [flagged, plain, guessedWrong, inlineOnly],
+            bodies: [
+                guessedWrong.id: F.body(html: "<p>Plan attached</p>", attachments: [file]),
+                inlineOnly.id: F.body(html: "<p><img src=\"cid:logo\"></p>", attachments: [picture]),
+            ],
+            accounts: F.accounts, now: now
+        )
+        XCTAssertEqual(payload.messages.map(\.hasAttachments), [true, false, true, false])
+        XCTAssertTrue(ConversationShellAssets.symbols.contains("paperclip"), "the reader can draw the list's glyph")
+    }
+
     func testAttachmentTypesUseOnlyReaderSymbols() {
         let cases: [(String, String, String, String)] = [
             ("plan.pdf", "application/pdf", "doc", "PDF"),

@@ -200,6 +200,7 @@ extension Quire {
         "checkmark",
         "info.circle",
         "arrow.down.circle",
+        "paperclip",
     ]
 
     /// The keyboard cheat sheet's content (spec §5.32), band by band, left to right.

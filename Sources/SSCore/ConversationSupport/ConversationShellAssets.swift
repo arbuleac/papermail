@@ -27,6 +27,7 @@ public enum ConversationShellAssets {
         "star", "star.fill", "arrowshape.turn.up.left", "arrowshape.turn.up.left.2", "arrowshape.turn.up.right",
         "ellipsis", "circle.lefthalf.filled", "xmark", "photo", "exclamationmark.triangle.fill", "wifi.slash",
         "doc", "doc.richtext", "tablecells", "doc.zipper", "film", "calendar", "checkmark", "info.circle", "arrow.down.circle",
+        "paperclip",
     ]
 
     /// The custom property a rasterised symbol travels in: `star.fill` → `--sym-star-fill`.
@@ -155,6 +156,8 @@ public enum ConversationShellAssets {
     .ss-unread .ss-rname { font-weight: 600; }
     .ss-rsnip { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; font: var(--q-font-sender); color: var(--q-ink2); }
     .ss-rstar { font-size: 12px; color: var(--q-star); margin-right: -6px; }
+    /* The list row's paperclip, in its ink (spec §5.13): a message with attachments says so before it is opened. */
+    .ss-rclip { font-size: 12px; color: var(--q-ink2); margin-right: -6px; }
     .ss-rdate { flex: none; font: var(--q-font-meta); font-variant-numeric: tabular-nums; color: var(--q-ink3); }
     .ss-fold { height: 44px; display: flex; align-items: center; justify-content: center; font: var(--q-font-label); color: var(--q-ink2); }
     .ss-fold:hover { color: var(--q-ink); }
@@ -229,6 +232,7 @@ public enum ConversationShellAssets {
       flex: none; display: flex; align-items: center; height: calc(18px + var(--q-step-snippet, 0px));
       font: var(--q-font-snippet); line-height: calc(18px + var(--q-step-snippet, 0px)); font-variant-numeric: tabular-nums; color: var(--q-ink3);
     }
+    .ss-hclip { font-size: 12px; color: var(--q-ink2); margin-right: 4px; }
     .ss-hacts { display: flex; gap: 2px; margin: -3px 8px -3px 0; }
     .ss-hacts:empty { display: none; }
     .ss-hact { opacity: 0; }
@@ -1394,9 +1398,19 @@ public enum ConversationShellAssets {
         var date = m.isPending ? sendingDate('ss-rdate') : el('time', 'ss-rdate', m.dateDisplay);
         if (!m.isPending) { date.setAttribute('datetime', m.dateISO); }
         var parts = [pip, avatar, name, snippet];
+        // Left of the star, as in the list row, where the star is what the user set and the paperclip what the mail holds.
+        var clip = clipMark(m, 'ss-rclip');
+        if (clip) { parts.push(clip); }
         if (m.isStarred) { parts.push(sym('star.fill', 'ss-rstar')); }
         parts.push(date);
         row.replaceChildren.apply(row, parts);
+      }
+
+      function clipMark(m, cls) {
+        if (!m.hasAttachments) { return null; }
+        var node = sym('paperclip', cls);
+        node.title = 'Has attachments';
+        return node;
       }
 
       function recipientSummary(m) {
@@ -1543,7 +1557,7 @@ public enum ConversationShellAssets {
         var actions = el('span', 'ss-hacts');
         if (m.isPending) {
           // Nothing to star, reply to or open a menu on until the provider has it.
-          card.meta.replaceChildren(actions, sendingDate('ss-date'));
+          card.meta.replaceChildren.apply(card.meta, [actions, clipMark(m, 'ss-hclip'), sendingDate('ss-date')].filter(Boolean));
           return;
         }
         if (!m.isDraft) {
@@ -1578,7 +1592,7 @@ public enum ConversationShellAssets {
         var date = el('time', 'ss-date', m.dateDisplay);
         date.setAttribute('datetime', m.dateISO);
         date.title = m.dateISO;
-        card.meta.replaceChildren(actions, date);
+        card.meta.replaceChildren.apply(card.meta, [actions, clipMark(m, 'ss-hclip'), date].filter(Boolean));
       }
 
       function fillHead(card) {
@@ -1623,7 +1637,8 @@ public enum ConversationShellAssets {
         fillHead(card);
         card.element.classList.toggle('ss-unread', !!m.isUnread);
         card.element.classList.toggle('ss-starred', !!m.isStarred);
-        card.element.setAttribute('aria-label', (m.from && m.from.name ? m.from.name : 'No sender') + ', ' + m.dateDisplay);
+        card.element.setAttribute('aria-label', (m.from && m.from.name ? m.from.name : 'No sender') + ', ' + m.dateDisplay
+          + (m.hasAttachments ? ', has attachments' : ''));
       }
 
       // MARK: Quoted text, the message under a card, attachments, footer
