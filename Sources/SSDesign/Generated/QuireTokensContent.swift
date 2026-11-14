@@ -54,6 +54,7 @@ extension Quire {
         public static let accountsTab = "person.crop.circle"
         public static let oauthTab = "key"
         public static let generalTab = "gearshape"
+        public static let appearanceTab = "paintpalette"
         public static let viewInbox = "tray"
         public static let viewStarred = "star"
         public static let viewSent = "paperplane"
@@ -312,7 +313,7 @@ extension Quire {
         public static let simulation: String = "Machado 2009, severity 1.0, linear sRGB; CIEDE2000"
     }
 
-    /// Settings › General › Text size (spec §4.15): the popup's names, each size's step in points, and the row heights that follow.
+    /// Settings › Appearance › Text size (spec §4.15): the popup's names, each size's step in points, and the row heights that follow.
     public enum TextSize {
         public static let names: [String] = ["Small", "Default", "Large", "Larger"]
         public static let deltas: [Int] = [-1, 0, 1, 2]

@@ -20,7 +20,7 @@ struct LaunchOptions: Equatable {
     /// snapshots can verify both appearances from one machine.
     var appearance: String?
     /// Debug aid: force the Font setting ("newyork" or "sf") for this process only, so snapshots can verify both
-    /// faces from one machine. Never written to the user's defaults; Settings › General › Font still shows the
+    /// faces from one machine. Never written to the user's defaults; Settings › Appearance › Font still shows the
     /// saved choice, and picking one there applies it as usual.
     var typeface: QuireFont.Typeface?
     /// Debug aid: force Text size ("small", "default", "large" or "larger") for this process only, so snapshots can

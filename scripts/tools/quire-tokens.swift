@@ -983,7 +983,7 @@ func emitContent(_ t: Tokens) -> String {
     // Platform, account rules, text size
     for (key, type, doc) in [("platform", "Platform", "Platform constants (minimum text size, the Graphite threshold, reader symbol rasterisation)."),
                              ("accountRules", "AccountRules", "The account palette's build-time rules (spec §4.2), asserted by AccountPaletteTests."),
-                             ("textSize", "TextSize", "Settings › General › Text size (spec §4.15): the popup's names, each size's step in points, and the row heights that follow.")] {
+                             ("textSize", "TextSize", "Settings › Appearance › Text size (spec §4.15): the popup's names, each size's step in points, and the row heights that follow.")] {
         guard let obj = t.root.require(key, "").object else { fail("\(key) must be an object") }
         out += docComment(doc, indent: "    ")
         out += "    public enum \(type) {\n"

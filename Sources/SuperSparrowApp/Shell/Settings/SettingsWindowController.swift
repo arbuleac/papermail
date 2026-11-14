@@ -4,9 +4,10 @@ import SSCore
 import SSDesign
 import SwiftUI
 
-/// The Settings window (spec §5.40): a system window with the toolbar tab style (Accounts, OAuth, General),
+/// The Settings window (spec §5.40): a system window with the toolbar tab style (Accounts, OAuth, General, Appearance),
 /// 560 pt wide on `canvas`, as tall as the current tab's content. Everything inside a tab is Quire-drawn
-/// SwiftUI; the toolbar and its tabs are the system's.
+/// SwiftUI; the toolbar and its tabs are the system's. A theme switch reaches all of it in place: each tab redraws under
+/// its `QuireThemeRoot`, and the environment's redraw sweep assigns the window's `canvas` again.
 @MainActor
 final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     let model: SettingsModel
@@ -166,6 +167,8 @@ final class SettingsTabViewController: NSTabViewController {
         addTab(OAuthSettingsView(model: model), title: "OAuth", symbol: Quire.Icon.oauthTab)
         addTab(GeneralSettingsView(settings: settings, defaultMailApp: defaultMailApp, mailboxSize: mailboxSize, launchAtLogin: launchAtLogin),
                title: "General", symbol: Quire.Icon.generalTab)
+        // Appended, so no tab a user knows moves.
+        addTab(AppearanceSettingsView(settings: settings), title: "Appearance", symbol: Quire.Icon.appearanceTab)
         selectedTabViewItemIndex = Self.index(of: model.tab)
         tabObservation = model.$tab.removeDuplicates().sink { [weak self] tab in
             MainActor.assumeIsolated { self?.select(tab) }
@@ -193,6 +196,7 @@ final class SettingsTabViewController: NSTabViewController {
         case .accounts: return 0
         case .oauth: return 1
         case .general: return 2
+        case .appearance: return 3
         }
     }
 
@@ -200,6 +204,7 @@ final class SettingsTabViewController: NSTabViewController {
         switch index {
         case 1: return .oauth
         case 2: return .general
+        case 3: return .appearance
         default: return .accounts
         }
     }

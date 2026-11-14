@@ -2,15 +2,17 @@
 import AppKit
 import SSDesign
 
-/// The gallery window's bar: an appearance popup, a font popup and the four Quire environment overrides. System
-/// controls on purpose: the bar is a tool for looking at Quire, not part of it.
+/// The gallery window's bar: an appearance popup, a font popup, a theme popup and the four Quire environment overrides.
+/// System controls on purpose: the bar is a tool for looking at Quire, not part of it.
 @MainActor
 final class DesignGalleryControlsBar: NSView {
     var onChange: (() -> Void)?
 
     private let appearancePopup = NSPopUpButton(frame: .zero, pullsDown: false)
-    /// "App Font" follows Settings › General › Font; the others force a face for the gallery's check.
+    /// "App Font" follows Settings › Appearance › Font; the others force a face for the gallery's check.
     private let fontPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    /// "App Theme" follows Settings › Appearance › Theme; the others force a theme for the gallery without saving it.
+    private let themePopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let graphite = NSButton(checkboxWithTitle: "Graphite", target: nil, action: nil)
     private let contrast = NSButton(checkboxWithTitle: "Increase Contrast", target: nil, action: nil)
     private let motion = NSButton(checkboxWithTitle: "Reduce Motion", target: nil, action: nil)
@@ -28,7 +30,9 @@ final class DesignGalleryControlsBar: NSView {
         case .sfPro?: fontPopup.selectItem(at: 2)
         case nil: fontPopup.selectItem(at: 0)
         }
-        for popup in [appearancePopup, fontPopup] {
+        themePopup.addItems(withTitles: ["App Theme"] + QuireTheme.allCases.map(\.name))
+        themePopup.selectItem(at: QuireEnvironment.shared.overrides.theme.map { $0.index + 1 } ?? 0)
+        for popup in [appearancePopup, fontPopup, themePopup] {
             popup.controlSize = .small
             popup.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         }
@@ -40,11 +44,11 @@ final class DesignGalleryControlsBar: NSView {
             box.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
             box.state = on ? .on : .off
         }
-        for control in [appearancePopup, fontPopup] + checks.map(\.0) as [NSControl] {
+        for control in [appearancePopup, fontPopup, themePopup] + checks.map(\.0) as [NSControl] {
             control.target = self
             control.action = #selector(changed(_:))
         }
-        let stack = NSStackView(views: [appearancePopup, fontPopup] + checks.map(\.0))
+        let stack = NSStackView(views: [appearancePopup, fontPopup, themePopup] + checks.map(\.0))
         stack.orientation = .horizontal
         stack.spacing = 16
         stack.edgeInsets = NSEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
@@ -74,9 +78,11 @@ final class DesignGalleryControlsBar: NSView {
         case 2: .sfPro
         default: nil
         }
+        let themes = QuireTheme.allCases
+        let theme = themes.indices.contains(themePopup.indexOfSelectedItem - 1) ? themes[themePopup.indexOfSelectedItem - 1] : nil
         return QuireEnvironment.Overrides(isGraphite: graphite.state == .on, increaseContrast: contrast.state == .on,
                                           reduceMotion: motion.state == .on, reduceTransparency: transparency.state == .on,
-                                          typeface: typeface)
+                                          typeface: typeface, theme: theme)
     }
 
     @objc private func changed(_ sender: Any?) {

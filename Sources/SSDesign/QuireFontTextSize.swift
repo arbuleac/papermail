@@ -1,5 +1,5 @@
 extension QuireFont {
-    /// Settings › General › Text size (spec §4.15): the step, in points, every role where mail is read and written
+    /// Settings › Appearance › Text size (spec §4.15): the step, in points, every role where mail is read and written
     /// moves by. The raw values are what the app saves, so they never change.
     public enum TextSize: String, CaseIterable, Sendable {
         case small
