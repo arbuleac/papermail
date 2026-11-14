@@ -73,8 +73,11 @@ struct SyncTuning: Sendable {
     var maxApplyTargets: Int = 50
     /// After this many failed attempts an operation is marked `failed` instead of staying in the outbox forever.
     var maxOperationAttempts: Int = 25
-    /// Uncertain operations older than this are dropped once a poll has observed their targets.
-    var uncertainSettleAge: TimeInterval = 600
+    /// An uncertain operation last sent longer ago than this is dropped once a poll has observed every target. Past
+    /// the 60 s a request may take before it times out, so the request has landed or never will; and well below
+    /// `backoffCap`, since the outbox retries a due operation just before each poll: measured from the last attempt,
+    /// an age above the longest backoff could never be reached.
+    var uncertainSettleAge: TimeInterval = 120
     /// How long a failed operation stays, keeping its conversation's failed mark, before it is pruned.
     var failedOperationRetention: TimeInterval = 24 * 60 * 60
     var pendingOperationsFetchLimit: Int = 500

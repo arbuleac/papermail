@@ -175,6 +175,33 @@ final class MailEngineOperationTests: XCTestCase {
         await harness.shutdown()
     }
 
+    /// Measured from the last attempt, an age of 600 s could never pass under the default tuning: the outbox retries a
+    /// due operation just before each poll and the backoff stops at 300 s, so an operation whose change landed while
+    /// the provider kept answering 500 was never settled, and was given up 88 minutes later with a false failure mark.
+    /// The settle age sits below the backoff cap: a poll between two retries settles it.
+    func testAnUncertainOperationSettlesUnderTheDefaultTuning() async throws {
+        let defaults = SyncTuning()
+        XCTAssertLessThan(defaults.uncertainSettleAge, defaults.backoffCap, "a poll between two retries can settle")
+        let harness = try await bootstrappedHarness { tuning in
+            tuning.backoffBase = defaults.backoffBase
+            tuning.backoffCap = defaults.backoffCap
+            tuning.uncertainSettleAge = defaults.uncertainSettleAge
+        }
+        let target = MessageID(accountID: Fixtures.accountID, providerID: "1")
+        // Its ninth attempt, 200 s ago, waits out the capped backoff: the retry is 100 s ahead.
+        let landed = Operation(accountID: Fixtures.accountID, change: .archive, targets: [target],
+                               createdAt: Date().addingTimeInterval(-3_600), status: .uncertain, attempts: 9,
+                               nextAttemptAt: Date().addingTimeInterval(defaults.backoffCap - 200))
+        try harness.store.updateOperation(landed)
+
+        harness.provider.enqueueChanges(.success(Fixtures.changes(upserts: [Fixtures.message(1, roles: [])], cursor: "c1")))
+        harness.engine.syncNow(accountID: Fixtures.accountID)
+        try await waitUntil("poll applied") { try harness.store.syncCursor(for: Fixtures.accountID) == "c1" }
+        XCTAssertTrue(try pendingOperations(harness).isEmpty, "the provider's report settles it")
+        XCTAssertEqual(try harness.store.message(target)?.roles, [])
+        await harness.shutdown()
+    }
+
     /// An operation queued offline archived a conversation's two messages; its first attempt moved one and failed on
     /// the other. Settled because the poll reported the one that moved, it was deleted whole, and the other stayed
     /// archived here and in the Inbox on the server for good. It is settled only once every target is reported.
