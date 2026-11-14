@@ -6,8 +6,9 @@ import WebKit
 /// Prints a conversation's print document (spec §5.48) through the system print panel, whose PDF menu saves it.
 ///
 /// The document goes into a web view of its own rather than one of the reader's pool: the pooled views are sized for the
-/// screen, may be dark, and are busy pre-rendering, while this one is Aqua, as the paper is light whatever the app shows,
-/// and lives only for one print. It serves inline images through the reader's own scheme handler, so they print as the
+/// screen, may be dark, may be in a theme, and are busy pre-rendering, while this one is Aqua, as the paper is light
+/// whatever the app shows, and lives only for one print. A printout is paper in Study's light values whatever the theme
+/// (spec §5.48): the print document carries the Quire head alone, never the reader's `<style id="ss-theme">`. It serves inline images through the reader's own scheme handler, so they print as the
 /// reader shows them, and navigates nowhere but its document. JavaScript is on for the document's own script, the one
 /// its policy lets run (`PrintDocumentAssets.scriptPolicy`). The print operation runs as a sheet on the window, the one
 /// way WebKit's printing view lays out its pages (run synchronously it keeps asking for pages it has not measured).

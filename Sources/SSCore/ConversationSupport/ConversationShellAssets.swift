@@ -35,11 +35,14 @@ public enum ConversationShellAssets {
     }
 
     /// The shell document. `symbolCSS` is the app's rasterised symbols as custom properties
-    /// (`:root{--sym-star:url(data:…);…}`); without it every glyph is blank but nothing else changes.
-    public static func document(symbolCSS: String = "") -> String {
+    /// (`:root{--sym-star:url(data:…);…}`); without it every glyph is blank but nothing else changes. `theme` is the one
+    /// the document starts in (spec §4.16): its sheet is in `<style id="ss-theme">` from the first paint, so a shell that
+    /// loads while a theme is chosen never shows Study first. The sheet comes after the head and repeats its selectors in
+    /// the same order, so Increase Contrast and Graphite win over it by the same specificity as over the head.
+    public static func document(symbolCSS: String = "", theme: ShellTheme = .study) -> String {
         """
         <!DOCTYPE html>
-        <html>
+        <html data-ss-theme="\(theme.id)">
         <head>
         <meta charset="utf-8">
         <meta name="color-scheme" content="light dark">
@@ -49,10 +52,12 @@ public enum ConversationShellAssets {
         \(css)
         \(symbolCSS)
         </style>
+        <style id="ss-theme">\(theme.shell)</style>
         </head>
         <body>
         <main id="ss-root"></main>
         <script>
+        var SS_THEME = \(theme.documentState);
         \(js)
         </script>
         </body>
@@ -254,8 +259,11 @@ public enum ConversationShellAssets {
     .ss-card.ss-draft .ss-ind { margin-left: 0; }
     .ss-frame { position: relative; }
     .ss-frame iframe { display: block; width: 100%; height: 0; border: 0; background: transparent; color-scheme: light dark; }
-    .ss-original { background: var(--q-originalPage); border-radius: var(--q-r-xs); padding: 12px; color-scheme: light; }
-    .ss-original iframe { color-scheme: light; }
+    /* Every frame sits on a page of its own that stays for the frame's life; the white inset of Original colors is a
+       class on it, so a switch of colours, the Dark Mode default or the appearance never builds a frame again. */
+    .ss-page { padding: 0; background: transparent; }
+    .ss-page.ss-inset-on { background: var(--q-originalPage); border-radius: var(--q-r-xs); padding: 12px; color-scheme: light; }
+    .ss-page.ss-inset-on iframe { color-scheme: light; }
     .ss-preview { margin: 0 0 12px; max-width: 576px; font: var(--q-font-reading); color: var(--q-ink2); }
     .ss-preview.ss-sans { font: var(--q-font-readingSans); }
     .ss-skels { display: grid; gap: 14px; padding-top: 2px; }
@@ -292,7 +300,8 @@ public enum ConversationShellAssets {
     }
     .ss-link:hover { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; }
     .ss-link:active { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; color: var(--q-ink2); }
-    html.ss-graphite .ss-link { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; }
+    /* `ss-links`: under Graphite, or where the theme's ink sits too near its text ink for colour alone (spec §3.1, §4.16). */
+    html.ss-links .ss-link { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; }
     .ss-link:focus-visible, .ss-na:focus-visible, .ss-bx:focus-visible {
       box-shadow: 0 0 0 1px var(--q-sheet), 0 0 0 calc(1px + var(--ss-ring)) var(--q-focus);
     }
@@ -365,7 +374,7 @@ public enum ConversationShellAssets {
     }
     .ss-idet .ss-ilink:hover { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; }
     .ss-idet .ss-ilink:active { text-decoration: underline; color: var(--q-ink2); }
-    html.ss-graphite .ss-idet .ss-ilink { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; }
+    html.ss-links .ss-idet .ss-ilink { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; }
     .ss-idet .ss-ilink:focus-visible { box-shadow: 0 0 0 1px var(--q-sheet), 0 0 0 calc(1px + var(--ss-ring)) var(--q-focus); }
     .ss-iacts {
       margin-top: 12px; padding-top: 10px; border-top: var(--ss-hair) solid var(--q-rule);
@@ -523,16 +532,21 @@ public enum ConversationShellAssets {
     html.ss-rm .ss-contrail { transition-timing-function: steps(var(--q-countdown-steps)); }
     """#
 
-    /// The variables a body document needs, cut from `QuireCSS.head` and `QuireCSS.textSizes` block by block, so
-    /// `html.ss-ic`, `html.ss-graphite` and `html.ss-text-*` switch them inside the frame exactly as in the shell.
-    static let bodyVariables: String = {
-        let keep: Set<String> = [
-            "--q-ink", "--q-ink2", "--q-ink3", "--q-accent", "--q-rule", "--q-focus", "--q-sheet", "--q-fill",
-            "--q-originalPage", "--q-sans", "--q-serif", "--q-font-reading", "--q-font-readingSans", "--q-font-writing",
-            "--q-track-reading", "--q-track-readingSans", "--q-track-writing", "--q-r-xs",
-            "--q-findWash", "--q-findCurrent", "--q-ruleStrong",
-        ]
-        return (QuireCSS.head + "\n" + QuireCSS.textSizes).components(separatedBy: "\n").compactMap { line -> String? in
+    /// The variables a body document reads. `--q-focusOnPage` and `--q-linkOnPage` are the white page's focus ring and
+    /// the colour of a link its sender left uncoloured (spec §5.14).
+    static let bodyKeep: Set<String> = [
+        "--q-ink", "--q-ink2", "--q-ink3", "--q-accent", "--q-rule", "--q-focus", "--q-sheet", "--q-fill",
+        "--q-originalPage", "--q-sans", "--q-serif", "--q-font-reading", "--q-font-readingSans", "--q-font-writing",
+        "--q-track-reading", "--q-track-readingSans", "--q-track-writing", "--q-r-xs",
+        "--q-findWash", "--q-findCurrent", "--q-ruleStrong", "--q-focusOnPage", "--q-linkOnPage",
+    ]
+
+    /// Cuts a stylesheet of the head's shape (one block per line: `QuireCSS.head`, `QuireCSS.textSizes`, a theme sheet)
+    /// to `bodyKeep`, block by block, keeping each block's selector and media query, so `html.ss-ic`, `html.ss-graphite`
+    /// and `html.ss-text-*` switch the variables inside a frame exactly as in the shell. One cut for the head and for
+    /// every theme's sheet, so a body's variables and its theme sheet can never disagree about what a body carries.
+    static func bodyCut(_ sheet: String) -> String {
+        sheet.components(separatedBy: "\n").compactMap { line -> String? in
             guard let first = line.range(of: "--") else { return nil }
             let prefix = String(line[..<first.lowerBound])
             var suffix = ""
@@ -543,12 +557,15 @@ public enum ConversationShellAssets {
             }
             let kept = body.split(separator: ";").filter { declaration in
                 guard let colon = declaration.firstIndex(of: ":") else { return false }
-                return keep.contains(String(declaration[..<colon]))
+                return bodyKeep.contains(String(declaration[..<colon]))
             }
             guard !kept.isEmpty else { return nil }
             return prefix + kept.joined(separator: ";") + ";" + suffix
         }.joined(separator: "\n")
-    }()
+    }
+
+    /// The variables a body document needs, cut from `QuireCSS.head` and `QuireCSS.textSizes`.
+    static let bodyVariables: String = bodyCut(QuireCSS.head + "\n" + QuireCSS.textSizes)
 
     /// Styles injected into every body iframe (spec §8.4): the Quire reading page for plain and unstyled bodies,
     /// the link focus ring, dark-mode adaptation for bodies that declare colours, and the quote fold.
@@ -585,9 +602,9 @@ public enum ConversationShellAssets {
                       box-shadow: 0 0 0 1px var(--q-sheet) !important; border-radius: 2px; }
     @media (prefers-contrast: more) { a:focus-visible { outline-width: 3px !important; } }
     html.ss-ic a:focus-visible { outline-width: 3px !important; }
-    .ss-original a:focus-visible { --q-focus: #1E5468; box-shadow: 0 0 0 1px var(--q-originalPage) !important; }
-    @media (prefers-contrast: more) { .ss-original a:focus-visible { --q-focus: #123E4D; } }
-    html.ss-ic.ss-original a:focus-visible { --q-focus: #123E4D; }
+    /* The white page is never themed: its ring is the theme's light focus, IC's under Increase Contrast, in both
+       appearances (`--q-focusOnPage`, ≥ 3:1 on white). */
+    .ss-original a:focus-visible { --q-focus: var(--q-focusOnPage); box-shadow: 0 0 0 1px var(--q-originalPage) !important; }
     html.ss-adapt { color-scheme: dark; }
     html.ss-adapt, html.ss-adapt body, html.ss-adapt body * {
       color: var(--q-ink) !important;
@@ -596,7 +613,16 @@ public enum ConversationShellAssets {
       border-color: var(--q-rule) !important;
     }
     html.ss-adapt a, html.ss-adapt a * { color: var(--q-accent) !important; }
-    :where(a:link) { color: var(--q-accent); }
+    /* A link its sender left uncoloured sits beside the sender's own text, not the theme's ink, so it keeps Study's
+       accent in every theme (`--q-linkOnPage`, R11); a near-black ink would vanish there. A sender's colour still wins. */
+    :where(a:link) { color: var(--q-linkOnPage); }
+    /* `ss-links`, `ss-qlinks` (spec §4.16): where colour alone cannot tell a link from the text beside it, links in
+       adapted and Quire-set bodies, and links in the quotes of Quire-set bodies, are underlined at rest, a sender's
+       `text-decoration: none` included. */
+    html.ss-links.ss-adapt a[href], html.ss-links body.ss-set a[href],
+    html.ss-qlinks body.ss-set blockquote a[href], html.ss-qlinks body.ss-set .ss-quote a[href] {
+      text-decoration-line: underline !important; text-decoration-thickness: 1px !important; text-underline-offset: 2px !important;
+    }
     html.ss-original { color-scheme: light; }
     /* Find in conversation (spec §5.50). The marks carry their own opaque fill and `ink`, so they read on any page a
        sender designed; `:root body` outranks the dark adaptation's `body *` and a sender's own `mark` rules. No padding:
@@ -622,9 +648,12 @@ public enum ConversationShellAssets {
       var state = { payload: null, cards: [], byID: {}, target: null, focusEl: null, folds: [] };
       // The "Load remote images" preference of the payload being rendered.
       var loadRemote = false;
-      var prefs = { readingSans: false, noticeDismissed: false, textSize: 'default' };
-      // Session memory that outlives a render: measured body heights per message and width, the messages
-      // shown in Original colors, and the recipient blocks the user opened (spec §4.10, §5.14).
+      // `adaptsColours` is the Dark Mode default (spec §5.14): styled mail that declares its own colours opens adapted (on)
+      // or as sent on the white page (off).
+      var prefs = { readingSans: false, noticeDismissed: false, textSize: 'default', adaptsColours: true };
+      // Session memory that outlives a render: measured body heights per message and width, the colours each message was
+      // switched to by hand (true for the sender's, false for adapted; a message never switched follows the default), and
+      // the recipient blocks the user opened (spec §4.10, §5.14).
       var heights = {};
       var originalOn = {};
       var recipientsOpen = {};
@@ -684,6 +713,67 @@ public enum ConversationShellAssets {
       function kbd(legend) { return el('span', 'ss-kbd', legend); }
 
       function isDark() { return !!(darkQuery && darkQuery.matches); }
+
+      // MARK: Theme (spec §4.16)
+
+      // The theme the shell and its bodies draw: the shell's own sheet is in <style id="ss-theme">, the body cut of it
+      // goes into every body document, and the link flags are per mode. The document starts in the one it was built with.
+      function readTheme(t) {
+        t = t || {};
+        return {
+          id: typeof t.id === 'string' ? t.id : 'study', body: typeof t.body === 'string' ? t.body : '',
+          links: t.links || {}, quoteLinks: t.quoteLinks || {}
+        };
+      }
+      var theme = readTheme(typeof SS_THEME === 'object' ? SS_THEME : null);
+      syncLinkClasses();
+
+      function modeName() {
+        return (isDark() ? 'dark' : 'light') + (document.documentElement.classList.contains('ss-ic') ? 'HC' : '');
+      }
+
+      // Links are underlined at rest under Graphite in every theme, and where the theme's flag says so for this mode:
+      // every link (`ss-links`), or the links in quoted text (`ss-qlinks`). Body documents copy both (htmlClasses).
+      function syncLinkClasses() {
+        var shell = document.documentElement.classList;
+        var graphite = shell.contains('ss-graphite');
+        var mode = modeName();
+        shell.toggle('ss-links', graphite || !!theme.links[mode]);
+        shell.toggle('ss-qlinks', graphite || !!theme.quoteLinks[mode]);
+      }
+
+      // A body document built before the theme last changed (a frame still loading during the switch) carries the old
+      // sheet in its srcdoc; its stamp says so, and the sheet is replaced in place.
+      function syncDocumentTheme(doc) {
+        var docRoot = doc.documentElement;
+        if (!docRoot || docRoot.getAttribute('data-ss-theme') === theme.id) { return; }
+        var style = doc.getElementById('ss-theme');
+        if (!style) { return; }
+        style.textContent = theme.body;
+        docRoot.setAttribute('data-ss-theme', theme.id);
+      }
+
+      // One style element replaced in the shell and in every body document: no frame reloads and nothing is measured,
+      // since colour changes no height. Style is resolved in every document before `themed` is posted, so the app's
+      // interval ends once the restyle is done, not once it is asked for.
+      function setTheme(t) {
+        t = t || {};
+        theme = readTheme(t);
+        var style = document.getElementById('ss-theme');
+        var sheet = typeof t.shell === 'string' ? t.shell : '';
+        if (style && style.textContent !== sheet) { style.textContent = sheet; }
+        document.documentElement.setAttribute('data-ss-theme', theme.id);
+        syncLinkClasses();
+        void getComputedStyle(document.documentElement).getPropertyValue('--q-sheet');
+        for (var i = 0; i < state.cards.length; i++) {
+          var card = state.cards[i];
+          syncDocumentClasses(card);
+          var doc = frameDocument(card);
+          if (doc && doc.documentElement) { void getComputedStyle(doc.documentElement).getPropertyValue('--q-sheet'); }
+        }
+        post('ss', { kind: 'themed', id: theme.id });
+        return theme.id;
+      }
 
       function reducedMotion() {
         return document.documentElement.classList.contains('ss-rm') || !!(reducedQuery && reducedQuery.matches);
@@ -749,6 +839,8 @@ public enum ConversationShellAssets {
         var shell = document.documentElement.classList;
         if (shell.contains('ss-ic')) { classes.push('ss-ic'); }
         if (shell.contains('ss-graphite')) { classes.push('ss-graphite'); }
+        if (shell.contains('ss-links')) { classes.push('ss-links'); }
+        if (shell.contains('ss-qlinks')) { classes.push('ss-qlinks'); }
         var size = textSizeClass();
         if (size) { classes.push(size); }
         if (adapts(card)) { classes.push('ss-adapt'); }
@@ -769,23 +861,31 @@ public enum ConversationShellAssets {
 
       function bodyDocument(card) {
         var policy = card.imagesLoaded ? '' : '<meta http-equiv="Content-Security-Policy" content="' + BLOCKING_CSP + '">';
-        return '<!DOCTYPE html><html class="' + htmlClasses(card).join(' ') + '"><head><meta charset="utf-8">' + policy
-          + '<meta name="color-scheme" content="light dark"><style>'
-          + SS_BODY_CSS + '</style></head><body class="' + bodyClasses(card) + '">' + card.message.html + '</body></html>';
+        return '<!DOCTYPE html><html class="' + htmlClasses(card).join(' ') + '" data-ss-theme="' + theme.id + '"><head>'
+          + '<meta charset="utf-8">' + policy + '<meta name="color-scheme" content="light dark"><style>'
+          + SS_BODY_CSS + '</style><style id="ss-theme">' + theme.body + '</style></head><body class="' + bodyClasses(card) + '">'
+          + card.message.html + '</body></html>';
       }
 
-      // Styled HTML that sets its own colours is adapted in dark appearances unless the user asked for the
-      // sender's colours; plain and unstyled bodies already use Quire inks (spec §5.14).
+      // Styled HTML that sets its own colours is offered both ways in dark appearances: adapted to the theme's inks or as
+      // sent on the white page. Plain and unstyled bodies already use Quire inks (spec §5.14).
       function offersOriginal(card) {
         var m = card.message;
         return isDark() && m.hasBody && m.typesetting === 'styled' && !!m.declaresColors;
       }
-      function adapts(card) { return offersOriginal(card) && !originalOn[card.message.id]; }
-      function showsInset(card) { return offersOriginal(card) && !!originalOn[card.message.id]; }
+      // The sender's colours, as the user last switched this message, else as the Dark Mode default says. Every switch
+      // flips what is shown, so the first ⇧⌘O changes the message and a second puts it back, whichever the default.
+      function effectiveOriginal(card) {
+        var id = card.message.id;
+        return Object.prototype.hasOwnProperty.call(originalOn, id) ? !!originalOn[id] : !prefs.adaptsColours;
+      }
+      function adapts(card) { return offersOriginal(card) && !effectiveOriginal(card); }
+      function showsInset(card) { return offersOriginal(card) && effectiveOriginal(card); }
 
       function syncDocumentClasses(card) {
         var doc = frameDocument(card);
         if (!doc || !doc.documentElement) { return; }
+        syncDocumentTheme(doc);
         doc.documentElement.className = htmlClasses(card).join(' ');
         if (doc.body) {
           var quotes = !!card.quotesShown;
@@ -899,8 +999,9 @@ public enum ConversationShellAssets {
         if (wasWide !== card.wide) { card.iframe.setAttribute('scrolling', card.wide ? 'auto' : 'no'); }
       }
 
+      // The inset's padding narrows the frame, so a body is measured apart on the white page.
       function heightKey(card) {
-        return card.message.id + ':' + Math.round(card.frameWrap.clientWidth) + ':' + prefs.textSize;
+        return card.message.id + ':' + Math.round(card.frameWrap.clientWidth) + ':' + prefs.textSize + (card.inset ? ':inset' : '');
       }
 
       function measure(card) {
@@ -979,6 +1080,8 @@ public enum ConversationShellAssets {
       function dropFrame(card) {
         releaseFrame(card);
         if (card.iframe) { card.iframe.remove(); card.iframe = null; }
+        if (card.page) { card.page.remove(); card.page = null; }
+        card.inset = false;
         // Its marks went with the document; the matches stay counted and are marked again when a frame next loads.
         card.findDoc = null;
         var found = matchesOf(card);
@@ -998,7 +1101,7 @@ public enum ConversationShellAssets {
         return wrap;
       }
 
-      // What stands where the body goes: the frame (inside the white inset in Original colors), the skeleton
+      // What stands where the body goes: the frame on its page (the white inset in Original colors), the skeleton
       // while a fetch runs, or the offline preview with its notice (spec §5.14, §8.4).
       function renderFrame(card) {
         renderFrameContent(card);
@@ -1037,21 +1140,39 @@ public enum ConversationShellAssets {
         // srcdoc before insertion: an iframe inserted without one loads about:blank and fires `load` at once,
         // which would measure the blank page into the height cache and settle a Load images that has not run.
         iframe.srcdoc = bodyDocument(card);
-        // Animate to a provisional height, then snap (spec §4.10): the last measured height at this width, or
-        // the skeleton's 58 pt with the skeleton drawn in it.
+        card.inset = showsInset(card);
+        var page = el('div', card.inset ? 'ss-page ss-inset-on' : 'ss-page');
+        page.appendChild(iframe);
+        card.page = page;
+        wrap.appendChild(page);
+        if (provisionalHeight(card)) { wrap.appendChild(skeletons('ss-held')); }
+      }
+
+      // Animate to a provisional height, then snap (spec §4.10): the last measured height at this width with the inset's
+      // padding, or the skeleton's 58 pt with the skeleton drawn in it. True when it is the skeleton's.
+      function provisionalHeight(card) {
         var cached = heights[heightKey(card)];
-        var host = iframe;
-        if (showsInset(card)) {
-          host = el('div', 'ss-original');
-          host.appendChild(iframe);
-        }
-        wrap.appendChild(host);
-        if (cached) {
-          wrap.style.minHeight = cached + (showsInset(card) ? 24 : 0) + 'px';
+        card.frameWrap.style.minHeight = (cached ? cached + (card.inset ? 24 : 0) : SKELETON_HEIGHT) + 'px';
+        return !cached;
+      }
+
+      // The colours a body shows (spec §5.14, §5.16): the frame document's classes, and the white inset as a class on the
+      // frame's page, so the Dark Mode default, ⇧⌘O and an appearance change toggle classes and refit, and never build a
+      // frame again. The inset's padding narrows the body, so a loaded one is fitted and measured again at once.
+      function syncPage(card) {
+        syncDocumentClasses(card);
+        var inset = showsInset(card);
+        if (!card.page || card.inset === inset) { return; }
+        card.inset = inset;
+        card.page.classList.toggle('ss-inset-on', inset);
+        if (card.measured) {
+          fitWidth(card);
+          measure(card);
+          setTimeout(card.remeasure, 50);
         } else {
-          wrap.style.minHeight = SKELETON_HEIGHT + 'px';
-          wrap.appendChild(skeletons('ss-held'));
+          provisionalHeight(card);
         }
+        refitCard(card);
       }
 
       function ensureFrame(card) {
@@ -1098,11 +1219,13 @@ public enum ConversationShellAssets {
             images.appendChild(load);
             list.push(images);
           }
-          if (offersOriginal(card) && !prefs.noticeDismissed) {
-            var on = !!originalOn[m.id];
+          // The notice shows while a message is not as the Dark Mode default chose, and on every adapted message: with the
+          // default off, a message shown as sent has none, since Settings chose it (spec §5.16).
+          if (offersOriginal(card) && !prefs.noticeDismissed && (adapts(card) || prefs.adaptsColours)) {
+            var on = showsInset(card);
             var notice = bannerNode('ss-warn', 'circle.lefthalf.filled', on ? 'Showing the sender’s colours.' : 'This message uses its own colours.');
             var toggle = button('ss-na ss-notice-toggle', on ? 'Adaptive colors' : 'Original colors', on ? 'Adaptive Colors  ⇧⌘O' : 'Original Colors  ⇧⌘O');
-            toggle.addEventListener('click', function (event) { stop(event); setOriginal(card, !originalOn[m.id]); });
+            toggle.addEventListener('click', function (event) { stop(event); setOriginal(card, !showsInset(card)); });
             notice.appendChild(toggle);
             var dismiss = button('ss-bx', null, 'Don’t Show Again');
             dismiss.setAttribute('aria-label', 'Don’t show again');
@@ -1443,11 +1566,11 @@ public enum ConversationShellAssets {
           actions.appendChild(reply);
           actions.appendChild(more);
           if (offersOriginal(card)) {
-            var on = !!originalOn[m.id];
+            var on = showsInset(card);
             var colors = headerAction('circle.lefthalf.filled', on ? 'Adaptive Colors  ⇧⌘O' : 'Original Colors  ⇧⌘O',
               on ? 'Adaptive colors' : 'Original colors', on ? 'ss-qon' : '');
             colors.setAttribute('aria-pressed', on ? 'true' : 'false');
-            colors.addEventListener('click', function (event) { stop(event); setTarget(card, true); setOriginal(card, !originalOn[m.id]); });
+            colors.addEventListener('click', function (event) { stop(event); setTarget(card, true); setOriginal(card, !showsInset(card)); });
             actions.appendChild(colors);
           }
         }
@@ -1852,8 +1975,8 @@ public enum ConversationShellAssets {
         var card = {
           message: m, element: null, row: null, inner: null, head: null, avatar: null, who: null, meta: null,
           invite: null, mrow: null, banners: null, frameWrap: null, qrow: null, atts: null, foot: null, iframe: null,
-          observer: null, expanded: false, folded: false, imagesLoaded: loadRemote, liveRemote: 0, quotesShown: false,
-          messageShown: false, height: 0,
+          page: null, inset: false, observer: null, expanded: false, folded: false, imagesLoaded: loadRemote, liveRemote: 0,
+          quotesShown: false, messageShown: false, height: 0,
           measured: false, measureTimer: null, collapseTimer: null, imageLoad: null, imageFailures: 0, zoom: 1,
           wide: false, typeset: false, animateFit: false, sizeObserver: null, findDoc: null, findParsed: null
         };
@@ -2211,13 +2334,45 @@ public enum ConversationShellAssets {
         if (card && foldsMessage(card)) { toggleMessage(card); } else { toggleQuotes(card); }
       }
 
+      // A switch by hand is kept either way, never cleared, so a later change of the default leaves the message as set.
       function setOriginal(card, on) {
         if (!card) { return; }
-        if (on) { originalOn[card.message.id] = true; } else { delete originalOn[card.message.id]; }
+        originalOn[card.message.id] = !!on;
         renderBanners(card);
         fillMeta(card);
-        if (card.expanded && card.message.hasBody) { renderFrame(card); }
-        post('ss', { kind: 'originalColors', messageID: card.message.id, on: !!on });
+        syncPage(card);
+        reportOriginals(card);
+      }
+
+      // What View › Original Colors' checkmark reads (spec §5.16): every message showing the sender's colours, whichever
+      // way it came to (the default, a switch, the appearance), posted when that changes. A switch also names its message.
+      var originalsPosted = '[]';
+      function reportOriginals(switched) {
+        var shown = [];
+        for (var i = 0; i < state.cards.length; i++) {
+          if (showsInset(state.cards[i])) { shown.push(state.cards[i].message.id); }
+        }
+        var key = JSON.stringify(shown);
+        if (!switched && key === originalsPosted) { return; }
+        originalsPosted = key;
+        var body = { kind: 'originalColors', shown: shown };
+        if (switched) {
+          body.messageID = switched.message.id;
+          body.on = showsInset(switched);
+        }
+        post('ss', body);
+      }
+
+      // The Dark Mode default changed: only the messages it decides for are touched, by class and refit.
+      function coloursDefaultChanged() {
+        for (var i = 0; i < state.cards.length; i++) {
+          var card = state.cards[i];
+          if (!offersOriginal(card)) { continue; }
+          renderBanners(card);
+          if (!card.message.isDraft) { fillMeta(card); }
+          syncPage(card);
+        }
+        reportOriginals();
       }
 
       function applyBodyState(card, bodyState) {
@@ -2260,14 +2415,18 @@ public enum ConversationShellAssets {
         }
       }
 
+      // A preference the caller leaves out keeps its value: Text size and the Dark Mode default arrive only from the app.
       function setPreferences(p) {
         var sansChanged = !!p.readingSans !== prefs.readingSans;
         var noticeChanged = !!p.colorsNoticeDismissed !== prefs.noticeDismissed;
         var size = typeof p.textSize === 'string' ? p.textSize : prefs.textSize;
         var sizeChanged = size !== prefs.textSize;
+        var adaptsColours = typeof p.adaptsColours === 'boolean' ? p.adaptsColours : prefs.adaptsColours;
+        var defaultChanged = adaptsColours !== prefs.adaptsColours;
         prefs.readingSans = !!p.readingSans;
         prefs.noticeDismissed = !!p.colorsNoticeDismissed;
         prefs.textSize = size;
+        prefs.adaptsColours = adaptsColours;
         applyTypeface();
         applyTextSize();
         for (var i = 0; i < state.cards.length; i++) {
@@ -2276,6 +2435,7 @@ public enum ConversationShellAssets {
           if (sansChanged && !card.message.hasBody) { renderFrame(card); }
           if (noticeChanged) { renderBanners(card); }
         }
+        if (defaultChanged) { coloursDefaultChanged(); }
         if (sizeChanged) { textSizeChanged(); }
       }
 
@@ -2287,21 +2447,19 @@ public enum ConversationShellAssets {
         shell.toggle('ss-rm', !!modes.rm);
         shell.toggle('ss-rt', !!modes.rt);
         shell.toggle('ss-graphite', !!modes.graphite);
+        syncLinkClasses();
         for (var i = 0; i < state.cards.length; i++) { syncDocumentClasses(state.cards[i]); }
       }
 
       function appearanceChanged() {
+        syncLinkClasses();
         for (var i = 0; i < state.cards.length; i++) {
           var card = state.cards[i];
-          var hadInset = !!(card.frameWrap.querySelector('.ss-original'));
           renderBanners(card);
           if (!card.message.isDraft) { fillMeta(card); }
-          if (card.expanded && card.message.hasBody && hadInset !== showsInset(card)) {
-            renderFrame(card);
-          } else {
-            syncDocumentClasses(card);
-          }
+          syncPage(card);
         }
+        reportOriginals();
       }
       if (darkQuery) {
         if (darkQuery.addEventListener) { darkQuery.addEventListener('change', appearanceChanged); }
@@ -2856,15 +3014,21 @@ public enum ConversationShellAssets {
         moving = [];
       }
 
+      // A payload without the Dark Mode default (`adaptsColours`) leaves the one the shell was last told. True when it
+      // changed, for `update`, which keeps the cards.
       function readPayloadSettings(payload) {
         loadRemote = !!payload.loadRemoteImages;
         prefs.readingSans = !!payload.readingSans;
         prefs.noticeDismissed = !!payload.colorsNoticeDismissed;
         prefs.textSize = typeof payload.textSize === 'string' ? payload.textSize : 'default';
+        var adaptsColours = typeof payload.adaptsColours === 'boolean' ? payload.adaptsColours : prefs.adaptsColours;
+        var defaultChanged = adaptsColours !== prefs.adaptsColours;
+        prefs.adaptsColours = adaptsColours;
         applyTypeface();
         applyTextSize();
         root.dataset.inkSlot = String(payload.inkSlot || 0);
         document.title = payload.subject || '';
+        return defaultChanged;
       }
 
       function participantsNode(payload) {
@@ -2915,6 +3079,7 @@ public enum ConversationShellAssets {
           firstExpanded.element.scrollIntoView({ block: 'start' });
         }
         reportMarkFocus();
+        reportOriginals();
         if (keepFind) {
           runFind(findAnchor, false);
         } else if (find.query) {
@@ -2938,7 +3103,7 @@ public enum ConversationShellAssets {
         var messages = payload.messages || [];
         if (!state.payload || state.cards.length === 0 || messages.length === 0) { return render(payload); }
         if (!!payload.loadRemoteImages !== loadRemote) { return render(payload); }
-        readPayloadSettings(payload);
+        var defaultChanged = readPayloadSettings(payload);
         var parts = root.querySelector('.ss-parts');
         if (parts) {
           parts.textContent = payload.participants || '';
@@ -2993,6 +3158,7 @@ public enum ConversationShellAssets {
         restack();
         if (!state.target) { setTarget(cards[cards.length - 1], false); }
         reportMarkFocus();
+        if (defaultChanged) { coloursDefaultChanged(); } else { reportOriginals(); }
         refreshFind();
         return cards.length;
       }
@@ -3030,6 +3196,7 @@ public enum ConversationShellAssets {
         document.title = '';
         root.replaceChildren();
         reportMarkFocus();
+        reportOriginals();
       }
 
       document.addEventListener('keydown', function () { keyboardNav = true; }, true);
@@ -3109,6 +3276,7 @@ public enum ConversationShellAssets {
           document.documentElement.style.setProperty('--ss-inset', Math.max(0, Math.round(px)) + 'px');
         },
         setModes: setModes,
+        setTheme: setTheme,
         preferences: setPreferences,
         refit: refit,
         finishAll: finishAll,
@@ -3120,7 +3288,7 @@ public enum ConversationShellAssets {
           if (!card) { return null; }
           var m = card.message;
           return {
-            id: m.id, offersOriginal: offersOriginal(card), original: !!originalOn[m.id],
+            id: m.id, offersOriginal: offersOriginal(card), original: showsInset(card),
             imagesBlocked: m.hasBody && !card.imagesLoaded && ((m.blockedRemoteImageCount || 0) + (card.liveRemote || 0)) > 0,
             hasQuotes: !!(m.hasBody && m.hasQuotedContent), quotesShown: !!card.quotesShown, isStarred: !!m.isStarred
           };
@@ -3130,8 +3298,8 @@ public enum ConversationShellAssets {
         toggleOriginal: function () {
           var card = targetCard();
           if (!card || !offersOriginal(card)) { return null; }
-          setOriginal(card, !originalOn[card.message.id]);
-          return !!originalOn[card.message.id];
+          setOriginal(card, !showsInset(card));
+          return showsInset(card);
         },
         originalColors: function (id, on) { setOriginal(state.byID[id], !!on); },
         cardCount: function () { return state.cards.length; },

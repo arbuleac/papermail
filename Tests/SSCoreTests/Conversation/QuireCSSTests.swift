@@ -92,6 +92,142 @@ final class QuireCSSTests: XCTestCase {
         }
     }
 
+    // MARK: Themes (spec §4.16)
+
+    private func repository() -> URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent() // Conversation
+            .deletingLastPathComponent() // SSCoreTests
+            .deletingLastPathComponent() // Tests
+            .deletingLastPathComponent() // repository
+    }
+
+    /// `themes` of tokens.json, Study first.
+    private func themes() throws -> [[String: Any]] {
+        let data = try Data(contentsOf: repository().appendingPathComponent("docs/design/tokens.json"))
+        let tokens = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        return try XCTUnwrap(tokens["themes"] as? [[String: Any]])
+    }
+
+    private func table(_ theme: [String: Any], _ key: String) throws -> [String: [String: String]] {
+        let raw = try XCTUnwrap(theme[key] as? [String: [String: Any]], key)
+        return raw.mapValues { $0.compactMapValues { $0 as? String } }
+    }
+
+    /// A block's selector and media query, without the declarations the head's own blocks open with.
+    private func selector(_ line: String) -> String {
+        let head = line.range(of: "--").map { String(line[..<$0.lowerBound]) } ?? line
+        return head.lastIndex(of: "{").map { String(head[...$0]) } ?? head
+    }
+
+    private func isSubsequence(_ names: [String], of order: [String]) -> Bool {
+        var rest = order[...]
+        for name in names {
+            guard let at = rest.firstIndex(of: name) else { return false }
+            rest = rest[rest.index(after: at)...]
+        }
+        return true
+    }
+
+    /// The blocks of the head that hold colours, in its order: the six mode blocks, then the six Graphite ones, each
+    /// with the mode it draws (the `html.ss-ic` blocks are Increase Contrast's).
+    private func colourBlocks() -> [(line: Int, mode: String, graphite: Bool)] {
+        let lines = QuireCSS.head.components(separatedBy: "\n")
+        let modes = ["light", "dark", "lightHC", "darkHC", "lightHC", "darkHC"]
+        let plain = lines.indices.filter { lines[$0].contains("--q-paper:") }
+        let graphite = lines.indices.filter { lines[$0].contains("ss-graphite{") }
+        return zip(plain, modes).map { ($0, $1, false) } + zip(graphite, modes).map { ($0, $1, true) }
+    }
+
+    /// Study is the head itself, so its sheet is empty, as is any id no theme has.
+    func testStudysThemeSheetIsEmpty() {
+        XCTAssertEqual(QuireCSS.themeIDs.first, "study")
+        XCTAssertEqual(QuireCSS.themeSheet("study"), "")
+        XCTAssertEqual(QuireCSS.themeSheet("nonesuch"), "")
+        XCTAssertEqual(ShellTheme.study.shell, "")
+        XCTAssertEqual(ShellTheme.study.body, "")
+    }
+
+    /// Each theme's sheet repeats the head's twelve colour blocks with the same selectors, in the same order and with the
+    /// variables in the head's order, so it overrides the head by order alone and Increase Contrast and Graphite still
+    /// win by specificity. Every block carries every token that differs from Study's in any mode, at the theme's value for
+    /// the block's mode (tokens.json), and nothing else; the page's focus ring and link colour go with them.
+    func testEveryThemeSheetCarriesEveryDifferingTokenInEveryBlockInTheHeadsOrder() throws {
+        let all = try themes()
+        let study = try XCTUnwrap(all.first)
+        XCTAssertEqual(all.compactMap { $0["id"] as? String }, QuireCSS.themeIDs)
+        let head = QuireCSS.head.components(separatedBy: "\n")
+        let blocks = colourBlocks()
+        XCTAssertEqual(blocks.count, 12, "six mode blocks and six Graphite blocks")
+        let studyColours = try table(study, "color")
+        let studyGraphite = try table(study, "graphite")
+        let studyFocus = try XCTUnwrap(study["focusOnPage"] as? [String: String])
+        let modes = ["light", "dark", "lightHC", "darkHC"]
+        for theme in all.dropFirst() {
+            let id = try XCTUnwrap(theme["id"] as? String)
+            let colours = try table(theme, "color")
+            let graphite = try table(theme, "graphite")
+            let focus = try XCTUnwrap(theme["focusOnPage"] as? [String: String])
+            // Under Graphite the page's ring is the light ink (IC's under Increase Contrast) and an uncoloured link the ink.
+            func graphitePage(_ t: [String: [String: String]], _ g: [String: [String: String]], _ mode: String) -> [String: String] {
+                ["--q-focusOnPage": t["ink"]?[mode.hasSuffix("HC") ? "lightHC" : "light"] ?? "",
+                 "--q-linkOnPage": g["accent"]?[mode] ?? ""]
+            }
+            let sheet = QuireCSS.themeSheet(id).components(separatedBy: "\n")
+            XCTAssertEqual(sheet.count, blocks.count, "\(id): one line per colour block")
+            for (line, block) in zip(sheet, blocks) {
+                XCTAssertEqual(selector(line), selector(head[block.line]), "\(id): the head's selector, in its order")
+                let names = variables([line])[0].map(\.0)
+                XCTAssertTrue(isSubsequence(names, of: variables([head[block.line]])[0].map(\.0)),
+                              "\(id) \(selector(line)): the head's variables in the head's order")
+                var expected: [String: String] = [:]
+                let own = block.graphite ? graphite : colours
+                let base = block.graphite ? studyGraphite : studyColours
+                for (token, values) in own where modes.contains(where: { values[$0] != base[token]?[$0] }) {
+                    expected["--q-" + token] = values[block.mode]
+                }
+                if block.graphite {
+                    let page = graphitePage(colours, graphite, block.mode)
+                    for (name, value) in page where modes.contains(where: { graphitePage(colours, graphite, $0)[name]
+                        != graphitePage(studyColours, studyGraphite, $0)[name] }) {
+                        expected[name] = value
+                    }
+                } else if modes.contains(where: { focus[$0] != studyFocus[$0] }) {
+                    expected["--q-focusOnPage"] = focus[block.mode]
+                }
+                let carried = Dictionary(variables([line])[0], uniquingKeysWith: { first, _ in first })
+                XCTAssertEqual(carried, expected, "\(id) \(selector(line))")
+            }
+        }
+    }
+
+    /// A body document's theme sheet is its shell sheet cut to what bodies read, block by block, by the one cut that also
+    /// makes the bodies' own variables, so the two can never disagree (spec §8.4).
+    func testEveryBodySheetIsTheKeepListOfItsShellSheetBlockByBlock() {
+        XCTAssertTrue(ConversationShellAssets.bodyKeep.isSuperset(of: ["--q-focusOnPage", "--q-linkOnPage"]))
+        for id in QuireCSS.themeIDs {
+            let shell = QuireCSS.themeSheet(id)
+            let theme = ShellTheme(id: id)
+            XCTAssertEqual(theme.shell, shell, id)
+            XCTAssertEqual(theme.body, ConversationShellAssets.bodyCut(shell), id)
+            let expected = shell.components(separatedBy: "\n").compactMap { line -> (selector: String, kept: [String])? in
+                let kept = variables([line])[0].filter { ConversationShellAssets.bodyKeep.contains($0.0) }
+                return kept.isEmpty ? nil : (selector(line), kept.map { $0.0 + ":" + $0.1 })
+            }
+            let body = theme.body.isEmpty ? [] : theme.body.components(separatedBy: "\n")
+            XCTAssertEqual(body.count, expected.count, "\(id): a block for every shell block a body reads from")
+            for (line, block) in zip(body, expected) {
+                XCTAssertEqual(selector(line), block.selector, id)
+                XCTAssertEqual(variables([line])[0].map { $0.0 + ":" + $0.1 }, block.kept, "\(id) \(block.selector)")
+                XCTAssertEqual(line.filter { $0 == "{" }.count, line.filter { $0 == "}" }.count, "balanced: \(line.prefix(60))")
+            }
+            if id != "study" {
+                XCTAssertTrue(theme.body.contains("--q-focusOnPage:"), "\(id): the white page's ring follows the theme")
+                XCTAssertFalse(theme.body.contains("--q-spine:"), "\(id): only what bodies read")
+            }
+        }
+    }
+
     func testHeadCoversEveryVariableFamily() {
         let head = QuireCSS.head
         for needle in ["--q-paper:", "--q-acct-1:", "--q-av-clay-face:", "--q-e1:", "--q-font-subject:", "--q-track-runningHead:0.6px",

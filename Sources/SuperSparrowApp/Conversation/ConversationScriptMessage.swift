@@ -16,8 +16,11 @@ enum ConversationScriptMessage: Equatable {
     /// ↩ are that control's while it has it (spec §5.15, §5.17). `arrows`: it is on an attachment chip or its Download
     /// button, where ← and → move along the files.
     case focusMark(Bool, arrows: Bool)
-    /// A message switched between Original and Adaptive colors.
-    case originalColors(MessageID, Bool)
+    /// The messages the page shows in the sender's colours, after a render, a switch, an appearance change or a new Dark
+    /// Mode default: whichever way each came to it (spec §5.16).
+    case originalColors(shown: Set<MessageID>)
+    /// The page and every body in it are restyled in the theme `id` (spec §4.16).
+    case themed(String)
     /// A height animation started; the next key press finishes it.
     case motion
     /// Find in conversation reported its count and current match (spec §5.50).
@@ -51,8 +54,11 @@ enum ConversationScriptMessage: Equatable {
             guard let on = dictionary["on"] as? Bool else { return nil }
             self = .focusMark(on, arrows: dictionary["arrows"] as? Bool ?? false)
         case "originalColors":
-            guard let messageID, let on = dictionary["on"] as? Bool else { return nil }
-            self = .originalColors(messageID, on)
+            guard let shown = dictionary["shown"] as? [String] else { return nil }
+            self = .originalColors(shown: Set(shown.compactMap(RenderPayload.messageID(fromKey:))))
+        case "themed":
+            guard let id = dictionary["id"] as? String else { return nil }
+            self = .themed(id)
         case "find":
             guard let result = ConversationFind.Result(body: dictionary) else { return nil }
             self = .find(result)

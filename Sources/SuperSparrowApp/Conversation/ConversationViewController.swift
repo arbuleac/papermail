@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import QuickLookUI
 import SSCore
 import SSDesign
@@ -106,8 +107,11 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     private var savesEnded: [AttachmentDownloadBoard.Chip: TimeInterval] = [:]
     /// Where Download, Download all and Save to Downloads save (spec §5.17). Tests point it at a folder of their own.
     var downloadsFolder: URL? = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-    /// Messages the shell shows in Original colors this session, for View › Original Colors' checkmark.
-    private var originalColorsShown: Set<MessageID> = []
+    /// Messages the page on screen shows in the sender's colours, for View › Original Colors' checkmark: what the page
+    /// shows, whether the Dark Mode default, a switch or the appearance put them there (spec §5.16).
+    private var originalColorsShown: Set<MessageID> { pool.current?.originalColorsShown ?? [] }
+    /// The Dark Mode default's changes, told to every shell in place.
+    private var adaptsMailColoursObservation: AnyCancellable?
     /// The quick-reply text parked under each conversation, shared with the mailbox's other readers (§5.49).
     private let draftShelf: QuickReplyDraftShelf
     private var drafts: QuickReplyDrafts {
@@ -203,6 +207,10 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         notificationTokens.append(center.addObserver(forName: AppSettings.readerTextSizeChanged, object: appSettings, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.readerTypeMayHaveChanged() }
         })
+        // The Dark Mode default: every shell, the pre-rendered ones too, switches the messages it decides for in place.
+        adaptsMailColoursObservation = appSettings.$adaptsMailColours.dropFirst().removeDuplicates().sink { [weak self] adapts in
+            MainActor.assumeIsolated { self?.broadcastPreferences(adaptsColours: adapts) }
+        }
         // A drop-down here or in any composer changes what the quick reply's Send does (§5.23).
         notificationTokens.append(center.addObserver(forName: SendActionPreference.didChange, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.quickReply.sendAction = SendActionPreference.current }
@@ -787,7 +795,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             messages: all, bodies: bodies, accounts: accountsByID, bodyStates: states,
             loadRemoteImages: Self.loadRemoteImages, readingSans: QuireEnvironment.typeface == .sfPro,
             textSize: appSettings.readerSize.rawValue,
-            colorsNoticeDismissed: settings.originalColorsNoticeDismissed, pending: Set(sheets.map(\.metadata.id)),
+            colorsNoticeDismissed: settings.originalColorsNoticeDismissed, adaptsColours: appSettings.adaptsMailColours,
+            pending: Set(sheets.map(\.metadata.id)),
             invitationPermissionNeeded: invitationPermissionNeeded, sendLater: laterStates
         )
         return (payload, RenderInputs(messages: all, sendLater: laterStates) { bodies[$0] != nil })
@@ -1030,16 +1039,20 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
 
     /// `readingSans` is the Font setting (spec §4.4): the shell sets plain and unstyled bodies in `readingSans`
     /// and toggles `html.ss-sf`, which puts the avatar initials in `monogramSans`. `textSize` is the reader's own
-    /// size (spec §4.15): the shell's `html.ss-text-*` class, which measures every body again.
-    private func broadcastPreferences() {
+    /// size (spec §4.15): the shell's `html.ss-text-*` class, which measures every body again. `adaptsColours` is the
+    /// Dark Mode default (spec §5.14): the shell switches only the messages it decides for, by class, and says which
+    /// show the sender's colours. Given, it is the value the setting is about to store, which its publisher announces
+    /// before the setting holds it.
+    private func broadcastPreferences(adaptsColours: Bool? = nil) {
         let settings = AppSettings.shared
         let size = appSettings.readerSize
         let sizeChanged = size != broadcastTextSize
         broadcastTypeface = QuireEnvironment.typeface
         broadcastTextSize = size
         let sans = broadcastTypeface == .sfPro
+        let adapts = adaptsColours ?? appSettings.adaptsMailColours
         let script = "window.ss && window.ss.preferences({readingSans: \(sans), textSize: '\(size.rawValue)', "
-            + "colorsNoticeDismissed: \(settings.originalColorsNoticeDismissed)})"
+            + "colorsNoticeDismissed: \(settings.originalColorsNoticeDismissed), adaptsColours: \(adapts)})"
         guard sizeChanged else {
             pool.broadcastPreferences(script)
             return
@@ -1063,14 +1076,20 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     // MARK: Shell messages
 
     private func handle(_ message: ConversationScriptMessage, from slot: PooledConversationView) {
-        if case .focusMark(let on, let arrows) = message {
+        switch message {
+        case .focusMark(let on, let arrows):
             slot.markFocused = on
             slot.arrowsFocused = arrows
             return
+        case .originalColors(let shown):
+            slot.originalColorsShown = shown
+            return
+        default:
+            break
         }
         guard slot === pool.current else { return }
         switch message {
-        case .ready, .focusMark:
+        case .ready, .focusMark, .originalColors, .themed:
             break
         case .motion:
             // The registry holds animators weakly; this one lives until the next motion replaces it.
@@ -1082,8 +1101,6 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             if focusedAttachment?.message != id { focusedAttachment = nil }
         case .focusAttachment(let id, let attachment):
             focusedAttachment = (id, attachment)
-        case let .originalColors(id, on):
-            if on { originalColorsShown.insert(id) } else { originalColorsShown.remove(id) }
         case .find(let result):
             find.received(result, from: slot)
         case let .action(type, messageID, attachmentID, on, point, value):

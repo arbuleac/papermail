@@ -26,6 +26,7 @@ public struct RenderPayloadBuilder: Sendable {
     ///   - readingSans: the Font setting is SF Pro (spec §4.4).
     ///   - textSize: the reader's Text size by name (spec §4.15).
     ///   - colorsNoticeDismissed: the Original colors notice was dismissed for good (spec §5.16).
+    ///   - adaptsColours: the Dark Mode default (spec §5.14); nil leaves the shell's.
     ///   - pending: messages that are replies still in the outbox (`PendingSheet`), shown as sending.
     ///   - invitationPermissionNeeded: accounts whose answered invitations wait for permission to update the calendar
     ///     (`AccountSyncStatus.permissionsNeeded`): their cards ask to reconnect.
@@ -41,6 +42,7 @@ public struct RenderPayloadBuilder: Sendable {
         readingSans: Bool = false,
         textSize: String = "default",
         colorsNoticeDismissed: Bool = false,
+        adaptsColours: Bool? = nil,
         pending: Set<MessageID> = [],
         invitationPermissionNeeded: Set<AccountID> = [],
         sendLater: [MessageID: SendLaterState] = [:],
@@ -127,7 +129,8 @@ public struct RenderPayloadBuilder: Sendable {
             inkSlot: inkSlot,
             readingSans: readingSans,
             textSize: textSize,
-            colorsNoticeDismissed: colorsNoticeDismissed
+            colorsNoticeDismissed: colorsNoticeDismissed,
+            adaptsColours: adaptsColours
         )
     }
 
