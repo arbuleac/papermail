@@ -46,10 +46,10 @@ final class ThemeSettingTests: XCTestCase {
 
     // MARK: The list
 
-    /// Every theme in Light and Dark: the rows draw the theme's paper and the selected row its selection wash, while the
-    /// rows keep their heights, the selection stays and the list does not scroll. Colour never changes a height, so a
-    /// switch re-measures nothing, and no sender's face is drawn again: the faces' key is theme-free (spec §4.16, the
-    /// theme budget in docs/ARCHITECTURE.md).
+    /// Every theme in Light and Dark: the rows draw the theme's paper and the selected row its selection wash and margin
+    /// rule, key and not key, while the rows keep their heights, the selection stays and the list does not scroll. Colour
+    /// never changes a height, so a switch re-measures nothing, and no sender's face is drawn again: the faces' key is
+    /// theme-free (spec §4.16, the theme budget in docs/ARCHITECTURE.md).
     func testASwitchRestylesTheListWithoutMovingARow() throws {
         let settings = ListTestSupport.settings()
         let (list, window) = ListTestSupport.host(store: try ListTestSupport.store(threads: 150), settings: settings)
@@ -86,13 +86,23 @@ final class ThemeSettingTests: XCTestCase {
                 XCTAssertEqual(list.selectedConversationID, selected, label + ": the selection stays")
                 XCTAssertEqual(clip.bounds.origin, offset, label + ": the list did not scroll")
 
-                let rep = render(list.tableView)
                 let appearance = list.tableView.effectiveAppearance
-                XCTAssertColor(dominant(rep, in: list.tableView.rect(ofRow: plainRow)), expected(.paper, theme, under: appearance),
+                XCTAssertColor(dominant(render(list.tableView), in: list.tableView.rect(ofRow: plainRow)), expected(.paper, theme, under: appearance),
                                label + ": a row on the theme's paper")
-                let wash: QuireColorToken = window.isKeyWindow ? .selWash : .selWashIdle
-                XCTAssertColor(dominant(rep, in: list.tableView.rect(ofRow: selectedRow)), expected(wash, theme, under: appearance),
-                               label + ": the selected row on the theme's wash")
+                // A test window is never key, so both states are forced: each theme has its own key wash (Gallery's grey,
+                // Dusk's), and the rule is the theme's ink only while the window is key.
+                let rowView = try XCTUnwrap(list.tableView.rowView(atRow: selectedRow, makeIfNecessary: false) as? ConversationRowView)
+                let rowRect = list.tableView.rect(ofRow: selectedRow)
+                for key in [true, false] {
+                    rowView.windowKeyOverride = key
+                    let rep = render(list.tableView)
+                    let state = key ? "key" : "not key"
+                    XCTAssertColor(dominant(rep, in: rowRect), expected(key ? .selWash : .selWashIdle, theme, under: appearance),
+                                   label + ", \(state): the selected row on the theme's wash")
+                    XCTAssertColor(pixel(rep, at: NSPoint(x: rowRect.minX + Quire.Border.MarginRule.width / 2, y: rowRect.midY)),
+                                   expected(key ? .selRule : .selRuleIdle, theme, under: appearance), label + ", \(state): the margin rule")
+                }
+                rowView.windowKeyOverride = nil
             }
             XCTAssertEqual(ConversationCellView.faceMisses, misses, "\(name): five switches drew no sender's face again")
         }

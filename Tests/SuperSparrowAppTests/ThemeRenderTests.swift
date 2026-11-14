@@ -1,15 +1,19 @@
 import AppKit
 import SSCore
 import SSDesign
+import SwiftUI
 import WebKit
 import XCTest
 @testable import SuperSparrowApp
 
 /// Renders the app in every theme (spec §4.16), Light and Dark, for looking at: the main window at 1280 × 800 with the
-/// demo's styled newsletter open (`theme-<id>-<light|dark>-main.png`), an 840 × 900 reader window on it
-/// (`…-reader.png`), Settings on its Appearance tab (`…-settings.png`), and in Dark the newsletter with the Dark Mode
-/// default off, on its white page (`theme-<id>-dark-original.png`). Written to `SS_RENDER_DIR` (the temporary folder when
-/// unset). Opt-in, because it writes files:
+/// demo's styled newsletter open (`theme-<id>-<light|dark>-main.png`), the same drawn as the key window (`…-main-key.png`:
+/// the theme's key selection wash and its ink margin rule), an 840 × 900 reader window on it (`…-reader.png`), Settings
+/// on its Appearance tab (`…-settings.png`), that tab as in the key window with the tiles focused (`…-settings-focused.png`:
+/// the chosen name's ink bar and the theme's focus ring), and in Dark the newsletter with the Dark Mode default off, on
+/// its white page (`theme-<id>-dark-original.png`). A test process is never the active app, so its windows are never
+/// key: the key looks are forced, as the app's `--snapshot-state=key` forces them. Written to `SS_RENDER_DIR` (the
+/// temporary folder when unset). Opt-in, because it writes files:
 ///
 ///     SS_UI_TESTS=1 SS_RENDER_DIR=<dir> swift test --filter ThemeRenderTests
 ///
@@ -112,9 +116,26 @@ final class ThemeRenderTests: XCTestCase {
         settingsWindow.setFrameOrigin(NSPoint(x: -22_000, y: -20_000))
         settingsController.show(tab: .appearance)
 
+        // The Appearance tab as in the key window, its tiles holding keyboard focus.
+        let focusedTab = NSHostingView(rootView: QuireThemeRoot(AppearanceSettingsView(settings: settings))
+            .environment(\.controlActiveState, .key))
+        let focusedWindow = NSWindow(contentRect: NSRect(origin: .zero, size: focusedTab.fittingSize), styleMask: [.titled],
+                                     backing: .buffered, defer: false)
+        focusedWindow.isReleasedWhenClosed = false
+        focusedWindow.title = "Appearance"
+        focusedWindow.backgroundColor = .qCanvas
+        focusedWindow.contentView = focusedTab
+        focusedWindow.setFrameOrigin(NSPoint(x: -23_000, y: -20_000))
+        focusedWindow.orderFrontRegardless()
+        defer { focusedWindow.close() }
+        ListTestSupport.spin(for: 0.2)
+        let tiles = try XCTUnwrap(focusedTab.subviews.filter { String(describing: type(of: $0)).hasSuffix("KeyViewProxy") }
+            .min { $0.frame.minY < $1.frame.minY }, "the tiles' key view")
+        XCTAssertTrue(focusedWindow.makeFirstResponder(tiles))
+
         var written: [String] = []
         for (name, look, mode) in [("light", NSAppearance.Name.aqua, QuireMode.light), ("dark", .darkAqua, .dark)] {
-            for frame in [window, readerFrame, settingsWindow] { frame.appearance = NSAppearance(named: look) }
+            for frame in [window, readerFrame, settingsWindow, focusedWindow] { frame.appearance = NSAppearance(named: look) }
             for theme in QuireTheme.allCases {
                 // Settings' tiles show the forced theme as the chosen one.
                 settings.theme = theme
@@ -125,10 +146,17 @@ final class ThemeRenderTests: XCTestCase {
                 }
                 let prefix = "theme-\(theme.rawValue)-\(name)"
                 try write(window, reader: reader, to: output.appendingPathComponent(prefix + "-main.png"))
+                forceKey(true, in: window.contentView)
+                try write(window, reader: reader, to: output.appendingPathComponent(prefix + "-main-key.png"))
+                forceKey(nil, in: window.contentView)
                 try write(readerFrame, reader: readerWindow.conversation, to: output.appendingPathComponent(prefix + "-reader.png"))
                 ListTestSupport.spin(for: 0.2)
                 try write(settingsWindow, reader: nil, to: output.appendingPathComponent(prefix + "-settings.png"))
-                written += [prefix + "-main.png", prefix + "-reader.png", prefix + "-settings.png"]
+                XCTAssertTrue(focusedWindow.firstResponder === tiles, label + ": the tiles keep focus through the switch")
+                focusedWindow.setContentSize(focusedTab.fittingSize)
+                try write(focusedWindow, reader: nil, to: output.appendingPathComponent(prefix + "-settings-focused.png"))
+                written += [prefix + "-main.png", prefix + "-main-key.png", prefix + "-reader.png", prefix + "-settings.png",
+                            prefix + "-settings-focused.png"]
 
                 if mode == .dark {
                     settings.adaptsMailColours = false
@@ -146,7 +174,7 @@ final class ThemeRenderTests: XCTestCase {
                 }
             }
         }
-        XCTAssertEqual(written.count, 35, "20 windows, 10 Settings tabs and 5 dark originals")
+        XCTAssertEqual(written.count, 55, "20 windows, 10 drawn key, 20 Settings tabs and 5 dark originals")
         for file in written {
             let size = (try? FileManager.default.attributesOfItem(atPath: output.appendingPathComponent(file).path)[.size] as? Int) ?? 0
             XCTAssertGreaterThan(size, 10_000, "\(file) was written")
@@ -198,6 +226,16 @@ final class ThemeRenderTests: XCTestCase {
                           label + ": the newsletter is adapted, with its notice")
         }
         ListTestSupport.spin(for: 1)
+    }
+
+    /// Draws `view`'s subtree as in the key window, or as its window is again for nil.
+    private func forceKey(_ key: Bool?, in view: NSView?) {
+        guard let view else { return }
+        (view as? ConversationRowView)?.windowKeyOverride = key
+        (view as? QuireControl)?.windowKeyOverride = key
+        (view as? QuireMarginRule)?.windowKeyOverride = key
+        (view as? QuireSheetView)?.windowKeyOverride = key
+        view.subviews.forEach { forceKey(key, in: $0) }
     }
 
     private func evaluate(_ script: String, in webView: WKWebView) -> Any? {
