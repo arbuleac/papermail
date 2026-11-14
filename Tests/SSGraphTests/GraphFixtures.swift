@@ -40,7 +40,7 @@ enum Fixtures {
     static let badRequestError = #"{"error":{"code":"BadRequest","message":"Could not find a property named 'contentId'."}}"#
 
     static let user = """
-    {"displayName":"Robin Example","mail":"robin@example.com","userPrincipalName":"robin_example.com#EXT#@tenant.onmicrosoft.com"}
+    {"id":"user-robin-1","displayName":"Robin Example","mail":"robin@example.com","userPrincipalName":"robin_example.com#EXT#@tenant.onmicrosoft.com"}
     """
 
     static let userWithoutMail = """

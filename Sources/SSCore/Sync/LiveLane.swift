@@ -72,6 +72,8 @@ actor LiveLane {
     private let checkCaughtUp: @Sendable () -> Void
     private var reportedFirstCycle = false
     private var phase: AccountSyncPhase = .idle
+    /// Whether the park is a refused keychain rather than a refused token.
+    private var parkedForKeychain = false
     private var consecutiveFailures = 0
     private var consecutiveResets = 0
     /// When the next full cycle is due; nil means "as soon as the loop runs". Outbox-only cycles leave it alone.
@@ -135,6 +137,7 @@ actor LiveLane {
             if let message = link.takeParkRequest() {
                 // The backfill lane's request was refused for the token this lane uses too.
                 setPhase(.needsReauth, message: message)
+                parkedForKeychain = message == Self.keychainMessage
                 nextPollAt = nil
             }
             if phase == .needsReauth {
@@ -144,7 +147,10 @@ actor LiveLane {
                     reasons = await link.liveWaker.wait(timeout: nil)
                     continue
                 }
-                await tokenProvider.invalidateAccessToken(for: accountID)
+                // A refused token may still be cached (a `$batch` part's 401 invalidates nothing), so Sync Now asks
+                // for a fresh one. A refused keychain cached none: invalidating would only make the next read refresh,
+                // a second keychain read and a token request for nothing.
+                if !parkedForKeychain { await tokenProvider.invalidateAccessToken(for: accountID) }
             }
             // A user action only needs the outbox. The poll keeps its deadline, so a stream of actions cannot
             // push it back forever, and an outbox cycle during a failure backoff leaves that backoff in place.
@@ -271,6 +277,7 @@ actor LiveLane {
             // ad hoc signed app counts as a new app). Retrying on a backoff would bring the prompt back again
             // and again; the account waits for Reconnect or Sync Now instead, like a revoked token.
             setPhase(.needsReauth, message: Self.keychainMessage)
+            parkedForKeychain = true
             SyncLog.logger.error("keychain read denied for \(self.accountID.rawValue, privacy: .public)")
             return .needsReauth
         } catch {
@@ -286,6 +293,7 @@ actor LiveLane {
         switch error {
         case .unauthorized:
             setPhase(.needsReauth, message: Self.signInMessage)
+            parkedForKeychain = false
             SyncLog.logger.error("provider rejected the token for \(id, privacy: .public)")
             return .needsReauth
         case .throttled(let retryAfter):

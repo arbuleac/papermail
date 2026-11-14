@@ -53,10 +53,10 @@ public final class GraphProvider: MailProvider, Sendable {
     // MARK: Profile
 
     public func profile() async throws -> AccountProfile {
-        let url = try GraphURL.make("/me", query: [("$select", "displayName,mail,userPrincipalName")])
+        let url = try GraphURL.make("/me", query: [("$select", "id,displayName,mail,userPrincipalName")])
         let user = try await client.json(GraphUser.self, for: GraphRequest(method: .get, url: url))
         // Personal accounts often leave `mail` empty; the principal name is the address they sign in with.
-        return AccountProfile(email: user.mail ?? user.userPrincipalName ?? "", displayName: user.displayName ?? "")
+        return AccountProfile(email: user.mail ?? user.userPrincipalName ?? "", displayName: user.displayName ?? "", userID: user.id)
     }
 
     // MARK: Metadata

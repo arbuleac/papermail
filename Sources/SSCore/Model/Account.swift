@@ -63,8 +63,12 @@ public struct Account: Hashable, Codable, Sendable, Identifiable {
 public struct AccountProfile: Hashable, Codable, Sendable {
     public var email: String
     public var displayName: String
-    public init(email: String, displayName: String) {
+    /// The mailbox's own id where the provider has one (Graph's `/me` id): one address can be a work and a personal
+    /// Microsoft account, two mailboxes, and only this tells them apart. Nil where the address is the mailbox (Gmail).
+    public var userID: String?
+    public init(email: String, displayName: String, userID: String? = nil) {
         self.email = email
         self.displayName = displayName
+        self.userID = userID
     }
 }

@@ -23,6 +23,12 @@ public actor TokenManager: AccessTokenProvider {
 
     private var cache: [AccountID: OAuthTokens] = [:]
     private var invalidated: Set<AccountID> = []
+    /// Accounts whose grant a sign-in just stored (`replaceTokens`) and no request has used yet: it cannot have been
+    /// refused, so an invalidation meanwhile (the parked lane's on the reconnect's own wake) would only throw it away for
+    /// a refresh.
+    private var unusedGrants: Set<AccountID> = []
+    /// Accounts removed this run (`removeTokens`): nothing saves their tokens again.
+    private var removed: Set<AccountID> = []
     private var refreshes: [AccountID: Refresh] = [:]
     private var refreshGeneration = 0
     /// Refreshes still running that a sign-in replaced (`replaceTokens`): their replies are handed to their callers only.
@@ -62,12 +68,17 @@ public actor TokenManager: AccessTokenProvider {
             throw ProviderError.unauthorized
         }
         if !invalidated.contains(accountID), current.expiresAt.timeIntervalSince(now()) > Self.refreshLeeway {
+            unusedGrants.remove(accountID)
             return current.accessToken
         }
+        unusedGrants.remove(accountID)
         return try await startRefresh(for: accountID).value.accessToken
     }
 
     public func invalidateAccessToken(for accountID: AccountID) {
+        // A grant a sign-in stored a moment ago has not met a refusal: forcing a refresh would spend a token request and
+        // a keychain read and write to replace it with its twin.
+        guard !unusedGrants.contains(accountID) else { return }
         cache[accountID] = nil
         invalidated.insert(accountID)
     }
@@ -85,6 +96,8 @@ public actor TokenManager: AccessTokenProvider {
     /// wholly before it (and is overwritten) or wholly after (and is dropped), never between the keychain write and
     /// the bookkeeping. Declared `async`: a synchronous one would lose overload resolution to the protocol's default.
     public func replaceTokens(for accountID: AccountID, saving save: @Sendable () throws -> Void) async throws {
+        // A sign-in that finished after its account was removed must not put the grant back in the keychain.
+        guard !removed.contains(accountID) else { throw StoreError.notFound }
         try save()
         if let inFlight = refreshes[accountID] {
             superseded.insert(inFlight.generation)
@@ -92,6 +105,7 @@ public actor TokenManager: AccessTokenProvider {
         }
         cache[accountID] = nil
         invalidated.remove(accountID)
+        unusedGrants.insert(accountID)
     }
 
     // MARK: Store coordination
@@ -105,12 +119,15 @@ public actor TokenManager: AccessTokenProvider {
     }
 
     /// Deletes the account's tokens everywhere. An in-flight refresh finishes but its result is dropped, even
-    /// when the token endpoint has already answered.
-    public func removeTokens(for accountID: AccountID) throws {
+    /// when the token endpoint has already answered, and a later save for the account (`replaceTokens`, a refresh) is
+    /// refused for the rest of the run. Declared `async`, as `replaceTokens` is, so it is the protocol's witness.
+    public func removeTokens(for accountID: AccountID) async throws {
+        removed.insert(accountID)
         refreshes[accountID]?.task.cancel()
         refreshes[accountID] = nil
         cache[accountID] = nil
         invalidated.remove(accountID)
+        unusedGrants.remove(accountID)
         try tokenStore.delete(for: accountID)
     }
 
@@ -139,7 +156,7 @@ public actor TokenManager: AccessTokenProvider {
             if superseded.contains(generation), !Task.isCancelled { return tokens }
             // The reply can land after `removeTokens` ran while the actor was busy elsewhere: the slot is then
             // gone (or a newer refresh owns it) and saving would put the deleted credentials back in the Keychain.
-            guard !Task.isCancelled, refreshes[accountID]?.generation == generation else {
+            guard !Task.isCancelled, refreshes[accountID]?.generation == generation, !removed.contains(accountID) else {
                 throw ProviderError.cancelled
             }
             try tokenStore.save(tokens, for: accountID)

@@ -218,15 +218,15 @@ public final class MailEngine: MailClient, @unchecked Sendable {
 
     public func addAccount(kind: ProviderKind, tenant: String?) async throws -> Account {
         let (tokens, id, profile) = try await signIn(kind: kind, loginHint: nil, tenant: tenant)
-        let existing = try store.accounts()
-        // A work account and a personal Microsoft account can share an address; they are different mailboxes.
-        let type = MicrosoftAccountType(tenant: tokens.tenant)
         let tokenStore = tokenStore
-        if let known = existing.first(where: {
-            guard $0.kind == kind, $0.email.caseInsensitiveCompare(profile.email) == .orderedSame else { return false }
-            guard let type, let knownType = MicrosoftAccountType(tenant: (try? tokenStore.tokens(for: $0.id))??.tenant) else { return true }
-            return knownType == type
-        }) {
+        let known: Account?
+        do {
+            known = try await existingAccount(kind: kind, signedInAs: profile, type: MicrosoftAccountType(tenant: tokens.tenant))
+        } catch {
+            try? tokenStore.delete(for: id)
+            throw error
+        }
+        if let known {
             // Signing in to an account that is already here is how the user recovers from `needsReauth`:
             // keep the new tokens, drop the duplicate id, and let the existing syncer try again.
             try await tokenProvider.replaceTokens(for: known.id) { try tokenStore.save(tokens, for: known.id) }
@@ -241,7 +241,7 @@ public final class MailEngine: MailClient, @unchecked Sendable {
             email: profile.email,
             displayName: profile.displayName,
             addedAt: Date(),
-            inkSlot: AccountInkSlot.next(taken: existing.map(\.inkSlot))
+            inkSlot: AccountInkSlot.next(taken: try store.accounts().map(\.inkSlot))
         )
         try store.upsertAccount(account)
         let context = context(for: account)
@@ -250,7 +250,32 @@ public final class MailEngine: MailClient, @unchecked Sendable {
         return account
     }
 
+    /// The stored account a sign-in reached, if any: same kind and address, and for Microsoft the same identity. A work
+    /// account and a personal Microsoft account can share an address and are different mailboxes, told apart by the
+    /// type each grant was signed in as. A grant from before the type was chosen has none, and taking it for a match
+    /// gave the other identity's sign-in to that account, which then synced the wrong mailbox; the mailbox ids decide
+    /// there (`AccountProfile.userID`, read with each grant), and when either cannot be read they count as two
+    /// accounts, since a duplicate can be removed where a crossed sign-in cannot be seen. A token store that cannot be
+    /// read fails the add rather than guessing.
+    private func existingAccount(kind: ProviderKind, signedInAs profile: AccountProfile,
+                                 type: MicrosoftAccountType?) async throws -> Account? {
+        for candidate in try store.accounts()
+        where candidate.kind == kind && candidate.email.caseInsensitiveCompare(profile.email) == .orderedSame {
+            guard let type else { return candidate }
+            if let knownType = MicrosoftAccountType(tenant: try tokenStore.tokens(for: candidate.id)?.tenant) {
+                if knownType == type { return candidate }
+                continue
+            }
+            guard let newMailbox = profile.userID,
+                  let knownMailbox = try? await providerFactory(candidate).profile().userID else { continue }
+            if knownMailbox == newMailbox { return candidate }
+        }
+        return nil
+    }
+
     public func reconnect(_ account: Account) async throws -> Account {
+        // Removed meanwhile (Settings › Accounts takes Remove while a reconnect waits): its grant must not come back.
+        guard try store.accounts().contains(where: { $0.id == account.id }) else { throw StoreError.notFound }
         // Through the tenant the account was added through, so a work account is never answered by a personal one.
         let tenant = (try? tokenStore.tokens(for: account.id))??.tenant
         let (tokens, id, profile) = try await signIn(kind: account.kind, loginHint: account.email,
@@ -259,6 +284,8 @@ public final class MailEngine: MailClient, @unchecked Sendable {
         guard profile.email.caseInsensitiveCompare(account.email) == .orderedSame else {
             throw AuthError.wrongAccount(expected: account.email, actual: profile.email)
         }
+        // The browser step can take minutes; the account may have been removed while it ran.
+        guard try store.accounts().contains(where: { $0.id == account.id }) else { throw StoreError.notFound }
         // Through the token provider: it may hold the old token, valid for up to an hour and without a scope this
         // sign-in added, and a refresh of the old grant may land at any moment of the save.
         let tokenStore = tokenStore
@@ -298,6 +325,9 @@ public final class MailEngine: MailClient, @unchecked Sendable {
             await context.hydrator.cancelAll()
         }
         statusCenter.remove(id)
+        // Through the token provider first: a refresh still in flight for a caller the stop does not wait for (the
+        // reader, a send, a search), or a reconnect finishing late, would otherwise save the grant back once deleted.
+        try await tokenProvider.removeTokens(for: id)
         try tokenStore.delete(for: id)
         try store.deleteAccount(id)
         await attachmentCache.removeAll(for: id)

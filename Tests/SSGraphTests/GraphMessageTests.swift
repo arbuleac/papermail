@@ -329,8 +329,9 @@ final class GraphMessageTests: GraphTestCase {
     func testProfileUsesMailThenPrincipalName() async throws {
         route { _ in .json(Fixtures.user) }
         let withMail = try await makeProvider().profile()
-        XCTAssertEqual(withMail, AccountProfile(email: "robin@example.com", displayName: "Robin Example"))
-        XCTAssertEqual(requests.first?.query["$select"], "displayName,mail,userPrincipalName")
+        XCTAssertEqual(withMail, AccountProfile(email: "robin@example.com", displayName: "Robin Example", userID: "user-robin-1"))
+        XCTAssertEqual(requests.first?.query["$select"], "id,displayName,mail,userPrincipalName",
+                       "the mailbox's own id tells a work and a personal account with one address apart")
 
         route { _ in .json(Fixtures.userWithoutMail) }
         let withoutMail = try await makeProvider().profile()

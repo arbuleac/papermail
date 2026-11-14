@@ -265,6 +265,40 @@ final class TokenManagerTests: XCTestCase {
         XCTAssertEqual(StubURLProtocol.requestCount, 1)
     }
 
+    /// A reconnect stores a fresh grant and wakes the parked lane, which invalidates the token before it polls. That
+    /// threw the brand-new token away for a refresh: a token request and a keychain read and write for nothing. A
+    /// grant no request has used yet cannot have been refused, so the invalidation waits for one that has.
+    func testAFreshGrantIsNotThrownAwayByTheInvalidationThatFollowsIt() async throws {
+        installRefreshReply()
+        let (manager, store) = makeManager(tokens: tokens(expiringIn: 5))
+        let granted = OAuthTokens(accessToken: "at-new", refreshToken: "rt-new", expiresAt: issuedAt.addingTimeInterval(3_600),
+                                  scope: "scope-1")
+        try await manager.replaceTokens(for: accountID) { try store.save(granted, for: self.accountID) }
+
+        await manager.invalidateAccessToken(for: accountID)
+        await assertAccessToken(manager, equals: "at-new")
+        XCTAssertEqual(StubURLProtocol.requestCount, 0, "no refresh for a grant nothing has used")
+
+        // Once used, a token the provider refuses is invalidated as ever.
+        await manager.invalidateAccessToken(for: accountID)
+        await assertAccessToken(manager, equals: "at-2")
+        XCTAssertEqual(StubURLProtocol.requestCount, 1)
+    }
+
+    /// A reconnect whose sign-in finishes after its account was removed must not put the grant back in the keychain.
+    func testReplacingTheTokensOfARemovedAccountIsRefused() async throws {
+        let (manager, store) = makeManager(tokens: tokens(expiringIn: 3_600))
+        try await manager.removeTokens(for: accountID)
+
+        do {
+            try await manager.replaceTokens(for: accountID) { try store.save(self.tokens(expiringIn: 3_600), for: self.accountID) }
+            XCTFail("expected a refusal")
+        } catch StoreError.notFound {
+            // expected
+        }
+        XCTAssertNil(try store.tokens(for: accountID))
+    }
+
     func testFailedRefreshIsRetriedOnNextCall() async throws {
         StubURLProtocol.install { _ in throw URLError(.timedOut) }
         let (manager, _) = makeManager(tokens: tokens(expiringIn: 5))
@@ -358,7 +392,10 @@ final class TokenManagerTests: XCTestCase {
         authenticator.result = .success(granted)
         let cache = FileManager.default.temporaryDirectory.appending(path: "ss-reconnect-\(UUID().uuidString)", directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: cache) }
-        let engine = MailEngine(store: InMemoryMailStore(), tokenStore: store, tokenProvider: manager, authenticator: authenticator,
+        // The account is stored: a reconnect of one that is not (removed meanwhile) saves nothing.
+        let mailStore = InMemoryMailStore()
+        try mailStore.upsertAccount(account)
+        let engine = MailEngine(store: mailStore, tokenStore: store, tokenProvider: manager, authenticator: authenticator,
                                 sanitizer: RecordingSanitizer(), providerFactory: { _ in ScriptedProvider(accountID: account.id) },
                                 attachmentCacheDirectory: cache)
 

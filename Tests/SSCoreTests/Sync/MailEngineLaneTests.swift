@@ -778,7 +778,9 @@ final class MailEngineLaneTests: XCTestCase {
 
         harness.engine.syncNow(accountID: account)
         try await waitUntil("Sync Now tries again") { provider.changesCalls.count == 2 }
-        XCTAssertEqual(harness.tokenProvider.invalidations, [account])
+        // A refused keychain cached no token: forcing a refresh would only read the keychain twice more and spend a
+        // token request. A refused token is still invalidated (testUnauthorizedParksAccountUntilSyncNow).
+        XCTAssertEqual(harness.tokenProvider.invalidations, [])
         try await waitUntil("working again") { statuses.latest.first?.phase == .idle }
         observation.cancel()
         await harness.shutdown()

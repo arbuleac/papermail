@@ -14,7 +14,7 @@ final class GraphHTTPTests: GraphTestCase {
 
         let profile = try await makeProvider().profile()
 
-        XCTAssertEqual(profile, AccountProfile(email: "robin@example.com", displayName: "Robin Example"))
+        XCTAssertEqual(profile, AccountProfile(email: "robin@example.com", displayName: "Robin Example", userID: "user-robin-1"))
         XCTAssertEqual(requests.map { $0.header("Authorization") }, ["Bearer stale", "Bearer fresh"])
         XCTAssertEqual(tokens.invalidations, 1)
     }
