@@ -51,14 +51,6 @@ final class MailSchemaMigrationTests: XCTestCase {
         DELETE FROM grdb_migrations WHERE identifier = 'v15-calendar-invitations';
         """
 
-    /// Takes v18 back out of a migrated file: a file from before it keeps no draft and no summary with a send (the column
-    /// order v18 changed is left as it is; nothing reads the table by position).
-    private let withoutV18 = """
-        ALTER TABLE pending_sends DROP COLUMN draft_id;
-        ALTER TABLE pending_sends DROP COLUMN summary_json;
-        DELETE FROM grdb_migrations WHERE identifier = 'v18-scheduled-sends';
-        """
-
     /// Takes v16 back out of a migrated file: a file from before it mutes nothing (the partial index goes first, since a
     /// column an index reads cannot be dropped).
     private let withoutV16 = """
@@ -73,10 +65,18 @@ final class MailSchemaMigrationTests: XCTestCase {
         DELETE FROM grdb_migrations WHERE identifier = 'v17-sender-rules';
         """
 
-    /// Takes v20 back out of a migrated file: a file from before it has no lookup queue.
-    private let withoutV20 = """
+    /// Takes v18 back out of a migrated file: a file from before it keeps no draft and no summary with a send (the column
+    /// order v18 changed is left as it is; nothing reads the table by position).
+    private let withoutV18 = """
+        ALTER TABLE pending_sends DROP COLUMN draft_id;
+        ALTER TABLE pending_sends DROP COLUMN summary_json;
+        DELETE FROM grdb_migrations WHERE identifier = 'v18-scheduled-sends';
+        """
+
+    /// Takes v19 back out of a migrated file: a file from before it has no lookup queue.
+    private let withoutV19 = """
         DROP TABLE queued_lookups;
-        DELETE FROM grdb_migrations WHERE identifier = 'v20-sync-robustness';
+        DELETE FROM grdb_migrations WHERE identifier = 'v19-sync-robustness';
         """
 
     /// Twelve accounts, inserted out of creation order, two of them created in the same millisecond so the id
@@ -330,7 +330,7 @@ final class MailSchemaMigrationTests: XCTestCase {
             try store.close()
         }
         // v9 to v15 came after v8, so a v7 file has none of them (`revertSQL` takes v12 and v13 back).
-        try execute(withoutV20 + withoutV18 + withoutV17 + withoutV16 + withoutV15 + withoutV14 + """
+        try execute(withoutV19 + withoutV18 + withoutV17 + withoutV16 + withoutV15 + withoutV14 + """
             \(FullTextVersion10.revertSQL)
             DROP TABLE backfill_live_marks;
             DROP TABLE backfill_seen;
@@ -402,7 +402,7 @@ final class MailSchemaMigrationTests: XCTestCase {
             try store.setSyncCursor("cursor-8", for: a)
             try store.close()
         }
-        try execute(withoutV20 + withoutV18 + withoutV17 + withoutV16 + withoutV15 + withoutV14 + """
+        try execute(withoutV19 + withoutV18 + withoutV17 + withoutV16 + withoutV15 + withoutV14 + """
             \(FullTextVersion10.revertSQL)
             ALTER TABLE accounts DROP COLUMN signature;
             DELETE FROM grdb_migrations WHERE identifier = 'v9-account-signature';
@@ -442,7 +442,7 @@ final class MailSchemaMigrationTests: XCTestCase {
             try store.setSignature("<div><p>Alex</p></div>", for: AccountID("acct-a"))
             try store.close()
         }
-        try execute(withoutV20 + withoutV18 + withoutV17 + withoutV16 + withoutV15 + withoutV14 + """
+        try execute(withoutV19 + withoutV18 + withoutV17 + withoutV16 + withoutV15 + withoutV14 + """
             \(FullTextVersion10.revertSQL)
             ALTER TABLE bodies DROP COLUMN evicted;
             DELETE FROM grdb_migrations WHERE identifier = 'v10-body-eviction';
@@ -800,7 +800,7 @@ final class MailSchemaMigrationTests: XCTestCase {
             """, at: path).compactMap(\.first), ["v16-conversation-mute", "v17-sender-rules"])
     }
 
-    /// v20 adds the queue of lookups for a folder the provider reports gone (`queued_lookups`) and nothing else. The
+    /// v19 adds the queue of lookups for a folder the provider reports gone (`queued_lookups`) and nothing else. The
     /// file is a real v15 one; opened by the current build its mail reads as before, the queue is empty, and an
     /// account's lookups go with the account.
     func testVersion15DatabaseGainsAnEmptyLookupQueueAndKeepsItsData() throws {
@@ -818,7 +818,7 @@ final class MailSchemaMigrationTests: XCTestCase {
         XCTAssertEqual(try store.queuedLookups(accountID: account, limit: 10), ["m1": 0])
         try store.close()
         XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations ORDER BY rowid", at: path).compactMap(\.first).last,
-                       "v20-sync-robustness")
+                       "v19-sync-robustness")
         try execute("PRAGMA foreign_keys = ON; DELETE FROM accounts WHERE id = 'acct-a';", at: path)
         XCTAssertEqual(try query("SELECT COUNT(*) FROM queued_lookups", at: path), [["0"]], "an account's lookups go with it")
     }
@@ -862,6 +862,51 @@ final class MailSchemaMigrationTests: XCTestCase {
                        [["accounts", "account_id", "id", "CASCADE"]])
         XCTAssertTrue(try query("SELECT identifier FROM grdb_migrations ORDER BY rowid", at: path).compactMap(\.first)
             .contains("v18-scheduled-sends"))
+    }
+
+    /// The four migrations since the last release, on one real v15 file (a v1 file taken through the shipped migrations up
+    /// to v15) holding mail, a muted-to-be conversation and a send in its undo window. Opened by the current build it runs
+    /// v16-conversation-mute, v17-sender-rules, v18-scheduled-sends and v19-sync-robustness, in that order and nothing
+    /// else; everything it held reads as before, each new table or column starts empty, and reopening it runs nothing.
+    func testVersion15DatabaseTakesTheFourNewMigrationsInOrder() throws {
+        let newMigrations = ["v16-conversation-mute", "v17-sender-rules", "v18-scheduled-sends", "v19-sync-robustness"]
+        XCTAssertEqual(Array(MailSchema.migrator().migrations.suffix(4)), newMigrations, "registered in this order, last")
+        let path = try XCTUnwrap(directory).appendingPathComponent("mail.sqlite").path
+        try writeVersion1Database(at: path)
+        try MailSchema.migrateFile(at: path, upTo: "v15-calendar-invitations")
+        let message = try MailStoreCodec.json(OutgoingMessage(accountID: AccountID("acct-a"), to: [EmailAddress(address: "ben@example.com")],
+                                                              subject: "Lunch", html: "<p>Noon?</p>", text: "Noon?"))
+        try execute("""
+            INSERT INTO pending_sends (id, account_id, message_json, created_at, send_after, status, attempts, last_error)
+            VALUES ('s1', 'acct-a', '\(message.replacingOccurrences(of: "'", with: "''"))', \(base), \(base + 5_000), 'scheduled', 0, NULL);
+            """, at: path)
+        let before = try query("SELECT identifier FROM grdb_migrations ORDER BY rowid", at: path).compactMap(\.first)
+        XCTAssertEqual(before.last, "v15-calendar-invitations")
+        XCTAssertTrue(Set(before).isDisjoint(with: newMigrations))
+
+        let account = AccountID("acct-a")
+        let c1 = ConversationID(accountID: account, providerID: "c1")
+        let store = try SQLiteMailStore(path: path)
+        XCTAssertEqual(try store.body(for: MessageID(accountID: account, providerID: "m1"))?.plainText, "Hello there")
+        XCTAssertEqual(try store.conversations(ConversationQuery(view: .inbox)).map(\.id), [c1], "the mail reads as before")
+        XCTAssertFalse(try store.isMuted(c1), "v16: nothing muted")
+        XCTAssertTrue(try store.senderRules().isEmpty, "v17: no rules")
+        let sends = try store.pendingSends()
+        XCTAssertEqual(sends.map(\.id), ["s1"], "v18: the outbox kept")
+        XCTAssertEqual(sends.first?.status, .scheduled)
+        XCTAssertNil(sends.first?.draftID)
+        XCTAssertEqual(try store.queuedLookups(accountID: account, limit: 10), [:], "v19: no lookups queued")
+        // Each works once there.
+        try store.setMuted(true, conversations: [c1], enqueueing: [])
+        XCTAssertTrue(try store.isMuted(c1))
+        try store.verifyFullTextIndex()
+        try store.close()
+
+        let after = try query("SELECT identifier FROM grdb_migrations ORDER BY rowid", at: path).compactMap(\.first)
+        XCTAssertEqual(Array(after.dropFirst(before.count)), newMigrations, "the four, in order, and nothing else")
+        try SQLiteMailStore(path: path).close()
+        XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations ORDER BY rowid", at: path).compactMap(\.first), after,
+                       "reopening runs nothing")
     }
 
     // MARK: Raw SQLite

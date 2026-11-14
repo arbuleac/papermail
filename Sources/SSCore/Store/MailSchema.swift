@@ -181,7 +181,7 @@ enum MailSchema {
                 ALTER TABLE pending_sends_v18 RENAME TO pending_sends;
                 """)
         }
-        migrator.registerMigration("v20-sync-robustness") { db in
+        migrator.registerMigration("v19-sync-robustness") { db in
             // Stored messages of a folder the provider reports gone, which the live lane looks up a few at a time
             // (`LookupQueue`): in a table, so the work survives a failed poll and a quit, and one poll never has to
             // look up a whole folder. Empty unless a folder went; WITHOUT ROWID like the backfill marks, which no

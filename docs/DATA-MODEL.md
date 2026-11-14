@@ -157,7 +157,7 @@ The ids a reconciling backfill's listing has returned (v8, see "Backfill marks")
 | provider_id | TEXT | not a foreign key, like `backfill_live_marks.provider_id` |
 | PRIMARY KEY (account_id, provider_id) | | `WITHOUT ROWID` |
 
-### queued_lookups (v20)
+### queued_lookups (v19)
 Stored messages of a folder the provider reports gone (`ChangesPage.goneFolders`), which the live lane looks up by id a few per poll (see "Queued lookups"). Empty unless a folder went. No observation reads it.
 
 | column | type | notes |
@@ -203,7 +203,7 @@ Worked out once by `HTMLSanitizer` at sync time and stored with the body, so the
 
 ## Migrations
 Applied in order by GRDB's `DatabaseMigrator`; a migration is never edited once released.
-- `v1-mailbox`: the tables above as first released, except `backfill_live_marks` and `backfill_seen` (v8), `snoozes` (v11) and `sender_rules` (v17).
+- `v1-mailbox`: the tables above as first released, except `backfill_live_marks` and `backfill_seen` (v8), `snoozes` (v11), `sender_rules` (v17) and `queued_lookups` (v19).
 - `v2-body-render-facts`: `bodies.has_quoted`, `bodies.blocked_images`.
 - `v3-body-typesetting`: `bodies.typesetting`, `bodies.declares_colors`, `bodies.covered_by_new_york` (existing bodies stay NULL).
 - `v4-account-ink`: `accounts.ink_slot` (backfilled in creation order), `accounts.monogram`.
@@ -221,7 +221,7 @@ Applied in order by GRDB's `DatabaseMigrator`; a migration is never edited once 
 - `v16-conversation-mute`: `conversations.muted` (0 for every existing row) and the partial index `conversations_muted`.
 - `v17-sender-rules`: the table `sender_rules` (empty at first).
 - `v18-scheduled-sends`: `pending_sends` rebuilt (created as `pending_sends_v18`, filled, the old table dropped, the new one renamed; nothing references or indexes it) with `draft_id` and `summary_json`, NULL for every send already in the outbox (they are undo-sends, whose summaries are read from the message), and `message_json` moved last. The statuses `later` and `missed` need no change to the column; a build from before v18 would read them as `scheduled` and send them within a minute, so a Send Later message does not survive going back to such a build. Such a build reads and writes the columns by name, so the rebuilt table works for it otherwise; rows it writes have no summary.
-- `v20-sync-robustness`: the table `queued_lookups`, empty.
+- `v19-sync-robustness`: the table `queued_lookups`, empty.
 
 ## Semantics
 
