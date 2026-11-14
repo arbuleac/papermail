@@ -165,7 +165,8 @@ final class TextSizeSettingTests: XCTestCase {
         XCTAssertEqual(allInboxes.map(\.title), ["All Inboxes"], "⌘0 stays All Inboxes, so there is no reset key")
 
         let rows = Quire.cheatSheet.flatMap(\.rows).filter { $0.keys == "⌘+ ⌘−" }
-        XCTAssertEqual(rows.map(\.label), ["Reader text bigger · smaller"])
+        // “Text bigger · smaller”: the row's label fits its 144 pt, where “Reader text bigger · smaller” was cut.
+        XCTAssertEqual(rows.map(\.label), ["Text bigger · smaller"])
         XCTAssertEqual(Quire.cheatSheet.first { $0.rows.contains { $0.keys == "⌘+ ⌘−" } }?.title, "View")
     }
 

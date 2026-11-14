@@ -159,7 +159,7 @@ Operators combine (`from:ben is:unread after:2026-01-01 -invoice`), ignore case,
 | `u` | Mark read / unread |
 | `#`, `⌘⌫` | Move to Trash |
 | `!` | Mark as spam |
-| `⇧I`, `⇧⌘I` | Move to Inbox (restores from the Trash) |
+| `⇧I` | Move to Inbox (restores from the Trash) |
 | `z`, `⌘Z` | Undo the last mail action (last 20 are kept) |
 | `⇧⌘U` | Unsubscribe from the open conversation's list, then archive it |
 | `⇧⌘D` | Save the open message's attachments to Downloads |
@@ -168,6 +168,7 @@ Operators combine (`from:ben is:unread after:2026-01-01 -invoice`), ignore case,
 | `⌘↩` | Send (sends and archives unless you chose **Send** with the arrow beside it) |
 | `⇧⌘↩` | Send and archive, whatever Send does |
 | `⇧⌘L` | Send later: Tomorrow, Monday or a time you pick |
+| `⌥⌘I` | Insert a picture into the message you are writing |
 | `esc` in a composer | Closes it while you haven't written anything; a composer with your words stays open |
 | `c`, `⌘N` | New message |
 | `/`, `⌘F` | Search (`Esc` clears, in the search field or the list) |

@@ -342,11 +342,16 @@ CHEAT_SHEET_SEARCH = ("Search", ["from:", "to:", "subject:", "is:unread", "is:re
 
 # Keyboard cheat sheet content (§5.32), band by band, left to right; keys separated by spaces, "then" and "…" are words.
 CHEAT_SHEET = [
- ("Move", [("J K", "Next · previous"), ("⇧J ⇧K", "Extend the selection"), ("↩", "Open"), ("⌘O", "Open in a new window"), ("esc", "Back to the list"),
-           ("N P", "Next · previous message"), ("space", "Quick Look attachments"),
-           ("⇧⌘D", "Save attachments to Downloads"), ("/", "Search"), ("↩", "In search: ask the server")]),
- ("Act", [("E", "Archive"), ("L", "Snooze until later"), ("#", "Move to Trash"), ("!", "Mark as spam"), ("⇧I", "Move to Inbox"),
-          ("S", "Star · unstar"), ("U", "Mark as unread · read"), ("M", "Mute · unmute"), ("⇧⌘U", "Unsubscribe"), ("Z", "Undo")]),
+ # Every key has its row, and the sheet still fits the default window whole (§5.32): band 1 holds nine rows a section and
+ # band 2 eight. Keys that undo or mirror each other share a row, as J K and N P do: Open and back (↩ esc), Archive and
+ # its inverse (E ⇧I), the two ways out to a provider folder (# !), Load images and Original colors, the two window
+ # layout toggles; Print sits in Act, beside the other things done to the open conversation.
+ ("Move", [("J K", "Next · previous"), ("⇧J ⇧K", "Extend the selection"), ("↩ esc", "Open · back to the list"),
+           ("⌘O", "Open in a new window"), ("N P", "Next · previous message"), ("space", "Quick Look attachments"),
+           ("⇧⌘D", "Download attachments"), ("/", "Search"), ("↩", "In search: ask the server")]),
+ ("Act", [("E ⇧I", "Archive · move to Inbox"), ("L", "Snooze until later"), ("# !", "Move to Trash · spam"), ("S", "Star · unstar"),
+          ("U", "Mark as unread · read"), ("M", "Mute · unmute"), ("⇧⌘U", "Unsubscribe"), ("⌘P", "Print the conversation"),
+          ("Z", "Undo")]),
  ("Go", [("G then I", "Inbox"), ("G then L", "Later"), ("G then S", "Starred"), ("G then T", "Sent"), ("G then D", "Drafts"),
          ("G then #", "Trash"), ("G then A", "All Mail"), ("⌘0", "All Inboxes"), ("⌘1 … ⌘9", "One account")]),
  # R and A share a row, as J K and N P do, so Send later fits the band without making the sheet taller (§5.32).
@@ -354,7 +359,7 @@ CHEAT_SHEET = [
            ("⇧⌘↩", "Send and archive"), ("⇧⌘L", "Send later"), ("⇧⌘A", "Attach files")]),
  ("Format", [("⇧⌘T", "Format row"), ("⌘B ⌘I ⌘U", "Bold · italic · underline"), ("⇧⌘8 ⇧⌘7", "Bulleted · numbered list"), ("⌘'", "Quote"),
              ("⌘K", "Add link"), ("⌥⌘I", "Insert picture"), ("⇧⌘C ⇧⌘B", "Cc · Bcc field")]),
- ("View", [("⇧⌘I", "Load images"), ("⇧⌘O", "Original colors"), (".", "Show · hide quoted text"), ("⌥⌘F", "Find in conversation"),
-           ("⌘G ⇧⌘G", "Next · previous match"), ("⌘P", "Print the conversation"), ("⌥⌘C", "Compact rows"), ("⌃⌘S", "Show · hide the rail"),
-           ("⇧⌘N", "Check for new mail"), ("⌘+ ⌘−", "Reader text bigger · smaller"), ("?", "This sheet")]),
+ ("View", [("⇧⌘I ⇧⌘O", "Images · original colors"), (".", "Show · hide quoted text"), ("⌥⌘F", "Find in conversation"),
+           ("⌘G ⇧⌘G", "Next · previous match"), ("⌘+ ⌘−", "Text bigger · smaller"), ("⌥⌘C ⌃⌘S", "Compact rows · the rail"),
+           ("⇧⌘N", "Check for new mail"), ("?", "This sheet")]),
 ]

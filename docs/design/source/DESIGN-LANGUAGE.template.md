@@ -1507,17 +1507,17 @@ The second key, any other key, Esc or the end of the {{motion.duration.gSequence
 | Part | Spec |
 |---|---|
 | Scrim | `scrim` over the whole window content below the title-bar zone's controls (the traffic lights stay usable); fades in `dur.quick` |
-| Panel | {{layout.cheatSheet.width}} pt wide (= 2 × {{layout.cheatSheet.pad}} + {{layout.cheatSheet.columns}} × {{layout.cheatSheet.columnWidth}} + 2 × {{layout.cheatSheet.columnGap}}; it fits the {{layout.window.minWidth}} pt minimum window with 72 pt to spare on each side), centred horizontally, top at y = {{layout.cheatSheet.top}} (under the horizon), at least {{layout.cheatSheet.minMargin}} pt from the window bottom; `raised`, radius {{layout.cheatSheet.radius}}, `e3`, padding {{layout.cheatSheet.pad}}; `ruleStrong` edge in Increase Contrast. Its full height is {{PY: cheat_sheet_height()}} pt ({{layout.cheatSheet.pad}} + {{layout.cheatSheet.titleRow}} + {{layout.cheatSheet.headerGap}} + band 1 ({{layout.cheatSheet.sectionTitle}} + {{PY: cheat_sheet_band_rows(0)}} × {{layout.cheatSheet.row}}, Act's and Go's rows) + {{layout.cheatSheet.sectionGap}} + band 2 ({{layout.cheatSheet.sectionTitle}} + {{PY: cheat_sheet_band_rows(1)}} × {{layout.cheatSheet.row}}) + {{layout.cheatSheet.sectionGap}} + the search line ({{layout.cheatSheet.row}}) + {{layout.cheatSheet.pad}}), so it fits whole in the default window ({{layout.cheatSheet.top}} + {{PY: cheat_sheet_height()}} + {{layout.cheatSheet.minMargin}} = {{PY: cheat_sheet_window()}} ≤ {{layout.window.defaultHeight}}); in a window shorter than {{PY: cheat_sheet_window()}} pt (the {{layout.window.minHeight}} pt minimum among them) the bands and the search line scroll inside the panel under a fixed title row |
+| Panel | {{layout.cheatSheet.width}} pt wide (= 2 × {{layout.cheatSheet.pad}} + {{layout.cheatSheet.columns}} × {{layout.cheatSheet.columnWidth}} + 2 × {{layout.cheatSheet.columnGap}}; it fits the {{layout.window.minWidth}} pt minimum window with 72 pt to spare on each side), centred horizontally, top at y = {{layout.cheatSheet.top}} (under the horizon), at least {{layout.cheatSheet.minMargin}} pt from the window bottom; `raised`, radius {{layout.cheatSheet.radius}}, `e3`, padding {{layout.cheatSheet.pad}}; `ruleStrong` edge in Increase Contrast. Its full height is {{PY: cheat_sheet_height()}} pt ({{layout.cheatSheet.pad}} + {{layout.cheatSheet.titleRow}} + {{layout.cheatSheet.headerGap}} + band 1 ({{layout.cheatSheet.sectionTitle}} + {{PY: cheat_sheet_band_rows(0)}} × {{layout.cheatSheet.row}}, the rows of Move, Act and Go each) + {{layout.cheatSheet.sectionGap}} + band 2 ({{layout.cheatSheet.sectionTitle}} + {{PY: cheat_sheet_band_rows(1)}} × {{layout.cheatSheet.row}}) + {{layout.cheatSheet.sectionGap}} + the search line ({{layout.cheatSheet.row}}) + {{layout.cheatSheet.pad}}), so it fits whole in the default window ({{layout.cheatSheet.top}} + {{PY: cheat_sheet_height()}} + {{layout.cheatSheet.minMargin}} = {{PY: cheat_sheet_window()}} ≤ {{layout.window.defaultHeight}}); in a window shorter than {{PY: cheat_sheet_window()}} pt (the {{layout.window.minHeight}} pt minimum among them) the bands and the search line scroll inside the panel under a fixed title row |
 | Title row | {{layout.cheatSheet.titleRow}} pt: “Keyboard Shortcuts” (`title`) and a close button ({{layout.cheatSheet.close}} pt icon button, `xmark`, at {{layout.cheatSheet.closeInset}} pt from the top-trailing corner) |
 | Sections | {{layout.cheatSheet.headerGap}} pt below the title: {{layout.cheatSheet.bands}} bands of {{layout.cheatSheet.columns}} columns, each {{layout.cheatSheet.columnWidth}} pt, {{layout.cheatSheet.columnGap}} pt apart: **Move · Act · Go** in the first band, **Write · Format · View** in the second, {{layout.cheatSheet.sectionGap}} pt between bands; each section opens with a {{layout.cheatSheet.sectionTitle}} pt `runningHead` `ink3` title |
 | Search line | {{layout.cheatSheet.sectionGap}} pt below band 2, one {{layout.cheatSheet.row}} pt row: the title (`runningHead` `ink3`) in the {{layout.cheatSheet.keyColumn}} pt key column, then the search operators as typed (`snippet`, `ink`, plain text, not keycaps: they are typed, not pressed), {{layout.cheatSheet.searchTermGap}} pt apart; they take 652 of the 672 pt after the key column |
 | Rows | {{layout.cheatSheet.row}} pt: large keycaps ({{layout.cheatSheet.keycap}} pt, {{layout.cheatSheet.keycapGap}} pt apart) in a {{layout.cheatSheet.keyColumn}} pt key column, then the label (`snippet`, `ink`, sentence case, §4.13; it tail-truncates in the remaining 144 pt, which every label below fits); sequences as “G then I” (“then” in `meta` `ink3`, 6 pt either side); ranges as “⌘1 … ⌘9” |
 
-**Content**, in this order. It is the whole single-key and command vocabulary of §6 and the menus, so nothing is learnable only from a menu; the overlay is generated from this table (`cheatSheetContent` in `tokens.json`), and the specimen draws it from the same data.
+**Content**, in this order. It is the whole single-key and command vocabulary of §6 and the menus, so nothing is learnable only from a menu (the sender rules alone have no key, §5.52, and so no row); the overlay is generated from this table (`cheatSheetContent` in `tokens.json`), and the specimen draws it from the same data.
 
 {{TABLE:cheatSheet}}
 
-Alternates that duplicate a single key (⌘F for /, ⌘N for C, ⌘Z for Z, → and ← for ↩ and esc, ⌘/ for ?) are left out to keep one key per action; menus and tooltips name them.
+Alternates that duplicate a single key (⌘F for /, ⌘N for C, ⌘Z for Z, → and ← for ↩ and esc, ⌘/ for ?, ⌘= for ⌘+) are left out to keep one key per action; menus and tooltips name them. Keys that undo or mirror each other share a row, as J K and N P do: ↩ esc, E ⇧I (Archive and its inverse), # ! (the two ways out to a provider's folder), ⇧⌘I ⇧⌘O and ⌥⌘C ⌃⌘S. That keeps band 1 at nine rows and band 2 at eight with every key on the sheet, so it still fits the default window whole; every label fits its {{PY: T.LAYOUT['cheatSheet']['columnWidth'] - T.LAYOUT['cheatSheet']['keyColumn']}} pt.
 
 **Search line**, under the bands (`cheatSheetSearch` in `tokens.json`): the operators §5.6 describes. `in:inbox`, `in:drafts` and `in:all` work too and are left off the line, which they would push past the panel; §5.6 lists them.
 
@@ -1930,7 +1930,7 @@ M mutes the selection: it is archived now, and mail that arrives in it later is 
 | New mail in a muted conversation | archived as it arrives, the conversation's other mail in the Inbox with it (one moved back with ⇧I leaves again), queued as the ordinary archive; the row's time and snippet move to it, unread, in All Mail; no notification; a snooze stays, and the conversation comes back at its time (§5.45) |
 | A muted conversation deleted everywhere | the mute goes with it; mail that later starts a conversation with its id starts unmuted |
 
-The cheat sheet lists “M  Mute · unmute” in Act (§5.32); the quoted-text row moves to View, beside its menu, so both bands keep their height and the sheet still fits the default window.
+The cheat sheet lists “M  Mute · unmute” in Act (§5.32), where Act keeps nine rows and the sheet fits the default window whole.
 
 ### 5.52 Sender rules (Q4.2)
 
@@ -2003,7 +2003,7 @@ All single keys are inactive while a text field has focus. Every key press first
 |---|---|---|---|
 | J / K | next / previous conversation | E | archive |
 | ⇧J / ⇧K | extend the selection | # | move to Trash (nothing in Trash, §5.12) |
-| ! | mark as spam (§5.47; nothing in Trash or Drafts) | | |
+| ! | mark as spam (§5.47; nothing in Trash or Drafts) | M | mute: archived now, new mail archived as it arrives; M again unmutes (§5.51) |
 | ↩ / → | open (focus the reader); ↩ on a focused elision mark, Download button or Download all in the reader presses it (§5.15, §5.17) | S | star |
 | Esc / ← | back to the list | U | mark unread |
 | N / P | next / previous message in the reader | Z or ⌘Z | undo |
@@ -2013,18 +2013,15 @@ All single keys are inactive while a text field has focus. Every key press first
 | ⌘O, ⌘-double-click on a row | open the conversation in a reader window (§5.49) | ⌘W | close the window |
 | G I, G S, G T, G D, G #, G A | Inbox, Starred, Sent, Drafts, Trash, All Mail (HUD after {{motion.duration.gHudDelay}} ms) | ⌘0 / ⌘1…⌘9 | All Inboxes / account |
 | L | snooze: the Later menu (§5.45; nothing in Trash or Drafts) | G L | Later, while its tile shows (§5.2) |
-| M | mute: archived now, new mail archived as it arrives; M again unmutes (§5.51) | | |
 | ⇧⌘R | open the quick reply in the composer | ⌘↩ | send: what Send does, Send and Archive unless the drop-down chose Send (§5.23) |
 | ⇧⌘I / ⇧⌘O | load images / original colors | ⌃⌘S | show / hide the rail |
 | ⌥⌘F | find in the conversation: the find bar (§5.50); ⌘F stays search | ⌘G / ⇧⌘G | next / previous match (↩ / ⇧↩ in the find bar) |
 | ⌥⌘C | compact rows | ? or ⌘/ | keyboard shortcuts |
-| ⌘P | print the open conversation (§5.48) | | |
-| ⌘+ / ⌘− | reader text bigger / smaller, through the four Text sizes (§4.15) | | |
+| ⌘P | print the open conversation (§5.48) | ⌘+ / ⌘− | reader text bigger / smaller, through the four Text sizes (§4.15) |
 | ⇧⌘N | check for new mail | ⇧I | move to Inbox |
-| ⇧⌘D | save the target message's attachments to Downloads (§5.17) | | |
 | ⇧⌘U | unsubscribe, then archive; in Later, end the snooze (§5.14) | ⇧⌘↩ | send and archive, whatever Send does (composer and quick reply, §5.23) |
-| ⇧⌘L | Send Later: its times, hung from Send's drop-down (composer and quick reply, §5.46) | | |
-| ⇧⌘T, ⌘B ⌘I ⌘U, ⇧⌘8 ⇧⌘7, ⌘', ⌘K | composer: format row, styles, lists, quote, link | ⇧⌘A, ⇧⌘C, ⇧⌘B | composer: attach files, Cc field, Bcc field |
+| ⇧⌘L | Send Later: its times, hung from Send's drop-down (composer and quick reply, §5.46) | ⇧⌘D | save the target message's attachments to Downloads (§5.17) |
+| ⇧⌘T, ⌘B ⌘I ⌘U, ⇧⌘8 ⇧⌘7, ⌘', ⌘K, ⌥⌘I | composer: format row, styles, lists, quote, link, insert picture (§5.20) | ⇧⌘A, ⇧⌘C, ⇧⌘B | composer: attach files, Cc field, Bcc field |
 | Space | reader (focus in the reader, not in a text field): Quick Look the target message's attachments, starting from the focused chip, else the first; Space again closes Quick Look. On a focused elision mark (§5.15), Download button or Download all (§5.17) Space presses it instead, unless Quick Look is open. With no attachments to preview the key passes to the web view, which scrolls down a page (⇧Space up), as in Safari. In the list Space does nothing | | |
 
 **G-sequences** arm for {{motion.duration.gSequenceWindow}} ms from the G key-down; the HUD appears at {{motion.duration.gHudDelay}} ms and leaves with the sequence (§5.32). The cheat sheet (§5.32) lists every row of this map, one key per action.

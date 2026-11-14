@@ -46,8 +46,9 @@ final class MarkAsSpamTests: XCTestCase {
         XCTAssertNil(KeyboardRouter.sequenceView(characters: "!"), "there is no Spam view to go to")
     }
 
-    /// Message › Mark as Spam ! sits after Move to Trash with its symbol; the cheat sheet lists ! after # in Act, which
-    /// keeps nine rows by handing “Show · hide quoted text” to View, where its menu item lives.
+    /// Message › Mark as Spam ! sits after Move to Trash with its symbol; the cheat sheet lists ! beside # in Act, the two
+    /// ways out to a provider's folder sharing a row, so Act keeps nine rows and the sheet fits the default window whole;
+    /// “Show · hide quoted text” is in View, where its menu item lives.
     func testTheMessageMenuAndTheCheatSheetCarryIt() throws {
         let previous = (MainMenuController.shared, NSApp.windowsMenu, NSApp.helpMenu)
         defer { (MainMenuController.shared, NSApp.windowsMenu, NSApp.helpMenu) = previous }
@@ -63,9 +64,8 @@ final class MarkAsSpamTests: XCTestCase {
         XCTAssertEqual(Quire.Icon.spam, "xmark.bin")
 
         let act = try XCTUnwrap(Quire.cheatSheet.first { $0.title == "Act" }?.rows)
-        let hash = try XCTUnwrap(act.firstIndex { $0.keys == "#" })
-        XCTAssertEqual(act[hash + 1].keys, "!")
-        XCTAssertEqual(act[hash + 1].label, "Mark as spam")
+        let row = try XCTUnwrap(act.first { $0.keys == "# !" })
+        XCTAssertEqual(row.label, "Move to Trash · spam")
         XCTAssertEqual(act.count, 9, "the first band keeps its height, so the sheet still fits the default window whole")
         let view = try XCTUnwrap(Quire.cheatSheet.first { $0.title == "View" }?.rows)
         XCTAssertTrue(view.contains { $0.keys == "." && $0.label == "Show · hide quoted text" })

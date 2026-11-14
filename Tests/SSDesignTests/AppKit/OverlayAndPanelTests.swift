@@ -120,6 +120,44 @@ final class OverlayAndPanelTests: XCTestCase {
         XCTAssertEqual(panel.accessibilitySubrole(), .dialog)
     }
 
+    /// Every row fits its column whole (§5.32): its keycaps in the 96 pt key column, its label in the 144 pt after it,
+    /// never tail-truncated. Rows that share keys (J K, ↩ esc, E ⇧I, # !) are how the sheet keeps every key on it and
+    /// still fits the default window.
+    func testEveryCheatSheetRowFitsItsColumn() {
+        let c = Quire.Layout.CheatSheet.self
+        for section in Quire.cheatSheet {
+            for row in section.rows {
+                var width: CGFloat = 0
+                var previousWasKeycap = false
+                for part in row.parts {
+                    if part.isKeycap {
+                        if previousWasKeycap { width += c.keycapGap }
+                        width += QuireKeycap.size(for: part.text, style: .large).width
+                    } else {
+                        width += 2 * Quire.Space.s3 + QuireDraw.width(QuireDraw.line(part.text, .meta, .qInk3))
+                    }
+                    previousWasKeycap = part.isKeycap
+                }
+                XCTAssertLessThanOrEqual(width, c.keyColumn, "\(section.title): \(row.keys)")
+                let label = QuireDraw.width(QuireDraw.line(row.label, .snippet, .qInk))
+                XCTAssertLessThanOrEqual(label, c.columnWidth - c.keyColumn, "\(section.title): “\(row.label)” is cut")
+            }
+        }
+    }
+
+    /// The keys this release added each have a row (§5.32, §6): ! and M in Act with Print, ⌘O and ⇧⌘D in Move, ⇧⌘L in
+    /// Write, ⌥⌘I in Format, and Find, its next and previous, and the reader's size in View.
+    func testTheReleasesNewKeysAreOnTheSheet() {
+        let keycaps = Dictionary(grouping: Quire.cheatSheet.flatMap { section in
+            section.rows.flatMap { row in row.parts.filter(\.isKeycap).map { ($0.text, section.title) } }
+        }, by: \.0).mapValues { $0.map(\.1) }
+        let expected = ["!": "Act", "M": "Act", "⌘P": "Act", "⌘O": "Move", "⇧⌘D": "Move", "⇧⌘L": "Write", "⌥⌘I": "Format",
+                        "⌥⌘F": "View", "⌘G": "View", "⇧⌘G": "View", "⌘+": "View", "⌘−": "View"]
+        for (key, section) in expected {
+            XCTAssertEqual(keycaps[key], [section], "\(key) has one row, in \(section)")
+        }
+    }
+
     /// The search operators' line (§5.32, §5.6): every operator the field takes, as typed, on one line that fits
     /// after the key column without truncating.
     func testTheSearchLineListsTheOperatorsAndFits() {
