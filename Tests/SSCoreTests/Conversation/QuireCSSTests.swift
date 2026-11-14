@@ -49,6 +49,49 @@ final class QuireCSSTests: XCTestCase {
         XCTAssertEqual(QuireCSS.head, specimen.joined(separator: "\n"), "byte for byte")
     }
 
+    /// Text size (spec §4.15): one class per size but Default, each redefining every type shorthand of the head with
+    /// size and line height moved by the step, held at 11 pt; tracking, weight and family stay. Each role's step is a
+    /// variable of its own (`--q-step-<role>`), which the shell's fixed boxes add to their Default heights.
+    func testTextSizesMoveEveryTypeVariableByTheStep() throws {
+        let head = Dictionary(uniqueKeysWithValues: variables(QuireCSS.head.components(separatedBy: "\n")).flatMap { $0 }
+            .filter { $0.0.hasPrefix("--q-font-") })
+        let lines = QuireCSS.textSizes.components(separatedBy: "\n")
+        XCTAssertEqual(lines.map { String($0.prefix { $0 != "{" }) }, ["html.ss-text-small", "html.ss-text-large", "html.ss-text-larger"])
+        XCTAssertFalse(QuireCSS.textSizes.contains("--q-track-"), "tracking stays")
+        let shorthand = try NSRegularExpression(pattern: "^((?:italic )?\\d+) (\\d+(?:\\.\\d+)?)px/(\\d+(?:\\.\\d+)?)px (.+)$")
+        func parts(_ value: String) throws -> (lead: String, size: Double, line: Double, family: String) {
+            let match = try XCTUnwrap(shorthand.firstMatch(in: value, range: NSRange(value.startIndex..., in: value)), value)
+            func group(_ i: Int) -> String { String(value[Range(match.range(at: i), in: value)!]) }
+            return (group(1), Double(group(2))!, Double(group(3))!, group(4))
+        }
+        for (line, delta) in zip(lines, [-1.0, 1, 2]) {
+            let sized = Dictionary(uniqueKeysWithValues: variables([line])[0])
+            for (name, value) in head {
+                let base = try parts(value)
+                let step = max(delta, min(0, 11 - base.size))
+                let stepName = "--q-step-" + name.dropFirst("--q-font-".count)
+                guard step != 0 else {
+                    XCTAssertNil(sized[name], "\(name) at \(delta): a role the step leaves alone is not repeated")
+                    XCTAssertNil(sized[stepName], "\(stepName) at \(delta)")
+                    continue
+                }
+                XCTAssertEqual(sized[stepName], "\(Int(step))px", "\(stepName) at \(delta)")
+                let moved = try parts(try XCTUnwrap(sized[name], "\(name) at \(delta)"))
+                XCTAssertEqual(moved.size, base.size + step, "\(name) at \(delta)")
+                XCTAssertEqual(moved.line, base.line + step, "\(name) at \(delta)")
+                XCTAssertEqual(moved.lead, base.lead, "\(name): weight and style stay")
+                XCTAssertEqual(moved.family, base.family, "\(name): the family stays")
+            }
+        }
+        XCTAssertTrue(ConversationShellAssets.css.contains(QuireCSS.textSizes), "the shell carries every size")
+        let names = Set(head.keys.map { "--q-step-" + $0.dropFirst("--q-font-".count) })
+        for line in lines {
+            for (name, _) in variables([line])[0] where name.hasPrefix("--q-step-") {
+                XCTAssertTrue(names.contains(name), "\(name) steps a role of the head")
+            }
+        }
+    }
+
     func testHeadCoversEveryVariableFamily() {
         let head = QuireCSS.head
         for needle in ["--q-paper:", "--q-acct-1:", "--q-av-clay-face:", "--q-e1:", "--q-font-subject:", "--q-track-runningHead:0.6px",

@@ -2,8 +2,9 @@ import AppKit
 import os
 
 /// The system settings Quire draws differently for (spec §3.1, §3.3): the Graphite accent, Increase Contrast,
-/// Reduce Motion and Reduce Transparency; and the one app setting every component draws for, the Font
-/// setting (spec §4.4), which the app sets with `setTypeface(_:)` because no system setting holds it.
+/// Reduce Motion and Reduce Transparency; and the two app settings Quire draws type for, the Font setting
+/// (spec §4.4) and Text size (spec §4.15), which the app sets with `setTypeface(_:)` and `setTextSize(_:)` because
+/// no system setting holds them.
 ///
 /// The flags live in a lock-protected snapshot rather than main-actor state because the dynamic colour
 /// providers read `isGraphite`, and AppKit resolves colours on whatever thread draws. Changes are observed
@@ -23,6 +24,8 @@ public final class QuireEnvironment: NSObject, @unchecked Sendable {
         var system: Snapshot
         /// The app's Font setting, kept apart from `system` so a re-read of the system settings cannot reset it.
         var typeface: QuireFont.Typeface
+        /// The app's Text size, kept apart for the same reason.
+        var textSize: QuireFont.TextSize
         var overrides: Overrides
         var current: Snapshot
     }
@@ -31,7 +34,8 @@ public final class QuireEnvironment: NSObject, @unchecked Sendable {
 
     private override init() {
         let system = QuireEnvironment.readSystem()
-        state = OSAllocatedUnfairLock(initialState: State(system: system, typeface: .newYork, overrides: Overrides(), current: system))
+        state = OSAllocatedUnfairLock(initialState: State(system: system, typeface: .newYork, textSize: .default,
+                                                             overrides: Overrides(), current: system))
         super.init()
         NotificationCenter.default.addObserver(self, selector: #selector(systemSettingsDidChange(_:)),
                                                name: NSColor.systemColorsDidChangeNotification, object: nil)
@@ -55,10 +59,14 @@ public final class QuireEnvironment: NSObject, @unchecked Sendable {
     public static var reduceTransparency: Bool { shared.snapshot.reduceTransparency }
     /// The face New York roles are set in (spec §4.4): New York until the app says otherwise.
     public static var typeface: QuireFont.Typeface { shared.snapshot.typeface }
+    /// Settings › General › Text size (spec §4.15): Default until the app says otherwise. Only the surfaces where
+    /// mail is read and written ask for it.
+    public static var textSize: QuireFont.TextSize { shared.snapshot.textSize }
 
     /// The part of the environment drawn colours and type depend on: the resolved mode (Increase Contrast
     /// included), the Graphite flag and the typeface. Row and avatar caches key on it, never on window key state
-    /// (spec §8.2).
+    /// (spec §8.2). Not the Text size, which only the surfaces that ask for it depend on: they add it to their own
+    /// keys, so an avatar face, which no size changes, is never drawn again for one.
     public static func cacheKey(for appearance: NSAppearance) -> String {
         let s = shared.snapshot
         return "\(QuireMode(appearance).rawValue)|ic\(s.increaseContrast ? 1 : 0)|g\(s.isGraphite ? 1 : 0)|f\(s.typeface.rawValue)"
@@ -87,6 +95,12 @@ public final class QuireEnvironment: NSObject, @unchecked Sendable {
         update { $0.typeface = typeface }
     }
 
+    /// Text size (spec §4.15). Like the typeface: set at launch, before the first window, and on every change, which
+    /// is posted so the list, the reader and every composer set their text again at once.
+    public func setTextSize(_ textSize: QuireFont.TextSize) {
+        update { $0.textSize = textSize }
+    }
+
     @objc private func systemSettingsDidChange(_ note: Notification) {
         refresh()
     }
@@ -97,6 +111,7 @@ public final class QuireEnvironment: NSObject, @unchecked Sendable {
             change(&s)
             var base = s.system
             base.typeface = s.typeface
+            base.textSize = s.textSize
             s.current = QuireEnvironment.apply(s.overrides, to: base)
             return s.current != before
         }
@@ -117,7 +132,8 @@ public final class QuireEnvironment: NSObject, @unchecked Sendable {
                  increaseContrast: o.increaseContrast ?? s.increaseContrast,
                  reduceMotion: o.reduceMotion ?? s.reduceMotion,
                  reduceTransparency: o.reduceTransparency ?? s.reduceTransparency,
-                 typeface: o.typeface ?? s.typeface)
+                 typeface: o.typeface ?? s.typeface,
+                 textSize: o.textSize ?? s.textSize)
     }
 
     static func readSystem() -> Snapshot {

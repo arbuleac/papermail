@@ -31,7 +31,9 @@ final class ConversationCellView: NSView {
 
     private(set) var content: ConversationRowContent?
     private var mark = AccountMark.none
-    private var density = AppSettings.ListDensity.standard
+    /// Where the lines and marks go: the density's frames at the list's Text size (spec §5.7, §4.15). Internal so the
+    /// list's tests can read it.
+    private(set) var metrics = QuireRowMetrics.standard(.default)
     /// Bumped on every configure so a face that lands after the row was reused is ignored.
     private var generation = 0
     /// The words of each tooltip rect in place (see `toolTipRegions()`).
@@ -56,11 +58,11 @@ final class ConversationCellView: NSView {
         nil
     }
 
-    func configure(with content: ConversationRowContent, mark: AccountMark, density: AppSettings.ListDensity) {
-        guard content !== self.content || mark != self.mark || density != self.density else { return }
+    func configure(with content: ConversationRowContent, mark: AccountMark, metrics: QuireRowMetrics) {
+        guard content !== self.content || mark != self.mark || metrics != self.metrics else { return }
         self.content = content
         self.mark = mark
-        self.density = density
+        self.metrics = metrics
         generation &+= 1
         updateToolTips()
         needsDisplay = true
@@ -75,7 +77,7 @@ final class ConversationCellView: NSView {
 
     // MARK: Geometry
 
-    private var isCompact: Bool { density == .compact }
+    private var isCompact: Bool { metrics.isCompact }
 
     /// The time cluster's pieces, right to left: time, initial tile, the “Back” tag, queued or failed glyph. Rows carry
     /// no category tag: the Focused/Other category is never shown (§5.7).
@@ -89,11 +91,10 @@ final class ConversationCellView: NSView {
     }
 
     private func cluster(for content: ConversationRowContent) -> Cluster {
-        let lineTop = isCompact ? Compact.senderY : Row.senderY
-        let lineMid = lineTop + Row.senderHeight / 2
+        let lineMid = metrics.senderY + metrics.senderHeight / 2
         var c = Cluster()
         var x = bounds.width - Row.trailing
-        let timeHeight = QuireFont.Role.meta.lineHeight
+        let timeHeight = metrics.timeHeight
         c.time = NSRect(x: x - content.timeWidth, y: lineMid - timeHeight / 2, width: content.timeWidth, height: timeHeight)
         x = c.time.minX
         if mark.isUnified {
@@ -138,17 +139,17 @@ final class ConversationCellView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         guard let content else { return }
         let compact = isCompact
-        let textX = compact ? Compact.textX : Row.textX
+        let m = metrics
+        let textX = m.textX
         let right = bounds.width - Row.trailing
 
         if content.isUnread {
-            let y = compact ? Compact.pipY : Row.pipY
-            QuireDraw.fillCircle(NSRect(x: Row.pipX, y: y, width: Row.pip, height: Row.pip), .qAccent)
+            QuireDraw.fillCircle(NSRect(x: Row.pipX, y: m.pipY, width: Row.pip, height: Row.pip), .qAccent)
         }
 
         if !compact {
             let inset = (Row.avatarBox - Row.avatarFace) / 2
-            let face = NSRect(x: Row.avatarBoxX + inset, y: Row.avatarBoxY + inset, width: Row.avatarFace, height: Row.avatarFace)
+            let face = NSRect(x: Row.avatarBoxX + inset, y: m.avatarBoxY + inset, width: Row.avatarFace, height: Row.avatarFace)
             drawFace(content, in: face)
             if mark.isUnified {
                 QuireAvatarRenderer.drawRing(around: face, accountSlot: mark.inkSlot)
@@ -157,8 +158,7 @@ final class ConversationCellView: NSView {
 
         // Line 1: sender, then the time cluster.
         let c = cluster(for: content)
-        let senderTop = compact ? Compact.senderY : Row.senderY
-        drawLine(content.sender, x: textX, top: senderTop, width: c.leadingEdge - Row.timeGap - textX, height: Row.senderHeight)
+        drawLine(content.sender, x: textX, top: m.senderY, width: c.leadingEdge - Row.timeGap - textX, height: m.senderHeight)
         drawLine(content.time, x: c.time.minX, top: c.time.minY, width: c.time.width + 1, height: c.time.height)
         if let tile = c.tile {
             drawInitialTile(in: tile)
@@ -181,8 +181,8 @@ final class ConversationCellView: NSView {
         }
 
         // Line 2: subject (compact: subject — snippet), then the glyph cluster.
-        let line2Top = compact ? Compact.line2Y : Row.subjectY
-        let line2Mid = line2Top + Row.subjectHeight / 2
+        let line2Top = m.subjectY
+        let line2Mid = line2Top + m.subjectHeight / 2
         var x = right
         if content.isStarred {
             let rect = NSRect(x: x - Row.glyph, y: line2Mid - Row.glyph / 2, width: Row.glyph, height: Row.glyph)
@@ -213,17 +213,17 @@ final class ConversationCellView: NSView {
             var subjectWidth = content.subjectWidth
             if subjectWidth > cap {
                 // Truncation ends on a glyph, short of the cap; the snippet follows the ellipsis, not the cap.
-                let size = NSSize(width: cap, height: Row.subjectHeight)
+                let size = NSSize(width: cap, height: m.subjectHeight)
                 subjectWidth = min(cap, ceil(content.subject.boundingRect(with: size, options: QuireFont.drawingOptions).width))
             }
-            drawLine(content.subject, x: textX, top: line2Top, width: subjectWidth, height: Row.subjectHeight)
-            drawLine(snippet, x: textX + subjectWidth, top: line2Top, width: line2Width - subjectWidth, height: Row.subjectHeight)
+            drawLine(content.subject, x: textX, top: line2Top, width: subjectWidth, height: m.subjectHeight)
+            drawLine(snippet, x: textX + subjectWidth, top: line2Top, width: line2Width - subjectWidth, height: m.subjectHeight)
         } else {
-            drawLine(content.subject, x: textX, top: line2Top, width: line2Width, height: Row.subjectHeight)
+            drawLine(content.subject, x: textX, top: line2Top, width: line2Width, height: m.subjectHeight)
         }
 
         if !compact {
-            drawLine(content.snippet, x: textX, top: Row.snippetY, width: right - textX, height: Row.snippetHeight)
+            drawLine(content.snippet, x: textX, top: m.snippetY, width: right - textX, height: m.snippetHeight)
         }
     }
 
@@ -300,13 +300,14 @@ final class ConversationCellView: NSView {
         guard let content else { return [] }
         let c = cluster(for: content)
         // Small marks (the 6 pt square, the 12 pt glyph) answer over the whole sender line box around them.
+        let m = metrics
         func lineBox(_ rect: NSRect) -> NSRect {
-            rect.insetBy(dx: min(0, (rect.width - Row.senderHeight) / 2), dy: min(0, (rect.height - Row.senderHeight) / 2))
+            rect.insetBy(dx: min(0, (rect.width - m.senderHeight) / 2), dy: min(0, (rect.height - m.senderHeight) / 2))
         }
         var regions: [(rect: NSRect, text: String)] = []
         if mark.isUnified, !mark.accountAddress.isEmpty {
             if !isCompact {
-                regions.append((NSRect(x: Row.avatarBoxX, y: Row.avatarBoxY, width: Row.avatarBox, height: Row.avatarBox), mark.accountAddress))
+                regions.append((NSRect(x: Row.avatarBoxX, y: m.avatarBoxY, width: Row.avatarBox, height: Row.avatarBox), mark.accountAddress))
             }
             if let mark = c.tile ?? c.square {
                 regions.append((lineBox(mark), self.mark.accountAddress))
@@ -322,18 +323,16 @@ final class ConversationCellView: NSView {
         }
         // A cut sender or subject answers over its own words (§5.34), and only when it is cut: these regions
         // start at the text column, clear of the face, and end before the time cluster and the glyphs.
-        let textX = isCompact ? Compact.textX : Row.textX
+        let textX = m.textX
         let senderSlot = c.leadingEdge - Row.timeGap - textX
         if content.senderWidth > senderSlot, senderSlot > 0 {
-            regions.append((NSRect(x: textX, y: isCompact ? Compact.senderY : Row.senderY, width: senderSlot, height: Row.senderHeight),
-                            content.sender.string))
+            regions.append((NSRect(x: textX, y: m.senderY, width: senderSlot, height: m.senderHeight), content.sender.string))
         }
         let line2Width = line2End(for: content) - textX
         let subjectSlot = isCompact && content.compactSnippet != nil
             ? (line2Width * ConversationCellView.compactSubjectShare).rounded() : line2Width
         if content.subjectWidth > subjectSlot, subjectSlot > 0, !content.subject.string.isEmpty {
-            regions.append((NSRect(x: textX, y: isCompact ? Compact.line2Y : Row.subjectY, width: subjectSlot, height: Row.subjectHeight),
-                            content.subject.string))
+            regions.append((NSRect(x: textX, y: m.subjectY, width: subjectSlot, height: m.subjectHeight), content.subject.string))
         }
         return regions
     }

@@ -119,6 +119,7 @@ final class MessageListViewController: NSViewController {
         rowContentCache = RowContentCache(store: store)
         density = settings.listDensity
         showsAccountInitials = settings.showAccountInitials
+        textSize = QuireEnvironment.textSize
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -160,6 +161,8 @@ final class MessageListViewController: NSViewController {
     private(set) var layout = ListLayout.empty
     private var itemIDs: [ListLayout.ItemID] = []
     private var density: AppSettings.ListDensity
+    /// The Text size the rows are measured and set at (spec §4.15), from `QuireEnvironment`.
+    private var textSize: QuireFont.TextSize
     private var showsAccountInitials: Bool
     private var environmentKey = ""
     private var marks: [AccountID: ConversationCellView.AccountMark] = [:]
@@ -212,7 +215,7 @@ final class MessageListViewController: NSViewController {
         column.resizingMask = .autoresizingMask
         tableView.addTableColumn(column)
         tableView.headerView = nil
-        tableView.rowHeight = Quire.Layout.Row.height
+        tableView.rowHeight = rowMetrics.height
         tableView.intercellSpacing = .zero
         tableView.usesAutomaticRowHeights = false
         tableView.usesAlternatingRowBackgroundColors = false
@@ -259,6 +262,7 @@ final class MessageListViewController: NSViewController {
         skeletonView.autoresizingMask = [.width, .height]
         skeletonView.isHidden = true
         skeletonView.density = density
+        skeletonView.textSize = textSize
         container.addSubview(skeletonView)
 
         emptyView.frame = container.bounds
@@ -940,8 +944,9 @@ final class MessageListViewController: NSViewController {
 
     private func configure(_ cell: ConversationCellView, forConversation index: Int) {
         let summary = conversations[index]
-        let content = rowContentCache.content(for: summary, context: context(forConversation: index), environment: environmentKey)
-        cell.configure(with: content, mark: mark(for: summary), density: density)
+        let content = rowContentCache.content(for: summary, context: context(forConversation: index), environment: environmentKey,
+                                              textSize: textSize)
+        cell.configure(with: content, mark: mark(for: summary), metrics: rowMetrics)
         cell.conversationID = summary.id
     }
 
@@ -951,7 +956,7 @@ final class MessageListViewController: NSViewController {
             guard let self else { return }
             switch rowView {
             case let conversationRow as ConversationRowView:
-                conversationRow.density = self.density
+                conversationRow.metrics = self.rowMetrics
                 if let index = self.layout.conversationIndex(atRow: row),
                    let cell = conversationRow.view(atColumn: 0) as? ConversationCellView {
                     self.configure(cell, forConversation: index)
@@ -973,13 +978,19 @@ final class MessageListViewController: NSViewController {
         guard layout.items.indices.contains(row), case .head(let head) = layout.items[row] else { return }
         let title = rowContentCache.formatter.title(for: head, reference: rowContentCache.reference)
         headRow.spokenTitle = title
-        headRow.title = RunningHeadRowView.title(title)
+        headRow.title = RunningHeadRowView.title(title, textSize: textSize)
         headRow.density = density
+        headRow.textSize = textSize
     }
 
-    /// Appearance, contrast, Graphite and the Font setting: everything a row's strings and face depend on.
+    /// Appearance, contrast, Graphite, the Font setting and Text size: everything a row's strings and face depend on.
     private func makeEnvironmentKey() -> String {
-        QuireEnvironment.cacheKey(for: view.effectiveAppearance)
+        QuireEnvironment.cacheKey(for: view.effectiveAppearance) + "|t" + QuireEnvironment.textSize.rawValue
+    }
+
+    /// The rows' metrics at the current density and Text size (spec §5.7, §4.15). Internal for the list's tests.
+    var rowMetrics: QuireRowMetrics {
+        QuireRowMetrics(textSize: textSize, compact: density == .compact)
     }
 
     // MARK: Searching the server
@@ -1107,6 +1118,7 @@ final class MessageListViewController: NSViewController {
         if isEmpty, firstSyncRunning, !isSearch {
             emptyView.isHidden = true
             skeletonView.density = density
+            skeletonView.textSize = textSize
             skeletonView.reveal()
             return
         }
@@ -1243,31 +1255,74 @@ final class MessageListViewController: NSViewController {
         showsAccountInitials = settings.showAccountInitials
         guard isViewLoaded else { return }
         if densityChanged {
-            // Row heights change, so every row is re-measured; the selection and the scroll position follow.
-            withoutAnimation {
-                tableView.reloadData()
-            }
-            tableView.refreshHoverAfterRowEdits()
-            syncTableSelection(scroll: true)
-            skeletonView.density = density
+            remeasureRows()
         } else {
             reconfigureVisibleRows()
         }
     }
 
+    /// Row heights changed (density or Text size): every row is re-measured. The row at the top stays at the top, as
+    /// far into it as before, since the same offset in points would land about 4 pt × its index further down; only
+    /// then is the selection brought into view, if the taller rows pushed it out. One `list.remeasure` interval.
+    private func remeasureRows() {
+        let state = signposter.beginInterval("list.remeasure")
+        defer { signposter.endInterval("list.remeasure", state) }
+        let anchor = topRowAnchor()
+        tableView.rowHeight = rowMetrics.height
+        withoutAnimation {
+            tableView.reloadData()
+            if let anchor { scroll(to: anchor) }
+        }
+        tableView.refreshHoverAfterRowEdits()
+        syncTableSelection(scroll: true)
+        skeletonView.density = density
+        skeletonView.textSize = textSize
+    }
+
+    /// The row under the top edge of the list and how far into it that edge is, as a fraction of its height.
+    private func topRowAnchor() -> (row: Int, fraction: CGFloat)? {
+        let clip = scrollView.contentView
+        let top = max(0, clip.bounds.minY + scrollView.contentInsets.top)
+        let row = tableView.row(at: NSPoint(x: tableView.bounds.midX, y: top))
+        guard row >= 0 else { return nil }
+        let rect = tableView.rect(ofRow: row)
+        return (row, rect.height > 0 ? (top - rect.minY) / rect.height : 0)
+    }
+
+    private func scroll(to anchor: (row: Int, fraction: CGFloat)) {
+        guard anchor.row < tableView.numberOfRows else { return }
+        let clip = scrollView.contentView
+        let rect = tableView.rect(ofRow: anchor.row)
+        let insets = scrollView.contentInsets
+        let highest = -insets.top
+        let lowest = max(highest, tableView.frame.height + insets.bottom - clip.bounds.height)
+        let y = min(lowest, max(highest, (rect.minY + anchor.fraction * rect.height).rounded() - insets.top))
+        clip.scroll(to: NSPoint(x: clip.bounds.minX, y: y))
+        scrollView.reflectScrolledClipView(clip)
+    }
+
+    /// The row at the top of the list now and how far into it (tests read it).
+    var topVisibleRow: (row: Int, fraction: CGFloat)? { topRowAnchor() }
+
     @objc private func quireEnvironmentChanged(_ notification: Notification) {
         environmentDidChange()
     }
 
-    /// Appearance, Increase Contrast, Graphite or the Font setting changed: rows rebuild under the new environment
-    /// key and every visible row view redraws. Twins keep the line height, so a Font switch re-measures nothing:
-    /// the visible rows are reconfigured in place, never reloaded.
+    /// Appearance, Increase Contrast, Graphite, the Font setting or Text size changed: rows rebuild under the new
+    /// environment key and every visible row view redraws. Twins keep the line height, so a Font switch re-measures
+    /// nothing: the visible rows are reconfigured in place, never reloaded. A Text size changes the rows' heights, so
+    /// it re-measures them, as a density change does (spec §4.15).
     private func environmentDidChange() {
         guard isViewLoaded else { return }
         let key = makeEnvironmentKey()
         guard key != environmentKey else { return }
         environmentKey = key
-        reconfigureVisibleRows()
+        if QuireEnvironment.textSize != textSize {
+            textSize = QuireEnvironment.textSize
+            remeasureRows()
+        } else {
+            reconfigureVisibleRows()
+        }
         tableView.enumerateAvailableRowViews { rowView, _ in
             rowView.needsDisplay = true
             // The footer's Retry link draws its own label.
@@ -1335,10 +1390,10 @@ extension MessageListViewController: NSTableViewDataSource {
 
 extension MessageListViewController: NSTableViewDelegate {
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
-        guard layout.items.indices.contains(row) else { return Quire.Layout.Row.height }
+        guard layout.items.indices.contains(row) else { return rowMetrics.height }
         let compact = density == .compact
         switch layout.items[row] {
-        case .conversation: return compact ? Quire.Layout.RowCompact.height : Quire.Layout.Row.height
+        case .conversation: return rowMetrics.height
         case .head: return compact ? Quire.Layout.RunningHead.compactHeight : Quire.Layout.RunningHead.height
         case .footer, .serverSearch: return Quire.Layout.ListFooter.height
         }
@@ -1350,7 +1405,7 @@ extension MessageListViewController: NSTableViewDelegate {
         case .conversation:
             let rowView = (tableView.makeView(withIdentifier: ConversationRowView.identifier, owner: nil) as? ConversationRowView)
                 ?? ConversationRowView(frame: .zero)
-            rowView.density = density
+            rowView.metrics = rowMetrics
             return rowView
         case .head:
             let rowView = (tableView.makeView(withIdentifier: RunningHeadRowView.identifier, owner: nil) as? RunningHeadRowView)

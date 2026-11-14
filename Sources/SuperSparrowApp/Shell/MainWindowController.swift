@@ -186,7 +186,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         scopeToRestore = remembersScope ? settings.savedAccountScope(demo: environment.isDemo) : nil
         list = MessageListViewController(store: environment.store)
         listPane = ListPaneViewController(list: list)
-        conversation = ConversationViewController(client: environment.engine, drafts: quickReplyDrafts)
+        conversation = ConversationViewController(client: environment.engine, drafts: quickReplyDrafts, settings: settings)
         conversationPane = ConversationPaneViewController(conversation: conversation)
         undoCenter = MailUndoCenter(toasts: listPane.toasts)
         inboxMonitor = InboxMonitor(store: environment.store, dockBadge: dockBadge)
@@ -2209,7 +2209,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     @discardableResult
     private func present(_ place: ReaderWindowPlace, at frame: NSRect?) -> ReaderWindowController {
         let reader = ReaderWindowController(place: place, client: environment.engine, accountsByID: accountsByID,
-                                            drafts: quickReplyDrafts, undoCenter: undoCenter, opener: self)
+                                            drafts: quickReplyDrafts, settings: settings, undoCenter: undoCenter, opener: self)
         readerWindows.append(reader)
         reader.place(at: frame, cascadingFrom: readerWindows.dropLast().last?.window ?? window)
         bringForward(reader)
@@ -2731,6 +2731,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     @objc func findNextMatch(_ sender: Any?) { conversation.findNextMatch(sender) }
     @objc func findPreviousMatch(_ sender: Any?) { conversation.findPreviousMatch(sender) }
 
+    /// ⌘+ and ⌘−: the reader's own Text size, one size up or down (§4.15). The reader follows the setting's change;
+    /// a key past Larger or Small finds its item disabled.
+    @objc func makeReaderTextBigger(_ sender: Any?) { settings.stepReaderTextSize(larger: true) }
+    @objc func makeReaderTextSmaller(_ sender: Any?) { settings.stepReaderTextSize(larger: false) }
+
     private static let readerCommands: Set<Selector> = [
         #selector(nextMessage(_:)), #selector(previousMessage(_:)), #selector(toggleQuotedText(_:)), #selector(loadImages(_:)),
         #selector(toggleOriginalColors(_:)), #selector(saveAttachments(_:)), #selector(downloadAttachments(_:)),
@@ -2831,6 +2836,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             return !showingWelcome
         case #selector(focusSearchField(_:)):
             return !showingWelcome
+        case #selector(makeReaderTextBigger(_:)):
+            return !showingWelcome && settings.readerSize.larger != nil
+        case #selector(makeReaderTextSmaller(_:)):
+            return !showingWelcome && settings.readerSize.smaller != nil
         case #selector(searchServer(_:)):
             menuItem.title = ServerSearchRow.menuTitle(for: ServerSearchRow.target(scope: scope.accountIDs, accounts: accounts))
             let words = !listPane.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

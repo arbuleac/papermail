@@ -16,6 +16,10 @@ final class AppSettings: ObservableObject {
     /// lives in `QuireEnvironment`, whose change notification every Quire surface already follows.
     static let displayPreferencesChanged = Notification.Name("AppSettings.displayPreferencesChanged")
 
+    /// Posted after the reader's own Text size changes (⌘+, ⌘−, or Settings' Text size setting it too). The reader
+    /// alone follows it; the app-wide size is `QuireEnvironment`'s.
+    static let readerTextSizeChanged = Notification.Name("AppSettings.readerTextSizeChanged")
+
     /// Spec §5.7: standard rows are 68 pt, compact rows 48 pt.
     enum ListDensity: String, CaseIterable {
         case standard
@@ -30,6 +34,9 @@ final class AppSettings: ObservableObject {
         static let askedForNotifications = "askedForNotificationPermission"
         /// The Font setting's key from when it was Reading font; kept, with its raw values, so the choice carries over.
         static let typeface = "readingFont"
+        static let textSize = "textSize"
+        /// The reader's own size, from ⌘+ and ⌘−; absent while the reader follows Text size.
+        static let readerTextSize = "readerTextSize"
         static let listDensity = "listDensity"
         static let showAccountInitials = "showAccountInitials"
         static let originalColorsNoticeDismissed = "originalColorsNoticeDismissed"
@@ -111,6 +118,44 @@ final class AppSettings: ObservableObject {
             defaults.set(typeface.rawValue, forKey: Key.typeface)
             applyTypeface()
         }
+    }
+
+    /// Spec §4.15, §5.40 General › Text size: the step every role where mail is read and written takes. A change is
+    /// saved, sets the reader to it too, and is pushed into `QuireEnvironment` at once, so the list, the reader and
+    /// every composer switch live.
+    @Published var textSize: QuireFont.TextSize {
+        didSet {
+            defaults.set(textSize.rawValue, forKey: Key.textSize)
+            // Quire first, the reader's own size after: the other way round, the reader would hear the reset while
+            // Quire still held the old size, broadcast that and measure every body at a size nobody chose, then
+            // measure them all again at the new one.
+            applyTextSize()
+            if oldValue != textSize { readerTextSize = nil }
+        }
+    }
+
+    /// The reader's own size (spec §4.15), when ⌘+ or ⌘− chose one other than Text size's; nil follows Text size.
+    /// Kept across launches.
+    @Published private(set) var readerTextSize: QuireFont.TextSize? {
+        didSet {
+            if let readerTextSize { defaults.set(readerTextSize.rawValue, forKey: Key.readerTextSize) } else {
+                defaults.removeObject(forKey: Key.readerTextSize)
+            }
+            if oldValue != readerTextSize { NotificationCenter.default.post(name: AppSettings.readerTextSizeChanged, object: self) }
+        }
+    }
+
+    /// The size the reader sets its headline, sheets and bodies at: its own, else the one Quire draws at now (Text
+    /// size, or a `--text-size` override).
+    var readerSize: QuireFont.TextSize { readerTextSize ?? QuireEnvironment.textSize }
+
+    /// ⌘+ and ⌘−: the reader one size up or down, never past Larger or Small. Back at Text size's own size it
+    /// follows Text size again. False when there is no size that way.
+    @discardableResult
+    func stepReaderTextSize(larger: Bool) -> Bool {
+        guard let next = larger ? readerSize.larger : readerSize.smaller else { return false }
+        readerTextSize = next == QuireEnvironment.textSize ? nil : next
+        return true
     }
 
     @Published var listDensity: ListDensity {
@@ -203,6 +248,7 @@ final class AppSettings: ObservableObject {
             Key.remoteImages: false,
             Key.undoSend: 5.0,
             Key.typeface: QuireFont.Typeface.newYork.rawValue,
+            Key.textSize: QuireFont.TextSize.default.rawValue,
             Key.listDensity: ListDensity.standard.rawValue,
             Key.showAccountInitials: false,
             Key.originalColorsNoticeDismissed: false,
@@ -222,6 +268,9 @@ final class AppSettings: ObservableObject {
         // Not pushed into QuireEnvironment here: the app does that at launch (a `--font` override may win), and
         // the throwaway settings tests build must not change what every other window draws.
         typeface = QuireFont.Typeface(rawValue: defaults.string(forKey: Key.typeface) ?? "") ?? .newYork
+        // Not pushed either, for the same reasons; an unknown value is Default.
+        textSize = QuireFont.TextSize(rawValue: defaults.string(forKey: Key.textSize) ?? "") ?? .default
+        readerTextSize = defaults.string(forKey: Key.readerTextSize).flatMap(QuireFont.TextSize.init(rawValue:))
         listDensity = ListDensity(rawValue: defaults.string(forKey: Key.listDensity) ?? "") ?? .standard
         showAccountInitials = defaults.bool(forKey: Key.showAccountInitials)
         originalColorsNoticeDismissed = defaults.bool(forKey: Key.originalColorsNoticeDismissed)
@@ -236,6 +285,12 @@ final class AppSettings: ObservableObject {
     /// environment itself at launch.
     func applyTypeface() {
         QuireEnvironment.shared.setTypeface(typeface)
+    }
+
+    /// Makes the saved Text size what the list, the reader and the composer set their text at. Called by `textSize`'s
+    /// observer; the app delegate sets the environment itself at launch.
+    func applyTextSize() {
+        QuireEnvironment.shared.setTextSize(textSize)
     }
 
     private func postDisplayChange() {

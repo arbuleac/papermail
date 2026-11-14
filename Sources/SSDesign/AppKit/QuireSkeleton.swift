@@ -11,6 +11,11 @@ public final class QuireSkeleton: NSView {
         didSet { if oldValue != layout { invalidateIntrinsicContentSize(); needsDisplay = true } }
     }
 
+    /// The Text size a row layout stands in for (spec §4.15): its height and bars follow the row's lines.
+    public var textSize: QuireFont.TextSize = .default {
+        didSet { if oldValue != textSize { invalidateIntrinsicContentSize(); needsDisplay = true } }
+    }
+
     private var revealTimer: Timer?
 
     public init(_ layout: Layout) {
@@ -26,16 +31,16 @@ public final class QuireSkeleton: NSView {
     public override var isFlipped: Bool { true }
 
     public override var intrinsicContentSize: NSSize {
-        NSSize(width: NSView.noIntrinsicMetric, height: QuireSkeleton.height(of: layout) ?? NSView.noIntrinsicMetric)
+        NSSize(width: NSView.noIntrinsicMetric, height: QuireSkeleton.height(of: layout, textSize: textSize) ?? NSView.noIntrinsicMetric)
     }
 
-    /// The fixed height a layout needs, when it has one.
-    public static func height(of layout: Layout) -> CGFloat? {
+    /// The fixed height a layout needs, when it has one: a row's is the row's at `textSize`.
+    public static func height(of layout: Layout, textSize: QuireFont.TextSize = .default) -> CGFloat? {
         let s = Quire.Layout.Skeleton.self
         switch layout {
         case .bar, .circle: return nil
-        case .row: return Quire.Layout.Row.height
-        case .compactRow: return Quire.Layout.RowCompact.height
+        case .row: return QuireRowMetrics.standard(textSize).height
+        case .compactRow: return QuireRowMetrics.compact(textSize).height
         case .body: return CGFloat(s.bodyBars.count) * s.bodyBarHeight + CGFloat(s.bodyBars.count - 1) * s.bodyBarGap
         }
     }
@@ -75,12 +80,14 @@ public final class QuireSkeleton: NSView {
         return width * (1 + Quire.Layout.Skeleton.widthJitter * jitter[((index % n) + n) % n])
     }
 
-    /// The shapes a layout draws inside `rect`: bars (radius 3) and circles.
-    public static func shapes(_ layout: Layout, in rect: NSRect) -> [(rect: NSRect, isCircle: Bool)] {
+    /// The shapes a layout draws inside `rect`: bars (radius 3) and circles. A row's bars stay centred on the lines
+    /// they stand for at `textSize`, and its circle on the row (spec §4.15); the bars keep their sizes.
+    public static func shapes(_ layout: Layout, in rect: NSRect, textSize: QuireFont.TextSize = .default) -> [(rect: NSRect, isCircle: Bool)] {
         let s = Quire.Layout.Skeleton.self
-        func bar(_ v: [CGFloat], index: Int?) -> NSRect {
+        func bar(_ v: [CGFloat], index: Int?, shift: CGFloat = 0) -> NSRect {
             let width = index.map { jittered(v[2], index: $0) } ?? v[2]
-            return NSRect(x: rect.minX + v[0], y: rect.minY + v[1], width: min(width, rect.width - v[0] - Quire.Layout.Row.trailing), height: v[3])
+            return NSRect(x: rect.minX + v[0], y: rect.minY + v[1] + shift, width: min(width, rect.width - v[0] - Quire.Layout.Row.trailing),
+                          height: v[3])
         }
         func time(_ v: [CGFloat], top: CGFloat) -> NSRect {
             NSRect(x: rect.maxX - Quire.Layout.Row.trailing - v[0], y: rect.minY + top, width: v[0], height: v[1])
@@ -92,19 +99,21 @@ public final class QuireSkeleton: NSView {
             let d = min(rect.width, rect.height)
             return [(NSRect(x: rect.midX - d / 2, y: rect.midY - d / 2, width: d, height: d), true)]
         case .row(let index):
+            let m = QuireRowMetrics.standard(textSize)
             return [
-                (NSRect(x: rect.minX + s.circleX, y: rect.minY + s.circleY, width: s.circle, height: s.circle), true),
-                (bar(s.senderBar, index: index * 3), false),
-                (time(s.timeBar, top: s.senderBar[1]), false),
-                (bar(s.subjectBar, index: index * 3 + 1), false),
-                (bar(s.snippetBar, index: index * 3 + 2), false),
+                (NSRect(x: rect.minX + s.circleX, y: rect.minY + (m.height - s.circle) / 2, width: s.circle, height: s.circle), true),
+                (bar(s.senderBar, index: index * 3, shift: m.senderShift), false),
+                (time(s.timeBar, top: s.senderBar[1] + m.senderShift), false),
+                (bar(s.subjectBar, index: index * 3 + 1, shift: m.subjectShift), false),
+                (bar(s.snippetBar, index: index * 3 + 2, shift: m.snippetShift), false),
             ]
         case .compactRow(let index):
             let c = Quire.Layout.RowCompact.self
+            let m = QuireRowMetrics.compact(textSize)
             return [
-                (bar(c.skeletonSenderBar, index: index * 2), false),
-                (time(c.skeletonTimeBar, top: c.skeletonSenderBar[1]), false),
-                (bar(c.skeletonLine2Bar, index: index * 2 + 1), false),
+                (bar(c.skeletonSenderBar, index: index * 2, shift: m.senderShift), false),
+                (time(c.skeletonTimeBar, top: c.skeletonSenderBar[1] + m.senderShift), false),
+                (bar(c.skeletonLine2Bar, index: index * 2 + 1, shift: m.subjectShift), false),
             ]
         case .body:
             return s.bodyBars.enumerated().map { i, share in
@@ -115,8 +124,8 @@ public final class QuireSkeleton: NSView {
     }
 
     /// Draws a layout's shapes in `fill` in the current context.
-    public static func draw(_ layout: Layout, in rect: NSRect) {
-        for shape in shapes(layout, in: rect) {
+    public static func draw(_ layout: Layout, in rect: NSRect, textSize: QuireFont.TextSize = .default) {
+        for shape in shapes(layout, in: rect, textSize: textSize) {
             if shape.isCircle {
                 QuireDraw.fillCircle(shape.rect, .qFill)
             } else {
@@ -126,7 +135,7 @@ public final class QuireSkeleton: NSView {
     }
 
     public override func draw(_ dirtyRect: NSRect) {
-        QuireSkeleton.draw(layout, in: bounds)
+        QuireSkeleton.draw(layout, in: bounds, textSize: textSize)
     }
 
     @objc private func environmentDidChange(_ note: Notification) {

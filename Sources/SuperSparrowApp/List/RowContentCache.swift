@@ -31,8 +31,10 @@ final class RowContentCache {
         reference = formatter.reference(now: now)
     }
 
-    /// `environment` is the caller's `QuireEnvironment.cacheKey(for:)` plus anything else its strings depend on.
-    func content(for summary: ConversationSummary, context: ConversationRowText.Context, environment: String) -> ConversationRowContent {
+    /// `environment` is the caller's `QuireEnvironment.cacheKey(for:)` plus anything else its strings depend on; it
+    /// carries the Text size the strings are set at (`textSize`), so a size never returns another size's row.
+    func content(for summary: ConversationSummary, context: ConversationRowText.Context, environment: String,
+                 textSize: QuireFont.TextSize = .default) -> ConversationRowContent {
         let key = NSNumber(value: ConversationRowText.cacheKey(for: summary, dayStamp: reference.dayStamp, context: context,
                                                                environment: environment))
         if let cached = cache.object(forKey: key) { return cached }
@@ -41,7 +43,7 @@ final class RowContentCache {
         var context = context
         fillPeople(of: summary, into: &context)
         let text = ConversationRowText(summary: summary, reference: reference, formatter: formatter, context: context)
-        let content = ConversationRowContent(text: text)
+        let content = ConversationRowContent(text: text, textSize: textSize)
         cache.setObject(content, forKey: key)
         buildCount += 1
         return content

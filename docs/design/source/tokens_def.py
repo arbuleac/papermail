@@ -330,6 +330,12 @@ GRAPHITE = {
  "knob": ("paper", "Toggle knob face, so it stays distinct from the `ink` on track in dark appearances"),
 }
 
+# Settings > General > Text size (§4.15, roadmap Q2.6): the popup's names and the step in points each adds to every role where
+# mail is read and written (never below platform.minTextSize), and the row heights that follow, standard and compact
+# (one step per line of the row, plus one above it; compact rows one more below). build.py checks them against layout.
+TEXT_SIZE = {"names": ["Small", "Default", "Large", "Larger"], "deltas": [-1, 0, 1, 2],
+             "rowHeights": [64, 68, 72, 76], "rowCompactHeights": [44, 48, 52, 56]}
+
 # The search operators' line under the cheat sheet's bands (§5.32, §5.6): its title, then the terms in order, as typed.
 CHEAT_SHEET_SEARCH = ("Search", ["from:", "to:", "subject:", "is:unread", "is:read", "is:starred", "has:attachment",
                                  "before:", "after:", "in:sent", "in:trash", "\"phrase\"", "-word"])
@@ -350,5 +356,5 @@ CHEAT_SHEET = [
              ("⌘K", "Add link"), ("⌥⌘I", "Insert picture"), ("⇧⌘C ⇧⌘B", "Cc · Bcc field")]),
  ("View", [("⇧⌘I", "Load images"), ("⇧⌘O", "Original colors"), (".", "Show · hide quoted text"), ("⌥⌘F", "Find in conversation"),
            ("⌘G ⇧⌘G", "Next · previous match"), ("⌘P", "Print the conversation"), ("⌥⌘C", "Compact rows"), ("⌃⌘S", "Show · hide the rail"),
-           ("⇧⌘N", "Check for new mail"), ("?", "This sheet")]),
+           ("⇧⌘N", "Check for new mail"), ("⌘+ ⌘−", "Reader text bigger · smaller"), ("?", "This sheet")]),
 ]

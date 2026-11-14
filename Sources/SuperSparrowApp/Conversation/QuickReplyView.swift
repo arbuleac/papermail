@@ -101,7 +101,7 @@ final class QuickReplyView: NSView {
     }
 
     private(set) var isFocused = false
-    private(set) var barHeight: CGFloat = Quire.Layout.QuickReply.rest
+    private(set) var barHeight: CGFloat = QuickReplyView.restBarHeight(at: QuireEnvironment.textSize)
     var stripState: QuickReplyStripView.State? { strip.state }
 
     private let scrollView = NSScrollView()
@@ -128,7 +128,17 @@ final class QuickReplyView: NSView {
     private var stripTimer: Timer?
     private var statusTicker: Timer?
 
-    private static let lineHeight = QuireFont.Role.writing.lineHeight
+    /// Text size (spec §4.15): the text is `writing` at it, and the field gains its step per line, so the bar at rest
+    /// is 60 pt at Default and one point more or less per step.
+    private var textSize = QuireEnvironment.textSize
+    private var lineHeight: CGFloat { QuireFont.Role.writing.lineHeight(at: textSize) }
+    private var lineStep: CGFloat { QuireFont.Role.writing.step(at: textSize) }
+    /// The field at rest: one line between its pads.
+    private var restField: CGFloat { Quire.Layout.QuickReply.field + lineStep }
+
+    private static func restBarHeight(at textSize: QuireFont.TextSize) -> CGFloat {
+        Quire.Layout.QuickReply.rest + QuireFont.Role.writing.step(at: textSize)
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -175,11 +185,9 @@ final class QuickReplyView: NSView {
         textView.textContainer?.lineFragmentPadding = 0
         textView.textContainerInset = .zero
         if let layoutManager = textView.layoutManager { QuireFont.configure(layoutManager) }
-        let writing = QuireFont.attributes(.writing, color: .qInk)
-        textView.font = writing[.font] as? NSFont
+        textView.textStorage?.delegate = self
+        applyWritingStyle()
         textView.textColor = .qInk
-        textView.typingAttributes = writing
-        textView.defaultParagraphStyle = writing[.paragraphStyle] as? NSParagraphStyle
         textView.insertionPointColor = .qAccent
         textView.isRichText = false
         textView.allowsUndo = true
@@ -259,7 +267,7 @@ final class QuickReplyView: NSView {
         strip.onDismiss = { [weak self] in self?.stripDismissed() }
         addSubview(strip)
 
-        heightConstraint = heightAnchor.constraint(equalToConstant: Quire.Layout.QuickReply.rest)
+        heightConstraint = heightAnchor.constraint(equalToConstant: barHeight)
         heightConstraint.isActive = true
         NotificationCenter.default.addObserver(self, selector: #selector(environmentDidChange(_:)),
                                                name: QuireEnvironment.didChangeNotification, object: nil)
@@ -267,8 +275,14 @@ final class QuickReplyView: NSView {
         statusDidChange()
     }
 
-    /// Graphite and Increase Contrast change token values (the ring, the edges) without changing the appearance.
+    /// Graphite and Increase Contrast change token values (the ring, the edges) without changing the appearance; a
+    /// Text size sets the text again, typed text included, and the bar takes its new height.
     @objc private func environmentDidChange(_ note: Notification) {
+        if QuireEnvironment.textSize != textSize {
+            textSize = QuireEnvironment.textSize
+            applyWritingStyle()
+            updateHeight(animated: false)
+        }
         updatePlaceholder()
         statusDidChange()
         needsDisplay = true
@@ -381,27 +395,51 @@ final class QuickReplyView: NSView {
         guard let layoutManager = textView.layoutManager, let container = textView.textContainer else { return 1 }
         layoutManager.ensureLayout(for: container)
         let used = layoutManager.usedRect(for: container).height
-        let lines = Int(ceil(max(used, Self.lineHeight) / Self.lineHeight - 0.01))
+        let lines = Int(ceil(max(used, lineHeight) / lineHeight - 0.01))
         return max(1, min(Int(Quire.Layout.QuickReply.maxLines), lines))
     }
 
     /// Field height: 9 + lines × 21 + 8 at rest (one line), 9 + lines × 21 + 4 + 28 + 4 focused (spec §5.18).
     private var fieldHeight: CGFloat {
         let m = Quire.Layout.QuickReply.self
-        guard isFocused, !isComposerOpen else { return m.field }
-        return min(m.fieldMax, m.fieldPadTop + CGFloat(lineCount) * Self.lineHeight + m.toolRowGap + m.toolRow + m.toolRowBottom)
+        guard isFocused, !isComposerOpen else { return restField }
+        return min(m.fieldMax + m.maxLines * lineStep, m.fieldPadTop + CGFloat(lineCount) * lineHeight + m.toolRowGap + m.toolRow + m.toolRowBottom)
     }
 
     private var fieldRect: NSRect {
         let column = ReaderColumn.frame(readerWidth: bounds.width)
         let m = Quire.Layout.QuickReply.self
-        return NSRect(x: column.x, y: m.barPadY, width: column.width, height: max(m.field, bounds.height - 2 * m.barPadY))
+        return NSRect(x: column.x, y: m.barPadY, width: column.width, height: max(restField, bounds.height - 2 * m.barPadY))
     }
 
     private var showsToolRow: Bool { isFocused && !isComposerOpen && strip.isHidden }
 
+    /// Where the face, the R keycap and the Send circle sit in `field`. All three are centred on the field at rest, so
+    /// they stay in line with each other and with its one line at every Text size (spec §4.15): at Default the face's
+    /// top is `faceTop` and the circle's inset `restSendInset` from the top (spec §5.18), and the field's step moves
+    /// each by half of it. On the device grid, so a half-point step never blurs them.
+    func restMarks(in field: NSRect) -> (face: NSRect, keycap: NSRect, send: NSRect) {
+        let m = Quire.Layout.QuickReply.self
+        let middle = field.minY + restField / 2
+        let scale = window?.backingScaleFactor ?? 2
+        func onGrid(_ y: CGFloat) -> CGFloat { (y * scale).rounded() / scale }
+        let face = NSRect(x: field.minX + m.faceX, y: onGrid(field.minY + m.faceTop + lineStep / 2), width: m.face, height: m.face)
+        let send = NSRect(x: field.maxX - m.restSendInset - m.restSend, y: onGrid(middle - m.restSend / 2), width: m.restSend, height: m.restSend)
+        let cap = restKeycap.intrinsicContentSize
+        let keycap = NSRect(x: send.minX - m.restKeycapGap - cap.width, y: onGrid(middle - cap.height / 2), width: cap.width, height: cap.height)
+        return (face, keycap, send)
+    }
+
+    /// The field and the marks at rest as laid out now (tests read them).
+    var restGeometry: (field: NSRect, face: NSRect, keycap: NSRect, send: NSRect) {
+        let field = fieldRect
+        let marks = restMarks(in: field)
+        return (field, marks.face, marks.keycap, marks.send)
+    }
+
     private func updateHeight(animated: Bool) {
-        let target = min(Quire.Layout.QuickReply.max, fieldHeight + 2 * Quire.Layout.QuickReply.barPadY)
+        let m = Quire.Layout.QuickReply.self
+        let target = min(m.max + m.maxLines * lineStep, fieldHeight + 2 * m.barPadY)
         guard abs(heightConstraint.constant - target) > 0.5 else {
             needsLayout = true
             return
@@ -429,11 +467,11 @@ final class QuickReplyView: NSView {
         let trailing = toolRow ? m.focusedTrailing : m.restTrailing
         let textWidth = max(0, field.width - m.textX - trailing)
         let lines = isFocused ? lineCount : 1
-        scrollView.frame = NSRect(x: field.minX + m.textX, y: field.minY + m.fieldPadTop, width: textWidth, height: CGFloat(lines) * Self.lineHeight)
+        scrollView.frame = NSRect(x: field.minX + m.textX, y: field.minY + m.fieldPadTop, width: textWidth, height: CGFloat(lines) * lineHeight)
         textView.frame.size.width = scrollView.contentSize.width
         scrollView.hasVerticalScroller = isFocused && lineCount >= Int(m.maxLines)
         let placeholderHeight = ReaderFonts.fieldHeight(placeholder)
-        placeholder.frame = NSRect(x: field.minX + m.textX - 2, y: (field.minY + m.fieldPadTop + (Self.lineHeight - placeholderHeight) / 2).rounded(),
+        placeholder.frame = NSRect(x: field.minX + m.textX - 2, y: (field.minY + m.fieldPadTop + (lineHeight - placeholderHeight) / 2).rounded(),
                                    width: textWidth + 4, height: placeholderHeight)
         // Unfocused with text, the field shows its first line tail-truncated so the reader does not jump.
         let showsPreview = !isFocused && !text.isEmpty && strip.isHidden
@@ -444,13 +482,11 @@ final class QuickReplyView: NSView {
         restSend.isHidden = !restVisible
         restKeycap.isHidden = !restVisible || !keycaps
         restSend.isEnabled = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && status != .noRecipients
-        let sendRect = NSRect(x: field.maxX - m.restSendInset - m.restSend, y: field.minY + m.restSendInset, width: m.restSend, height: m.restSend)
-        restSend.frame = restSend.frame(forVisualRect: sendRect)
-        let cap = restKeycap.intrinsicContentSize
-        restKeycap.frame = NSRect(x: sendRect.minX - m.restKeycapGap - cap.width, y: (field.minY + m.field / 2 - cap.height / 2).rounded(),
-                                  width: cap.width, height: cap.height)
+        let marks = restMarks(in: field)
+        restSend.frame = restSend.frame(forVisualRect: marks.send)
+        restKeycap.frame = marks.keycap
 
-        let rowY = field.minY + m.fieldPadTop + CGFloat(lines) * Self.lineHeight + m.toolRowGap
+        let rowY = field.minY + m.fieldPadTop + CGFloat(lines) * lineHeight + m.toolRowGap
         let showsStatus = status != .none
         tabs.isHidden = !toolRow || showsStatus
         attach.isHidden = !toolRow || showsStatus
@@ -537,7 +573,7 @@ final class QuickReplyView: NSView {
             QuireFocusRing.draw(around: field, cornerRadius: radius, gap: QuireFocusRing.gap, gapColor: .qPaper)
         }
         if let face, strip.isHidden {
-            let rect = NSRect(x: field.minX + m.faceX, y: field.minY + m.faceTop, width: m.face, height: m.face)
+            let rect = restMarks(in: field).face
             QuireAvatarRenderer.drawAccountFace(monogram: face.monogram, slot: face.inkSlot, in: rect)
             QuireAvatarRenderer.drawRing(around: rect, accountSlot: face.inkSlot)
         }
@@ -694,6 +730,20 @@ final class QuickReplyView: NSView {
         if let onEscape { onEscape() } else { blur() }
     }
 
+    /// `writing` at the Text size, for what is typed from now on and for what is there already: the field is plain
+    /// text, so one font and one paragraph style cover it all. Not an edit: the undo stack keeps text at the size it
+    /// was typed at, and the storage's delegate sets what an undo brings back at the size then.
+    private func applyWritingStyle() {
+        let writing = QuireFont.attributes(.writing, color: .qInk, textSize: textSize)
+        textView.font = writing[.font] as? NSFont
+        textView.typingAttributes = writing
+        textView.defaultParagraphStyle = writing[.paragraphStyle] as? NSParagraphStyle
+        if let storage = textView.textStorage { WritingTextSize.apply(textSize, to: storage) }
+    }
+
+    /// The writing font in use now (tests read it).
+    var writingFont: NSFont? { textView.font }
+
     private func focusDidChange(_ focused: Bool) {
         isFocused = focused
         updateHeight(animated: true)
@@ -707,7 +757,8 @@ final class QuickReplyView: NSView {
             words = "Reply in the composer"
         } else if !isFocused, !text.isEmpty {
             let first = text.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: true).first.map(String.init) ?? text
-            placeholder.attributedStringValue = ReaderFonts.fieldString(QuireFont.attributedString(first, role: .writing, color: .qInk))
+            placeholder.attributedStringValue = ReaderFonts.fieldString(QuireFont.attributedString(first, role: .writing, color: .qInk,
+                                                                                                   textSize: textSize))
             return
         } else if mode == .replyAll {
             words = replyAllName.isEmpty ? "Reply all…" : "Reply all to \(replyAllName)…"
@@ -715,7 +766,8 @@ final class QuickReplyView: NSView {
             words = replyName.isEmpty ? "Reply…" : "Reply to \(replyName)…"
         }
         textView.setAccessibilityPlaceholderValue(words)
-        placeholder.attributedStringValue = ReaderFonts.fieldString(QuireFont.attributedString(words, role: .writing, color: .qInk3))
+        placeholder.attributedStringValue = ReaderFonts.fieldString(QuireFont.attributedString(words, role: .writing, color: .qInk3,
+                                                                                               textSize: textSize))
     }
 
     private func statusDidChange() {
@@ -775,6 +827,18 @@ extension QuickReplyView: NSTextViewDelegate {
         placeholder.isHidden = !text.isEmpty && isFocused
         updateHeight(animated: false)
         needsLayout = true
+    }
+}
+
+extension QuickReplyView: NSTextStorageDelegate {
+    /// Every edit, an undo or a redo included, leaves what it touched at the field's Text size (spec §4.15): an undo
+    /// of an edit made before a switch would otherwise bring its text back at the old size and on the old line.
+    nonisolated func textStorage(_ textStorage: NSTextStorage, didProcessEditing editedMask: NSTextStorageEditActions,
+                                 range editedRange: NSRange, changeInLength delta: Int) {
+        guard Thread.isMainThread else { return }
+        MainActor.assumeIsolated {
+            _ = WritingTextSize.apply(textSize, to: textStorage, in: editedRange)
+        }
     }
 }
 

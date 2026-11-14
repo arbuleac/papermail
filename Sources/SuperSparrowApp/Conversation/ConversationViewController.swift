@@ -160,10 +160,14 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         SendAction.undoMenuTitle(archived: quickSend?.archive?.isArchived ?? false)
     }
 
+    /// Where the reader's own Text size comes from (spec §4.15): the app's settings, or a test's throwaway ones.
+    private let appSettings: AppSettings
+
     /// `poolSize` 1 is a reader window's (§5.49): it shows one conversation and pre-renders nothing. A pool of its own
     /// rather than a slot of the main window's, which that reader hands to whatever neighbour it pre-renders next.
     /// `drafts` is the mailbox's quick-reply text, which every reader of it shares; a reader alone keeps its own.
-    init(client: MailClient, poolSize: Int = 3, drafts: QuickReplyDraftShelf? = nil) {
+    init(client: MailClient, poolSize: Int = 3, drafts: QuickReplyDraftShelf? = nil, settings: AppSettings? = nil) {
+        appSettings = settings ?? AppSettings.shared
         self.client = client
         self.draftShelf = drafts ?? QuickReplyDraftShelf()
         self.pool = WebViewPool(client: client, size: poolSize)
@@ -171,7 +175,9 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         var accounts: [AccountID: Account] = [:]
         for account in (try? client.accounts()) ?? [] { accounts[account.id] = account }
         self.accountsByID = accounts
+        broadcastTextSize = appSettings.readerSize
         super.init(nibName: nil, bundle: nil)
+        header.textSize = appSettings.readerSize
         pool.onMessage = { [weak self] slot, message in self?.handle(message, from: slot) }
         pool.onViewRecreated = { [weak self] slot in self?.slotWasRecreated(slot) }
         let center = NotificationCenter.default
@@ -182,9 +188,13 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         notificationTokens.append(center.addObserver(forName: AppSettings.displayPreferencesChanged, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.displayPreferencesDidChange() }
         })
-        // The Font setting lives in the Quire environment: every shell, the pre-rendered ones too, is told in place.
+        // The Font setting and Text size live in the Quire environment: every shell, the pre-rendered ones too, is
+        // told in place. The reader's own size (⌘+, ⌘−) is the settings'.
         notificationTokens.append(center.addObserver(forName: QuireEnvironment.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.typefaceMayHaveChanged() }
+            MainActor.assumeIsolated { self?.readerTypeMayHaveChanged() }
+        })
+        notificationTokens.append(center.addObserver(forName: AppSettings.readerTextSizeChanged, object: appSettings, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.readerTypeMayHaveChanged() }
         })
         // A drop-down here or in any composer changes what the quick reply's Send does (§5.23).
         notificationTokens.append(center.addObserver(forName: SendActionPreference.didChange, object: nil, queue: .main) { [weak self] _ in
@@ -769,6 +779,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         let payload = builder.build(
             messages: all, bodies: bodies, accounts: accountsByID, bodyStates: states,
             loadRemoteImages: Self.loadRemoteImages, readingSans: QuireEnvironment.typeface == .sfPro,
+            textSize: appSettings.readerSize.rawValue,
             colorsNoticeDismissed: settings.originalColorsNoticeDismissed, pending: Set(sheets.map(\.metadata.id)),
             invitationPermissionNeeded: invitationPermissionNeeded, sendLater: laterStates
         )
@@ -987,24 +998,53 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         broadcastPreferences()
     }
 
-    /// The typeface last told to the shells. Graphite and contrast changes post the same notification; they
-    /// reach the shells through the pool's modes, so only a typeface change is broadcast here.
+    /// The typeface and reader Text size last told to the shells. Graphite and contrast changes post the same
+    /// notification; they reach the shells through the pool's modes, so only these are broadcast here.
     private var broadcastTypeface = QuireEnvironment.typeface
+    /// Every payload carries the reader's size, so the shells start at the one the reader has when it is built.
+    private var broadcastTextSize: QuireFont.TextSize
 
-    private func typefaceMayHaveChanged() {
-        guard QuireEnvironment.typeface != broadcastTypeface else { return }
+    /// A Text size change's progress through the shells (tests read it; the `conversation.textSize` interval spans it).
+    enum TextSizeEvent: Equatable {
+        /// Told to every ready shell.
+        case began(QuireFont.TextSize)
+        /// Every shell told has measured its bodies again at it (the follow-up pass 50 ms later aside).
+        case measured(QuireFont.TextSize)
+    }
+
+    /// For tests: every Text size broadcast and its end. Nil in the app.
+    var onTextSizeEvent: ((TextSizeEvent) -> Void)?
+
+    private func readerTypeMayHaveChanged() {
+        header.textSize = appSettings.readerSize
+        guard QuireEnvironment.typeface != broadcastTypeface || appSettings.readerSize != broadcastTextSize else { return }
         broadcastPreferences()
     }
 
     /// `readingSans` is the Font setting (spec §4.4): the shell sets plain and unstyled bodies in `readingSans`
-    /// and toggles `html.ss-sf`, which puts the avatar initials in `monogramSans`.
+    /// and toggles `html.ss-sf`, which puts the avatar initials in `monogramSans`. `textSize` is the reader's own
+    /// size (spec §4.15): the shell's `html.ss-text-*` class, which measures every body again.
     private func broadcastPreferences() {
         let settings = AppSettings.shared
+        let size = appSettings.readerSize
+        let sizeChanged = size != broadcastTextSize
         broadcastTypeface = QuireEnvironment.typeface
+        broadcastTextSize = size
         let sans = broadcastTypeface == .sfPro
-        pool.broadcastPreferences(
-            "window.ss && window.ss.preferences({readingSans: \(sans), colorsNoticeDismissed: \(settings.originalColorsNoticeDismissed)})"
-        )
+        let script = "window.ss && window.ss.preferences({readingSans: \(sans), textSize: '\(size.rawValue)', "
+            + "colorsNoticeDismissed: \(settings.originalColorsNoticeDismissed)})"
+        guard sizeChanged else {
+            pool.broadcastPreferences(script)
+            return
+        }
+        // A new size measures every body of every ready shell again inside the script itself, so the interval (the
+        // Text size budget in docs/ARCHITECTURE.md) ends once the last shell has run it.
+        let interval = ConversationSignposts.begin(ConversationSignposts.textSize)
+        onTextSizeEvent?(.began(size))
+        pool.broadcastPreferences(script) { [weak self] in
+            ConversationSignposts.end(ConversationSignposts.textSize, interval)
+            self?.onTextSizeEvent?(.measured(size))
+        }
     }
 
     /// Wide HTML is refitted once a live resize ends, never per frame (spec §5.14).

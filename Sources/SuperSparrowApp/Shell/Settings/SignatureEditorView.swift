@@ -44,9 +44,11 @@ final class SignatureEditorView: NSView, NSTextViewDelegate {
     private func configure() {
         // The field's padding is the container's (8 pt at the sides); the first line sits where a one-line field's
         // text would, (24 - 21) / 2 pt from the top (`settings.fieldHeight`, `writing`).
+        // Settings stays at Default whatever Text size says (spec §4.15): the field is sized for three Default lines.
+        textView.followsTextSize = false
         textView.leadingInset = 0
         textView.trailingInset = 0
-        textView.topInset = (Quire.Layout.Settings.fieldHeight - ComposeTextView.bodyRole.lineHeight) / 2
+        textView.topInset = (Quire.Layout.Settings.fieldHeight - textView.lineHeight) / 2
         textView.allowsBlockFormatting = false
         textView.allowsImages = false
         textView.delegate = self

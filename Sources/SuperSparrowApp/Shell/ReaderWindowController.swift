@@ -25,6 +25,8 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
     /// Where the toast of a step taken here shows: the reader's bottom centre, above the quick reply.
     let toastView = ToastView()
     private let undoCenter: MailUndoCenter
+    /// The main window's settings: the reader's own Text size (⌘+, ⌘−) is the app's, so every reader follows it (§4.15).
+    private let settings: AppSettings
     private weak var opener: MainWindowController?
     private var router: KeyboardRouter?
     private var hasClosed = false
@@ -32,13 +34,15 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
     var conversationID: ConversationID { place.conversation }
 
     /// `drafts` is the mailbox's quick-reply text, shared with the main window's reader: what is typed here outlives the
-    /// window, for the window an undo opens again or the main window showing the conversation.
+    /// window, for the window an undo opens again or the main window showing the conversation. `settings` are the main
+    /// window's, whose reader Text size this window's reader follows (spec §4.15).
     init(place: ReaderWindowPlace, client: MailClient, accountsByID: [AccountID: Account], drafts: QuickReplyDraftShelf,
-         undoCenter: MailUndoCenter, opener: MainWindowController) {
+         settings: AppSettings, undoCenter: MailUndoCenter, opener: MainWindowController) {
         self.place = place
         self.undoCenter = undoCenter
+        self.settings = settings
         self.opener = opener
-        conversation = ConversationViewController(client: client, poolSize: 1, drafts: drafts)
+        conversation = ConversationViewController(client: client, poolSize: 1, drafts: drafts, settings: settings)
         conversation.accountsByID = accountsByID
         conversation.mailboxView = place.view
         let size = Self.savedSize() ?? QuireWindowChrome.readerWindowDefaultSize
@@ -299,6 +303,10 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
     @objc func findInConversation(_ sender: Any?) { conversation.findInConversation(sender) }
     @objc func findNextMatch(_ sender: Any?) { conversation.findNextMatch(sender) }
     @objc func findPreviousMatch(_ sender: Any?) { conversation.findPreviousMatch(sender) }
+    /// View › Make Text Bigger and Make Text Smaller (⌘+, ⌘−): the reader's own size, the app's, so this window, the main
+    /// window's reader and every other reader window step together (spec §4.15).
+    @objc func makeReaderTextBigger(_ sender: Any?) { settings.stepReaderTextSize(larger: true) }
+    @objc func makeReaderTextSmaller(_ sender: Any?) { settings.stepReaderTextSize(larger: false) }
 
     /// Always Archive Mail from This Sender and Block Sender from this window's menus: the sender of its target message, or
     /// of its newest mail from someone else, as in the main window (spec, Sender rules (Q4.2)).
@@ -336,6 +344,10 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
             return !typing && !isInTrash
         case #selector(markSelectionSpam(_:)):
             return !typing && marksSpam
+        case #selector(makeReaderTextBigger(_:)):
+            return settings.readerSize.larger != nil
+        case #selector(makeReaderTextSmaller(_:)):
+            return settings.readerSize.smaller != nil
         case #selector(toggleMuteSelection(_:)):
             menuItem.title = MailActionCopy.muteCommand(muting: !(opener?.isMuted(conversationID) ?? false))
             return !typing && showsMessages

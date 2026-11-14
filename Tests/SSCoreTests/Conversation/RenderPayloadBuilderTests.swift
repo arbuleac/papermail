@@ -134,9 +134,11 @@ final class RenderPayloadBuilderTests: XCTestCase {
 
     func testPreferencesTravelInThePayload() {
         let payload = builder.build(messages: [F.message("m1")], bodies: [:], accounts: F.accounts,
-                                    readingSans: true, colorsNoticeDismissed: true, now: now)
+                                    readingSans: true, textSize: "larger", colorsNoticeDismissed: true, now: now)
         XCTAssertTrue(payload.readingSans)
+        XCTAssertEqual(payload.textSize, "larger", "the reader's Text size, by name (spec §4.15)")
         XCTAssertTrue(payload.colorsNoticeDismissed)
+        XCTAssertEqual(builder.build(messages: [F.message("m1")], bodies: [:], accounts: F.accounts, now: now).textSize, "default")
     }
 
     func testAttachmentTypesUseOnlyReaderSymbols() {

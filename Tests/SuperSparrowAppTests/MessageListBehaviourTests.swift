@@ -269,7 +269,7 @@ final class MessageListBehaviourTests: XCTestCase {
         XCTAssertEqual(list.tableView.rect(ofRow: 0).height, Quire.Layout.RunningHead.compactHeight)
         XCTAssertEqual(list.selectedConversationID, selected, "the selection survives the switch")
         let rowView = list.tableView.rowView(atRow: firstConversationRow, makeIfNecessary: false) as? ConversationRowView
-        XCTAssertEqual(rowView?.density, .compact)
+        XCTAssertEqual(rowView?.metrics, .compact(.default))
     }
 
     func testSelectionNeverRebuildsARow() throws {

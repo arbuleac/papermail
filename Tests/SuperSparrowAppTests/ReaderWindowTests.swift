@@ -347,6 +347,28 @@ final class ReaderWindowTests: XCTestCase {
         harness.close()
     }
 
+    /// ⌘+ and ⌘− reach a reader window: the reader's own size is the app's, so the window's reader and the main window's
+    /// step together (spec §4.15), and the menu items read its limits there too.
+    func testTextSizeStepsFromAWindowAndEveryReaderFollows() throws {
+        let harness = try MainWindowHarness()
+        let (_, reader) = try open(0, harness)
+        let start = harness.settings.readerSize
+        let bigger = menuItem(#selector(ReaderWindowController.makeReaderTextBigger(_:)))
+        let smaller = menuItem(#selector(ReaderWindowController.makeReaderTextSmaller(_:)))
+        XCTAssertEqual(reader.validateMenuItem(bigger), start.larger != nil)
+        reader.makeReaderTextBigger(bigger)
+        let stepped = try XCTUnwrap(start.larger)
+        XCTAssertEqual(harness.settings.readerSize, stepped)
+        harness.spin { reader.conversation.header.textSize == stepped && harness.reader.header.textSize == stepped }
+        XCTAssertEqual(reader.conversation.header.textSize, stepped, "the window's reader")
+        XCTAssertEqual(harness.reader.header.textSize, stepped, "and the main window's")
+        XCTAssertTrue(reader.validateMenuItem(smaller))
+        reader.makeReaderTextSmaller(smaller)
+        harness.spin { reader.conversation.header.textSize == start }
+        XCTAssertEqual(harness.settings.readerSize, start)
+        harness.close()
+    }
+
     // MARK: Steps that keep the window
 
     func testMoveToInboxKeepsTheWindowWithItsToastAndUndoInIt() throws {

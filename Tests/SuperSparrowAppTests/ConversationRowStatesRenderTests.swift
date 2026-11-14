@@ -252,9 +252,9 @@ final class ConversationRowStatesRenderTests: XCTestCase {
     }
 
     private func makeRow(_ spec: RowSpec, nextSelected: Bool) -> NSView {
-        let height = spec.density == .compact ? Quire.Layout.RowCompact.height : Quire.Layout.Row.height
-        let row = ConversationRowView(frame: NSRect(x: 0, y: 0, width: width, height: height))
-        row.density = spec.density
+        let metrics = QuireRowMetrics(textSize: .default, compact: spec.density == .compact)
+        let row = ConversationRowView(frame: NSRect(x: 0, y: 0, width: width, height: metrics.height))
+        row.metrics = metrics
         row.isSelected = spec.selected
         row.isNextRowSelected = nextSelected
         row.windowKeyOverride = spec.key
@@ -272,7 +272,7 @@ final class ConversationRowStatesRenderTests: XCTestCase {
         let initial = ["C", "G", "F"][spec.slot % 3]
         cell.configure(with: ConversationRowContent(text: text),
                        mark: ConversationCellView.AccountMark(inkSlot: spec.slot, initial: initial, isUnified: spec.unified, showsInitial: spec.initials),
-                       density: spec.density)
+                       metrics: metrics)
         row.addSubview(cell)
         return row
     }

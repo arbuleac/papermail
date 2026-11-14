@@ -68,7 +68,7 @@ public enum ConversationShellAssets {
         ".ss-sym-" + name.replacingOccurrences(of: ".", with: "-") + "{--sym:var(" + symbolVariable(name) + ")}"
     }.joined(separator: "\n")
 
-    public static let css: String = QuireCSS.head + "\n" + shellCSS + "\n" + symbolClasses
+    public static let css: String = QuireCSS.head + "\n" + QuireCSS.textSizes + "\n" + shellCSS + "\n" + symbolClasses
 
     /// The shell's own rules (spec §5.13–5.19, §8.4). Every colour, font, radius and duration is a Quire
     /// variable; the old `--ss-*` names stay defined, mapped onto Quire, for anything that still reads them.
@@ -174,12 +174,13 @@ public enum ConversationShellAssets {
     .ss-tint-6 { --ss-face: var(--q-av-rose-face); --ss-avink: var(--q-av-rose-ink); }
     .ss-tint-7 { --ss-face: var(--q-av-stone-face); --ss-avink: var(--q-av-stone-ink); }
 
-    /* The open sheet (spec §5.14): padding 22 28 14 (16 at the sides below 560 pt). */
+    /* The open sheet (spec §5.14): padding 22 28 14 (16 at the sides below 560 pt). The header's boxes are sized for
+       Default's lines and grow with their role's step at the reader's Text size (`--q-step-*`, spec §4.15). */
     .ss-inner { padding: 22px var(--ss-pad-x) 14px; }
     .ss-head { display: flex; gap: 12px; align-items: flex-start; }
     .ss-who { flex: 1; min-width: 0; }
     .ss-nl {
-      display: flex; align-items: center; min-width: 0; height: 18px; white-space: nowrap;
+      display: flex; align-items: center; min-width: 0; height: calc(18px + var(--q-step-bodyStrong, 0px)); white-space: nowrap;
       font: var(--q-font-bodyStrong); color: var(--q-ink);
     }
     .ss-name { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
@@ -198,7 +199,7 @@ public enum ConversationShellAssets {
        line's text; it never shrinks, the name truncates first. */
     .ss-unsub {
       flex: none; margin-left: 6px; padding: 0; border: 0; background: none; border-radius: 3px;
-      font: var(--q-font-snippet); line-height: 16px; color: var(--q-ink2);
+      font: var(--q-font-snippet); line-height: calc(16px + var(--q-step-snippet, 0px)); color: var(--q-ink2);
       text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px;
     }
     .ss-unsub:hover, .ss-unsub:active { color: var(--q-ink); }
@@ -208,7 +209,7 @@ public enum ConversationShellAssets {
     .ss-unsub + .ss-addr { flex-shrink: 1000; }
     .ss-rc {
       display: block; max-width: 100%; padding: 0; border: 0; background: none; border-radius: 3px; text-align: start;
-      font: var(--q-font-snippet); line-height: 16px; color: var(--q-ink2);
+      font: var(--q-font-snippet); line-height: calc(16px + var(--q-step-snippet, 0px)); color: var(--q-ink2);
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
     .ss-rc:focus-visible, .ss-rcx:focus-visible { box-shadow: 0 0 0 1px var(--q-sheet), 0 0 0 calc(1px + var(--ss-ring)) var(--q-focus); }
@@ -220,8 +221,8 @@ public enum ConversationShellAssets {
     .ss-person .ss-pad { color: var(--q-ink3); }
     .ss-more { padding: 0; border: 0; background: none; font: var(--q-font-snippet); color: var(--q-ink2); text-decoration: underline; text-underline-offset: 2px; }
     .ss-meta {
-      flex: none; display: flex; align-items: center; height: 18px;
-      font: var(--q-font-snippet); line-height: 18px; font-variant-numeric: tabular-nums; color: var(--q-ink3);
+      flex: none; display: flex; align-items: center; height: calc(18px + var(--q-step-snippet, 0px));
+      font: var(--q-font-snippet); line-height: calc(18px + var(--q-step-snippet, 0px)); font-variant-numeric: tabular-nums; color: var(--q-ink3);
     }
     .ss-hacts { display: flex; gap: 2px; margin: -3px 8px -3px 0; }
     .ss-hacts:empty { display: none; }
@@ -271,7 +272,7 @@ public enum ConversationShellAssets {
     .ss-banner {
       display: flex; align-items: center; gap: 8px; min-height: 32px; margin-bottom: 12px; padding: 0 6px 0 10px;
       border-radius: var(--q-r-md); background: var(--q-fill); color: var(--q-ink);
-      font: var(--q-font-snippet); line-height: 16px;
+      font: var(--q-font-snippet); line-height: calc(16px + var(--q-step-snippet, 0px));
     }
     .ss-frame .ss-banner { margin: 0; }
     .ss-banner > .ss-sym { font-size: 14px; color: var(--q-ink2); }
@@ -352,7 +353,7 @@ public enum ConversationShellAssets {
     .ss-irep { margin-top: 2px; font: var(--q-font-snippet); letter-spacing: var(--q-track-snippet); color: var(--q-ink2); }
     .ss-idet {
       margin: 8px 0 0; display: grid; grid-template-columns: 72px minmax(0, 1fr); row-gap: 2px;
-      font: var(--q-font-snippet); letter-spacing: var(--q-track-snippet); line-height: 16px;
+      font: var(--q-font-snippet); letter-spacing: var(--q-track-snippet); line-height: calc(16px + var(--q-step-snippet, 0px));
     }
     .ss-idet dt { color: var(--q-ink3); }
     .ss-idet dd { margin: 0; color: var(--q-ink2); overflow-wrap: anywhere; }
@@ -499,7 +500,7 @@ public enum ConversationShellAssets {
     @media (max-width: 615px) { .ss-foot .ss-kbd { display: none !important; } }
 
     /* Drafts (spec §5.19). */
-    .ss-dhead { display: flex; align-items: baseline; gap: 12px; font: var(--q-font-snippet); line-height: 16px; }
+    .ss-dhead { display: flex; align-items: baseline; gap: 12px; font: var(--q-font-snippet); line-height: calc(16px + var(--q-step-snippet, 0px)); }
     .ss-dto { flex: 1; min-width: 0; color: var(--q-ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .ss-ddate { flex: none; color: var(--q-ink3); font-variant-numeric: tabular-nums; }
     /* A Send Later message's “Sends Mon 09:00 · Cancel” (spec §5.19): Cancel is a link like Unsubscribe's, after a
@@ -522,8 +523,8 @@ public enum ConversationShellAssets {
     html.ss-rm .ss-contrail { transition-timing-function: steps(var(--q-countdown-steps)); }
     """#
 
-    /// The variables a body document needs, cut from `QuireCSS.head` block by block, so `html.ss-ic` and
-    /// `html.ss-graphite` switch them inside the frame exactly as they do in the shell.
+    /// The variables a body document needs, cut from `QuireCSS.head` and `QuireCSS.textSizes` block by block, so
+    /// `html.ss-ic`, `html.ss-graphite` and `html.ss-text-*` switch them inside the frame exactly as in the shell.
     static let bodyVariables: String = {
         let keep: Set<String> = [
             "--q-ink", "--q-ink2", "--q-ink3", "--q-accent", "--q-rule", "--q-focus", "--q-sheet", "--q-fill",
@@ -531,7 +532,7 @@ public enum ConversationShellAssets {
             "--q-track-reading", "--q-track-readingSans", "--q-track-writing", "--q-r-xs",
             "--q-findWash", "--q-findCurrent", "--q-ruleStrong",
         ]
-        return QuireCSS.head.components(separatedBy: "\n").compactMap { line -> String? in
+        return (QuireCSS.head + "\n" + QuireCSS.textSizes).components(separatedBy: "\n").compactMap { line -> String? in
             guard let first = line.range(of: "--") else { return nil }
             let prefix = String(line[..<first.lowerBound])
             var suffix = ""
@@ -621,7 +622,7 @@ public enum ConversationShellAssets {
       var state = { payload: null, cards: [], byID: {}, target: null, focusEl: null, folds: [] };
       // The "Load remote images" preference of the payload being rendered.
       var loadRemote = false;
-      var prefs = { readingSans: false, noticeDismissed: false };
+      var prefs = { readingSans: false, noticeDismissed: false, textSize: 'default' };
       // Session memory that outlives a render: measured body heights per message and width, the messages
       // shown in Original colors, and the recipient blocks the user opened (spec §4.10, §5.14).
       var heights = {};
@@ -748,6 +749,8 @@ public enum ConversationShellAssets {
         var shell = document.documentElement.classList;
         if (shell.contains('ss-ic')) { classes.push('ss-ic'); }
         if (shell.contains('ss-graphite')) { classes.push('ss-graphite'); }
+        var size = textSizeClass();
+        if (size) { classes.push(size); }
         if (adapts(card)) { classes.push('ss-adapt'); }
         if (showsInset(card)) { classes.push('ss-original'); }
         if (card.wide) { classes.push('ss-wide'); }
@@ -897,7 +900,7 @@ public enum ConversationShellAssets {
       }
 
       function heightKey(card) {
-        return card.message.id + ':' + Math.round(card.frameWrap.clientWidth);
+        return card.message.id + ':' + Math.round(card.frameWrap.clientWidth) + ':' + prefs.textSize;
       }
 
       function measure(card) {
@@ -2231,20 +2234,49 @@ public enum ConversationShellAssets {
         document.documentElement.classList.toggle('ss-sf', prefs.readingSans);
       }
 
+      // The reader's Text size (spec §4.15): an `html.ss-text-*` class redefines every type variable, on the shell
+      // and on each body document (htmlClasses), so sheets and plain and unstyled bodies follow it while styled
+      // HTML, which never reads the variables, keeps its own sizes. Default has no class.
+      var TEXT_SIZES = ['small', 'large', 'larger'];
+      function textSizeClass() {
+        return TEXT_SIZES.indexOf(prefs.textSize) >= 0 ? 'ss-text-' + prefs.textSize : '';
+      }
+      function applyTextSize() {
+        var shell = document.documentElement.classList;
+        for (var i = 0; i < TEXT_SIZES.length; i++) { shell.toggle('ss-text-' + TEXT_SIZES[i], prefs.textSize === TEXT_SIZES[i]); }
+      }
+
+      // Every sheet's height follows the size: bodies are measured again at once and once more after layout, and
+      // the open sheets refitted without animation.
+      function textSizeChanged() {
+        for (var i = 0; i < state.cards.length; i++) {
+          var card = state.cards[i];
+          if (card.iframe) {
+            fitWidth(card);
+            measure(card);
+            setTimeout(card.remeasure, 50);
+          }
+          if (card.expanded) { fit(card, false); }
+        }
+      }
+
       function setPreferences(p) {
         var sansChanged = !!p.readingSans !== prefs.readingSans;
         var noticeChanged = !!p.colorsNoticeDismissed !== prefs.noticeDismissed;
+        var size = typeof p.textSize === 'string' ? p.textSize : prefs.textSize;
+        var sizeChanged = size !== prefs.textSize;
         prefs.readingSans = !!p.readingSans;
         prefs.noticeDismissed = !!p.colorsNoticeDismissed;
+        prefs.textSize = size;
         applyTypeface();
+        applyTextSize();
         for (var i = 0; i < state.cards.length; i++) {
           var card = state.cards[i];
-          if (sansChanged) {
-            syncDocumentClasses(card);
-            if (!card.message.hasBody) { renderFrame(card); }
-          }
+          if (sansChanged || sizeChanged) { syncDocumentClasses(card); }
+          if (sansChanged && !card.message.hasBody) { renderFrame(card); }
           if (noticeChanged) { renderBanners(card); }
         }
+        if (sizeChanged) { textSizeChanged(); }
       }
 
       // The app mirrors Increase Contrast, Reduce Motion, Reduce Transparency and Graphite onto the shell and
@@ -2828,7 +2860,9 @@ public enum ConversationShellAssets {
         loadRemote = !!payload.loadRemoteImages;
         prefs.readingSans = !!payload.readingSans;
         prefs.noticeDismissed = !!payload.colorsNoticeDismissed;
+        prefs.textSize = typeof payload.textSize === 'string' ? payload.textSize : 'default';
         applyTypeface();
+        applyTextSize();
         root.dataset.inkSlot = String(payload.inkSlot || 0);
         document.title = payload.subject || '';
       }

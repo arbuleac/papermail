@@ -267,6 +267,7 @@ extension Quire {
             QuireCheatSheetRow(keys: "⌥⌘C", label: "Compact rows"),
             QuireCheatSheetRow(keys: "⌃⌘S", label: "Show · hide the rail"),
             QuireCheatSheetRow(keys: "⇧⌘N", label: "Check for new mail"),
+            QuireCheatSheetRow(keys: "⌘+ ⌘−", label: "Reader text bigger · smaller"),
             QuireCheatSheetRow(keys: "?", label: "This sheet"),
         ]),
     ]
@@ -316,11 +317,11 @@ extension Quire {
         public static let simulation: String = "Machado 2009, severity 1.0, linear sRGB; CIEDE2000"
     }
 
-    /// Decisions deliberately left out of v1 (spec §9), kept so a later release starts from them.
-    public enum Deferred {
-        public enum TextSize {
-            public static let deltas: [Int] = [-1, 0, 1, 2]
-            public static let rowHeights: [Int] = [64, 68, 72, 76]
-        }
+    /// Settings › General › Text size (spec §4.15): the popup's names, each size's step in points, and the row heights that follow.
+    public enum TextSize {
+        public static let names: [String] = ["Small", "Default", "Large", "Larger"]
+        public static let deltas: [Int] = [-1, 0, 1, 2]
+        public static let rowHeights: [Int] = [64, 68, 72, 76]
+        public static let rowCompactHeights: [Int] = [44, 48, 52, 56]
     }
 }

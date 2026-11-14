@@ -8,6 +8,11 @@ final class ListSkeletonView: NSView {
         didSet { if oldValue != density { needsDisplay = true } }
     }
 
+    /// The rows stand in for rows at this Text size (spec §4.15).
+    var textSize = QuireFont.TextSize.default {
+        didSet { if oldValue != textSize { needsDisplay = true } }
+    }
+
     private var revealTimer: Timer?
 
     override var isFlipped: Bool { true }
@@ -35,12 +40,12 @@ final class ListSkeletonView: NSView {
         NSColor.qPaper.setFill()
         bounds.intersection(dirtyRect).fill()
         let compact = density == .compact
-        let height = compact ? Quire.Layout.RowCompact.height : Quire.Layout.Row.height
+        let height = QuireRowMetrics(textSize: textSize, compact: compact).height
         var y: CGFloat = 0
         var index = 0
         while y < bounds.height {
             let rect = NSRect(x: 0, y: y, width: bounds.width, height: height)
-            QuireSkeleton.draw(compact ? .compactRow(index: index) : .row(index: index), in: rect)
+            QuireSkeleton.draw(compact ? .compactRow(index: index) : .row(index: index), in: rect, textSize: textSize)
             y += height
             index += 1
         }

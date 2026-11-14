@@ -25,9 +25,14 @@ tokens = {
     'space': T.SPACE, 'radius': T.RADIUS, 'border': T.BORDER, 'elevation': T.ELEVATION,
     'motion': T.MOTION, 'layout': T.LAYOUT, 'icon': T.ICON,
     'customGlyphs': T.GLYPHS, 'readerSymbols': T.READER_SYMBOLS,
-    'deferred': {'textSize': {'deltas': [-1, 0, 1, 2], 'rowHeights': [64, T.LAYOUT['row']['height'], 72, 76]}},
+    'textSize': T.TEXT_SIZE,
     'platform': {'minTextSize': 11, 'graphiteSaturationMax': 0.1, 'readerSymbolPointSize': 20, 'readerSymbolScale': 3, 'readerSymbolCanvas': 1.3, 'avatarTintCount': len(T.AVATARS)},
 }
+# Text size (§4.15): a row gains one step per line and one above them (compact: one above and one below); Default is layout.
+_ts = T.TEXT_SIZE
+assert len(_ts['names']) == len(_ts['deltas']) == len(_ts['rowHeights']) == len(_ts['rowCompactHeights'])
+assert _ts['rowHeights'] == [T.LAYOUT['row']['height'] + 4 * d for d in _ts['deltas']], 'textSize.rowHeights'
+assert _ts['rowCompactHeights'] == [T.LAYOUT['rowCompact']['height'] + 4 * d for d in _ts['deltas']], 'textSize.rowCompactHeights'
 tokens['contrastPairs'] = None  # filled after ALL_PAIRS is built
 tokens['cheatSheetContent'] = [{'section': sec, 'rows': [{'keys': k, 'label': l} for k, l in rows]} for sec, rows in T.CHEAT_SHEET]
 tokens['cheatSheetSearch'] = {'title': T.CHEAT_SHEET_SEARCH[0], 'terms': T.CHEAT_SHEET_SEARCH[1]}
