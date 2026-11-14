@@ -75,6 +75,10 @@ final class ComposeImageAttachment: NSTextAttachment {
     /// or GIF, encoded again otherwise (`ComposerImageFormat`), with a content id of its own. Here, on the main thread,
     /// only its header is read, for its size; the rest is prepared off it (see the type). Nil when the header names no
     /// picture the Mac can read.
+    ///
+    /// The format is the one the header reads as, `typeIdentifier` only when ImageIO cannot tell: a HEIC named .jpg
+    /// (its type taken from the extension) is a HEIC, and kept as a JPEG it would go as HEIC bytes labelled image/jpeg,
+    /// its location in them, since copying a source's image into another format's destination copies it unchanged.
     @MainActor
     static func make(_ source: Source, typeIdentifier: String, filename: String?) -> ComposeImageAttachment? {
         let header: CGImageSource?
@@ -87,8 +91,9 @@ final class ComposeImageAttachment: NSTextAttachment {
             fileURL = url
         }
         guard let header, CGImageSourceGetCount(header) > 0, let size = pointSize(of: header) else { return nil }
-        let format = ComposerImageFormat.sent(as: typeIdentifier)
-        let keep = ComposerImageFormat.kept(typeIdentifier) != nil
+        let type = (CGImageSourceGetType(header) as String?) ?? typeIdentifier
+        let format = ComposerImageFormat.sent(as: type)
+        let keep = ComposerImageFormat.kept(type) != nil
         let inlineImage = ComposerInlineImage(contentID: ComposerInlineImage.makeContentID(), filename: format.filename(from: filename),
                                               mimeType: format.mimeType, width: Int(size.width.rounded()), height: Int(size.height.rounded()))
         let picture = ComposeImageAttachment(inlineImage: inlineImage, size: size, fileURL: fileURL)
@@ -218,23 +223,40 @@ final class ComposeImageAttachment: NSTextAttachment {
     /// A kept PNG or JPEG as it came, unless it says where it was taken: then its metadata is written again without the
     /// location and its pixels are copied untouched (`kCGImageMetadataShouldExcludeGPS`), or, where ImageIO cannot do
     /// that, it is encoded again without it. Nil when it is no picture.
+    ///
+    /// The copy is read back before it is used, since ImageIO's word for it is not enough: for a PNG (and for bytes of
+    /// another format than `format`) the copy succeeds and writes the input unchanged, its GPS block and XMP location
+    /// still in it (seen on macOS 27.0.1). Encoding again does take it out.
     nonisolated static func withoutLocation(_ data: Data, as format: ComposerImageFormat) -> Data? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil), CGImageSourceGetCount(source) > 0 else { return nil }
         guard hasLocation(source) else { return data }
         let output = NSMutableData()
         if let destination = CGImageDestinationCreateWithData(output, format.typeIdentifier as CFString, 1, nil),
            CGImageDestinationCopyImageSource(destination, source, [kCGImageMetadataShouldExcludeGPS: true] as CFDictionary, nil),
-           output.length > 0 {
+           output.length > 0, let copied = CGImageSourceCreateWithData(output, nil),
+           CGImageSourceGetType(copied) as String? == format.typeIdentifier, !hasLocation(copied) {
             return output as Data
         }
         return encode(data, as: format)
     }
 
-    /// Whether the picture records where it was taken (an EXIF GPS block).
+    /// Whether the picture records where it was taken: an EXIF GPS block, or GPS tags in its XMP.
     nonisolated static func hasLocation(_ source: CGImageSource) -> Bool {
-        guard let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-              let gps = properties[kCGImagePropertyGPSDictionary] as? [CFString: Any] else { return false }
-        return !gps.isEmpty
+        if let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+           let gps = properties[kCGImagePropertyGPSDictionary] as? [CFString: Any], !gps.isEmpty {
+            return true
+        }
+        guard let metadata = CGImageSourceCopyMetadataAtIndex(source, 0, nil) else { return false }
+        var found = false
+        let options = [kCGImageMetadataEnumerateRecursively: true] as CFDictionary
+        CGImageMetadataEnumerateTagsUsingBlock(metadata, nil, options) { _, tag in
+            if let name = CGImageMetadataTagCopyName(tag) as String?, name.hasPrefix("GPS") {
+                found = true
+                return false
+            }
+            return true
+        }
+        return found
     }
 }
 

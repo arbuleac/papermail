@@ -156,6 +156,23 @@ final class ComposerInlineImageTests: XCTestCase {
         return output as Data
     }
 
+    /// The XMP tags that say where the picture was taken (exif:GPSLatitude and the rest).
+    private static func xmpLocationTags(in data: Data) -> [String] {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let metadata = CGImageSourceCopyMetadataAtIndex(source, 0, nil) else { return [] }
+        var tags: [String] = []
+        CGImageMetadataEnumerateTagsUsingBlock(metadata, nil, [kCGImageMetadataEnumerateRecursively: true] as CFDictionary) { path, _ in
+            if (path as String).contains("GPS") { tags.append(path as String) }
+            return true
+        }
+        return tags
+    }
+
+    /// The format ImageIO reads `data` as.
+    private static func type(of data: Data) -> String? {
+        CGImageSourceCreateWithData(data as CFData, nil).flatMap { CGImageSourceGetType($0) as String? }
+    }
+
     private static func location(in data: Data) -> [CFString: Any]? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
               let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else { return nil }
@@ -813,6 +830,17 @@ final class ComposerInlineImageTests: XCTestCase {
         let tiff = try Self.withLocation(XCTUnwrap(Self.bitmap(width: 40, height: 30).tiffRepresentation), as: "public.tiff")
         XCTAssertNotNil(Self.location(in: tiff))
         XCTAssertNil(Self.location(in: try XCTUnwrap(ComposeImageAttachment.encode(tiff, as: .jpeg))))
+        // A kept PNG: ImageIO's copy without the location says it succeeded and writes the PNG unchanged, so it is
+        // encoded again, and neither the GPS block nor the XMP's GPS tags are left.
+        let geotaggedPNG = try Self.withLocation(Self.png(width: 40, height: 30), as: "public.png")
+        XCTAssertNotNil(Self.location(in: geotaggedPNG))
+        XCTAssertFalse(Self.xmpLocationTags(in: geotaggedPNG).isEmpty, "a PNG keeps its location in its XMP")
+        let keptPNG = try XCTUnwrap(ComposeImageAttachment.withoutLocation(geotaggedPNG, as: .png))
+        XCTAssertNil(Self.location(in: keptPNG))
+        XCTAssertEqual(Self.xmpLocationTags(in: keptPNG), [])
+        XCTAssertEqual(Self.type(of: keptPNG), "public.png")
+        XCTAssertEqual(ComposeImageAttachment.pointSize(of: try XCTUnwrap(CGImageSourceCreateWithData(keptPNG as CFData, nil))),
+                       CGSize(width: 40, height: 30))
         // A picture without one is kept byte for byte.
         let plain = Self.png(width: 10, height: 10)
         XCTAssertEqual(ComposeImageAttachment.withoutLocation(plain, as: .png), plain)
@@ -826,5 +854,31 @@ final class ComposerInlineImageTests: XCTestCase {
         let picture = try XCTUnwrap(pictures(composer).first)
         XCTAssertEqual(picture.inlineImage.mimeType, "image/jpeg")
         XCTAssertNil(Self.location(in: picture.data))
+    }
+
+    /// The format is read from the bytes, not the name: a HEIC named .jpg (Finder and the pasteboard type it by its
+    /// extension) is converted to a JPEG without its location, where it went as HEIC bytes called image/jpeg, GPS kept.
+    func testAPictureIsSentInTheFormatItsBytesAreNotItsName() throws {
+        let heic = try Self.withLocation(Self.png(width: 40, height: 30), as: "public.heic")
+        try XCTSkipIf(Self.type(of: heic) != "public.heic", "this Mac cannot write HEIC")
+        XCTAssertNotNil(Self.location(in: heic))
+        let url = try file("IMG_0412.jpg", heic)
+        let picture = try XCTUnwrap(ComposeImageAttachment.make(.file(url), typeIdentifier: "public.jpeg", filename: url.lastPathComponent))
+        picture.finishNow()
+        XCTAssertTrue(picture.isReady)
+        XCTAssertEqual(picture.inlineImage.mimeType, "image/jpeg")
+        XCTAssertEqual(picture.inlineImage.filename, "IMG_0412.jpg")
+        XCTAssertEqual(Self.type(of: picture.data), "public.jpeg", "HEIC bytes are never sent as image/jpeg")
+        XCTAssertNil(Self.location(in: picture.data))
+        XCTAssertEqual(Self.xmpLocationTags(in: picture.data), [])
+
+        // A PNG with a location, pasted as such, goes as a PNG without it.
+        let png = try Self.withLocation(Self.png(width: 40, height: 30), as: "public.png")
+        let pasted = try XCTUnwrap(ComposeImageAttachment.make(data: png, typeIdentifier: "public.png", filename: nil))
+        pasted.finishNow()
+        XCTAssertEqual(pasted.inlineImage.mimeType, "image/png")
+        XCTAssertEqual(Self.type(of: pasted.data), "public.png")
+        XCTAssertNil(Self.location(in: pasted.data))
+        XCTAssertEqual(Self.xmpLocationTags(in: pasted.data), [])
     }
 }
