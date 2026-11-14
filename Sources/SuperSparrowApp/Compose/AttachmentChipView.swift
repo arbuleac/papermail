@@ -127,9 +127,10 @@ final class AttachmentChipView: NSView {
     }
 }
 
-/// The chip's remove control: a 16 pt `fill` disc with a 9 pt `xmark` in `ink3` (`ink` on hover), 24 pt hit.
+/// The chip's remove control: a 16 pt `fill` disc with a 9 pt `xmark` in `ink3` (`ink` on hover), 24 pt hit, the
+/// pointing hand over all of it (§4.17).
 @MainActor
-private final class ChipRemoveButton: NSControl {
+private final class ChipRemoveButton: NSControl, QuirePointerTarget {
     private var isHovered = false {
         didSet { needsDisplay = true }
     }
@@ -153,6 +154,12 @@ private final class ChipRemoveButton: NSControl {
 
     override func mouseEntered(with event: NSEvent) { isHovered = true }
     override func mouseExited(with event: NSEvent) { isHovered = false }
+
+    var pointerRegions: [QuirePointerRegion] { [.control(bounds, acts: isEnabled)] }
+
+    override func resetCursorRects() {
+        addPointerRects()
+    }
 
     override func mouseDown(with event: NSEvent) {
         sendAction(action, to: target)

@@ -47,6 +47,7 @@ final class AddressTokenField: NSView, NSTextFieldDelegate {
         didSet {
             input.isEditable = !isLocked
             document.needsDisplay = true
+            document.pointerRegionsDidChange()
         }
     }
 
@@ -240,6 +241,7 @@ final class AddressTokenField: NSView, NSTextFieldDelegate {
                                                   maxLines: Int(t.maxLines))
         updateToolTips()
         document.needsDisplay = true
+        document.pointerRegionsDidChange()
         if abs(height - rowHeight) > 0.5 {
             rowHeight = height
             onLayoutChange?()
@@ -716,11 +718,46 @@ extension AddressTokenField: NSViewToolTipOwner {
 
 /// The flipped document inside the field's scroll view: draws the tokens and “+N more”, hosts the text field.
 @MainActor
-final class TokenDocumentView: NSView {
+final class TokenDocumentView: NSView, QuirePointerTarget {
     weak var field: AddressTokenField?
     private var trackingArea: NSTrackingArea?
 
     override var isFlipped: Bool { true }
+
+    // MARK: Pointer
+
+    /// The pointing hand over each token, which a click selects, double-click edits and a drag moves, and over
+    /// “+N more” as far as its click reaches; the I-beam over the rest of the field, where a click puts the caret in
+    /// the text (§4.17). The text field keeps its own. While a send locks the field a click there changes nothing, so
+    /// the tokens and the field show the arrow, as they show the disabled ink.
+    var pointerRegions: [QuirePointerRegion] {
+        guard let field else { return [] }
+        let tokens = field.tokenRects().map(\.rect)
+        var taken = tokens + [field.input.frame]
+        var regions = tokens.map { QuirePointerRegion.control($0, acts: !field.isLocked) }
+        if let more = field.moreRect() {
+            // A click takes the tokens and the text field before “+N more”, so its slop leaves them out.
+            let reach = more.insetBy(dx: -4, dy: -4).intersection(bounds)
+            regions += QuirePointerRegion.regions(reach, cursor: .pointingHand, cutting: taken)
+            taken.append(reach)
+        }
+        return regions + QuirePointerRegion.regions(bounds, cursor: field.isLocked ? .arrow : .iBeam, cutting: taken)
+    }
+
+    override func resetCursorRects() {
+        addPointerRects()
+    }
+
+    // The Cc and Bcc rows start hidden; AppKit does not ask again when they show.
+    override func viewDidHide() {
+        super.viewDidHide()
+        pointerRegionsDidChange()
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        pointerRegionsDidChange()
+    }
 
     override func updateTrackingAreas() {
         if let trackingArea { removeTrackingArea(trackingArea) }

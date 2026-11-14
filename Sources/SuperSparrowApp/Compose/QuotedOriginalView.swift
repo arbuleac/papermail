@@ -248,9 +248,10 @@ final class ElisionChip: QuireControl {
     override func accessibilityLabel() -> String? { title }
 }
 
-/// “On 1 Nov 2026 at 23:39, Ben Carter wrote:”: clicking it unfolds the quote, like the chip.
+/// “On 1 Nov 2026 at 23:39, Ben Carter wrote:”: clicking it unfolds the quote, like the chip, so its words take the
+/// pointing hand (§4.17).
 @MainActor
-private final class AttributionLabel: NSView {
+private final class AttributionLabel: NSView, QuirePointerTarget {
     var text = "" {
         didSet { invalidateIntrinsicContentSize(); needsDisplay = true }
     }
@@ -270,6 +271,23 @@ private final class AttributionLabel: NSView {
 
     override func mouseDown(with event: NSEvent) {
         onClick?()
+    }
+
+    var pointerRegions: [QuirePointerRegion] { [.control(bounds, acts: true)] }
+
+    override func resetCursorRects() {
+        addPointerRects()
+    }
+
+    // The quote view starts hidden and shows once the original folds in; AppKit does not ask again for either.
+    override func viewDidHide() {
+        super.viewDidHide()
+        pointerRegionsDidChange()
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        pointerRegionsDidChange()
     }
 
     override func viewDidChangeEffectiveAppearance() {

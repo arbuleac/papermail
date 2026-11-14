@@ -9,7 +9,7 @@ import SSDesign
 /// The highlighted row is a selection, drawn like the list's: `selWash` with the 3 pt `selRule` margin rule on
 /// its leading edge, inks unchanged, and a trailing “↩” keycap. It opens, closes and moves instantly.
 @MainActor
-final class AddressAutocompleteView: NSView {
+final class AddressAutocompleteView: NSView, QuirePointerTarget {
     var onAccept: ((EmailAddress) -> Void)?
 
     private(set) var suggestions: [EmailAddress] = []
@@ -49,6 +49,7 @@ final class AddressAutocompleteView: NSView {
         highlightIndex = previous.flatMap { suggestions.firstIndex(of: $0) } ?? 0
         rows.needsDisplay = true
         invalidateIntrinsicContentSize()
+        pointerRegionsDidChange()
         if highlighted != previous { announceHighlight() }
     }
 
@@ -78,6 +79,21 @@ final class AddressAutocompleteView: NSView {
         frame = rect
         sheet.frame = bounds
         rows.frame = sheet.contentView.bounds
+        pointerRegionsDidChange()
+    }
+
+    // MARK: Pointer
+
+    /// The pointing hand over each suggestion, which a click accepts, and the arrow over the padding around them (§4.17):
+    /// the popover lies on the body and the other recipient rows, whose I-beam would otherwise show through it.
+    var pointerRegions: [QuirePointerRegion] {
+        let rowRects = suggestions.indices.map { convert(rowRect($0), from: rows) }
+        return rowRects.map { QuirePointerRegion.control($0, acts: true) }
+            + QuirePointerRegion.regions(bounds, cursor: .arrow, cutting: rowRects)
+    }
+
+    override func resetCursorRects() {
+        addPointerRects()
     }
 
     // MARK: Rows
