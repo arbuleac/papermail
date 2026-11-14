@@ -162,12 +162,14 @@ final class AppSettings: ObservableObject {
         return true
     }
 
-    /// Spec §4.16, §5.40 Appearance › Theme. A change is saved and pushed into `QuireEnvironment` at once, so every
-    /// window, Settings included, re-themes live.
+    /// Spec §4.16, §5.40 Appearance › Theme. A choice is saved and pushed into `QuireEnvironment` at once, so every
+    /// window, Settings included, re-themes live. Pushed even when it equals the saved one, as `typeface` is: under
+    /// `--theme` the app draws another theme than Settings shows chosen, and choosing the shown one must still apply
+    /// it. The environment announces nothing when its theme does not change.
     @Published var theme: QuireTheme {
         didSet {
             defaults.set(theme.rawValue, forKey: Key.theme)
-            if oldValue != theme { applyTheme() }
+            applyTheme()
         }
     }
 

@@ -98,6 +98,26 @@ final class ThemePreferencesTests: XCTestCase {
         XCTAssertEqual(QuireEnvironment.theme, .study, "parsing applies nothing")
     }
 
+    /// Launched with `--theme=rain`, the app draws Rain while Settings shows the saved Study chosen; choosing Study there
+    /// applies it, as choosing the shown Font does under `--font`, rather than leaving the tiles and the app disagreeing.
+    func testChoosingTheSavedThemeUnderALaunchOptionAppliesIt() throws {
+        let settings = AppSettings(defaults: try throwawayDefaults())
+        XCTAssertEqual(settings.theme, .study)
+        // What the app delegate does with `--theme=rain`: the environment, nothing saved.
+        QuireEnvironment.shared.setTheme(LaunchOptions(arguments: ["SuperSparrow", "--theme=rain"]).theme ?? .rain)
+        XCTAssertEqual(QuireEnvironment.theme, .rain)
+        var announced = 0
+        let token = NotificationCenter.default.addObserver(forName: QuireEnvironment.didChangeNotification, object: nil, queue: nil) { _ in
+            announced += 1
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+        settings.theme = .study
+        XCTAssertEqual(QuireEnvironment.theme, .study, "the chosen tile is what the app draws")
+        XCTAssertEqual(announced, 1)
+        settings.theme = .study
+        XCTAssertEqual(announced, 1, "choosing it again changes nothing, so nothing is announced")
+    }
+
     /// The composer sets its window's background once; a switch must still reach it (spec §4.16), and every view the
     /// composer paints in draw(_:) redraws in the new theme.
     func testAnOpenComposerFollowsASwitch() throws {
