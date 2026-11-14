@@ -45,6 +45,9 @@ protocol KeyboardRouterTarget: AnyObject {
     func perform(_ command: KeyCommand) -> Bool
     /// The view whose bottom centre the g-sequence HUD sits at: the list pane, where the toast sits (§5.32).
     var sequenceHUDHost: NSView? { get }
+    /// How far above the host's bottom edge the HUD's bottom sits: where the toast it replaces sits, 16 pt above the
+    /// sync line in the main window (the list pane's bottom is the sync line's).
+    var sequenceHUDBottomInset: CGFloat { get }
     /// The HUD is about to show. It replaces a visible toast, which does not come back.
     func sequenceHUDWillAppear()
     /// Later's tile is in the rail, so G L goes there and the HUD lists it (§5.2, §5.32).
@@ -55,6 +58,7 @@ protocol KeyboardRouterTarget: AnyObject {
 
 extension KeyboardRouterTarget {
     var sequenceHUDHost: NSView? { keyboardWindow?.contentView }
+    var sequenceHUDBottomInset: CGFloat { Quire.Layout.SyncLine.height + Quire.Layout.Toast.aboveSyncLine }
     func sequenceHUDWillAppear() {}
     var showsLater: Bool { false }
     var cheatSheetWindow: NSWindow? { keyboardWindow }
@@ -293,16 +297,16 @@ final class KeyboardRouter {
         // Later's row only while its tile is there: otherwise G L does nothing, like any key the HUD does not list.
         let rows = QuireSequenceHUDView.sequenceRows().filter { target.showsLater || $0.keys != "L" }
         let view = QuireSequenceHUDView(rows: rows)
-        place(view, in: host)
+        place(view, in: host, bottomInset: target.sequenceHUDBottomInset)
         host.addSubview(view, positioned: .above, relativeTo: nil)
         hud = view
         view.show()
     }
 
-    /// Bottom centre of the host, where the toast sits: 16 pt above the sync line.
-    private func place(_ view: QuireSequenceHUDView, in host: NSView) {
+    /// Bottom centre of the host, where the toast sits: `inset` above its bottom edge (16 pt above the sync line in the
+    /// main window, above the quick reply in a reader window).
+    private func place(_ view: QuireSequenceHUDView, in host: NSView, bottomInset inset: CGFloat) {
         let size = view.intrinsicContentSize
-        let inset = Quire.Layout.SyncLine.height + Quire.Layout.Toast.aboveSyncLine
         let y = host.isFlipped ? host.bounds.height - inset - size.height : inset
         view.frame = NSRect(x: (host.bounds.midX - size.width / 2).rounded(), y: y.rounded(), width: size.width, height: size.height)
         view.autoresizingMask = host.isFlipped ? [.minXMargin, .maxXMargin, .minYMargin] : [.minXMargin, .maxXMargin, .maxYMargin]

@@ -180,7 +180,10 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
     /// Everything here is the reader: arrows scroll the page, and ← is Esc only while there is something for it to close.
     var isReaderFocused: Bool { true }
     var showsLater: Bool { opener?.showsLater ?? false }
-    var sequenceHUDHost: NSView? { window?.contentView }
+    /// The toast's overlay, between the header and the quick reply: the HUD takes the toast's place, 16 pt above the bar
+    /// (§5.32, §5.49). The window has no sync line to clear, and its content view's bottom is under the quick reply.
+    var sequenceHUDHost: NSView? { toastView }
+    var sequenceHUDBottomInset: CGFloat { Quire.Layout.Toast.aboveSyncLine }
     func sequenceHUDWillAppear() { undoCenter.toasts.dismiss(in: toastView) }
     var cheatSheetWindow: NSWindow? { opener?.keyboardWindow }
 

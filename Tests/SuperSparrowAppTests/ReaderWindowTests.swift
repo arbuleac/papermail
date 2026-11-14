@@ -569,6 +569,27 @@ final class ReaderWindowTests: XCTestCase {
         harness.close()
     }
 
+    /// The G-sequence HUD takes the toast's place in a reader window, 16 pt above the quick reply; placed as in the main
+    /// window, 44 pt above the bottom of the window for a sync line it does not have, it covered the top of the bar.
+    func testTheSequenceHUDSitsAboveTheQuickReply() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let (_, reader) = try open(0, harness)
+        let content = try XCTUnwrap(reader.window?.contentView)
+        content.layoutSubtreeIfNeeded()
+        let bar = reader.conversation.quickReplyBar
+        XCTAssertFalse(bar.isHidden)
+        let router = KeyboardRouter(target: reader)
+        router.showSequenceHUDNow()
+        defer { router.disarmSequence(animated: false) }
+        let hud = try XCTUnwrap(Self.views(in: content).first { $0 is QuireSequenceHUDView })
+        let hudFrame = hud.convert(hud.bounds, to: nil)
+        let barFrame = bar.convert(bar.bounds, to: nil)
+        XCTAssertEqual(hudFrame.minY - barFrame.maxY, Quire.Layout.Toast.aboveSyncLine, accuracy: 1,
+                       "where the toast sits, clear of the bar")
+        XCTAssertEqual(hudFrame.midX, content.convert(content.bounds, to: nil).midX, accuracy: 1)
+    }
+
     /// View › Inbox, Starred and the rest, and ⌘0 to ⌘9, act in the main window, which comes forward, as G I and the other
     /// sequences listed beside them do in a reader window (§5.49). A reader window answered none of them, so the items
     /// were disabled there while their keys worked.
