@@ -14,6 +14,8 @@
 @media (prefers-color-scheme:dark){:root{--q-knob-shadow:{{layout.toggle.knobShadow.dark}}}}
 .ic{--q-knob-shadow:{{layout.toggle.knobShadow.lightHC}}}
 @media (prefers-color-scheme:dark){.ic{--q-knob-shadow:{{layout.toggle.knobShadow.darkHC}}}}
+/* Specimen-only scopes: every theme's Light and Dark variables (§4.16), for the Themes band, whatever the page's own appearance. */
+{{CSS_THEME_SCOPES:.tb}}
 /* ===== SF Symbols, rasterised to template masks (the reader-shell pipeline) ===== */
 {{PART:SYMBOL_CSS}}
 
@@ -629,5 +631,13 @@ code{font:11px/14px var(--q-mono)}
 .inv .banner .sym{margin-top:9px}.inv .banner .txt{white-space:normal;padding:8px 0}.inv .banner .linkb{align-self:flex-end;margin-bottom:4px}
 .hscroll{position:absolute;left:0;right:0;bottom:2px;height:4px;padding:0 2px}
 .hscroll i{display:block;height:4px;border-radius:2px;background:var(--q-ink3);opacity:.6}
+/* the Themes band (§4.16): the main window at half size, per theme and appearance */
+.tband{display:grid;gap:28px}
+.tbname{font:var(--q-font-snippet);color:var(--studio-ink2);margin-bottom:10px}
+.tbname b{font:600 17px/22px var(--q-serif);color:var(--studio-ink);margin-right:12px}
+.tbcells{display:grid;grid-template-columns:630px 630px;gap:20px}
+.tbk{font:var(--q-font-runningHead);letter-spacing:.6px;text-transform:uppercase;color:var(--studio-ink2);margin-bottom:6px}
+.tbwin{width:630px;height:394px;overflow:hidden;border-radius:6px;box-shadow:0 0 0 .5px rgba(0,0,0,.24)}
+.tbwin>.win{transform:scale(.4921875);transform-origin:0 0;box-shadow:none}
 </style>
 </head>

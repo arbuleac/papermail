@@ -1,8 +1,8 @@
 # Quire — the SuperSparrow design language
 
-**Version 1.8.0 · 14 November 2026 · authoritative.** 1.7.0 adds **Send Later** (§5.46), **Mark as spam** (§5.47), **Print and PDF** (§5.48), the **reader window** (§5.49), **Find in conversation** (§5.50), **Mute** (§5.51) and **sender rules** (§5.52), **Text size** (§4.15), **pictures in the composer's body** and the **Services** menu's New Message with Selection and Send with SuperSparrow (§5.20), **Download** and **Download all** on attachments (§5.17), a **swipe** on a row to archive or mark it read (§5.7), **At login** in Settings › General (§5.40) and the Dock badge's **99+** as the rail's (§5.28), with a cheat sheet that lists every new key and still fits the default window whole (§5.32). 1.6.4 adds the **invitation card**: a message that carries a calendar invitation opens with a card above its body (title, when, where, organizer, guests), the body folded under it behind the elision mark (“Show message”), answered with Accept · Tentative · Decline, marked Cancelled when the organizer called it off, with Open in Calendar beside them; an answer that needs permission to update the calendar waits and asks to reconnect, on the card and in Settings › Accounts (§5.14, `layout.invitation`, §5.40, §5.44). 1.6.3 adds **Unsubscribe**: a message whose list headers offer a way out shows an “Unsubscribe” link beside the sender in its sheet header, also in its More menu, in the context menu and as Message › Unsubscribe (⇧⌘U); one click sends the request (or opens the sender's page) and archives the conversation, or, snoozed (in Later, or a search's result), ends its snooze and leaves it archived, as E does in Later, so the list's mail never comes back at its time; the toast's Undo brings the conversation back (to Later, snoozed as before) while the request stays sent, which the undo's confirmation says, and the toast never takes in a later archive (§5.14, §5.30, §5.35, §5.45, §6, the cheat sheet). 1.6.2 adds **searching the server**: once a search's local results are all listed, the list ends with **Search Gmail for more**, which ⌘↩ in the search field, a click or ↩ on its link runs, and which then says how it went (“Searching Gmail…”, “Found 12 more on Gmail”, “Nothing more on Gmail”, “Couldn't search Gmail · Try again”); the server is asked the field's text as typed, so its own search rules decide what it finds, and the operators this Mac tests on the row (`is:`, `has:`, `before:`, `after:`, `in:`) and the account scope still narrow its finds; a search with no local results offers the same in its empty state, whose line 2 may now end with a link (§5.10, §5.9, §5.6, §5.35, §6, the cheat sheet). 1.6.1 adds **search operators**: `from:`, `to:`, `subject:`, `is:unread`, `is:read`, `is:starred`, `has:attachment`, `before:`, `after:`, `in:` a view, quoted phrases and a leading minus, typed into the search field and nowhere else; an `in:` term picks the view searched, whichever view is on screen, Later included (§5.6); keys, menus, toasts and drops treat the results as rows of that view (§5.12, §5.45); the cheat sheet gains one line that lists them under the bands (§5.32, `cheatSheet.searchTermGap`). 1.6 adds **Later**: L snoozes the selection with a native menu of four times and Pick a Date… (§5.45); the conversation is archived now and comes back to the Inbox at its time, unread, sorted by the moment it came back and tagged “Back” (§5.7); a Later tile (G L) shows in the rail below Inbox only while something is snoozed (§5.2, §5.4), and the cheat sheet lists L and G L (§5.32, §6). 1.5.2 adds **Keep mail on this Mac** to General: a popup (Everything, 1 year, 3 months) with the space the mailbox takes beside it; a message older than the window keeps its row, snippet and searchable text, and its full message downloads again when it is opened (§5.40, `settings.mailboxSizeGap`). 1.5.1 adds account signatures: one per account, set in the account's detail form (§5.40), inserted by the composer one empty line below the typing point and above the folded original, and replaced when From changes (§5.20); §9 no longer excludes them. 1.5 renames the General font setting **Font** and makes it the app's typeface: SF Pro now sets every New York role in its sans twin across the app and applies live, and monograms gain the twin `monogramSans` (§4.4, §5.29, §5.40). 1.4 moves the six views into the rail as folder tiles (§5.2), anchors the accounts at the bottom of the rail just above Add, puts the masthead, search and compose on one header line (§5.3, §5.6), keeps the title menu for minimal mode only (§5.4), and removes the Focused/Other filter tabs (§5.5) and the rows' “Other” tag (§5.7). 1.3.1 records what the code does where it went past 1.3: one rule for account names and monograms (§4.2), plain text set as paragraphs (§5.14), the app icon as drawn (§5.42, `appIcon.corner` and `stampWidth`), `QuireWindowChrome` (§3.2) and the AppKit component names (§8.2), and the composer title-bar test (§8.7). 1.3 closes the eighteen gaps of the 1.2 review: pressed checkbox, radio and toggle states that keep 3:1 (`controlOnPressed`, a knob-face press, a wash-free link press), account inks that never meet a popup's hover or pressed face, a complete Graphite substitution with its own generated contrast pairs, the full alert inventory, the reconnect flow, no signatures in v1, the cheat sheet's content, Space and Tab inside a sheet, the Settings window's size and detail form, the multi-selection and Trash action sets, the positions that still had no metric, a Reduce Transparency scrim, capped token rows, expanded recipients, and the worked numbers that still assumed the macOS 15 rail. This document, `docs/design/tokens.json` and `docs/design/specimen.html` (rendered as `specimen-light.png` and `specimen-dark.png`) are the complete design language for SuperSparrow. Where they disagree, `tokens.json` wins and the other two are regenerated from it.
+**Version 1.8.0 · 14 November 2026 · authoritative.** 1.8.0 adds **themes**: Study (the default and 1.7's palette, unchanged), Gallery, Rain, Grove and Dusk. Each is a paper and an ink (Gallery's ink has no colour) derived from Study's table by one luminance-locked rule and checked pair by pair in four modes and under Graphite (§4.16). They are chosen in a new Settings › Appearance tab, with Appearance (Automatic · Light · Dark), the Dark Mode default for mail that sets its own colours, and Font and Text size moved from General (§5.40). 1.7.0 adds **Send Later** (§5.46), **Mark as spam** (§5.47), **Print and PDF** (§5.48), the **reader window** (§5.49), **Find in conversation** (§5.50), **Mute** (§5.51) and **sender rules** (§5.52), **Text size** (§4.15), **pictures in the composer's body** and the **Services** menu's New Message with Selection and Send with SuperSparrow (§5.20), **Download** and **Download all** on attachments (§5.17), a **swipe** on a row to archive or mark it read (§5.7), **At login** in Settings › General (§5.40) and the Dock badge's **99+** as the rail's (§5.28), with a cheat sheet that lists every new key and still fits the default window whole (§5.32). 1.6.4 adds the **invitation card**: a message that carries a calendar invitation opens with a card above its body (title, when, where, organizer, guests), the body folded under it behind the elision mark (“Show message”), answered with Accept · Tentative · Decline, marked Cancelled when the organizer called it off, with Open in Calendar beside them; an answer that needs permission to update the calendar waits and asks to reconnect, on the card and in Settings › Accounts (§5.14, `layout.invitation`, §5.40, §5.44). 1.6.3 adds **Unsubscribe**: a message whose list headers offer a way out shows an “Unsubscribe” link beside the sender in its sheet header, also in its More menu, in the context menu and as Message › Unsubscribe (⇧⌘U); one click sends the request (or opens the sender's page) and archives the conversation, or, snoozed (in Later, or a search's result), ends its snooze and leaves it archived, as E does in Later, so the list's mail never comes back at its time; the toast's Undo brings the conversation back (to Later, snoozed as before) while the request stays sent, which the undo's confirmation says, and the toast never takes in a later archive (§5.14, §5.30, §5.35, §5.45, §6, the cheat sheet). 1.6.2 adds **searching the server**: once a search's local results are all listed, the list ends with **Search Gmail for more**, which ⌘↩ in the search field, a click or ↩ on its link runs, and which then says how it went (“Searching Gmail…”, “Found 12 more on Gmail”, “Nothing more on Gmail”, “Couldn't search Gmail · Try again”); the server is asked the field's text as typed, so its own search rules decide what it finds, and the operators this Mac tests on the row (`is:`, `has:`, `before:`, `after:`, `in:`) and the account scope still narrow its finds; a search with no local results offers the same in its empty state, whose line 2 may now end with a link (§5.10, §5.9, §5.6, §5.35, §6, the cheat sheet). 1.6.1 adds **search operators**: `from:`, `to:`, `subject:`, `is:unread`, `is:read`, `is:starred`, `has:attachment`, `before:`, `after:`, `in:` a view, quoted phrases and a leading minus, typed into the search field and nowhere else; an `in:` term picks the view searched, whichever view is on screen, Later included (§5.6); keys, menus, toasts and drops treat the results as rows of that view (§5.12, §5.45); the cheat sheet gains one line that lists them under the bands (§5.32, `cheatSheet.searchTermGap`). 1.6 adds **Later**: L snoozes the selection with a native menu of four times and Pick a Date… (§5.45); the conversation is archived now and comes back to the Inbox at its time, unread, sorted by the moment it came back and tagged “Back” (§5.7); a Later tile (G L) shows in the rail below Inbox only while something is snoozed (§5.2, §5.4), and the cheat sheet lists L and G L (§5.32, §6). 1.5.2 adds **Keep mail on this Mac** to General: a popup (Everything, 1 year, 3 months) with the space the mailbox takes beside it; a message older than the window keeps its row, snippet and searchable text, and its full message downloads again when it is opened (§5.40, `settings.mailboxSizeGap`). 1.5.1 adds account signatures: one per account, set in the account's detail form (§5.40), inserted by the composer one empty line below the typing point and above the folded original, and replaced when From changes (§5.20); §9 no longer excludes them. 1.5 renames the General font setting **Font** and makes it the app's typeface: SF Pro now sets every New York role in its sans twin across the app and applies live, and monograms gain the twin `monogramSans` (§4.4, §5.29, §5.40). 1.4 moves the six views into the rail as folder tiles (§5.2), anchors the accounts at the bottom of the rail just above Add, puts the masthead, search and compose on one header line (§5.3, §5.6), keeps the title menu for minimal mode only (§5.4), and removes the Focused/Other filter tabs (§5.5) and the rows' “Other” tag (§5.7). 1.3.1 records what the code does where it went past 1.3: one rule for account names and monograms (§4.2), plain text set as paragraphs (§5.14), the app icon as drawn (§5.42, `appIcon.corner` and `stampWidth`), `QuireWindowChrome` (§3.2) and the AppKit component names (§8.2), and the composer title-bar test (§8.7). 1.3 closes the eighteen gaps of the 1.2 review: pressed checkbox, radio and toggle states that keep 3:1 (`controlOnPressed`, a knob-face press, a wash-free link press), account inks that never meet a popup's hover or pressed face, a complete Graphite substitution with its own generated contrast pairs, the full alert inventory, the reconnect flow, no signatures in v1, the cheat sheet's content, Space and Tab inside a sheet, the Settings window's size and detail form, the multi-selection and Trash action sets, the positions that still had no metric, a Reduce Transparency scrim, capped token rows, expanded recipients, and the worked numbers that still assumed the macOS 15 rail. This document, `docs/design/tokens.json` and `docs/design/specimen.html` (rendered as `specimen-light.png` and `specimen-dark.png`) are the complete design language for SuperSparrow. Where they disagree, `tokens.json` wins and the other two are regenerated from it.
 
-A quire is a gathering of folded sheets, the unit a book is sewn from. Quire treats mail the same way: each conversation is a tight stack of folded messages and one open sheet, set in New York on warm paper and marked in a single ink, **Iron Gall**, the blue-black ink letters were written in for a thousand years. The list is a still index; the reader gets the room of a page. Sparrow's shape stays: a narrow account rail, one list, one reader, almost no chrome. Superhuman's speed shows in response, not in motion.
+A quire is a gathering of folded sheets, the unit a book is sewn from. Quire treats mail the same way: each conversation is a tight stack of folded messages and one open sheet, set in New York on paper and marked in a single ink (**Iron Gall** in the default theme), the blue-black ink letters were written in for a thousand years. The list is a still index; the reader gets the room of a page. Sparrow's shape stays: a narrow account rail, one list, one reader, almost no chrome. Superhuman's speed shows in response, not in motion.
 
 **How to read the numbers.** All metrics are points (1 pt = 1 CSS px in the reader). Colour values are given in four modes: Light, Dark, Light IC and Dark IC (IC = Increase Contrast). Alpha colours are written `#RRGGBB @ n %` here and `#RRGGBBAA` in `tokens.json`; they are always composited over the surface beneath. Every number in this file is rendered from `tokens.json`; the token path is given wherever a component lists its metrics (for example `layout.row.height`).
 
@@ -11,7 +11,7 @@ A quire is a gathering of folded sheets, the unit a book is sewn from. Quire tre
 ## 1. Principles
 
 1. **Reading is the product.** Serif where people read, sans where they scan or write. New York sets subjects, the reader headline and plain mail; SF Pro sets everything you scan, operate or type.
-2. **One ink, used like a pen.** Iron Gall marks only what needs you: unread, keyboard focus, the current selection and the single primary action. If two Iron Gall things compete in one region, one of them is wrong.
+2. **One ink, used like a pen.** Each theme writes in a single ink (Iron Gall in Study, petrol in Rain, teal in Grove, evening blue in Dusk; Gallery writes in its text ink, as Graphite does), and it marks only what needs you: unread, keyboard focus, the current selection and the single primary action. If two marks in the ink compete in one region, one of them is wrong.
 3. **A still list, a generous page.** The list is an index: fixed rows, no motion, no shadow, no blur. Actions never animate rows; feedback goes to the toast. The reader is a page: a 680 pt column with 24 pt leading.
 4. **Shape before colour.** Every state has a shape, a weight or a word: the pip, the margin rule, Semibold, the filled star, the queued glyph, the “!” badge. Colour confirms a state; it never carries it alone.
 5. **Native first, then ours.** Traffic lights, menus, alerts, tooltips, scrollers, notifications and the Settings window frame and toolbar stay macOS. Quire styles content, the controls inside Settings (so their focus rings and edges meet 3:1), and the few surfaces macOS does not provide.
@@ -21,8 +21,8 @@ A quire is a gathering of folded sheets, the unit a book is sewn from. Quire tre
 | Element | What it is | Where |
 |---|---|---|
 | **New York subjects** | Subjects are set in New York: 14 pt in rows, 24 pt as the reader headline, 15 pt in the composer. Next to SF Pro senders and snippets the list reads like a table of contents. | Rows, reader header, composer |
-| **Iron Gall** | The single accent: blue-black on paper (`#1E5468`), wet ink on dark paper (`#6DB6C9`). Fills use a deeper pooled ink in dark (`#2D788B`) so white labels stay crisp. | Pip, unread time, margin rule, focus, primary button, badges |
-| **The margin rule** | A 3 pt rule flush with the leading edge marks where you are, as an editor marks a passage. Always drawn, in Iron Gall while its window is key and in `ink3` when it is not. | Selected row, rail, selected Settings account row, autocomplete highlight |
+| **Iron Gall** | The ink of the default theme, Study: blue-black on paper (`#1E5468`), wet ink on dark paper (`#6DB6C9`). Fills use a deeper pooled ink in dark (`#2D788B`) so white labels stay crisp. Every theme has exactly one ink, and Gallery's has no colour (§4.16). | Pip, unread time, margin rule, focus, primary button, badges |
+| **The margin rule** | A 3 pt rule flush with the leading edge marks where you are, as an editor marks a passage. Always drawn, in the ink while its window is key and in `ink3` when it is not. | Selected row, rail, selected Settings account row, autocomplete highlight |
 | **The horizon** | The traffic lights, the masthead, the search field, the compose button and the reader's kicker share one centre line, y = 26. The list header is that 52 pt title-bar band alone, so the index starts right under the title bar; the reader header adds its headline below the line, and its hairline at 92 pt is the horizon the reader and the cheat sheet hang from. | Main window |
 | **The quire** | Collapsed messages fold into one stack of 44 pt lines; the open message is a full sheet beneath it. | Reader |
 | **Kicker and headline** | A small uppercase kicker names the account (with its ink dot) and the message count above a New York headline, as a newspaper names its section. | Reader header |
@@ -34,9 +34,9 @@ A quire is a gathering of folded sheets, the unit a book is sewn from. Quire tre
 
 ### 3.1 System accent
 
-- **Custom-drawn surfaces use fixed Iron Gall.** Selection, focus, the unread pip, badges and primary buttons are tuned against the paper surfaces in four modes; an arbitrary system accent (Yellow, Pink) breaks those pairs.
-- **Native controls follow the app accent asset.** The app ships Iron Gall as its `NSAccentColorName` asset (`AccentColor` colour set: Any `#1E5468`, Dark `#2D788B`, high-contrast `#123E4D` / `#246F83`; the fill value, because macOS draws white text on it in menu highlights and default buttons). Under the default Multicolor setting, NSMenu highlights, NSAlert default buttons and the Settings toolbar's selected tab are therefore Iron Gall and match the custom drawing. (Controls inside Settings are Quire-drawn, §8.3, so they never depend on this.) When the user picks an explicit accent, native controls follow the user and custom-drawn Quire surfaces stay Iron Gall.
-- **Graphite exception.** When the system accent is Graphite (`NSColor.currentControlTint == .graphiteControlTint`, or `controlAccentColor` saturation below 0.1), every accent-family token is replaced from the neutral ramp, one row per token below (`graphite` in `tokens.json`). That user asked macOS to take colour out. Account inks are identity, not accent, and stay (the kicker dot, rings, the From dot, swatches); so do `selWashIdle`, `selRuleIdle`, the semantic colours and the star. Because colour no longer tells a link from text, link buttons draw their underline at rest under Graphite (hover and pressed as §5.24). Fills step back toward the surface as they are hovered and pressed (`ink` → `ink2` → `ink3`), because `ink` is already the end of the ramp. The build regenerates every contrast pair that touches one of these tokens with the substitutions applied (100 Graphite pairs, §7) and asserts them with the others; the two 1.25 scan-cue pairs are the only ones not regenerated, because under Graphite the selection wash is the idle wash and the `ink` margin rule (≥ 12:1 on `paper`) is the cue.
+- **Custom-drawn surfaces use the theme's ink.** Selection, focus, the unread pip, badges and primary buttons are tuned against the paper surfaces in four modes, in every theme; an arbitrary system accent (Yellow, Pink) breaks those pairs.
+- **Native controls follow the app accent asset.** The app ships Iron Gall as its `NSAccentColorName` asset (`AccentColor` colour set: Any `#1E5468`, Dark `#2D788B`, high-contrast `#123E4D` / `#246F83`; the fill value, because macOS draws white text on it in menu highlights and default buttons). Under the default Multicolor setting, NSMenu highlights, NSAlert default buttons and the Settings toolbar's selected tab are therefore Iron Gall and match the custom drawing. (Controls inside Settings are Quire-drawn, §8.3, so they never depend on this.) When the user picks an explicit accent, native controls follow the user and custom-drawn Quire surfaces stay in the theme's ink. The accent asset stays Iron Gall in every theme: it is compiled and read once at launch. Every coloured theme's fill is held within 7.5 ΔE00 of it, so native menus and default buttons stay in family; Gallery has no coloured fill (§4.16).
+- **Graphite exception.** When the system accent is Graphite (`NSColor.currentControlTint == .graphiteControlTint`, or `controlAccentColor` saturation below 0.1), every accent-family token is replaced from **the active theme's** neutral ramp, one row per token below (`graphite` in `tokens.json`). That user asked macOS to take colour out. Account inks are identity, not accent, and stay (the kicker dot, rings, the From dot, swatches); so do `selWashIdle`, `selRuleIdle`, the semantic colours and the star. Because colour no longer tells a link from text, link buttons, invitation links and links in adapted and Quire-set bodies draw their underline at rest under Graphite, **and in any mode where the theme's ink is within 15 ΔE00 of its text ink, or within 10 under a colour-vision simulation; links inside quotes, where the same holds against `ink2` (§4.16)** (hover and pressed as §5.24). Fills step back toward the surface as they are hovered and pressed (`ink` → `ink2` → `ink3`), because `ink` is already the end of the ramp. The build regenerates every contrast pair that touches one of these tokens with the substitutions applied, for each theme (100 Graphite pairs per theme, §7) and asserts them with the others; the two 1.25 scan-cue pairs are the only ones not regenerated, because under Graphite the selection wash is the idle wash and the `ink` margin rule (≥ 12:1 on `paper`) is the cue.
 
 | Token | Under Graphite | Where it shows |
 |---|---|---|
@@ -81,7 +81,9 @@ A quire is a gathering of folded sheets, the unit a book is sewn from. Quire tre
 
 | Mode | AppKit / SwiftUI | Reader CSS | What changes |
 |---|---|---|---|
-| Light / Dark | `NSApp.effectiveAppearance`; app appearance follows the system | `prefers-color-scheme` | Every colour token switches value |
+| Light / Dark | `NSApp.effectiveAppearance`; app appearance follows the system unless Settings › Appearance › Appearance says otherwise | `prefers-color-scheme` | Every colour token switches value |
+| Theme | `QuireEnvironment.theme` (AppKit providers) and `EnvironmentValues.quireTheme` (SwiftUI) | the reader's `<style id="ss-theme">`, stamped `data-ss-theme` | Every token that is not semantic takes the theme's value (§4.16) |
+| App appearance | `NSApp.appearance`: `nil` (Automatic), `.aqua` (Light) or `.darkAqua` (Dark) | followed through `prefers-color-scheme` | Picks Light or Dark for the app, never IC: Increase Contrast stays the system's |
 | Increase Contrast | `bestMatch(from: [.aqua, .darkAqua, .accessibilityHighContrastAqua, .accessibilityHighContrastDarkAqua])`; observe `NSWorkspace.accessibilityDisplayOptionsDidChangeNotification` | `prefers-contrast: more` **and** `html.ss-ic` | Every token switches to its IC value; focus rings grow to 3 pt; sheets, the stack, the quick-reply field, autocomplete, the link popover and the cheat sheet gain a 1 pt `ruleStrong` edge (`border.icOutline`); slips keep their own edge, `slipEdge`, whose IC values are stronger; hairlines draw at 1 pt (`border.hairline.widthHC`) |
 | Reduce Motion | `accessibilityDisplayShouldReduceMotion` | `prefers-reduced-motion` **and** `html.ss-rm` | Movement becomes a 120 ms fade or nothing (§4.10) |
 | Reduce Transparency | `accessibilityDisplayShouldReduceTransparency` | `prefers-reduced-transparency` **and** `html.ss-rt` | One app-drawn surface is translucent: the cheat-sheet `scrim` (§5.32). Under Reduce Transparency it is drawn opaque as `scrimSolid` (the colour the scrim gives over `canvas`), so the window behind is hidden instead of seen through; the panel on it is opaque `raised` either way. Every other app surface is already opaque and does not change; system menus, alerts and notifications adapt themselves. `ss-rt` is mirrored anyway so any future translucent shell surface has its opaque fallback in place |
@@ -90,7 +92,7 @@ The app mirrors the three NSWorkspace flags onto the reader's `<html>` as `ss-ic
 
 ### 3.4 Selection and focus model
 
-- The list's selection stays **emphasized** (Iron Gall wash and rule) whenever the main window is key, whichever view is first responder, because `KeyboardRouter` drives `j`/`k` from the list, the reader and the quick-reply field alike. It turns idle (`selWashIdle` + `selRuleIdle`) only when the window is not key.
+- The list's selection stays **emphasized** (the ink's wash and rule) whenever the main window is key, whichever view is first responder, because `KeyboardRouter` drives `j`/`k` from the list, the reader and the quick-reply field alike. It turns idle (`selWashIdle` + `selRuleIdle`) only when the window is not key.
 - The reader shows its own focus on a message (the 2 pt ring) only after keyboard navigation (`n`/`p`, Tab). Which message R, A, F and Space act on is always shown, keyboard or mouse (the target message, §5.14).
 - Tab order: rail (the selected folder, the selected account, Add, Settings) → list header controls (the masthead in minimal mode only, the Demo tag while it is on the line, search, compose) → list → sync line (only while it carries an action: Reconnect, Retry, Cancel; with Full Keyboard Access always) → reader actions → messages (stack rows, and inside each expanded sheet the order of §5.14) → quick reply. Esc follows the precedence in §6.1.
 
@@ -103,7 +105,7 @@ The app mirrors the three NSWorkspace flags onto the reader's `<html>` as `ss-ic
 | Primary buttons (Send, Save) | `accentFill` | secondary look (`raised`, `ruleStrong` edge, `ink` label), as native default buttons do |
 | Focus rings | drawn on the first responder | not drawn (no first responder is shown in a non-key window) |
 
-Every other Iron Gall mark stays as it is: the unread pip and unread time, badges, links, the selected token, checkbox and toggle on fills, the contrail and progress. Account inks (the kicker's dot, rings, the From dot) are not Iron Gall and never change with key state either. Because text colours never depend on key state, `RowContentCache` does not key on it and a focus change redraws only the selection fill and rule of the selected rows.
+Every other mark in the ink stays as it is: the unread pip and unread time, badges, links, the selected token, checkbox and toggle on fills, the contrail and progress. Account inks (the kicker's dot, rings, the From dot) are not the ink and never change with key state either. Because text colours never depend on key state, `RowContentCache` does not key on it and a focus change redraws only the selection fill and rule of the selected rows.
 
 ### 3.5 One token set, three renderers
 
@@ -115,6 +117,8 @@ Every other Iron Gall mark stays as it is: the unread pip and unread time, badge
 
 ### 4.1 Colour
 
+**Naming (1.8).** **The ink** names the accent role (`accent`, `focus`, `selRule` and their fills and washes); **Iron Gall** names Study's ink. Values below are Study's, the default theme. Every theme keeps each token's use and its luminance (§4.16); `originalPage` is never themed.
+
 **Neutral ramp: paper to ink.** Warm grey, hue about 75°, chroma under 4. Surfaces from the back in light mode: `spine` (rail), `canvas` (reader desk), `paper` (list and headers), `sheet` (messages, fields), `raised` (keycaps, secondary buttons, popovers). Dark mode puts the desk and the rail below the paper, so sheets rise by lightness rather than shadow. The slip is dark in both appearances.
 
 **Usage rules**
@@ -124,9 +128,9 @@ Every other Iron Gall mark stays as it is: the unread pip and unread time, badge
 - **On a slip**, a resting action's keycap legend is `onSlip2`; while the action is hovered or pressed its legend switches to `onSlip`, because `onSlip2` falls below 4.5:1 on `slip + slipPressed`.
 - `rule` is decorative (separators, pane dividers, sheet edges). Anything whose edge says what a control is or what state it is in (fields, search, checkbox, toggle-off track, secondary buttons, tags) uses `ruleStrong`, which is ≥ 3:1 against every surface it sits on, at rest, in every mode.
 - Washes (`hover`, `pressed`, `fill`, `slipHover`, `slipPressed`) are ink at low alpha. The quiet-toggle on states (`accentWash`, `accentWashHover`, `accentWashPressed`) are opaque, tuned so `accent` labels keep 4.5:1 in every state. AppKit draws them as a fill over the surface; CSS layers them as `linear-gradient(var(--q-hover), var(--q-hover))` over the surface colour.
-- Iron Gall is split in two. `accent` is the mark colour (text, glyphs, pips, rules, rings) and is tuned against surfaces. `accentFill` is the fill colour (buttons, badges, checkbox and toggle on, selected token, menu highlight) and is tuned for white labels: in dark mode it is a deeper ink so fills stay quiet and labels stay light, instead of pastel fills with dark labels.
-- Iron Gall never fills an area larger than a button. Selection is a wash plus the margin rule, never a solid block.
-- Semantic colours always arrive with a glyph and words (“Sign in required” with `exclamationmark.triangle.fill`), never a coloured word alone. Danger is red and lives far from Iron Gall (teal-blue) and from every account ink.
+- The ink is split in two. `accent` is the mark colour (text, glyphs, pips, rules, rings) and is tuned against surfaces. `accentFill` is the fill colour (buttons, badges, checkbox and toggle on, selected token, menu highlight) and is tuned for white labels: in dark mode it is a deeper ink so fills stay quiet and labels stay light, instead of pastel fills with dark labels.
+- The ink never fills an area larger than a button. Selection is a wash plus the margin rule, never a solid block.
+- Semantic colours always arrive with a glyph and words (“Sign in required” with `exclamationmark.triangle.fill`), never a coloured word alone. Danger is red and lives far from every theme's ink (Iron Gall is teal-blue) and from every account ink.
 
 **Surfaces**
 
@@ -173,7 +177,7 @@ Every other Iron Gall mark stays as it is: the unread pip and unread time, badge
 | `slipPressed` | `#F3F0EA` @ 22% | `#EDE9E2` @ 20% | `#FFFFFF` @ 26% | `#FFFFFF` @ 28% | Pressed wash on slip actions |
 | `scrim` | `#1D1B18` @ 28% | `#000000` @ 50% | `#1D1B18` @ 40% | `#000000` @ 60% | Dimming behind the cheat-sheet overlay, the only app-drawn modal surface and the only translucent app-drawn surface (AppKit dims system sheets itself) |
 
-**Iron Gall: accent, selection, focus**
+**The ink: accent, selection, focus** (Iron Gall in Study)
 
 | Token | Light | Dark | Light IC | Dark IC | Use |
 |---|---|---|---|---|---|
@@ -253,7 +257,7 @@ Ten inks, assigned in this order as accounts are added, changeable per account i
 | Light IC | 15.3 | 13.1 | 16.1 | 13.4 | **13.1** | Jade / Fern (protan) | 43 · 21 · 13 · 13 · 13 · 9 · 6 · 6 · 6 | Iris / Azure (deutan) |
 | Dark IC | 13.2 | 13.6 | 13.3 | 13.8 | **13.3** | Indigo / Iris (deutan) | 35 · 16 · 15 · 13 · 13 · 6 · 6 · 6 · 6 | Jade / Umber (protan) |
 
-**Distance from the colours with meaning.** No account ink is red, none sits within 15 ΔE of Iron Gall for normal vision, none within 10 ΔE of danger under any simulation, none within 10 of info or 8 of the star. These are build-time assertions (§8.7).
+**Distance from the colours with meaning.** No account ink is red, none sits within 15 ΔE of **any theme's ink** for normal vision (13 of Gallery's, which is its text ink, as under Graphite), none within 10 ΔE of danger under any simulation, none within 10 of info or 8 of the star. These are build-time assertions (§8.7).
 
 | Mode | vs accent, normal (≥ 15) | vs accent, any CVD | vs danger, normal (≥ 10) | vs danger, any CVD (≥ 10) | vs info, normal (≥ 10) | vs star, normal (≥ 8) |
 |---|---|---|---|---|---|---|
@@ -351,8 +355,8 @@ Rules:
 - **Read in serif, write in sans.** Composer and quick-reply bodies use `writing` (SF Pro) because what you type is sent without a font. Only the composer subject keeps the serif (`composeSubject`; its twin `composeSubjectSans` under the SF Pro font).
 - **Script fallback.** A string is set in a New York role only if every letter in it is covered by New York's character set (`CTFontCopyCharacterSet` of the New York system font, computed once at launch). Otherwise the role's sans twin is used and the system cascade supplies the script (PingFang, Hiragino, Apple SD Gothic Neo, Geeza Pro, Arial Hebrew, Thonburi, Kohinoor Devanagari). The test runs when the row's attributed strings are built and is cached with them; the reader header runs it when the subject changes. Because twins keep the line height, row metrics never change; `RowMetricsTests` (§8.7) lays out CJK, Arabic, Hebrew, Thai and Devanagari samples and asserts the used height stays within the role's line height.
 - **Bidirectional text.** Subjects, senders and snippets use natural writing direction with leading alignment (the UI's direction), so an Arabic or Hebrew subject reads right-to-left but stays flush with the column. CSS: `dir="auto"` with `text-align: start`.
-- **Font setting.** Settings › General › Font: New York (default) or SF Pro. It picks the face of every New York role across the app. Under SF Pro each role is set in its sans twin wherever it appears, in AppKit, SwiftUI and the reader: `display` → `displaySans`, `headline` → `headlineSans`, `masthead` → `mastheadSans`, `reading` → `readingSans` (plain and unstyled bodies), `subject` → `subjectSans` (unread weight kept), `composeSubject` → `composeSubjectSans`, `aside` → `asideSans`, and `monogram` → `monogramSans` (§4.3, §5.29). Under New York the script fallback above still decides per string. A change applies live: every window on screen, the pre-rendered reader views and every open composer redraw in the new face at once, with no relaunch and no reselection. Twins keep the line height, so line heights and row metrics never change, no row is reloaded or re-measured and nothing moves vertically; only text widths follow the face, so the masthead takes its new width and the header items after it (the Demo tag, the search field's leading edge) shift with it. HTML mail with its own fonts is never restyled.
-- **Text size.** Settings › General › Text size moves every role where mail is read and written by -1 / 0 / 1 / 2 pt, size and line height together (§4.15). The tables above are Default.
+- **Font setting.** Settings › Appearance › Font: New York (default) or SF Pro. It picks the face of every New York role across the app. Under SF Pro each role is set in its sans twin wherever it appears, in AppKit, SwiftUI and the reader: `display` → `displaySans`, `headline` → `headlineSans`, `masthead` → `mastheadSans`, `reading` → `readingSans` (plain and unstyled bodies), `subject` → `subjectSans` (unread weight kept), `composeSubject` → `composeSubjectSans`, `aside` → `asideSans`, and `monogram` → `monogramSans` (§4.3, §5.29). Under New York the script fallback above still decides per string. A change applies live: every window on screen, the pre-rendered reader views and every open composer redraw in the new face at once, with no relaunch and no reselection. Twins keep the line height, so line heights and row metrics never change, no row is reloaded or re-measured and nothing moves vertically; only text widths follow the face, so the masthead takes its new width and the header items after it (the Demo tag, the search field's leading edge) shift with it. HTML mail with its own fonts is never restyled.
+- **Text size.** Settings › Appearance › Text size moves every role where mail is read and written by -1 / 0 / 1 / 2 pt, size and line height together (§4.15). The tables above are Default.
 - **Unstyled bodies.** “Set like a page” applies to bodies classified at sync time, never at open. The sanitizer, which already walks the tree, stores one of three values with the body: `plain` (text/plain only), `unstyled` (HTML with no `<style>` blocks, no `font-family`, `font-size`, `color`, `background` or width declarations in `style` attributes, no `<font>` face/size/color, no `bgcolor`, no layout tables with explicit widths; only text structure such as `p`, `div`, `br`, `span`, `b`, `i`, `u`, `a`, `ul`, `ol`, `li`, `blockquote`, `pre`, `code`, `img`) or `styled` (everything else). Plain and unstyled bodies get `reading` (or `readingSans`) inside the 576 pt measure; styled bodies keep their own fonts at full sheet width. The value also records whether the body's letters are covered by New York (same rule as above); if not, `readingSans` is used.
 - **Tabular digits** (`.monospacedDigit` / `font-variant-numeric: tabular-nums`) for times, counts, badges, sizes and progress, so columns do not jitter during sync.
 - **Tracking** is in points at the stated size: AppKit `.kern`, CSS `letter-spacing` in px. A tracking of 0 means the system's own optical tracking. `runningHead` is uppercased at string-build time (`uppercased(with: locale)`).
@@ -638,7 +642,7 @@ The reader has one density.
 
 | State | Colour cue | Non-colour cue |
 |---|---|---|
-| Unread | Iron Gall pip and time | the pip's presence, Semibold sender, subject and time |
+| Unread | the ink's pip and time | the pip's presence, Semibold sender, subject and time |
 | Selected | `selWash` | 3 pt margin rule, always drawn |
 | Autocomplete highlight | `selWash` | 3 pt margin rule (never a solid accent block) |
 | Window not key | `selRuleIdle` | grey traffic lights, rule colour, idle wash |
@@ -656,11 +660,11 @@ The reader has one density.
 | Demo mode | — | “Demo” tag text, window title, Settings banner words |
 | Active tab | `ink` text | 2 pt underline, Semibold |
 | Focus | `focus` ring | ring shape, 3 pt in IC; inset ring on borderless composer rows; the insertion point in the composer body (§4.1); a Quire ring on links inside message bodies (§8.4) |
-| Link button | `accent` label | position and verb; the underline on hover and press, and at rest under Graphite (§3.1) |
+| Link button | `accent` label | position and verb; the underline on hover and press, and at rest under Graphite and where the theme's flag says so (§3.1, §4.16) |
 
 ### 4.15 Text size (Q2.6)
 
-Settings › General › **Text size**: a popup of Small, Default, Large and Larger (`textSize.names`) that moves every role where mail is read and written by -1 / 0 / 1 / 2 pt (`textSize.deltas`), and ⌘+ / ⌘− for the reader alone. macOS gives apps no text-size preference; this is the one Quire has, and the 11 to 14 pt the list and the reader set by default are small for some eyes.
+Settings › Appearance › **Text size**: a popup of Small, Default, Large and Larger (`textSize.names`) that moves every role where mail is read and written by -1 / 0 / 1 / 2 pt (`textSize.deltas`), and ⌘+ / ⌘− for the reader alone. macOS gives apps no text-size preference; this is the one Quire has, and the 11 to 14 pt the list and the reader set by default are small for some eyes.
 
 - **The step.** A role's size and its line height move together, so each role keeps its leading; weight, tracking and family stay. No text goes below 11 pt: at Small the 11 pt roles (`meta`, `runningHead`, `tag`, `badge`, `kbd` and their variants) keep their size and line height. Twins move with their roles, so a twin still shares its role's line (§4.4) and a Font switch still moves nothing. Monograms follow the face's diameter, which no Text size changes (§5.29).
 - **Where it applies.** The mail: the list's rows, running heads and skeleton rows (§5.7, §5.8, §5.10); the reader, whose headline, sheets, collapsed rows, chips, invitation card and plain and unstyled bodies take the step through its CSS (§5.12, §8.4), the boxes a sheet header's lines sit in growing with them (`--q-step-<role>`), while styled HTML keeps its own sizes as it keeps its own fonts; the quick reply (§5.18: its field gains the step per line, so the bar at rest is 60 pt at Default and a point less or up to two more, and the face, the R keycap and the send button stay centred on the field at rest); a composer's subject and body (§5.20: its rows keep their heights) and the folded original under them. Everything drawn around a line of chrome keeps Default, because its bands and controls are sized for that line: the rail, the list header and its masthead, the sync line, the list's tail footer and server row, the reader's kicker and actions, buttons, fields, popups, tags, badges and keycaps, toasts, the undo panel, the HUD and the cheat sheet, empty states, the welcome screen and Settings (its 140 pt label column holds “Keep mail on this Mac” at `body` and no more), and what the system draws (menus, tooltips, alerts).
@@ -690,10 +694,386 @@ Settings › General › **Text size**: a popup of Small, Default, Large and Lar
 - **Live.** A change applies at once, with no relaunch and no reselection. The list re-measures its rows, keeping the selection and the scroll position, as a density change does: the row at the top stays at the top, as far into it as before, and only a selection the taller rows push out of view is scrolled back to. Every reader shell, the pre-rendered ones and one still loading included, takes the size and measures its bodies again; the headline is set again. Every open composer sets its subject and its body again, mid-edit included: bold, italic, underline, links, lists and quotes stay, and the caret stays where it was. The quick reply does the same. A change is not an edit: the undo stack is kept, and what an undo or a redo brings back takes the size shown then.
 - **Budgets.** A change re-measures rows once; moving the selection still builds nothing (`RowContentCache` keys on the Text size, §5.7). The list is re-measured and drawn within 50 ms, and every pooled reader shell has measured its open bodies again within 100 ms, after a change in Settings and after ⌘+ or ⌘− alike (the Text size row of the budgets in `docs/ARCHITECTURE.md`, read with the `list.remeasure` and `conversation.textSize` signposts).
 
+### 4.16 Themes (1.8)
+
+Five themes, chosen in Settings › Appearance › Theme (§5.40). **Study** is the default and the palette of §4.1–§4.3 value for value: its table in `tokens.json` is `color` itself, so nobody's app changes until they choose another. **Gallery**, **Rain**, **Grove** and **Dusk** are each named for the light the window reads like, as Quire names its own parts. A theme is a few seeds (a paper hue and strength, an ink per mode) and one rule applied to Study's table: every token keeps Study's luminance and changes only its hue and chroma, so every contrast ratio of §7 stays Study's. The few targeted adjustments are rules too, and no value is set by hand. `docs/design/source/themes_def.py` holds the seeds, `themes_lib.py` the rule and `theme_rules.py` the theme rules; `tokens.json` carries every theme's table under `themes` (Study first), with its Graphite values, both link flags, `focusOnPage` and `sheetIsPage` per mode.
+
+| Theme | Caption (under the tiles) | Inkless |
+|---|---|---|
+| **Study** | “Warm paper and blue-black ink.” | — |
+| **Gallery** | “Neutral grey paper and an ink with no colour.” | yes |
+| **Rain** | “Cool blue-grey paper, for anyone who finds warm paper too yellow.” | — |
+| **Grove** | “Sage paper and a deep teal ink.” | — |
+| **Dusk** | “Heather paper by day, and a dimmer window at night.” | — |
+
+Each caption says only what holds in every mode its tile is drawn in. No name is a brand, a paint-chip name, or a name an account ink or an avatar tint already uses.
+
+**What never changes.** `originalPage` (white in every theme and mode), the light reading sheet (it stays the white page), the ten account inks, the eight avatar tints, every semantic mark (`success`, `warning`, `danger`, `info`, `star`, `findWash`, `findCurrent`), `onDanger`, `slipEdge`, and the elevation and toggle-knob shadows.
+
+**What a theme can and cannot change.**
+
+1. **Contrast reads only luminance.** A token at exactly its Study luminance, in any hue and chroma, keeps every ratio it is in, composited pairs included: an alpha wash over a surface moves only by 8-bit rounding. So each theme inherits Quire's pair-by-pair tuning in all four modes instead of redoing it. R4 holds every neutral token's `Y + 0.05` within 3 % of Study's. The only exceptions are tokens a theme declares deeper, and only Dusk declares any; even then the hairline, the idle selection and a quiet toggle's on state are not scaled with the surfaces but keep Study's ratio against the deeper surface they are drawn on (the ratio lock, R4b), so declared depth never weakens structure.
+2. **The account palette leaves the ink only the blue-to-teal band.** An account's colour is its identity and does not change with the theme. With the ten account inks fixed, “no account ink within 15 ΔE00 of the ink” (§4.2) leaves only LCh hue 190–256 open in all four modes. R5 also keeps the ink at least 12 from `info` (at least 3 under every simulation) and at least Study's own floor from every account ink under every simulation, and R10 asks it to stay at least 15 from the text ink (at least 10 under every simulation) so links need no underline. In Light and Light IC that leaves blue-black (Iron Gall), petrol and a deep teal. **So in light modes the paper carries a theme's identity, and the ink carries it at night.** Gallery is the exception: it has no coloured ink at all.
+3. **The light sheet is the white page.** A styled message that declares its own colours is shown as sent on the light sheet (§5.14), because the sheet is the white page its sender designed for. Every theme's Light sheet is therefore no farther from white, and no more chromatic, than Study's own `#FFFEFB` (R1); the Light IC sheet is `#FFFFFF`, `raised` stays `#FFFFFF` in Light and Light IC, and `originalPage` is `#FFFFFF` everywhere. A link its sender left uncoloured on that page is the page's link, not the theme's: it keeps Study's colour in every theme (`--q-linkOnPage`, R11). The build computes `sheetIsPage` per theme and mode and requires it to be exactly “not dark”, which is what the reader's offer of Original colors assumes (§5.14): a future theme that tints its light sheet fails the build until the reader learns to adapt in light.
+4. **A light paper has a floor of L\* 94.4** (92.0 in Light IC). Lilac, the lightest account ink, must keep 3:1 on the selected row, so `selWash` needs Y ≥ 0.679, and the selected row must sit 1.25:1 below the paper: together, paper Y ≥ 0.861. Every theme today keeps Study's L\* 98.2; the floor binds a future theme that declares light depth.
+5. **Shadows are not themed.** The elevation shadows (`e1`–`e3`) and the toggle knob's shadow are Study's ink at low alpha in every theme. In a theme's own ink they would differ by at most 1.5 ΔE00, less than the step between two adjacent greys, so they stay one set and R0 says so.
+
+#### Study (default)
+
+“Warm paper and blue-black ink.” Daylight on a writing desk: Quire 1.7's `color` table in every mode, with Iron Gall. Its reader stylesheet is empty.
+
+| Token | Light | Dark | Light IC | Dark IC |
+|---|---|---|---|---|
+| `spine` | `#ECE9E1` | `#121110` | `#E4E0D6` | `#080807` |
+| `canvas` | `#F4F2EC` | `#171614` | `#F1EFE9` | `#0D0C0B` |
+| `paper` | `#FBFAF6` | `#1C1B18` | `#FDFCFA` | `#121110` |
+| `sheet` | `#FFFEFB` | `#24221F` | `#FFFFFF` | `#1C1B19` |
+| `raised` | `#FFFFFF` | `#2C2A26` | `#FFFFFF` | `#252320` |
+| `slip` | `#24221F` | `#36332E` | `#12100E` | `#2E2B27` |
+| `ink` | `#1D1B18` | `#EDE9E2` | `#0F0E0C` | `#FFFFFF` |
+| `ink2` | `#55504A` | `#B8B2A8` | `#3A3631` | `#DCD7CE` |
+| `ink3` | `#625C55` | `#A8A297` | `#4A4540` | `#C8C2B8` |
+| `ruleStrong` | `#7F796F` | `#8B857B` | `#5E5952` | `#A39D93` |
+| `accent` | `#1E5468` | `#6DB6C9` | `#123E4D` | `#93D3E3` |
+| `accentFill` | `#1E5468` | `#2D788B` | `#123E4D` | `#246F83` |
+| `accentWash` | `#DCE8EA` | `#1F363C` | `#C8DCE0` | `#1A4049` |
+| `selWash` | `#D0E0E5` | `#213A41` | `#C2D6DC` | `#1A4049` |
+| `selWashIdle` | `#EAE7DF` | `#2B2925` | `#DCD8CE` | `#302D29` |
+
+#### Gallery
+
+“Neutral grey paper and an ink with no colour.” An evenly lit white room, with everything printed in black. The neutral ramp at chroma 0 (greys at Study's luminances), and **no coloured ink**: its accent family is the Graphite substitution of §3.1 resolved against its own greys, in all four modes. The unread pip and time, links, the margin rule, focus rings and primary buttons are the text ink; toggle and checkbox on-fills are the text ink with a paper knob; quiet toggles take the idle wash. Links are underlined at rest in every mode, since colour cannot mark them. Colour that carries meaning stays: the account inks, the star, success, warning, danger, info and find. It is the only theme whose marks have no hue, so its window differs from Study's as much in Dark as in Light.
+
+- **The one departure from Graphite: the key selection wash.** The system Graphite accent makes the selected row the idle wash and lets the rule carry the difference, and the build stops asserting the two 1.25 scan cues there. A theme may not drop pairs, so Gallery's `selWash` is a grey at Study's selection luminance: the selected row sits as far from the list as in Study, and every pair is asserted.
+- **What the build reads as under Graphite** (“inkless”): the account rule “no account ink within 15 ΔE00 of the ink” (the ink is the text ink; R5 holds the palette's own floor between inks, 13, and the closest, Fern in Dark IC, is what Study shows under Graphite); R3 (no coloured fill to keep near the asset); R8 (key and not-key selection differ by the rule, `ink` against `ink3`, and by luminance); and R9's floor on the selected row (Study's selection under Graphite).
+- **Native chrome.** The compiled accent asset stays Iron Gall (§3.1). With the Multicolor system accent, an alert's default button, menu highlights and the Settings toolbar's selected tab stay Iron Gall in Gallery; with Graphite chosen in System Settings, native chrome is grey too and Gallery looks the same everywhere.
+
+| Token | Light | Dark | Light IC | Dark IC |
+|---|---|---|---|---|
+| `spine` | `#E9E9E9` | `#111111` | `#E0E0E0` | `#080808` |
+| `canvas` | `#F2F2F2` | `#161616` | `#EFEFEF` | `#0C0C0C` |
+| `paper` | `#FAFAFA` | `#1B1B1B` | `#FCFCFC` | `#111111` |
+| `sheet` | `#FEFEFE` | `#222222` | `#FFFFFF` | `#1B1B1B` |
+| `raised` | `#FFFFFF` | `#2A2A2A` | `#FFFFFF` | `#232323` |
+| `slip` | `#222222` | `#333333` | `#101010` | `#2B2B2B` |
+| `ink` | `#1B1B1B` | `#E9E9E9` | `#0E0E0E` | `#FFFFFF` |
+| `ink2` | `#515151` | `#B3B3B3` | `#373737` | `#D7D7D7` |
+| `ink3` | `#5D5D5D` | `#A3A3A3` | `#464646` | `#C3C3C3` |
+| `ruleStrong` | `#7A7A7A` | `#868686` | `#5A5A5A` | `#9E9E9E` |
+| `accent` | `#1B1B1B` | `#E9E9E9` | `#0E0E0E` | `#FFFFFF` |
+| `accentFill` | `#1B1B1B` | `#E9E9E9` | `#0E0E0E` | `#FFFFFF` |
+| `accentWash` | `#E7E7E7` | `#292929` | `#D8D8D8` | `#2D2D2D` |
+| `selWash` | `#DDDDDD` | `#363636` | `#D2D2D2` | `#3B3B3B` |
+| `selWashIdle` | `#E7E7E7` | `#292929` | `#D8D8D8` | `#2D2D2D` |
+
+#### Rain
+
+“Cool blue-grey paper, for anyone who finds warm paper too yellow.” An overcast afternoon indoors: the coolest paper of the five, the rail wet slate and the desk pale sky. The ink is a deep petrol by day and a clear aqua at night, and the slip is blue-black. In Light IC the ink moves to a bluer petrol, because no ink at Rain's own hue inside Light IC's luminance clears both R10 and R5. In Light the selection wash resolves to Study's own, because R9 keeps the Sea and Slate avatar faces off it. Rain's ink sits close to its blue-grey `ink2`, so links inside quotes are underlined at rest in every mode.
+
+| Token | Light | Dark | Light IC | Dark IC |
+|---|---|---|---|---|
+| `spine` | `#DEEBF2` | `#0B1215` | `#D2E3EB` | `#01090E` |
+| `canvas` | `#EAF4F8` | `#121719` | `#E7F1F5` | `#050D11` |
+| `paper` | `#F5FBFE` | `#171C1E` | `#F9FDFE` | `#0B1215` |
+| `sheet` | `#FDFEFF` | `#1E2326` | `#FFFFFF` | `#171C1E` |
+| `raised` | `#FFFFFF` | `#242B2F` | `#FFFFFF` | `#1F2427` |
+| `slip` | `#1E2326` | `#2C3539` | `#0D1113` | `#252D30` |
+| `ink` | `#181C1E` | `#E2EBF0` | `#0C0F10` | `#FFFFFF` |
+| `ink2` | `#495257` | `#A7B5BC` | `#30383B` | `#CDDAE0` |
+| `ink3` | `#545F64` | `#96A5AC` | `#3F474B` | `#B7C5CC` |
+| `ruleStrong` | `#6D7C83` | `#79888F` | `#4F5C62` | `#91A0A8` |
+| `accent` | `#0C3E45` | `#66CAD8` | `#00323D` | `#83D6E2` |
+| `accentFill` | `#27555B` | `#017B87` | `#103F4A` | `#03727E` |
+| `accentWash` | `#DEE8E9` | `#18373C` | `#C9DCE2` | `#0B4148` |
+| `selWash` | `#D0E0E5` | `#193B41` | `#C2D6DC` | `#0B4148` |
+| `selWashIdle` | `#E5E7E8` | `#232A2E` | `#D5D9DB` | `#272F32` |
+
+#### Grove
+
+“Sage paper and a deep teal ink.” Shade under trees. The green lives in the paper; the ink cannot be green, since success, the star and the Jade and Fern accounts own that space. By day the ink is a deep teal, chromatic enough that the pip, the unread times and the margin rule read as ink rather than black and links need no underline; at night it is a soft sea-glass. The slip is green-black. In Light the selection wash is Study's own, as in Rain.
+
+| Token | Light | Dark | Light IC | Dark IC |
+|---|---|---|---|---|
+| `spine` | `#E5EBE0` | `#0F120D` | `#DCE2D6` | `#060902` |
+| `canvas` | `#EFF4EB` | `#151713` | `#ECF1E8` | `#0A0D07` |
+| `paper` | `#F8FBF5` | `#191C17` | `#FBFDFA` | `#0F120D` |
+| `sheet` | `#FEFFFD` | `#21231E` | `#FFFFFF` | `#1A1C18` |
+| `raised` | `#FFFFFF` | `#282B25` | `#FFFFFF` | `#22241F` |
+| `slip` | `#21231E` | `#31352D` | `#0F110D` | `#292D26` |
+| `ink` | `#1A1C18` | `#E6EBE2` | `#0D0E0C` | `#FFFFFF` |
+| `ink2` | `#4E524A` | `#AEB5A9` | `#343831` | `#D4D9CF` |
+| `ink3` | `#5A5E55` | `#9EA599` | `#434740` | `#BEC5B9` |
+| `ruleStrong` | `#767C70` | `#82887C` | `#565C51` | `#99A094` |
+| `accent` | `#013A3D` | `#86D8DA` | `#002C31` | `#8CD6D6` |
+| `accentFill` | `#22555A` | `#247A7E` | `#173F44` | `#147278` |
+| `accentWash` | `#DDE8E8` | `#1D3737` | `#CADCDE` | `#154142` |
+| `selWash` | `#D0E0E5` | `#1E3A40` | `#C1D6DA` | `#134146` |
+| `selWashIdle` | `#E3E9DF` | `#272A24` | `#D4DACE` | `#2B2F28` |
+
+#### Dusk
+
+“Heather paper by day, and a dimmer window at night.” The blue hour: the theme people choose for its night. It **declares depth** in Dark and Dark IC: the surfaces and the idle selection take 0.7 × Study's luminance, so the window is violet-black and 30 % dimmer than Study's. The hairline, the idle selection and the quiet-toggle washes keep Study's ratio against the deeper surface they sit on (the ratio lock), and Dark declares a **night ink**: body text keeps Study's ratio on the deeper sheet instead of the higher one it would reach, and keeps at least 4.6:1 on `findCurrent` after 8-bit rounding. Its marks are sky-blue. By day it is a faint heather paper with an ink close to Iron Gall, since in light modes the band leaves no other blue (point 2 above): the paper carries it, as the caption says.
+
+| Token | Light | Dark | Light IC | Dark IC |
+|---|---|---|---|---|
+| `spine` | `#EBE8F4` | `#0E0C12` | `#E2DEEC` | `#06050C` |
+| `canvas` | `#F3F1FA` | `#121015` | `#F0EEF7` | `#0A080E` |
+| `paper` | `#FBF9FF` | `#161519` | `#FCFCFF` | `#0E0C12` |
+| `sheet` | `#FEFEFF` | `#1C1B20` | `#FFFFFF` | `#161519` |
+| `raised` | `#FFFFFF` | `#232228` | `#FFFFFF` | `#1D1C21` |
+| `slip` | `#232226` | `#34323A` | `#111013` | `#2C2B31` |
+| `ink` | `#1C1B1F` | `#E6E3EC` | `#0E0E10` | `#FFFFFF` |
+| `ink2` | `#525058` | `#B4B1BE` | `#37363C` | `#D9D6E1` |
+| `ink3` | `#5E5C65` | `#A4A1AD` | `#47454C` | `#C4C1CE` |
+| `ruleStrong` | `#7B7884` | `#878490` | `#5B5863` | `#9F9CA8` |
+| `accent` | `#00556E` | `#77C8F4` | `#053D4E` | `#ACE7FF` |
+| `accentFill` | `#00556E` | `#1E779C` | `#083E4F` | `#276E86` |
+| `accentWash` | `#DCE8EE` | `#17303E` | `#C9DBE5` | `#183C48` |
+| `selWash` | `#CFE0E9` | `#1E3A49` | `#C2D6DF` | `#1C3F4C` |
+| `selWashIdle` | `#E8E7E9` | `#26242A` | `#DAD6E4` | `#2C2A31` |
+
+Tokens each theme keeps from Study in all four modes: Gallery (16): `slipEdge`, `originalPage`, `star`, `success`, `warning`, `danger`, `info`, `successWash`, `warningWash`, `dangerWash`, `findWash`, `findCurrent`, `dangerFill`, `dangerFillHover`, `dangerFillPressed`, `onDanger`. Rain (17): `slipEdge`, `originalPage`, `onAccent`, `star`, `success`, `warning`, `danger`, `info`, `successWash`, `warningWash`, `dangerWash`, `findWash`, `findCurrent`, `dangerFill`, `dangerFillHover`, `dangerFillPressed`, `onDanger`. Grove (17): `slipEdge`, `originalPage`, `onAccent`, `star`, `success`, `warning`, `danger`, `info`, `warningWash`, `dangerWash`, `infoWash`, `findWash`, `findCurrent`, `dangerFill`, `dangerFillHover`, `dangerFillPressed`, `onDanger`. Dusk (17): `slipEdge`, `originalPage`, `onAccent`, `star`, `success`, `warning`, `danger`, `info`, `successWash`, `warningWash`, `dangerWash`, `findWash`, `findCurrent`, `dangerFill`, `dangerFillHover`, `dangerFillPressed`, `onDanger`. Every value of every theme is in `tokens.json` (`themes[].color`).
+
+**How far apart they are.** Mean CIEDE2000 over the tokens that carry identity (`spine`, `canvas`, `paper`, `sheet`, `slip`, `selWash`, `accent`); about 2 is a visible tint across a pane, 4 and up reads as another window:
+
+| Mode | Study–Gallery | Study–Rain | Study–Grove | Study–Dusk | Gallery–Rain | Gallery–Grove | Gallery–Dusk | Rain–Grove | Rain–Dusk | Grove–Dusk |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Light | 6.0 | 5.2 | 3.9 | 4.9 | 5.8 | 6.4 | 7.0 | 4.3 | 5.3 | 7.6 |
+| Dark | 6.3 | 5.0 | 4.3 | 6.0 | 7.7 | 7.7 | 7.7 | 4.9 | 6.4 | 8.7 |
+| Light IC | 5.3 | 4.0 | 3.2 | 4.0 | 5.7 | 5.8 | 6.1 | 3.8 | 4.1 | 6.1 |
+| Dark IC | 5.7 | 4.2 | 4.0 | 4.4 | 7.9 | 8.0 | 6.8 | 4.4 | 5.5 | 7.6 |
+
+`paper` alone, `spine` (the rail) alone, and the ink (`accent`) alone:
+
+| Mode | Study–Gallery | Study–Rain | Study–Grove | Study–Dusk | Gallery–Rain | Gallery–Grove | Gallery–Dusk | Rain–Grove | Rain–Dusk | Grove–Dusk |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Light | 2.0 | 4.2 | 2.3 | 5.4 | 2.8 | 3.6 | 3.4 | 4.5 | 4.6 | 7.0 |
+| Dark | 2.2 | 4.7 | 3.4 | 5.5 | 3.2 | 4.5 | 3.6 | 5.0 | 5.0 | 7.8 |
+| Light IC | 1.0 | 2.5 | 1.7 | 2.6 | 1.9 | 2.0 | 1.6 | 2.1 | 2.5 | 3.5 |
+| Dark IC | 0.7 | 4.0 | 3.4 | 3.9 | 3.4 | 3.4 | 3.6 | 4.6 | 4.9 | 6.9 |
+
+| Mode | Study–Gallery | Study–Rain | Study–Grove | Study–Dusk | Gallery–Rain | Gallery–Grove | Gallery–Dusk | Rain–Grove | Rain–Dusk | Grove–Dusk |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Light | 3.9 | 8.9 | 4.7 | 10.2 | 5.8 | 6.4 | 6.2 | 8.7 | 8.6 | 12.6 |
+| Dark | 0.7 | 4.0 | 3.4 | 3.9 | 3.4 | 3.4 | 3.6 | 4.6 | 4.9 | 6.9 |
+| Light IC | 4.8 | 11.0 | 5.0 | 12.1 | 7.1 | 6.8 | 7.2 | 9.8 | 10.9 | 14.0 |
+| Dark IC | 0.4 | 3.4 | 2.9 | 3.5 | 3.2 | 3.3 | 3.0 | 5.0 | 3.8 | 6.3 |
+
+| Mode | Study–Gallery | Study–Rain | Study–Grove | Study–Dusk | Gallery–Rain | Gallery–Grove | Gallery–Dusk | Rain–Grove | Rain–Dusk | Grove–Dusk |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Light | 22.4 | 9.4 | 12.1 | 2.1 | 17.2 | 17.4 | 23.6 | 3.0 | 10.3 | 13.0 |
+| Dark | 23.7 | 6.3 | 10.9 | 9.1 | 23.5 | 21.2 | 21.8 | 5.7 | 10.8 | 14.6 |
+| Light IC | 18.7 | 4.5 | 7.9 | 1.1 | 16.5 | 15.4 | 19.1 | 3.8 | 4.4 | 8.0 |
+| Dark IC | 20.9 | 3.7 | 7.0 | 6.0 | 22.9 | 22.7 | 17.8 | 4.5 | 8.4 | 11.4 |
+
+In light modes the papers and rails carry the coloured themes and the coloured inks cluster, as point 2 predicts: Dusk sits close to Iron Gall, and Rain and Grove close to each other. At night the four coloured inks spread apart, and Gallery's colourless ink is far from every other theme's in every mode. Under the system Graphite accent every theme is inkless, so there Study and Gallery differ only by their paper.
+
+**Reading comfort.** Every theme but Dusk keeps Study's light levels and text contrast to within 2 %. Dusk's night is 30 % dimmer, with body text dimmed so it stays near Study's contrast instead of glaring, and the `ink` / `ink2` ratio keeps names and snippets apart:
+
+| Theme | Mode | Sheet luminance vs Study | Desk (`canvas`) vs Study | Body text luminance vs Study | `ink` on `sheet` | `ink2` on `sheet` | ink / ink2 |
+|---|---|---|---|---|---|---|---|
+| Study | Light | 100 % | 100 % | 100 % | 17.0 | 7.9 | 2.15 |
+| Study | Dark | 100 % | 100 % | 100 % | 13.1 | 7.5 | 1.74 |
+| Gallery | Light | 100 % | 100 % | 99 % | 17.1 | 7.9 | 2.17 |
+| Gallery | Dark | 99 % | 99 % | 100 % | 13.1 | 7.6 | 1.73 |
+| Rain | Light | 100 % | 100 % | 101 % | 17.0 | 7.9 | 2.15 |
+| Rain | Dark | 100 % | 101 % | 100 % | 13.1 | 7.5 | 1.74 |
+| Grove | Light | 101 % | 100 % | 100 % | 17.1 | 8.0 | 2.15 |
+| Grove | Dark | 100 % | 102 % | 100 % | 13.1 | 7.5 | 1.74 |
+| Dusk | Light | 100 % | 100 % | 102 % | 17.0 | 7.9 | 2.16 |
+| Dusk | Dark | 70 % | 69 % | 95 % | 13.5 | 8.1 | 1.66 |
+
+**The derivation.** The seeds:
+
+| Theme | Paper ramp (LCh hue, chroma factor; inks 0.8 of it) | Dark surface chroma floor | Declared depth | The ink per mode (seed → value) |
+|---|---|---|---|---|
+| Study | — (it is `color`) | — | — | Iron Gall: Light `#1E5468`, Dark `#6DB6C9`, Light IC `#123E4D`, Dark IC `#93D3E3` |
+| Gallery | chroma 0 | — | — | none: **inkless** (the accent family is its own Graphite substitution; `selWash` a grey at Study's luminance) |
+| Rain | hue 236, chroma × 1.3 | 3 | — | Light (Y 0.04, C 16, h 212) `#0C3E45`; Dark (Y 0.5, C 30, h 212) `#66CAD8`; Light IC (Y 0.026, C 16, h 226) `#00323D`; Dark IC (Y 0.583, C 26, h 212) `#83D6E2` |
+| Grove | hue 130, chroma × 1.5 | 3 | — | Light (Y 0.034, C 17, h 202) `#013A3D`; Dark (Y 0.5934, C 26, h 200) `#86D8DA`; Light IC (Y 0.02, C 14, h 212) `#002C31`; Dark IC (Y 0.5834, C 24, h 198) `#8CD6D6` |
+| Dusk | hue 300, chroma × 1.5 | 3 | 0.7 × luminance for the surfaces in Dark and Dark IC; the ratio lock; a night ink in Dark | Light (Y 0.0762, C 24, h 240) `#00556E`; Dark (Y 0.52, C 32, h 246) `#77C8F4`; Light IC (Y 0.039, C 18, h 236) `#053D4E`; Dark IC (Y 0.7292, C 22, h 234) `#ACE7FF` |
+
+The rule, per mode:
+
+1. **Neutral ramp** (`spine`, `paper`, `canvas`, `sheet`, `raised`, `slip`, `knob`, `ink`, `ink2`, `ink3`, `inkDisabled`, `onSlip`, `onSlip2`, `rule`, `ruleStrong`, `onSlipEdge`, `hover`, `pressed`, `fill`, `slipHover`, `slipPressed`, `scrim`, `selWashIdle`). Each takes Study's relative luminance, multiplied by the declared depth for `spine`, `paper`, `canvas`, `sheet` and `raised` in Dark and Dark IC. Hue is the paper hue. Chroma is min(7, max(floor, k × Study's chroma)), where k is the paper factor (0.8 of it for the seven ink tokens) and the floor applies only to the six surfaces in dark modes. Out of gamut, chroma steps down by 0.1. Alpha tokens keep their alpha; pure white and pure black stay.
+2. **Ratio lock** (declared depth only). `rule` takes the luminance that gives Study's `rule`-on-`sheet` ratio on the theme's deeper `sheet`, `selWashIdle` Study's ratio on the deeper `paper`, and `accentWash`, `accentWashHover` and `accentWashPressed` Study's ratio on the deeper `sheet`, on the same side of it, at the theme's hue and chroma.
+3. **Night ink** (declared; Dusk, Dark only). `ink` takes the luminance that gives Study's `ink`-on-`sheet` ratio on the deeper sheet, never below 4.6:1 on `findCurrent`, its tightest pair. After 8-bit rounding the build takes the first value that meets the floor, not the nearest.
+4. **The light sheet is the page.** In Light and Light IC, `sheet` gives up chroma until it is no farther from white than Study's sheet, with C\* ≤ 1.6.
+5. **Fixed and derived.** `slipEdge` is Study's; `originalPage` and `onAccent` are `#FFFFFF` (Gallery's `onAccent` is its paper, as under Graphite); `selRuleIdle` = `ink3`; `scrimSolid` = `scrim` over `canvas`. The semantic tokens are Study's, except as rule 10 says.
+6. **The ink as a mark.** `accent` = `focus` = `selRule` = the seed.
+7. **Fills** (`accentFill`, `accentFillHover`, `accentFillPressed`, `controlOnPressed`). Study's luminance in the ink's hue, chroma × min(1.25, seed C / Iron Gall's C); then all four are pulled together toward Iron Gall until `accentFill` is at most 7.5 ΔE00 from the compiled accent asset (R3). In dark modes each on-state fill is then lifted until it keeps 3.03:1 on `sheet` and `canvas`, with white at least 4.6:1 on it.
+8. **Washes.** The quiet-toggle washes take Study's luminance (or rule 2's) in the ink hue, chroma × min(1.3, that ratio). `selWash` takes Study's luminance, never deepened, so the 1.25 scan cue holds, and is never paler than Study's; its hue steps toward Study's selection hue until every avatar face clears its floor on it (R9). `selWashIdle` then gives up chroma until it is at least 6 ΔE00 from `selWash` and every avatar face clears its floor on it.
+9. **Inkless** (Gallery). After rules 1–5, the accent-family tokens of `graphite` are resolved against the theme's own final neutrals, exactly as the system Graphite accent resolves them; `selWash` alone keeps Study's selection luminance in the theme's neutral.
+10. **Banners stay banners.** A semantic wash closer than 6.5 ΔE00 to the theme's `sheet` or `paper`, or closer to its `canvas` than the smaller of that and Study's own distance, gains chroma at its own hue and luminance until it clears.
+11. **Derived flags and page colours.** Both link flags (R10), `--q-focusOnPage` (the theme's light focus, Light IC's under Increase Contrast, in both appearances, since the page is white in both) and `--q-linkOnPage` (Study's accent, R11). Nobody sets any of these by hand.
+
+Because the adjustments are rules, a later change to Study's table re-derives every theme and the build re-checks it. The banner washes rule 10 moved (hue and luminance kept to 8-bit rounding, so every banner text pair keeps its ratio):
+
+| Theme | Wash | Mode | Study → theme | LCh |
+|---|---|---|---|---|
+| Gallery | `infoWash` | Light | `#E4EAF5` → `#E3EAF8` | C 6.0 → 7.6, h 270 → 272, L 92.5 → 92.6 |
+| Rain | `infoWash` | Light | `#E4EAF5` → `#E0EAFC` | C 6.0 → 9.8, h 270 → 271, L 92.5 → 92.5 |
+| Grove | `successWash` | Light | `#E5EFE5` → `#DFF1DF` | C 6.3 → 11.3, h 144 → 144, L 93.5 → 93.4 |
+| Dusk | `infoWash` | Light | `#E4EAF5` → `#DFEAFE` | C 6.0 → 10.9, h 270 → 271, L 92.5 → 92.4 |
+
+Dusk's ratio lock, against Study:
+
+| Theme | Mode | Pair | Study | Theme (ratio-locked) |
+|---|---|---|---|---|
+| Dusk | Dark | `rule` on `sheet` | 1.226 | 1.225 (`#2D2B32`) |
+| Dusk | Dark | `selWashIdle` on `paper` | 1.186 | 1.184 (`#26242A`) |
+| Dusk | Dark | `accentWash` on `sheet` | 1.247 | 1.246 (`#17303E`) |
+| Dusk | Dark | `accentWashHover` on `sheet` | 1.377 | 1.370 (`#1A3747`) |
+| Dusk | Dark | `accentWashPressed` on `sheet` | 1.105 | 1.107 (`#0F2733`) |
+| Dusk | Dark | `rule` on `paper` | 1.331 | 1.301 (`#2D2B32`) |
+| Dusk | Dark | `rule` on `canvas` | 1.398 | 1.353 (`#2D2B32`) |
+| Dusk | Dark | `accentWash` on `canvas` | 1.422 | 1.376 (`#17303E`) |
+| Dusk | Dark IC | `rule` on `sheet` | 2.182 | 2.191 (`#4F4D57`) |
+| Dusk | Dark IC | `selWashIdle` on `paper` | 1.377 | 1.373 (`#2C2A31`) |
+| Dusk | Dark IC | `accentWash` on `sheet` | 1.535 | 1.539 (`#183C48`) |
+| Dusk | Dark IC | `accentWashHover` on `sheet` | 1.778 | 1.780 (`#1D4654`) |
+| Dusk | Dark IC | `accentWashPressed` on `sheet` | 1.335 | 1.343 (`#13323D`) |
+| Dusk | Dark IC | `rule` on `paper` | 2.391 | 2.344 (`#4F4D57`) |
+| Dusk | Dark IC | `rule` on `canvas` | 2.477 | 2.402 (`#4F4D57`) |
+| Dusk | Dark IC | `accentWash` on `canvas` | 1.744 | 1.688 (`#183C48`) |
+
+**Graphite and Increase Contrast.** The Graphite substitution of §3.1 is unchanged and resolves against **the active theme's** neutrals: a Rain user with a Graphite system accent gets Rain's blue-grey ramp and an ink margin rule. The build regenerates the Graphite pairs for each theme, and under Graphite links are underlined at rest in every theme (§3.1). Gallery's own table already is its Graphite table, except `selWash`, which under the system accent becomes the idle wash as in every theme. Key Graphite values (all of them are in `tokens.json`, `themes[].graphite`):
+
+| Theme | Token | Light | Dark | Light IC | Dark IC |
+|---|---|---|---|---|---|
+| Study | `accent` | `#1D1B18` | `#EDE9E2` | `#0F0E0C` | `#FFFFFF` |
+| Study | `onAccent` | `#FBFAF6` | `#1C1B18` | `#FDFCFA` | `#121110` |
+| Study | `selWash` | `#EAE7DF` | `#2B2925` | `#DCD8CE` | `#302D29` |
+| Study | `accentFillHover` | `#55504A` | `#B8B2A8` | `#3A3631` | `#DCD7CE` |
+| Gallery | `accent` | `#1B1B1B` | `#E9E9E9` | `#0E0E0E` | `#FFFFFF` |
+| Gallery | `onAccent` | `#FAFAFA` | `#1B1B1B` | `#FCFCFC` | `#111111` |
+| Gallery | `selWash` | `#E7E7E7` | `#292929` | `#D8D8D8` | `#2D2D2D` |
+| Gallery | `accentFillHover` | `#515151` | `#B3B3B3` | `#373737` | `#D7D7D7` |
+| Rain | `accent` | `#181C1E` | `#E2EBF0` | `#0C0F10` | `#FFFFFF` |
+| Rain | `onAccent` | `#F5FBFE` | `#171C1E` | `#F9FDFE` | `#0B1215` |
+| Rain | `selWash` | `#E5E7E8` | `#232A2E` | `#D5D9DB` | `#272F32` |
+| Rain | `accentFillHover` | `#495257` | `#A7B5BC` | `#30383B` | `#CDDAE0` |
+| Grove | `accent` | `#1A1C18` | `#E6EBE2` | `#0D0E0C` | `#FFFFFF` |
+| Grove | `onAccent` | `#F8FBF5` | `#191C17` | `#FBFDFA` | `#0F120D` |
+| Grove | `selWash` | `#E3E9DF` | `#272A24` | `#D4DACE` | `#2B2F28` |
+| Grove | `accentFillHover` | `#4E524A` | `#AEB5A9` | `#343831` | `#D4D9CF` |
+| Dusk | `accent` | `#1C1B1F` | `#E6E3EC` | `#0E0E10` | `#FFFFFF` |
+| Dusk | `onAccent` | `#FBF9FF` | `#161519` | `#FCFCFF` | `#0E0C12` |
+| Dusk | `selWash` | `#E8E7E9` | `#26242A` | `#DAD6E4` | `#2C2A31` |
+| Dusk | `accentFillHover` | `#525058` | `#B4B1BE` | `#37363C` | `#D9D6E1` |
+
+Each theme's Light IC and Dark IC tables are derived from **Study's IC values** by the same rule, so Increase Contrast raises contrast in every theme by the steps Study takes: darker inks, stronger `rule` and `ruleStrong`, a white light sheet, Dusk's ratio-locked hairline included. The IC-only geometry (3 pt focus rings, the `ruleStrong` outline on sheets, 1 pt hairlines, the stronger `slipEdge`) is untouched, and the account inks keep their 3.5:1 IC floor on every theme's surfaces.
+
+**The theme rules.** Asserted for every theme beside the pairs, the Graphite pairs and the account rules (`theme_rules.py`; the constants are `themeRules` in `tokens.json`). “Inkless” says how a rule reads Gallery, the way the build reads the system Graphite accent.
+
+| Rule | Asserts | Why |
+|---|---|---|
+| R0 | every theme has every token in all four modes; the default theme equals `color` byte for byte; the elevation and knob shadows are one set | completeness; nobody's app changes until they choose |
+| R1 | the Light and Light IC `sheet` no farther from white than Study's, with C\* ≤ 1.6; `raised` white in the light modes; `originalPage` white in every mode | the page under styled mail stays the page its sender designed for (§5.14) |
+| R2 | the theme's light `focus` at least 3:1 on white (it is `--q-focusOnPage`) | the focus ring on the Original colors page |
+| R3 | `accentFill` at most 7.5 ΔE00 from the accent asset in each mode. Inkless: not asserted | native chrome cannot follow a switch (§3.1) |
+| R4 | no neutral token's `Y + 0.05` moves more than 3 % from Study's, except tokens the theme declares deeper (inkless: `knob`, accent family under Graphite) | the luminance lock: depth is declared, never drifted into |
+| R4b | declared depth: `rule` on `sheet`, `selWashIdle` on `paper` and the three `accentWash` tokens on `sheet` keep 99 % of Study's ratio; a declared night ink keeps 4.6:1 on `findCurrent` after rounding | depth never weakens hairlines, quote bars, the idle selection or a toggle's on state |
+| R5 | the ink at least 12 ΔE00 from `info` (at least 3 under protan, deutan and tritan), at least the smaller of 3 and Study's own from every account ink under every simulation, and at least 15 from success, warning, star and danger. Inkless: at least 13 from every account ink | the unread pip, links and an account dot never look like the info glyph or each other |
+| R6 | `ink`, `ink2` and `ink3` at least 5 ΔE00 from success, warning, star and danger under every simulation | a meaning never reads as text |
+| R7 | each banner wash at least 6.5 ΔE00 from `sheet` and `paper`, and at least the smaller of that and Study's own from `canvas` | a banner never sinks into a tinted page, or into Settings' desk |
+| R8 | `selWash` at least 6 ΔE00 from `selWashIdle`. Inkless: not asserted (the rule tells key from not key, as under Graphite) | key and not-key selection stay apart |
+| R9 | each avatar face at least the smaller of 5 ΔE00 and its Study distance from `paper`, `sheet`, `canvas`, `selWash` and `selWashIdle`. Inkless: on `selWash`, the Study distance under Graphite | no face sinks further than it does in Study |
+| R10 | two flags. **links** (`linkUnderlineAtRest`): every link is underlined at rest where the ink is under 15 ΔE00 from `ink`, or under 10 under any simulation. **quoteLinks** (`quoteLinkUnderlineAtRest`): links inside quotes, where the same holds against `ink2` | colour must not be the only cue, beside body text or beside quoted text |
+| R11 | `--q-linkOnPage` (a link its sender left uncoloured, in a body neither Quire-set nor adapted) is never closer than Study's accent to the text a sender's page sets (`#000`–`#444` light, `#FFF`–`#CCC` dark), normal or under any simulation | the sender's text, not the theme's, is what such a link sits beside |
+
+**Results.** 5 themes × 494 pairs × 4 modes = 9,880 checks, plus 5 × 100 Graphite pairs × 4 = 2,000, plus the theme rules, 0 failures. Per theme and mode, the tightest pair is the smallest margin over its need among pairs needing 3 or more; they are Study's own, because every luminance is Study's:
+
+| Theme | Mode | Pairs | Tightest pair (ratio, margin) | Graphite pairs | Tightest Graphite pair | Account rules | Theme rules |
+|---|---|---|---|---|---|---|---|
+| Study | Light | 494 / 494 | Tag edge on the selected Settings account row 3.18 (+0.180) | 100 / 100 | Tag edge on the selected Settings account row 3.49 (+0.492) | pass | pass |
+| Study | Dark | 494 / 494 | Primary button label, hover 4.58 (+0.082) | 100 / 100 | Account ink Persimmon on selected row 3.85 (+0.850) | pass | pass |
+| Study | Light IC | 494 / 494 | Account ink Lilac on hovered rail tile 3.56 (+0.055) | 100 / 100 | Account ink Lilac on selected row 3.77 (+0.267) | pass | pass |
+| Study | Dark IC | 494 / 494 | Checkbox / radio on fill vs sheet 3.01 (+0.013) | 100 / 100 | Account ink Jade on selected row 4.30 (+0.804) | pass | pass |
+| Gallery | Light | 494 / 494 | Tag edge on the selected Settings account row 3.16 (+0.160) | 100 / 100 | Tag edge on the selected Settings account row 3.47 (+0.471) | pass | pass |
+| Gallery | Dark | 494 / 494 | Row count badge numerals, selected 4.64 (+0.142) | 100 / 100 | Account ink Persimmon on selected row 3.86 (+0.858) | pass | pass |
+| Gallery | Light IC | 494 / 494 | Account ink Lilac on selected row 3.55 (+0.046) | 100 / 100 | Account ink Lilac on selected row 3.76 (+0.261) | pass | pass |
+| Gallery | Dark IC | 494 / 494 | Account ink Jade on selected row 3.52 (+0.020) | 100 / 100 | Account ink Jade on selected row 4.33 (+0.828) | pass ¹ | pass |
+| Rain | Light | 494 / 494 | Tag edge on the selected Settings account row 3.18 (+0.184) | 100 / 100 | Tag edge on the selected Settings account row 3.48 (+0.482) | pass | pass |
+| Rain | Dark | 494 / 494 | Primary button label, hover 4.57 (+0.074) | 100 / 100 | Account ink Persimmon on selected row 3.86 (+0.862) | pass | pass |
+| Rain | Light IC | 494 / 494 | Account ink Lilac on hovered rail tile 3.55 (+0.054) | 100 / 100 | Account ink Lilac on selected row 3.77 (+0.273) | pass | pass |
+| Rain | Dark IC | 494 / 494 | Checkbox / radio on fill vs sheet 3.04 (+0.039) | 100 / 100 | Account ink Jade on selected row 4.29 (+0.788) | pass | pass |
+| Grove | Light | 494 / 494 | Tag edge on the selected Settings account row 3.17 (+0.166) | 100 / 100 | Tag edge on the selected Settings account row 3.48 (+0.476) | pass | pass |
+| Grove | Dark | 494 / 494 | Primary button label, hover 4.60 (+0.104) | 100 / 100 | Account ink Persimmon on selected row 3.86 (+0.860) | pass | pass |
+| Grove | Light IC | 494 / 494 | Account ink Lilac on hovered rail tile 3.55 (+0.047) | 100 / 100 | Account ink Lilac on selected row 3.76 (+0.258) | pass | pass |
+| Grove | Dark IC | 494 / 494 | Account ink Jade on selected row 3.52 (+0.025) | 100 / 100 | Account ink Jade on selected row 4.29 (+0.785) | pass | pass |
+| Dusk | Light | 494 / 494 | Tag edge on the selected Settings account row 3.19 (+0.186) | 100 / 100 | Tag edge on the selected Settings account row 3.50 (+0.504) | pass | pass |
+| Dusk | Dark | 494 / 494 | Primary button label, hover 4.58 (+0.076) | 100 / 100 | Account ink Persimmon on selected row 4.07 (+1.071) | pass | pass |
+| Dusk | Light IC | 494 / 494 | Account ink Lilac on hovered rail tile 3.55 (+0.048) | 100 / 100 | Account ink Lilac on selected row 3.76 (+0.258) | pass | pass |
+| Dusk | Dark IC | 494 / 494 | Account ink Jade on selected row 3.54 (+0.039) | 100 / 100 | Account ink Jade on selected row 4.45 (+0.951) | pass | pass |
+
+¹ Inkless: “no account ink within 15 ΔE00 of the ink” is read as under Graphite, and R5 holds 13 instead; Study under the Graphite system accent shows the same distance.
+
+The theme rules' values:
+
+| Theme | Mode | R1 sheet vs white ΔE / C* | R2 focus on the page | R3 fill vs asset | R4 largest neutral move | R5 ink vs info, normal / CVD | R5 ink vs nearest account, CVD | R6 text vs meanings, CVD | R7 nearest banner to sheet or paper | R7 nearest banner to canvas | R8 key vs idle wash | R9 avatar margin |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Study | Light | 1.53 / 1.56 | 8.3 | 0.0 | 0.0 % | 13.0 / 5.2 | 4.7 Jade | 7.8 (ink3, success) | 6.7 successWash | 6.1 warningWash | 9.4 | +0.0 |
+| Study | Dark | — | — | 0.0 | 0.0 % | 16.7 / 5.8 | 4.5 Graphite | 8.3 (ink2, success) | 7.7 warningWash | 10.4 warningWash | 12.9 | +0.0 |
+| Study | Light IC | 0.00 / 0.00 | 11.5 | 0.0 | 0.0 % | 13.9 / 5.6 | 3.9 Mulberry | 7.9 (ink3, success) | 11.9 infoWash | 10.7 successWash | 11.3 | +0.0 |
+| Study | Dark IC | — | — | 0.0 | 0.0 % | 15.9 / 3.2 | 2.7 Lilac | 5.9 (ink3, danger) | 13.6 warningWash | 16.7 warningWash | 15.9 | +0.0 |
+| Gallery | Light | 0.20 / 0.00 | 17.2 | 22.4 (n/a) | 0.5 % | 28.5 / 27.9 | 13.4 Umber | 12.2 (ink3, success) | 7.3 infoWash | 6.7 infoWash | 2.2 (n/a) | +0.8 |
+| Gallery | Dark | — | — | 39.7 (n/a) | 0.6 % | 22.8 / 21.7 | 12.9 Lilac | 13.4 (ink2, success) | 9.8 warningWash | 11.3 infoWash | 4.2 (n/a) | +0.7 |
+| Gallery | Light IC | 0.00 / 0.00 | 19.3 | 18.7 (n/a) | 0.7 % | 26.1 / 24.3 | 13.0 Umber | 11.4 (ink3, success) | 11.5 infoWash | 10.0 infoWash | 1.4 (n/a) | +2.9 |
+| Gallery | Dark IC | — | — | 46.4 (n/a) | 0.6 % | 18.5 / 17.8 | 9.4 Fern | 10.6 (ink3, danger) | 14.6 infoWash | 16.7 infoWash | 4.5 (n/a) | +0.3 |
+| Rain | Light | 0.67 / 0.61 | 11.7 | 6.5 | 0.5 % | 21.6 / 12.1 | 4.6 Indigo | 13.1 (ink3, success) | 7.3 infoWash | 6.7 infoWash | 6.1 | +0.2 |
+| Rain | Dark | — | — | 4.9 | 0.4 % | 20.7 / 6.1 | 5.7 Lilac | 13.8 (ink2, success) | 8.8 infoWash | 10.5 infoWash | 9.9 | +0.4 |
+| Rain | Light IC | 0.00 / 0.00 | 13.8 | 2.6 | 0.4 % | 17.6 / 8.8 | 4.2 Indigo | 13.2 (ink3, success) | 11.1 infoWash | 8.7 infoWash | 6.3 | +2.3 |
+| Rain | Dark IC | — | — | 4.9 | 0.5 % | 18.7 / 3.2 | 2.8 Lilac | 12.3 (ink3, success) | 13.7 infoWash | 15.5 infoWash | 11.9 | +1.2 |
+| Grove | Light | 1.28 / 1.08 | 12.5 | 7.4 | 0.6 % | 24.6 / 13.5 | 4.7 Indigo | 8.3 (ink3, success) | 7.6 infoWash | 6.5 successWash | 7.9 | +0.2 |
+| Grove | Dark | — | — | 7.1 | 0.5 % | 23.2 / 11.5 | 4.3 Lilac | 9.1 (ink3, danger) | 9.1 warningWash | 11.0 warningWash | 11.5 | +0.5 |
+| Grove | Light IC | 0.00 / 0.00 | 15.0 | 5.4 | 0.6 % | 21.6 / 11.0 | 3.9 Indigo | 8.3 (ink3, success) | 11.1 successWash | 7.2 successWash | 8.8 | +1.2 |
+| Grove | Dark IC | — | — | 7.0 | 0.5 % | 20.8 / 7.4 | 5.1 Graphite | 6.0 (ink3, danger) | 14.1 warningWash | 16.7 warningWash | 13.8 | +0.1 |
+| Dusk | Light | 0.57 / 0.51 | 8.3 | 2.1 | 0.6 % | 13.4 / 4.6 | 4.3 Jade | 17.2 (ink2, success) | 7.8 infoWash | 6.6 infoWash | 7.9 | +0.1 |
+| Dusk | Dark | — | — | 6.3 | 0.4 % | 13.3 / 3.3 | 3.1 Lilac | 19.8 (ink2, success) | 7.9 infoWash | 10.0 infoWash | 13.7 | +1.8 |
+| Dusk | Light IC | 0.00 / 0.00 | 11.8 | 1.0 | 0.4 % | 13.9 / 5.7 | 3.2 Mulberry | 15.5 (ink3, success) | 10.5 infoWash | 7.7 infoWash | 11.9 | +0.8 |
+| Dusk | Dark IC | — | — | 2.0 | 0.4 % | 14.1 / 4.4 | 2.8 Lilac | 16.9 (ink, success) | 13.6 infoWash | 15.6 infoWash | 15.4 | +2.5 |
+
+**Links, both flags.** Every link: link buttons (`.ss-link`), invitation links (`.ss-ilink`) and every link in adapted and Quire-set bodies (`ss-links`, §8.4). Links in quotes: links inside `blockquote` and `.ss-quote` in Quire-set bodies (`ss-qlinks`). Under Graphite both are on in every theme. Study needs neither flag in any mode, so Study draws its links as before.
+
+| Theme | Mode | ink vs `ink`, normal / worst CVD | Every link at rest (`ss-links`) | ink vs `ink2`, normal / worst CVD | Links in quotes at rest (`ss-qlinks`) |
+|---|---|---|---|---|---|
+| Study | Light | 23.8 / 22.3 | — | 19.1 / 15.4 | — |
+| Study | Dark | 25.7 / 19.7 | — | 22.1 / 16.3 | — |
+| Study | Light IC | 19.3 / 17.6 | — | 16.9 / 13.2 | — |
+| Study | Dark IC | 20.9 / 13.9 | — | 20.6 / 14.3 | — |
+| Gallery | Light | 0.0 / 0.0 | **underline** | 17.5 / 17.5 | — |
+| Gallery | Dark | 0.0 / 0.0 | **underline** | 13.1 / 13.1 | **underline** |
+| Gallery | Light IC | 0.0 / 0.0 | **underline** | 12.4 / 12.4 | **underline** |
+| Gallery | Dark IC | 0.0 / 0.0 | **underline** | 8.5 / 8.5 | **underline** |
+| Rain | Light | 15.3 / 10.7 | — | 13.5 / 7.9 | **underline** |
+| Rain | Dark | 20.8 / 11.2 | — | 16.2 / 6.7 | **underline** |
+| Rain | Light IC | 15.4 / 12.3 | — | 10.0 / 5.9 | **underline** |
+| Rain | Dark IC | 22.9 / 13.2 | — | 15.4 / 5.3 | **underline** |
+| Grove | Light | 16.3 / 11.0 | — | 16.9 / 12.1 | — |
+| Grove | Dark | 19.5 / 10.3 | — | 18.6 / 12.7 | — |
+| Grove | Light IC | 15.1 / 10.1 | — | 13.3 / 10.0 | **underline** |
+| Grove | Dark IC | 22.7 / 10.9 | — | 17.5 / 8.3 | **underline** |
+| Dusk | Light | 24.9 / 20.0 | — | 19.9 / 8.8 | **underline** |
+| Dusk | Dark | 25.3 / 14.8 | — | 24.0 / 12.4 | — |
+| Dusk | Light IC | 19.2 / 16.5 | — | 15.8 / 7.0 | **underline** |
+| Dusk | Dark IC | 17.8 / 12.3 | — | 20.3 / 6.9 | **underline** |
+
+**Switching.** Live, with no relaunch, Settings included and keyboard focus kept (§5.40). The theme is one field in the environment snapshot every colour provider already reads (`QuireEnvironment.theme`), one SwiftUI environment value (`quireTheme`), one redraw sweep of every window, and one replaced `<style id="ss-theme">` in each reader document (§8.2–§8.4). Colour never changes a height, so a switch measures nothing: the list is redrawn within 50 ms and every pooled reader shell restyled within 100 ms, and nothing runs at idle (the Theme row of the budgets in `docs/ARCHITECTURE.md`). Study's reader stylesheet is empty; another theme's is at most about 7.7 KB per shell and 2.2 KB per body document, holding only what differs from Study.
+
+**Limits the check makes visible.**
+
+- Study's own Stone avatar face sits close to Study's `selWashIdle` in Light and Light IC. That is today's look, and R9 measures every other theme against it; changing it would change the default, so it waits for a change made on its own terms.
+- Study's ink is close to Lilac under deuteranopia in Dark IC; R5 takes Study's value as the floor there.
+- The new inks sit near their floors by construction: each is the quietest that clears the rules, and the build re-checks them on every change to Study's table.
+- In Light and Light IC the coloured inks cluster (point 2). The papers carry those themes by day and the inks separate at night; a wider band would mean changing account inks per theme, which would change an account's colour with the theme.
+- Links inside quotes are underlined at rest in more modes than every link, because a blue or teal ink sits near a blue-grey or tinted `ink2`. Only links inside quotes in Quire-set bodies are affected.
+- Under the system Graphite accent, a link its sender left uncoloured stays the ink on the page, as before 1.8, so it can vanish beside dark text when the sender also removed its underline.
+
 ---
 ## 5. Components
 
-Conventions: metrics in points; x and y from the component's top-leading corner; a row height includes its bottom hairline. Unless a component says otherwise its states are: **hover** = `hover` wash, glyph and text to `ink`, no animation; **pressed** = `pressed` wash (link buttons, checkbox and radio on fills and toggles have their own hover and press, §5.24 and §5.26, so that no wash ever pulls a state mark under its floor); **focused** = the focus ring (§4.1); **disabled** = `inkDisabled` text and glyph, no wash, no pointer feedback; **window not key** = only the marks listed in §3.4 change (selection wash and rule, the quick reply's mode underline, primary buttons, focus rings); every other mark, Iron Gall included, stays. Every metric table below is rendered from `layout.<component>` in `tokens.json`.
+Conventions: metrics in points; x and y from the component's top-leading corner; a row height includes its bottom hairline. Unless a component says otherwise its states are: **hover** = `hover` wash, glyph and text to `ink`, no animation; **pressed** = `pressed` wash (link buttons, checkbox and radio on fills and toggles have their own hover and press, §5.24 and §5.26, so that no wash ever pulls a state mark under its floor); **focused** = the focus ring (§4.1); **disabled** = `inkDisabled` text and glyph, no wash, no pointer feedback; **window not key** = only the marks listed in §3.4 change (selection wash and rule, the quick reply's mode underline, primary buttons, focus rings); every other mark, the ink's included, stays. Every metric table below is rendered from `layout.<component>` in `tokens.json`.
 
 ### 5.1 App window and title bar
 
@@ -709,7 +1089,7 @@ Anatomy: rail (76; 84 from macOS 26 on, §3.2) · list pane (364 default, 300–
 
 | State | Treatment |
 |---|---|
-| Key | coloured traffic lights; Iron Gall selection, mode underline `ink`, primary buttons filled |
+| Key | coloured traffic lights; the ink's selection, mode underline `ink`, primary buttons filled |
 | Not key | system grey lights; exactly the §3.4 list changes (idle selection, `ink3` underlines, primary buttons as secondary, no focus ring); the unread pip and unread time, badges and every other mark stay |
 | Full screen | traffic lights hidden by the system; layout unchanged, title-bar zone keeps 52 pt |
 | Minimal mode (⌃⌘S, View › Hide Account Rail) | rail width 0, **instantly** in every mode (the split view snaps in one frame, so no row re-truncates and no iframe re-measures over frames); the masthead moves to x = rail width + 8 (84 on macOS 15, 92 from macOS 26 on, §3.2) and becomes the title menu's button again (chevron, §5.4), with the views and an Accounts section, so every folder and account the rail held is still a click away; search and compose keep the header line and search takes the width that is left (§5.3); `⌘0…⌘9` and the G-sequences keep working |
@@ -810,7 +1190,7 @@ A system `NSMenu` popped from the masthead in minimal mode only: with the rail s
 | — separator — | | |
 | All Inboxes, then each account | monogram | ⌘0, ⌘1…⌘9 |
 
-The current view has a checkmark. G-sequences are an attributed title with a right tab stop in `ink3` (`keyEquivalent` cannot express a sequence). Highlight and item states are the system's; under Multicolor the highlight is Iron Gall through the accent asset (§3.1).
+The current view has a checkmark. G-sequences are an attributed title with a right tab stop in `ink3` (`keyEquivalent` cannot express a sequence). Highlight and item states are the system's; under Multicolor the highlight is Iron Gall through the accent asset, in every theme (§3.1).
 
 **Unread counts** are system menu-item badges, never custom fills: Inbox carries the unread Inbox count of the current scope (all accounts, or the narrowed one; the rail's Inbox tile shows the same count, §5.2), and All Inboxes and each account item carry theirs. The menu stands in for the rail, so it says what the rail's tiles say (§5.28): a string badge (`NSMenuItemBadge(string:)`) reading “99+” above 99, where a count badge would print the whole number. Numerals only (and the cap's plus), drawn and coloured by the system, so they stay legible on the highlighted row. Zero shows no badge. Later, Starred, Sent, Drafts, Trash and All Mail carry none.
 
@@ -1215,13 +1595,15 @@ Worked example, a 600 px newsletter with the default 364 pt list, for both rail 
 
 **Colour in dark appearances.** What a body looks like depends on two flags stored at sync time (`typesetting` and `declaresColors`, §8.5), never on a scan at open:
 
-| Body | Light, Light IC | Dark, Dark IC: **Adapted** (default) | Dark, Dark IC: **Original colors** |
+| Body | Light, Light IC (every theme) | Dark, Dark IC, Adapt on (the default): **Adapted** | Dark, Dark IC, Adapt off: **Original colors** |
 |---|---|---|---|
-| Plain or unstyled | Quire inks on the sheet (`reading`) | the same: Quire inks on the dark sheet | not offered (no notice, no hover action) |
-| Styled, declares no colours | as sent, on the sheet | `color-scheme: dark` on the body document: the browser defaults turn light-on-transparent, so the dark sheet shows through; unvisited links `accent` through a zero-specificity rule (`:where(a:link)`) | not offered |
-| Styled, declares colours | as sent, on the sheet (the sheet is already the white page the sender designed for); no notice, no inset | the shell puts `ss-adapt` on the body document's root: `color-scheme: dark`; every declared text colour becomes `ink` (links `accent`); declared background colours and background images are removed (transparent, so the dark sheet shows); declared border colours become `rule`. Layout, fonts, sizes and `<img>` elements are untouched. The Original colors notice says so (§5.16) | nothing is overridden: `ss-adapt` is removed and the body renders exactly as sent on an `originalPage` inset (`#FFFFFF` in every mode) inside the sheet, radius `r.xs` (3), padding 12 on every side (`layout.reader.originalInsetPad`), filling the sheet's content width; wide-HTML fitting measures the inset's inner width (content width − 2 × 12). The notice reads “Showing the sender's colours.” |
+| Plain or unstyled | the theme's inks on the theme's sheet (`reading`) | the same, on the theme's dark sheet | the same: nothing to adapt, so no notice and no hover action |
+| Styled, declares no colours | as sent, on the sheet, which every theme keeps the white page (§4.16); a link its sender left uncoloured in `--q-linkOnPage` | `color-scheme: dark` on the body document: the browser defaults turn light-on-transparent, so the dark sheet shows through; a link its sender left uncoloured in `--q-linkOnPage` through a zero-specificity rule (`:where(a:link)`) | the same |
+| Styled, declares colours | as sent, on the sheet (the sheet is already the white page the sender designed for); no notice, no inset | the shell puts `ss-adapt` on the body document's root: `color-scheme: dark`; every declared text colour becomes `ink` (links `accent`); declared background colours and background images are removed (transparent, so the dark sheet shows); declared border colours become `rule`. Layout, fonts, sizes and `<img>` elements are untouched; all of these are the active theme's. The notice says so: “This message uses its own colours.” · Original colors (§5.16). Switched to Original colors by hand: the white inset of the next column, with “Showing the sender's colours.” · Adaptive colors | nothing is overridden: `ss-adapt` is removed and the body renders exactly as sent on an `originalPage` inset (`#FFFFFF` in every mode) inside the sheet, radius `r.xs` (3), padding 12 on every side (`layout.reader.originalInsetPad`), filling the sheet's content width; wide-HTML fitting measures the inset's inner width (content width − 2 × 12). **No notice**, since Settings chose it; the header hover action, More and ⇧⌘O adapt this one message, which then shows “This message uses its own colours.” · Original colors |
 
-Adaptation **replaces** colours rather than inverting them or relying on `color-scheme` alone: `color-scheme` changes only the browser's defaults, so a sender's declared black text would stay black on the dark sheet, and inversion cannot promise any contrast. With Quire's inks every adapted text pair is one of the tested pairs (§7). The cost is the sender's brand colour, and images drawn for a white page (a dark logo with a transparent background) can disappear; Original colors restores both in one keystroke. Switching re-renders only that message's iframe (one class and the inset wrapper), then re-runs its wide-HTML fit. The choice lasts for the session, per message; View › Original Colors carries a checkmark while the focused message shows them.
+Adaptation **replaces** colours rather than inverting them or relying on `color-scheme` alone: `color-scheme` changes only the browser's defaults, so a sender's declared black text would stay black on the dark sheet, and inversion cannot promise any contrast. With Quire's inks every adapted text pair is one of the tested pairs (§7). The cost is the sender's brand colour, and images drawn for a white page (a dark logo with a transparent background) can disappear; Original colors restores both in one keystroke. In Dusk, adapted text is the dimmed night ink and adapted borders the ratio-locked `rule` (§4.16).
+
+**The Dark Mode default** (Settings › Appearance › Dark Mode, “Adapt mail that sets its own colours”, on) decides which of the two a styled message that declares colours opens in, in a dark appearance. A message's own switch is a choice on top of it, per message and per session: the shell reads one effective state, the switch made by hand if there is one and otherwise the default, and every way to switch (⇧⌘O, the notice's button, the header hover action, More) flips what the message **shows**, so with either default the first ⇧⌘O changes the message and a second restores it. A message switched by hand keeps its choice when the default changes. View › Original Colors carries a checkmark while the focused message shows the sender's colours, read from what is shown. Every body frame sits in a permanent page wrapper (`.ss-page`) whose `ss-inset-on` class is the white inset, so a switch, a change of the default and an appearance change toggle classes and refit one message, and never build a frame again (§8.4). The white page is never themed: a link on it takes the focus ring `--q-focusOnPage`, the theme's light focus.
 
 | State | Treatment |
 |---|---|
@@ -1235,7 +1617,7 @@ Adaptation **replaces** colours rather than inverting them or relying on `color-
 | Body not downloaded, offline | the stored snippet stands in for the body: `reading` (or `readingSans`) in `ink2`, at the indent, inside the measure, ending in “…”; 12 pt below it a neutral banner (§5.38, `fill`): `wifi.slash` `ink2` + “The full message will load when you're back online.” No action and no skeleton: when the connection returns the fetch starts by itself, the skeleton shows while it runs, then the body replaces the preview. Attachments known from the metadata still show as chips. VoiceOver reads the preview, then the notice |
 | Body failed (online; the fetch itself failed) | “Couldn't load this message · Retry” as a danger banner (§5.38) in place of the body |
 | Pending send | full contrast; the date reads “Sending…” with a 12 pt spinner. A reply in the outbox (scheduled or sending; not a forward, which starts its own conversation) shows as the newest sheet of the conversation it answers, built from the outbox row: its plain-text part set as a plain body, no header actions and no footer, never the target. It goes when the send leaves or is undone; the provider's copy arrives with the next sync |
-| Dark mode, styled HTML that declares colours | **Adapted** by default, with the Original colors notice; **Original colors** on request (⇧⌘O, the hover action, More or the notice), which puts the body on the white `originalPage` inset. Both renderings are specified above, under “Colour in dark appearances” |
+| Dark mode, styled HTML that declares colours | **Adapted** with Adapt on (the default), with the notice; **Original colors** with Adapt off, with none, on the white `originalPage` inset; either switched for one message by ⇧⌘O, the hover action, More or the notice. Both renderings are specified above, under “Colour in dark appearances” |
 
 ### 5.15 Quoted-text toggle (the elision mark)
 
@@ -1282,12 +1664,12 @@ The first element of a body whose remote images are blocked. Neutral: privacy is
 
 States: rest; action hover (the link gains its 1 pt underline; no wash: link buttons never take one, §5.24); action pressed (underline kept, label `ink2`: a `pressed` wash behind `accent` on this `fill` banner would fall to 4.22:1 in Dark); action focused (ring); loading (12 pt spinner replaces the glyph, “Loading 3 images…”); partial failure (“2 images couldn't load” with `exclamationmark.triangle.fill` in `warning`).
 
-**Original colors notice** (warning banner, dark appearances only) at the top of a styled body whose `declaresColors` flag is set. Its two states are the two renderings of §5.14 (“Colour in dark appearances”): **Adapted** (the default: Quire inks on the dark sheet, the sender's colours removed) and **Original colors** (the body exactly as sent, on the white `originalPage` inset with 12 pt padding). The notice itself always sits on the dark sheet, above the inset, never inside it.
+**Original colors notice** (warning banner, dark appearances only) at the top of a styled body whose `declaresColors` flag is set. Its two states are the two renderings of §5.14 (“Colour in dark appearances”): **Adapted** (the theme's inks on the dark sheet, the sender's colours removed) and **Original colors** (the body exactly as sent, on the white `originalPage` inset with 12 pt padding). A notice shows only while a message is not in the state the Dark Mode default chose, plus the adapted notice: with Adapt off, a message shown as sent has none. The notice itself always sits on the dark sheet, above the inset, never inside it, and keeps `warningWash` and `ink` in every theme.
 
 | State | Glyph | Copy | Action |
 |---|---|---|---|
-| Adapted (default) | `circle.lefthalf.filled` `warning` | “This message uses its own colours.” | “Original colors” (`labelStrong` in `ink`, 24 pt hit) |
-| Original colors shown | `circle.lefthalf.filled` `warning` | “Showing the sender's colours.” | “Adaptive colors” |
+| Adapted (Adapt on, or switched by hand with Adapt off) | `circle.lefthalf.filled` `warning` | “This message uses its own colours.” | “Original colors” (`labelStrong` in `ink`, 24 pt hit) |
+| Original colors shown, switched by hand while Adapt is on | `circle.lefthalf.filled` `warning` | “Showing the sender's colours.” | “Adaptive colors” |
 
 Hover and pressed put `hover` / `pressed` behind the action; focus rings it. A trailing dismiss button (`xmark` 9 pt `ink2`, 24 pt hit, tooltip “Don't Show Again”; `xmark` is in the reader symbol set, §4.11) hides the notice **everywhere**, from then on (one app preference, `originalColorsNoticeDismissed`); the hover action, More and ⇧⌘O keep the toggle one step away, and View › Original Colors carries a checkmark when on. The notice sits after the images banner when both apply (the one-banner-per-message rule of §5.38 counts the images banner as content, not status).
 
@@ -1565,7 +1947,7 @@ A 22 pt pill, padding 0 9, 4 pt between tokens, `body`. Content: display name, o
 
 **Autocomplete** (app-drawn because it must track the caret; it opens and closes instantly and its highlight moves without animation): `raised` popover, `e2`, radius 8, padding 4, width ≥ 320. **Position:** anchored to the start of the text being completed (`autocomplete.anchor`: tokenStart, the x where the in-progress token begins), with its leading edge -46 pt from there (`autocomplete.offsetX` = −(pad + rowPadX + avatar + avatarGap)), so the suggested names line up with the typed letters; its top 4 pt below the bottom of the token line that holds the caret (`autocomplete.offsetY`; the line, not the row, which may be taller once it wraps); it flips above that line when there is no room below, and it is clamped 8 pt inside the window (`composer.popoverEdgeMin`). Rows: 40 pt, radius 5, padding x 8: 24 pt avatar · 10 pt · name (`body` `ink`, the typed prefix `bodyStrong`, wherever it matches) over the address (`meta`, `ink3`). At most 6 rows; ↑ ↓ move, ↩ or Tab accepts, Esc closes. Increase Contrast adds the `ruleStrong` edge.
 
-**The highlighted row is a selection, drawn like list selection** (§4.1: Iron Gall never fills more than a button): `selWash` with a 3 pt `selRule` margin rule flush with the row's leading edge (clipped by the row's radius), inks unchanged (name `ink`, address `ink3`, both tested on `selWash`), and a trailing “↩” keycap in the normal raised style (§5.36), 8 pt from the row's trailing edge. The rule is the state (≥ 3:1 against the wash and the popover); the wash is a scan cue. The popover only exists in a key composer, so there is no idle variant. Hover moves the highlight (no separate hover wash).
+**The highlighted row is a selection, drawn like list selection** (§4.1: the ink never fills more than a button): `selWash` with a 3 pt `selRule` margin rule flush with the row's leading edge (clipped by the row's radius), inks unchanged (name `ink`, address `ink3`, both tested on `selWash`), and a trailing “↩” keycap in the normal raised style (§5.36), 8 pt from the row's trailing edge. The rule is the state (≥ 3:1 against the wash and the popover); the wash is a scan cue. The popover only exists in a key composer, so there is no idle variant. Hover moves the highlight (no separate hover wash).
 
 `layout.autocomplete`
 
@@ -1614,7 +1996,7 @@ A primary button (§5.24) with `paperplane` 14 pt and the label “Send”: regu
 | Secondary | `raised` | `ink`, the size's role (Medium) | 1 pt `ruleStrong` inset |
 | Ghost (tertiary) | none | `ink2`, the size's role, optional leading glyph | none |
 | Destructive | `dangerFill` | `onDanger`, the size's strong role | none |
-| Link | none | `accent`, the size's role; underlined at rest only under Graphite (§3.1) | none |
+| Link | none | `accent`, the size's role; underlined at rest only under Graphite and where the theme's flag says so (§3.1, §4.16) | none |
 | Icon | none | glyph `ink2` | none |
 
 `layout.button`
@@ -1669,7 +2051,7 @@ Sizes: small 22 (padding 9, radius 5, `label` / `labelStrong`, glyph 12), regula
 | Pressed | off: face `sheet + pressed`; on: `controlOnPressed` (darker than `accentFill` in light modes, lighter in dark modes; ≥ 3:1 on `sheet` and `canvas`, checkmark ≥ 3:1 on it) | the knob stretches to 18 pt toward the centre (instant on mouse-down, back in `dur.quick` on release, or as it travels if the press toggles it); track and knob colours do not change |
 | Focused | ring outside the box, 1 pt gap off, 2 pt on | ring outside the track, same gaps |
 | Disabled | 0.45 opacity on the control, label `inkDisabled` | same |
-| Window not key | unchanged (on fills stay Iron Gall, §3.4) | unchanged |
+| Window not key | unchanged (on fills stay in the ink, §3.4) | unchanged |
 
 Labels are `body` `ink`, 8 pt from the control, and part of the hit area. Toggles apply at once; checkboxes are for options in a form; radios for one of a few (List density). These are Quire-drawn everywhere, Settings included: AppKit custom `NSButton` cells; SwiftUI `QuireToggleStyle`, `QuireCheckboxStyle` and `QuireRadioGroup` (§8.3).
 
@@ -2028,7 +2410,7 @@ Fills the main window until the first account exists; the rail and list are hidd
 
 ### 5.40 Settings window
 
-SwiftUI `Settings { TabView { … } }` with the **system toolbar tab style**, 560 pt wide, background `canvas`. Height fits the current tab's content, never taller than the screen's visible frame; the account group is capped (below), so the tallest tab, Accounts with a two-line notice, six visible rows, the +/− buttons and a full detail form, is 800 pt of content (20 + a 46 pt banner + 16 + 336 + 8 + 22 + 20 + 310 for six detail rows with a three-line error and the 82 pt Signature row + 22), 888 pt with the window's 88 pt title bar and toolbar (macOS 26). A shorter visible frame stops the window at its height and cuts the foot of the form, which takes all of that at once: six accounts, a notice and a three-line error. Tabs: **Accounts** (`person.crop.circle`), **OAuth** (`key`), **General** (`gearshape`). The toolbar and its tabs are system chrome: macOS draws their size, material, selection and focus (the selected tab's symbol takes the accent asset, §3.1), so Quire specifies no tab metrics and asserts no tab contrast (§7). Everything **inside** the content area is Quire-drawn with the custom SwiftUI styles of §8.3, so every edge and every focus ring there meets 3:1. Content padding 20 24 22.
+SwiftUI `Settings { TabView { … } }` with the **system toolbar tab style**, 560 pt wide, background `canvas`. Height fits the current tab's content, never taller than the screen's visible frame; the account group is capped (below), so the tallest tab, Accounts with a two-line notice, six visible rows, the +/− buttons and a full detail form, is 800 pt of content (20 + a 46 pt banner + 16 + 336 + 8 + 22 + 20 + 310 for six detail rows with a three-line error and the 82 pt Signature row + 22), 888 pt with the window's 88 pt title bar and toolbar (macOS 26). A shorter visible frame stops the window at its height and cuts the foot of the form, which takes all of that at once: six accounts, a notice and a three-line error. Tabs: **Accounts** (`person.crop.circle`), **OAuth** (`key`), **General** (`gearshape`), **Appearance** (`paintpalette`; `circle.lefthalf.filled` is Original colors'), appended so no tab a user knows moves. The toolbar and its tabs are system chrome: macOS draws their size, material, selection and focus (the selected tab's symbol takes the accent asset, §3.1), so Quire specifies no tab metrics and asserts no tab contrast (§7). Everything **inside** the content area is Quire-drawn with the custom SwiftUI styles of §8.3, so every edge and every focus ring there meets 3:1. Content padding 20 24 22.
 
 `layout.settings`
 
@@ -2129,7 +2511,7 @@ The group is **not** a `List(selection:)`: SwiftUI's list selection paints an ac
 
 **“Saved”** is a status beside Save, not a banner: `checkmark.circle.fill` `success` 12 pt + “Saved” (`snippet` `ink2`), 8 pt before the Save button, from a successful save until the next edit (VoiceOver announces “Saved”). A failed save is a danger banner at the top of the tab (“Couldn't save the OAuth settings.” + the reason). Validation errors sit under their field (§5.25: “That doesn't look like a Google client ID.”).
 
-**General** (a two-column grid: labels right-aligned in 140 pt, rows 40 pt, a hairline between groups): Font (popup: New York, SF Pro; §4.4) · Text size (popup: Small, Default, Large, Larger; §4.15) · List density (radio: Standard, Compact) · Rows (checkbox: Show account initials in unified views; the seven-accounts caption under it, above) · Undo send (popup: 5, 10, 20 seconds) · — · Remote images (toggle “Load by default”, caption “Off: images load only when you ask, per message.”) · Notifications (toggle “New mail”; checkbox “Show sender and subject”) · — · Keep mail on this Mac (below) · — · At login (below) · Mail links (below). General never scrolls and is never cut where Accounts is not: at its tallest (the seven-accounts caption, At login's tallest line and Mail links' failure line, all at once) it stays shorter than Accounts at its tallest (760 pt of content).
+**General** (a two-column grid: labels right-aligned in 140 pt, rows 40 pt, a hairline between groups; nine controls, ten once the roadmap's update check lands, under its cap of twelve): List density (radio: Standard, Compact) · Rows (checkbox: Show account initials in unified views; the seven-accounts caption under it, above) · Undo send (popup: 5, 10, 20 seconds) · — · Remote images (toggle “Load by default”, caption “Off: images load only when you ask, per message.”) · Notifications (toggle “New mail”; checkbox “Show sender and subject”) · — · Keep mail on this Mac (below) · — · At login (below) · Mail links (below). Font and Text size moved to Appearance in 1.8. General never scrolls and is never cut where Accounts is not: at its tallest (the seven-accounts caption, At login's tallest line and Mail links' failure line, all at once) it stays shorter than Accounts at its tallest (760 pt of content).
 
 **Keep mail on this Mac.** How far back messages keep their full content on this Mac: a popup, Everything (the default), 1 year, 3 months, and 12 pt after it the space the mailbox takes in plain words (“292 MB”: the mail database, less the pages it keeps free for reuse after a clean-up, and the attachment cache, decimal units as Finder counts, `meta` `ink2`; VoiceOver reads “292 MB on this Mac”). Under the row, in the field column 8 pt below it (`meta` `ink3`): “Older mail stays in the list and in search, and downloads again when you open it.” The size is measured when the tab appears, when the window reopens on it, and after each clean-up while the window is open; never on a timer, and until the first answer the row holds the popup alone, never a placeholder number. A message received before the window keeps its row, its snippet and its text for search; its full content goes, and opening it fetches it again as for mail the download has not reached yet (§5.14: the skeleton while it loads, the offline preview without a network), after which it stays until the app next starts; so does mail shown in the reader, so a clean-up never empties a conversation on screen or its attachments. Older mail the download brings in arrives already cleaned up, so the mailbox never takes its full size first. Choosing a shorter window cleans up at once, in the background, and the size follows when it is done; choosing a longer one, or Everything, removes nothing more and downloads nothing back (those messages fill in again as they are opened). Drafts, messages waiting to send and messages with an action still syncing are never touched. Attachments opened on this Mac are kept up to 1 GB, the least recently used going first.
 
@@ -2151,6 +2533,30 @@ The group is **not** a `List(selection:)`: SwiftUI's list selection paints an ac
 | The change failed | the button stays, enabled; under it, in the field column 8 pt below the control and at most 360 pt wide, a field's error help line (§5.25: `exclamationmark.triangle.fill` 10 pt, 4 pt, `meta` `danger`): “Couldn't make SuperSparrow the default mail app. You can also choose it in Mail › Settings › General.” It stays until an attempt succeeds or SuperSparrow is found to be the default: through a retry too, under the disabled button while macOS asks and after the user keeps the other app. Never an alert |
 
 States per control as §5.24–5.27, Quire-drawn; validation errors inline under the field.
+
+**Appearance** (§4.16), on General's grid: labels `body` `ink` right-aligned in the 140 pt column, controls 12 pt after it, 40 pt rows, captions `meta` `ink3` 8 pt under their control and at most 360 pt wide, a hairline between the groups. Font and Text size moved here from General: they are how mail looks and belong beside the theme. The tab has no buttons, so no new verb, and it never scrolls (about 374 pt of content, far below Accounts').
+
+| Row | Label | Control | Under it |
+|---|---|---|---|
+| 1 | Theme | the five theme tiles (below) in a row at the field column, 15 pt apart (`settings.themeTileGap`), each with its name 6 pt below in `label`; row height 76 (`settings.themeRow`) | the chosen theme's caption (§4.16), 2 lines reserved (`settings.themeCaptionLines`) so a switch never moves the rows below |
+| 2 | Appearance | radio group in one line (§5.26): Automatic · Light · Dark. VoiceOver reads the first “Automatic, follows macOS” | — |
+| 3 | Dark Mode | checkbox “Adapt mail that sets its own colours” (on). Disabled, its caption kept, while Appearance is Light, where it would change nothing; with Automatic it stays enabled, since night will come | “Off: it opens in the sender's colours, on a white page. ⇧⌘O switches one message.” |
+| — | hairline | | |
+| 4 | Font | popup: New York, SF Pro (§4.4) | — |
+| 5 | Text size | popup: Small, Default, Large, Larger (§4.15) | — |
+
+**The theme tile** (`QuireThemeTile`, inside the `QuireThemePicker` radio group): a 60 × 40 pt miniature of the main window (`settings.themeTile`), radius `r.md`, drawn from **that theme's** tokens in the **current** mode with Increase Contrast and Graphite applied, so a Graphite user sees what they will get: a 8 pt `spine` strip; a 18 pt `paper` column with a 4 pt `accent` pip and two 1.5 pt `ink3` lines; and `canvas` holding a `sheet` card (hairline `rule`) with two `ink` lines and one `accent` line, 4 pt in. Its edge is a 1 pt `ruleStrong` of the **current** theme (the pair “Secondary button edge vs desk”). Five tiles and four gaps fill the 360 pt field column exactly. The choice is marked as the active tab is (§4.14), by weight and a mark under the name, never by a ring: a ring is the focus ring's alone.
+
+| Tile state | Look |
+|---|---|
+| Chosen | name in `labelStrong` `ink`, with a 2 pt `selRule` underline 3 pt below it, as wide as the name (`selRuleIdle` while Settings is not key, as the margin rule does); the picture keeps its edge |
+| Not chosen | name in `label` `ink2`; no underline |
+| Hover | the name turns `ink`; the picture never takes a wash |
+| Pressed | the underline shows in `ruleStrong` under the pressed tile's name until mouse-up, then the choice applies |
+| Focused | the group is one Tab stop; ← → (and ↑ ↓) move the choice and apply it at once, stopping at the ends, as a radio group does; the Quire focus ring (§4.1) goes round the chosen tile's picture and name. It is the only ring the picker ever draws |
+| VoiceOver | a radio group “Theme”; each tile reads as “Study, 1 of 5, selected”; the picture is hidden from accessibility; the caption is the group's help text |
+
+Every change applies at once, Settings included: the window re-themes in place, keeping keyboard focus on the tiles and every field's state (§8.3). There is no hover preview and no Reset button: choosing Study is the reset. The values live in `UserDefaults` (`theme` = `study`, `appearance` = `automatic`, `adaptsMailColours` = true), and a value this version does not know reads as the default, so a fresh install, and every existing one, opens in Study, Automatic, adapted. The underline is two pairs of §7 (“Theme name underline, chosen, Settings key / not key”, `selRule` and `selRuleIdle` on `canvas`); the name, caption, edge and focus ring are existing pairs.
 
 ### 5.41 Notifications
 
@@ -2187,7 +2593,7 @@ macOS squircle (system mask), Icon Composer layers so clear and tinted modes tin
 
 The Dock badge stays system red. The icon shares its mark with the welcome screen, About, inbox zero, alerts and notifications, and nowhere else.
 
-**Alignment with the interface.** The icon is the same paper and ink as the app: its light face is the `paper` family (warm, hue about 75°), its mark is Iron Gall `accentFill` light / `accent` dark, and its stamp rule echoes the margin rule. The mark is `ss.sparrow` from the token file, so the welcome screen, inbox zero and the icon are one drawing. No other colour, gradient or glyph appears in it.
+**Alignment with the interface.** The icon is **Study's** paper and ink in every theme, since a bundle has one icon: its light face is the `paper` family (warm, hue about 75°), its mark is Iron Gall `accentFill` light / `accent` dark, and its stamp rule echoes the margin rule. The mark is `ss.sparrow` from the token file, so the welcome screen, inbox zero and the icon are one drawing. No other colour, gradient or glyph appears in it.
 
 ### 5.43 Demo mode
 
@@ -2330,7 +2736,7 @@ File › Print… (⌘P) prints the open conversation through the system print p
 | Part | Spec |
 |---|---|
 | Page | The paper is the sheet: no desk, no sheet edge, no shadow. Margins 36 pt on every side; paper size, orientation and scale from the print panel. WebKit lays the page out 1.25 times as wide as the printable width and scales it to fit, as Safari prints, so 15 pt reading type prints at 12 pt and a 624 pt newsletter fits a Letter or A4 page whole. Backgrounds print (avatars, a newsletter's bands) |
-| Appearance | Light, whatever the app's appearance: WebKit lays a page out for print in a light appearance, the web view that prints is Aqua so what it loads before printing is decided in light too, and the document declares `color-scheme: light` on its root, over the `light dark` of the Quire head, so a sender's text with no colour of its own is black even in a dark web view. So a styled body is never adapted and the Original colors inset never appears. Paper stands in for `sheet` and is lighter, so every ink keeps the contrast its `sheet` pair asserts (§7) |
+| Appearance | Light, whatever the app's appearance: WebKit lays a page out for print in a light appearance, the web view that prints is Aqua so what it loads before printing is decided in light too, and the document declares `color-scheme: light` on its root, over the `light dark` of the Quire head, so a sender's text with no colour of its own is black even in a dark web view. So a styled body is never adapted and the Original colors inset never appears. Paper stands in for `sheet` and is lighter, so every ink keeps the contrast its `sheet` pair asserts (§7). Print uses Study's light values whatever the theme: the print document carries the head alone, never the theme's stylesheet. A printout is paper |
 | Masthead | The subject in `headline` (`headlineSans` under SF Pro; “No subject” in the placeholder style), then 6 pt below the participants and the count, “Ada Lovelace, Ben Carter, me · 3 messages” (`snippet`, `ink2`) |
 | Message | 24 pt below the masthead or the previous message, a hairline `rule`, then 24 pt to its header |
 | Header | As the sheet's (§5.14): avatar 36 · 12 gap · who block · date. The address stands beside the name at rest (`meta`, `ink3`, 6 pt after it), since paper has no hover; the recipients are always expanded, To, Cc and Bcc, every recipient written out (no “and 24 more”). No unread pip, star, Unsubscribe link, hover actions or footer: they are the reader's controls, not the message |
@@ -2546,9 +2952,11 @@ Computed by the token generator from `tokens.json` with WCAG 2.x relative lumina
 
 **Result:** 494 pairs × 4 modes = 1976 checks, plus 100 Graphite pairs × 4 = 400, 0 failures (4 of the pairs are scan cues with a 1.25 floor; account inks need 3.0, or 3.5 in IC; the rest need 4.5 or 3.0). Smallest margins: Checkbox / radio on fill vs sheet 3.01 (Dark IC, needs 3.0); Toggle on track vs sheet (rest, hover and pressed: the track never takes a wash) 3.01 (Dark IC, needs 3.0); Account ink Jade on selected row 3.52 (Dark IC, needs 3.5); Account ink Lilac on hovered rail tile 3.56 (Light IC, needs 3.5); Account ink Lilac on selected row 3.56 (Light IC, needs 3.5); Account ink Azure on hovered rail tile 3.57 (Light IC, needs 3.5).
 
+**Themes** (§4.16): 5 themes × 494 pairs × 4 modes = 9,880 checks, plus 5 × 100 Graphite pairs × 4 = 2,000, plus the theme rules, 0 failures. The pairs below are listed with Study's values; every theme asserts the same pairs against its own table, per mode, with the theme rules beside them (`ThemeRuleTests`), and §4.16 gives each theme's tightest pair. 1.8.0 adds two pairs, the chosen theme tile's underline on the Settings desk (`selRule` and `selRuleIdle` on `canvas`).
+
 Not tested on purpose: `inkDisabled` (disabled text and glyphs are exempt), decorative `rule` hairlines (they separate, they do not carry state), the toggle knob's face against the off track (its `ruleStrong` edge is the tested boundary), the popup halo against a hovered or pressed face (the halo is the ink's surface, not a mark), swatches inside the open Colour menu (the item's title names the ink), the cheat-sheet `scrim` and `scrimSolid` (they sit behind the panel and carry nothing), avatar faces and the account face wash against their surroundings (decorative; the initials on them are tested), and system-drawn chrome: menus and their badges, alerts, notifications, tooltips, and the Settings toolbar with its tabs. Every control inside Settings is Quire-drawn and tested. Bodies shown in Original colors are the sender's design on the `originalPage` inset and are not Quire pairs; adapted bodies use only tested inks (§5.14). The account square and the initial tile's edge are drawn in the account ink and are covered by the account-ink rows below, never by a `ruleStrong` pair.
 
-**Colour vision** (account inks, Machado 2009 at full severity, CIEDE2000): see the tables in §4.2. Assertions in `AccountPaletteTests`: first six ≥ 13 for every vision type in all four modes (standard-contrast target ≥ 14, met); all ten ≥ 13 for normal vision; every ink ≥ 15 from `accent`, ≥ 10 from `danger` under every simulation, ≥ 10 from `info`, ≥ 8 from `star`.
+**Colour vision** (account inks, Machado 2009 at full severity, CIEDE2000): see the tables in §4.2. Assertions in `AccountPaletteTests`: first six ≥ 13 for every vision type in all four modes (standard-contrast target ≥ 14, met); all ten ≥ 13 for normal vision; every ink ≥ 15 from every theme's `accent` (Gallery's read as under Graphite, §4.16), ≥ 10 from `danger` under every simulation, ≥ 10 from `info`, ≥ 8 from `star`.
 
 | Pair | Foreground | Background (composited left to right) | Need | Light | Dark | Light IC | Dark IC |  |
 |---|---|---|---|---|---|---|---|---|
@@ -3162,11 +3570,12 @@ Not tested on purpose: `inkDisabled` (disabled text and glyphs are exempt), deco
 |---|---|---|
 | Source of truth | `docs/design/tokens.json` | hand-edited |
 | Generator | `scripts/tools/quire-tokens.swift` (plain Foundation script, no Node; `--check` lists stale outputs and runs first in `scripts/test.sh`) | — |
-| AppKit colours, fonts, metrics | `Sources/SSDesign/Generated/QuireTokens{Colors,Palettes,Typography,Scales,Layout,Content}.swift` (generated, one file per kind) in the `SSDesign` library target, which the app depends on and which imports AppKit, SwiftUI and QuartzCore but not SSCore, GRDB or WebKit | generator |
+| Themes | `docs/design/source/themes_def.py` (the seeds), `themes_lib.py` (the rule), `theme_rules.py` (R0–R11), written by the build into `tokens.json` (`themes`, `linkOnPage`, `themeRules`, `themeChecks`) | `make.sh` |
+| AppKit colours, fonts, metrics | `Sources/SSDesign/Generated/QuireTokens{Colors,Palettes,Typography,Scales,Layout,Content,Themes}.swift` (generated, one file per kind) in the `SSDesign` library target, which the app depends on and which imports AppKit, SwiftUI and QuartzCore but not SSCore, GRDB or WebKit | generator |
 | Design runtime | `Sources/SSDesign/` beside the generated files: `QuireFont`, `QuireEnvironment`, `QuireLayerColors`, `Quire.Motion` (`finishAll()`), `QuireGlyph` and `QuireSVGPath`, `QuireSymbol` | hand |
 | Accent asset | `Resources/Assets.xcassets/AccentColor.colorset` (four appearances), compiled into `Contents/Resources/Assets.car` by `scripts/build-app.sh` with `xcrun actool`, which also sets `NSAccentColorName = AccentColor` in the bundled Info.plist | generator |
 | Reader CSS head | `Sources/SSCore/ConversationSupport/QuireCSS.swift` (generated string, interpolated at the top of `ConversationShellAssets.css`; it lives in SSCore because the shell is built there and SSCore does not import AppKit) | generator |
-| Tests | `Tests/SSDesignTests/Generated/DesignContrastTests.swift`, `AccountPaletteTests.swift`, `RadiusScaleTests.swift` (generated); `Tests/SSDesignTests/RowMetricsTests.swift`, `GlyphPathTests.swift` and the rest of `Tests/SSDesignTests/` (hand-written); `Tests/SSCoreTests/Conversation/QuireCSSTests.swift` (the CSS head against the specimen) | generator / hand |
+| Tests | `Tests/SSDesignTests/Generated/DesignContrastTests.swift`, `AccountPaletteTests.swift`, `ThemeRuleTests.swift`, `RadiusScaleTests.swift` (generated); `Tests/SSDesignTests/RowMetricsTests.swift`, `GlyphPathTests.swift` and the rest of `Tests/SSDesignTests/` (hand-written); `Tests/SSCoreTests/Conversation/QuireCSSTests.swift` (the CSS head against the specimen) | generator / hand |
 | Specimen | `docs/design/specimen.html` (+ PNGs via `scripts/tools/html-snapshot.swift`) | generator |
 
 The generator also emits the `graphite` substitutions as a second branch of every accent-family provider and CSS block (§3.1), asserts `graphiteContrastPairs` next to `contrastPairs` (with `needIC` where present), and turns `cheatSheetContent` into the overlay's rows (§5.32), so the key map, the cheat sheet and the specimen cannot drift apart. Token names map one to one: `color.paper` → `NSColor.qPaper` → `Color.qPaper` → `--q-paper`; `typography.subject` → `QuireFont.subject` → `--q-font-subject`; `layout.row.height` → `Quire.Layout.Row.height` → (AppKit only, or `--q-…` where the reader needs it); `motion.duration.standard` → `Quire.Motion.standard` → `--q-dur-standard`; `motion.curve.settle` → `CAMediaTimingFunction(controlPoints:)` → `--q-ease-settle`.
@@ -3196,6 +3605,8 @@ extension NSColor {
 - Layer-backed views re-resolve every `CGColor` in `viewDidChangeEffectiveAppearance()` and on `NSWorkspace.accessibilityDisplayOptionsDidChangeNotification`, because `CALayer` colours do not track appearance. `RowContentCache` and the avatar face cache key on appearance + contrast (never on window key state or row state).
 - Account inks: `NSColor.qAccount(index)` returns the dynamic ink for palette slot 0–9; the slot is stored on the account.
 - **Graphite.** The generator also emits the `graphite` table: each accent-family provider checks `Quire.isGraphite` (set from `NSColor.currentControlTint == .graphiteControlTint` or `controlAccentColor` saturation below 0.1, refreshed on `NSColor.systemColorsDidChangeNotification`) and returns its substitution, a token or the composite of a stack (for example `accentWashHover` → `selWashIdle + hover`, pre-composited per mode). A change re-resolves layer colours exactly like an appearance change; `RowContentCache` adds the flag to its key. The reader gets `html.ss-graphite`, whose generated block redefines the same `--q-*` variables.
+- **Themes** (§4.16). `QuireEnvironment` carries the theme in its snapshot, beside Graphite and Increase Contrast, with `setTheme(_:)` (set at launch before the first window, and on every change, posted once) and `Overrides.theme`. A token that differs across themes carries one set of values per theme and one set of Graphite values per theme; the provider indexes theme, then Graphite, then mode, under the lock it already takes, and each theme's `NSColor`s are made through `LockedCache` the first time that theme is drawn, so a theme never chosen costs only its static table. `NSColor.quire(_:theme:)` pins one theme (the theme tiles). `QuireEnvironment.cacheKey(for:)` stays theme-free, so no sender's avatar face is drawn again for a theme; the theme goes into the list's row-content key and the account-face key. Views that paint surfaces in `draw(_:)` otherwise redraw only on an appearance change, so `setTheme` ends with one **redraw sweep**: every view of every window, from the frame view down, is marked for display, and a window whose background is a Quire token takes it again. Every link that is underlined under Graphite asks `QuireEnvironment.underlinesLinksAtRest(for: appearance)`, which adds the theme's flag for the appearance's mode (`QuireButton`, `QuireEmptyStateView`, the sync line, the list footer's Retry).
+- **App appearance.** Settings › Appearance › Appearance sets `NSApp.appearance` (`nil`, `.aqua`, `.darkAqua`), AppKit's own path, the one a system switch takes: every window, Settings, composers and the web views re-resolve. Increase Contrast keeps coming from `QuireEnvironment`, because AppKit does not report it for an appearance the app sets. `--theme=` and `--appearance=` win over the settings for one process.
 - **Reduce Transparency.** The cheat-sheet scrim layer reads `accessibilityDisplayShouldReduceTransparency` when it is shown and uses `scrimSolid` instead of `scrim` (observing the change while it is open).
 
 **Fonts.** `QuireFont.role(_:) -> NSFont`, cached per role:
@@ -3231,7 +3642,7 @@ Paragraph style per role: `minimumLineHeight = maximumLineHeight = lineHeight`, 
 
 ### 8.3 SwiftUI (Settings)
 
-`Color.qAccent = Color(nsColor: .qAccent)` and so on for every token; fonts via `Font(QuireFont.role(.body))`. Window background `Color.qCanvas`. The window and its `TabView` toolbar (tab style) are the system's; the accent asset tints the selected tab's symbol. Every control **inside** the tabs uses a Quire style, because native SwiftUI controls ignore Quire's metrics and colours and draw the system focus ring, which falls below 3:1 on `canvas`:
+SwiftUI does not resolve a `Color(nsColor:)` again when a provider's output changes, so Settings draws with **`QuireColorStyle`** instead: a `ShapeStyle` per token (`.qInk`, `.qCanvas`, …, generated) whose `resolve(in:)` reads `EnvironmentValues.quireTheme` and returns that theme's colour. Each tab is hosted in a `QuireThemeRoot`, which puts the theme, Graphite and Increase Contrast in the environment, so a switch redraws every view in place and keeps its identity, `@State` and keyboard focus (§4.16). A source test keeps `Color.q…` out of SwiftUI views. Fonts via `Font(QuireFont.role(.body))`. Window background `canvas`, assigned again on a theme change. The window and its `TabView` toolbar (tab style) are the system's; the accent asset tints the selected tab's symbol. Every control **inside** the tabs uses a Quire style, because native SwiftUI controls ignore Quire's metrics and colours and draw the system focus ring, which falls below 3:1 on `canvas`:
 
 | Control | Implementation | Tokens |
 |---|---|---|
@@ -3243,13 +3654,16 @@ Paragraph style per role: `minimumLineHeight = maximumLineHeight = lineHeight`, 
 | Text field | `.textFieldStyle(.plain)` inside `QuireFieldStyle`, a container drawing the 24 pt `sheet` face, 1 pt `ruleStrong` edge (hover `ink3`, error 1.5 pt `danger`), padding 8; `mono` font for client IDs | `layout.textField` |
 | Buttons | `QuireButtonStyle(.primary / .secondary / .ghost / .link, size: .small)` drawing §5.24 fills, edges and labels (`.link` never draws a wash: underline on hover, `ink2` + underline pressed) | `layout.button` |
 | Account group | `VStack` of `QuireAccountRow`s in a `.focusable()` container (not `List(selection:)`), background per row: `selWash` / `selWashIdle` plus a 3 pt leading `Rectangle` in `selRule` / `selRuleIdle`, key state from `@Environment(\.controlActiveState)`; past 6 rows the stack sits in a `ScrollView` capped at 6 × 56 pt with clipped-edge hairlines, `ScrollViewReader` keeping the selection in view | §5.40 |
+| Theme picker | `QuireThemePicker` (§5.40): five `QuireThemeTile`s, each a `QuireThemeMiniature` drawn in its own theme under the window's mode; one `.focusable()` stop, ← → ↑ ↓ through `onMoveCommand`, a native radio group for VoiceOver built from `radios(selection:)`; the chosen name's underline reads `controlActiveState` | `layout.settings.theme*` |
 | Form layout | a `Grid` with a trailing-aligned 140 pt label column and 40 pt rows (`Form` with `.formStyle(.columns)` would bring native control styling back) | `layout.settings` |
 
 `controlActiveState == .inactive` (Settings not key) switches the selection to the idle pair and primary buttons to the secondary look, as §3.4 lists; nothing else changes.
 
 ### 8.4 Reader (WKWebView) CSS
 
-- The generated head defines every colour as `--q-<token>` in four blocks (`:root`, `@media (prefers-color-scheme: dark)`, `@media (prefers-contrast: more)`, both) plus `html.ss-ic` copies of the IC blocks and `html.ss-graphite` blocks that redefine the accent-family variables per mode (§3.1; the app sets the class); typography as `--q-font-<role>` shorthands and `--q-track-<role>`; spacing `--q-s1…`; radii `--q-r-…`; durations `--q-dur-…`; curves `--q-ease-…`; elevation `--q-e1…`. The specimen's `<style>` head is this exact output.
+- The generated head defines every colour as `--q-<token>` in four blocks (`:root`, `@media (prefers-color-scheme: dark)`, `@media (prefers-contrast: more)`, both) plus `html.ss-ic` copies of the IC blocks and `html.ss-graphite` blocks that redefine the accent-family variables per mode (§3.1; the app sets the class), and in every block `--q-focusOnPage` and `--q-linkOnPage` (§4.16); typography as `--q-font-<role>` shorthands and `--q-track-<role>`; spacing `--q-s1…`; radii `--q-r-…`; durations `--q-dur-…`; curves `--q-ease-…`; elevation `--q-e1…`. The specimen's `<style>` head is this exact output.
+- **Themes** (§4.16). The shell's head carries one `<style id="ss-theme">` after the generated head, holding the active theme's sheet, `QuireCSS.themeSheet(_:)`: the head's own selectors, in the head's order, with only the tokens that differ from Study (empty for Study), so IC and Graphite still win by the same specificity. A body document carries the cut of it, `ConversationShellAssets.bodyCut(_:)`, the same keep-list filter that cuts the body's variables from the head, so the two can never disagree. The pool builds its document in the active theme, so a new reader window paints its first frame in it. `ss.setTheme({id, shell, body, links, quoteLinks})` replaces the sheet in the shell and in every body document without reloading a frame, stamps `data-ss-theme` on each root, forces style resolution in every document and posts `themed`; a frame still loading during a switch has its stale sheet replaced once it lands. The web views' under-page colour (`canvas`, which shows while a render lands or the page overscrolls) is set again on a switch and on an appearance change. The print document carries the head alone (§5.48).
+- **Link classes.** `ss-links` (every link) and `ss-qlinks` (links in quotes) are worked out from the theme's two flags for the current mode, and from Graphite, and toggled on the shell and every body document whenever the theme, the modes or the appearance change. They underline link buttons (`.ss-link`), invitation links (`.ss-ilink`), links in adapted bodies (`html.ss-adapt a`) and in Quire-set bodies (`body.ss-set a`), and, with `ss-qlinks`, links in their quotes (`body.ss-set blockquote a`, `body.ss-set .ss-quote a`), at rest, a sender's `text-decoration: none` included (`!important`).
 - Current variables map as: `--ss-bg` → `--q-canvas`, `--ss-card` → `--q-sheet`, `--ss-border` → `--q-rule`, `--ss-text` → `--q-ink`, `--ss-muted` → `--q-ink2` (recipients, snippets) / `--q-ink3` (dates), `--ss-accent` → `--q-accent`, `--ss-chip` → `--q-fill`, `--ss-selected` → `--q-focus`, `--ss-star` → `--q-star`.
 - Classes: `.ss-card` (expanded) → sheet (radius `r.lg`, padding per §5.14, `e1`); collapsed cards → `.ss-stack` rows joined in one sheet; `.ss-button` → `.ss-elide` toggle and link buttons; `.ss-chip` → attachment chip; `.ss-footer a` → ghost buttons; `.ss-tools` is removed (Original colors moves to the header hover actions).
 - **Invitation card** (§5.14): `.ss-invite` (a `section` with `role="group"`) sits between the sheet header and `.ss-body`, `hidden` when the message has none. After it, `.ss-mrow` holds the message's elision mark (`.ss-elide.ss-toggle-message`), shown only on a sheet whose message has a card (`.ss-card.ss-mfold`, decided from the payload's `invitation`, never from the HTML). Folded (`.ss-mfolded`), `.ss-frame` is clipped to 0 pt, `visibility: hidden` and `inert`, with the quoted-text row hidden, while `.ss-banners` stays in view (12 below the mark, its last banner's bottom margin dropped); the frame is still loaded and measured at full width, so unfolding sets the sheet's height to the measured one and animates there like quoted text. A fold by “.” that hides the focused element (in the frame or the quoted-text row) focuses the mark. The shell posts `focusMark` (`on`) whenever keyboard focus lands on an `.ss-elide` mark or leaves one, and after a render; the app keeps it per pooled slot, and while the reader's web view has the window's focus and a mark has the page's (`ConversationViewController.isMarkFocused`), the router's ↩ (`.open`) and the reader's Space (`ReaderShortcuts.spaceOutcome`) let the key through to the page. The fold lives on the card in the script (`messageShown`, like `quotesShown`): `ss.update` keeps it, `ss.render` and a replaced body forget it. `ss.toggleQuotes()` (the “.” command) folds and unfolds the message on a sheet that has one, and quoted text elsewhere. `.ss-ikick`, `.ss-ititle`, `.ss-iwhen`, `.ss-ielse`, `.ss-irep`, the `.ss-idet` grid (72 pt label column), `.ss-iacts` with `.ss-ans` (small secondary; `.ss-chosen` the chosen answer, `aria-pressed`) and the `.ss-iopen` link button; `.ss-invite.ss-cancelled`; the permission notice is a `.ss-banner.ss-info.ss-wrap`. A click marks the answer in place and posts `answerInvitation` with the answer's name (`accepted`, `tentative`, `declined`); `openInCalendar`, `openInvitationLink` and `reconnectForInvitation` are the other actions. The payload carries the card display-ready (`RenderPayload.Invitation`); a patch rebuilds only the card when its JSON changed, and otherwise puts the chosen mark back on the payload's answer, so an answer the store refused or gave up never stays marked.
@@ -3262,12 +3676,10 @@ a:focus-visible { outline: 2px solid var(--q-focus) !important; outline-offset: 
                   box-shadow: 0 0 0 1px var(--q-sheet) !important; border-radius: 2px; }   /* 1 pt gap in the sheet colour */
 @media (prefers-contrast: more) { a:focus-visible { outline-width: 3px !important; } }
 html.ss-ic a:focus-visible { outline-width: 3px !important; }
-.ss-original a:focus-visible { --q-focus: #1E5468; box-shadow: 0 0 0 1px var(--q-originalPage) !important; }
-@media (prefers-contrast: more) { .ss-original a:focus-visible { --q-focus: #123E4D; } }
-html.ss-ic .ss-original a:focus-visible { --q-focus: #123E4D; }
+.ss-original a:focus-visible { --q-focus: var(--q-focusOnPage); box-shadow: 0 0 0 1px var(--q-originalPage) !important; }
 ```
 
-  The light gap and the ring together stay visible on any sender background: on a dark band the gap shows, on a light one the ring does. The web view's `tabFocusesLinks` follows Full Keyboard Access (§5.14).
+  `--q-focusOnPage` is the theme's light focus (Light IC's under Increase Contrast) in both appearances, since the Original colors page is white in both; under Graphite it is the theme's light `ink`. The light gap and the ring together stay visible on any sender background: on a dark band the gap shows, on a light one the ring does. The web view's `tabFocusesLinks` follows Full Keyboard Access (§5.14).
 - **SF Symbols**: the shell builder receives `symbolCSS` (the data-URI custom properties, §4.11) from the app and emits `.ss-sym { width: 1.3em; height: 1.3em; background: currentColor; -webkit-mask: var(--sym) center / contain no-repeat; }` with one modifier class per symbol.
 - **Reduced motion, precisely.** Movement uses `--q-move`, which defaults to the token duration; fades use `--q-dur-reducedFade` and are exempt:
 
@@ -3296,12 +3708,13 @@ html.ss-adapt, html.ss-adapt body, html.ss-adapt body * {
   border-color: var(--q-rule) !important;
 }
 html.ss-adapt a, html.ss-adapt a * { color: var(--q-accent) !important; }
-:where(a:link) { color: var(--q-accent); }               /* styled bodies that declare nothing */
-.ss-original { background: var(--q-originalPage); border-radius: var(--q-r-xs);
-               padding: 12px; color-scheme: light; }   /* Original colors wrapper */
+:where(a:link) { color: var(--q-linkOnPage); }           /* a link its sender left uncoloured: Study's accent (R11) */
+.ss-page { padding: 0; background: transparent; }        /* every body frame's permanent wrapper */
+.ss-page.ss-inset-on { background: var(--q-originalPage); border-radius: var(--q-r-xs);
+               padding: 12px; color-scheme: light; }   /* the Original colors page */
 ```
 
-  `ss.originalColors(id, on)` toggles `ss-adapt` and the `.ss-original` wrapper for one message, then refits it. Light appearances never add either.
+  `ss.originalColors(id, on)` stores an explicit choice for one message and toggles `ss-adapt` and its page's `ss-inset-on`, then refits it; the frame is never built again. `ss.preferences({adaptsColours})` carries the Dark Mode default (§5.14), which the payload carries too; a message with no choice of its own follows it, and the shell posts the messages that show the sender's colours after every render, switch, appearance change and new default, which View › Original Colors reads. `.ss-original` stays the class on such a body document's root. Light appearances never add either.
 - **Expand and collapse** follow §4.10. The shell keeps `heights[messageId + ':' + contentWidth]` from every measurement. On expand it sets the body wrapper's `height` from its current px value to header + (cached height, or the 58 pt skeleton) + footer with the transition on; each measurement (`0`, `50`, `300` ms, image `load`) sets `transition: none`, writes the measured px height, forces a style flush and restores the transition, so a measurement snaps instead of retargeting the animation. `ss.finishAll()` (called by `finishAll()`, §4.10) sets every running wrapper to its target with `transition: none`. Heights are always px, never `auto`.
 - **Offline body.** When a message has no stored body (`hasBody = false`) the payload carries the snippet and an `offline` flag from the app: offline, the shell renders the preview and the neutral `wifi.slash` notice (§5.14) instead of the skeleton; online, it shows the skeleton only while the app reports the fetch in flight. Today's 0.6-opacity snippet (`.ss-pending-body`) is removed.
 - **Find in conversation** (§5.50). `ss.find(query)`, `ss.findStep(±1)` and `ss.findClear()`; each posts `{kind: 'find', query, count, index}` too, as does a store refresh that changes the count, and the app shows only the report for the bar's own query. The shell folds text for comparison (case, accents, white space), breaks it at block elements and `br`, and reads a body with no frame from its HTML through `DOMParser`, whose document runs no script and loads nothing, by the same walk as a framed body, so the count never depends on what is expanded. Hidden text is read from each element's inline style as the browser parsed it (`element.style`, in a frame and in a parsed document alike), so a shorthand and `!important` count; a zero font size and `visibility: hidden` pass down the walk until an element undoes them. A parsed body keeps only its folded text, its plain-ASCII runs folded a text node at a time, so the first find in a conversation, which reads every collapsed body, stays inside the keystroke budget. Matches are wrapped in `mark.ss-find` (the current one also `.ss-find-now`) in the frames that have loaded, piece by piece across elements; `ss.findClear()` unwraps them and joins the split text nodes, so the body is exactly as parsed. The frames keep their sandbox and their blocking policy: the shell adds no script and no source to a body. Every body document carries:
@@ -3367,6 +3780,7 @@ html.ss-adapt a, html.ss-adapt a * { color: var(--q-accent) !important; }
 | §5.43 demo | `Shell/MainWindowController.swift` (window title), `Shell/ListPaneViewController.swift`, `Shell/SettingsWindowController.swift` (demo note), `Shell/AppEnvironment.swift` | Demo tag and menu, sync-line state, Settings banner, Leave Demo |
 | §5.44 add account | `Shell/AppDelegate.swift` (provider `NSAlert`, “Finish signing in…”), `Shell/AccountStripViewController.swift` | provider pull-down menu, pending tile, sync-line waiting state with Cancel, error alerts |
 | §5.41 notifications | `Shell/NewMailNotifier.swift`, `Shell/NewMailNotificationAction.swift`, `Shell/NewMailNotificationResponder.swift`, `Shell/MainWindowController.swift` (`answer`) | content rules; the category and its three actions; a response held until there is a main window; actions with no toast and no undo |
+| §4.16 themes, §5.40 Appearance | none (one palette; Font and Text size in General) | `docs/design/source/themes_*.py`, `theme_rules.py`; generated `QuireTokensThemes.swift` and per-theme providers; `QuireEnvironment.theme` and the redraw sweep; `SwiftUI/QuireThemeEnvironment.swift`, `QuireThemeRoot.swift`, `QuireColorStyle.swift`, `QuireThemePicker.swift`, `QuireThemeTile.swift`; `Shell/AppSettings.swift`, `Shell/AppAppearance.swift`, `Shell/Settings/AppearanceSettingsView.swift`; the reader's `ss-theme` sheet, link classes and page wrapper (`ConversationShellAssets.swift`, `ShellTheme.swift`, `Conversation/WebViewPool.swift`) |
 | §4.11 reader symbols | `Conversation/PooledConversationView.swift`, `Conversation/WebViewPool.swift` | rasterise symbols once per pool, inject `symbolCSS` |
 
 ### 8.7 Tests
@@ -3382,6 +3796,7 @@ Design tests live in `Tests/SSDesignTests`: the generated ones in `Tests/SSDesig
 - **The invitation card**: `InvitationCardPayloadTests` (its words and states, an earlier revision offering no answer, and that the shell reads every key), the gated `ConversationShellWebViewTests` cases (its place at the indent above the body, small buttons, a click marking the answer and posting it, the permission notice, the cancelled title struck through; the message's mark 16 below the card and the body 12 below the mark once unfolded, every card state folding its message and a message without a card not, the unfold animating straight to the sheet's height and instant under Reduce Motion, Original colors switched under the fold with its notice in view) and `ReaderInvitationTests` (the real reader: an answer reaching the store and the provider, a refused answer taken off the card, the card asking to reconnect and stopping once granted, Open in Calendar's file, a cancellation; the message folded at open in every state, its mark's words, tooltip and pressed state, the attachments staying, the mark and “.” unfolding and folding it, a Space or ↩ on the focused mark (and on the quoted-text toggle under it) let through by the router's Open and by Quick Look of an invite.ics chip and pressing it in the page, “.” moving the focus it hides to the mark, its own quoted text folded under its own toggle, Load images under the fold with its banner and progress in view, and the fold kept and forgotten exactly as the quoted-text toggle's is; `ReaderShortcutsTests`, Space on a focused mark left to the web view). The gated `ReaderInvitationRenderTests` renders the demo's invitations folded and unfolded, light and dark, for looking at.
 - **Print** (§5.48): `PrintDocumentBuilderTests` (the payload to the print document: every message open in order, the header written out, the date in full, the notes for what the reader folds or holds back, the card without buttons, bodies in inert templates with their image and quote state, the reader's blocking policy and elision glyph kept equal to the shell's, the page's own script policy and nonce, escaping, and the shell's card states read into `PrintSheetState`) and `PrintConversationTests` (the real reader printing to a PDF file through the real print operation: the text of every message on the pages, a long body over several pages, held-back images never fetched while loaded ones are, a held-back body's inline image waited for in its own step, a positioned block kept in its own sheet, no script of a body's run, folded quotes left out and unfolded ones printed, light in a dark app and `color-scheme: light` over the Quire head, the stylesheet's metrics held to `layout.print` and the reader's, ⌘P's validation and the File menu item); `PrintRenderTests` (gated, `SS_UI_TESTS=1`) writes the demo's printouts as PDFs to `SS_RENDER_DIR` for looking at.
 - **Find in conversation** (§5.50): `FindBarTests` (the bar's metrics, colours in four modes, its keys, buttons and VoiceOver), `ConversationFindTests` (the count's words, the shell's reports read totally, the calls, the marks' styles in every body document), the gated `ConversationShellFindTests` (what counts and what does not, marks across elements and their removal, stepping and wrapping, what a step opens, a store refresh, a find loading nothing, the keystroke's time over 30 messages) and `FindInConversationTests` in the real main window (the menu, typing, ↩ and ⇧↩, ⌘G, Esc from the field and from the page, another conversation, a store change, ⌘F still search, the bar's place).
+- **Themes** (§4.16): `DesignContrastTests` and `AccountPaletteTests` loop the five themes (every pair and Graphite pair in four modes, the account rules with Gallery's inkless reading), and the generated `ThemeRuleTests` asserts R0–R11 for each and that the sheet is the page exactly in the light modes. `ThemeTests` (every theme's tokens in four modes and under Graphite, Study equal to `color`, one post per change, the cache keys, the link flags, colours made only for a theme drawn, the sweep, SwiftUI keeping focus and identity, and source rules for `Color.q…` in SwiftUI, link underlines and layer colours), `ThemePickerTests` (the tile states, geometry and VoiceOver), `QuireCSSTests` and `ConversationShellThemeTests` (the theme sheets block by block, a switch without a reload, a frame loading during a switch, the link classes, an uncoloured newsletter link, the permanent page, the Dark Mode default through two ⇧⌘O and a change of default), and in the app `ThemePreferencesTests`, `AppearanceSettingsTests` (the tab, General's nine controls, the arrows through five themes with focus kept), `ReaderThemeTests` and `ThemeSettingTests` (a switch restyles the list, an open conversation, a composer, a reader window and Settings with no relaunch, moving no row, selection or scroll offset; the colour under the pages; `NSApp.appearance`; a reader window opened in a theme paints its first frame in it). `ThemePerformanceTests` (`SS_PERF=1`) holds the budgets, and the gated `ThemeRenderTests` (`SS_UI_TESTS=1`) renders the main window, a reader window and Settings › Appearance in every theme, Light and Dark, for looking at.
 - **`RadiusScaleTests`** (generated): every `radius` metric in `layout` is on the scale or a listed exception (§4.6). The exception list mirrors `RADIUS_EXCEPTIONS` in `docs/design/source/tokens_def.py`; `tokens.json` does not carry it, so `scripts/tools/quire-tokens.swift` holds it, each exception pinned to its value.
 - Existing signposts stay the gate: `j`/`k` ≤ 16 ms and list refresh ≤ 50 ms on the synthetic mailbox after the row changes, and a hover-while-scrolling run that asserts no avatar cache miss.
 
@@ -3389,14 +3804,14 @@ Design tests live in `Tests/SSDesignTests`: the generated ones in `Tests/SSDesig
 
 ## 9. Scope decisions
 
-**In v1:** everything above. New settings are limited to Font, Text size, List density, Show account initials, and per-account colour, monogram and signature (plus the one Original colors notice preference).
+**In v1:** everything above. New settings are limited to Theme, Appearance, Dark Mode (Adapt mail that sets its own colours), Font, Text size, List density, Show account initials, and per-account colour, monogram and signature (plus the one Original colors notice preference).
 
 **Not in v1, deliberately:**
 
 - **Row animations** of any kind: no slide-out on archive, no gap closing, no star pop, no dot shrink.
 - **Sticky date headers** and date headers in search results.
 - **App-drawn vibrancy.** The rail and every pane are opaque.
-- **Following an arbitrary system accent** in custom-drawn surfaces (only Graphite is honoured, §3.1).
+- **Custom themes, a colour picker and following an arbitrary system accent** in custom-drawn surfaces (the five checked themes are the set; only Graphite is honoured, §3.1).
 - **Hover action buttons on rows**; the keyboard and the context menu cover them.
 - **Avatar photos**, local or remote. Faces are initials only (no Contacts access).
 - **A per-sender image allowlist.** Remote images load per message.

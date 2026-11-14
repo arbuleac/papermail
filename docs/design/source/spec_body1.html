@@ -18,6 +18,7 @@
 
 <section class="sh"><span class="n">A · Main window</span><h2>Unified inbox, list driving</h2><p>{{layout.window.defaultWidth}} × {{layout.window.defaultHeight}} pt, window key. Three accounts. The selection keeps its Iron Gall wash and margin rule while the main window is key, wherever the first responder is.</p></section>
 
+<!-- figure:main-window -->
 <div class="win" style="width:1280px;height:800px">
   <div class="lights"><i></i><i></i><i></i></div>
   <!-- rail -->
@@ -80,9 +81,15 @@
     <div class="qr"><div class="qrf"><span class="mono24" style="--a:var(--q-acct-1)"><span>C</span></span><span class="ph">Reply to Ben Carter…</span><span class="kbd">R</span><span class="ib dis" style="margin-left:{{layout.quickReply.restKeycapGap}}px;color:var(--q-inkDisabled)">{{PY: s('paperplane', 15)}}</span></div></div>
   </div>
 </div>
+<!-- /figure:main-window -->
 <div class="notes">
   <div><b><i>1</i>The horizon</b>The traffic lights, the masthead, search, compose and the kicker share the centre line y = {{layout.listHeader.mastheadCenterY}}; the list header is that {{layout.listHeader.height}} pt band alone.</div>
   <div><b><i>2</i>The margin rule</b>Selection is the <code>selWash</code> plus a {{border.marginRule.width}} pt Iron Gall rule. Text never inverts, so cached row strings stay valid on j/k. Hover never draws on the selected row.</div>
   <div><b><i>3</i>Accounts</b>A {{border.accountRing.width}} pt ring in the account ink (unified views), the kicker names the account in words, the rail carries domain monograms, anchored at its foot above Add, under the folders. Distinct colours are promised for six accounts.</div>
   <div><b><i>4</i>Unread, three ways</b>The pip, Semibold sender and subject, and the time in Iron Gall Semibold. The queued glyph before 19:02 says the star is applied here and on its way.</div>
+</div>
+
+<section class="sh"><span class="n">A2 · Themes</span><h2>Five themes, Light and Dark</h2><p>The window above in each theme of §4.16, drawn from each theme's own table: Study (the default, above), Gallery, Rain, Grove and Dusk. A theme keeps every token's luminance and changes its hue and chroma, so every pair keeps its ratio; the light sheet stays the white page.</p></section>
+<div class="tband">
+{{THEMES_BAND}}
 </div>
