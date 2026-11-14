@@ -350,13 +350,14 @@ public final class MailEngine: MailClient, @unchecked Sendable {
     }
 
     /// Every live lane checks now; one parked for sign-in stays parked (`WakeReason.check`). The send runner looks at
-    /// the outbox too: after the Mac slept, a send that fell due meanwhile goes now, whether or not its timer has fired;
+    /// the outbox too: after the Mac slept, a send that fell due meanwhile goes now, whether or not its timer has fired,
+    /// as does one waiting out the backoff of a failure that never left this Mac (the network may be back);
     /// so does the snooze runner at the snoozes, which come back once their account's check has caught up.
     public func checkForMail() {
         for context in registry.all() {
             context.syncer.wake(.check)
         }
-        sendRunner.wake()
+        sendRunner.wakeForConnection()
         // And a snooze that fell due while the Mac slept returns now, whether or not its timer has fired.
         snoozeRunner.wake()
     }

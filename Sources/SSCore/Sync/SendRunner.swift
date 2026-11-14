@@ -8,9 +8,10 @@ import Foundation
 /// background poll.
 ///
 /// Claiming a send (scheduled or later → sending) and cancelling one both run under `claimLock`, so a message is never
-/// both cancelled and sent. Only a throttle and a failure before any request left this Mac (no connection, a token
-/// that could not be fetched: `ProviderError.neverLeftThisMac`) are retried: after any other failure the provider may
-/// already have delivered the message and a retry would send it twice, so the send is marked failed for the user to see.
+/// both cancelled and sent. Only a throttle and a failure before any request left this Mac (no connection,
+/// `ProviderError.neverLeftThisMac`; a token that could not be fetched, an `AuthError`) are retried: after any other
+/// failure the provider may already have delivered the message and a retry would send it twice, so the send is marked
+/// failed for the user to see.
 ///
 /// A Send Later time that passed while the app was closed is never sent at launch: the runner's first read marks it
 /// `missed`, which it never claims, and the app asks the user (spec §5.23); `sendNow` sends it once they say so.
@@ -36,6 +37,9 @@ actor SendRunner {
     private struct HeldSend {
         let sendAfter: Date
         let due: TimeInterval
+        /// Held after a failure before the request left this Mac (no connection, no token): `wakeForConnection`, which
+        /// comes when the network may be back, makes it due at once instead of at the end of its backoff.
+        var retryOnWake = false
     }
 
     /// The wait timer and the clock can disagree by a hair when the timer fires exactly at the due time.
@@ -65,9 +69,22 @@ actor SendRunner {
     }
 
     /// Re-reads the outbox now instead of when the next held send falls due; called when a send is queued, and
-    /// when the Mac wakes, in case the timer for a send that fell due meanwhile has not fired yet.
+    /// when the wall clock is set.
     nonisolated func wake() {
         waker.signal(.operations)
+    }
+
+    /// The Mac woke, the app came to the front or the network returned (`MailEngine.checkForMail`): re-reads the
+    /// outbox, in case the timer for a send that fell due meanwhile has not fired yet, and sends now what is waiting
+    /// out the backoff of a failure that never left this Mac, rather than up to a minute after the connection is back.
+    nonisolated func wakeForConnection() {
+        let now = clock.uptime()
+        claimLock.withLock {
+            for (id, send) in held where send.retryOnWake {
+                held[id] = HeldSend(sendAfter: send.sendAfter, due: now)
+            }
+        }
+        wake()
     }
 
     /// Stores a send held for `undoWindow` seconds, times the window on the continuous clock from now, and wakes
@@ -223,7 +240,10 @@ actor SendRunner {
                     try store.updateSend(send)
                     claimed = Claim(send: send, from: from)
                 } else {
-                    if send.status == .scheduled { stillHeld[send.id] = HeldSend(sendAfter: send.sendAfter, due: due) }
+                    if send.status == .scheduled {
+                        let retryOnWake = held[send.id].map { Self.isHeld($0, as: send) && $0.retryOnWake } ?? false
+                        stillHeld[send.id] = HeldSend(sendAfter: send.sendAfter, due: due, retryOnWake: retryOnWake)
+                    }
                     nextDue = nextDue.map { min($0, due) } ?? due
                 }
             }
@@ -246,10 +266,15 @@ actor SendRunner {
         if send.status == .later {
             return uptime + max(0, send.sendAfter.timeIntervalSince(now))
         }
-        if let known = held[send.id], abs(known.sendAfter.timeIntervalSince(send.sendAfter)) < Self.storedTimePrecision {
+        if let known = held[send.id], Self.isHeld(known, as: send) {
             return known.due
         }
         return uptime + min(max(0, send.sendAfter.timeIntervalSince(now)), tuning.userRetryAfterCap)
+    }
+
+    /// Whether `known` was recorded for the send as it is stored now: the same time, read back to the millisecond.
+    private static func isHeld(_ known: HeldSend, as send: PendingSendSummary) -> Bool {
+        abs(known.sendAfter.timeIntervalSince(send.sendAfter)) < storedTimePrecision
     }
 
     private func deliver(_ send: PendingSendSummary) async {
@@ -293,10 +318,21 @@ actor SendRunner {
         } catch let error as ProviderError where error.neverLeftThisMac {
             // Nothing reached the provider (no network yet at wake, a token refresh that could not connect), so going
             // again cannot send the message twice. It waits as a throttled send does, and a wake (the network coming
-            // back, the Mac waking) looks again sooner.
+            // back, the Mac waking) sends it then (`wakeForConnection`).
             let delay = Backoff.delay(attempt: send.attempts, base: tuning.backoffBase, cap: tuning.userRetryAfterCap)
             SyncLog.logger.notice("send: not sent for \(accountID.rawValue, privacy: .public), no connection; trying again in \(delay, privacy: .public) s")
-            reschedule(send, after: delay, error: error)
+            reschedule(send, after: delay, error: error, retryOnWake: true)
+        } catch let error as AuthError {
+            // The token could not be had (the token endpoint failed, the keychain could not be read): the request was
+            // never made, so going again cannot send the message twice. The HTTP clients fetch the token outside their
+            // error mapping, so it arrives here as itself rather than as a `notSent`. Send Later makes this likely: its
+            // time often comes after hours idle, with the token expired. A refused keychain waits at the cap, since each
+            // try asks for the keychain password again; anything else waits as a send with no connection does.
+            let delay = error.isKeychainDenial
+                ? tuning.userRetryAfterCap
+                : Backoff.delay(attempt: send.attempts, base: tuning.backoffBase, cap: tuning.userRetryAfterCap)
+            SyncLog.logger.notice("send: not sent for \(accountID.rawValue, privacy: .public), no token; trying again in \(delay, privacy: .public) s")
+            reschedule(send, after: delay, error: error, retryOnWake: !error.isKeychainDenial)
         } catch {
             let description = SyncErrorDescription.describe(error)
             send.status = .failed
@@ -306,16 +342,16 @@ actor SendRunner {
         }
     }
 
-    /// Puts a send back in the outbox to go again in `delay` seconds, timed on the continuous clock from now. A Send
-    /// Later message keeps its draft id, so the Drafts row still reads “Sending…” and a quit before the retry makes it
-    /// `missed` at the next launch (`recoverPreviousRun`).
-    private func reschedule(_ send: PendingSendSummary, after delay: TimeInterval, error: ProviderError) {
+    /// Puts a send back in the outbox to go again in `delay` seconds, timed on the continuous clock from now, or at
+    /// the next `wakeForConnection` when `retryOnWake`. A Send Later message keeps its draft id, so the Drafts row still
+    /// reads “Sending…” and a quit before the retry makes it `missed` at the next launch (`recoverPreviousRun`).
+    private func reschedule(_ send: PendingSendSummary, after delay: TimeInterval, error: Error, retryOnWake: Bool = false) {
         var send = send
         let due = clock.uptime() + delay
         send.status = .scheduled
         send.sendAfter = clock.now().addingTimeInterval(delay)
         send.lastError = SyncErrorDescription.describe(error)
         try? store.updateSend(send)
-        claimLock.withLock { held[send.id] = HeldSend(sendAfter: send.sendAfter, due: due) }
+        claimLock.withLock { held[send.id] = HeldSend(sendAfter: send.sendAfter, due: due, retryOnWake: retryOnWake) }
     }
 }

@@ -9,13 +9,15 @@ final class SendLaterRunnerTests: XCTestCase {
     private let fallback: TimeInterval = 30
     private let draft = UUID()
 
-    private func harness(_ clock: HandClock, engineStore: MailStoring? = nil, start: Bool = true) throws -> EngineHarness {
+    private func harness(_ clock: HandClock, engineStore: MailStoring? = nil, start: Bool = true,
+                         tune: (inout SyncTuning) -> Void = { _ in }) throws -> EngineHarness {
         let provider = ScriptedProvider(accountID: Fixtures.accountID)
         provider.bootstrapRuns = [["": .success(Fixtures.page(1...1, next: nil, cursor: "c0"))]]
         try engineStore?.upsertAccount(Fixtures.account(id: provider.accountID))
         let harness = try EngineHarness(provider: provider, engineStore: engineStore) {
             $0.pollInterval = self.fallback
             $0.sendClock = clock.sendClock
+            tune(&$0)
         }
         if start { harness.engine.start() }
         return harness
@@ -240,6 +242,67 @@ final class SendLaterRunnerTests: XCTestCase {
         try await waitUntil("sent once asked") { second.provider.sendCalls.count == 1 }
         XCTAssertEqual(second.provider.sendCalls.first?.subject, Fixtures.outgoing().subject, "the whole message, read for the provider")
         await second.shutdown()
+    }
+
+    /// The token could not be fetched at the time (an expired token after a night idle, the token endpoint answering
+    /// 503; a keychain read that failed): the HTTP clients fetch it outside their error mapping, so the `AuthError`
+    /// reached the runner as itself and the send was marked failed, its draft back with a banner, though no request was
+    /// made. It waits in the outbox with its draft id and goes at the next try, as a send with no connection does.
+    func testASendWhoseTokenCouldNotBeFetchedWaitsAndGoesAgain() async throws {
+        let clock = HandClock()
+        let store = try SQLiteMailStore.inMemory()
+        let harness = try harness(clock, engineStore: store)
+        harness.provider.sendResults = [.failure(AuthError.refreshFailed("503")), .failure(AuthError.keychain(status: -128))]
+        _ = try await sleep(0, of: clock)
+        let id = try harness.engine.scheduleSend(Fixtures.outgoing(), at: clock.now, draftID: draft)
+        try await waitUntil("the token refresh failed") { harness.provider.sendCalls.count == 1 }
+        try await waitUntil("back in the outbox to retry") { try store.pendingSendSummaries().first { $0.id == id }?.status == .scheduled }
+        var row = try XCTUnwrap(try store.pendingSendSummaries().first { $0.id == id })
+        XCTAssertEqual(row.draftID, draft, "still the Send Later message, listed in Drafts as Sending…")
+        XCTAssertNotNil(row.lastError)
+
+        // A refused keychain waits too, at the cap, rather than asking for the password again at once.
+        clock.advance(1)
+        try await waitUntil("the keychain refused") { harness.provider.sendCalls.count == 2 }
+        try await waitUntil("back in the outbox again") { try store.pendingSendSummaries().first { $0.id == id }?.status == .scheduled }
+        row = try XCTUnwrap(try store.pendingSendSummaries().first { $0.id == id })
+        XCTAssertEqual(row.draftID, draft)
+
+        clock.advance(60)
+        try await waitUntil("sent at the next try") { harness.provider.sendCalls.count == 3 }
+        try await waitUntil("delivered") { try store.pendingSendSummaries().first { $0.id == id }?.status == .sent }
+        await harness.shutdown()
+    }
+
+    /// A send that met no connection waits out a backoff that grows to a minute. When the network comes back (the
+    /// engine's `checkForMail`, which a wake and the app coming forward also run) it goes then, not at the end of that
+    /// wait, as the runner's comment said it did.
+    func testASendThatMetNoConnectionGoesWhenTheNetworkReturns() async throws {
+        let clock = HandClock()
+        let harness = try harness(clock) {
+            $0.backoffBase = 40
+            $0.backoffCap = 300
+        }
+        harness.provider.sendResults = [.failure(ProviderError.transport(URLError(.notConnectedToInternet), bytesSent: 0))]
+        _ = try await sleep(0, of: clock)
+        let id = try harness.engine.scheduleSend(Fixtures.outgoing(), at: clock.now, draftID: draft)
+        try await waitUntil("no connection") { harness.provider.sendCalls.count == 1 }
+        try await waitUntil("held to retry") { try harness.store.pendingSendSummaries().first { $0.id == id }?.status == .scheduled }
+        harness.engine.checkForMail()
+        try await waitUntil("sent when the network returns") { harness.provider.sendCalls.count == 2 }
+        XCTAssertEqual(try harness.store.pendingSendSummaries().first { $0.id == id }?.status, .sent)
+
+        // A throttle is not hurried by a wake: the provider said when.
+        harness.provider.sendResults = [.failure(ProviderError.throttled(retryAfter: 40))]
+        let throttled = try harness.engine.scheduleSend(Fixtures.outgoing(), at: clock.now, draftID: UUID())
+        try await waitUntil("throttled") { harness.provider.sendCalls.count == 3 }
+        try await waitUntil("held to retry") {
+            try harness.store.pendingSendSummaries().first { $0.id == throttled }?.status == .scheduled
+        }
+        harness.engine.checkForMail()
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(harness.provider.sendCalls.count, 3, "the throttle's time stands")
+        await harness.shutdown()
     }
 
     /// An undo-send left by a quit is unchanged: it carries no draft, so it goes within the retry cap of launch as before.
