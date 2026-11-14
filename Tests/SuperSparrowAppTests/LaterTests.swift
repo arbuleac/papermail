@@ -22,12 +22,17 @@ final class LaterTests: XCTestCase {
 
     // MARK: Helpers
 
-    /// Tomorrow at 09:20 on this Mac's clock, or Monday when tomorrow is a Sunday (whose Next Week would be Tomorrow's
-    /// time, so it is not offered), so every preset is offered whenever the test runs, Saturdays included.
+    /// The window's fixed clock: the first Wednesday after today, at 09:20 on this Mac's clock. Always the same weekday,
+    /// so the menu, its times and every preset (Next Week is not offered on a Sunday, This Evening not from 17:00) are the
+    /// same whatever day the suite runs, Saturdays and Sundays included; and always ahead of the real clock, which the
+    /// store's snoozes and the rows' Back tags are read against.
+    private static let fixedWeekday = 4 // Wednesday
     private let morning: Date = {
         let calendar = Calendar.autoupdatingCurrent
         var day = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: Date()))!
-        if calendar.component(.weekday, from: day) == 1 { day = calendar.date(byAdding: .day, value: 1, to: day)! }
+        while calendar.component(.weekday, from: day) != LaterTests.fixedWeekday {
+            day = calendar.date(byAdding: .day, value: 1, to: day)!
+        }
         return calendar.date(bySettingHour: 9, minute: 20, second: 0, of: day)!
     }()
 
@@ -96,6 +101,15 @@ final class LaterTests: XCTestCase {
     }
 
     // MARK: The menu
+
+    /// The fixed clock itself: a Wednesday morning ahead of now, when every preset is offered, so `preset(_:)` never
+    /// meets one that is not (it used to trap on a Saturday run, whose tomorrow is a Sunday without Next Week).
+    func testTheFixedClockIsAWednesdayMorningOfferingEveryPreset() {
+        let calendar = Calendar.autoupdatingCurrent
+        XCTAssertEqual(calendar.component(.weekday, from: morning), Self.fixedWeekday)
+        XCTAssertGreaterThan(morning, Date())
+        XCTAssertEqual(LaterPreset.offered(at: morning, calendar: calendar).map(\.preset), LaterPreset.allCases)
+    }
 
     func testLOffersThePresetsWithTheirTimesThenPickADate() throws {
         let (harness, popped) = try harness()
