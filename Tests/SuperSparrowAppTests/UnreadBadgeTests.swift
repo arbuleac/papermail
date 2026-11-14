@@ -225,6 +225,15 @@ final class UnreadBadgeTests: XCTestCase {
         XCTAssertEqual(menuBadge(key: "0"), unified.unreadBadgeText)
         XCTAssertEqual(menuBadge(key: "1"), tileA.unreadBadgeText)
         XCTAssertEqual(menuBadge(key: "2"), tileB.unreadBadgeText)
+        // VoiceOver hears the real count there too, never the cap.
+        func menuHelp(view: String? = nil, key: String? = nil) -> String? {
+            menu.items.first { item in view.map { item.title.hasPrefix($0 + "\t") } ?? (item.keyEquivalent == key) }?.accessibilityHelp()
+        }
+        XCTAssertEqual(menuHelp(key: "0"), QuireBadge.unreadAccessibilityText(countA + countB))
+        XCTAssertEqual(menuHelp(key: "1"), QuireBadge.unreadAccessibilityText(countA))
+        XCTAssertEqual(menuHelp(key: "2"), QuireBadge.unreadAccessibilityText(countB))
+        XCTAssertEqual(menuHelp(view: "Inbox"), QuireBadge.unreadAccessibilityText(countA + countB) + ", G then I")
+        XCTAssertEqual(menuHelp(view: "All Mail"), "G then A")
 
         // Narrowed, the Inbox tile counts that account's mail; the Dock stays on All Inboxes.
         tileB.performClick(nil)
@@ -258,5 +267,12 @@ final class UnreadBadgeTests: XCTestCase {
         XCTAssertEqual(TitleMenu.unreadBadge(99)?.stringValue, "99")
         XCTAssertEqual(TitleMenu.unreadBadge(100)?.stringValue, "99+")
         XCTAssertEqual(TitleMenu.unreadBadge(1_234)?.stringValue, "99+")
+        let item = NSMenuItem(title: "All Inboxes", action: nil, keyEquivalent: "0")
+        TitleMenu.setUnread(1_234, on: item)
+        XCTAssertEqual(item.badge?.stringValue, "99+")
+        XCTAssertEqual(item.accessibilityHelp(), QuireBadge.unreadAccessibilityText(1_234), "VoiceOver hears the real number")
+        TitleMenu.setUnread(0, on: item)
+        XCTAssertNil(item.badge)
+        XCTAssertNil(item.accessibilityHelp())
     }
 }

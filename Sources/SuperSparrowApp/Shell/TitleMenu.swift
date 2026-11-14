@@ -67,8 +67,12 @@ enum TitleMenu {
             item.attributedTitle = title
             item.image = QuireSymbol.image(entry.symbol, size: .inText, accessibilityDescription: entry.title)
             item.state = entry.view == model.view ? .on : .off
-            if entry.view == .inbox { item.badge = unreadBadge(model.inboxUnread) }
-            item.setAccessibilityHelp("G then \(entry.sequence.dropFirst(2))")
+            let sequence = "G then \(entry.sequence.dropFirst(2))"
+            if entry.view == .inbox {
+                setUnread(model.inboxUnread, on: item, help: sequence)
+            } else {
+                item.setAccessibilityHelp(sequence)
+            }
             menu.addItem(item)
         }
 
@@ -80,7 +84,7 @@ enum TitleMenu {
         unified.tag = 0
         unified.image = QuireSymbol.image(Quire.Icon.unifiedInbox, size: .inText, accessibilityDescription: "All Inboxes")
         unified.state = model.scope == .unified ? .on : .off
-        unified.badge = unreadBadge(model.unifiedUnread)
+        setUnread(model.unifiedUnread, on: unified)
         menu.addItem(unified)
         for (index, entry) in model.accounts.enumerated() {
             let name = AccountLabels.name(for: entry.account)
@@ -90,7 +94,7 @@ enum TitleMenu {
             item.tag = index + 1
             item.image = monogramImage(entry.monogram, slot: entry.account.inkSlot)
             item.state = model.scope == .account(entry.account.id) ? .on : .off
-            item.badge = unreadBadge(entry.unread)
+            setUnread(entry.unread, on: item)
             menu.addItem(item)
         }
         return menu
@@ -100,6 +104,14 @@ enum TitleMenu {
     /// prints the whole number, where the rail this menu stands in for reads 99+. None at zero.
     static func unreadBadge(_ count: Int) -> NSMenuItemBadge? {
         QuireBadge.unreadText(count).map { NSMenuItemBadge(string: $0) }
+    }
+
+    /// Badges `item` with an unread count and gives VoiceOver the real number in its help, before the item's own `help`,
+    /// as the rail's tiles do: the badge reads 99+ past the cap, and VoiceOver would hear only that (§5.28).
+    static func setUnread(_ count: Int, on item: NSMenuItem, help: String? = nil) {
+        item.badge = unreadBadge(count)
+        let words = [count > 0 ? QuireBadge.unreadAccessibilityText(count) : nil, help].compactMap { $0 }
+        item.setAccessibilityHelp(words.isEmpty ? nil : words.joined(separator: ", "))
     }
 
     /// A small account face with its ring, drawn when the menu shows so it follows the appearance.
