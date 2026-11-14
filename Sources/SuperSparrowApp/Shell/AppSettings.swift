@@ -115,7 +115,7 @@ final class AppSettings: ObservableObject {
         }
     }
 
-    /// Spec §4.4, §5.40 General › Font: the face every New York role is set in, app-wide. A change is saved and
+    /// Spec §4.4, §5.40 Appearance › Font: the face every New York role is set in, app-wide. A change is saved and
     /// pushed into `QuireEnvironment` at once, so everything on screen switches face live.
     @Published var typeface: QuireFont.Typeface {
         didSet {
@@ -124,7 +124,7 @@ final class AppSettings: ObservableObject {
         }
     }
 
-    /// Spec §4.15, §5.40 General › Text size: the step every role where mail is read and written takes. A change is
+    /// Spec §4.15, §5.40 Appearance › Text size: the step every role where mail is read and written takes. A change is
     /// saved, sets the reader to it too, and is pushed into `QuireEnvironment` at once, so the list, the reader and
     /// every composer switch live.
     @Published var textSize: QuireFont.TextSize {

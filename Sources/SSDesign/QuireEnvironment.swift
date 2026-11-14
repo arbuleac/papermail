@@ -61,7 +61,7 @@ public final class QuireEnvironment: NSObject, @unchecked Sendable {
     public static var reduceTransparency: Bool { shared.snapshot.reduceTransparency }
     /// The face New York roles are set in (spec §4.4): New York until the app says otherwise.
     public static var typeface: QuireFont.Typeface { shared.snapshot.typeface }
-    /// Settings › General › Text size (spec §4.15): Default until the app says otherwise. Only the surfaces where
+    /// Settings › Appearance › Text size (spec §4.15): Default until the app says otherwise. Only the surfaces where
     /// mail is read and written ask for it.
     public static var textSize: QuireFont.TextSize { shared.snapshot.textSize }
     /// The theme every themed colour draws (spec §4.16): Study until the app says otherwise.

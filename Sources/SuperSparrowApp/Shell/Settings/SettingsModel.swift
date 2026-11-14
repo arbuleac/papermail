@@ -11,6 +11,7 @@ final class SettingsModel: ObservableObject {
         case accounts
         case oauth
         case general
+        case appearance
     }
 
     /// A failure at the top of Accounts. Info notices (demo, seven accounts) come from state, not from here.

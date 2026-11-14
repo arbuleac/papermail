@@ -5,9 +5,9 @@ import os
 
 /// Debug › Design Gallery: every SSDesign component in every state, AppKit cards then the hosted SwiftUI
 /// Settings controls, on a scrolling page laid out like section D of the specimen. A bar above the page
-/// forces the appearance, the font and the Quire environment (Graphite, Increase Contrast, Reduce Motion,
+/// forces the appearance, the font, the theme and the Quire environment (Graphite, Increase Contrast, Reduce Motion,
 /// Reduce Transparency) for this check; closing the window gives the environment back to the system and the
-/// Font setting. A Font switch made in Settings while the gallery is open rebuilds the page at once.
+/// Font and Theme settings. A Font switch made in Settings while the gallery is open rebuilds the page at once.
 ///
 /// `--gallery` opens it at launch; `--snapshot-gallery=<png>` renders the whole page with `renderSnapshot`.
 @MainActor
