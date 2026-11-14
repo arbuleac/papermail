@@ -52,6 +52,32 @@ final class MailEngineSendTests: XCTestCase {
         await harness.shutdown()
     }
 
+    /// A send that failed before any request left this Mac (no network at wake, Wi-Fi not back yet; a token refresh
+    /// that could not reach the token endpoint) was marked failed for good, though nothing reached the provider and a
+    /// retry cannot send it twice. It waits and is sent again, as a throttled one is; one whose request may have gone
+    /// out still fails.
+    func testASendThatNeverLeftThisMacIsSentAgain() async throws {
+        let harness = try startedHarness()
+        harness.provider.sendResults = [
+            .failure(ProviderError.transport(URLError(.notConnectedToInternet))),
+            .failure(ProviderError.notSent("token endpoint unreachable")),
+        ]
+        _ = try harness.engine.send(Fixtures.outgoing(), undoWindow: 0)
+        try await waitUntil("sent on the third attempt") { harness.provider.sendCalls.count == 3 }
+        try await waitUntil("outbox empty") { try harness.store.pendingSends().isEmpty }
+        await harness.shutdown()
+    }
+
+    func testAConnectionLostMidSendStillFails() async throws {
+        let harness = try startedHarness()
+        harness.provider.sendResults = [.failure(ProviderError.transport(URLError(.networkConnectionLost)))]
+        _ = try harness.engine.send(Fixtures.outgoing(), undoWindow: 0)
+        try await waitUntil("send failed") { try harness.store.pendingSends().first?.status == .failed }
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(harness.provider.sendCalls.count, 1, "it may have gone out")
+        await harness.shutdown()
+    }
+
     func testThrottledSendIsRescheduledAndEventuallySent() async throws {
         let harness = try startedHarness()
         harness.provider.sendResults = [.failure(ProviderError.throttled(retryAfter: 0.2))]

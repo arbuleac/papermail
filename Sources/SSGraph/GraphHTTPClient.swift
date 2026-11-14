@@ -60,8 +60,8 @@ final class GraphHTTPClient: Sendable {
             let reply: (response: HTTPURLResponse, errorBody: Data?, result: T)
             do {
                 reply = try await attempt(urlRequest)
-            } catch let error as URLError where error.code == .cancelled {
-                throw ProviderError.cancelled
+            } catch let error as URLError {
+                throw ProviderError.transport(error)
             } catch is CancellationError {
                 throw ProviderError.cancelled
             } catch let error as ProviderError {

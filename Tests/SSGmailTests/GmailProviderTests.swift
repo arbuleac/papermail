@@ -759,6 +759,16 @@ final class GmailProviderTests: XCTestCase {
         }
     }
 
+    /// A connection never made says the request never left this Mac, so a send can go again; one lost partway cannot.
+    func testATransportFailureSaysWhetherTheRequestLeft() async {
+        server.on("GET", "/users/me/profile", .failure(URLError(.notConnectedToInternet)))
+        let offline = await TestSupport.providerError { _ = try await TestSupport.makeProvider().profile() }
+        XCTAssertEqual(offline?.neverLeftThisMac, true)
+        server.on("GET", "/users/me/profile", .failure(URLError(.networkConnectionLost)))
+        let lost = await TestSupport.providerError { _ = try await TestSupport.makeProvider().profile() }
+        XCTAssertEqual(lost?.neverLeftThisMac, false)
+    }
+
     func testTransportFailureMapsToNetwork() async {
         server.on("GET", "/users/me/profile", .failure(URLError(.notConnectedToInternet)))
         let provider = TestSupport.makeProvider()

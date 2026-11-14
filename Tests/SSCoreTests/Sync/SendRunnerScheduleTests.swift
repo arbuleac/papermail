@@ -290,6 +290,30 @@ final class SendRunnerScheduleTests: XCTestCase {
         await harness.shutdown()
     }
 
+    /// Two sends fall due together while the runner is busy. Both were claimed in one read, so a crash or a force quit
+    /// during the first left the second marked sending, and the next launch reported it "interrupted while sending;
+    /// check Sent" though it never left. Only the send handed to the provider is claimed; the other stays held.
+    func testOnlyTheSendInFlightIsClaimed() async throws {
+        let clock = HandClock()
+        let harness = try startedHarness(clock)
+        _ = try await sleep(0, of: clock)
+        let first = try harness.engine.send(Fixtures.outgoing(), undoWindow: 5)
+        _ = try await sleep(1, of: clock)
+        let second = try harness.engine.send(Fixtures.outgoing(), undoWindow: 5)
+        _ = try await sleep(2, of: clock)
+        harness.provider.holdSends = true
+        XCTAssertEqual(clock.advance(5), 1)
+        try await waitUntil("the first send in flight") { harness.provider.sendCalls.count == 1 }
+
+        let sends = try harness.store.pendingSends()
+        XCTAssertEqual(sends.first { $0.id == first }?.status, .sending)
+        XCTAssertEqual(sends.first { $0.id == second }?.status, .scheduled, "not yet handed to the provider")
+        harness.provider.holdSends = false
+        try await waitUntil("both sent") { harness.provider.sendCalls.count == 2 }
+        try await waitUntil("outbox empty") { try harness.store.pendingSends().isEmpty }
+        await harness.shutdown()
+    }
+
     /// Undo needs no wake: the runner looks at the cancelled send's time, finds nothing, and goes back to idle.
     func testACancelledSendLeavesTheRunnerIdle() async throws {
         let clock = HandClock()

@@ -93,6 +93,14 @@ final class GraphHTTPTests: GraphTestCase {
         await expectProviderError({ try await self.makeProvider().profile() }) { $0.isNetwork }
     }
 
+    /// A connection never made says the request never left this Mac, so a send can go again; one lost partway cannot.
+    func testATransportFailureSaysWhetherTheRequestLeft() async {
+        route { _ in .failure(.cannotConnectToHost) }
+        await expectProviderError({ try await self.makeProvider().profile() }) { $0.isNetwork && $0.neverLeftThisMac }
+        route { _ in .failure(.networkConnectionLost) }
+        await expectProviderError({ try await self.makeProvider().profile() }) { $0.isNetwork && !$0.neverLeftThisMac }
+    }
+
     func testEveryRequestCarriesBearerAndImmutableIDPreference() async throws {
         route { _ in .json(Fixtures.user) }
         _ = try await makeProvider().profile()

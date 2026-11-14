@@ -87,8 +87,7 @@ struct GmailHTTPClient: Sendable {
     /// What a failed transfer means to the engine: a cancellation, or a network failure worth retrying.
     static func transportError(_ error: Error) -> ProviderError {
         switch error {
-        case let error as URLError where error.code == .cancelled: return .cancelled
-        case let error as URLError: return .network(error.localizedDescription)
+        case let error as URLError: return ProviderError.transport(error)
         case is CancellationError: return .cancelled
         case let error as ProviderError: return error
         default: return .network(String(describing: error))

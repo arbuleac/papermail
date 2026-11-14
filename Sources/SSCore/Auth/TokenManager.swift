@@ -201,7 +201,8 @@ public actor TokenManager: AccessTokenProvider {
                 throw ProviderError.unauthorized
             }
             if case let .transport(message) = error {
-                throw ProviderError.network(message)
+                // The request that needed the token never left: a send failing here can go again.
+                throw ProviderError.notSent(message)
             }
             throw AuthError.refreshFailed(error.message)
         }

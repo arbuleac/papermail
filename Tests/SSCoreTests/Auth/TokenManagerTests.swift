@@ -230,8 +230,9 @@ final class TokenManagerTests: XCTestCase {
         do {
             _ = try await manager.accessToken(for: accountID)
             XCTFail("expected network error")
-        } catch ProviderError.network {
-            // expected
+        } catch let error as ProviderError {
+            guard case .network = error else { return XCTFail("unexpected \(error)") }
+            XCTAssertTrue(error.neverLeftThisMac, "the request that needed the token never left, so a send can go again")
         } catch {
             XCTFail("unexpected \(error)")
         }
