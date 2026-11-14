@@ -10,8 +10,8 @@ final class MetricDriftTests: XCTestCase {
     private let file = DesignTokensFile.shared
 
     func testEveryMetricIsCovered() {
-        // tokens.json had 665 leaves under layout, border and platform when this file was generated.
-        XCTAssertEqual(file.leafCount(under: ["layout", "border", "platform"]), 665, "regenerate with swift scripts/tools/quire-tokens.swift")
+        // tokens.json had 671 leaves under layout, border and platform when this file was generated.
+        XCTAssertEqual(file.leafCount(under: ["layout", "border", "platform"]), 671, "regenerate with swift scripts/tools/quire-tokens.swift")
     }
 
     func testLayoutWindow() {
@@ -748,6 +748,12 @@ final class MetricDriftTests: XCTestCase {
         number(Quire.Layout.Settings.signatureLines, "layout.settings.signatureLines")
         number(Quire.Layout.Settings.signatureFieldHeight, "layout.settings.signatureFieldHeight")
         number(Quire.Layout.Settings.mailboxSizeGap, "layout.settings.mailboxSizeGap")
+        number(Quire.Layout.Settings.sendersWidth, "layout.settings.sendersWidth")
+        number(Quire.Layout.Settings.senderRow, "layout.settings.senderRow")
+        number(Quire.Layout.Settings.senderRowsMax, "layout.settings.senderRowsMax")
+        number(Quire.Layout.Settings.senderRowX, "layout.settings.senderRowX")
+        number(Quire.Layout.Settings.senderActionGap, "layout.settings.senderActionGap")
+        number(Quire.Layout.Settings.senderRemoveInset, "layout.settings.senderRemoveInset")
     }
 
     func testLayoutMenu() {

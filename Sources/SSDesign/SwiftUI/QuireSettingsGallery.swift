@@ -30,6 +30,10 @@ public struct QuireSettingsGallery: View {
                 QuireGallerySection("Accounts · seven, scrolled cap") { QuireGalleryAccountsCapped() }
                 QuireGallerySection("Accounts · empty, focused") { QuireGalleryAccountsEmpty() }
             }
+            HStack(alignment: .top, spacing: Quire.Space.s9) {
+                QuireGallerySection("Senders · Q4.2") { QuireGallerySenders() }
+                QuireGallerySection("Senders · empty") { QuireGallerySendersEmpty() }
+            }
             QuireGallerySection("Settings grid · General") { QuireGalleryGeneral() }
                 .frame(width: Quire.Layout.Settings.width - 2 * Quire.Layout.Settings.padX, alignment: .leading)
         }
@@ -351,6 +355,41 @@ struct QuireGalleryAccountsEmpty: View {
     }
 }
 
+/// The Senders sheet (spec, Sender rules (Q4.2)) as Settings › Accounts › Senders… opens it, then a row's − hovered and
+/// focused: the sheet is a window of its own, which no Settings snapshot holds, so this is where it is seen.
+struct QuireGallerySenders: View {
+    private static let rows = [
+        QuireRemovableList.Row(id: "a", title: "news@weekly.example", detail: "Always archived"),
+        QuireRemovableList.Row(id: "b", title: "offers@deals.example", detail: "Blocked"),
+        // Long enough to be cut in the middle, keeping its start and its domain.
+        QuireRemovableList.Row(id: "c", title: "receipts-and-notifications@accounts.averylongstorename.example", detail: "Blocked"),
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Quire.Space.s6) {
+            QuireRuleSheet(title: "Senders",
+                           caption: "Mail from these senders to alex@contoso.test is archived or moved to the Trash as it arrives.",
+                           rows: Self.rows, emptyTitle: "No sender rules", emptyHint: "Set one from a message's menu.",
+                           onRemove: { _ in }, onDone: {})
+            ForEach([("− hover", QuireForcedStates.hovered), ("− focused", .focused)], id: \.0) { caption, state in
+                VStack(alignment: .leading, spacing: Quire.Space.s2) {
+                    QuireRemovableList(rows: [Self.rows[1]], emptyTitle: "", emptyHint: "", onRemove: { _ in })
+                        .quireForcedStates(state)
+                    QuireGalleryCaption(caption)
+                }
+                .frame(width: Quire.Layout.Settings.sendersWidth - 2 * Quire.Layout.Settings.padX)
+            }
+        }
+    }
+}
+
+struct QuireGallerySendersEmpty: View {
+    var body: some View {
+        QuireRemovableList(rows: [], emptyTitle: "No sender rules", emptyHint: "Set one from a message's menu.", onRemove: { _ in })
+            .frame(width: Quire.Layout.Settings.sendersWidth - 2 * Quire.Layout.Settings.padX)
+    }
+}
+
 struct QuireGalleryGeneral: View {
     var body: some View {
         QuireSettingsGrid {
@@ -404,6 +443,9 @@ struct QuireGalleryGeneral: View {
                     .quireTextAreaStyle(height: Quire.Layout.Settings.signatureFieldHeight, isFocused: false)
                     .frame(width: Quire.Layout.Settings.fieldWidth)
                     .padding(.vertical, (Quire.Layout.Settings.detailRow - Quire.Layout.Settings.fieldHeight) / 2)
+            }
+            QuireSettingsRow("Rules", minHeight: Quire.Layout.Settings.detailRow) {
+                Button("Senders…") {}.buttonStyle(.quire(.secondary, size: .small))
             }
             QuireSettingsTextRow("Last error", text: "Gmail returned an unexpected response. The server closed the connection before the "
                                  + "download finished; SuperSparrow will try again in a few minutes.")

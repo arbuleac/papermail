@@ -829,7 +829,7 @@ Fixed **68 pt** (compact 48). Drawn by hand in `layout()` / `draw(_:)`: no Auto 
 | Sender line | 68, 10, to the time − 8, 16 | `sender`; Semibold when unread; participants joined by “, ”, the user as “me”; Drafts/Sent prefixes in `ink2`; no sender: “No sender” in the placeholder style (§4.1) |
 | Time cluster | trailing 16, on the sender line | from the trailing edge: time (`meta`, tabular, `ink3`; unread: `metaStrong` in `accent`; format per running head, §4.13) · 6 pt (`tileGap`) · optional account initial tile (16 pt) · 6 pt · the “Back” tag (§5.28) on an unread Inbox row back from Later · 4 pt (`queuedGap`) · `ss.queued` or the failed glyph (12 pt). An absent tile or tag takes its leading gap with it: with neither the glyph sits 4 pt from the time. Rows carry no category tag: the Focused/Other category is not shown anywhere (§5.5) |
 | Subject line | 68, 27, to the glyph cluster − 6, 18 | `subject` (New York; `subjectSans` when New York lacks the script, and always under the SF Pro font); Semibold when unread; no subject: “No subject” in the placeholder style (italic `ink3`, regular weight even when unread) |
-| Glyph cluster | trailing 16, centred on the subject line, 5 pt gaps, fixed order from the trailing edge: star, attachment, count | `star.fill` 12 pt `star`; `paperclip` 12 pt `ink2`; count badge 16 pt, neutral |
+| Glyph cluster | trailing 16, centred on the subject line, 5 pt gaps, fixed order from the trailing edge: star, muted, attachment, count | `star.fill` 12 pt `star`; `bell.slash` 12 pt `ink3` (§5.46); `paperclip` 12 pt `ink2`; count badge 16 pt, neutral |
 | Snippet | 68, 46, to trailing 16, 15 | `snippet`, `ink2` |
 | Separator | from x = 68 to the trailing edge, bottom | hairline `rule`; hidden on the selected row and the row above it |
 
@@ -858,6 +858,7 @@ Fixed **68 pt** (compact 48). Drawn by hand in `layout()` / `draw(_:)`: no Auto 
 | Keyboard focus with no selection | `paper` | 2 pt ring inset | Full Keyboard Access only |
 | Starred | — | filled `star` | VoiceOver “Starred” |
 | Has attachment | — | `paperclip` | |
+| Muted (§5.46) | — | `bell.slash` `ink3` beside the star | in every view the conversation is listed in; `ink3`, the time's ink, whose pairs on every row fill are asserted, so it adds no pair; VoiceOver “Muted” |
 | Message count ≥ 2 | — | neutral count badge | |
 | Queued locally | — | `ss.queued` `ink3` before the time | full contrast, never faded; VoiceOver “Waiting to sync” |
 | Operation failed permanently | — | `exclamationmark.triangle.fill` `danger` replaces `ss.queued` | the row is restored locally; toast “Couldn't archive. Restored.”; tooltip and VoiceOver “Couldn't archive”. The triangle stays until the conversation is opened (selected for 150 ms, which acknowledges it), a later operation on it succeeds, or 24 hours pass (`failed_op_kind`, §8.5) |
@@ -1089,7 +1090,7 @@ States: rest; hover (`hover` across the row, end rows clipped to the radius); pr
 | Recipients, expanded | replaces the summary line in place, inside the who block: one block per field in the order To, Cc, Bcc (Bcc only on messages the user sent), 2 pt apart. Each block starts with its label, “To”, “Cc” or “Bcc” (`snippet` `ink3`), in a 28 pt column (`reader.recipientsLabelColumn`), then the recipients wrapped in the remaining width, comma-separated, as “Ben Carter <ben@contoso.test>”: names `snippet` `ink2`, addresses `snippet` `ink3`, the user as “me <alex@contoso.test>”; a recipient never breaks across lines (a single over-long address tail-truncates, full text in its tooltip). Past 12 lines the expansion stops at “and 24 more” (`snippet` `ink2`, a button that shows the rest). Collapsing: a click anywhere on the block, ↩ or Space while it has focus (tooltip “Hide Addresses”); the state lasts for the session, per message. The height change follows the expand rule of §4.10 (`dur.standard`, `ease.settle`; Reduce Motion: instant); the block is shell DOM, measured at once, so there is no provisional height. VoiceOver: “Recipients, collapsed, button” / “expanded”. All inks are the tested `ink2` and `ink3` pairs on `sheet` |
 | Date | `snippet`, tabular, `ink3`, trailing: “Today 09:12”, “Yesterday 23:39”, “Fri 30 Oct” |
 | Hover actions | on hover or focus only (fade in `dur.quick`), before the date: 24 pt icon buttons (14 pt symbols; 24 pt hit), 2 pt apart, the last one 8 pt before the date: Star (`star` / `star.fill` in `star` when on), Reply, More; plus Original colors in dark mode for styled HTML mail that declares its own colours (off: `circle.lefthalf.filled` `ink2`, tooltip “Original Colors  ⇧⌘O”; on: the same glyph in `accent` on `accentWash`, hover `accentWashHover`, pressed `accentWashPressed`, tooltip “Adaptive Colors  ⇧⌘O”; the on state stays visible without hover) |
-| More (`ellipsis`) | a system menu acting on **this message**; conversation actions stay in the header: Reply · Reply All · Forward · — · Star Message / Unstar Message · Mark as Unread from Here · — · Load Images (when images are blocked) · Original Colors / Adaptive Colors (dark mode, styled, declares colours) · — · Unsubscribe ⇧⌘U (when the link shows; it acts on this message) · Copy Sender Address. Items that do not apply are hidden, not disabled |
+| More (`ellipsis`) | a system menu acting on **this message**; conversation actions stay in the header: Reply · Reply All · Forward · — · Star Message / Unstar Message · Mark as Unread from Here · — · Load Images (when images are blocked) · Original Colors / Adaptive Colors (dark mode, styled, declares colours) · — · Unsubscribe ⇧⌘U (when the link shows; it acts on this message) · Always Archive Mail from This Sender · Block Sender (when someone other than the user sent it, §5.47; the rule the sender has is checked and disabled) · Copy Sender Address. Items that do not apply are hidden, not disabled |
 | Invitation card | when the message carries a calendar invitation: 18 below the header, at the indent, inside the measure; 16 below it, where the body would start, the message's elision mark, the body folded behind it (“The invitation card” and “The message under the card”, below) |
 | Body | 18 below the header; under an invitation card, once unfolded, 12 below the message's elision mark. Plain and unstyled: `reading` (or `readingSans`), indented 48 to the name column, measure 576 (narrower when the sheet is), paragraph gap 12. A text/plain body is stored as paragraphs: blank lines end a `<p>` and a run of them is one break, lines inside keep their `<br>`, so the gap spaces paragraphs instead of an empty line (bodies stored before 1.3.1 keep `<br><br>` until fetched again). Styled HTML: the sheet's full content width (624 at the widest column), fitted as below |
 | Quoted-text toggle | 12 below the body, at the indent (§5.15); under an invitation card it folds with the body |
@@ -1635,7 +1636,7 @@ Face = tint (§4.3); initials New York Semibold, or SF Pro Semibold (`monogramSa
 | Part | Spec |
 |---|---|
 | Slip | 34 pt, radius 8, `slip`, `slipEdge`, `e2`; padding 0 6 0 14 with an action, 0 14 0 14 without; gap 10 |
-| Content | the action's symbol 14 pt `onSlip2` · message (`bodyMedium`, `onSlip`): “Archived”, “Moved to Trash”, “Unstarred”, “Marked 3 as unread”, “Archived 3 conversations”, “Snoozed until Tue 09:00”, or “Until 20 May 2027 09:00” where that would be cut off (`clock`, §5.45) |
+| Content | the action's symbol 14 pt `onSlip2` · message (`bodyMedium`, `onSlip`): “Archived”, “Moved to Trash”, “Unstarred”, “Marked 3 as unread”, “Archived 3 conversations”, “Muted” (`bell.slash`, §5.46), “Sender blocked” (`hand.raised`, §5.47), “Snoozed until Tue 09:00”, or “Until 20 May 2027 09:00” where that would be cut off (`clock`, §5.45) |
 | Divider | 1 × 16, `onSlipEdge`; only when there is an action |
 | Action | “Undo” (`bodyStrong`, `onSlip`), 6 pt, keycap “Z” (18 pt, `onSlipEdge` outline; legend `onSlip2` at rest, `onSlip` while the action is hovered or pressed); 26 pt high, padding x 8 (`layout.toast.actionPadX`, `actionKeycapGap`), radius `r.sm` (5), no fill or outline at rest (the divider before it marks it as a separate control), 24 pt hit |
 | Contrail | 2 pt along the bottom edge in `onSlip`, draining over the toast's life (5000 ms); it freezes while the pointer rests on the toast; only on toasts with an action |
@@ -1742,9 +1743,9 @@ The second key, any other key, Esc or the end of the 2000 ms window dismisses it
 | 1 | 2 | Act | 4 | ⇧I | Move to Inbox |
 | 1 | 2 | Act | 5 | S | Star · unstar |
 | 1 | 2 | Act | 6 | U | Mark as unread · read |
-| 1 | 2 | Act | 7 | ⇧⌘U | Unsubscribe |
-| 1 | 2 | Act | 8 | Z | Undo |
-| 1 | 2 | Act | 9 | . | Show · hide quoted text |
+| 1 | 2 | Act | 7 | M | Mute · unmute |
+| 1 | 2 | Act | 8 | ⇧⌘U | Unsubscribe |
+| 1 | 2 | Act | 9 | Z | Undo |
 | 1 | 3 | Go | 1 | G  then  I | Inbox |
 | 1 | 3 | Go | 2 | G  then  L | Later |
 | 1 | 3 | Go | 3 | G  then  S | Starred |
@@ -1770,10 +1771,11 @@ The second key, any other key, Esc or the end of the 2000 ms window dismisses it
 | 2 | 2 | Format | 6 | ⇧⌘C  ⇧⌘B | Cc · Bcc field |
 | 2 | 3 | View | 1 | ⇧⌘I | Load images |
 | 2 | 3 | View | 2 | ⇧⌘O | Original colors |
-| 2 | 3 | View | 3 | ⌥⌘C | Compact rows |
-| 2 | 3 | View | 4 | ⌃⌘S | Show · hide the rail |
-| 2 | 3 | View | 5 | ⇧⌘N | Check for new mail |
-| 2 | 3 | View | 6 | ? | This sheet |
+| 2 | 3 | View | 3 | . | Show · hide quoted text |
+| 2 | 3 | View | 4 | ⌥⌘C | Compact rows |
+| 2 | 3 | View | 5 | ⌃⌘S | Show · hide the rail |
+| 2 | 3 | View | 6 | ⇧⌘N | Check for new mail |
+| 2 | 3 | View | 7 | ? | This sheet |
 
 Alternates that duplicate a single key (⌘F for /, ⌘N for C, ⌘Z for Z, → and ← for ↩ and esc, ⌘/ for ?) are left out to keep one key per action; menus and tooltips name them.
 
@@ -1831,11 +1833,11 @@ Main menu (system), with Quire content. Single-key shortcuts are handled by `Key
 - **File**: New Message ⌘N (also C) · Close Window ⌘W · Add Gmail Account… · Add Microsoft Account… · Save Attachments… · in demo mode, Leave Demo… (§5.43).
 - **Edit**: standard, plus Find… ⌘F (focuses search) and Search Gmail for More (§5.10, no key equivalent: ↩ in the search field runs it, and a plain ↩ on a menu item would take Return from the list, the composer and every sheet; titled by the scope: Search Outlook for More, Search All Accounts for More). It is enabled while the search field holds words whose local results are all listed (or not in yet) and the server has not been asked for them, or failed; it is disabled while any other place to type or the reader has focus, and hidden while a composer is key. Undo is titled by its target (“Undo Archive”, “Undo Send”, “Undo Send and Archive”, “Undo Typing”), following §6.1.
 - **View**: Inbox · Later (while the rail shows it) · Starred · Sent · Drafts · Trash · All Mail (G-sequences) · All Inboxes ⌘0 · accounts ⌘1–9 · Check for New Mail ⇧⌘N · Show/Hide Account Rail ⌃⌘S · Compact Rows ⌥⌘C · Load Images ⇧⌘I · Original Colors ⇧⌘O (checkmark when on) · Show Quoted Text . (on a message under an invitation card it shows or hides the message, §5.14)
-- **Message**: Reply R · Reply All A · Forward F · — · Archive E · Later… L (the Later menu at the selection, §5.45) · Move to Trash # · Move to Inbox ⇧I · Star S · Mark as Unread U · Undo Z · — · Unsubscribe ⇧⌘U (enabled while one conversation is open and offers it, §5.14; no symbol, since SF Symbols has none for it before macOS 26) · — · Next Message N · Previous Message P.
+- **Message**: Reply R · Reply All A · Forward F · — · Archive E · Later… L (the Later menu at the selection, §5.45) · Move to Trash # · Move to Inbox ⇧I · Star S · Mark as Unread U · Mute M (Unmute when every selected conversation is muted, §5.46) · Undo Z · — · Unsubscribe ⇧⌘U (enabled while one conversation is open and offers it, §5.14; no symbol, since SF Symbols has none for it before macOS 26) · Always Archive Mail from This Sender · Block Sender (no key; enabled while one conversation is open with mail from someone else, the rule its sender has checked and disabled, §5.47) · — · Next Message N · Previous Message P.
 - **Format** (composer windows only): Show Format Row ⇧⌘T · — · Bold ⌘B · Italic ⌘I · Underline ⌘U · — · Bulleted List ⇧⌘8 · Numbered List ⇧⌘7 · Quote ⌘' · — · Add Link… ⌘K. In a composer window the Message menu holds Send ⌘↩ (what the Send button does, §5.23) · Send and Archive ⇧⌘↩ (always; no symbol) · Attach Files… ⇧⌘A · Add Cc Field ⇧⌘C · Add Bcc Field ⇧⌘B · — · Discard Draft… (§5.20).
 - **Window**, **Help** (Keyboard Shortcuts ⌘/).
 
-Context menu on rows and messages: Reply, Reply All, Forward, —, Archive, Later (a submenu holding the Later menu's items, §5.45), Star, Mark as Unread, Move to Inbox (disabled where it does not apply), —, Move to Trash; every item with its symbol and shortcut, title case, disabled items visible. Then, after a separator, Unsubscribe ⇧⌘U (no symbol, as in the Message menu), present only while the open conversation offers it (§5.14), since most mail is no list's. It acts on the selection, like the Message menu, and shares its validation (Star reads Unstar when every selected conversation is starred; Move to Inbox is disabled in the Inbox; Move to Trash in Trash). A right-click on a row outside the selection selects that row first; heads and the list tail have no menu. On a message it opens over the sheet's or collapsed row's own chrome; inside a body, which is the sender's document, the system's text menu stays, for Copy and links. The message More menu is §5.14; the rail's add menu §5.44; the demo tag's menu §5.43. The highlight is the system's (Iron Gall under Multicolor, §3.1).
+Context menu on rows and messages: Reply, Reply All, Forward, —, Archive, Later (a submenu holding the Later menu's items, §5.45), Star, Mark as Unread, Mute (§5.46), Move to Inbox (disabled where it does not apply), —, Move to Trash; every item with its symbol and shortcut, title case, disabled items visible. Then, after a separator, Unsubscribe ⇧⌘U (no symbol, as in the Message menu), present only while the open conversation offers it (§5.14), since most mail is no list's, and Always Archive Mail from This Sender and Block Sender, present only while one conversation is open with mail from someone other than the user (§5.47): on a message, its sender; on a row, the sender of its newest such mail. It acts on the selection, like the Message menu, and shares its validation (Star reads Unstar when every selected conversation is starred; Move to Inbox is disabled in the Inbox; Move to Trash in Trash). A right-click on a row outside the selection selects that row first; heads and the list tail have no menu. On a message it opens over the sheet's or collapsed row's own chrome; inside a body, which is the sender's document, the system's text menu stays, for Copy and links. The message More menu is §5.14; the rail's add menu §5.44; the demo tag's menu §5.43. The highlight is the system's (Iron Gall under Multicolor, §3.1).
 
 ### 5.36 Keyboard shortcut hints (keycaps)
 
@@ -1922,7 +1924,7 @@ Fills the main window until the first account exists; the rail and list are hidd
 
 ### 5.40 Settings window
 
-SwiftUI `Settings { TabView { … } }` with the **system toolbar tab style**, 560 pt wide, background `canvas`. Height fits the current tab's content, never taller than the screen's visible frame; the account group is capped (below), so the tallest tab, Accounts with a two-line notice, six visible rows, the +/− buttons and a full detail form, is 760 pt of content (20 + a 46 pt banner + 16 + 336 + 8 + 22 + 20 + 270 for five detail rows with a three-line error and the 82 pt Signature row + 22), 848 pt with the window's 88 pt title bar and toolbar (macOS 26). A shorter visible frame stops the window at its height and cuts the foot of the form, which takes all of that at once: six accounts, a notice and a three-line error. Tabs: **Accounts** (`person.crop.circle`), **OAuth** (`key`), **General** (`gearshape`). The toolbar and its tabs are system chrome: macOS draws their size, material, selection and focus (the selected tab's symbol takes the accent asset, §3.1), so Quire specifies no tab metrics and asserts no tab contrast (§7). Everything **inside** the content area is Quire-drawn with the custom SwiftUI styles of §8.3, so every edge and every focus ring there meets 3:1. Content padding 20 24 22.
+SwiftUI `Settings { TabView { … } }` with the **system toolbar tab style**, 560 pt wide, background `canvas`. Height fits the current tab's content, never taller than the screen's visible frame; the account group is capped (below), so the tallest tab, Accounts with a two-line notice, six visible rows, the +/− buttons and a full detail form, is 800 pt of content (20 + a 46 pt banner + 16 + 336 + 8 + 22 + 20 + 310 for six detail rows with a three-line error and the 82 pt Signature row + 22), 888 pt with the window's 88 pt title bar and toolbar (macOS 26). A shorter visible frame stops the window at its height and cuts the foot of the form, which takes all of that at once: six accounts, a notice and a three-line error. Tabs: **Accounts** (`person.crop.circle`), **OAuth** (`key`), **General** (`gearshape`). The toolbar and its tabs are system chrome: macOS draws their size, material, selection and focus (the selected tab's symbol takes the accent asset, §3.1), so Quire specifies no tab metrics and asserts no tab contrast (§7). Everything **inside** the content area is Quire-drawn with the custom SwiftUI styles of §8.3, so every edge and every focus ring there meets 3:1. Content padding 20 24 22.
 
 `layout.settings`
 
@@ -1938,7 +1940,8 @@ SwiftUI `Settings { TabView { … } }` with the **system toolbar tab style**, 56
 | `statusGlyphGap` | 6 | `statusButtonGap` | 8 | `statusBarWidth` | 96 | `statusBarGap` | 4 |
 | `savedGap` | 8 | `groupMaxRows` | 6 | `detailTop` | 20 | `detailRow` | 40 |
 | `monogramFieldWidth` | 64 | `colourPopupWidth` | 160 | `lastErrorMaxLines` | 3 | `signatureLines` | 3 |
-| `signatureFieldHeight` | 66 | `mailboxSizeGap` | 12 |  |  |  |  |
+| `signatureFieldHeight` | 66 | `mailboxSizeGap` | 12 | `sendersWidth` | 440 | `senderRow` | 40 |
+| `senderRowsMax` | 8 | `senderRowX` | 12 | `senderActionGap` | 12 | `senderRemoveInset` | 9 |
 
 **Accounts.** An optional notice banner (below), then the account group (`sheet`, radius 8, hairline edge) of 56 pt rows, then the +/− buttons 8 pt below the group, then, 20 pt below the buttons (`settings.detailTop`), the detail of the selected account.
 
@@ -1962,8 +1965,9 @@ SwiftUI `Settings { TabView { … } }` with the **system toolbar tab style**, 56
 | 1 | Colour | popup (§5.27), 24 pt high, 160 pt wide (`settings.colourPopupWidth`): the 14 pt swatch on its 2 pt `raised` halo, 8 pt, the ink's name (“Persimmon”); the menu lists the ten inks with swatches, a checkmark on the current one |
 | 2 | Monogram | text field 64 × 24 pt (`settings.monogramFieldWidth`), max 2 characters; placeholder = the derived monogram in `ink3`, so clearing the field returns to it. No caption |
 | 3 | Signature | a 3-line field: the composer's own editor (§5.20) in the text-field container (§5.25: `sheet`, radius 6, `ruleStrong` edge, `ink3` hovered, the focus ring while it edits), 360 × 66 pt (`settings.signatureFieldHeight` = 24 + (3 − 1) × 21), its top 8 pt into the row ((40 − 24) / 2, as a one-line field's), so the row is 82 pt and the label, centred in the row's first 40 pt, sits level with the first line. Text in `writing` from 8 pt in, the first line where a one-line field's text would sit ((24 − 21) / 2 pt from the top); past three lines it scrolls inside (scroller only while scrolling). Bold, italic, underline and links through the composer's shortcuts (⌘B ⌘I ⌘U, and ⌘K for its link popover, which closes, as in the composer, when focus goes anywhere else or another account is selected); lists and quotes are off (⇧⌘8, ⇧⌘7 and ⌘' do nothing there); pasting is plain, as in the composer. Empty by default, no placeholder and no caption. Saved as the HTML the composer sends (anything else dropped) when editing ends: focus leaves the field, another account is selected, another window or app comes forward, the window closes, a composer opens while Settings is in front (⌘N, a notification's Reply), or the app quits (before the store closes); never per keystroke. Emptied, the account has no signature |
-| 4 | Last error (only when there is one) | the error in `meta` `ink2` (“Gmail returned an unexpected response.”), wrapping in the field column (360 pt) up to 3 lines (`settings.lastErrorMaxLines`; the row grows by 14 pt per extra line), the full text in its tooltip |
-| 5 | — | Remove… (small secondary, at the field column's leading edge; confirms with the destructive alert of §5.33). In demo mode it reads Leave Demo… |
+| 4 | Rules | Senders… (small secondary, at the field column's leading edge): the Senders sheet, the one place sender rules are listed (§5.47) |
+| 5 | Last error (only when there is one) | the error in `meta` `ink2` (“Gmail returned an unexpected response.”), wrapping in the field column (360 pt) up to 3 lines (`settings.lastErrorMaxLines`; the row grows by 14 pt per extra line), the full text in its tooltip |
+| 6 | — | Remove… (small secondary, at the field column's leading edge; confirms with the destructive alert of §5.33). In demo mode it reads Leave Demo… |
 
 **Seven accounts.** When a 7th account is added and **Show account initials in unified views** turns on by itself (§4.2), Settings says why in two places. In **Accounts**, an info banner in the notice slot: `info.circle` + “Rows now show each account's initial. With seven or more accounts, colours alone can look alike.” + the link “Change in General…” and a dismiss button; it appears once, stays (across launches) until dismissed or followed, and is not shown again. In **General**, a caption under the Rows checkbox, in the field column 8 pt below it (`meta` `ink3`): “Turned on when you added a seventh account.”, shown while the setting is still in that automatic state; once the user changes the checkbox the caption goes and the choice is kept (an eighth account does not turn it back on).
 
@@ -2043,7 +2047,7 @@ States per control as §5.24–5.27, Quire-drawn; validation errors inline under
 | Body | first line of the snippet, max 120 characters | none |
 | Summary (more than 3 within 30 s) | “3 new messages” · account name | same |
 
-Sound: system default, off while the app is frontmost. No notification for mail that arrives while its conversation is open in a key window, or during an account's first sync (its first page of newest mail, including mail of that page whose rows land just after it). New mail notifies while older mail downloads behind it; the older mail itself never does, since it predates the first page. Nor does a conversation coming back from Later (§5.45): it is not new mail, and the Inbox badge and its row's Back tag say it came back.
+Sound: system default, off while the app is frontmost. No notification for mail that arrives while its conversation is open in a key window, or during an account's first sync (its first page of newest mail, including mail of that page whose rows land just after it). New mail notifies while older mail downloads behind it; the older mail itself never does, since it predates the first page. Nor does a conversation coming back from Later (§5.45): it is not new mail, and the Inbox badge and its row's Back tag say it came back. Nor does mail a mute or a sender rule took out of the Inbox as it arrived (§5.46, §5.47): it never reaches the Inbox, a muted conversation never notifies even where the user moved it back, and a row whose newest message is not itself in the Inbox (a rule's archive in a conversation the Inbox still holds for older mail, the user's own reply) stays quiet.
 
 **Actions.** A notification for one conversation offers three actions (one category, registered at launch), which macOS lists in this order. The summary offers none: it names no conversation to act on, and a click on it only brings the app forward.
 
@@ -2148,6 +2152,44 @@ So the menu reads soonest first and never offers one time twice: after 14:00 Lat
 
 **The Later view** (the tile, G L, the title and View menus) lists the snoozed conversations in scope, soonest first, each time slot reading “Back Tue 09:00” (today “Back 15:00”), under no running heads; masthead “Later”, search placeholder “Search Later”. There L moves a time, ⇧I moves the conversation back now (the mail its time would bring back: a message in the Trash stays there, as a drop on the Inbox tile leaves it too), E ends the snooze and leaves it archived (toast “Archived”; several within 1000 ms coalesce into one toast and one undo, “Archived 3 conversations”, as E does everywhere, §5.30), Unsubscribe (⇧⌘U, the link, §5.14) sends its request and ends the snooze as E does (toast “Unsubscribe sent · Archived”, which no E joins), and # trashes it; each has its toast and Undo, which restores the snooze. When the last snooze in view ends the view returns to the Inbox; an undo then brings Later back with its row selected, unless the user has since picked a view or an account or typed a search, which an undo leaves as it is, as everywhere. A search typed in Later looks through All Mail, or the view an `in:` term picks (§5.6), as it does from any view, so its results are rows of that view (E archives, ⇧I moves to the Inbox, L snoozes or moves a time, each with that view's toast), and it stays when Later empties, with its results, selection and reader; clearing it lands in the Inbox.
 
+### 5.46 Mute (Q3.7)
+
+M mutes the selection: it is archived now, and mail that arrives in it later is archived as it arrives, so it never reaches the Inbox and never notifies. M again unmutes. The archive is the ordinary one, so the phone and the web agree once it lands; only the mute itself lives on this Mac (Gmail's mute is not in its API). One key, one glyph, no setting.
+
+| State | Look |
+|---|---|
+| Mute in the Inbox (M, Message › Mute, the context menu's Mute) | the rows leave the Inbox as after E, the selection moves on; toast “Muted” (`bell.slash`), “Muted 3 conversations” for several, with Undo + Z |
+| Mute where the row stays (All Mail, Sent, Starred, a search, Later) | the muted glyph appears on the row; no toast for one (the row shows it, as for a star), a toast for several; Z reaches it for the grace period (§6.1) |
+| A muted row | `bell.slash` 12 pt `ink3` in the glyph cluster beside the star (§5.7), in every view it is listed in; VoiceOver adds “Muted” |
+| Unmute (M on a selection that is all muted; the items read Unmute) | the glyph goes; nothing moves (the conversation stays where it is); no toast for one; Undo mutes it again |
+| Undo of a mute | “Undid Mute”: the mute ends and the archived mail is back in the Inbox, selected, as Z after E |
+| New mail in a muted conversation | archived as it arrives, the conversation's other mail in the Inbox with it (one moved back with ⇧I leaves again), queued as the ordinary archive; the row's time and snippet move to it, unread, in All Mail; no notification |
+| A muted conversation deleted everywhere | the mute goes with it; mail that later starts a conversation with its id starts unmuted |
+
+The cheat sheet lists “M  Mute · unmute” in Act (§5.32); the quoted-text row moves to View, beside its menu, so both bands keep their height and the sheet still fits the default window.
+
+### 5.47 Sender rules (Q4.2)
+
+Two rules, set from a message, never typed: **Always Archive Mail from This Sender** (out of the Inbox as it arrives) and **Block Sender** (to the Trash as it arrives). Each account keeps its own, by the sender's address without case; one per sender, the second replacing the first. They act on mail as it arrives, never on mail already on this Mac or downloaded from further back, and never on the user's own sent mail or drafts; Spam is left alone. What they do is the ordinary archive or Move to Trash, so every device agrees once it lands. No setting, no key: a rule is set rarely, and a single key could set one by a slip.
+
+| Where | What |
+|---|---|
+| A message's More menu (§5.14) | both items, for that message's sender, when someone other than the user sent it; the rule the sender has shows checked and disabled |
+| The context menu of rows and messages, the Message menu (§5.35) | both items, for the open conversation's target message's sender, or its newest mail from someone else; disabled with several selected or for a conversation of the user's own mail |
+| Setting one | in one step the rule is kept and that sender's mail in the conversation moves as the rule would move their next message (Block: out of the Trash; Always Archive: out of the Inbox); toast “Sender blocked” (`hand.raised`) or “Sender always archived” (`archivebox`), always shown, since no row shows a rule, with Undo + Z, which puts back the rule the sender had (none, or the other) and the mail; “Undid Block Sender” |
+| Their next message | archived or trashed as it arrives, never in the Inbox, no notification |
+| Settings › Accounts › Rules › Senders… (§5.40) | the one place the rules are listed (below) |
+
+**The Senders sheet.** A sheet on the Settings window, 440 pt wide on `canvas`, padded as a tab (20 24 22): the title “Senders” (`title` `ink`), then 8 pt below a caption (`meta` `ink3`): “Mail from these senders to alex@contoso.test is archived or moved to the Trash as it arrives.”, then 16 pt below the list, then 20 pt below, trailing, Done (small primary, the default button; ↩ and Esc close the sheet). The list is the account group's surface (`sheet`, radius 8, hairline edge) of 40 pt rows: the address in `body` `ink` from x = 12, cut in the middle so its start and its domain both show, then what the rule does in `snippet` `ink2` (“Blocked”, “Always archived”), 12 pt, and a − button 9 pt from the trailing edge: the +/− pair's half on its own (22 pt, `raised`, `ruleStrong` edge, radius `r.sm`, `minus` 11 pt `ink2`, and its hover, pressed, focused and disabled states, §5.40), so it adds no pair. Hairlines between rows from the text column. Rows are not selected (nothing here is chosen before acting), so they take no wash; each − is its own Tab stop, named “Remove” and the address for VoiceOver. Past 8 rows the list scrolls inside, a `rule` hairline marking each clipped edge.
+
+| Senders state | Look |
+|---|---|
+| Rules listed | by address |
+| No rules | one 56 pt row: “No sender rules” (`body` `ink2`) over “Set one from a message's menu.” (`snippet` `ink3`), centred |
+| − | the rule goes at once, with no alert (nothing is lost: it is set again from any message), and the mail it moved stays where it is |
+| A rule set from the main window while the sheet is open | it appears in its place |
+| Demo mode | each demo account blocks a made-up sender, so the sheet has a row to show (§5.43) |
+
 ---
 
 ## 6. Keyboard map
@@ -2166,6 +2208,7 @@ All single keys are inactive while a text field has focus. Every key press first
 | ↩ (search field) | search the server for more while the list ends with its offer (§5.6, §5.10), then the list; ↓ only the list | | |
 | G I, G S, G T, G D, G #, G A | Inbox, Starred, Sent, Drafts, Trash, All Mail (HUD after 500 ms) | ⌘0 / ⌘1…⌘9 | All Inboxes / account |
 | L | snooze: the Later menu (§5.45; nothing in Trash or Drafts) | G L | Later, while its tile shows (§5.2) |
+| M | mute: archived now, new mail archived as it arrives; M again unmutes (§5.46) | | |
 | ⇧⌘R | open the quick reply in the composer | ⌘↩ | send: what Send does, Send and Archive unless the drop-down chose Send (§5.23) |
 | ⇧⌘I / ⇧⌘O | load images / original colors | ⌃⌘S | show / hide the rail |
 | ⌥⌘C | compact rows | ? or ⌘/ | keyboard shortcuts |
@@ -2960,6 +3003,7 @@ html.ss-adapt a, html.ss-adapt a * { color: var(--q-accent) !important; }
 - **`declaresColors: Bool`** on `SanitizedBody`, set by `HTMLSanitizer` at sync time when the body sets its own background or text colour (`bgcolor`, `background`, `color` in `style` attributes or `<style>` blocks, `<font color>`, `text`/`link` attributes on `body`); `bodies.declares_colors INTEGER NULL` (NULL = unknown: treated as true for `styled` bodies, false otherwise). It decides whether a body is adapted in dark appearances, and whether it gets the Original colors notice, hover action and inset (§5.14, §5.16), without scanning HTML at render time.
 - **A failed-operation mark per conversation.** `ConversationSummary` has only `hasPendingOperations`; it gains `failedOperation: OperationKind?` (the kind of the newest operation with status `failed` on any message of the conversation that has not been acknowledged), backed by `conversations.failed_op_kind TEXT NULL` maintained in the same transaction that marks an operation failed. It clears (set to NULL) when the conversation is opened (selected for 150 ms), when a later operation on it is confirmed, or when the failed row is pruned after 24 hours. Same agreement applies.
 - **Later** (§5.45): a `snoozes` table (the conversation, `due_at`, `created_at`) and `conversations.returned_at INTEGER NULL`, which the Inbox sorts, pages and groups by (`COALESCE(returned_at, latest_date_ms)`) and which carries the row's Back tag; `ConversationSummary` gains `returnedAt` and, in Later, `snoozedUntil` (docs/DATA-MODEL.md, v11).
+- **Mute and sender rules** (§5.46, §5.47): `conversations.muted` (v16), carried by `ConversationSummary.isMuted` and the row's cache key, and a `sender_rules` table (v17: account, address, action); both applied to arriving mail inside the poll's write (`docs/DATA-MODEL.md`, "Arrival rules").
 - **One preference**, `originalColorsNoticeDismissed` (UserDefaults), for §5.16.
 - **List headers on the message** (1.6.3): `messages.list_unsubscribe` and `list_unsubscribe_post`, captured at sync time (`docs/DATA-MODEL.md`, v14). The render payload carries one flag per message, `unsubscribe`, set when they offer a way out (`UnsubscribeMethod`), so the shell decides nothing itself.
 - **Invitations** (1.6.4, §5.14): the invitation a message carries is read once when its body is fetched and stored with it (`bodies.invitation_json`, v15): method, UID and revision (SEQUENCE, and DTSTAMP to order two with the same SEQUENCE), title, start and end (all-day, floating or in a zone), the zone, location and meeting link, organizer, attendees with their answers, the repeat rule as words, the user's own answer and whether they organized it, Microsoft's event id, and the calendar text Open in Calendar hands over. The answer given on this Mac is local state on the message (`messages.invitation_reply`, v15): written by the operation that queues it, never by a provider. Whether an account waits for calendar permission comes from the engine's status (`AccountSyncStatus.permissionsNeeded`), not the store.

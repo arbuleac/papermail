@@ -88,6 +88,11 @@ extension Quire {
         public static let conceal = "eye.slash"
         public static let invitation = "calendar"
         public static let answered = "checkmark"
+        public static let mute = "bell.slash"
+        public static let unmute = "bell"
+        public static let blockSender = "hand.raised"
+        public static let alwaysArchiveSender = "archivebox"
+        public static let removeRule = "minus"
     }
 
     /// The custom glyphs (spec §4.11): SVG path data in grid units, y down.
@@ -207,9 +212,9 @@ extension Quire {
             QuireCheatSheetRow(keys: "⇧I", label: "Move to Inbox"),
             QuireCheatSheetRow(keys: "S", label: "Star · unstar"),
             QuireCheatSheetRow(keys: "U", label: "Mark as unread · read"),
+            QuireCheatSheetRow(keys: "M", label: "Mute · unmute"),
             QuireCheatSheetRow(keys: "⇧⌘U", label: "Unsubscribe"),
             QuireCheatSheetRow(keys: "Z", label: "Undo"),
-            QuireCheatSheetRow(keys: ".", label: "Show · hide quoted text"),
         ]),
         QuireCheatSheetSection(title: "Go", rows: [
             QuireCheatSheetRow(keys: "G then I", label: "Inbox"),
@@ -243,6 +248,7 @@ extension Quire {
         QuireCheatSheetSection(title: "View", rows: [
             QuireCheatSheetRow(keys: "⇧⌘I", label: "Load images"),
             QuireCheatSheetRow(keys: "⇧⌘O", label: "Original colors"),
+            QuireCheatSheetRow(keys: ".", label: "Show · hide quoted text"),
             QuireCheatSheetRow(keys: "⌥⌘C", label: "Compact rows"),
             QuireCheatSheetRow(keys: "⌃⌘S", label: "Show · hide the rail"),
             QuireCheatSheetRow(keys: "⇧⌘N", label: "Check for new mail"),
