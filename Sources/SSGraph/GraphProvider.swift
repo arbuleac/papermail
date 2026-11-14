@@ -58,17 +58,32 @@ public final class GraphProvider: MailProvider, Sendable {
     // MARK: Metadata
 
     public func metadata(for providerIDs: [String]) async throws -> [MessageMetadata] {
-        try await metadata(for: providerIDs, folders: try await wellKnownFolders())
+        try await lookUp(providerIDs, folders: try await wellKnownFolders()).messages
     }
 
-    /// With `skippingUnreadable` (the delta's own lookups), a message Graph will not return on its own (a 400, 403 or
-    /// 500 for that one item, or a reply that does not decode) is left out like an unknown one. Failing the call for
-    /// it would hold the cursor, so every later poll would meet the same message and the account would stop syncing.
-    /// A failure the next request would meet too (a throttle, a refused token, the network) still fails the call.
-    func metadata(for providerIDs: [String], folders: GraphWellKnownFolders,
-                  skippingUnreadable: Bool = false) async throws -> [MessageMetadata] {
+    public func lookUpMetadata(for providerIDs: [String]) async throws -> MetadataLookup {
+        let lookup = try await lookUp(providerIDs, folders: try await wellKnownFolders())
+        return MetadataLookup(messages: lookup.messages, unreadable: lookup.refused + lookup.failing)
+    }
+
+    /// What a lookup by id found. An id in none of the lists is one Graph does not know (404): gone.
+    struct Lookup {
+        var messages: [MessageMetadata] = []
+        /// Refused for that one message (a 400 or 403, a reply that does not decode).
+        var refused: [String] = []
+        /// Failed by the service for now (a 5xx or the network), for the part or, with `carryingFailedBatches`, its
+        /// whole `$batch`.
+        var failing: [String] = []
+    }
+
+    /// Looks messages up 20 to a `$batch`. A message Graph will not return on its own is sorted out rather than thrown:
+    /// one message failing the call would fail it on every retry, and a delta's lookups would hold the cursor, so the
+    /// account would stop syncing. A failure the next request would meet too (a throttle, a refused token) still
+    /// fails the call, and so does a `$batch` the service fails, unless `carryingFailedBatches` (the delta's lookups,
+    /// which ask again on the next call).
+    func lookUp(_ providerIDs: [String], folders: GraphWellKnownFolders, carryingFailedBatches: Bool = false) async throws -> Lookup {
         let mapper = GraphMessageMapper(accountID: accountID, folders: folders)
-        var result: [MessageMetadata] = []
+        var lookup = Lookup()
         for chunk in providerIDs.chunks(of: GraphBatch.maxRequests) {
             let requests = chunk.enumerated().map { index, id in
                 GraphBatchRequest(
@@ -77,25 +92,38 @@ public final class GraphProvider: MailProvider, Sendable {
                     url: "/me/messages/\(GraphURL.pathComponent(id))?$select=\(Self.metadataSelect)"
                 )
             }
-            let responses = GraphBatch.byID(try await client.batch(requests))
-            for request in requests {
+            let responses: [String: GraphBatchResponse]
+            do {
+                responses = GraphBatch.byID(try await client.batch(requests))
+            } catch let error where carryingFailedBatches && Self.isServiceFailure(error) {
+                Self.folderLog.notice("lookup: a $batch the service failed waits for the next call: \(Self.failureLabel(error), privacy: .public)")
+                lookup.failing += chunk
+                continue
+            }
+            for (request, id) in zip(requests, chunk) {
                 guard let response = responses[request.id] else {
                     throw ProviderError.decoding("$batch response missing item \(request.id)")
                 }
-                // Unknown ids are omitted, never thrown.
                 if response.status == 404 { continue }
                 do {
                     try GraphBatch.check(response)
                     guard let body = response.body else { continue }
-                    result.append(mapper.metadata(from: try GraphJSON.decode(GraphMessage.self, from: body)))
-                } catch let error where skippingUnreadable && Self.isItemFailure(error) {
+                    lookup.messages.append(mapper.metadata(from: try GraphJSON.decode(GraphMessage.self, from: body)))
+                } catch let error where Self.failsTheCall(error) {
+                    throw error
+                } catch {
                     // Status and Graph's error code name the failure, never the mail.
                     let code = response.body?.objectValue?["error"]?.objectValue?["code"]?.stringValue ?? "no code"
                     Self.folderLog.notice("lookup left out a message Graph would not return: HTTP \(response.status, privacy: .public) \(code, privacy: .public)")
+                    if Self.isServiceFailure(error) {
+                        lookup.failing.append(id)
+                    } else {
+                        lookup.refused.append(id)
+                    }
                 }
             }
         }
-        return result
+        return lookup
     }
 
     // MARK: Bodies and attachments
@@ -356,16 +384,8 @@ public final class GraphProvider: MailProvider, Sendable {
         }
     }
 
-    /// A failure that belongs to one message: anything but what fails the call, and the network, which a
-    /// `$batch` part reports (503, 504) when the service rather than the message is at fault.
-    static func isItemFailure(_ error: Error) -> Bool {
-        if failsTheCall(error) { return false }
-        if case ProviderError.network = error { return false }
-        return true
-    }
-
-    /// The service failing for now rather than anything about the request: a 5xx (500 and 502 map to `server`,
-    /// 503 and 504 to `network`) or the network itself.
+    /// The service failing for now rather than anything about the request: a 5xx (500 maps to `server`, 502, 503 and
+    /// 504 to `network`) or the network itself.
     static func isServiceFailure(_ error: Error) -> Bool {
         switch error as? ProviderError {
         case .network?: return true
@@ -378,7 +398,8 @@ public final class GraphProvider: MailProvider, Sendable {
     static func failureLabel(_ error: Error) -> String {
         switch error as? ProviderError {
         case .server(let status, _)?: return "HTTP \(status)"
-        case .network?: return "network (or HTTP 503/504)"
+        case .network?: return "network (or HTTP 502/503/504)"
+        case .decoding?: return "a reply that does not decode"
         default: return "other"
         }
     }

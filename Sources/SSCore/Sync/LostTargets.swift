@@ -17,16 +17,18 @@ enum LostTargets {
             .map(\.providerID)
     }
 
-    /// Asks `fetch` (the provider's `metadata(for:)`, which leaves out ids it does not know) about `candidates`,
-    /// `chunk` at a time, and returns the ones it no longer has.
+    /// Asks `fetch` (the provider's `lookUpMetadata(for:)`) about `candidates`, `chunk` at a time, and returns the ones
+    /// it no longer has. One it will not return on its own (Graph's 403 for one message) is kept like the sweep keeps
+    /// every target: refused is not gone, and failing the pass for it would stop the reconcile on every retry.
     static func lost(_ candidates: [String], chunk: Int,
-                     fetch: ([String]) async throws -> [MessageMetadata]) async throws -> [String] {
+                     fetch: ([String]) async throws -> MetadataLookup) async throws -> [String] {
         var lost: [String] = []
         let size = max(1, chunk)
         for start in stride(from: 0, to: candidates.count, by: size) {
             let asked = Array(candidates[start..<min(start + size, candidates.count)])
-            let found = Set(try await fetch(asked).map(\.id.providerID))
-            lost.append(contentsOf: asked.filter { !found.contains($0) })
+            let lookup = try await fetch(asked)
+            let known = Set(lookup.messages.map(\.id.providerID)).union(lookup.unreadable)
+            lost.append(contentsOf: asked.filter { !known.contains($0) })
         }
         return lost
     }

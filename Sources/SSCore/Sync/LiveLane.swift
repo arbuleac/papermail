@@ -575,9 +575,9 @@ actor LiveLane {
         currentCall = "metadata"
         let quota = budget.quota
         let lost = try await LostTargets.lost(candidates, chunk: tuning.backfillMetadataChunk) { ids in
-            let messages = try await provider.metadata(for: ids)
+            let lookup = try await provider.lookUpMetadata(for: ids)
             await budget.recordLive(quota.metadataCostPerMessage * Double(ids.count))
-            return messages
+            return lookup
         }
         if !lost.isEmpty { try store.deleteMessages(lost.map { MessageID(accountID: accountID, providerID: $0) }) }
         return lost.count

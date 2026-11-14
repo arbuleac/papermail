@@ -130,6 +130,10 @@ struct GmailHTTPClient: Sendable {
             return .notFound
         case 429:
             return .throttled(retryAfter: parseRetryAfter(retryAfter) ?? retryDelay(inBody: body))
+        case 502, 503, 504:
+            // A gateway or the service failing for now: the network backoff, never an operation's attempt, "slow to
+            // respond" on the sync line. A 500 stays a server error, so a message that keeps failing is set aside.
+            return .network("HTTP \(status)")
         default:
             return .server(status: status, message: errorMessage(body))
         }

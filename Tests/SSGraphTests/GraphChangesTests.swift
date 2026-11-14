@@ -618,6 +618,145 @@ final class GraphChangesTests: GraphTestCase {
         await expectProviderError({ try await self.makeProvider().changes(since: start, limit: 50) }) { $0.retryAfter == 7 }
     }
 
+    /// Through Exchange's November 2026 outage a lookup part answered 502 now and then. Taken as gone, a message that was
+    /// only moved (a snooze's archive) was deleted here, its snooze and body with it. Only a 404 is gone: the message is
+    /// left as the store has it and looked up again on the next call, which finds where it went.
+    func testARemovalTheServiceFailsToLookUpIsAskedAgainNotDeleted() async throws {
+        var lookupsWork = false
+        route { request in
+            if request.method == "GET", request.path == self.inboxDelta {
+                if request.query["$deltatoken"] != nil { return .json(Fixtures.list([], deltaLink: self.inboxLink2)) }
+                return .json(Fixtures.list([
+                    Fixtures.removed("r-moved"),
+                    Fixtures.message(id: "m-new", folder: "F-INBOX"),
+                ], deltaLink: self.inboxLink))
+            }
+            return self.batchReply(request) { id, _ in
+                lookupsWork
+                    ? Fixtures.BatchItem(id: id, status: 200, body: Fixtures.message(id: "r-moved", folder: "F-ARCHIVE"))
+                    : Fixtures.BatchItem(id: id, status: 502, body: #"{"error":{"code":"UnknownError","message":""}}"#)
+            }
+        }
+        let provider = makeProvider()
+
+        let first = try await provider.changes(since: try cursor(folders: ["F-INBOX": nil]), limit: 50)
+        XCTAssertEqual(first.upserts.map(\.id.providerID), ["m-new"])
+        XCTAssertEqual(first.deletedIDs, [], "a lookup the service failed says nothing about the message")
+        let carried = try GraphCursor.decode(first.cursor)
+        XCTAssertEqual(carried.deltaLink(for: "F-INBOX"), inboxLink, "the delta moves on")
+        XCTAssertEqual(carried.recheck, ["r-moved": 1])
+
+        lookupsWork = true
+        let second = try await provider.changes(since: first.cursor, limit: 50)
+        XCTAssertEqual(second.upserts.map(\.id.providerID), ["r-moved"])
+        XCTAssertEqual(second.upserts.first?.folderID, "F-ARCHIVE")
+        XCTAssertEqual(second.deletedIDs, [])
+        XCTAssertEqual(try GraphCursor.decode(second.cursor).recheck, [:])
+        XCTAssertFalse(second.cursor.contains("recheck"), "a cursor with nothing to look up again does not grow")
+    }
+
+    /// A lookup part answering 503 or 504 failed the whole call, so the inbox's new mail was fetched and thrown away on
+    /// every poll while removals were pending. The new mail lands now and the lookup waits for the next call.
+    func testALookupPartTheServiceFailsNoLongerHoldsNewMail() async throws {
+        route { request in
+            if request.method == "GET", request.path == self.inboxDelta {
+                return .json(Fixtures.list([
+                    Fixtures.removed("r-1"),
+                    Fixtures.message(id: "m-new", folder: "F-INBOX"),
+                ], deltaLink: self.inboxLink))
+            }
+            return self.batchReply(request) { id, _ in Fixtures.BatchItem(id: id, status: 503) }
+        }
+
+        let page = try await makeProvider().changes(since: try cursor(folders: ["F-INBOX": nil]), limit: 50)
+
+        XCTAssertEqual(page.upserts.map(\.id.providerID), ["m-new"])
+        XCTAssertEqual(page.deletedIDs, [])
+        XCTAssertEqual(try GraphCursor.decode(page.cursor).recheck, ["r-1": 1])
+    }
+
+    /// The same when the `$batch` envelope itself fails for now.
+    func testALookupWhoseWholeBatchTheServiceFailsIsAskedAgain() async throws {
+        route { request in
+            if request.method == "GET", request.path == self.inboxDelta {
+                return .json(Fixtures.list([
+                    Fixtures.removed("r-1"),
+                    #"{"id":"m-read","isRead":true}"#,
+                    Fixtures.message(id: "m-new", folder: "F-INBOX"),
+                ], deltaLink: self.inboxLink))
+            }
+            return request.path == "/v1.0/$batch" ? .status(504) : nil
+        }
+
+        let page = try await makeProvider().changes(since: try cursor(folders: ["F-INBOX": nil]), limit: 50)
+
+        XCTAssertEqual(page.upserts.map(\.id.providerID), ["m-new"])
+        XCTAssertEqual(page.deletedIDs, [])
+        XCTAssertEqual(try GraphCursor.decode(page.cursor).recheck, ["r-1": 1, "m-read": 1])
+    }
+
+    /// A read flag set on the phone was dropped for good when its lookup answered 502: the delta link moved past it.
+    func testAPartialChangeTheServiceFailsIsLookedUpAgain() async throws {
+        var lookupsWork = false
+        route { request in
+            if request.method == "GET", request.path == self.inboxDelta {
+                if request.query["$deltatoken"] != nil { return .json(Fixtures.list([], deltaLink: self.inboxLink2)) }
+                return .json(Fixtures.list([#"{"id":"m-read","isRead":true}"#], deltaLink: self.inboxLink))
+            }
+            return self.batchReply(request) { id, _ in
+                lookupsWork
+                    ? Fixtures.BatchItem(id: id, status: 200, body: Fixtures.message(id: "m-read", folder: "F-INBOX"))
+                    : Fixtures.BatchItem(id: id, status: 502)
+            }
+        }
+        let provider = makeProvider()
+
+        let first = try await provider.changes(since: try cursor(folders: ["F-INBOX": nil]), limit: 50)
+        XCTAssertEqual(first.upserts.map(\.id.providerID), [])
+        lookupsWork = true
+        let second = try await provider.changes(since: first.cursor, limit: 50)
+        XCTAssertEqual(second.upserts.map(\.id.providerID), ["m-read"])
+    }
+
+    /// A message whose lookup keeps failing is not carried for ever: after three calls it is left as the store has it,
+    /// never deleted for a failure that says nothing about it.
+    func testALookupThatKeepsFailingIsLeftAsTheStoreHasIt() async throws {
+        route { request in
+            if request.method == "GET", request.path == self.inboxDelta {
+                return .json(Fixtures.list([], deltaLink: self.inboxLink2))
+            }
+            return self.batchReply(request) { id, _ in Fixtures.BatchItem(id: id, status: 503) }
+        }
+        var start = try GraphCursor.decode(try cursor(folders: ["F-INBOX": inboxLink]))
+        start.recheck = ["r-1": 2]
+
+        let page = try await makeProvider().changes(since: try start.encoded(), limit: 50)
+
+        XCTAssertEqual(page.deletedIDs, [])
+        XCTAssertEqual(page.upserts.map(\.id.providerID), [])
+        XCTAssertEqual(try GraphCursor.decode(page.cursor).recheck, [:])
+        XCTAssertEqual(innerBatchRequests().count, 1, "asked once more before giving up")
+    }
+
+    /// Looked up again, a message Graph no longer has is gone; one another folder reported meanwhile needs no lookup.
+    func testACarriedLookupSettlesAsADeletionOrThroughAnotherFolder() async throws {
+        route { request in
+            if request.method == "GET", request.path == self.inboxDelta {
+                return .json(Fixtures.list([Fixtures.message(id: "m-found", folder: "F-INBOX")], deltaLink: self.inboxLink2))
+            }
+            return self.batchReply(request) { id, _ in Fixtures.BatchItem(id: id, status: 404, body: Fixtures.notFoundError) }
+        }
+        var start = try GraphCursor.decode(try cursor(folders: ["F-INBOX": inboxLink]))
+        start.recheck = ["r-gone": 1, "m-found": 1]
+
+        let page = try await makeProvider().changes(since: try start.encoded(), limit: 50)
+
+        XCTAssertEqual(page.deletedIDs, ["r-gone"])
+        XCTAssertEqual(page.upserts.map(\.id.providerID), ["m-found"])
+        XCTAssertEqual(innerBatchRequests().map { $0["url"] as? String }, ["/me/messages/r-gone?$select=\(GraphProvider.metadataSelect)"])
+        XCTAssertEqual(try GraphCursor.decode(page.cursor).recheck, [:])
+    }
+
     // MARK: Requests sent
 
     /// A quiet poll between full visits asks the inbox, sent and drafts, and says so: three requests, which the

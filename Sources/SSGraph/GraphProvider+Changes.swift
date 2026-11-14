@@ -135,34 +135,8 @@ extension GraphProvider {
         // Every folder failing is the service down, not a folder: the call fails as it would have.
         if !anyAnswered, let firstSkipped { throw firstSkipped }
 
-        // A folder delta reports a move out of the folder as a removal; only a lookup tells a move from a
-        // deletion, and dropping a merely moved message would also throw away its cached body.
-        var deletedIDs: [String] = []
-        var candidates: [String] = []
-        var seen: Set<String> = []
-        for id in removed where upserts[id] == nil && seen.insert(id).inserted {
-            candidates.append(id)
-        }
-        if !candidates.isEmpty {
-            // A removal Graph will not look up is taken as gone; if it was a move, its new folder's delta brings
-            // the message back as an upsert.
-            let alive = try await metadata(for: candidates, folders: folders, skippingUnreadable: true)
-            for message in alive where upserts.updateValue(message, forKey: message.id.providerID) == nil {
-                upsertOrder.append(message.id.providerID)
-            }
-            deletedIDs = candidates.filter { upserts[$0] == nil }
-        }
-
-        var looked: Set<String> = []
-        let incomplete = partial.filter { upserts[$0] == nil && looked.insert($0).inserted }
-        if !incomplete.isEmpty {
-            // Unknown ids (deleted since) are left out; their removal comes through the delta like any other. One
-            // Graph will not return keeps what the store has.
-            for message in try await metadata(for: incomplete, folders: folders, skippingUnreadable: true)
-            where upserts.updateValue(message, forKey: message.id.providerID) == nil {
-                upsertOrder.append(message.id.providerID)
-            }
-        }
+        let deletedIDs = try await lookUpReported(removed: removed, partial: partial, in: &cursor, folders: folders,
+                                                  upserts: &upserts, upsertOrder: &upsertOrder)
 
         return ChangesPage(
             upserts: upsertOrder.compactMap { upserts[$0] },
@@ -171,6 +145,72 @@ extension GraphProvider {
             // Only drained folders still on a nextLink count; a seeding folder's nextLink waits for the next poll.
             hasMore: !drained.isEmpty
         )
+    }
+
+    /// Calls on which a message whose lookup the service failed is looked up (`GraphCursor.recheck`) before it is left
+    /// as the store has it. Through Exchange's November 2026 outage a part failed now and then, so a second or third
+    /// try settles nearly every one; the bound keeps a message the service always fails from being carried for ever.
+    static let maxLookupCalls = 3
+
+    /// Looks up what the delta did not report whole, and returns the deletions. A removal is a move or a deletion and
+    /// only a lookup tells them apart (dropping a merely moved message would throw away its cached body, and with the
+    /// conversation's last message its snooze); a change reported with only what changed needs the rest of its
+    /// metadata. Messages whose lookup the service failed on an earlier call (`GraphCursor.recheck`) are asked again
+    /// with them, unless another folder has reported them since.
+    ///
+    /// Found: an upsert. Unknown (404): a removal, or a message asked again, is gone; a partial change's removal comes
+    /// through the delta like any other. Refused for that one message (a 400 or 403, a reply that does not decode): a
+    /// removal is taken as gone, which is what Graph's 403 ErrorAccessDenied for a deleted item means, and a move comes
+    /// back through its new folder's delta; anything else keeps what the store has. Failed by the service (a 5xx, the
+    /// network, for the part or its whole `$batch`): that says nothing about the message, so it keeps what the store has
+    /// and is asked again on the next call, up to `maxLookupCalls`. The delta links move on meanwhile, so new mail never
+    /// waits on a lookup. A throttle or a refused token still fails the call.
+    private func lookUpReported(
+        removed: [String],
+        partial: [String],
+        in cursor: inout GraphCursor,
+        folders: GraphWellKnownFolders,
+        upserts: inout [String: MessageMetadata],
+        upsertOrder: inout [String]
+    ) async throws -> [String] {
+        let carried = cursor.recheck
+        cursor.recheck = [:]
+        var removals: Set<String> = []
+        var asked: [String] = []
+        var seen: Set<String> = []
+        for id in removed where upserts[id] == nil && seen.insert(id).inserted {
+            removals.insert(id)
+            asked.append(id)
+        }
+        for id in carried.keys.sorted() where upserts[id] == nil && seen.insert(id).inserted {
+            asked.append(id)
+        }
+        for id in partial where upserts[id] == nil && seen.insert(id).inserted {
+            asked.append(id)
+        }
+        guard !asked.isEmpty else { return [] }
+        let lookup = try await lookUp(asked, folders: folders, carryingFailedBatches: true)
+        for message in lookup.messages where upserts.updateValue(message, forKey: message.id.providerID) == nil {
+            upsertOrder.append(message.id.providerID)
+        }
+        var givenUp = 0
+        for id in lookup.failing {
+            let calls = (carried[id] ?? 0) + 1
+            if calls < Self.maxLookupCalls {
+                cursor.recheck[id] = calls
+            } else {
+                givenUp += 1
+            }
+        }
+        if givenUp > 0 {
+            Self.folderLog.notice("lookup: \(givenUp, privacy: .public) messages the service kept failing are left as stored")
+        }
+        let refused = Set(lookup.refused)
+        let failing = Set(lookup.failing)
+        return asked.filter { id in
+            guard upserts[id] == nil, !failing.contains(id) else { return false }
+            return removals.contains(id) || (!refused.contains(id) && carried[id] != nil)
+        }
     }
 
     /// System folders first, inbox ahead of the rest, so new mail reaches the store before a long custom

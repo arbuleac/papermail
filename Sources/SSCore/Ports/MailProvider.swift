@@ -63,6 +63,19 @@ public struct ChangesPage: Sendable {
     }
 }
 
+/// What a lookup by id found (`MailProvider.lookUpMetadata(for:)`). An id in neither list is one the provider does
+/// not know: gone.
+public struct MetadataLookup: Sendable {
+    public var messages: [MessageMetadata]
+    /// Ids the provider would not return on their own for now: refused for that message alone (Graph's 403 for one
+    /// item, a reply that does not decode) or failing in the service. Nothing says they are gone.
+    public var unreadable: [String]
+    public init(messages: [MessageMetadata], unreadable: [String] = []) {
+        self.messages = messages
+        self.unreadable = unreadable
+    }
+}
+
 /// Everything the engine needs from a mail service. One instance per account.
 ///
 /// Implementations are stateless beyond their account id and token source; all persistence is the store's job.
@@ -86,8 +99,14 @@ public protocol MailProvider: Sendable {
     /// Changes since `cursor`. Throws `ProviderError.resetRequired` when the cursor is stale.
     func changes(since cursor: String, limit: Int) async throws -> ChangesPage
 
-    /// Metadata for specific messages. Unknown ids are omitted, not thrown.
+    /// Metadata for specific messages. Unknown ids are omitted, not thrown, and so is a message the provider will not
+    /// return on its own (refused or failing for that one message): one such message must not fail a search or a
+    /// backfill page. A throttle, a refused token or the network still fails the call.
     func metadata(for providerIDs: [String]) async throws -> [MessageMetadata]
+
+    /// As `metadata(for:)`, saying which ids it left out without knowing them gone, for a caller that deletes what the
+    /// provider no longer has (a reconcile's lost targets). The default reports none.
+    func lookUpMetadata(for providerIDs: [String]) async throws -> MetadataLookup
 
     func body(for providerID: String) async throws -> MessageBody
 
@@ -123,6 +142,10 @@ public protocol MailProvider: Sendable {
 extension MailProvider {
     public func missingPermission(for change: MetadataChange) async -> AccountPermission? {
         nil
+    }
+
+    public func lookUpMetadata(for providerIDs: [String]) async throws -> MetadataLookup {
+        MetadataLookup(messages: try await metadata(for: providerIDs))
     }
 
     public func downloadAttachment(messageID providerID: String, attachmentID: String, expectedSize: Int, to destination: URL,

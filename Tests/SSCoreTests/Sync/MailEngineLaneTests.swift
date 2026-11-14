@@ -456,6 +456,41 @@ final class MailEngineLaneTests: XCTestCase {
         await harness.shutdown()
     }
 
+    /// A target the provider will not return on its own (Graph's 403 for one message) is no proof it is gone: the
+    /// reconcile keeps it, as it keeps every live operation's target, and completes rather than failing on it.
+    func testAReconcileKeepsALiveTargetTheProviderWillNotReturn() async throws {
+        try await assertReconcileKeepsAnUnreadableTarget(wholeMailboxInTheHead: false)
+    }
+
+    func testAResetWhoseHeadIsTheWholeMailboxKeepsALiveTargetTheProviderWillNotReturn() async throws {
+        try await assertReconcileKeepsAnUnreadableTarget(wholeMailboxInTheHead: true)
+    }
+
+    private func assertReconcileKeepsAnUnreadableTarget(wholeMailboxInTheHead: Bool) async throws {
+        let provider = ScriptedProvider(accountID: Fixtures.accountID)
+        provider.bootstrapRuns = wholeMailboxInTheHead
+            ? [["": .success(Fixtures.page(1...2, next: nil, cursor: "c9"))]]
+            : [["": .success(Fixtures.page(1...1, next: "p2", cursor: "c9")), "p2": .success(Fixtures.page(2...2, next: nil))]]
+        provider.changesQueue = [.failure(ProviderError.resetRequired)]
+        provider.applyResults = Array(repeating: .failure(ProviderError.network("offline")), count: 20)
+        provider.unreadableIDs = ["3"]
+        let harness = try EngineHarness(provider: provider) { $0.backoffBase = 10; $0.backoffCap = 60 }
+        let store = harness.store
+        let account = Fixtures.accountID
+        try store.upsertMessages((1...3).map { Fixtures.message($0) })
+        try store.setSyncCursor("c0", for: account)
+        try store.setBootstrapState(BootstrapState(startedAt: Date(), pagesDone: 1, messagesSeen: 3, isComplete: true), for: account)
+        try harness.engine.perform(.archive, on: [id(3)])
+        harness.engine.start()
+
+        try await waitUntil("reconcile complete") {
+            try store.syncCursor(for: account) == "c9" && store.bootstrapState(for: account)?.isComplete == true
+        }
+        XCTAssertNotNil(try store.message(id(3)), "unreadable is not gone")
+        XCTAssertEqual(Set(try allMessages(store).map(\.id.providerID)), ["1", "2", "3"])
+        await harness.shutdown()
+    }
+
     // MARK: Parking and pacing
 
     /// A token the provider refuses on a backfill request parks both lanes: the live lane shows Sign in required

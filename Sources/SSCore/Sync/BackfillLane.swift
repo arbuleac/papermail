@@ -382,7 +382,7 @@ actor BackfillLane {
         let costPerMessage = budget.quota.metadataCostPerMessage
         let lost = try await LostTargets.lost(candidates, chunk: tuning.backfillMetadataChunk) { ids in
             try await self.request("metadata", cost: costPerMessage * Double(ids.count)) {
-                try await self.provider.metadata(for: ids)
+                try await self.provider.lookUpMetadata(for: ids)
             }
         }
         guard !lost.isEmpty else { return }

@@ -719,13 +719,24 @@ final class GmailProviderTests: XCTestCase {
     }
 
     func testServerErrorCarriesStatus() async {
-        server.on("GET", "/users/me/profile", .json(GmailFixtures.serverError, status: 503))
+        server.on("GET", "/users/me/profile", .json(GmailFixtures.serverError, status: 500))
         let provider = TestSupport.makeProvider()
 
         let error = await TestSupport.providerError { _ = try await provider.profile() }
 
         guard case .server(let status, _)? = error else { return XCTFail("expected server, got \(String(describing: error))") }
-        XCTAssertEqual(status, 503)
+        XCTAssertEqual(status, 500)
+    }
+
+    /// A gateway or the service failing for now (502, 503, 504) is retried on the network backoff and shown as "slow to
+    /// respond", never "the server returned an error"; a 500 stays a server error, so a message that keeps failing is
+    /// still set aside.
+    func testGatewayAndUnavailableMapToNetwork() async {
+        for status in [502, 503, 504] {
+            server.on("GET", "/users/me/profile", .json(GmailFixtures.serverError, status: status))
+            let error = await TestSupport.providerError { _ = try await TestSupport.makeProvider().profile() }
+            guard case .network? = error else { return XCTFail("\(status): expected network, got \(String(describing: error))") }
+        }
     }
 
     func testTransportFailureMapsToNetwork() async {

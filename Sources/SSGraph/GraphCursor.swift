@@ -71,6 +71,10 @@ struct GraphCursor: Equatable, Sendable {
     /// misses them. A walk spread over calls misses a folder moved meanwhile out of a listing still to come into one
     /// already sent; dropped at once, it would go unpolled until the next walk a day later.
     var missed: Set<String>
+    /// Messages a delta reported (a removal, or a change with only what changed) whose lookup the service failed (a
+    /// 5xx or the network, for the part or its whole `$batch`), with the calls that have failed it so far. The next
+    /// call looks them up again first; the delta links move on meanwhile, so the outage holds no new mail back.
+    var recheck: [String: Int]
 
     init(
         folders: [String: String?],
@@ -82,7 +86,8 @@ struct GraphCursor: Equatable, Sendable {
         fullVisitAfter: String? = nil,
         polledAt: String? = nil,
         walk: GraphFolderWalk? = nil,
-        missed: Set<String> = []
+        missed: Set<String> = [],
+        recheck: [String: Int] = [:]
     ) {
         self.folders = folders
         self.nextLinks = nextLinks
@@ -94,6 +99,7 @@ struct GraphCursor: Equatable, Sendable {
         self.polledAt = polledAt
         self.walk = walk
         self.missed = missed
+        self.recheck = recheck
     }
 
     func deltaLink(for folderID: String) -> String? {
@@ -168,6 +174,7 @@ struct GraphCursor: Equatable, Sendable {
 extension GraphCursor: Codable {
     private enum CodingKeys: String, CodingKey {
         case folders, nextLinks, wellKnown, since, foldersResolvedAt, fullVisitAt, fullVisitAfter, polledAt, walk, missed
+        case recheck
         case folderScope, deltaScope
     }
 
@@ -204,6 +211,7 @@ extension GraphCursor: Codable {
         polledAt = try container.decodeIfPresent(String.self, forKey: .polledAt)
         walk = try container.decodeIfPresent(GraphFolderWalk.self, forKey: .walk)
         missed = Set(try container.decodeIfPresent([String].self, forKey: .missed) ?? [])
+        recheck = try container.decodeIfPresent([String: Int].self, forKey: .recheck) ?? [:]
     }
 
     func encode(to encoder: Encoder) throws {
@@ -226,6 +234,9 @@ extension GraphCursor: Codable {
         try container.encodeIfPresent(walk, forKey: .walk)
         if !missed.isEmpty {
             try container.encode(missed.sorted(), forKey: .missed)
+        }
+        if !recheck.isEmpty {
+            try container.encode(recheck, forKey: .recheck)
         }
         try container.encode(Self.treeScope, forKey: .folderScope)
         try container.encode(Self.mailboxScope, forKey: .deltaScope)

@@ -51,6 +51,9 @@ final class ScriptedProvider: MailProvider, @unchecked Sendable {
     var metadataByID: [String: MessageMetadata] = [:]
     /// Consumed in order, one per `metadata(for:)` call; once empty every call succeeds.
     var metadataResults: [Result<Void, Error>] = []
+    /// Ids the provider will not return on their own (Graph's 403 for one message): left out of `metadata(for:)` like
+    /// unknown ones, and reported as unreadable by `lookUpMetadata(for:)`.
+    var unreadableIDs: Set<String> = []
     /// Called (outside the lock) at the start of every backfill listing, with its page token.
     var onBackfillListing: (@Sendable (String) -> Void)?
     /// How long each `changes` call takes.
@@ -214,6 +217,7 @@ final class ScriptedProvider: MailProvider, @unchecked Sendable {
         try result.get()
         return locked {
             providerIDs.compactMap { id in
+                if unreadableIDs.contains(id) { return nil }
                 if let known = metadataByID[id] { return known }
                 for run in bootstrapRuns {
                     for case .success(let page) in run.values {
@@ -224,6 +228,11 @@ final class ScriptedProvider: MailProvider, @unchecked Sendable {
                 return nil
             }
         }
+    }
+
+    func lookUpMetadata(for providerIDs: [String]) async throws -> MetadataLookup {
+        let messages = try await metadata(for: providerIDs)
+        return MetadataLookup(messages: messages, unreadable: locked { providerIDs.filter(unreadableIDs.contains) })
     }
 
     func body(for providerID: String) async throws -> MessageBody {
