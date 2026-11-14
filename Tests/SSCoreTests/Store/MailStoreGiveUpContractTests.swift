@@ -44,6 +44,48 @@ extension MailStoreContractTests {
         XCTAssertEqual(try flags("m1").roles, [])
     }
 
+    /// The outbox narrows an operation to the targets the provider did not take; giving it up then puts back only
+    /// those, never a message the provider has.
+    func testGivingUpANarrowedOperationPutsBackOnlyItsRemainingTargets() throws {
+        try store.upsertMessages([
+            message("m1", in: "c", date: date(100), roles: [.inbox]),
+            message("m2", in: "c", date: date(200), roles: [.inbox]),
+            message("m3", in: "e", date: date(300), roles: [.inbox]),
+        ])
+        var archive = operation("op-archive", .archive, ["m1", "m2", "m3"], at: 1_000)
+        try store.enqueue(archive)
+        archive.status = .uncertain
+        archive.targets = [messageID("m2")]
+        try store.updateOperation(archive)
+
+        try store.updateOperation(failed(archive))
+        XCTAssertEqual(try flags("m2").roles, [.inbox], "the target still owed is put back")
+        XCTAssertEqual(try flags("m1").roles, [], "the provider took this one")
+        XCTAssertEqual(try flags("m3").roles, [])
+        XCTAssertNil(try summary("e").failedOperation, "only the conversation still owed is marked")
+    }
+
+    /// An undo's steps are separate `perform` calls, often within one millisecond, so their rows share `created_at`;
+    /// ordered then by their random ids, an undone trash could replay its archive before its restore and land in the
+    /// Inbox, on the server and here. Rows of one millisecond keep the order they were queued in.
+    func testOperationsQueuedInOneMillisecondKeepTheirOrder() throws {
+        try store.upsertMessages([message("m1", in: "c", date: date(100), roles: [.trash])])
+        let restore = operation("op-z", .restoreFromTrash, ["m1"], at: 1_000)
+        let archive = operation("op-a", .archive, ["m1"], at: 1_000)
+        try store.enqueue(restore)
+        try store.enqueue(archive)
+        XCTAssertEqual(try store.pendingOperations(accountID: accountA, limit: 10).map(\.id), ["op-z", "op-a"])
+        XCTAssertEqual(try flags("m1").roles, [], "restored from the Trash, then archived")
+
+        // A poll's report replays them in the same order.
+        try store.upsertMessages([message("m1", in: "c", date: date(100), roles: [.trash])])
+        XCTAssertEqual(try flags("m1").roles, [])
+
+        // And a give-up of the first replays the second on top of what it puts back.
+        try store.updateOperation(failed(restore))
+        XCTAssertEqual(try flags("m1").roles, [.trash], "the restore given back, the archive (no Inbox to leave) on top")
+    }
+
     func testGivingUpEachKindOfChange() throws {
         let cases: [(MetadataChange, Set<MailboxRole>, Bool, Bool)] = [
             (.archive, [.inbox], true, false),

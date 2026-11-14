@@ -291,6 +291,132 @@ final class GmailThrottleTests: XCTestCase {
         XCTAssertEqual(batchIDs().count, 1)
     }
 
+    // MARK: A message Gmail will not return
+
+    /// A message whose metadata Gmail kept failing on its own (a 500 for that one message) failed every changes call
+    /// after it had paged the whole history: the cursor never moved and the account stayed on "Couldn't sync". It is
+    /// left out now and kept as the store has it, since only a 404 says Gmail no longer has it, and the history moves
+    /// on. A 500 is Gmail's passing backendError, so the cursor carries the message and a call `recheckSpacing` later
+    /// asks for it again: new mail is not lost to a blip.
+    func testAMessageGmailFailsForNowIsCarriedAndAskedAgain() async throws {
+        server.on("GET", "/users/me/history", .json(GmailFixtures.history))
+        var m2Fails = true
+        TestSupport.stubBatchRounds { _, index, id in
+            switch id {
+            case "m4": return StubBatchPart(index: index, status: 200, json: GmailFixtures.metadataM4)
+            case "m2" where !m2Fails: return StubBatchPart(index: index, status: 200, json: GmailFixtures.metadataM2)
+            case "m2": return StubBatchPart(index: index, status: 500, json: GmailFixtures.serverError)
+            default: return StubBatchPart(index: index, status: 404, json: GmailFixtures.notFoundError)
+            }
+        }
+        server.on("GET", "/users/me/messages/m2", .json(GmailFixtures.serverError, status: 500))
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+
+        let page = try await TestSupport.makeProvider(now: start).changes(since: "8675309", limit: 100)
+
+        XCTAssertEqual(page.upserts.map(\.id.providerID), ["m4"])
+        XCTAssertEqual(Set(page.deletedIDs), ["m9", "m5"], "m2 failing says nothing about it; m5's 404 does")
+        let carried = GmailHistoryCursor(parsing: page.cursor)
+        XCTAssertEqual(carried.startHistoryID, "8675320", "the history moves on")
+        XCTAssertEqual(carried.recheck, ["m2": 1])
+
+        // A call in the same burst (the engine calls again at once while a page says hasMore) does not ask yet.
+        server.on("GET", "/users/me/history", .json(GmailFixtures.emptyHistory))
+        let burst = try await TestSupport.makeProvider(now: start.addingTimeInterval(1)).changes(since: page.cursor, limit: 100)
+        XCTAssertEqual(burst.upserts.map(\.id.providerID), [])
+        XCTAssertEqual(GmailHistoryCursor(parsing: burst.cursor).recheck, ["m2": 1])
+
+        m2Fails = false
+        let later = start.addingTimeInterval(GmailProvider.recheckSpacing + 1)
+        let again = try await TestSupport.makeProvider(now: later).changes(since: burst.cursor, limit: 100)
+        XCTAssertEqual(again.upserts.map(\.id.providerID), ["m2"])
+        XCTAssertEqual(again.deletedIDs, [])
+        XCTAssertEqual(again.cursor, "8675330", "nothing left to carry: a bare history id again")
+    }
+
+    /// One Gmail refuses for that message alone (a 400) would meet the same answer again: it keeps what the store has
+    /// and is not carried. One that keeps failing is carried for `maxRecheckTries` tries, then left as stored.
+    func testARefusedMessageIsNotCarriedAndOneThatKeepsFailingIsLetGo() async throws {
+        server.on("GET", "/users/me/history", .json(GmailFixtures.history))
+        TestSupport.stubBatchRounds { _, index, id in
+            switch id {
+            case "m4": return StubBatchPart(index: index, status: 400, json: GmailFixtures.serverError)
+            case "m2": return StubBatchPart(index: index, status: 500, json: GmailFixtures.serverError)
+            default: return StubBatchPart(index: index, status: 404, json: GmailFixtures.notFoundError)
+            }
+        }
+        server.on("GET", "/users/me/messages/m4", .json(GmailFixtures.serverError, status: 400))
+        server.on("GET", "/users/me/messages/m2", .json(GmailFixtures.serverError, status: 500))
+
+        let page = try await TestSupport.makeProvider().changes(since: "8675309", limit: 100)
+        XCTAssertEqual(Set(page.deletedIDs), ["m9", "m5"])
+        XCTAssertEqual(GmailHistoryCursor(parsing: page.cursor).recheck, ["m2": 1], "m4 is refused, not carried")
+
+        var start = GmailHistoryCursor(parsing: page.cursor)
+        start.recheck = ["m2": GmailProvider.maxRecheckTries - 1]
+        start.recheckAt = nil
+        server.on("GET", "/users/me/history", .json(GmailFixtures.emptyHistory))
+        let last = try await TestSupport.makeProvider().changes(since: start.encoded, limit: 100)
+        XCTAssertEqual(last.cursor, "8675330", "given up: left as the store has it")
+        XCTAssertEqual(last.deletedIDs, [])
+    }
+
+    /// A head page whose message Gmail failed or refused left it out silently, and a reconcile marked only the messages
+    /// it hydrated as seen, so its sweep deleted mail Gmail still had. The page names them now, and the cursor carries
+    /// the one that failed for now so the first polls ask for it again.
+    func testABootstrapSaysWhichListedMessagesItCouldNotHydrate() async throws {
+        server.on("GET", "/users/me/profile", .json(GmailFixtures.profile))
+        server.on("GET", "/users/me/messages", .json(
+            #"{"messages":[{"id":"m1","threadId":"t1"},{"id":"m2","threadId":"t2"},{"id":"m3","threadId":"t3"}]}"#))
+        TestSupport.stubBatchRounds { _, index, id in
+            switch id {
+            case "m1": return StubBatchPart(index: index, status: 200, json: GmailFixtures.metadataM1)
+            case "m2": return StubBatchPart(index: index, status: 500, json: GmailFixtures.serverError)
+            default: return StubBatchPart(index: index, status: 400, json: GmailFixtures.serverError)
+            }
+        }
+        server.on("GET", "/users/me/messages/m2", .json(GmailFixtures.serverError, status: 500))
+        server.on("GET", "/users/me/messages/m3", .json(GmailFixtures.serverError, status: 400))
+
+        let page = try await TestSupport.makeProvider().bootstrap(page: nil, limit: 100)
+
+        XCTAssertEqual(page.messages.map(\.id.providerID), ["m1"])
+        XCTAssertEqual(Set(page.unreadableIDs), ["m2", "m3"])
+        XCTAssertEqual(Set(page.listedIDs), ["m1", "m2", "m3"])
+        let cursor = GmailHistoryCursor(parsing: try XCTUnwrap(page.changeCursor))
+        XCTAssertEqual(cursor.startHistoryID, "8675309")
+        XCTAssertEqual(cursor.recheck, ["m2": 1], "the refused one is not asked again")
+    }
+
+    /// The same message no longer fails a backfill page or a server search: it is left out like an unknown one, and a
+    /// lookup says which, so a reconcile keeps it rather than deleting it.
+    func testMetadataLeavesOutAMessageGmailWillNotReturnAndSaysWhich() async throws {
+        TestSupport.stubBatchRounds { _, index, id in
+            id == "id3" ? StubBatchPart(index: index, status: 500, json: GmailFixtures.serverError) : self.success(index, id)
+        }
+        server.on("GET", "/users/me/messages/id3", .json(#"{"not":"a message"}"#))
+        let provider = TestSupport.makeProvider()
+
+        let messages = try await provider.metadata(for: ids)
+        XCTAssertEqual(messages.map(\.id.providerID), ids.filter { $0 != "id3" })
+        let lookup = try await provider.lookUpMetadata(for: ids)
+        XCTAssertEqual(lookup.unreadable, ["id3"])
+        XCTAssertEqual(lookup.refused, ["id3"], "a reply that does not decode would not decode next time either")
+    }
+
+    /// What the next request would meet too still fails the call: the network, here on the one-by-one fetch.
+    func testTheNetworkFailingTheOneByOneFetchStillFailsTheCall() async {
+        TestSupport.stubBatchRounds { _, index, id in
+            id == "id3" ? StubBatchPart(index: index, status: 500, json: GmailFixtures.serverError) : self.success(index, id)
+        }
+        server.on("GET", "/users/me/messages/id3", .failure(URLError(.notConnectedToInternet)))
+        let provider = TestSupport.makeProvider()
+
+        let error = await TestSupport.providerError { _ = try await provider.metadata(for: self.ids) }
+
+        guard case .network? = error else { return XCTFail("expected network, got \(String(describing: error))") }
+    }
+
     func testThrottledChangesHydrationKeepsTheAnsweredParts() async throws {
         server.on("GET", "/users/me/history", .json(GmailFixtures.history))
         TestSupport.stubBatchRounds { round, index, id in

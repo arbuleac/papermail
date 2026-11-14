@@ -29,6 +29,11 @@ actor BackfillLane {
     private struct HydrationStalled: Error {}
     /// The account was parked while this turn waited for a slot or units.
     private struct Parked: Error {}
+    /// The page's metadata came back without some messages the service failed for now; the page goes again.
+    private struct MetadataFailing: Error, CustomStringConvertible {
+        let count: Int
+        var description: String { "metadata of \(count) messages failed for now" }
+    }
 
     let accountID: AccountID
     private let store: MailStoring
@@ -48,6 +53,10 @@ actor BackfillLane {
     /// The last page token the provider handed this lane. A stored token it has not seen accepted may have
     /// expired over a long quit; one the provider rejects restarts the listing instead of wedging the lane.
     private var issuedPage: String?
+    /// An ids-only page whose metadata the service failed for some messages (a Gmail 500 for one message): its page
+    /// token, those ids, every id it listed, and the turns that have tried it. The next turn lists it again and asks
+    /// for those alone, and for any id the page did not list then.
+    private var failingPage: (page: String?, failing: Set<String>, listed: Set<String>, tries: Int)?
     /// The provider call under way, for the throttle log.
     private var currentCall = "list"
     /// Whether this lane has published a `backfillPausedUntil` it has not cleared yet.
@@ -208,7 +217,15 @@ actor BackfillLane {
         let state = try store.bootstrapState(for: accountID)
         if let state, !state.isComplete {
             publishProgress(state)
-            try await enumerate(state, generation: generation)
+            do {
+                try await enumerate(state, generation: generation)
+            } catch let error where !Self.stopsTheTurn(error) {
+                // A page that keeps failing (a 500 every time, a lookup the reconcile cannot finish) must not stop the
+                // paced bodies with it: new mail past the live lane's twenty would come only when opened. Its batch
+                // goes, and the failure backs off as before.
+                try await hydrateBatch()
+                throw error
+            }
             pagesSinceIdle += 1
             try await hydrateBatch()
             await hydrator.backfillDesignFacts()
@@ -302,7 +319,9 @@ actor BackfillLane {
             if let sent = head.requestCount {
                 await budget.recordBackfill(Double(max(0, sent)) * quota.listCost - priced)
             }
-            listing = BackfillListing(ids: head.messages.map(\.id.providerID), messages: head.messages, nextPage: head.nextPage)
+            // Every id it listed, those whose metadata the provider would not return included: a reconcile marks them
+            // seen, so its sweep does not take them.
+            listing = BackfillListing(ids: head.listedIDs, messages: head.messages, nextPage: head.nextPage)
             state.pagesDone = 0
             state.messagesSeen = 0
             if state.estimatedTotal == nil { state.estimatedTotal = head.estimatedTotal }
@@ -315,7 +334,7 @@ actor BackfillLane {
         if let messages = listing.messages {
             try fenced(generation) { try store.writeBackfillMessages(messages, refreshExisting: reconciling) }
         } else {
-            try await fetchMetadata(for: listing.ids, reconciling: reconciling, generation: generation)
+            try await fetchMetadata(for: listing.ids, page: checkpoint.providerPage, reconciling: reconciling, generation: generation)
         }
         state.pagesDone += 1
         state.messagesSeen += listing.ids.count
@@ -332,21 +351,44 @@ actor BackfillLane {
     /// Metadata for an ids-only listing: only for messages the store lacks (a reconcile refreshes them all), in
     /// chunks of `backfillMetadataChunk`, each written as soon as it arrives. A throttle mid-page loses at most
     /// one chunk, and the page's retry skips what was written. Ids the provider leaves out (gone, or chat
-    /// messages) are not asked for again within the page.
-    private func fetchMetadata(for ids: [String], reconciling: Bool, generation: Int) async throws {
+    /// messages) are not asked for again within the page, nor is one it refused for that message alone.
+    ///
+    /// Messages the service failed for now (a Gmail 500 for one message, on the batch and again on its own) would be
+    /// missing for good: no later page lists them. So the page goes again on a later turn, after the lane's backoff,
+    /// asking for those alone, up to `failingPageTries` turns; then it moves on without them rather than hold the
+    /// backfill. A body batch still follows each failed turn.
+    private func fetchMetadata(for ids: [String], page: String?, reconciling: Bool, generation: Int) async throws {
+        // Kept until this try settles, so a throttle partway leaves the retry as it was.
+        let retrying = failingPage.flatMap { $0.page == page ? $0 : nil }
         let skip = try store.backfillSkippableIDs(accountID: accountID, providerIDs: ids, includeStored: !reconciling)
         var seen: Set<String> = []
-        let wanted = ids.filter { !skip.contains($0) && seen.insert($0).inserted }
-        let chunkSize = max(1, tuning.backfillMetadataChunk)
+        let wanted = ids.filter { id in
+            let due = retrying.map { $0.failing.contains(id) || !$0.listed.contains(id) } ?? true
+            return !skip.contains(id) && due && seen.insert(id).inserted
+        }
         let costPerMessage = budget.quota.metadataCostPerMessage
-        for start in stride(from: 0, to: wanted.count, by: chunkSize) {
-            let chunk = Array(wanted[start..<min(start + chunkSize, wanted.count)])
-            let messages = try await request("metadata", cost: costPerMessage * Double(chunk.count)) {
-                try await self.provider.metadata(for: chunk)
+        var failing: [String] = []
+        for chunk in wanted.chunked(tuning.backfillMetadataChunk) {
+            let lookup = try await request("metadata", cost: costPerMessage * Double(chunk.count)) {
+                try await self.provider.lookUpMetadata(for: chunk)
             }
             try Task.checkCancellation()
-            try fenced(generation) { try store.writeBackfillMessages(messages, refreshExisting: reconciling) }
+            try fenced(generation) { try store.writeBackfillMessages(lookup.messages, refreshExisting: reconciling) }
+            failing += lookup.failing
         }
+        guard !failing.isEmpty else {
+            failingPage = nil
+            return
+        }
+        let tries = (retrying?.tries ?? 0) + 1
+        let id = accountID.rawValue
+        guard tries < tuning.failingPageTries else {
+            failingPage = nil
+            SyncLog.logger.notice("backfill for \(id, privacy: .public) moves on without \(failing.count, privacy: .public) messages whose metadata kept failing")
+            return
+        }
+        failingPage = (page, Set(failing), Set(ids), tries)
+        throw MetadataFailing(count: failing.count)
     }
 
     /// The listing reached the end. A reconcile first records "listed, not finished" (no page to resume from):
@@ -357,6 +399,7 @@ actor BackfillLane {
         var state = state
         if reconciling {
             // Before "listed" is saved: a failure here retries the last page, not the whole listing.
+            try await markMailOutsideEnumerationSeen(generation: generation)
             try await removeLostTargets(generation: generation)
             var listed = state
             var resumeNowhere = checkpoint
@@ -374,6 +417,38 @@ actor BackfillLane {
         SyncLog.logger.info("backfill complete for \(self.accountID.rawValue, privacy: .public): \(messages, privacy: .public) messages in \(pages, privacy: .public) pages, reconciling \(reconciling, privacy: .public), removed \(swept, privacy: .public)")
     }
 
+    /// Mail the enumeration leaves out that the provider still has (Gmail's Trash and Spam): what the store already
+    /// shows there is marked seen so the sweep keeps it, since nothing after the reset would bring it back; what it
+    /// shows elsewhere moved there in the gap and is refreshed first (`OutsideEnumeration`). Paced like the listing
+    /// and its metadata.
+    private func markMailOutsideEnumerationSeen(generation: Int) async throws {
+        guard provider.hasMailOutsideEnumeration else { return }
+        let quota = budget.quota
+        let pageSize = tuning.outsideEnumerationPageSize
+        var page: String?
+        repeat {
+            let asked = page
+            let listing = try await request("list", cost: quota.listCost) {
+                try await self.provider.mailOutsideEnumeration(page: asked, limit: pageSize)
+            }
+            try Task.checkCancellation()
+            let sorted = try OutsideEnumeration.sort(listing.ids, store: store, accountID: accountID)
+            try fenced(generation) { try store.markBackfillSeen(accountID: accountID, providerIDs: sorted.kept) }
+            for chunk in sorted.moved.chunked(tuning.backfillMetadataChunk) {
+                let lookup = try await request("metadata", cost: quota.metadataCostPerMessage * Double(chunk.count)) {
+                    try await self.provider.lookUpMetadata(for: chunk)
+                }
+                try Task.checkCancellation()
+                let found = OutsideEnumeration.refreshed(lookup, asked: chunk, accountID: accountID)
+                try fenced(generation) {
+                    try store.writeBackfillMessages(found, refreshExisting: true)
+                    try store.markBackfillSeen(accountID: accountID, providerIDs: found.map(\.id.providerID))
+                }
+            }
+            page = listing.nextPage
+        } while page != nil
+    }
+
     /// Stored messages a live operation targets that the provider no longer has (`LostTargets`): deleted before the
     /// sweep, which would keep them for good. Paced like the listing's metadata.
     private func removeLostTargets(generation: Int) async throws {
@@ -382,12 +457,22 @@ actor BackfillLane {
         let costPerMessage = budget.quota.metadataCostPerMessage
         let lost = try await LostTargets.lost(candidates, chunk: tuning.backfillMetadataChunk) { ids in
             try await self.request("metadata", cost: costPerMessage * Double(ids.count)) {
-                try await self.provider.metadata(for: ids)
+                try await self.provider.lookUpMetadata(for: ids)
             }
         }
         guard !lost.isEmpty else { return }
         try fenced(generation) { try store.deleteMessages(lost.map { MessageID(accountID: accountID, providerID: $0) }) }
         SyncLog.logger.info("reconcile for \(self.accountID.rawValue, privacy: .public): removed \(lost.count, privacy: .public) messages the provider no longer has though an operation targets them")
+    }
+
+    /// What a body batch would meet too, or what ends the turn for another reason: a throttle, a refused token or
+    /// keychain, the network, a park, a replaced backfill, a stop.
+    private static func stopsTheTurn(_ error: Error) -> Bool {
+        if error is StaleBackfill || error is Parked || error is CancellationError || error is AuthError { return true }
+        switch error as? ProviderError {
+        case .throttled?, .unauthorized?, .network?, .cancelled?: return true
+        default: return false
+        }
     }
 
     /// Errors that say the page token itself is no good, as opposed to the provider being unwell.

@@ -55,6 +55,10 @@ public protocol AccessTokenProvider: Sendable {
     /// token expires. The save runs inside the provider's own bookkeeping, so a refresh of the old grant landing at
     /// any moment can never write it over the new one.
     func replaceTokens(for accountID: AccountID, saving save: @Sendable () throws -> Void) async throws
+    /// The account is being removed: a refresh in flight is cancelled and its reply dropped, the cached token goes, and
+    /// a later save for the account (a refresh, a reconnect's `replaceTokens`) is refused, so nothing writes a removed
+    /// account's grant back to the store. The caller deletes the stored tokens itself. The default does nothing.
+    func removeTokens(for accountID: AccountID) async throws
 }
 
 extension AccessTokenProvider {
@@ -65,6 +69,8 @@ extension AccessTokenProvider {
     public func replaceTokens(for accountID: AccountID, saving save: @Sendable () throws -> Void) async throws {
         try save()
     }
+
+    public func removeTokens(for accountID: AccountID) async throws {}
 }
 
 /// Runs an interactive sign-in and returns tokens. Implemented by `OAuthFlow`; the engine never sees the browser.

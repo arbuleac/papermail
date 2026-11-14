@@ -283,14 +283,15 @@ final class MailEngineInvitationTests: XCTestCase {
     /// it landed. It shows nothing of an answer (a mail and a calendar call), so an uncertain answer stays queued
     /// through the poll, and stays chosen, while an uncertain read change beside it is settled as before.
     func testAPollNeverSettlesAnUncertainAnswer() async throws {
-        let harness = try await harness()
-        let farFuture = Date().addingTimeInterval(3600)
+        // Long backoffs, so both rows were last tried 700 s ago and their retries are still ahead.
+        let harness = try await harness { $0.backoffBase = 3000; $0.backoffCap = 3600 }
+        let triedAt = Date().addingTimeInterval(-700)
         let accepted = try XCTUnwrap(InvitationAnswer(.accepted, to: invitation(), accountEmail: "me@example.com",
                                                       accountName: nil, previous: nil))
         let answer = Operation(accountID: Fixtures.accountID, change: .answerInvitation(accepted), targets: [target],
-                               createdAt: Date().addingTimeInterval(-700), status: .uncertain, attempts: 8, nextAttemptAt: farFuture)
+                               createdAt: triedAt, status: .uncertain, attempts: 8, nextAttemptAt: triedAt.addingTimeInterval(3600))
         let read = Operation(accountID: Fixtures.accountID, change: .setRead(true), targets: [target],
-                             createdAt: Date().addingTimeInterval(-700), status: .uncertain, attempts: 1, nextAttemptAt: farFuture)
+                             createdAt: triedAt, status: .uncertain, attempts: 1, nextAttemptAt: triedAt.addingTimeInterval(3000))
         try harness.store.updateOperation(answer)
         try harness.store.updateOperation(read)
 

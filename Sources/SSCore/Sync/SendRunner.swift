@@ -7,8 +7,9 @@ import Foundation
 /// An empty outbox keeps no timer faster than the background poll.
 ///
 /// Claiming a send (scheduled → sending) and cancelling one both run under `claimLock`, so a message is never
-/// both cancelled and sent. Only throttling is retried: after any other failure the provider may already have
-/// delivered the message and a retry would send it twice, so the send is marked failed for the user to see.
+/// both cancelled and sent. Only a throttle and a failure before any request left this Mac (no connection, a token
+/// that could not be fetched: `ProviderError.neverLeftThisMac`) are retried: after any other failure the provider may
+/// already have delivered the message and a retry would send it twice, so the send is marked failed for the user to see.
 actor SendRunner {
     private let store: MailStoring
     private let registry: AccountRegistry
@@ -112,41 +113,41 @@ actor SendRunner {
         }
     }
 
-    /// Sends everything that is due. Returns when, on `clock.uptime`, the earliest send still held falls due.
+    /// Sends everything that is due, one at a time. Returns when, on `clock.uptime`, the earliest send still held falls
+    /// due.
     func tick() async -> TimeInterval? {
-        // Reads again after delivering: a throttled send is back in the outbox with a later time, which the read
+        // Reads again after every delivery: a throttled send is back in the outbox with a later time, which the read
         // before could not count, and a send queued meanwhile may be due already. Not once stopped (quit, leaving
         // the demo): a send claimed then would reach the provider under a cancelled task and fail as "cancelled",
         // where left scheduled it goes at the next launch.
         while !Task.isCancelled {
-            let (claimed, nextDue) = claimDueSends()
-            if claimed.isEmpty { return nextDue }
-            for (index, send) in claimed.enumerated() {
-                // Nor one claimed in the same read as the upload the stop cut off: it goes back to the outbox as it was.
-                if Task.isCancelled {
-                    release(claimed[index...])
-                    return nil
-                }
-                await deliver(send)
+            let (claimed, nextDue) = claimNextDueSend()
+            guard let claimed else { return nextDue }
+            if Task.isCancelled {
+                release(claimed)
+                return nil
             }
+            await deliver(claimed)
         }
         return nil
     }
 
-    /// Puts claimed sends that never reached the provider back as they were before the claim.
-    private func release(_ sends: ArraySlice<PendingSend>) {
+    /// Puts a claimed send that never reached the provider back as it was before the claim.
+    private func release(_ send: PendingSend) {
         claimLock.lock(); defer { claimLock.unlock() }
-        for var send in sends {
-            send.status = .scheduled
-            send.attempts -= 1
-            try? store.updateSend(send)
-        }
+        var send = send
+        send.status = .scheduled
+        send.attempts -= 1
+        try? store.updateSend(send)
     }
 
-    /// Marks every due send as `sending` under the claim lock so `cancel` can no longer take it.
-    private func claimDueSends() -> (claimed: [PendingSend], nextDue: TimeInterval?) {
+    /// Marks the first due send as `sending` under the claim lock, so `cancel` can no longer take it, and leaves the
+    /// others held. One at a time: a crash or a force quit leaves in doubt ("interrupted while sending") only the send
+    /// actually handed to the provider, never one claimed beside it and not yet tried, and Undo can still take those.
+    /// An extra read of the small outbox per send that falls due beside another; nothing on the poll's path.
+    private func claimNextDueSend() -> (claimed: PendingSend?, nextDue: TimeInterval?) {
         claimLock.lock(); defer { claimLock.unlock() }
-        var claimed: [PendingSend] = []
+        var claimed: PendingSend?
         var nextDue: TimeInterval?
         do {
             let now = clock.now()
@@ -154,11 +155,11 @@ actor SendRunner {
             var stillHeld: [String: HeldSend] = [:]
             for var send in try store.pendingSends() where send.status == .scheduled {
                 let due = dueTime(of: send, now: now, uptime: uptime)
-                if due <= uptime + Self.dueTolerance {
+                if claimed == nil, due <= uptime + Self.dueTolerance {
                     send.status = .sending
                     send.attempts += 1
                     try store.updateSend(send)
-                    claimed.append(send)
+                    claimed = send
                 } else {
                     stillHeld[send.id] = HeldSend(sendAfter: send.sendAfter, due: due)
                     nextDue = nextDue.map { min($0, due) } ?? due
@@ -203,12 +204,14 @@ actor SendRunner {
             let delay = Backoff.throttleDelay(
                 retryAfter: retryAfter, attempt: send.attempts, base: tuning.backoffBase, cap: tuning.userRetryAfterCap
             )
-            let due = clock.uptime() + delay
-            send.status = .scheduled
-            send.sendAfter = clock.now().addingTimeInterval(delay)
-            send.lastError = SyncErrorDescription.describe(ProviderError.throttled(retryAfter: retryAfter))
-            try? store.updateSend(send)
-            claimLock.withLock { held[send.id] = HeldSend(sendAfter: send.sendAfter, due: due) }
+            reschedule(send, after: delay, error: ProviderError.throttled(retryAfter: retryAfter))
+        } catch let error as ProviderError where error.neverLeftThisMac {
+            // Nothing reached the provider (no network yet at wake, a token refresh that could not connect), so going
+            // again cannot send the message twice. It waits as a throttled send does, and a wake (the network coming
+            // back, the Mac waking) looks again sooner.
+            let delay = Backoff.delay(attempt: send.attempts, base: tuning.backoffBase, cap: tuning.userRetryAfterCap)
+            SyncLog.logger.notice("send: not sent for \(accountID.rawValue, privacy: .public), no connection; trying again in \(delay, privacy: .public) s")
+            reschedule(send, after: delay, error: error)
         } catch {
             let description = SyncErrorDescription.describe(error)
             send.status = .failed
@@ -216,5 +219,16 @@ actor SendRunner {
             try? store.updateSend(send)
             SyncLog.logger.error("send: failed for \(accountID.rawValue, privacy: .public): \(description, privacy: .private)")
         }
+    }
+
+    /// Puts a send back in the outbox to go again in `delay` seconds, timed on the continuous clock from now.
+    private func reschedule(_ send: PendingSend, after delay: TimeInterval, error: ProviderError) {
+        var send = send
+        let due = clock.uptime() + delay
+        send.status = .scheduled
+        send.sendAfter = clock.now().addingTimeInterval(delay)
+        send.lastError = SyncErrorDescription.describe(error)
+        try? store.updateSend(send)
+        claimLock.withLock { held[send.id] = HeldSend(sendAfter: send.sendAfter, due: due) }
     }
 }

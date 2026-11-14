@@ -28,7 +28,11 @@ enum OperationTable {
         return state
     }
 
-    /// Live operations targeting the message, oldest first; with `newerThan`, only those created after it.
+    /// Live operations targeting the message, oldest first; with `newerThan`, only those queued after it.
+    ///
+    /// Oldest is `created_at`, then `rowid`: the order rows were queued in. Separate `perform` calls (an undo's steps)
+    /// often fall in one millisecond, and ordered then by their random ids an undone trash could replay its archive
+    /// before its restore. `rowid` grows with every insert and an update (`save`'s upsert) keeps it.
     private static func liveOperations(
         on id: MessageID,
         newerThan operation: Operation?,
@@ -41,15 +45,15 @@ enum OperationTable {
                 SELECT o.id, o.change_json FROM operation_targets t
                 JOIN operations o ON o.id = t.operation_id
                 WHERE t.account_id = ? AND t.provider_id = ? AND o.status IN \(liveStatusList)
-                  AND (o.created_at > ? OR (o.created_at = ? AND o.id > ?))
-                ORDER BY o.created_at, o.id
+                  AND (o.created_at > ? OR (o.created_at = ? AND o.rowid > (SELECT rowid FROM operations WHERE id = ?)))
+                ORDER BY o.created_at, o.rowid
                 """), arguments: [id.accountID.rawValue, id.providerID, createdAt, createdAt, operation.id])
         } else {
             rows = try Row.fetchAll(db.cachedStatement(sql: """
                 SELECT o.id, o.change_json FROM operation_targets t
                 JOIN operations o ON o.id = t.operation_id
                 WHERE t.account_id = ? AND t.provider_id = ? AND o.status IN \(liveStatusList)
-                ORDER BY o.created_at, o.id
+                ORDER BY o.created_at, o.rowid
                 """), arguments: [id.accountID.rawValue, id.providerID])
         }
         return try rows.map { (id: $0[0], change: try MailStoreCodec.decode(MetadataChange.self, from: $0[1])) }
@@ -175,7 +179,7 @@ enum OperationTable {
     /// each deleted through `delete` so its conversations' marks settle in the same transaction.
     static func pruneFailed(accountID: AccountID, now: Date, in db: Database) throws -> Int {
         let ids = try String.fetchAll(db.cachedStatement(sql: """
-            SELECT id FROM operations WHERE \(expiredFailure) ORDER BY created_at, id
+            SELECT id FROM operations WHERE \(expiredFailure) ORDER BY created_at, rowid
             """), arguments: [accountID.rawValue, MailStoreCodec.milliseconds(now)])
         for id in ids { try delete(id: id, in: db) }
         return ids.count
@@ -253,7 +257,7 @@ enum OperationTable {
         let statement = try db.cachedStatement(sql: """
             SELECT \(columns) FROM operations
             WHERE account_id = ? AND status IN ('pending', 'uncertain')
-            ORDER BY created_at, id LIMIT ?
+            ORDER BY created_at, rowid LIMIT ?
             """)
         return try Row.fetchAll(statement, arguments: [accountID.rawValue, limit]).map(operation(from:))
     }

@@ -27,9 +27,14 @@ extension GraphProvider {
     /// which come within a second, continue nextLinks with two quiet folders at most.
     ///
     /// Seeding folders (any other folder still in its first round) share `maxSeedPagesPerCall` pages per call,
-    /// spent on the first unfinished one in `folderOrder` until it reaches its delta link, then on the next.
-    /// Seeding left over on its own does not set `hasMore`: the engine's poll ends and the next poll seeds on, so
-    /// the live lane is never held behind a folder's full listing.
+    /// spent on the first unfinished one in `folderOrder` until it reaches its delta link, then on the next; one whose
+    /// page failed waits behind those that did not (`nextSeed`). Seeding left over on its own does not set `hasMore`:
+    /// the engine's poll ends and the next poll seeds on, so the live lane is never held behind a folder's full listing.
+    ///
+    /// A folder other than the inbox whose request fails waits for the next call rather than failing this one
+    /// (`recordFolderFailure`), and after `maxFolderFailures` calls in a row only full visits ask it. A folder that
+    /// answers 404 is gone: it leaves the cursor and the page names it in `goneFolders`, as it does a folder the walk
+    /// drops.
     ///
     /// A folder walk under way (`GraphCursor.walk`), or one due because the folder list is a day old, takes one step
     /// first: the system folder lookups and the top level's first page to start one, a few listing pages to go on
@@ -50,8 +55,9 @@ extension GraphProvider {
     private func collectChanges(since cursorString: String, limit: Int) async throws -> ChangesPage {
         var cursor = try GraphCursor.decode(cursorString)
         let now = clock()
+        var goneFolders: [String] = []
         if cursor.walk != nil || cursor.needsFolderRefresh(at: now) {
-            try await walkFolders(in: &cursor, at: now)
+            goneFolders += try await walkFolders(in: &cursor, at: now)
         }
         let folders = GraphWellKnownFolders(ids: cursor.wellKnown)
         await folderCache.store(folders)
@@ -67,20 +73,25 @@ extension GraphProvider {
         var removed: [String] = []
 
         // The first pass visits every drained folder due this call, so a quiet folder whose turn in the full visit
-        // has come is polled; later passes only continue drained folders that handed back a nextLink.
+        // has come is polled; later passes only continue drained folders that handed back a nextLink. A parked folder
+        // still in its first round gets a page when the visit reaches it, outside the seed slot.
         let visiting = Self.quietFoldersDue(in: &cursor, order: folderOrder, priority: priority, at: now)
         var drained = folderOrder.filter { folderID in
             !Self.isSeeding(folderID, in: cursor, priority: priority)
                 && (visiting.contains(folderID) || Self.isPolledEveryCall(folderID, in: cursor, priority: priority))
         }
+        let parkedSeeds = folderOrder.filter { visiting.contains($0) && Self.isSeeding($0, in: cursor, priority: priority) }
         var seedPagesLeft = Self.maxSeedPagesPerCall
         let inboxID = cursor.wellKnown["inbox"]
         var anyAnswered = false
         var firstSkipped: Error?
+        var firstPass = true
         while true {
             var pass = drained
+            if firstPass { pass += parkedSeeds }
+            firstPass = false
             // Last in its pass, so the drained folders' new mail leads the page.
-            if seedPagesLeft > 0, let seed = folderOrder.first(where: { Self.isSeeding($0, in: cursor, priority: priority) }) {
+            if seedPagesLeft > 0, let seed = Self.nextSeed(in: cursor, order: folderOrder, priority: priority) {
                 seedPagesLeft -= 1
                 pass.append(seed)
             }
@@ -92,20 +103,20 @@ extension GraphProvider {
                 do {
                     page = try await client.json(GraphListResponse<GraphMessage>.self, for: GraphRequest(method: .get, url: url, prefer: [preferPageSize]))
                 } catch ProviderError.notFound {
-                    // The folder was deleted; its messages resurface through whichever folder received them.
+                    // The folder was deleted. Mail moved out of it comes through the folder that received it, but a
+                    // purge takes the rest with it and no delta reports that: the engine checks what it stores there.
                     cursor.folders.removeValue(forKey: folderID)
                     cursor.nextLinks.removeValue(forKey: folderID)
+                    cursor.folderFailures.removeValue(forKey: folderID)
+                    goneFolders.append(folderID)
                     continue
-                } catch let error where folderID != inboxID && Self.isServiceFailure(error) {
-                    // Through Exchange's November 2026 outage the inbox answered while one folder kept failing with
-                    // a 502, and failing the call for it threw away every other folder's changes, new inbox mail
-                    // included. The folder keeps its link and is asked again next call. The inbox failing still
-                    // fails the call, so the account shows it is not syncing.
+                } catch let error where folderID != inboxID && !Self.failsTheCall(error) {
+                    Self.recordFolderFailure(error, of: folderID, in: &cursor)
                     firstSkipped = firstSkipped ?? error
-                    Self.folderLog.notice("delta: a folder failed and waits for the next call: \(Self.failureLabel(error), privacy: .public)")
                     continue
                 }
                 anyAnswered = true
+                cursor.folderFailures.removeValue(forKey: folderID)
                 for item in page.value {
                     if item.removed != nil {
                         removed.append(item.id)
@@ -135,42 +146,141 @@ extension GraphProvider {
         // Every folder failing is the service down, not a folder: the call fails as it would have.
         if !anyAnswered, let firstSkipped { throw firstSkipped }
 
-        // A folder delta reports a move out of the folder as a removal; only a lookup tells a move from a
-        // deletion, and dropping a merely moved message would also throw away its cached body.
-        var deletedIDs: [String] = []
-        var candidates: [String] = []
-        var seen: Set<String> = []
-        for id in removed where upserts[id] == nil && seen.insert(id).inserted {
-            candidates.append(id)
-        }
-        if !candidates.isEmpty {
-            // A removal Graph will not look up is taken as gone; if it was a move, its new folder's delta brings
-            // the message back as an upsert.
-            let alive = try await metadata(for: candidates, folders: folders, skippingUnreadable: true)
-            for message in alive where upserts.updateValue(message, forKey: message.id.providerID) == nil {
-                upsertOrder.append(message.id.providerID)
-            }
-            deletedIDs = candidates.filter { upserts[$0] == nil }
-        }
-
-        var looked: Set<String> = []
-        let incomplete = partial.filter { upserts[$0] == nil && looked.insert($0).inserted }
-        if !incomplete.isEmpty {
-            // Unknown ids (deleted since) are left out; their removal comes through the delta like any other. One
-            // Graph will not return keeps what the store has.
-            for message in try await metadata(for: incomplete, folders: folders, skippingUnreadable: true)
-            where upserts.updateValue(message, forKey: message.id.providerID) == nil {
-                upsertOrder.append(message.id.providerID)
-            }
-        }
+        let deletedIDs = try await lookUpReported(removed: removed, partial: partial, in: &cursor, at: now, folders: folders,
+                                                  upserts: &upserts, upsertOrder: &upsertOrder)
 
         return ChangesPage(
             upserts: upsertOrder.compactMap { upserts[$0] },
             deletedIDs: deletedIDs,
             cursor: try cursor.encoded(),
             // Only drained folders still on a nextLink count; a seeding folder's nextLink waits for the next poll.
-            hasMore: !drained.isEmpty
+            hasMore: !drained.isEmpty,
+            goneFolders: goneFolders
         )
+    }
+
+    /// Calls in a row a folder's delta may fail before it is parked: asked only when a full visit reaches it, and,
+    /// when Graph refused it rather than the service failing, from a fresh round (its stored link may be what Graph
+    /// refuses). A third call is well past a passing failure, and a full visit every 30 s still finds it again soon
+    /// after it mends.
+    static let maxFolderFailures = 3
+
+    /// Through Exchange's November 2026 outage the inbox answered while one folder kept failing with a 502, and
+    /// failing the call for it threw away every other folder's changes, new inbox mail included; a folder that answers
+    /// "access denied" for good, or a 400 on its stored link, did the same on every poll. So a folder other than the
+    /// inbox that fails with anything but a throttle, a refused token, a cancellation or a reset keeps its place and
+    /// waits: asked again next call, behind the others for the seed page, and parked at `maxFolderFailures`. The inbox
+    /// failing, or every folder, still fails the call, so the account shows it is not syncing. Logged with the status
+    /// only.
+    static func recordFolderFailure(_ error: Error, of folderID: String, in cursor: inout GraphCursor) {
+        let failures = (cursor.folderFailures[folderID] ?? 0) + 1
+        cursor.folderFailures[folderID] = failures
+        let label = failureLabel(error)
+        guard failures >= maxFolderFailures else {
+            folderLog.notice("delta: a folder failed (\(failures, privacy: .public) in a row) and waits for the next call: \(label, privacy: .public)")
+            return
+        }
+        if failures == maxFolderFailures, !isServiceFailure(error) {
+            cursor.nextLinks.removeValue(forKey: folderID)
+            cursor.folders.updateValue(nil, forKey: folderID)
+        }
+        folderLog.notice("delta: a folder failed \(failures, privacy: .public) calls in a row and waits for full visits: \(label, privacy: .public)")
+    }
+
+    /// Whether the folder failed `maxFolderFailures` calls in a row and is asked only on full visits.
+    static func isParked(_ folderID: String, in cursor: GraphCursor) -> Bool {
+        (cursor.folderFailures[folderID] ?? 0) >= maxFolderFailures
+    }
+
+    /// The folder this call's seed page goes to: the first still seeding in folder order among those that failed
+    /// least, so one whose page keeps failing yields the slot to the next and never holds every later folder back
+    /// from its first round. A parked folder gets its page from a full visit instead.
+    static func nextSeed(in cursor: GraphCursor, order: [String], priority: Set<String>) -> String? {
+        order.filter { isSeeding($0, in: cursor, priority: priority) && !isParked($0, in: cursor) }
+            .min { (cursor.folderFailures[$0] ?? 0) < (cursor.folderFailures[$1] ?? 0) }
+    }
+
+    /// Tries a message whose lookup the service failed gets (`GraphCursor.recheck`) before it is left as the store has
+    /// it: the failed one and two more, `recheckSpacing` apart. Through Exchange's November 2026 outage a part failed
+    /// now and then, so a second or third try settles nearly every one; the bound keeps a message the service always
+    /// fails from being carried for ever.
+    static let maxLookupCalls = 3
+
+    /// The least time between two tries of a carried lookup. The engine calls again at once while a page says
+    /// `hasMore`, so tries counted per call could all fall within a second of one burst of failures and leave a
+    /// message deleted on the phone here for good; the quiet folders' full visit has the same rhythm.
+    static let recheckSpacing: TimeInterval = GraphCursor.fullVisitInterval
+
+    /// Looks up what the delta did not report whole, and returns the deletions. A removal is a move or a deletion and
+    /// only a lookup tells them apart (dropping a merely moved message would throw away its cached body, and with the
+    /// conversation's last message its snooze); a change reported with only what changed needs the rest of its
+    /// metadata. Messages whose lookup the service failed before (`GraphCursor.recheck`) are asked again with them once
+    /// `recheckSpacing` has passed, unless another folder has reported them since.
+    ///
+    /// Found: an upsert. Unknown (404): a removal, or a message asked again, is gone; a partial change's removal comes
+    /// through the delta like any other. Refused for that one message (a 400 or 403, a reply that does not decode): a
+    /// removal is taken as gone, which is what Graph's 403 ErrorAccessDenied for a deleted item means, and a move comes
+    /// back through its new folder's delta; anything else keeps what the store has. Failed by the service (a 5xx, the
+    /// network, for the part or its whole `$batch`): that says nothing about the message, so it keeps what the store has
+    /// and is asked again, up to `maxLookupCalls` tries. The delta links move on meanwhile, so new mail never waits on a
+    /// lookup. A throttle or a refused token still fails the call.
+    private func lookUpReported(
+        removed: [String],
+        partial: [String],
+        in cursor: inout GraphCursor,
+        at now: Date,
+        folders: GraphWellKnownFolders,
+        upserts: inout [String: MessageMetadata],
+        upsertOrder: inout [String]
+    ) async throws -> [String] {
+        let carried = cursor.recheck
+        let recheckDue = cursor.recheckDue(at: now)
+        // A carried message not asked this call keeps its place and its count; one another folder reported is settled.
+        cursor.recheck = recheckDue ? [:] : carried.filter { upserts[$0.key] == nil }
+        if cursor.recheck.isEmpty { cursor.recheckAt = nil }
+        var removals: Set<String> = []
+        var asked: [String] = []
+        var seen: Set<String> = []
+        for id in removed where upserts[id] == nil && seen.insert(id).inserted {
+            removals.insert(id)
+            asked.append(id)
+        }
+        if recheckDue {
+            for id in carried.keys.sorted() where upserts[id] == nil && seen.insert(id).inserted {
+                asked.append(id)
+            }
+        }
+        for id in partial where upserts[id] == nil && seen.insert(id).inserted {
+            asked.append(id)
+        }
+        guard !asked.isEmpty else { return [] }
+        let lookup = try await lookUp(asked, folders: folders, carryingFailedBatches: true)
+        for message in lookup.messages where upserts.updateValue(message, forKey: message.id.providerID) == nil {
+            upsertOrder.append(message.id.providerID)
+        }
+        // Asked this call, a carried message settles or counts another try, whether or not its turn had come.
+        for id in asked { cursor.recheck.removeValue(forKey: id) }
+        var givenUp = 0
+        for id in lookup.failing {
+            let tries = (carried[id] ?? 0) + 1
+            if tries < Self.maxLookupCalls {
+                cursor.recheck[id] = tries
+                cursor.recheckAt = GraphDate.string(now)
+            } else {
+                givenUp += 1
+            }
+        }
+        if givenUp > 0 {
+            Self.folderLog.notice("lookup: \(givenUp, privacy: .public) messages the service kept failing are left as stored")
+        }
+        if cursor.recheck.isEmpty { cursor.recheckAt = nil }
+        let refused = Set(lookup.refused)
+        let failing = Set(lookup.failing)
+        return asked.filter { id in
+            guard upserts[id] == nil, !failing.contains(id) else { return false }
+            if removals.contains(id) { return true }
+            return !refused.contains(id) && carried[id] != nil
+        }
     }
 
     /// System folders first, inbox ahead of the rest, so new mail reaches the store before a long custom
@@ -202,8 +312,8 @@ extension GraphProvider {
         guard let after = cursor.fullVisitAfter else { return [] }
         let left = order.filter { folderID in
             folderID > after
-                && !isSeeding(folderID, in: cursor, priority: priority)
-                && !isPolledEveryCall(folderID, in: cursor, priority: priority)
+                && (isParked(folderID, in: cursor)
+                    || (!isSeeding(folderID, in: cursor, priority: priority) && !isPolledEveryCall(folderID, in: cursor, priority: priority)))
         }.sorted()
         let due = left.prefix(allowance)
         cursor.fullVisitAfter = due.count < left.count ? (due.last ?? after) : nil
@@ -215,9 +325,10 @@ extension GraphProvider {
     }
 
     /// A priority folder, or one partway through a round: either may hold new mail or owe the engine more pages, so
-    /// neither waits for a full visit. A seeding folder on a nextLink is seeding first and takes its seed page.
+    /// neither waits for a full visit. A seeding folder on a nextLink is seeding first and takes its seed page. A
+    /// parked folder waits for full visits whatever it is.
     static func isPolledEveryCall(_ folderID: String, in cursor: GraphCursor, priority: Set<String>) -> Bool {
-        priority.contains(folderID) || cursor.nextLinks[folderID] != nil
+        !isParked(folderID, in: cursor) && (priority.contains(folderID) || cursor.nextLinks[folderID] != nil)
     }
 
     /// A non-priority folder whose first round has not reached a delta link, whether or not it is partway through
@@ -248,8 +359,9 @@ extension GraphProvider {
     /// a day (`GraphCursor.folderRefreshInterval`, counted from the walk's start), not every poll: the walk costs a
     /// request per folder with children, and a folder deleted in between drops out sooner, when its delta answers
     /// 404. A step a call; the call that starts a walk also looks up the system folders again, and keeps the ids it
-    /// had where a lookup fails (they do not change), so the step and the polls go on.
-    private func walkFolders(in cursor: inout GraphCursor, at now: Date) async throws {
+    /// had where a lookup fails (they do not change), so the step and the polls go on. Returns the folders the step
+    /// dropped from the polls, whose stored mail no delta will report again.
+    private func walkFolders(in cursor: inout GraphCursor, at now: Date) async throws -> [String] {
         if cursor.walk == nil {
             cursor.foldersResolvedAt = GraphDate.string(now)
             do {
@@ -261,6 +373,10 @@ extension GraphProvider {
             }
         }
         let step = try await stepFolderWalk(cursor.walk)
+        let polled = Set(cursor.folders.keys)
         cursor.takeIn(step.walk, found: step.found)
+        let dropped = polled.subtracting(cursor.folders.keys).sorted()
+        for folderID in dropped { cursor.folderFailures.removeValue(forKey: folderID) }
+        return dropped
     }
 }

@@ -8,14 +8,22 @@ typealias Operation = SSCore.Operation
 final class SyncTestTokenStore: TokenStore, @unchecked Sendable {
     private let lock = NSLock()
     private var storage: [AccountID: OAuthTokens] = [:]
+    private var refused: Set<AccountID> = []
 
     var count: Int {
         lock.lock(); defer { lock.unlock() }
         return storage.count
     }
 
+    /// Reads of these accounts' tokens fail as a keychain the user refused does.
+    func refuseReads(of accountID: AccountID) {
+        lock.lock(); defer { lock.unlock() }
+        refused.insert(accountID)
+    }
+
     func tokens(for accountID: AccountID) throws -> OAuthTokens? {
         lock.lock(); defer { lock.unlock() }
+        if refused.contains(accountID) { throw AuthError.keychain(status: -25293) }
         return storage[accountID]
     }
 
@@ -48,11 +56,27 @@ final class StubAccessTokenProvider: AccessTokenProvider, @unchecked Sendable {
     }
 
     private var replaced: [AccountID] = []
+    private var removed: [AccountID] = []
 
     /// The accounts a sign-in stored new tokens for, in order.
     var replacements: [AccountID] {
         lock.lock(); defer { lock.unlock() }
         return replaced
+    }
+
+    /// The accounts whose tokens were removed with them, in order.
+    var removals: [AccountID] {
+        lock.lock(); defer { lock.unlock() }
+        return removed
+    }
+
+    func removeTokens(for accountID: AccountID) async throws {
+        recordRemoval(accountID)
+    }
+
+    private func recordRemoval(_ accountID: AccountID) {
+        lock.lock(); defer { lock.unlock() }
+        removed.append(accountID)
     }
 
     func replaceTokens(for accountID: AccountID, saving save: @Sendable () throws -> Void) async throws {

@@ -161,6 +161,10 @@ final class Unsubscriber: @unchecked Sendable {
             }
         } catch is CancellationError {
             return .retry(counted: false, retryAfter: nil)
+        } catch let error as AuthError {
+            // The token could not be had, so nothing was sent: a refused keychain waits for the user like a refused
+            // token, and any other failure is tried again without counting.
+            return error.isKeychainDenial ? .needsReauth : .retry(counted: false, retryAfter: nil)
         } catch {
             return .retry(counted: true, retryAfter: nil)
         }

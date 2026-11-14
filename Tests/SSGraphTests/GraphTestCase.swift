@@ -14,11 +14,14 @@ class GraphTestCase: XCTestCase {
     let now = Date(timeIntervalSince1970: 1_793_527_200)
     let nowString = "2026-11-01T10:00:00Z"
     var tokens = StubTokenProvider()
+    /// The waits an apply took before sending failed parts again; recorded, never slept, so a test runs at once.
+    let applyWaits = WaitRecorder()
 
     override func setUp() {
         super.setUp()
         StubURLProtocol.reset()
         tokens = StubTokenProvider()
+        applyWaits.reset()
     }
 
     override func tearDown() {
@@ -28,11 +31,15 @@ class GraphTestCase: XCTestCase {
 
     func makeProvider(now: Date? = nil, sendLimits: GraphSendLimits = .graph) -> GraphProvider {
         let frozen = now ?? self.now
-        return GraphProvider(accountID: accountID, tokens: tokens, session: StubURLProtocol.makeSession(), clock: { frozen }, sendLimits: sendLimits)
+        let waits = applyWaits
+        return GraphProvider(accountID: accountID, tokens: tokens, session: StubURLProtocol.makeSession(), clock: { frozen },
+                             sendLimits: sendLimits, applyRetryWait: { waits.record($0) })
     }
 
     func makeProvider(clock: StepClock) -> GraphProvider {
-        GraphProvider(accountID: accountID, tokens: tokens, session: StubURLProtocol.makeSession(), clock: { clock.now })
+        let waits = applyWaits
+        return GraphProvider(accountID: accountID, tokens: tokens, session: StubURLProtocol.makeSession(), clock: { clock.now },
+                             applyRetryWait: { waits.record($0) })
     }
 
     var requests: [Request] { StubURLProtocol.requests }

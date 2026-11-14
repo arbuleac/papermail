@@ -65,6 +65,42 @@ final class GraphMessageTests: GraphTestCase {
         XCTAssertEqual(requests.map(\.path), ["/v1.0/$batch"], "system folder ids are cached after the first lookup")
     }
 
+    /// A message Graph will not return on its own (403 ErrorAccessDenied, or a 500 for that one part) is left out like
+    /// an unknown one: a server search keeps its other hits. A lookup says which ones, so a reconcile keeps them.
+    func testMetadataLeavesOutAMessageGraphWillNotReturn() async throws {
+        route { request in
+            if let reply = self.wellKnownFolderReply(request) { return reply }
+            return self.batchReply(request) { id, url in
+                if url.contains("denied") {
+                    return Fixtures.BatchItem(id: id, status: 403, body: #"{"error":{"code":"ErrorAccessDenied","message":"Access is denied."}}"#)
+                }
+                if url.contains("broken") {
+                    return Fixtures.BatchItem(id: id, status: 500, body: #"{"error":{"code":"ErrorInternalServerError","message":""}}"#)
+                }
+                if url.contains("missing") { return Fixtures.BatchItem(id: id, status: 404, body: Fixtures.notFoundError) }
+                let messageID = url.split(separator: "/")[2].split(separator: "?")[0]
+                return Fixtures.BatchItem(id: id, status: 200, body: Fixtures.message(id: String(messageID), folder: "F-INBOX"))
+            }
+        }
+        let provider = makeProvider()
+
+        let found = try await provider.metadata(for: ["a", "denied", "broken", "b"])
+        XCTAssertEqual(found.map(\.id.providerID), ["a", "b"])
+
+        let lookup = try await provider.lookUpMetadata(for: ["a", "denied", "missing", "broken"])
+        XCTAssertEqual(lookup.messages.map(\.id.providerID), ["a"])
+        XCTAssertEqual(Set(lookup.unreadable), ["denied", "broken"], "an unknown id is neither found nor unreadable")
+    }
+
+    /// A throttle in a part is the mailbox's, not the message's: the lookup still fails.
+    func testMetadataStillFailsOnAThrottledPart() async {
+        route { request in
+            if let reply = self.wellKnownFolderReply(request) { return reply }
+            return self.batchReply(request) { id, _ in Fixtures.BatchItem(id: id, status: 429, headers: ["Retry-After": "3"]) }
+        }
+        await expectProviderError({ try await self.makeProvider().metadata(for: ["a"]) }) { $0.retryAfter == 3 }
+    }
+
     func testMetadataSplitsIntoBatchesOfTwenty() async throws {
         route { request in
             if let reply = self.wellKnownFolderReply(request) { return reply }
@@ -293,8 +329,9 @@ final class GraphMessageTests: GraphTestCase {
     func testProfileUsesMailThenPrincipalName() async throws {
         route { _ in .json(Fixtures.user) }
         let withMail = try await makeProvider().profile()
-        XCTAssertEqual(withMail, AccountProfile(email: "robin@example.com", displayName: "Robin Example"))
-        XCTAssertEqual(requests.first?.query["$select"], "displayName,mail,userPrincipalName")
+        XCTAssertEqual(withMail, AccountProfile(email: "robin@example.com", displayName: "Robin Example", userID: "user-robin-1"))
+        XCTAssertEqual(requests.first?.query["$select"], "id,displayName,mail,userPrincipalName",
+                       "the mailbox's own id tells a work and a personal account with one address apart")
 
         route { _ in .json(Fixtures.userWithoutMail) }
         let withoutMail = try await makeProvider().profile()

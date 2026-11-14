@@ -289,11 +289,13 @@ enum TestSupport {
                                                  maxWaitWithNothingFetched: GmailThrottleRetry.standard.maxWaitWithNothingFetched,
                                                  sleep: { _ in })
 
-    static func makeProvider(tokens: FakeTokenProvider = FakeTokenProvider(), throttleRetry: GmailThrottleRetry = instantRetry) -> GmailProvider {
+    static func makeProvider(tokens: FakeTokenProvider = FakeTokenProvider(), throttleRetry: GmailThrottleRetry = instantRetry,
+                             now: Date? = nil) -> GmailProvider {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [StubURLProtocol.self]
+        let clock: @Sendable () -> Date = now.map { frozen in { frozen } } ?? { Date() }
         return GmailProvider(accountID: accountID, tokens: tokens, session: URLSession(configuration: configuration),
-                             throttleRetry: throttleRetry)
+                             throttleRetry: throttleRetry, clock: clock)
     }
 
     /// Registers the batch endpoint to answer each embedded get through `answer`, given which batch send

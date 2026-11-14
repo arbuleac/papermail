@@ -618,6 +618,173 @@ final class GraphChangesTests: GraphTestCase {
         await expectProviderError({ try await self.makeProvider().changes(since: start, limit: 50) }) { $0.retryAfter == 7 }
     }
 
+    /// Through Exchange's November 2026 outage a lookup part answered 502 now and then. Taken as gone, a message that was
+    /// only moved (a snooze's archive) was deleted here, its snooze and body with it. Only a 404 is gone: the message is
+    /// left as the store has it and looked up again on the next call, which finds where it went.
+    func testARemovalTheServiceFailsToLookUpIsAskedAgainNotDeleted() async throws {
+        var lookupsWork = false
+        route { request in
+            if request.method == "GET", request.path == self.inboxDelta {
+                if request.query["$deltatoken"] != nil { return .json(Fixtures.list([], deltaLink: self.inboxLink2)) }
+                return .json(Fixtures.list([
+                    Fixtures.removed("r-moved"),
+                    Fixtures.message(id: "m-new", folder: "F-INBOX"),
+                ], deltaLink: self.inboxLink))
+            }
+            return self.batchReply(request) { id, _ in
+                lookupsWork
+                    ? Fixtures.BatchItem(id: id, status: 200, body: Fixtures.message(id: "r-moved", folder: "F-ARCHIVE"))
+                    : Fixtures.BatchItem(id: id, status: 502, body: #"{"error":{"code":"UnknownError","message":""}}"#)
+            }
+        }
+        let provider = makeProvider()
+
+        let first = try await provider.changes(since: try cursor(folders: ["F-INBOX": nil]), limit: 50)
+        XCTAssertEqual(first.upserts.map(\.id.providerID), ["m-new"])
+        XCTAssertEqual(first.deletedIDs, [], "a lookup the service failed says nothing about the message")
+        let carried = try GraphCursor.decode(first.cursor)
+        XCTAssertEqual(carried.deltaLink(for: "F-INBOX"), inboxLink, "the delta moves on")
+        XCTAssertEqual(carried.recheck, ["r-moved": 1])
+
+        lookupsWork = true
+        let second = try await makeProvider(now: now.addingTimeInterval(GraphProvider.recheckSpacing))
+            .changes(since: first.cursor, limit: 50)
+        XCTAssertEqual(second.upserts.map(\.id.providerID), ["r-moved"])
+        XCTAssertEqual(second.upserts.first?.folderID, "F-ARCHIVE")
+        XCTAssertEqual(second.deletedIDs, [])
+        XCTAssertEqual(try GraphCursor.decode(second.cursor).recheck, [:])
+        XCTAssertFalse(second.cursor.contains("recheck"), "a cursor with nothing to look up again does not grow")
+    }
+
+    /// A lookup part answering 503 or 504 failed the whole call, so the inbox's new mail was fetched and thrown away on
+    /// every poll while removals were pending. The new mail lands now and the lookup waits for the next call.
+    func testALookupPartTheServiceFailsNoLongerHoldsNewMail() async throws {
+        route { request in
+            if request.method == "GET", request.path == self.inboxDelta {
+                return .json(Fixtures.list([
+                    Fixtures.removed("r-1"),
+                    Fixtures.message(id: "m-new", folder: "F-INBOX"),
+                ], deltaLink: self.inboxLink))
+            }
+            return self.batchReply(request) { id, _ in Fixtures.BatchItem(id: id, status: 503) }
+        }
+
+        let page = try await makeProvider().changes(since: try cursor(folders: ["F-INBOX": nil]), limit: 50)
+
+        XCTAssertEqual(page.upserts.map(\.id.providerID), ["m-new"])
+        XCTAssertEqual(page.deletedIDs, [])
+        XCTAssertEqual(try GraphCursor.decode(page.cursor).recheck, ["r-1": 1])
+    }
+
+    /// The same when the `$batch` envelope itself fails for now.
+    func testALookupWhoseWholeBatchTheServiceFailsIsAskedAgain() async throws {
+        route { request in
+            if request.method == "GET", request.path == self.inboxDelta {
+                return .json(Fixtures.list([
+                    Fixtures.removed("r-1"),
+                    #"{"id":"m-read","isRead":true}"#,
+                    Fixtures.message(id: "m-new", folder: "F-INBOX"),
+                ], deltaLink: self.inboxLink))
+            }
+            return request.path == "/v1.0/$batch" ? .status(504) : nil
+        }
+
+        let page = try await makeProvider().changes(since: try cursor(folders: ["F-INBOX": nil]), limit: 50)
+
+        XCTAssertEqual(page.upserts.map(\.id.providerID), ["m-new"])
+        XCTAssertEqual(page.deletedIDs, [])
+        XCTAssertEqual(try GraphCursor.decode(page.cursor).recheck, ["r-1": 1, "m-read": 1])
+    }
+
+    /// A read flag set on the phone was dropped for good when its lookup answered 502: the delta link moved past it.
+    func testAPartialChangeTheServiceFailsIsLookedUpAgain() async throws {
+        var lookupsWork = false
+        route { request in
+            if request.method == "GET", request.path == self.inboxDelta {
+                if request.query["$deltatoken"] != nil { return .json(Fixtures.list([], deltaLink: self.inboxLink2)) }
+                return .json(Fixtures.list([#"{"id":"m-read","isRead":true}"#], deltaLink: self.inboxLink))
+            }
+            return self.batchReply(request) { id, _ in
+                lookupsWork
+                    ? Fixtures.BatchItem(id: id, status: 200, body: Fixtures.message(id: "m-read", folder: "F-INBOX"))
+                    : Fixtures.BatchItem(id: id, status: 502)
+            }
+        }
+        let provider = makeProvider()
+
+        let first = try await provider.changes(since: try cursor(folders: ["F-INBOX": nil]), limit: 50)
+        XCTAssertEqual(first.upserts.map(\.id.providerID), [])
+        lookupsWork = true
+        let second = try await makeProvider(now: now.addingTimeInterval(GraphProvider.recheckSpacing))
+            .changes(since: first.cursor, limit: 50)
+        XCTAssertEqual(second.upserts.map(\.id.providerID), ["m-read"])
+    }
+
+    /// The engine calls again at once while a page says `hasMore`, so three tries counted per call all fell within a
+    /// second of one burst of failures, and a message deleted on the phone stayed here for good. A carried lookup is
+    /// asked again only `recheckSpacing` after its last try; the calls between neither ask nor count.
+    func testACarriedLookupIsAskedAgainOnlyAfterItsSpacing() async throws {
+        route { request in
+            if request.method == "GET", request.path == self.inboxDelta {
+                if request.query["$deltatoken"] != nil { return .json(Fixtures.list([], deltaLink: self.inboxLink2)) }
+                return .json(Fixtures.list([Fixtures.removed("r-1")], deltaLink: self.inboxLink))
+            }
+            return self.batchReply(request) { id, _ in Fixtures.BatchItem(id: id, status: 503) }
+        }
+
+        let first = try await makeProvider().changes(since: try cursor(folders: ["F-INBOX": nil]), limit: 50)
+        let burst = try await makeProvider(now: now.addingTimeInterval(0.5)).changes(since: first.cursor, limit: 50)
+        let again = try await makeProvider(now: now.addingTimeInterval(1)).changes(since: burst.cursor, limit: 50)
+
+        XCTAssertEqual(innerBatchRequests().count, 1, "only the first call asked")
+        XCTAssertEqual(try GraphCursor.decode(again.cursor).recheck, ["r-1": 1], "the calls in between count no try")
+        XCTAssertEqual(again.deletedIDs, [])
+
+        let spaced = try await makeProvider(now: now.addingTimeInterval(1 + GraphProvider.recheckSpacing))
+            .changes(since: again.cursor, limit: 50)
+        XCTAssertEqual(innerBatchRequests().count, 2)
+        XCTAssertEqual(try GraphCursor.decode(spaced.cursor).recheck, ["r-1": 2])
+    }
+
+    /// A message whose lookup keeps failing is not carried for ever: after three calls it is left as the store has it,
+    /// never deleted for a failure that says nothing about it.
+    func testALookupThatKeepsFailingIsLeftAsTheStoreHasIt() async throws {
+        route { request in
+            if request.method == "GET", request.path == self.inboxDelta {
+                return .json(Fixtures.list([], deltaLink: self.inboxLink2))
+            }
+            return self.batchReply(request) { id, _ in Fixtures.BatchItem(id: id, status: 503) }
+        }
+        var start = try GraphCursor.decode(try cursor(folders: ["F-INBOX": inboxLink]))
+        start.recheck = ["r-1": 2]
+
+        let page = try await makeProvider().changes(since: try start.encoded(), limit: 50)
+
+        XCTAssertEqual(page.deletedIDs, [])
+        XCTAssertEqual(page.upserts.map(\.id.providerID), [])
+        XCTAssertEqual(try GraphCursor.decode(page.cursor).recheck, [:])
+        XCTAssertEqual(innerBatchRequests().count, 1, "asked once more before giving up")
+    }
+
+    /// Looked up again, a message Graph no longer has is gone; one another folder reported meanwhile needs no lookup.
+    func testACarriedLookupSettlesAsADeletionOrThroughAnotherFolder() async throws {
+        route { request in
+            if request.method == "GET", request.path == self.inboxDelta {
+                return .json(Fixtures.list([Fixtures.message(id: "m-found", folder: "F-INBOX")], deltaLink: self.inboxLink2))
+            }
+            return self.batchReply(request) { id, _ in Fixtures.BatchItem(id: id, status: 404, body: Fixtures.notFoundError) }
+        }
+        var start = try GraphCursor.decode(try cursor(folders: ["F-INBOX": inboxLink]))
+        start.recheck = ["r-gone": 1, "m-found": 1]
+
+        let page = try await makeProvider().changes(since: try start.encoded(), limit: 50)
+
+        XCTAssertEqual(page.deletedIDs, ["r-gone"])
+        XCTAssertEqual(page.upserts.map(\.id.providerID), ["m-found"])
+        XCTAssertEqual(innerBatchRequests().map { $0["url"] as? String }, ["/me/messages/r-gone?$select=\(GraphProvider.metadataSelect)"])
+        XCTAssertEqual(try GraphCursor.decode(page.cursor).recheck, [:])
+    }
+
     // MARK: Requests sent
 
     /// A quiet poll between full visits asks the inbox, sent and drafts, and says so: three requests, which the
@@ -778,6 +945,105 @@ final class GraphChangesTests: GraphTestCase {
 
         XCTAssertEqual(Set(try GraphCursor.decode(page.cursor).folders.keys), ["F-INBOX"])
         XCTAssertFalse(page.hasMore)
+        XCTAssertEqual(page.goneFolders, ["F-OLD"], "its stored mail is the engine's to check: no delta will report it")
+    }
+
+    /// A folder whose delta Graph refuses (403 ErrorAccessDenied, a 400 on its stored link) failed the whole call on
+    /// every poll, the inbox's new mail thrown away each time. It waits now, as a folder the service fails does.
+    func testAFolderThatRefusesItsDeltaWaitsWhileTheOthersSync() async throws {
+        route { request in
+            guard request.method == "GET" else { return nil }
+            switch request.path {
+            case self.inboxDelta:
+                return .json(Fixtures.list([Fixtures.message(id: "m-new", folder: "F-INBOX")], deltaLink: self.inboxLink2))
+            case self.sentDelta:
+                return .json(#"{"error":{"code":"ErrorAccessDenied","message":"Access is denied."}}"#, status: 403)
+            default:
+                return nil
+            }
+        }
+
+        let page = try await makeProvider().changes(since: try cursor(folders: ["F-INBOX": inboxLink, "F-SENT": sentLink]), limit: 50)
+
+        XCTAssertEqual(page.upserts.map(\.id.providerID), ["m-new"])
+        let after = try GraphCursor.decode(page.cursor)
+        XCTAssertEqual(after.deltaLink(for: "F-INBOX"), inboxLink2)
+        XCTAssertEqual(after.deltaLink(for: "F-SENT"), sentLink)
+        XCTAssertEqual(after.folderFailures, ["F-SENT": 1])
+    }
+
+    /// A folder refused three calls in a row starts a fresh round (its stored link may be what Graph refuses) and is
+    /// asked only on full visits until it answers, so it costs a request every 30 s rather than one every poll.
+    func testAFolderRefusedThreeCallsInARowStartsAFreshRoundOnFullVisits() async throws {
+        var refusing = true
+        route { request in
+            guard request.method == "GET", request.path.hasSuffix("/messages/delta") else { return nil }
+            let folder = self.folder(of: request)
+            if folder == "F-AAA" {
+                if refusing || request.query["$deltatoken"] != nil {
+                    return .json(#"{"error":{"code":"ErrorInvalidRequest","message":"bad link"}}"#, status: 400)
+                }
+                return .json(Fixtures.list([Fixtures.message(id: "m-aaa", folder: "F-AAA")], deltaLink: self.deltaLink("F-AAA", "fresh")))
+            }
+            return .json(Fixtures.list([], deltaLink: self.deltaLink(folder, "\(folder)-d2")))
+        }
+        let clock = StepClock(now)
+        let provider = makeProvider(clock: clock)
+        var start = try GraphCursor.decode(try cursor(
+            folders: ["F-INBOX": deltaLink("F-INBOX", "F-INBOX-d1"), "F-AAA": deltaLink("F-AAA", "a1")],
+            fullVisitAt: "2000-01-01T00:00:00Z"
+        ))
+        start.folderFailures = ["F-AAA": 2]
+
+        let first = try await provider.changes(since: try start.encoded(), limit: 50)
+        XCTAssertEqual(trail(), ["F-INBOX delta F-INBOX-d1", "F-AAA delta a1"])
+        let parked = try GraphCursor.decode(first.cursor)
+        XCTAssertEqual(parked.folderFailures, ["F-AAA": 3])
+        XCTAssertTrue(parked.folders.keys.contains("F-AAA"))
+        XCTAssertNil(parked.deltaLink(for: "F-AAA"), "the refused link is dropped")
+
+        StubURLProtocol.clearRequests()
+        clock.advance(by: 5)
+        let second = try await provider.changes(since: first.cursor, limit: 50)
+        XCTAssertEqual(trail(), ["F-INBOX delta F-INBOX-d2"], "not asked between full visits, not even for a seed page")
+
+        StubURLProtocol.clearRequests()
+        refusing = false
+        clock.advance(by: GraphCursor.fullVisitInterval)
+        let third = try await provider.changes(since: second.cursor, limit: 50)
+        XCTAssertEqual(trail(), ["F-INBOX delta F-INBOX-d2", "F-AAA seed"])
+        XCTAssertEqual(third.upserts.map(\.id.providerID), ["m-aaa"])
+        let recovered = try GraphCursor.decode(third.cursor)
+        XCTAssertEqual(recovered.folderFailures, [:])
+        XCTAssertEqual(recovered.deltaLink(for: "F-AAA"), deltaLink("F-AAA", "fresh"))
+        XCTAssertFalse(third.cursor.contains("folderFailures"))
+    }
+
+    /// Each call's seed page went to the first folder still seeding; one whose page kept failing took it every time, so
+    /// no folder after it was ever seeded or polled. A folder that failed waits behind those that did not.
+    func testASeedThatKeepsFailingNoLongerHoldsBackTheOtherSeeds() async throws {
+        route { request in
+            guard request.method == "GET", request.path.hasSuffix("/messages/delta") else { return nil }
+            switch self.folder(of: request) {
+            case "F-AAA": return .status(500)
+            case "F-BBB": return .json(Fixtures.list([Fixtures.message(id: "m-b", folder: "F-BBB")], deltaLink: self.deltaLink("F-BBB", "b1")))
+            case let folder: return .json(Fixtures.list([], deltaLink: self.deltaLink(folder, "\(folder)-d2")))
+            }
+        }
+        let clock = StepClock(now)
+        let provider = makeProvider(clock: clock)
+        let start = try cursor(folders: ["F-INBOX": deltaLink("F-INBOX", "F-INBOX-d1"), "F-AAA": nil, "F-BBB": nil],
+                               fullVisitAt: nowString)
+
+        let first = try await provider.changes(since: start, limit: 50)
+        XCTAssertEqual(trail(), ["F-INBOX delta F-INBOX-d1", "F-AAA seed"])
+        StubURLProtocol.clearRequests()
+        clock.advance(by: 5)
+        let second = try await provider.changes(since: first.cursor, limit: 50)
+
+        XCTAssertEqual(trail(), ["F-INBOX delta F-INBOX-d2", "F-BBB seed"])
+        XCTAssertEqual(second.upserts.map(\.id.providerID), ["m-b"])
+        XCTAssertEqual(try GraphCursor.decode(second.cursor).folderFailures, ["F-AAA": 1])
     }
 
     func testFolderListIsRefreshedAfterADay() async throws {

@@ -35,6 +35,21 @@ enum BackfillMarks {
         return found
     }
 
+    /// The roles of the account's stored messages among `providerIDs`, through the primary key.
+    static func storedRoles(accountID: AccountID, providerIDs: [String], in db: Database) throws -> [String: Set<MailboxRole>] {
+        let unique = Array(Set(providerIDs))
+        var roles: [String: Set<MailboxRole>] = [:]
+        for start in stride(from: 0, to: unique.count, by: chunkSize) {
+            let chunk = Array(unique[start..<min(start + chunkSize, unique.count)])
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT provider_id, roles FROM messages
+                WHERE account_id = ? AND provider_id IN (\(databaseQuestionMarks(count: chunk.count)))
+                """, arguments: StatementArguments([accountID.rawValue] + chunk))
+            for row in rows { roles[row[0]] = MailStoreCodec.roles(row[1]) }
+        }
+        return roles
+    }
+
     /// The ids of `chunk` that have a row in `table`, through its `(account_id, provider_id)` primary key.
     private static func present(in table: String, accountID: AccountID, _ chunk: [String], _ db: Database) throws -> [String] {
         try String.fetchAll(db, sql: """

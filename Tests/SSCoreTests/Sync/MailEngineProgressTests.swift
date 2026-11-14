@@ -81,4 +81,34 @@ final class MailEngineProgressTests: XCTestCase {
         observation.cancel()
         await harness.shutdown()
     }
+
+    /// While the polls fail and back off, the user reads and archives mail, and each action runs the outbox on its own.
+    /// That cycle set the phase to idle, so the line said "Up to date" between failing polls and lost its countdown.
+    /// Only a full cycle, one that polled, moves the phase now.
+    func testAnOutboxCycleLeavesAFailingPollsStatusAsItWas() async throws {
+        let provider = ScriptedProvider(accountID: Fixtures.accountID)
+        provider.bootstrapRuns = [["": .success(Fixtures.page(1...1, next: nil, cursor: "c0"))]]
+        provider.changesQueue = [.failure(ProviderError.network("down"))]
+        let harness = try EngineHarness(provider: provider) {
+            $0.backoffBase = 30
+            $0.backoffCap = 60
+        }
+        let statuses = PhaseRecorder()
+        let observation = harness.engine.observeStatus { statuses.record($0) }
+        harness.engine.start()
+        try await waitUntil("retry announced") { statuses.latest.first?.retryAt != nil }
+        let failing = try XCTUnwrap(statuses.latest.first)
+
+        try harness.engine.perform(.setRead(true), on: [MessageID(accountID: Fixtures.accountID, providerID: "1")])
+        try await waitUntil("the outbox ran") { provider.applyCalls.count == 1 }
+        try await Task.sleep(for: .milliseconds(200))
+
+        let after = try XCTUnwrap(statuses.latest.first)
+        XCTAssertEqual(after.phase, .error)
+        XCTAssertEqual(after.message, failing.message)
+        XCTAssertEqual(after.retryAt, failing.retryAt, "the countdown stays")
+        XCTAssertEqual(provider.changesCalls.count, 1, "and the poll keeps its backoff")
+        observation.cancel()
+        await harness.shutdown()
+    }
 }

@@ -194,6 +194,26 @@ final class GmailProviderTests: XCTestCase {
         XCTAssertEqual(server.requests(to: "/users/me/messages").first?.query["maxResults"], ["500"])
     }
 
+    /// The enumeration leaves out Trash and Spam, which the store holds (trashed here, or reported by history), so a
+    /// reconcile's sweep took them though Gmail keeps them. Their ids are listed apart, 500 a page for 5 units, for the
+    /// reconcile to keep.
+    func testMailOutsideTheEnumerationIsTrashAndSpamListedByID() async throws {
+        server.on("GET", "/users/me/messages", .json(#"{"messages":[{"id":"t1","threadId":"x"},{"id":"s1","threadId":"y"}],"nextPageToken":"more"}"#))
+        let provider = TestSupport.makeProvider()
+        XCTAssertTrue(provider.hasMailOutsideEnumeration)
+
+        let listing = try await provider.mailOutsideEnumeration(page: "p2", limit: 5000)
+
+        XCTAssertEqual(listing.ids, ["t1", "s1"])
+        XCTAssertNil(listing.messages)
+        XCTAssertEqual(listing.nextPage, "more")
+        let query = try XCTUnwrap(server.requests(to: "/users/me/messages").first?.query)
+        XCTAssertEqual(query["q"], ["in:trash OR in:spam"])
+        XCTAssertEqual(query["includeSpamTrash"], ["true"])
+        XCTAssertEqual(query["maxResults"], ["500"])
+        XCTAssertEqual(query["pageToken"], ["p2"])
+    }
+
     // MARK: Changes
 
     func testChangesCollectsAddedDeletedAndRelabeledMessages() async throws {
@@ -719,13 +739,34 @@ final class GmailProviderTests: XCTestCase {
     }
 
     func testServerErrorCarriesStatus() async {
-        server.on("GET", "/users/me/profile", .json(GmailFixtures.serverError, status: 503))
+        server.on("GET", "/users/me/profile", .json(GmailFixtures.serverError, status: 500))
         let provider = TestSupport.makeProvider()
 
         let error = await TestSupport.providerError { _ = try await provider.profile() }
 
         guard case .server(let status, _)? = error else { return XCTFail("expected server, got \(String(describing: error))") }
-        XCTAssertEqual(status, 503)
+        XCTAssertEqual(status, 500)
+    }
+
+    /// A gateway or the service failing for now (502, 503, 504) is retried on the network backoff and shown as "slow to
+    /// respond", never "the server returned an error"; a 500 stays a server error, so a message that keeps failing is
+    /// still set aside.
+    func testGatewayAndUnavailableMapToNetwork() async {
+        for status in [502, 503, 504] {
+            server.on("GET", "/users/me/profile", .json(GmailFixtures.serverError, status: status))
+            let error = await TestSupport.providerError { _ = try await TestSupport.makeProvider().profile() }
+            guard case .network? = error else { return XCTFail("\(status): expected network, got \(String(describing: error))") }
+        }
+    }
+
+    /// A connection never made says the request never left this Mac, so a send can go again; one lost partway cannot.
+    func testATransportFailureSaysWhetherTheRequestLeft() async {
+        server.on("GET", "/users/me/profile", .failure(URLError(.notConnectedToInternet)))
+        let offline = await TestSupport.providerError { _ = try await TestSupport.makeProvider().profile() }
+        XCTAssertEqual(offline?.neverLeftThisMac, true)
+        server.on("GET", "/users/me/profile", .failure(URLError(.networkConnectionLost)))
+        let lost = await TestSupport.providerError { _ = try await TestSupport.makeProvider().profile() }
+        XCTAssertEqual(lost?.neverLeftThisMac, false)
     }
 
     func testTransportFailureMapsToNetwork() async {

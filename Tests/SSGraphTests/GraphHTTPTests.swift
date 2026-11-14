@@ -14,7 +14,7 @@ final class GraphHTTPTests: GraphTestCase {
 
         let profile = try await makeProvider().profile()
 
-        XCTAssertEqual(profile, AccountProfile(email: "robin@example.com", displayName: "Robin Example"))
+        XCTAssertEqual(profile, AccountProfile(email: "robin@example.com", displayName: "Robin Example", userID: "user-robin-1"))
         XCTAssertEqual(requests.map { $0.header("Authorization") }, ["Bearer stale", "Bearer fresh"])
         XCTAssertEqual(tokens.invalidations, 1)
     }
@@ -66,6 +66,13 @@ final class GraphHTTPTests: GraphTestCase {
         await expectProviderError({ try await self.makeProvider().profile() }) { $0.isNetwork }
     }
 
+    /// A gateway failing for now is the service, as 503 and 504 are: the sync line says "slow to respond" rather than
+    /// "the server returned an error", a body is fetched again on the next batch, and an operation is never given up for it.
+    func test502IsNetworkLike503And504() async {
+        route { _ in .json(#"{"error":{"code":"UnknownError","message":""}}"#, status: 502) }
+        await expectProviderError({ try await self.makeProvider().profile() }) { $0.isNetwork }
+    }
+
     func testOther5xxIsServerWithGraphCode() async {
         route { _ in .json(#"{"error":{"code":"InternalServerError","message":"boom"}}"#, status: 500) }
         await expectProviderError({ try await self.makeProvider().profile() }) { $0.serverStatus == 500 && $0.serverMessage == "InternalServerError: boom" }
@@ -84,6 +91,14 @@ final class GraphHTTPTests: GraphTestCase {
     func testTransportFailureIsNetwork() async {
         route { _ in .failure(.notConnectedToInternet) }
         await expectProviderError({ try await self.makeProvider().profile() }) { $0.isNetwork }
+    }
+
+    /// A connection never made says the request never left this Mac, so a send can go again; one lost partway cannot.
+    func testATransportFailureSaysWhetherTheRequestLeft() async {
+        route { _ in .failure(.cannotConnectToHost) }
+        await expectProviderError({ try await self.makeProvider().profile() }) { $0.isNetwork && $0.neverLeftThisMac }
+        route { _ in .failure(.networkConnectionLost) }
+        await expectProviderError({ try await self.makeProvider().profile() }) { $0.isNetwork && !$0.neverLeftThisMac }
     }
 
     func testEveryRequestCarriesBearerAndImmutableIDPreference() async throws {

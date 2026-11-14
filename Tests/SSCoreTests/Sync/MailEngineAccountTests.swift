@@ -118,6 +118,90 @@ final class MailEngineAccountTests: XCTestCase {
         await harness.shutdown()
     }
 
+    /// A harness whose providers read a mailbox id per account: `legacy-work` is the work mailbox, any other account
+    /// (a new sign-in) reads `newMailbox`.
+    private func legacyHarness(newMailbox: String) throws -> (EngineHarness, Account) {
+        let harness = try EngineHarness(seedAccount: false, factory: { account in
+            let provider = ScriptedProvider(accountID: account.id, kind: .microsoft)
+            let mailbox = account.id.rawValue == "legacy-work" ? "work-mailbox" : newMailbox
+            provider.profileResult = .success(AccountProfile(email: "me@example.com", displayName: "Me", userID: mailbox))
+            return provider
+        })
+        let legacy = Account(id: AccountID("legacy-work"), kind: .microsoft, email: "me@example.com", displayName: "Me",
+                             addedAt: Date())
+        try harness.store.upsertAccount(legacy)
+        // Saved before the type was chosen: no tenant.
+        try harness.tokenStore.save(OAuthTokens(accessToken: "work", refreshToken: "work-refresh",
+                                                expiresAt: Date().addingTimeInterval(3600), scope: nil), for: legacy.id)
+        return (harness, legacy)
+    }
+
+    /// A Microsoft account added before the type was chosen has a grant with no tenant, and adding the other identity
+    /// of its address was taken for it: the personal grant replaced the work account's, which then synced the personal
+    /// mailbox, and the personal account was never added. The mailbox's own id decides now.
+    func testAddingTheOtherIdentityOfALegacyMicrosoftAccountAddsIt() async throws {
+        let (harness, legacy) = try legacyHarness(newMailbox: "personal-mailbox")
+
+        let personal = try await harness.engine.addAccount(kind: .microsoft, tenant: "consumers")
+
+        XCTAssertNotEqual(personal.id, legacy.id)
+        XCTAssertEqual(try harness.store.accounts().count, 2)
+        XCTAssertEqual(try harness.tokenStore.tokens(for: legacy.id)?.accessToken, "work", "the work account keeps its sign-in")
+        XCTAssertEqual(try harness.tokenStore.tokens(for: personal.id)?.tenant, "consumers")
+        await harness.shutdown()
+    }
+
+    /// Signing in again to the same legacy mailbox is still its reconnect, and its grant learns its type.
+    func testAddingALegacyMicrosoftAccountAgainRefreshesIt() async throws {
+        let (harness, legacy) = try legacyHarness(newMailbox: "work-mailbox")
+
+        let again = try await harness.engine.addAccount(kind: .microsoft, tenant: "organizations")
+
+        XCTAssertEqual(again.id, legacy.id)
+        XCTAssertEqual(try harness.store.accounts().count, 1)
+        XCTAssertEqual(try harness.tokenStore.tokens(for: legacy.id)?.tenant, "organizations")
+        await harness.shutdown()
+    }
+
+    /// A keychain that will not say which identity an account signed in as fails the add rather than guessing.
+    func testAnUnreadableGrantFailsTheAddRatherThanMerging() async throws {
+        let (harness, legacy) = try legacyHarness(newMailbox: "personal-mailbox")
+        harness.tokenStore.refuseReads(of: legacy.id)
+
+        do {
+            _ = try await harness.engine.addAccount(kind: .microsoft, tenant: "consumers")
+            XCTFail("expected the keychain's refusal")
+        } catch let error as AuthError {
+            XCTAssertTrue(error.isKeychainDenial)
+        }
+        XCTAssertEqual(try harness.store.accounts(), [legacy])
+        XCTAssertEqual(harness.tokenProvider.replacements, [], "nothing was saved over the account")
+        XCTAssertEqual(harness.tokenStore.count, 1, "the sign-in's provisional tokens are gone")
+        await harness.shutdown()
+    }
+
+    /// Removing an account goes through the token provider, so a refresh still in flight cannot write its grant back to
+    /// the keychain, and a reconnect finishing after the removal saves nothing.
+    func testRemovingAnAccountRemovesItsTokensThroughTheTokenProvider() async throws {
+        let provider = ScriptedProvider(accountID: Fixtures.accountID)
+        let harness = try EngineHarness(provider: provider)
+        let account = try XCTUnwrap(try harness.store.accounts().first)
+        try harness.tokenStore.save(OAuthTokens(accessToken: "a", refreshToken: "r", expiresAt: Date(), scope: nil), for: account.id)
+
+        try await harness.engine.removeAccount(account.id)
+        XCTAssertEqual(harness.tokenProvider.removals, [account.id])
+        XCTAssertNil(try harness.tokenStore.tokens(for: account.id))
+
+        do {
+            _ = try await harness.engine.reconnect(account)
+            XCTFail("a removed account cannot be reconnected")
+        } catch StoreError.notFound {
+            // expected
+        }
+        XCTAssertNil(try harness.tokenStore.tokens(for: account.id), "no grant written back for the removed account")
+        await harness.shutdown()
+    }
+
     func testAddingAnExistingAccountRefreshesItsTokensInstead() async throws {
         let provider = ScriptedProvider(accountID: Fixtures.accountID)
         provider.bootstrapRuns = [["": .success(Fixtures.page(1...1, next: nil, cursor: "c0"))]]

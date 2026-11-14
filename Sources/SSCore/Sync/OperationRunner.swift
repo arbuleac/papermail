@@ -21,6 +21,9 @@ struct OperationRunner: Sendable {
         var applied = 0
         /// The provider rejected the token; the syncer must stop and wait for the user.
         var needsReauth = false
+        /// The keychain refused the token (with `needsReauth`): the syncer parks with the keychain's message, before
+        /// anything else asks the keychain again.
+        var keychainDenial: AuthError?
         /// When the earliest deferred operation becomes due, so the loop can wake early for it.
         var nextAttemptAt: Date?
         /// Set when the provider throttled an apply. The operations already wait for it; the live lane pauses the
@@ -37,6 +40,7 @@ struct OperationRunner: Sendable {
         case throttled(Date, retryAfter: TimeInterval?)
         case uncertain(Date?)
         case needsReauth
+        case keychainDenied(AuthError)
     }
 
     let accountID: AccountID
@@ -135,6 +139,10 @@ struct OperationRunner: Sendable {
                 return
             case .needsReauth:
                 outcome.needsReauth = true
+                return
+            case .keychainDenied(let denial):
+                outcome.needsReauth = true
+                outcome.keychainDenial = denial
                 return
             }
         }
@@ -370,29 +378,81 @@ struct OperationRunner: Sendable {
             }
             marked.append(operation)
         }
-        do {
-            var start = 0
-            while start < providerIDs.count {
-                let end = min(start + tuning.maxApplyTargets, providerIDs.count)
-                try await provider.apply(change, to: Array(providerIDs[start..<end]))
-                start = end
+        // Slice by slice, and past a slice the provider refused in part or whole: one message it will not change must not
+        // keep the others from going out, on this attempt or on every retry. Only a failure every request would meet
+        // (a throttle, a refused token, the network, a cancellation) leaves the slices after it unsent.
+        var unapplied: [String] = []
+        var failure: Error?
+        var start = 0
+        while start < providerIDs.count {
+            let end = min(start + tuning.maxApplyTargets, providerIDs.count)
+            let slice = Array(providerIDs[start..<end])
+            start = end
+            let error: Error
+            do {
+                try await provider.apply(change, to: slice)
+                continue
+            } catch let partial as PartialApplyError {
+                unapplied += partial.unapplied
+                error = partial.error
+            } catch let whole {
+                unapplied += slice
+                error = whole
             }
-            for operation in marked {
-                do {
-                    try store.confirmOperation(id: operation.id)
-                } catch {
-                    // The provider has the change; an uncertain row lets the next poll settle the local copy.
-                    var settled = operation
-                    settled.status = .uncertain
-                    settled.lastError = String(describing: error)
-                    try? store.updateOperation(settled)
-                }
+            guard Self.failsEveryRequest(error) else {
+                failure = failure ?? error
+                continue
             }
+            failure = error
+            unapplied += providerIDs[start...]
+            break
+        }
+        guard let failure else {
+            confirm(marked)
             let count = providerIDs.count
             SyncLog.logger.debug("outbox: applied \(String(describing: change), privacy: .public) to \(count, privacy: .public) messages")
             return .applied
-        } catch {
-            return record(error, for: marked)
+        }
+        // What went through is done: an operation keeps only the targets still owed, so a retry sends those alone and a
+        // give-up puts back only those. One with none left is confirmed.
+        let owed = Set(unapplied)
+        var settled: [Operation] = []
+        var narrowed: [Operation] = []
+        for operation in marked {
+            let left = operation.targets.filter { owed.contains($0.providerID) }
+            if left.isEmpty {
+                settled.append(operation)
+            } else {
+                var remaining = operation
+                remaining.targets = left
+                narrowed.append(remaining)
+            }
+        }
+        confirm(settled)
+        guard !narrowed.isEmpty else { return .applied }
+        return record(failure, for: narrowed)
+    }
+
+    private func confirm(_ operations: [Operation]) {
+        for operation in operations {
+            do {
+                try store.confirmOperation(id: operation.id)
+            } catch {
+                // The provider has the change; an uncertain row lets the next poll settle the local copy.
+                var settled = operation
+                settled.status = .uncertain
+                settled.lastError = String(describing: error)
+                try? store.updateOperation(settled)
+            }
+        }
+    }
+
+    /// A failure the next request would meet too, after which the rest of an apply is not sent.
+    static func failsEveryRequest(_ error: Error) -> Bool {
+        if error is CancellationError || error is AuthError { return true }
+        switch error as? ProviderError {
+        case .throttled?, .unauthorized?, .network?, .cancelled?: return true
+        default: return false
         }
     }
 
@@ -401,17 +461,41 @@ struct OperationRunner: Sendable {
         let now = Date()
         var earliest: Date?
         var givenUp = 0
+        let authError = error as? AuthError
         // Each operation keeps its own history: a fresh one that shared the request with an old one must not
         // inherit the old one's backoff, nor be given up after its first try.
         for var operation in operations {
+            if let authError {
+                // The token could not be had (the keychain refused, the token endpoint failed): no request left this
+                // Mac, so the change cannot have landed and the attempt does not count. A refused keychain waits for
+                // the user, as a refused token does; anything else is retried on the backoff, never given up.
+                operation.status = .pending
+                if authError.isKeychainDenial {
+                    operation.attempts = max(0, operation.attempts - 1)
+                    operation.nextAttemptAt = nil
+                } else {
+                    operation.attempts = min(operation.attempts, attemptsAtBackoffCap)
+                    operation.nextAttemptAt = now.addingTimeInterval(backoff(for: operation))
+                }
+                operation.lastError = description
+                if let next = operation.nextAttemptAt { earliest = Self.earlier(earliest, next) }
+                save(recorded: operation)
+                continue
+            }
             switch error as? ProviderError {
             case .throttled(let retryAfter):
+                // Waiting out the provider says nothing about the change: the count stops where the backoff reaches
+                // its cap, so the give-up's attempts are left for failures that reached it.
                 operation.status = .pending
+                operation.attempts = min(operation.attempts, attemptsAtBackoffCap)
                 operation.nextAttemptAt = now.addingTimeInterval(Backoff.throttleDelay(
                     retryAfter: retryAfter, attempt: operation.attempts, base: tuning.backoffBase, cap: tuning.userRetryAfterCap
                 ))
             case .network:
+                // Offline for an hour and a half, a count that kept growing would give the change up at the first
+                // server error once the network was back. The backoff still grows to its cap.
                 operation.status = .pending
+                operation.attempts = min(operation.attempts, attemptsAtBackoffCap)
                 operation.nextAttemptAt = now.addingTimeInterval(backoff(for: operation))
             case .unauthorized:
                 operation.status = .pending
@@ -440,14 +524,13 @@ struct OperationRunner: Sendable {
             }
             operation.lastError = description
             if operation.status != .failed, let next = operation.nextAttemptAt { earliest = Self.earlier(earliest, next) }
-            do {
-                try store.updateOperation(operation)
-            } catch {
-                SyncLog.logger.error("outbox: could not record failure: \(String(describing: error), privacy: .private)")
-            }
+            save(recorded: operation)
         }
         let count = operations.count
         SyncLog.logger.error("outbox: apply failed for \(count, privacy: .public) operations, \(givenUp, privacy: .public) given up: \(description, privacy: .private)")
+        if let authError {
+            return authError.isKeychainDenial ? .keychainDenied(authError) : .deferred(earliest ?? now)
+        }
         switch error as? ProviderError {
         case .throttled(let retryAfter):
             return .throttled(earliest ?? now, retryAfter: retryAfter)
@@ -460,8 +543,27 @@ struct OperationRunner: Sendable {
         }
     }
 
+    private func save(recorded operation: Operation) {
+        do {
+            try store.updateOperation(operation)
+        } catch {
+            SyncLog.logger.error("outbox: could not record failure: \(String(describing: error), privacy: .private)")
+        }
+    }
+
     private func backoff(for operation: Operation) -> TimeInterval {
         Backoff.delay(attempt: operation.attempts, base: tuning.backoffBase, cap: tuning.backoffCap)
+    }
+
+    /// The attempt at which the backoff reaches its cap: where the count stops on failures that did not reach the
+    /// provider (the network, a throttle, a token that could not be had), so they keep the longest wait without using
+    /// up the attempts a give-up counts.
+    private var attemptsAtBackoffCap: Int {
+        var attempt = 1
+        while attempt < 31, Backoff.delay(attempt: attempt, base: tuning.backoffBase, cap: tuning.backoffCap) < tuning.backoffCap {
+            attempt += 1
+        }
+        return attempt
     }
 
     fileprivate static func earlier(_ a: Date?, _ b: Date) -> Date {

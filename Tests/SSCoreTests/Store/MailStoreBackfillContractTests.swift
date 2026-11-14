@@ -48,6 +48,49 @@ extension MailStoreContractTests {
                        Set((stored + marked).map { ids[$0] }))
     }
 
+    // MARK: A folder gone
+
+    private func filed(_ providerID: String, in folder: String?, account: AccountID? = nil) -> MessageMetadata {
+        var filed = message(providerID, in: "c-\(providerID)", account: account)
+        filed.folderID = folder
+        return filed
+    }
+
+    /// What a gone folder held is queued for the live lane to look up: this account's messages in that folder only,
+    /// handed out a few at a time in id order, each keeping its tries until it is settled.
+    func testAGoneFolderQueuesItsStoredMessagesForLookup() throws {
+        try store.upsertMessages([
+            filed("g2", in: "F-GONE"), filed("g1", in: "F-GONE"), filed("g3", in: "F-OLD"), filed("kept", in: "F-INBOX"),
+            filed("none", in: nil), filed("b1", in: "F-GONE", account: accountB),
+        ])
+
+        XCTAssertEqual(try store.queueLookups(accountID: accountA, inFolders: ["F-GONE", "F-OLD"]), 3)
+        XCTAssertEqual(try store.queuedLookups(accountID: accountA, limit: 2), ["g1": 0, "g2": 0])
+        XCTAssertEqual(try store.queuedLookups(accountID: accountB, limit: 10), [:], "another account's mail is not queued")
+
+        try store.settleQueuedLookups(accountID: accountA, settled: ["g1"], retried: ["g2"])
+        XCTAssertEqual(try store.queuedLookups(accountID: accountA, limit: 10), ["g2": 1, "g3": 0])
+        XCTAssertEqual(try store.queueLookups(accountID: accountA, inFolders: ["F-OLD"]), 0, "one already queued keeps its tries")
+        XCTAssertEqual(try store.queuedLookups(accountID: accountA, limit: 10), ["g2": 1, "g3": 0])
+
+        try store.wipeMailData(for: accountA)
+        XCTAssertEqual(try store.queuedLookups(accountID: accountA, limit: 10), [:], "a wipe drops the lookups of the mail it drops")
+    }
+
+    /// A reconcile keeps the mail its enumeration leaves out only where the store already shows it there, so it reads
+    /// the stored roles of a page of ids: this account's stored messages only.
+    func testStoredRolesOfSomeMessages() throws {
+        try store.upsertMessages([
+            message("t1", in: "c1", roles: [.trash]),
+            message("i1", in: "c2", roles: [.inbox]),
+            message("b1", in: "c3", account: accountB, from: bea, roles: [.spam]),
+        ])
+
+        XCTAssertEqual(try store.storedRoles(accountID: accountA, providerIDs: ["t1", "i1", "b1", "nowhere", "t1"]),
+                       ["t1": [.trash], "i1": [.inbox]])
+        XCTAssertEqual(try store.storedRoles(accountID: accountA, providerIDs: []), [:])
+    }
+
     // MARK: Writing a backfill page
 
     func testBackfillWriteAddsOnlyMissingUnmarkedMessages() throws {

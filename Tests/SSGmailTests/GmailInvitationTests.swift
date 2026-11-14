@@ -103,7 +103,7 @@ final class GmailInvitationTests: XCTestCase {
     func testACalendarThatCannotBeFetchedLeavesTheBodyWithoutACard() async throws {
         server.on("GET", "/users/me/messages/inv1", .json(googleInvitation(calendarFileOnly: true)))
         server.on("GET", "/users/me/messages/inv1/attachments/ATT_INVITE_ICS",
-                  .json(#"{"error": {"code": 503, "message": "backend"}}"#, status: 503))
+                  .json(#"{"error": {"code": 500, "message": "backend"}}"#, status: 500))
         let body = try await TestSupport.makeProvider().body(for: "inv1")
         XCTAssertNil(body.calendar)
         XCTAssertEqual(body.html, "<p>Hello</p>", "the message keeps its body")

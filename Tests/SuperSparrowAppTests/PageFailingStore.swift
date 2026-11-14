@@ -59,6 +59,19 @@ final class PageFailingStore: MailStoring, @unchecked Sendable {
     func backfillSkippableIDs(accountID: AccountID, providerIDs: [String], includeStored: Bool) throws -> Set<String> {
         try base.backfillSkippableIDs(accountID: accountID, providerIDs: providerIDs, includeStored: includeStored)
     }
+
+    func storedRoles(accountID: AccountID, providerIDs: [String]) throws -> [String: Set<MailboxRole>] {
+        try base.storedRoles(accountID: accountID, providerIDs: providerIDs)
+    }
+    func queueLookups(accountID: AccountID, inFolders folderIDs: [String]) throws -> Int {
+        try base.queueLookups(accountID: accountID, inFolders: folderIDs)
+    }
+    func queuedLookups(accountID: AccountID, limit: Int) throws -> [String: Int] {
+        try base.queuedLookups(accountID: accountID, limit: limit)
+    }
+    func settleQueuedLookups(accountID: AccountID, settled: [String], retried: [String]) throws {
+        try base.settleQueuedLookups(accountID: accountID, settled: settled, retried: retried)
+    }
     func writeBackfillMessages(_ messages: [MessageMetadata], refreshExisting: Bool) throws -> Int {
         try base.writeBackfillMessages(messages, refreshExisting: refreshExisting)
     }

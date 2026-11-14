@@ -15,6 +15,9 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
     /// with the source and rendered HTML cleared, and `body(for:)` answers nil for them.
     private var evicted: Set<MessageID> = []
     private var operations: [String: Operation] = [:]
+    /// Each operation's place in the order rows were first written (`noteQueuedLocked`).
+    private var queueOrder: [String: Int] = [:]
+    private var queued = 0
     /// `operation_targets.prior_*`: per operation and target, the flags its change replaced, which a give-up
     /// puts back. Recorded at enqueue and refreshed by every upsert that replays the operation.
     private var priors: [String: [MessageID: Prior]] = [:]
@@ -25,6 +28,8 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
     private var liveMarks: [MessageID: Bool] = [:]
     /// `backfill_seen`: what a reconciling backfill's listing has returned.
     private var backfillSeen: Set<MessageID> = []
+    /// `queued_lookups`: stored messages of a gone folder still to look up, with their failed tries.
+    private var lookupQueue: [MessageID: Int] = [:]
     private var contactCounts: [AccountID: [String: (name: String?, count: Int, lastSeen: Date)]] = [:]
     /// `snoozes`: kept when a wipe drops the conversation, as the SQLite store keeps them (the rules are written out on
     /// `SnoozeTable`). Dates are held to the millisecond, as that store keeps them.
@@ -126,6 +131,7 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         bootstraps[accountID] = nil
         contactCounts[accountID] = nil
         clearBackfillMarksLocked(accountID)
+        lookupQueue = lookupQueue.filter { $0.key.accountID != accountID }
         dropOrphanedMarksLocked()
         // The summary rows go with the wipe, and the return mark lives on them; the snoozes stay.
         returnedMarks = returnedMarks.filter { $0.key.accountID != accountID }
@@ -354,6 +360,15 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         })
     }
 
+    public func storedRoles(accountID: AccountID, providerIDs: [String]) throws -> [String: Set<MailboxRole>] {
+        lock.lock(); defer { lock.unlock() }
+        var roles: [String: Set<MailboxRole>] = [:]
+        for providerID in providerIDs {
+            if let stored = messagesByID[MessageID(accountID: accountID, providerID: providerID)] { roles[providerID] = stored.roles }
+        }
+        return roles
+    }
+
     private func isBackfillSkippableLocked(_ id: MessageID, includeStored: Bool) -> Bool {
         liveMarks[id] != nil || (includeStored && messagesByID[id] != nil)
     }
@@ -395,6 +410,36 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         clearBackfillMarksLocked(accountID)
         if !swept.isEmpty { notifyAll() }
         return swept.count
+    }
+
+    // MARK: Queued lookups
+
+    @discardableResult
+    public func queueLookups(accountID: AccountID, inFolders folderIDs: [String]) throws -> Int {
+        lock.lock(); defer { lock.unlock() }
+        let folders = Set(folderIDs)
+        var queued = 0
+        for message in messagesByID.values where message.id.accountID == accountID {
+            guard let folder = message.folderID, folders.contains(folder), lookupQueue[message.id] == nil else { continue }
+            lookupQueue[message.id] = 0
+            queued += 1
+        }
+        return queued
+    }
+
+    public func queuedLookups(accountID: AccountID, limit: Int) throws -> [String: Int] {
+        lock.lock(); defer { lock.unlock() }
+        let queued = lookupQueue.filter { $0.key.accountID == accountID }.sorted { $0.key.providerID < $1.key.providerID }
+        return Dictionary(uniqueKeysWithValues: queued.prefix(max(0, limit)).map { ($0.key.providerID, $0.value) })
+    }
+
+    public func settleQueuedLookups(accountID: AccountID, settled: [String], retried: [String]) throws {
+        lock.lock(); defer { lock.unlock() }
+        for providerID in settled { lookupQueue[MessageID(accountID: accountID, providerID: providerID)] = nil }
+        for providerID in retried {
+            let id = MessageID(accountID: accountID, providerID: providerID)
+            if let tries = lookupQueue[id] { lookupQueue[id] = tries + 1 }
+        }
     }
 
     private func clearBackfillMarksLocked(_ accountID: AccountID) {
@@ -721,7 +766,15 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         notifyAll()
     }
 
+    /// The order rows were first written in, as SQLite's `rowid` keeps it: what breaks a tie in creation time.
+    private func noteQueuedLocked(_ operation: Operation) {
+        guard queueOrder[operation.id] == nil else { return }
+        queued += 1
+        queueOrder[operation.id] = queued
+    }
+
     private func enqueueLocked(_ operation: Operation) {
+        noteQueuedLocked(operation)
         for target in operation.targets {
             if let current = messagesByID[target] {
                 priors[operation.id, default: [:]][target] = Prior(current)
@@ -738,7 +791,7 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         return operations.values
             .filter { $0.accountID == accountID && ($0.status == .pending || $0.status == .uncertain) }
-            .sorted { $0.createdAt < $1.createdAt }
+            .sorted { isOlderLocked($0, than: $1) }
             .prefix(limit)
             .map { $0 }
     }
@@ -746,7 +799,14 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
     public func updateOperation(_ operation: Operation) throws {
         lock.lock(); defer { lock.unlock() }
         let previous = operations[operation.id]?.status
+        let targetsBefore = Set(operations[operation.id]?.targets ?? [])
+        noteQueuedLocked(operation)
         operations[operation.id] = operation
+        // A target dropped from the operation (the provider took it) loses its prior with its row, as in SQLite: a
+        // give-up never puts back what the provider has.
+        if !targetsBefore.subtracting(operation.targets).isEmpty {
+            priors[operation.id] = priors[operation.id]?.filter { operation.targets.contains($0.key) }
+        }
         if operation.status == .failed, let previous, previous.isLive { giveBackLocked(operation) }
         operationWrittenLocked(operation, previousStatus: previous)
         applySnoozeRulesLocked(touched: conversationsLocked(targetedBy: operation))
@@ -806,7 +866,15 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
     private func liveOperationsLocked(on id: MessageID) -> [Operation] {
         operations.values
             .filter { $0.status.isLive && $0.targets.contains(id) }
-            .sorted { Self.isOlder($0, than: $1) }
+            .sorted { isOlderLocked($0, than: $1) }
+    }
+
+    /// Queue order as the SQLite store reads it: epoch milliseconds, then the order the rows were first written in.
+    private func isOlderLocked(_ lhs: Operation, than rhs: Operation) -> Bool {
+        let left = MailStoreCodec.milliseconds(lhs.createdAt)
+        let right = MailStoreCodec.milliseconds(rhs.createdAt)
+        guard left == right else { return left < right }
+        return (queueOrder[lhs.id] ?? 0) < (queueOrder[rhs.id] ?? 0)
     }
 
     private func giveBackLocked(_ operation: Operation) {
@@ -817,7 +885,7 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
             prior.apply(to: &state)
             let isAnswer = operation.change.kind == .answerInvitation
             if case .answerInvitation(let answer) = operation.change { state.invitationReply = answer.previous }
-            for newer in liveOperationsLocked(on: target) where Self.isOlder(operation, than: newer) {
+            for newer in liveOperationsLocked(on: target) where isOlderLocked(operation, than: newer) {
                 priors[newer.id, default: [:]][target] = Prior(state)
                 if isAnswer, case .answerInvitation(var answer) = newer.change, answer.previous != state.invitationReply {
                     answer.previous = state.invitationReply

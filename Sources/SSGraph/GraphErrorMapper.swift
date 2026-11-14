@@ -37,7 +37,10 @@ enum GraphErrorMapper {
             // Graph also throttles with a 503 when the service itself is under load; the Retry-After marks it as
             // a throttle to wait out rather than a failure to retry on the network backoff.
             return throttled(status: status, retryAfter: retryAfter, code: code)
-        case 503, 504:
+        case 502, 503, 504:
+            // A gateway or the service failing for now: retried on the network backoff, never counted against an
+            // operation, shown as "slow to respond". Through Exchange's November 2026 outage 502s came and went with
+            // the 503s and 504s; read as a server error, each one showed "Couldn't sync" and deferred a body 10 minutes.
             return .network("HTTP \(status)\(code.map { " \($0)" } ?? "")")
         default:
             return .server(status: status, message: describe(code: code, message: message))

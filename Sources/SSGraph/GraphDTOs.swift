@@ -186,6 +186,7 @@ struct GraphAttachment: Decodable, Sendable {
 }
 
 struct GraphUser: Decodable, Sendable {
+    var id: String?
     var displayName: String?
     var mail: String?
     var userPrincipalName: String?

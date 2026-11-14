@@ -51,6 +51,30 @@ final class ScriptedProvider: MailProvider, @unchecked Sendable {
     var metadataByID: [String: MessageMetadata] = [:]
     /// Consumed in order, one per `metadata(for:)` call; once empty every call succeeds.
     var metadataResults: [Result<Void, Error>] = []
+    /// Ids the provider refuses on their own (Graph's 403 for one message): left out of `metadata(for:)` like unknown
+    /// ones, and reported as refused by `lookUpMetadata(for:)`.
+    var refusedIDs: Set<String> {
+        get { locked { scriptedRefused } }
+        set { locked { scriptedRefused = newValue } }
+    }
+    private var scriptedRefused: Set<String> = []
+    /// Ids whose metadata the service fails for now (a Gmail 500 for one message): left out of `metadata(for:)`, and
+    /// reported as failing by `lookUpMetadata(for:)`. A test clears it to let them through.
+    var failingIDs: Set<String> {
+        get { locked { scriptedFailing } }
+        set { locked { scriptedFailing = newValue } }
+    }
+    private var scriptedFailing: Set<String> = []
+    /// The pages `mailOutsideEnumeration` lists (Gmail's Trash and Spam), chained by their index as the page token; nil
+    /// for an enumeration that leaves nothing the store holds out.
+    var outsideEnumerationPages: [[String]]? {
+        get { locked { scriptedOutsidePages } }
+        set { locked { scriptedOutsidePages = newValue } }
+    }
+    private var scriptedOutsidePages: [[String]]?
+    /// The page tokens `mailOutsideEnumeration` was asked for.
+    var outsideEnumerationCalls: [String?] { locked { recordedOutsideCalls } }
+    private var recordedOutsideCalls: [String?] = []
     /// Called (outside the lock) at the start of every backfill listing, with its page token.
     var onBackfillListing: (@Sendable (String) -> Void)?
     /// How long each `changes` call takes.
@@ -214,6 +238,7 @@ final class ScriptedProvider: MailProvider, @unchecked Sendable {
         try result.get()
         return locked {
             providerIDs.compactMap { id in
+                if scriptedRefused.contains(id) || scriptedFailing.contains(id) { return nil }
                 if let known = metadataByID[id] { return known }
                 for run in bootstrapRuns {
                     for case .success(let page) in run.values {
@@ -224,6 +249,24 @@ final class ScriptedProvider: MailProvider, @unchecked Sendable {
                 return nil
             }
         }
+    }
+
+    var hasMailOutsideEnumeration: Bool { outsideEnumerationPages != nil }
+
+    func mailOutsideEnumeration(page: String?, limit: Int) async throws -> BackfillListing {
+        let pages: [[String]] = locked {
+            recordedOutsideCalls.append(page)
+            return scriptedOutsidePages ?? []
+        }
+        let index = page.flatMap { Int($0) } ?? 0
+        guard pages.indices.contains(index) else { return BackfillListing(ids: [], messages: nil, nextPage: nil) }
+        return BackfillListing(ids: pages[index], messages: nil, nextPage: index + 1 < pages.count ? String(index + 1) : nil)
+    }
+
+    func lookUpMetadata(for providerIDs: [String]) async throws -> MetadataLookup {
+        let (refused, failing) = locked { (providerIDs.filter(scriptedRefused.contains), providerIDs.filter(scriptedFailing.contains)) }
+        let messages = try await metadata(for: providerIDs)
+        return MetadataLookup(messages: messages, refused: refused, failing: failing)
     }
 
     func body(for providerID: String) async throws -> MessageBody {
