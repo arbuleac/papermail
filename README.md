@@ -74,7 +74,7 @@ Press `l` (or **Message → Later…**, or **Later** in a conversation's right-c
 
 ## Mark as spam
 
-Press `!` (or **Message → Mark as Spam**, or **Mark as Spam** in a conversation's right-click menu) to send the selected conversations to your provider's spam folder: Gmail's Spam, or Junk Email on Microsoft 365 and Outlook.com. They leave the list at once, and **Undo** puts them back where they were. Your own sent messages and drafts in the conversation are never marked as spam and stay in Sent and Drafts. SuperSparrow has no Spam folder of its own: to rescue a message later, move it out of Spam on the web or your phone, and it comes back here. Mark as spam does nothing in the Trash or Drafts.
+Press `!` (or **Message → Mark as Spam**, or **Mark as Spam** in a conversation's right-click menu) to send the selected conversations to your provider's spam folder: Gmail's Spam, or Junk Email on Microsoft 365 and Outlook.com. They leave the list at once, and **Undo** puts them back where they were. Your own sent messages and drafts in the conversation are never marked as spam and stay in Sent and Drafts (unless the conversation had been moved back to the Inbox whole, as Move to Inbox or a return from Later does on Gmail: then your reply goes with the rest, and Undo brings it back). SuperSparrow has no Spam folder of its own: to rescue a message later, move it out of Spam on the web or your phone, and it comes back here. Mark as spam does nothing in the Trash or Drafts.
 
 ## Unsubscribe
 

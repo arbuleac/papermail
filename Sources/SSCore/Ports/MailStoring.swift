@@ -152,8 +152,8 @@ public protocol MailStoring: AnyObject, Sendable {
     /// the conversation (or moves its time), nil ends its snooze, and a `returnedAt` puts back a return mark (an undo)
     /// where the conversation is now in the Inbox with older mail. A date is kept only for a conversation whose messages,
     /// once the operations are applied, stand for mail put away (`Snooze.canHold`: stored, out of the Inbox, out of the
-    /// Trash, and its mail from others not all in the Trash); the window asks the same of its selection first, so it
-    /// never offers a snooze this would drop. `now` is its `createdAt`.
+    /// Trash, and its mail from others not all in the Trash or Spam); the window asks the same of its selection first, so
+    /// it never offers a snooze this would drop. `now` is its `createdAt`.
     func setSnoozes(_ changes: [Snooze.Change], enqueueing operations: [Operation], at now: Date) throws
     /// Brings back, in one transaction, up to `limit` conversations whose snooze is due by `now`, soonest first: each
     /// snooze is deleted, the operations `operations` makes from the conversation's messages (oldest first) are applied

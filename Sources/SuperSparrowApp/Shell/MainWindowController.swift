@@ -1479,9 +1479,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     }
 
     /// The conversations of `ids` a snooze would hold, judged as snoozing leaves them (archived) by the store's own rule
-    /// (`Snooze.canHold`). One whose mail from others is all in the Trash (on Microsoft # leaves the user's own copies in
-    /// Sent Items and Drafts, so it still lists there, in All Mail and in a search) has nothing to bring back: the store
-    /// would drop its snooze, and a toast saying it was snoozed would promise a return that never comes.
+    /// (`Snooze.canHold`). One whose mail from others is all in the Trash or Spam (# on Microsoft and ! on both leave the
+    /// user's own copies in Sent Items and Drafts, so it still lists there, in All Mail and in a search) has nothing to
+    /// bring back: the store would drop its snooze, and a toast saying it was snoozed would promise a return that never
+    /// comes.
     private func snoozable(_ ids: [ConversationID]) -> [(id: ConversationID, messages: [MessageMetadata])] {
         ids.compactMap { id in
             guard let messages = try? environment.store.messages(in: id),

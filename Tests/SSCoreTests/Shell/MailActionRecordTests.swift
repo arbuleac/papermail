@@ -110,6 +110,20 @@ final class MailActionRecordTests: XCTestCase {
         XCTAssertEqual(undo(record, on: marked), thread)
     }
 
+    /// The user's own message the Inbox holds too (on Gmail, after ⇧I or a return from Later, which put INBOX on every
+    /// message of the conversation) leaves the Inbox with the rest, into Spam: left out, it would keep the row in the
+    /// Inbox. The undo brings it back to the Inbox, still in Sent.
+    func testMarkSpamTakesTheUsersOwnMessageTheInboxHolds() throws {
+        let thread = [message(1, roles: [.inbox]), message(2, roles: [.sent, .inbox]), message(3, roles: [.sent])]
+        let targets = MailActionRecord.targets(for: .markSpam, in: thread, kind: .gmail)
+        XCTAssertEqual(ids(targets), ["m1", "m2"])
+        let record = try XCTUnwrap(MailActionRecord.make(.markSpam, on: targets, conversation: thread[0].conversationID))
+        XCTAssertEqual(record.inverse, [.init(change: .markNotSpam, targets: [thread[0].id, thread[1].id])])
+        let marked = thread.map { record.targets.contains($0.id) ? applying(.markSpam, to: $0) : $0 }
+        XCTAssertEqual(marked.map(\.roles), [[.spam], [.sent, .spam], [.sent]])
+        XCTAssertEqual(undo(record, on: marked), thread)
+    }
+
     func testMarkSpamOfOnlyTheUsersOwnMailChangesNothing() {
         let thread = [message(1, roles: [.sent]), message(2, roles: [.drafts])]
         let targets = MailActionRecord.targets(for: .markSpam, in: thread, kind: .microsoft)

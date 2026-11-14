@@ -6,8 +6,9 @@ import GRDB
 /// - a snooze is written only for a conversation that is stored and holds mail put away (`holdsSnooze`: out of the
 ///   Inbox and out of the Trash, counting the user's own copies out), after the operations written with it;
 /// - it ends on its own when a summary refresh finds its conversation no longer holding mail put away (back in the
-///   Inbox, in the Trash or Spam, or gone: every message deleted or in Spam), and when mail that is not the user's own
-///   arrives in it after it was snoozed: the provider puts such mail in the Inbox anyway;
+///   Inbox, in the Trash or Spam, or gone: every message deleted or in Spam; spam received after it was snoozed counts
+///   for nothing), and when mail that is not the user's own arrives in it after it was snoozed: the provider puts such
+///   mail in the Inbox anyway;
 /// - returning deletes it, applies and queues the operations, and marks the conversation `returned_at`, which a
 ///   refresh keeps only while the conversation is in the Inbox and no newer mail has come; an undo of what took it out
 ///   of the Inbox puts the mark back with its inverse operations (`Snooze.Change.returnedAt`).
@@ -17,16 +18,26 @@ enum SnoozeTable {
     /// Items and Drafts (`MailActionRecord.isOwnFolderCopy`), as Move to Trash leaves them on Microsoft and Mark as Spam
     /// on both providers. Its return would otherwise bring the deleted or spam mail back, or the user's own copy in its
     /// place. `Snooze.canHold` is the same rule in Swift, which the in-memory store and the window use.
-    private static let holdsSnooze: String = {
+    ///
+    /// `snoozedAt` is the SQL for the snooze's `created_at`: spam received after it counts for nothing, as it never ends
+    /// a snooze on arrival (`endForArrival`), so a reply filed in Spam keeps the follow-up the user set on their own
+    /// message. Without one (`nil`, while a snooze is being set) every spam message counts, never looser than the rule
+    /// the snooze is then kept by. Spam has no say in the second clause, which looks only at mail neither trashed nor spam.
+    private static func holdsSnooze(snoozedAt: String?) -> String {
         let own = "((m.roles & \(MailStoreCodec.inboxBit)) = 0 AND (m.roles & \(MailStoreCodec.sentBit | MailStoreCodec.draftsBit)) != 0)"
         let ofC = "m.account_id = c.account_id AND m.conversation_provider_id = c.provider_id"
         let away = "(m.roles & \(MailStoreCodec.trashBit | MailStoreCodec.spamBit))"
+        let counted = snoozedAt.map { " AND ((m.roles & \(MailStoreCodec.spamBit)) = 0 OR m.date_ms <= \($0))" } ?? ""
         return """
             c.in_inbox = 0 AND c.in_trash = 0 AND NOT (
-                EXISTS (SELECT 1 FROM messages m WHERE \(ofC) AND \(away) != 0 AND NOT \(own))
+                EXISTS (SELECT 1 FROM messages m WHERE \(ofC) AND \(away) != 0 AND NOT \(own)\(counted))
                 AND NOT EXISTS (SELECT 1 FROM messages m WHERE \(ofC) AND \(away) = 0 AND NOT \(own)))
             """
-    }()
+    }
+
+    /// Built once: `set` and every summary refresh's `endForTouched` ask it.
+    private static let holdsNewSnooze = holdsSnooze(snoozedAt: nil)
+    private static let holdsItsSnooze = holdsSnooze(snoozedAt: "snoozes.created_at")
 
     // MARK: Reads
 
@@ -58,7 +69,7 @@ enum SnoozeTable {
         let write = try db.cachedStatement(sql: """
             INSERT INTO snoozes (account_id, provider_id, due_at, created_at)
             SELECT ?, ?, ?, ? WHERE EXISTS (
-                SELECT 1 FROM conversations c WHERE c.account_id = ? AND c.provider_id = ? AND \(holdsSnooze))
+                SELECT 1 FROM conversations c WHERE c.account_id = ? AND c.provider_id = ? AND \(holdsNewSnooze))
             ON CONFLICT(account_id, provider_id) DO UPDATE SET due_at = excluded.due_at, created_at = excluded.created_at
             """)
         let end = try db.cachedStatement(sql: "DELETE FROM snoozes WHERE account_id = ? AND provider_id = ?")
@@ -97,8 +108,9 @@ enum SnoozeTable {
     }
 
     /// Part of every summary refresh, before the touched set is cleared: a touched conversation that is back in the
-    /// Inbox (⇧I, a drop, another device, new mail), in the Trash or Spam (all but the user's own copies) or gone is no
-    /// longer snoozed. Driven by the snoozes, a handful of rows, so a refresh with nothing snoozed costs nothing.
+    /// Inbox (⇧I, a drop, another device, new mail), in the Trash or Spam (all but the user's own copies, spam received
+    /// since it was snoozed aside) or gone is no longer snoozed. Driven by the snoozes, a handful of rows, so a refresh
+    /// with nothing snoozed costs nothing.
     static func endForTouched(in db: Database) throws {
         try db.cachedStatement(sql: """
             DELETE FROM snoozes
@@ -106,7 +118,7 @@ enum SnoozeTable {
                           WHERE t.account_id = snoozes.account_id AND t.provider_id = snoozes.provider_id)
               AND NOT EXISTS (SELECT 1 FROM conversations c
                               WHERE c.account_id = snoozes.account_id AND c.provider_id = snoozes.provider_id
-                                AND \(holdsSnooze))
+                                AND \(holdsItsSnooze))
             """).execute()
     }
 

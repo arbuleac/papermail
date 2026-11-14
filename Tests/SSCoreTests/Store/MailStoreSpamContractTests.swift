@@ -124,6 +124,27 @@ extension MailStoreContractTests {
         XCTAssertEqual(try store.snoozes().map(\.conversationID), [c1])
     }
 
+    /// A follow-up snooze on the user's own message survives a reply the provider files in Spam: spam that arrives after
+    /// the snooze counts for nothing, as it never ends one on arrival, so the reminder still comes back. Spam already in
+    /// the conversation when it is snoozed counts, so L there is refused as for Trash.
+    func testSpamArrivingAfterAFollowUpSnoozeKeepsIt() throws {
+        try store.upsertMessages([message("sent", in: "c1", date: date(10), roles: [.sent])])
+        let c1 = ConversationID(accountID: accountA, providerID: "c1")
+        try store.setSnoozes([Snooze.Change(conversationID: c1, until: date(9_000))], enqueueing: [], at: date(100))
+        XCTAssertEqual(try store.snoozes().map(\.conversationID), [c1])
+
+        try store.upsertMessages([message("bot", in: "c1", date: date(200), roles: [.spam])])
+        XCTAssertEqual(try store.snoozes().map(\.conversationID), [c1], "the spam reply leaves the follow-up in Later")
+        XCTAssertEqual(try conversationIDs(ConversationQuery(view: .later)), ["c1"])
+        let snooze = try XCTUnwrap(try store.snoozes().first)
+        XCTAssertTrue(Snooze.canHold(try store.messages(in: c1), snoozedAt: snooze.createdAt))
+        XCTAssertFalse(Snooze.canHold(try store.messages(in: c1)), "a new snooze counts every spam message")
+
+        // A later touch of the conversation (here a star on the user's own message) keeps it too.
+        try store.enqueue(SSCore.Operation(accountID: accountA, change: .setStarred(true), targets: [spamID("sent")], createdAt: date(300)))
+        XCTAssertEqual(try store.snoozes().map(\.conversationID), [c1])
+    }
+
     /// Spam alone in a conversation whose other mail from others is put away does not end its snooze: that mail still
     /// comes back.
     func testSomeSpamBesideMailPutAwayKeepsTheSnooze() throws {

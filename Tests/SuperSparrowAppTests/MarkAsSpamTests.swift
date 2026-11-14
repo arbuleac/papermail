@@ -1,12 +1,14 @@
 import AppKit
 import SSCore
 import SSDesign
+import WebKit
 import XCTest
 @testable import SuperSparrowApp
 
 /// Mark as spam (roadmap Q2.3, spec “Mark as spam”): ! routed as # is, Message › Mark as Spam and the context menu's
 /// item, the cheat sheet's row, the rows leaving the list with a toast and an undo that brings them back where they were
-/// (to Later, snoozed as before, and under Today with their Back tag), and nothing done in the Trash and Drafts.
+/// (to Later, snoozed as before, and under Today with their Back tag), ! with focus in the reader, and nothing done in
+/// the Trash and Drafts or on their `in:` results.
 @MainActor
 final class MarkAsSpamTests: XCTestCase {
     private func messages(_ id: ConversationID, _ harness: MainWindowHarness) throws -> [MessageMetadata] {
@@ -164,6 +166,71 @@ final class MarkAsSpamTests: XCTestCase {
         XCTAssertTrue(harness.controller.perform(.goTo(.drafts)))
         harness.spin { harness.list.query.view == .drafts }
         XCTAssertFalse(harness.controller.validateMenuItem(menuItem))
+    }
+
+    private func typeSearch(_ text: String, _ harness: MainWindowHarness) {
+        harness.controller.listPane.header.search.query = text
+        harness.controller.listPane.header.search.onQueryChange?(text)
+        harness.spin { harness.list.query.searchText == text && !harness.list.conversations.isEmpty }
+    }
+
+    /// ! follows the view a search looks through, as L does (§5.6): `in:trash` and `in:drafts` results, typed from the
+    /// Inbox, are refused as in the Trash and Drafts. The draft's conversation also holds mail from others in the Inbox,
+    /// which ! would otherwise send to Spam.
+    func testInTrashAndInDraftsResultsAreRefused() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let store = harness.environment.store
+        let trashed = harness.list.conversations[0].id
+        try harness.environment.engine.perform(.trash, on: trashed)
+        let drafted = try XCTUnwrap(harness.list.conversations.first { $0.id != trashed && $0.id.accountID == ListTestSupport.accountA.id }).id
+        let account = ListTestSupport.accountA
+        try store.upsertMessages([MessageMetadata(
+            id: MessageID(accountID: account.id, providerID: "spam-test-draft"), conversationID: drafted, subject: "Re: Project update",
+            snippet: "Not sent yet", from: EmailAddress(address: account.email), to: [ListTestSupport.senders[0]], date: Date(),
+            roles: [.drafts], isRead: true, isStarred: false, hasAttachments: false)])
+
+        for (text, view, id) in [("in:trash", MailboxView.trash, trashed), ("in:drafts", .drafts, drafted)] {
+            typeSearch(text, harness)
+            XCTAssertEqual(harness.list.query.view, view, text)
+            harness.spin { self.listed(id, harness) }
+            select(id, harness)
+            XCTAssertFalse(harness.controller.validateMenuItem(menuItem), "Message › Mark as Spam is disabled on \(text) results")
+            let menu = harness.controller.selectionContextMenu()
+            menu.update()
+            XCTAssertEqual(menu.items.first { $0.title == "Mark as Spam" }?.isEnabled, false, "and so is the context menu's item")
+            let before = try store.messages(in: id)
+            let queuedBefore = try queued(id.accountID, harness)
+            XCTAssertTrue(harness.controller.perform(.markSpam), "the key is spent, with a beep")
+            XCTAssertEqual(try queued(id.accountID, harness), queuedBefore, "nothing queued from \(text)")
+            XCTAssertEqual(try store.messages(in: id), before)
+            XCTAssertTrue(listed(id, harness))
+        }
+    }
+
+    /// With focus in the reader (its page), ! is routed as it is from the list and marks the open conversation.
+    func testBangActsWithFocusInTheReader() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        harness.selectFirst(1)
+        let id = harness.list.conversations[0].id
+        func webView(in view: NSView) -> NSView? {
+            if view is WKWebView, !view.isHiddenOrHasHiddenAncestor { return view }
+            return view.subviews.lazy.compactMap(webView(in:)).first
+        }
+        let page = try XCTUnwrap(webView(in: harness.reader.view), "the reader shows the conversation in a web view")
+        XCTAssertTrue(harness.controller.window?.makeFirstResponder(page) == true)
+        XCTAssertTrue(harness.controller.isReaderFocused)
+
+        let command = KeyboardRouter.command(characters: "!", keyCode: 18, modifiers: .shift, pendingG: false,
+                                             readerFocused: harness.controller.isReaderFocused).command
+        XCTAssertEqual(command, .markSpam)
+        XCTAssertTrue(harness.controller.perform(try XCTUnwrap(command)))
+        XCTAssertTrue(try messages(id, harness).allSatisfy { $0.roles == [.spam] })
+        XCTAssertEqual(try queued(id.accountID, harness).last, .markSpam)
+        XCTAssertEqual(harness.toastMessage, "Marked as spam")
+        harness.spin { !self.listed(id, harness) }
+        XCTAssertFalse(listed(id, harness))
     }
 
     // MARK: Later
