@@ -501,6 +501,7 @@ public enum ConversationShellAssets {
             "--q-ink", "--q-ink2", "--q-ink3", "--q-accent", "--q-rule", "--q-focus", "--q-sheet", "--q-fill",
             "--q-originalPage", "--q-sans", "--q-serif", "--q-font-reading", "--q-font-readingSans", "--q-font-writing",
             "--q-track-reading", "--q-track-readingSans", "--q-track-writing", "--q-r-xs",
+            "--q-findWash", "--q-findCurrent", "--q-ruleStrong",
         ]
         return QuireCSS.head.components(separatedBy: "\n").compactMap { line -> String? in
             guard let first = line.range(of: "--") else { return nil }
@@ -568,6 +569,16 @@ public enum ConversationShellAssets {
     html.ss-adapt a, html.ss-adapt a * { color: var(--q-accent) !important; }
     :where(a:link) { color: var(--q-accent); }
     html.ss-original { color-scheme: light; }
+    /* Find in conversation (spec §5.19a). The marks carry their own opaque fill and `ink`, so they read on any page a
+       sender designed; `:root body` outranks the dark adaptation's `body *` and a sender's own `mark` rules. No padding:
+       a mark never moves the text around it. */
+    :root body mark.ss-find {
+      background-color: var(--q-findWash) !important; color: var(--q-ink) !important; border-radius: var(--q-r-xs);
+      padding: 0 !important; margin: 0 !important; -webkit-box-decoration-break: clone; box-decoration-break: clone;
+    }
+    :root body mark.ss-find.ss-find-now {
+      background-color: var(--q-findCurrent) !important; box-shadow: 0 0 0 1px var(--q-ruleStrong) !important;
+    }
     """#
 
     public static let js: String = "var SS_BODY_CSS = " + jsStringLiteral(bodyCSS) + ";\n" + script
@@ -924,6 +935,7 @@ public enum ConversationShellAssets {
         } catch (e) { card.observer = null; }
         fitWidth(card);
         measure(card);
+        findFrameLoaded(card, doc);
         setTimeout(card.remeasure, 50);
         setTimeout(card.remeasure, 300);
       }
@@ -936,6 +948,10 @@ public enum ConversationShellAssets {
       function dropFrame(card) {
         releaseFrame(card);
         if (card.iframe) { card.iframe.remove(); card.iframe = null; }
+        // Its marks went with the document; the matches stay counted and are marked again when a frame next loads.
+        card.findDoc = null;
+        var found = matchesOf(card);
+        for (var f = 0; f < found.length; f++) { found[f].marks = []; }
         card.height = 0;
         card.measured = false;
         card.zoom = 1;
@@ -1712,7 +1728,7 @@ public enum ConversationShellAssets {
           observer: null, expanded: false, folded: false, imagesLoaded: loadRemote, liveRemote: 0, quotesShown: false,
           messageShown: false, height: 0,
           measured: false, measureTimer: null, collapseTimer: null, imageLoad: null, imageFailures: 0, zoom: 1,
-          wide: false, typeset: false, animateFit: false, sizeObserver: null
+          wide: false, typeset: false, animateFit: false, sizeObserver: null, findDoc: null, findParsed: null
         };
         card.remeasure = function () { scheduleMeasure(card); };
 
@@ -2138,6 +2154,414 @@ public enum ConversationShellAssets {
         }
       }
 
+      // MARK: Find in conversation (spec §5.19a)
+
+      // Find reads every message's body, collapsed, folded and quoted text included, and highlights in the frames that
+      // are built. Text is compared folded: letter case and accents ignored, a run of white space as one space, and a
+      // block's edge as a break no match crosses. A body with no frame is read from its HTML through DOMParser, whose
+      // document runs nothing and loads nothing, by the same walk, so the count never changes as frames come and go.
+      var find = { query: '', needle: '', matches: [], index: -1, scrollPending: false };
+      var FIND_BLOCKS = {
+        ADDRESS: 1, ARTICLE: 1, ASIDE: 1, BLOCKQUOTE: 1, BR: 1, CAPTION: 1, CENTER: 1, DD: 1, DETAILS: 1, DIV: 1, DL: 1, DT: 1,
+        FIELDSET: 1, FIGCAPTION: 1, FIGURE: 1, FOOTER: 1, FORM: 1, H1: 1, H2: 1, H3: 1, H4: 1, H5: 1, H6: 1, HEADER: 1, HR: 1,
+        IMG: 1, LI: 1, MAIN: 1, NAV: 1, OL: 1, P: 1, PRE: 1, SECTION: 1, SUMMARY: 1, TABLE: 1, TBODY: 1, TD: 1, TFOOT: 1, TH: 1,
+        THEAD: 1, TR: 1, UL: 1
+      };
+      var FIND_SKIP = { HEAD: 1, SCRIPT: 1, STYLE: 1, TEMPLATE: 1, TITLE: 1, TEXTAREA: 1, SELECT: 1, OPTION: 1, SVG: 1, svg: 1 };
+      // Text a sender hides with the element's own style (preheaders, mostly) is never a match. Hiding by a stylesheet rule
+      // cannot be told from the HTML, so such text still counts.
+      var FIND_HIDDEN = /display\s*:\s*none|visibility\s*:\s*hidden|max-height\s*:\s*0(?![\d.])|font-size\s*:\s*0(?![\d.])|opacity\s*:\s*0(?![\d.])/i;
+      var FIND_IGNORED = /[\u00AD\u034F\u200B-\u200F\u2060-\u2064\uFEFF]/;
+      var FIND_MARKS = /^[\u0300-\u036F]+$/;
+      var foldCache = {};
+
+      // One UTF-16 unit folded for comparison: '' (ignored), ' ' (white space) or one lower-case unit. Accents come off only
+      // where the base letter plus combining marks is the whole decomposition, so Hangul and other scripts stay whole.
+      function foldUnit(ch) {
+        var code = ch.charCodeAt(0);
+        if (code < 128) {
+          if (code >= 65 && code <= 90) { return String.fromCharCode(code + 32); }
+          if (code === 32 || (code >= 9 && code <= 13)) { return ' '; }
+          return code < 32 || code === 127 ? '' : ch;
+        }
+        var cached = foldCache[ch];
+        if (cached !== undefined) { return cached; }
+        var out = ch;
+        if ((code >= 0x300 && code <= 0x36F) || FIND_IGNORED.test(ch)) {
+          out = '';
+        } else if (/\s/.test(ch)) {
+          out = ' ';
+        } else if (code < 0xD800 || code > 0xDFFF) {
+          var base = ch;
+          var parts = ch.normalize ? ch.normalize('NFD') : ch;
+          if (parts.length > 1 && FIND_MARKS.test(parts.slice(1))) { base = parts.charAt(0); }
+          var lower = base.toLowerCase();
+          out = lower.length === 1 ? lower : base;
+        }
+        foldCache[ch] = out;
+        return out;
+      }
+
+      function foldQuery(query) {
+        var out = '';
+        for (var i = 0; i < query.length; i++) {
+          var f = foldUnit(query.charAt(i));
+          if (f === ' ' && (out === '' || out.charAt(out.length - 1) === ' ')) { continue; }
+          out += f;
+        }
+        return out.replace(/ $/, '') === '' ? '' : out;
+      }
+
+      function hiddenBySender(node) {
+        if (node.hasAttribute('hidden')) { return true; }
+        var style = node.getAttribute('style');
+        return !!style && FIND_HIDDEN.test(style);
+      }
+
+      // A body's text, folded, with where each folded unit came from (`nodes[nodeOf[i]]` at `offOf[i]`, -1 for a break),
+      // and the ranges that lie in quoted text. The walk is iterative: mail nests tables deeper than a stack likes.
+      function findIndex(body) {
+        var chars = [];
+        var nodes = [];
+        var nodeOf = [];
+        var offOf = [];
+        var quotes = [];
+        var last = '';
+        var pendingBreak = false;
+        var quoteDepth = 0;
+        var quoteStart = 0;
+        function push(f, node, offset) { chars.push(f); nodeOf.push(node); offOf.push(offset); last = f; }
+        function breakHere() {
+          if (last !== '' && last !== '\n') { push('\n', -1, -1); }
+          pendingBreak = false;
+        }
+        var stack = [body];
+        while (stack.length) {
+          var item = stack.pop();
+          if (item.exit) {
+            if (item.block) { pendingBreak = true; }
+            if (item.quote) {
+              quoteDepth--;
+              if (quoteDepth === 0 && chars.length > quoteStart) { quotes.push([quoteStart, chars.length]); }
+            }
+            continue;
+          }
+          var node = item;
+          if (node.nodeType === 3) {
+            var data = node.data;
+            var index = -1;
+            for (var i = 0; i < data.length; i++) {
+              var f = foldUnit(data.charAt(i));
+              if (f === '') { continue; }
+              if (f === ' ') {
+                if (pendingBreak) { breakHere(); continue; }
+                if (last === '' || last === ' ' || last === '\n') { continue; }
+              } else if (pendingBreak) {
+                breakHere();
+              }
+              if (index < 0) { index = nodes.length; nodes.push(node); }
+              push(f, index, i);
+            }
+            continue;
+          }
+          if (node.nodeType !== 1 && node.nodeType !== 9 && node.nodeType !== 11) { continue; }
+          if (node.nodeType === 1) {
+            if (FIND_SKIP[node.tagName] || hiddenBySender(node)) { continue; }
+            var block = !!FIND_BLOCKS[node.tagName];
+            var quote = !!(node.classList && node.classList.contains('ss-quote'));
+            if (block) { pendingBreak = true; }
+            if (quote) {
+              if (quoteDepth === 0) { quoteStart = chars.length; }
+              quoteDepth++;
+            }
+            if (block || quote) { stack.push({ exit: true, block: block, quote: quote }); }
+          }
+          for (var c = node.childNodes.length - 1; c >= 0; c--) { stack.push(node.childNodes[c]); }
+        }
+        return { text: chars.join(''), nodes: nodes, nodeOf: nodeOf, offOf: offOf, quotes: quotes };
+      }
+
+      // The loaded frame of a card, the only document marks go into.
+      function findFrame(card) {
+        var doc = frameDocument(card);
+        return doc && doc.body && card.findDoc === doc ? doc : null;
+      }
+
+      // The folded text of a body with no frame, kept while its HTML stays the same.
+      function parsedIndex(card) {
+        var html = card.message.html;
+        if (card.findParsed && card.findParsed.html === html) { return card.findParsed; }
+        var index = { text: '', quotes: [] };
+        try {
+          var doc = new DOMParser().parseFromString('<!DOCTYPE html><html><head></head><body>' + html + '</body></html>', 'text/html');
+          var read = findIndex(doc.body);
+          index = { text: read.text, quotes: read.quotes };
+        } catch (e) { /* unreadable HTML finds nothing */ }
+        card.findParsed = { html: html, text: index.text, quotes: index.quotes };
+        return card.findParsed;
+      }
+
+      function unmark(doc) {
+        var marks = doc.querySelectorAll('mark.ss-find');
+        if (!marks.length) { return; }
+        var parents = [];
+        for (var i = 0; i < marks.length; i++) {
+          var mark = marks[i];
+          var parent = mark.parentNode;
+          if (!parent) { continue; }
+          while (mark.firstChild) { parent.insertBefore(mark.firstChild, mark); }
+          parent.removeChild(mark);
+          if (parents.indexOf(parent) < 0) { parents.push(parent); }
+        }
+        // The parser never leaves two text nodes side by side, so joining them puts back exactly what was split.
+        for (var j = 0; j < parents.length; j++) { parents[j].normalize(); }
+      }
+
+      function clearFindMarks() {
+        for (var i = 0; i < state.cards.length; i++) {
+          var doc = findFrame(state.cards[i]);
+          if (doc) { unmark(doc); }
+        }
+      }
+
+      // Wraps every match of a card in marks: each text node's pieces from its last to its first, so splitting one
+      // never moves a piece still to come.
+      function markCard(card, index, matches) {
+        var doc = findFrame(card);
+        if (!doc || !matches.length) { return; }
+        var pieces = [];
+        for (var m = 0; m < matches.length; m++) {
+          var match = matches[m];
+          match.marks = [];
+          var first = -1;
+          var lastAt = -1;
+          for (var k = match.start; k < match.end; k++) {
+            if (index.nodeOf[k] < 0) { continue; }
+            if (first < 0) { first = k; }
+            lastAt = k;
+          }
+          if (first < 0) { continue; }
+          var startNode = index.nodeOf[first];
+          var endNode = index.nodeOf[lastAt];
+          for (var n = startNode; n <= endNode; n++) {
+            var node = index.nodes[n];
+            var from = n === startNode ? index.offOf[first] : 0;
+            var to = n === endNode ? index.offOf[lastAt] + 1 : node.data.length;
+            if (to > from) { pieces.push({ node: n, from: from, to: to, match: match }); }
+          }
+        }
+        pieces.sort(function (a, b) { return a.node !== b.node ? b.node - a.node : b.from - a.from; });
+        for (var p = 0; p < pieces.length; p++) {
+          var piece = pieces[p];
+          var target = index.nodes[piece.node];
+          if (!target.parentNode) { continue; }
+          if (piece.from > 0) { target = target.splitText(piece.from); }
+          if (piece.to - piece.from < target.data.length) { target.splitText(piece.to - piece.from); }
+          var mark = doc.createElement('mark');
+          mark.className = 'ss-find';
+          target.parentNode.insertBefore(mark, target);
+          mark.appendChild(target);
+          piece.match.marks.unshift(mark);
+        }
+      }
+
+      function matchesOf(card) {
+        var list = [];
+        for (var i = 0; i < find.matches.length; i++) { if (find.matches[i].card === card) { list.push(find.matches[i]); } }
+        return list;
+      }
+
+      function inQuote(index, start) {
+        for (var i = 0; i < index.quotes.length; i++) {
+          if (start >= index.quotes[i][0] && start < index.quotes[i][1]) { return true; }
+        }
+        return false;
+      }
+
+      // Where a card is on screen: a folded card stands at its fold row.
+      function cardRect(card) {
+        if (card.folded) {
+          for (var i = 0; i < state.folds.length; i++) {
+            if (state.folds[i].cards.indexOf(card) >= 0) { return state.folds[i].element.getBoundingClientRect(); }
+          }
+        }
+        return card.element.getBoundingClientRect();
+      }
+
+      // A new search starts at the first match not scrolled past, so the reader keeps their place.
+      function firstInView() {
+        for (var i = 0; i < find.matches.length; i++) {
+          var match = find.matches[i];
+          if (cardRect(match.card).bottom <= 0) { continue; }
+          var mark = match.marks && match.marks[0];
+          if (mark && match.card.iframe) {
+            var top = match.card.iframe.getBoundingClientRect().top + mark.getBoundingClientRect().bottom;
+            if (top <= 0) { continue; }
+          }
+          return i;
+        }
+        return find.matches.length ? 0 : -1;
+      }
+
+      // Refining a search keeps the current match where a match still starts at or after it.
+      function atOrAfter(anchor) {
+        var order = -1;
+        for (var c = 0; c < state.cards.length; c++) { if (state.cards[c].message.id === anchor.id) { order = c; break; } }
+        if (order < 0) { return -1; }
+        for (var i = 0; i < find.matches.length; i++) {
+          var match = find.matches[i];
+          var at = state.cards.indexOf(match.card);
+          if (at > order || (at === order && match.start >= anchor.start)) { return i; }
+        }
+        return find.matches.length ? 0 : -1;
+      }
+
+      function postFind() {
+        post('ss', { kind: 'find', query: find.query, count: find.matches.length, index: find.index });
+      }
+
+      // Opens whatever hides the current match (spec §5.19a): its folded run, its collapsed message, the message under an
+      // invitation card, its quoted text. Nothing animates, and what opened stays open when the find ends.
+      function reveal(match) {
+        var card = match.card;
+        if (!card.expanded) {
+          expand(card, false);
+          find.scrollPending = true;
+        }
+        if (foldsMessage(card) && !card.messageShown) {
+          card.messageShown = true;
+          fillMessageFold(card);
+        }
+        if (match.quoted && !card.quotesShown) {
+          card.quotesShown = true;
+          fillQuote(card);
+          var doc = frameDocument(card);
+          if (doc && doc.body) {
+            doc.body.classList.add('ss-show-quotes');
+            measure(card);
+          }
+        }
+        setTarget(card, true);
+      }
+
+      function scrollToCurrent() {
+        var match = find.matches[find.index];
+        var mark = match && match.marks && match.marks[0];
+        if (!mark || !mark.isConnected) { return; }
+        var doc = mark.ownerDocument;
+        try { mark.scrollIntoView({ block: 'center', inline: 'nearest' }); } catch (e) { mark.scrollIntoView(); }
+        // The frame is as tall as its body and shows it from the top; a scroll inside it would hide the body's start.
+        var scroller = doc.scrollingElement || doc.documentElement;
+        if (scroller) {
+          scroller.scrollTop = 0;
+          if (!match.card.wide) { scroller.scrollLeft = 0; }
+        }
+        find.scrollPending = false;
+      }
+
+      // `go` opens and scrolls to the current match, which only the user's own find and steps do: a refresh from the
+      // store or a frame loading again never moves the page or the target.
+      function showCurrent(go) {
+        for (var i = 0; i < find.matches.length; i++) {
+          var marks = find.matches[i].marks || [];
+          for (var j = 0; j < marks.length; j++) { marks[j].classList.toggle('ss-find-now', i === find.index); }
+        }
+        var match = find.matches[find.index];
+        if (!match || !go) { return; }
+        reveal(match);
+        if (match.marks && match.marks.length) { scrollToCurrent(); } else { find.scrollPending = true; }
+      }
+
+      // Finds `find.needle` again from the start. `anchor` keeps the current match ({id, start}); `go` brings it into
+      // view.
+      function runFind(anchor, go) {
+        clearFindMarks();
+        find.matches = [];
+        find.index = -1;
+        find.scrollPending = false;
+        if (find.needle) {
+          for (var c = 0; c < state.cards.length; c++) {
+            var card = state.cards[c];
+            var m = card.message;
+            if (!m.hasBody || !m.html) { continue; }
+            var frame = findFrame(card);
+            var index = frame ? findIndex(frame.body) : parsedIndex(card);
+            var found = [];
+            var from = 0;
+            var at;
+            while ((at = index.text.indexOf(find.needle, from)) >= 0) {
+              var match = { card: card, start: at, end: at + find.needle.length, quoted: inQuote(index, at), marks: [] };
+              found.push(match);
+              find.matches.push(match);
+              from = match.end;
+            }
+            if (frame) { markCard(card, index, found); }
+          }
+          find.index = anchor ? atOrAfter(anchor) : -1;
+          if (find.index < 0) { find.index = firstInView(); }
+          showCurrent(go);
+        }
+        postFind();
+        return { count: find.matches.length, index: find.index };
+      }
+
+      function anchorOfCurrent() {
+        var match = find.matches[find.index];
+        return match ? { id: match.card.message.id, start: match.start } : null;
+      }
+
+      // A changed search goes on from the current match, so typing more, or less, keeps the reader's place.
+      function startFind(query) {
+        var text = String(query || '');
+        var anchor = anchorOfCurrent();
+        find.query = text;
+        find.needle = foldQuery(text);
+        return runFind(anchor, true);
+      }
+
+      function stepFind(delta) {
+        var count = find.matches.length;
+        if (!count) { postFind(); return null; }
+        find.index = ((find.index < 0 ? 0 : find.index + delta) % count + count) % count;
+        showCurrent(true);
+        postFind();
+        return { count: count, index: find.index };
+      }
+
+      function endFind() {
+        clearFindMarks();
+        find = { query: '', needle: '', matches: [], index: -1, scrollPending: false };
+        postFind();
+      }
+
+      // The store changed the conversation: same search, same current match where it still exists, no scroll.
+      function refreshFind() {
+        if (!find.needle) { return; }
+        runFind(anchorOfCurrent(), false);
+      }
+
+      // A frame finished loading: its matches are marked in it, and the current one scrolled to if it was waiting.
+      function findFrameLoaded(card, doc) {
+        // A document already marked would be marked again inside its own marks.
+        var seen = card.findDoc === doc;
+        card.findDoc = doc;
+        if (seen || !find.needle) { return; }
+        var matches = matchesOf(card);
+        if (!matches.length) { return; }
+        var index = findIndex(doc.body);
+        for (var i = 0; i < matches.length; i++) {
+          // The frame's text is the parsed text by construction; should a body ever read differently, find again.
+          if (index.text.slice(matches[i].start, matches[i].end) !== find.needle) {
+            runFind(anchorOfCurrent(), find.scrollPending);
+            return;
+          }
+        }
+        markCard(card, index, matches);
+        showCurrent(false);
+        var current = find.matches[find.index];
+        if (find.scrollPending && current && current.card === card) { scrollToCurrent(); }
+      }
+
       // MARK: Rendering
 
       function teardown() {
@@ -2172,7 +2596,17 @@ public enum ConversationShellAssets {
         return node;
       }
 
+      // A render of the conversation already shown (another message joined it, the image preference changed) keeps the
+      // search; any other conversation starts without one.
+      function sameConversation(payload) {
+        var messages = payload.messages || [];
+        for (var i = 0; i < messages.length; i++) { if (state.byID[messages[i].id]) { return true; } }
+        return false;
+      }
+
       function render(payload) {
+        var keepFind = !!find.needle && sameConversation(payload);
+        var findAnchor = keepFind ? anchorOfCurrent() : null;
         teardown();
         state.payload = payload;
         readPayloadSettings(payload);
@@ -2204,6 +2638,12 @@ public enum ConversationShellAssets {
           firstExpanded.element.scrollIntoView({ block: 'start' });
         }
         reportMarkFocus();
+        if (keepFind) {
+          runFind(findAnchor, false);
+        } else if (find.query) {
+          find = { query: '', needle: '', matches: [], index: -1, scrollPending: false };
+          postFind();
+        }
         return state.cards.length;
       }
 
@@ -2276,6 +2716,7 @@ public enum ConversationShellAssets {
         restack();
         if (!state.target) { setTarget(cards[cards.length - 1], false); }
         reportMarkFocus();
+        refreshFind();
         return cards.length;
       }
 
@@ -2308,6 +2749,7 @@ public enum ConversationShellAssets {
 
       function clear() {
         teardown();
+        find = { query: '', needle: '', matches: [], index: -1, scrollPending: false };
         document.title = '';
         root.replaceChildren();
         reportMarkFocus();
@@ -2442,7 +2884,24 @@ public enum ConversationShellAssets {
         selectedMessageID: function () { return state.target ? state.target.message.id : null; },
         loadImages: function (id) { loadImages(id ? state.byID[id] : targetCard()); },
         attachmentFailed: attachmentFailed,
-        attachmentProgress: attachmentProgress
+        attachmentProgress: attachmentProgress,
+        // Find in conversation (spec §5.19a). Each posts {kind: 'find', query, count, index} as well as returning it, so
+        // a refresh from the store reaches the bar too.
+        find: startFind,
+        findStep: stepFind,
+        findClear: endFind,
+        findState: function () {
+          var match = find.matches[find.index];
+          var marks = 0;
+          for (var i = 0; i < state.cards.length; i++) {
+            var doc = findFrame(state.cards[i]);
+            if (doc) { marks += doc.querySelectorAll('mark.ss-find').length; }
+          }
+          return {
+            query: find.query, count: find.matches.length, index: find.index, marks: marks,
+            current: match ? { id: match.card.message.id, quoted: match.quoted, marked: !!(match.marks && match.marks.length) } : null
+          };
+        }
       };
 
       post('ssReady', { kind: 'ready' });

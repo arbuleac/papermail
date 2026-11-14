@@ -107,6 +107,8 @@ Operators combine (`from:ben is:unread after:2026-01-01 -invoice`), ignore case,
 
 **Searching the server.** Search looks through the mail on this Mac. When the results end, the list ends with **Search Gmail for more** (**Search Outlook for more** for a Microsoft account, **Search all accounts for more** under All Inboxes): click it, or press `↩` in the search field (the row shows a `↩` keycap while you type), to ask the mail server too, for mail that has not downloaded yet, as during the first download of a large mailbox. The server is asked what you typed, operators included, and searches by its own rules (Gmail understands its own `from:`, `is:unread` and `has:attachment`, Outlook its own search words), so it can also find what this Mac's search reads differently; `is:`, `has:`, `before:`, `after:` and `in:` still narrow what it finds, as they narrow the rest. What it finds joins the results in date order and stays on this Mac, so a later search finds it like any other mail; a message's content downloads when you open it. The row then says how many more it found, or **Nothing more on Gmail**, or **Couldn't search Gmail · Try again** when offline. `Return` in the search field always takes you to the list as well; once the server has answered or failed it only does that (**Try again** asks again), and `↓` goes to the list without asking the server. New words start a new search.
 
+**Finding words in a conversation.** `⌥⌘F` (**Edit → Find in Conversation…**) opens a small bar over the message you are reading. Type, and every match in the conversation is highlighted, with the count beside your words ("3 of 12"): collapsed messages and quoted text count too, and capitals and accents don't matter. `Return` or `⌘G` goes to the next match, `⇧Return` or `⇧⌘G` to the previous one; a collapsed message or folded quoted text holding the match opens, and stays open afterwards. `Esc` closes the bar. It searches only the open conversation; `⌘F` still searches all your mail.
+
 ## Keyboard shortcuts
 
 | Key | Action |
@@ -128,6 +130,7 @@ Operators combine (`from:ben is:unread after:2026-01-01 -invoice`), ignore case,
 | `c`, `⌘N` | New message |
 | `/`, `⌘F` | Search (`Esc` clears, in the search field or the list) |
 | `↩` in the search field | Search the mail server for more, then move to the results |
+| `⌥⌘F` | Find in the open conversation (`⌘G` / `⇧⌘G` next / previous match) |
 | `g` then `i` / `s` / `t` / `a` | Go to Inbox / Starred / Sent / All Mail |
 | `g` then `l` | Go to Later, while something is snoozed |
 | `⌘0` | All inboxes |

@@ -60,6 +60,8 @@ COLOR = [
  ("warningWash", "#F6ECD8", "#33291A", "#EEDDBA", "#3F311A", "semantic", "Warning banner (Original colors notice)"),
  ("dangerWash",  "#F8E3DF", "#3A201C", "#F0CEC8", "#4A231E", "semantic", "Error banner, invalid token"),
  ("infoWash",    "#E4EAF5", "#1E2638", "#D0DAEE", "#22304A", "semantic", "Info banner"),
+ ("findWash",    "#F2DF9F", "#3E3420", "#EFD893", "#463A1E", "semantic", "Every match of Find in conversation, behind text set in `ink` (opaque, so it reads on any page a sender designed)"),
+ ("findCurrent", "#EDBE45", "#80600F", "#E6B030", "#7A5A0C", "semantic", "The current match of Find in conversation, behind text in `ink`, with a 1 pt `ruleStrong` ring"),
  ("dangerFill",        "#AE2A1F", "#C0392B", "#8C1C13", "#C0392B", "semantic", "Destructive button, attention badge"),
  ("dangerFillHover",   "#9C251B", "#C8402F", "#7A170F", "#C8402F", "semantic", "Destructive button hover"),
  ("dangerFillPressed", "#8A2018", "#A93226", "#68130C", "#A93226", "semantic", "Destructive button pressed"),
@@ -146,7 +148,7 @@ BORDER = {
  "focusRing": {"width": 2, "widthHC": 3, "gap": 1, "gapAroundSheets": 2, "gapOnAccentFill": 2, "color": "focus", "onSlipColor": "onSlip"},
  "error": {"width": 1.5, "color": "danger"},
  "accountRing": {"width": 2, "gap": 2},
- "icOutline": {"width": 1, "color": "ruleStrong", "appliesTo": "sheets, stack, quick-reply field, autocomplete, link popover and cheat sheet in increased contrast (slips use slipEdge instead)"},
+ "icOutline": {"width": 1, "color": "ruleStrong", "appliesTo": "sheets, stack, quick-reply field, autocomplete, link popover, find bar and cheat sheet in increased contrast (slips use slipEdge instead)"},
 }
 ELEVATION = {
  "e0": {"light": [], "dark": [], "use": "List, rows, rail, stack, fields, chips (hairline only)"},
@@ -204,6 +206,8 @@ LAYOUT = {
             "recipientsLabelColumn": 28, "recipientsFieldGap": 2, "recipientsMaxLines": 12},
  "textStyle": {"quoteBar": 2, "quoteIndent": 12, "linkUnderline": 1, "linkUnderlineOffset": 2, "listIndent": 24, "listMarkerGap": 6},
  "quotedToggle": {"height": 24, "radius": 6, "padLeft": 6, "padRight": 9, "gap": 6, "glyph": 14, "composerChip": 22},
+ "findBar": {"width": 320, "height": 40, "pad": 6, "radius": 8, "top": 8, "trailing": 16, "fieldGap": 6, "buttonGap": 2,
+             "matchRadius": 3, "currentRing": 1},
  "banner": {"height": 32, "radius": 6, "padLeft": 10, "padRight": 6, "gap": 8, "glyph": 14, "narrowBreakpoint": 420, "padY": 8, "dismissGlyph": 9},
  "invitation": {"radius": 8, "padX": 16, "padTop": 12, "padBottom": 12, "kickerGlyph": 14, "kickerGap": 6, "titleTop": 6, "whenTop": 2,
                 "detailsTop": 8, "labelColumn": 72, "rowGap": 2, "actionsTop": 12, "actionsPad": 10, "answerGap": 4, "answerSize": "small",
@@ -284,6 +288,7 @@ ICON = {
  "blockQuote": "text.quote", "link": "link", "undone": "arrow.uturn.backward", "demo": "info.circle",
  "addAccountProvider": "envelope", "attention": "exclamationmark", "waitingToSync": "clock", "discardDraft": "trash",
  "reveal": "eye", "conceal": "eye.slash", "invitation": "calendar", "answered": "checkmark",
+ "findInConversation": "text.magnifyingglass", "findPrevious": "chevron.up", "findNext": "chevron.down",
 }
 GLYPHS = {
  "ss.quire": {"grid": 16, "stroke": 1.5, "paths": ["M2.75 6.25h10.5a1 1 0 0 1 1 1v5.5a1 1 0 0 1-1 1H2.75a1 1 0 0 1-1-1v-5.5a1 1 0 0 1 1-1z", "M2.1 7 8 10.6 13.9 7", "M3.5 3.75h9", "M5.25 1.5h5.5"], "fills": [], "meaning": "All Inboxes: a gathering of letters"},
@@ -332,6 +337,6 @@ CHEAT_SHEET = [
            ("⇧⌘A", "Attach files")]),
  ("Format", [("⇧⌘T", "Format row"), ("⌘B ⌘I ⌘U", "Bold · italic · underline"), ("⇧⌘8 ⇧⌘7", "Bulleted · numbered list"), ("⌘'", "Quote"),
              ("⌘K", "Add link"), ("⇧⌘C ⇧⌘B", "Cc · Bcc field")]),
- ("View", [("⇧⌘I", "Load images"), ("⇧⌘O", "Original colors"), ("⌥⌘C", "Compact rows"), ("⌃⌘S", "Show · hide the rail"),
-           ("⇧⌘N", "Check for new mail"), ("?", "This sheet")]),
+ ("View", [("⇧⌘I", "Load images"), ("⇧⌘O", "Original colors"), ("⌥⌘F", "Find in conversation"), ("⌘G ⇧⌘G", "Next · previous match"),
+           ("⌥⌘C", "Compact rows"), ("⌃⌘S", "Show · hide the rail"), ("⇧⌘N", "Check for new mail"), ("?", "This sheet")]),
 ]

@@ -911,7 +911,7 @@ Adaptation **replaces** colours rather than inverting them or relying on `color-
 
 {{TABLE:layout:quotedToggle}}
 
-`ss.elide` {{layout.quotedToggle.glyph}} pt + `label` “Show quoted text” / “Hide quoted text”; the same mark folds the message under an invitation card, “Show message” / “Hide message” (§5.14). The label says what the mark hides. With keyboard focus, ↩ or Space presses it: the reader's ↩ (Open) and Space (Quick Look, §6) give way to a focused mark, even on a message with attachments.
+`ss.elide` {{layout.quotedToggle.glyph}} pt + `label` “Show quoted text” / “Hide quoted text”; the same mark folds the message under an invitation card, “Show message” / “Hide message” (§5.14). The label says what the mark hides. With keyboard focus, ↩ or Space presses it: the reader's ↩ (Open) and Space (Quick Look, §6) give way to a focused mark, even on a message with attachments. Find in conversation unfolds the quote (or the message) holding its current match, and leaves it unfolded (§5.19a).
 
 | State | Fill | Text and glyph |
 |---|---|---|
@@ -1045,6 +1045,42 @@ Keycaps never sit on accent fills: “⌘↩” is beside the Send button, not i
 The quick reply is hidden in Drafts.
 
 **Conversation emptied while open.** The desk shows the empty state “No messages to show” / “They were deleted or moved on another device.” (§5.9); the header keeps the subject; only Trash stays enabled; the quick reply is hidden.
+
+### 5.19a Find in conversation (Q3.6)
+
+⌥⌘F (Edit › Find in Conversation…) finds words in the open conversation: a small bar over the reader, every match marked in the page, a count, and the current match brought into view. ⌘F stays the list's search (§5.6); the two never share a field.
+
+{{TABLE:layout:findBar}}
+
+| Part | Spec |
+|---|---|
+| Bar | {{layout.findBar.width}} × {{layout.findBar.height}} pt, `raised`, radius {{layout.findBar.radius}}, `e2`, a hairline `rule` edge ({{border.icOutline.width}} pt `ruleStrong` in Increase Contrast), padding {{layout.findBar.pad}}; {{layout.findBar.top}} pt under the reader header's bottom edge, {{layout.findBar.trailing}} pt from the reader's trailing edge, floating over the page (the web view's frame never changes, as under the quick reply, §5.18). It fits the {{layout.window.readerMinWidth}} pt minimum reader with room to spare |
+| Field | {{layout.textField.height}} pt, the search field's face (§5.6): radius {{layout.search.radius}}, `sheet`, {{border.strong.width}} pt `ruleStrong` edge, `magnifyingglass` {{layout.search.glyph}} pt `ink3` at x = {{layout.search.glyphX}}, the query in `body` `ink` from x = {{layout.search.textX}}; placeholder “Find in conversation” (`ink3`); the count {{layout.search.trailingInset}} pt in from its trailing edge in `meta` `ink3`, {{layout.search.resultsGap}} pt after the query, which truncates before the count does |
+| Buttons | {{layout.findBar.fieldGap}} pt after the field: Previous Match (`{{icon.findPrevious}}`), Next Match (`{{icon.findNext}}`) and Close (`xmark`), {{layout.button.icon.1}} pt icon buttons (§5.24), {{layout.findBar.buttonGap}} pt apart; tooltips “Previous Match  ⇧⌘G”, “Next Match  ⌘G”, “Close  esc” |
+| Count | “3 of 12”; “No matches” when nothing matches; nothing while the field is empty or holds only spaces. The count is the words, so the state never rests on the highlight's colour alone |
+
+| State | Look |
+|---|---|
+| Opening | fades in `dur.quick` (a fade under Reduce Motion too) with the keyboard in the field, the last query of the session filled in and selected, so typing replaces it and ↩ finds it again |
+| Empty | placeholder; no count; Previous and Next disabled (`inkDisabled`) |
+| Matches | the count; Previous and Next enabled |
+| No matches | “No matches”, calm: no red, no shake; Previous and Next disabled; ↩ and ⌘G beep |
+| Field focused | the field's ring outside a {{border.focusRing.gap}} pt gap (§5.25) |
+| Closing | fades out `dur.quick`; the marks go at once |
+
+**Matches in the page** (reader CSS, §8.4). Every match is drawn behind its text in `findWash`; the current one in `findCurrent` with a {{layout.findBar.currentRing}} pt `ruleStrong` ring, so the current match has a shape as well as a colour. Both carry their own text colour, `ink`, and corners of {{layout.findBar.matchRadius}} pt, with no padding, so a match never moves the words around it, and the mark reads the same on any page a sender designed, in Adapted and Original colors alike. A match split by formatting (`Hel<b>lo</b>`) is marked piece by piece and counts once.
+
+**What counts.** Every message's body in the conversation: the expanded ones, the collapsed stack rows, the messages folded into “4 more messages”, the message folded under an invitation card, and quoted text, folded or not. Not the headers, the participants line, the invitation card's own words, attachment names or banners, and not a message whose body has not downloaded (its snippet stands in, §5.14). Letter case and accents do not matter (“cafe” finds “Café”), any run of white space is one space, and a match never crosses from one paragraph, cell or line break into the next. Text the sender hid in the element's own style (`display: none`, a preheader) never counts.
+
+**Where a find starts.** A new search starts at the first match not yet scrolled past, so the reader keeps their place; typing more, or less, keeps the current match while a match still starts there, and otherwise goes on to the next one. After the last match comes the first, and before the first the last.
+
+**What a step opens.** Only what hides the current match, and only when the current match lands in it: a collapsed message expands (a folded run opens with it), the message under an invitation card unfolds, and folded quoted text unfolds, its elision mark then reading “Hide quoted text” (§5.15). Nothing animates, so the page does not move under the match, and the message holding it becomes the target (§5.14). What opened stays open when the find ends: refolding as the matches pass would make the page jump under the reader, and “.” folds it again. Other matches are counted, never opened.
+
+**Keys.** ↩ in the field is Next, ⇧↩ Previous, Esc closes. ⌘G and ⇧⌘G (Edit › Find Next, Find Previous) step from anywhere in the main window while one conversation shows; with the bar closed they open it with the session's last query. ⌥⌘F with the bar open gives the field the keyboard again with its query selected. Esc from the page closes the bar first and the second Esc returns to the list (§6.1).
+
+**Lifetime.** The bar belongs to the conversation it searched: showing another conversation, several or none, or the conversation emptying, closes it. A store change to the open conversation (a reply arriving, a body downloading) finds again in place: the count follows, the current match stays, the page does not scroll.
+
+**VoiceOver.** The bar is a group named “Find in conversation”; the field has the same label; the buttons read “Previous Match”, “Next Match” and “Close”; each new count is announced while the field has the keyboard (“Match 3 of 12”, “No matches”).
 
 ### 5.20 Composer window and fields
 
@@ -1409,7 +1445,7 @@ Main menu (system), with Quire content. Single-key shortcuts are handled by `Key
 
 - **SuperSparrow**: About SuperSparrow (the system About panel) · Settings… ⌘, · Services · Hide · Quit.
 - **File**: New Message ⌘N (also C) · Close Window ⌘W · Add Gmail Account… · Add Microsoft Account… · Save Attachments… · in demo mode, Leave Demo… (§5.43).
-- **Edit**: standard, plus Find… ⌘F (focuses search) and Search Gmail for More (§5.10, no key equivalent: ↩ in the search field runs it, and a plain ↩ on a menu item would take Return from the list, the composer and every sheet; titled by the scope: Search Outlook for More, Search All Accounts for More). It is enabled while the search field holds words whose local results are all listed (or not in yet) and the server has not been asked for them, or failed; it is disabled while any other place to type or the reader has focus, and hidden while a composer is key. Undo is titled by its target (“Undo Archive”, “Undo Send”, “Undo Send and Archive”, “Undo Typing”), following §6.1.
+- **Edit**: standard, plus Find… ⌘F (focuses search), Find in Conversation… ⌥⌘F (`{{icon.findInConversation}}`; the find bar over the reader, §5.19a), Find Next ⌘G and Find Previous ⇧⌘G (enabled while one conversation shows and there is a query to find: the bar's, or the session's last) and Search Gmail for More (§5.10, no key equivalent: ↩ in the search field runs it, and a plain ↩ on a menu item would take Return from the list, the composer and every sheet; titled by the scope: Search Outlook for More, Search All Accounts for More). It is enabled while the search field holds words whose local results are all listed (or not in yet) and the server has not been asked for them, or failed; it is disabled while any other place to type or the reader has focus, and hidden while a composer is key. Undo is titled by its target (“Undo Archive”, “Undo Send”, “Undo Send and Archive”, “Undo Typing”), following §6.1.
 - **View**: Inbox · Later (while the rail shows it) · Starred · Sent · Drafts · Trash · All Mail (G-sequences) · All Inboxes ⌘0 · accounts ⌘1–9 · Check for New Mail ⇧⌘N · Show/Hide Account Rail ⌃⌘S · Compact Rows ⌥⌘C · Load Images ⇧⌘I · Original Colors ⇧⌘O (checkmark when on) · Show Quoted Text . (on a message under an invitation card it shows or hides the message, §5.14)
 - **Message**: Reply R · Reply All A · Forward F · — · Archive E · Later… L (the Later menu at the selection, §5.45) · Move to Trash # · Move to Inbox ⇧I · Star S · Mark as Unread U · Undo Z · — · Unsubscribe ⇧⌘U (enabled while one conversation is open and offers it, §5.14; no symbol, since SF Symbols has none for it before macOS 26) · — · Next Message N · Previous Message P.
 - **Format** (composer windows only): Show Format Row ⇧⌘T · — · Bold ⌘B · Italic ⌘I · Underline ⌘U · — · Bulleted List ⇧⌘8 · Numbered List ⇧⌘7 · Quote ⌘' · — · Add Link… ⌘K. In a composer window the Message menu holds Send ⌘↩ (what the Send button does, §5.23) · Send and Archive ⇧⌘↩ (always; no symbol) · Attach Files… ⇧⌘A · Add Cc Field ⇧⌘C · Add Bcc Field ⇧⌘B · — · Discard Draft… (§5.20).
@@ -1716,6 +1752,7 @@ All single keys are inactive while a text field has focus. Every key press first
 | L | snooze: the Later menu (§5.45; nothing in Trash or Drafts) | G L | Later, while its tile shows (§5.2) |
 | ⇧⌘R | open the quick reply in the composer | ⌘↩ | send: what Send does, Send and Archive unless the drop-down chose Send (§5.23) |
 | ⇧⌘I / ⇧⌘O | load images / original colors | ⌃⌘S | show / hide the rail |
+| ⌥⌘F | find in the conversation: the find bar (§5.19a); ⌘F stays search | ⌘G / ⇧⌘G | next / previous match (↩ / ⇧↩ in the find bar) |
 | ⌥⌘C | compact rows | ? or ⌘/ | keyboard shortcuts |
 | ⇧⌘N | check for new mail | ⇧I | move to Inbox |
 | ⇧⌘U | unsubscribe, then archive; in Later, end the snooze (§5.14) | ⇧⌘↩ | send and archive, whatever Send does (composer and quick reply, §5.23) |
@@ -1737,11 +1774,13 @@ Several surfaces answer the same key. The first row that applies wins and consum
 | 3 | The cheat sheet or the g-sequence HUD is showing | closes it |
 | 4 | The search field is first responder and holds a query | clears the query (focus stays) |
 | 5 | The search field is first responder and is empty | returns focus to the list; the field collapses |
-| 6 | A toast is visible | dismisses the toast (its undo keeps working for the grace period) |
-| 7 | Focus is in the reader or the quick reply (main window) | returns focus to the list; the quick reply keeps its text |
-| 8 | Focus is on the list | nothing (no beep) |
+| 6 | The find bar's field is first responder | closes the find bar; the page takes the keyboard (§5.19a) |
+| 7 | A toast is visible | dismisses the toast (its undo keeps working for the grace period) |
+| 8 | The find bar is open and focus is in the page or on a reader button (not the quick reply, which keeps its text) | closes the find bar; focus stays in the reader |
+| 9 | Focus is in the reader or the quick reply (main window) | returns focus to the list; the quick reply keeps its text |
+| 10 | Focus is on the list | nothing (no beep) |
 
-So in the reader with a toast up, the first Esc dismisses the toast and the second returns to the list. In a composer window Esc does rows 1–2; with no popover left to close, it closes a composer that holds nothing worth keeping (nothing typed, chosen or attached beyond the prefilled reply, its folded original and the signature, §5.20), keeping no draft, and does nothing in one that holds the user's work.
+So in the reader with a toast up, the first Esc dismisses the toast and the second returns to the list; with the find bar open as well, the second closes the bar and the third returns to the list. In a composer window Esc does rows 1–2; with no popover left to close, it closes a composer that holds nothing worth keeping (nothing typed, chosen or attached beyond the prefilled reply, its folded original and the signature, §5.20), keeping no draft, and does nothing in one that holds the user's work.
 
 **⌘Z** (Edit › Undo, titled by its target)
 
@@ -1758,7 +1797,7 @@ So in the reader with a toast up, the first Esc dismisses the toast and the seco
 
 ## 7. Verification: contrast and colour vision
 
-Computed by the token generator from `tokens.json` with WCAG 2.x relative luminance. Alpha tokens are composited in sRGB over the surface beneath them first; “`a` + `b`” means `b` composited over `a`. Need is 4.5 for text and 3.0 for essential non-text UI (glyphs that carry state, state-bearing edges, focus rings, pips, rules, rings, toggle and checkbox fills). The pair list is every foreground-on-surface combination the components above produce, including hover and pressed washes, both selection washes, washes over washes, fills, slips and all account inks; it is stored as `contrastPairs` in `tokens.json` and asserted by `DesignContrastTests` (§8.7), so a token change that breaks a pair fails `swift test`. Two pairs are selection scan cues with a 1.25 floor (`selWash` on `paper` and on `sheet`): they make the current row easy to find, while the margin rule, asserted at 3:1, carries the state. Account-ink pairs carry two needs, {{accountRules.standardMinContrast}} in Light and Dark and {{accountRules.icMinContrast}} in the IC modes (`needIC`), and the test asserts each mode against its own.
+Computed by the token generator from `tokens.json` with WCAG 2.x relative luminance. Alpha tokens are composited in sRGB over the surface beneath them first; “`a` + `b`” means `b` composited over `a`. Need is 4.5 for text and 3.0 for essential non-text UI (glyphs that carry state, state-bearing edges, focus rings, pips, rules, rings, toggle and checkbox fills). The pair list is every foreground-on-surface combination the components above produce, including hover and pressed washes, both selection washes, washes over washes, fills, slips and all account inks; it is stored as `contrastPairs` in `tokens.json` and asserted by `DesignContrastTests` (§8.7), so a token change that breaks a pair fails `swift test`. Four pairs are scan cues with a 1.25 floor. `selWash` on `paper` and on `sheet` make the current row easy to find, while the margin rule, asserted at 3:1, carries the state; `findWash` on `sheet` and `findCurrent` on `findWash` make matches and the current one easy to find, while the count and the current match's `ruleStrong` ring, asserted at 3:1, carry the state (§5.19a). Account-ink pairs carry two needs, {{accountRules.standardMinContrast}} in Light and Dark and {{accountRules.icMinContrast}} in the IC modes (`needIC`), and the test asserts each mode against its own.
 
 **Result:** {{CONTRAST_SUMMARY}}
 
@@ -1843,7 +1882,7 @@ Paragraph style per role: `minimumLineHeight = maximumLineHeight = lineHeight`, 
 
 **Spinners.** One `QuireSpinnerView` (layer-backed `NSView` with a `CAShapeLayer`, §5.37) replaces every `NSProgressIndicator`; it takes a size (12 / 16 / 32) and a colour token and owns its delay, fade-in and rotation.
 
-**Components.** The AppKit components live in SSDesign's `AppKit/` folder, one public type per file: `QuireControl` (hover, pressed, focused and key state for every Quire-drawn control) and the controls on it (`QuireButton`, `QuireIconButton` (also a menu button that acts on mouse-down, Send's drop-down, §5.23), `QuirePopUpButton`, `QuireCheckbox`, `QuireRadioGroupView`, `QuireToggle`, `QuireTextField` with its secure variant, `QuireSearchField`, `QuireUnderlineTabs`), `QuireBannerView` (§5.38), the slips (`QuireSlipView`, `QuireUndoPanelView`, `QuireSequenceHUDView`), `QuireKeycap`, `QuireBadge`, `QuireTag`, `QuireAvatarRenderer`, `QuireHairline`, `QuireEmptyStateView`, `QuireSkeleton`, `QuireProgressBar` and `QuireContrailView`. The banner and the radio group carry a `View` suffix because the SwiftUI versions own the plain names (`QuireBanner`, `QuireRadioGroup`, §8.3). `QuireWindowChrome` configures and measures the main and composer windows (§3.2).
+**Components.** The AppKit components live in SSDesign's `AppKit/` folder, one public type per file: `QuireControl` (hover, pressed, focused and key state for every Quire-drawn control) and the controls on it (`QuireButton`, `QuireIconButton` (also a menu button that acts on mouse-down, Send's drop-down, §5.23), `QuirePopUpButton`, `QuireCheckbox`, `QuireRadioGroupView`, `QuireToggle`, `QuireTextField` with its secure variant, `QuireSearchField`, `QuireUnderlineTabs`), `QuireFindBar` (§5.19a: the panel, its field and three icon buttons; the reader owns what they do), `QuireBannerView` (§5.38), the slips (`QuireSlipView`, `QuireUndoPanelView`, `QuireSequenceHUDView`), `QuireKeycap`, `QuireBadge`, `QuireTag`, `QuireAvatarRenderer`, `QuireHairline`, `QuireEmptyStateView`, `QuireSkeleton`, `QuireProgressBar` and `QuireContrailView`. The banner and the radio group carry a `View` suffix because the SwiftUI versions own the plain names (`QuireBanner`, `QuireRadioGroup`, §8.3). `QuireWindowChrome` configures and measures the main and composer windows (§3.2).
 
 **Panels and overlays.** The undo-send `NSPanel` is borderless, non-activating, transparent and outset by `layout.undoPanel.shadowMargin*` (§5.31). The cheat sheet is an overlay view in the main window's content view, above the split view, with the scrim as its own layer (§5.32). The rail toggle sets the split item's `isCollapsed` inside `NSAnimationContext` with `duration = 0`.
 
@@ -1923,6 +1962,19 @@ html.ss-adapt a, html.ss-adapt a * { color: var(--q-accent) !important; }
   `ss.originalColors(id, on)` toggles `ss-adapt` and the `.ss-original` wrapper for one message, then refits it. Light appearances never add either.
 - **Expand and collapse** follow §4.10. The shell keeps `heights[messageId + ':' + contentWidth]` from every measurement. On expand it sets the body wrapper's `height` from its current px value to header + (cached height, or the 58 pt skeleton) + footer with the transition on; each measurement (`0`, `50`, `300` ms, image `load`) sets `transition: none`, writes the measured px height, forces a style flush and restores the transition, so a measurement snaps instead of retargeting the animation. `ss.finishAll()` (called by `finishAll()`, §4.10) sets every running wrapper to its target with `transition: none`. Heights are always px, never `auto`.
 - **Offline body.** When a message has no stored body (`hasBody = false`) the payload carries the snippet and an `offline` flag from the app: offline, the shell renders the preview and the neutral `wifi.slash` notice (§5.14) instead of the skeleton; online, it shows the skeleton only while the app reports the fetch in flight. Today's 0.6-opacity snippet (`.ss-pending-body`) is removed.
+- **Find in conversation** (§5.19a). `ss.find(query)`, `ss.findStep(±1)` and `ss.findClear()`; each posts `{kind: 'find', query, count, index}` too, as does a store refresh that changes the count, and the app shows only the report for the bar's own query. The shell folds text for comparison (case, accents, white space), breaks it at block elements and `br`, and reads a body with no frame from its HTML through `DOMParser`, whose document runs no script and loads nothing, by the same walk as a framed body, so the count never depends on what is expanded. Matches are wrapped in `mark.ss-find` (the current one also `.ss-find-now`) in the frames that have loaded, piece by piece across elements; `ss.findClear()` unwraps them and joins the split text nodes, so the body is exactly as parsed. The frames keep their sandbox and their blocking policy: the shell adds no script and no source to a body. Every body document carries:
+
+```css
+:root body mark.ss-find {
+  background-color: var(--q-findWash) !important; color: var(--q-ink) !important; border-radius: var(--q-r-xs);
+  padding: 0 !important; margin: 0 !important; box-decoration-break: clone;
+}
+:root body mark.ss-find.ss-find-now {
+  background-color: var(--q-findCurrent) !important; box-shadow: 0 0 0 {{layout.findBar.currentRing}}px var(--q-ruleStrong) !important;
+}
+```
+
+  `:root body` outranks the dark adaptation's `body *` and a sender's own `mark` rules. The current match is scrolled to the middle of the page with `scrollIntoView`, and the frame's own scroll is put back to the top, since a frame is as tall as its body.
 - **Target message.** `ss.target(id)` marks the target sheet (`.ss-target`: footer keycaps, and the `ruleStrong` edge when `.ss-multi` is on the container); the app calls it on click, `n`/`p`, Tab and open.
 - **Skeleton** (CSS): `.ss-skel` bars in `--q-fill`, radius `--q-r-xs`, no animation.
 
@@ -1983,6 +2035,7 @@ Design tests live in `Tests/SSDesignTests`: the generated ones in `Tests/SSDesig
 - **`WindowChromeTests`**: builds the main window off screen with the §3.2 configuration (empty unified toolbar) and asserts that the close button's centre is {{layout.trafficLights.centerY}} ± {{layout.trafficLights.tolerance}} pt from the top, that the derived rail width is ≥ the zoom button's `maxX` + {{layout.rail.lightsClearance}}, and that a composer window configured by `QuireWindowChrome` measures the system title bar. `ComposerChromeTests` (SuperSparrowAppTests) builds the real composer, with and without the From row, and asserts its first field row starts at that measured height. A failure means a macOS release moved the lights or the band: re-derive the title-bar metrics (§3.2) rather than nudging numbers.
 - **`ReaderSymbolTests`**: the shell's CSS references only `--sym-*` names in `readerSymbols`, and every name rasterises (`NSImage(systemSymbolName:)` is non-nil).
 - **The invitation card**: `InvitationCardPayloadTests` (its words and states, an earlier revision offering no answer, and that the shell reads every key), the gated `ConversationShellWebViewTests` cases (its place at the indent above the body, small buttons, a click marking the answer and posting it, the permission notice, the cancelled title struck through; the message's mark {{layout.invitation.gapBelow}} below the card and the body {{layout.reader.blockGap}} below the mark once unfolded, every card state folding its message and a message without a card not, the unfold animating straight to the sheet's height and instant under Reduce Motion, Original colors switched under the fold with its notice in view) and `ReaderInvitationTests` (the real reader: an answer reaching the store and the provider, a refused answer taken off the card, the card asking to reconnect and stopping once granted, Open in Calendar's file, a cancellation; the message folded at open in every state, its mark's words, tooltip and pressed state, the attachments staying, the mark and “.” unfolding and folding it, a Space or ↩ on the focused mark (and on the quoted-text toggle under it) let through by the router's Open and by Quick Look of an invite.ics chip and pressing it in the page, “.” moving the focus it hides to the mark, its own quoted text folded under its own toggle, Load images under the fold with its banner and progress in view, and the fold kept and forgotten exactly as the quoted-text toggle's is; `ReaderShortcutsTests`, Space on a focused mark left to the web view). The gated `ReaderInvitationRenderTests` renders the demo's invitations folded and unfolded, light and dark, for looking at.
+- **Find in conversation** (§5.19a): `FindBarTests` (the bar's metrics, colours in four modes, its keys, buttons and VoiceOver), `ConversationFindTests` (the count's words, the shell's reports read totally, the calls, the marks' styles in every body document), the gated `ConversationShellFindTests` (what counts and what does not, marks across elements and their removal, stepping and wrapping, what a step opens, a store refresh, a find loading nothing, the keystroke's time over 30 messages) and `FindInConversationTests` in the real main window (the menu, typing, ↩ and ⇧↩, ⌘G, Esc from the field and from the page, another conversation, a store change, ⌘F still search, the bar's place).
 - **`RadiusScaleTests`** (generated): every `radius` metric in `layout` is on the scale or a listed exception (§4.6). The exception list mirrors `RADIUS_EXCEPTIONS` in `docs/design/source/tokens_def.py`; `tokens.json` does not carry it, so `scripts/tools/quire-tokens.swift` holds it, each exception pinned to its value.
 - Existing signposts stay the gate: `j`/`k` ≤ 16 ms and list refresh ≤ 50 ms on the synthetic mailbox after the row changes, and a hover-while-scrolling run that asserts no avatar cache miss.
 

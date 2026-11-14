@@ -67,6 +67,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     private let builder = RenderPayloadBuilder()
     /// Internal so tests can read the headline as set.
     let header = ReaderHeaderView()
+    /// Find in conversation's bar and its shell traffic (spec §5.19a).
+    let find = ReaderFind()
     private let webContainer = NSView()
     private let quickReply = QuickReplyView()
     private let emptyState = QuireEmptyStateView(sentence: "No conversation selected")
@@ -249,6 +251,11 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             guard let self, let conversation = self.quickSendShown else { return }
             self.onAction?(.reveal(conversation))
         }
+        // The bar floats over the page under the header, so the web view's frame never changes (spec §5.19a).
+        find.host = root
+        find.header = header
+        find.currentSlot = { [weak self] in self?.pool.current }
+        find.focusReader = { [weak self] in self?.focusWebView() }
 
         view = root
         refreshChrome()
@@ -376,6 +383,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         }
         showSignpost = ConversationSignposts.begin(ConversationSignposts.show)
         if currentConversationID != id {
+            // The find bar belongs to the conversation it searched (spec §5.19a).
+            find.close(returningFocus: false)
             // The box shows one thread at a time: its text is parked under the thread it was written for
             // and the new thread's draft, if any, takes its place.
             let draft = drafts.move(boxText: quickReply.text, from: currentConversationID, to: id)
@@ -469,6 +478,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         pool.touch(slot)
         applyBottomInset()
         pushBodyStates(to: slot)
+        find.slotDidChange()
         if let target = selectedMessageID { evaluate("window.ss.target(\(ConversationShellAssets.jsStringLiteral(RenderPayload.messageKey(for: target))))", in: slot) }
         if let state = showSignpost {
             ConversationSignposts.end(ConversationSignposts.show, state)
@@ -503,7 +513,10 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         // A waiter released by the reset may already have re-rendered the current conversation into it.
         guard slot === pool.current, let id = currentConversationID, slot.renderedID != id else { return }
         let prepared = prepare(visibleMessages(for: id))
-        pool.render(prepared.payload, inputs: prepared.inputs, id: id, into: slot)
+        pool.render(prepared.payload, inputs: prepared.inputs, id: id, into: slot) { [weak self] rendered in
+            // A new shell holds no search: an open find bar makes it again.
+            if rendered, slot === self?.pool.current { self?.find.slotDidChange(restarted: true) }
+        }
     }
 
     // MARK: Chrome: header, desk and quick reply
@@ -566,6 +579,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         }
         emptyState.isHidden = showsWeb
         webContainer.isHidden = !showsWeb
+        // Nothing, several or an emptied conversation leaves nothing to search.
+        if !showsWeb { find.close(returningFocus: false) }
         let wasVisible = !quickReply.isHidden
         quickReply.isHidden = !showsReply
         if showsReply {
@@ -978,6 +993,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             focusedAttachment = (id, attachment)
         case let .originalColors(id, on):
             if on { originalColorsShown.insert(id) } else { originalColorsShown.remove(id) }
+        case .find(let result):
+            find.received(result, from: slot)
         case let .action(type, messageID, attachmentID, on, point, value):
             guard let messageID else { return }
             selectedMessageID = messageID
@@ -1491,7 +1508,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         return true
     }
 
-    /// Esc in the quick reply: the main window decides (§6.1 rows 6–7). Without one the field lets go and the
+    /// Esc in the quick reply: the main window decides (§6.1 rows 7 and 9). Without one the field lets go and the
     /// web view takes focus.
     private func quickReplyEscape() {
         if let onAction {
@@ -1725,6 +1742,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
         if ReaderShortcuts.isPlainSpace(charactersIgnoringModifiers: event.charactersIgnoringModifiers, rawModifierFlags: event.modifierFlags.rawValue) {
             guard let responder = window.firstResponder as? NSView, responder.isDescendant(of: view) else { return false }
+            // A focused find-bar button takes Space as any button does.
+            if let bar = find.bar, responder.isDescendant(of: bar) { return false }
             Quire.Motion.finishAll()
             return openQuickLookForSelectedMessage()
         }
@@ -1794,6 +1813,37 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         evaluate("window.ss.toggleOriginal()", in: current)
     }
 
+    /// Edit › Find in Conversation… ⌥⌘F (spec §5.19a). ⌘F stays the list's search.
+    @objc func findInConversation(_ sender: Any?) {
+        guard showsOneConversation else { return }
+        find.open()
+    }
+
+    /// Edit › Find Next ⌘G: the next match, or with the bar closed the kept query found again.
+    @objc func findNextMatch(_ sender: Any?) {
+        guard showsOneConversation else { return }
+        find.step(1)
+    }
+
+    /// Edit › Find Previous ⇧⌘G.
+    @objc func findPreviousMatch(_ sender: Any?) {
+        guard showsOneConversation else { return }
+        find.step(-1)
+    }
+
+    /// Esc while the find bar is open and the keyboard is in the reader (§6.1): the bar closes and the page keeps the
+    /// keyboard. False when there is no bar to close.
+    func closeFindForEscape() -> Bool {
+        guard find.isOpen else { return false }
+        find.close(returningFocus: true)
+        return true
+    }
+
+    private var showsOneConversation: Bool {
+        guard case .one = selection else { return false }
+        return pool.current != nil && !webContainer.isHidden
+    }
+
     /// File › Save Attachments… (spec §5.35): the target message's attachments, copied into a folder the user
     /// picks (Downloads to start with), then shown in the Finder. A file that cannot be fetched marks its chip
     /// “Couldn't download · Retry”, as a failed Quick Look does.
@@ -1855,8 +1905,11 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         case #selector(toggleOriginalColors(_:)):
             menuItem.state = selectedMessageID.map(originalColorsShown.contains) == true ? .on : .off
             return showsOne
-        case #selector(nextMessage(_:)), #selector(previousMessage(_:)), #selector(toggleQuotedText(_:)), #selector(loadImages(_:)):
+        case #selector(nextMessage(_:)), #selector(previousMessage(_:)), #selector(toggleQuotedText(_:)), #selector(loadImages(_:)),
+             #selector(findInConversation(_:)):
             return showsOne
+        case #selector(findNextMatch(_:)), #selector(findPreviousMatch(_:)):
+            return showsOne && find.canStep
         case #selector(saveAttachments(_:)):
             return attachmentTarget.map { !attachments(of: $0).isEmpty } ?? false
         default:

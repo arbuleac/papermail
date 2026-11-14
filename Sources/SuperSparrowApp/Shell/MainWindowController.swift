@@ -880,6 +880,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             list.selectConversations(ids, lead: ids.last)
             present(selection: ids)
         }
+        if CommandLine.arguments.contains(where: { $0.hasPrefix("--snapshot-state=") && $0.contains("find") }) {
+            // Find in conversation (§5.19a): the bar over the demo's first conversation, its matches marked.
+            conversation.whenShownRenderLands(timeout: 10) { [weak self] _ in self?.conversation.find.open(query: "the") }
+        }
         #endif
         return first
     }
@@ -1110,11 +1114,16 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     }
 
     /// Esc outside a text field, by the precedence of §6.1: a visible toast goes first (its undo keeps working
-    /// for the grace period), then focus in the reader returns to the list, then a kept search query clears.
+    /// for the grace period), then an open find bar closes while the reader has the keyboard, then focus in the
+    /// reader returns to the list, then a kept search query clears.
     /// On the list with nothing to undo Esc does nothing, without a beep.
     private func escape() -> Bool {
         if listPane.toasts.isVisible {
             listPane.toasts.dismiss()
+            return true
+        }
+        // An open find bar closes before the reader gives the keyboard back to the list (§6.1).
+        if isReaderFocused, conversation.closeFindForEscape() {
             return true
         }
         if isReaderFocused {
@@ -2079,10 +2088,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     @objc func loadImages(_ sender: Any?) { conversation.loadImages(sender) }
     @objc func toggleOriginalColors(_ sender: Any?) { conversation.toggleOriginalColors(sender) }
     @objc func saveAttachments(_ sender: Any?) { conversation.saveAttachments(sender) }
+    @objc func findInConversation(_ sender: Any?) { conversation.findInConversation(sender) }
+    @objc func findNextMatch(_ sender: Any?) { conversation.findNextMatch(sender) }
+    @objc func findPreviousMatch(_ sender: Any?) { conversation.findPreviousMatch(sender) }
 
     private static let readerCommands: Set<Selector> = [
         #selector(nextMessage(_:)), #selector(previousMessage(_:)), #selector(toggleQuotedText(_:)), #selector(loadImages(_:)),
         #selector(toggleOriginalColors(_:)), #selector(saveAttachments(_:)),
+        #selector(findInConversation(_:)), #selector(findNextMatch(_:)), #selector(findPreviousMatch(_:)),
     ]
 
     @objc func selectAccountShortcut(_ sender: Any?) {
@@ -2189,8 +2202,8 @@ enum PendingSignIn: Equatable {
 extension MainWindowController {
     /// `--snapshot-state=key,notkey,minimal,narrowed,adding,reconnect,signin,toast,search,focus-rail,focus-folder,
     /// focus-action,hover-demo,hover-masthead,many-accounts,ic,graphite,snoozed,later,back,later-menu,later-sheet,
-    /// server-offer,server-searching,server-found,server-nothing,server-failed,server-empty` (debug builds; `several` is
-    /// applied where the first selection is made):
+    /// server-offer,server-searching,server-found,server-nothing,server-failed,server-empty` (debug builds; `several` and
+    /// `find`, the find bar over the first conversation, are applied where the first selection is made):
     /// puts the window in the named states before `--snapshot` captures it, so every state of the chrome can be
     /// compared with the specimen without a screen recording.
     fileprivate func applyDebugSnapshotStates() {

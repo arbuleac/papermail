@@ -254,6 +254,16 @@ enum ComponentGallery {
         disabledSearch.isEnabled = false
         builder.add(disabledSearch, width: 190)
         builder.newline()
+        let finding = QuireFindBar()
+        finding.query = "lisbon"
+        finding.countText = "3 of 12"
+        finding.hasMatches = true
+        builder.add(finding, width: 340, fit: false)
+        let notFound = QuireFindBar()
+        notFound.query = "turbine"
+        notFound.countText = "No matches"
+        builder.add(notFound, width: 340, fit: false)
+        builder.newline()
 
         builder.section("Checkbox · radio · toggle · popup")
         builder.label("checkbox")

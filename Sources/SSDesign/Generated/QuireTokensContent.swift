@@ -88,6 +88,9 @@ extension Quire {
         public static let conceal = "eye.slash"
         public static let invitation = "calendar"
         public static let answered = "checkmark"
+        public static let findInConversation = "text.magnifyingglass"
+        public static let findPrevious = "chevron.up"
+        public static let findNext = "chevron.down"
     }
 
     /// The custom glyphs (spec §4.11): SVG path data in grid units, y down.
@@ -243,6 +246,8 @@ extension Quire {
         QuireCheatSheetSection(title: "View", rows: [
             QuireCheatSheetRow(keys: "⇧⌘I", label: "Load images"),
             QuireCheatSheetRow(keys: "⇧⌘O", label: "Original colors"),
+            QuireCheatSheetRow(keys: "⌥⌘F", label: "Find in conversation"),
+            QuireCheatSheetRow(keys: "⌘G ⇧⌘G", label: "Next · previous match"),
             QuireCheatSheetRow(keys: "⌥⌘C", label: "Compact rows"),
             QuireCheatSheetRow(keys: "⌃⌘S", label: "Show · hide the rail"),
             QuireCheatSheetRow(keys: "⇧⌘N", label: "Check for new mail"),

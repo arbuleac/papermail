@@ -143,6 +143,12 @@ enum MainMenu {
         menu.addItem(item("Select All", #selector(NSText.selectAll(_:)), "a"))
         menu.addItem(.separator())
         menu.addItem(item("Find…", #selector(MainWindowController.focusSearchField(_:)), "f", symbol: Quire.Icon.search))
+        // Find in the open conversation (§5.19a): ⌘F stays the list's search, so this one takes ⌥⌘F; ⌘G and ⇧⌘G are the
+        // Mac's Find Next and Find Previous.
+        menu.addItem(item("Find in Conversation…", #selector(MainWindowController.findInConversation(_:)), "f", [.command, .option],
+                          symbol: Quire.Icon.findInConversation))
+        menu.addItem(item("Find Next", #selector(MainWindowController.findNextMatch(_:)), "g"))
+        menu.addItem(item("Find Previous", #selector(MainWindowController.findPreviousMatch(_:)), "g", [.command, .shift]))
         // Titled by the scope when it validates (“Search Gmail for More”, §5.10). No key equivalent: ↩ in the search
         // field runs it (§5.6), and a menu's plain ↩ would take Return from the list, the composer and every sheet.
         let searchServer = item(ServerSearchRow.menuTitle(for: nil), #selector(MainWindowController.searchServer(_:)))

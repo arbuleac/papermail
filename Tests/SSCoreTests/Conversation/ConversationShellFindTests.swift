@@ -1,0 +1,426 @@
+import WebKit
+import XCTest
+@testable import SSCore
+
+/// Find in conversation (spec §5.19a) in the real shell inside a `WKWebView`: what counts as a match, the marks in the
+/// open frames, stepping, what a step opens (a collapsed message, a folded run, quoted text), refreshes from the store,
+/// and the content rules still holding. Gated behind `SS_UI_TESTS=1` like the shell's other web view tests.
+@MainActor
+final class ConversationShellFindTests: XCTestCase {
+    @MainActor
+    private final class ShellMessages: NSObject, WKScriptMessageHandler {
+        private(set) var isReady = false
+        private(set) var received: [[String: Any]] = []
+
+        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+            if let body = message.body as? [String: Any] { received.append(body) }
+            if message.name == ConversationShellAssets.readyHandlerName { isReady = true }
+        }
+
+        var finds: [[String: Any]] { received.filter { ($0["kind"] as? String) == "find" } }
+    }
+
+    @MainActor
+    private final class SchemeStub: NSObject, WKURLSchemeHandler {
+        private(set) var paths: [String] = []
+
+        func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
+            guard let url = urlSchemeTask.request.url,
+                  let response = HTTPURLResponse(url: url, statusCode: 404, httpVersion: "HTTP/1.1", headerFields: ["Content-Length": "0"])
+            else { return }
+            if url.scheme == "ss-remote" { paths.append(url.path) }
+            urlSchemeTask.didReceive(response)
+            urlSchemeTask.didFinish()
+        }
+
+        func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {}
+    }
+
+    private typealias F = ConversationFixtures
+    private var configuration: WKWebViewConfiguration?
+    private let schemes = SchemeStub()
+
+    override func tearDown() {
+        configuration?.userContentController.removeAllScriptMessageHandlers()
+        configuration = nil
+        super.tearDown()
+    }
+
+    // MARK: What matches
+
+    func testEveryMessageCountsAndOnlyOpenFramesAreMarked() async throws {
+        let (webView, handler) = try await loadedShell()
+        let messages = [
+            F.message("m1", date: F.utc(2025, 3, 1, 9, 0)),
+            F.message("m2", date: F.utc(2025, 3, 2, 9, 0)),
+            F.message("m3", date: F.utc(2025, 3, 3, 9, 0)),
+        ]
+        let bodies = [
+            messages[0].id: F.body(html: "<p>The engine is ready.</p>"),
+            messages[1].id: F.body(html: "<p>Engine two.</p><div class=\"ss-quote\"><p>An old engine.</p></div>"),
+            messages[2].id: F.body(html: "<p>Nothing but an ENGINE here.</p>"),
+        ]
+        try await render(messages, bodies: bodies, in: webView)
+        try await waitForFrames(in: webView)
+
+        let result = try await state("window.ss.find('engine')", in: webView)
+        XCTAssertEqual(result["count"] as? Int, 4, "collapsed messages and quoted text count too: \(result)")
+        XCTAssertEqual(result["index"] as? Int, 0, "nothing is scrolled past: the first match is the current one")
+        // The first message opens for its match and is marked once its frame loads; the second, collapsed, has its two
+        // matches counted but no frame to mark.
+        try await waitUntil("window.ss.findState().marks === 2", in: webView)
+        let second = try await cardState(messages[1], in: webView)
+        XCTAssertEqual(second["expanded"] as? Bool, false)
+        XCTAssertEqual(handler.finds.last?["count"] as? Int, 4, "the count is posted for the bar")
+        XCTAssertEqual(handler.finds.last?["query"] as? String, "engine")
+
+        let none = try await state("window.ss.find('turbine')", in: webView)
+        XCTAssertEqual(none["count"] as? Int, 0)
+        XCTAssertEqual(none["index"] as? Int, -1)
+        let marks = try await findState(in: webView)["marks"] as? Int
+        XCTAssertEqual(marks, 0, "the last search's marks go")
+    }
+
+    func testCaseAccentsAndWhiteSpaceFoldButBlocksDoNot() async throws {
+        let (webView, _) = try await loadedShell()
+        let message = F.message("m1")
+        let html = "<p>Caf\u{E9}   au&nbsp;lait,\n  please.</p><p>The end</p><p>start of the next</p>"
+            + "<span style=\"display: none\">hidden preheader</span><p>Hello <b>wor</b>ld</p><p>stra\u{DF}e</p>"
+        try await render([message], bodies: [message.id: F.body(html: html)], in: webView)
+        try await waitForFrames(in: webView)
+
+        for (query, expected) in [("cafe au lait", 1), ("CAFÉ AU", 1), ("lait, please", 1), ("end start", 0), ("preheader", 0),
+                                  ("hello world", 1), ("straße", 1), ("   ", 0)] {
+            let result = try await state("window.ss.find(\(ConversationShellAssets.jsStringLiteral(query)))", in: webView)
+            XCTAssertEqual(result["count"] as? Int, expected, "“\(query)”")
+        }
+        _ = try await evaluate("window.ss.find('hello world')", in: webView)
+        let pieces = try await evaluate("""
+            Array.prototype.map.call(document.querySelector('.ss-card iframe').contentDocument.querySelectorAll('mark.ss-find'),
+              function (m) { return m.textContent; }).join('|')
+            """, in: webView) as? String
+        XCTAssertEqual(pieces, "Hello |wor|ld", "a match across elements is marked piece by piece")
+        let current = try await evaluate("""
+            document.querySelector('.ss-card iframe').contentDocument.querySelectorAll('mark.ss-find.ss-find-now').length
+            """, in: webView) as? Int
+        XCTAssertEqual(current, 3, "every piece of the current match carries the ring")
+    }
+
+    func testClearingPutsTheBodyBackAsItWas() async throws {
+        let (webView, handler) = try await loadedShell()
+        let message = F.message("m1")
+        let html = "<p>One <a href=\"https://example.com\">engine</a>, two engines, <i>en</i>gine.</p><table><tr><td>engine</td></tr></table>"
+        try await render([message], bodies: [message.id: F.body(html: html)], in: webView)
+        try await waitForFrames(in: webView)
+        let body = "document.querySelector('.ss-card iframe').contentDocument.body"
+        let before = try await evaluate("\(body).innerHTML", in: webView) as? String
+        let found = try await state("window.ss.find('engine')", in: webView)
+        XCTAssertEqual(found["count"] as? Int, 4)
+        let marked = try await evaluate("\(body).innerHTML", in: webView) as? String
+        XCTAssertNotEqual(marked, before)
+        _ = try await evaluate("window.ss.findClear()", in: webView)
+        let after = try await evaluate("\(body).innerHTML", in: webView) as? String
+        XCTAssertEqual(after, before, "the marks come out and the text nodes join up again")
+        let nodes = try await evaluate("\(body).querySelector('p').childNodes.length", in: webView) as? Int
+        XCTAssertEqual(nodes, 5, "“One ”, the link, “, two engines, ”, the italic and “gine.” put back as parsed")
+        XCTAssertEqual(handler.finds.last?["query"] as? String, "")
+        XCTAssertEqual(handler.finds.last?["count"] as? Int, 0)
+    }
+
+    // MARK: Stepping and what it opens
+
+    func testSteppingWrapsAndOpensWhatHidesTheMatch() async throws {
+        let (webView, handler) = try await loadedShell()
+        let messages = (1...3).map { F.message("m\($0)", date: F.utc(2025, 3, $0, 9, 0)) }
+        let bodies = [
+            messages[0].id: F.body(html: "<p>First word.</p>"),
+            messages[1].id: F.body(html: "<p>Reply.</p><div class=\"ss-quote\"><p>On Monday you wrote: word.</p></div>"),
+            messages[2].id: F.body(html: "<p>Last word.</p>"),
+        ]
+        try await render(messages, bodies: bodies, in: webView)
+        try await waitForFrames(in: webView)
+        _ = try await evaluate("window.scrollTo(0, 0)", in: webView)
+
+        let first = try await state("window.ss.find('word')", in: webView)
+        XCTAssertEqual(first["count"] as? Int, 3)
+        XCTAssertEqual(first["index"] as? Int, 0, "the page is at the top: the first match")
+        var current = try await currentMatch(in: webView)
+        XCTAssertEqual(current["id"] as? String, RenderPayload.messageKey(for: messages[0].id))
+        let firstOpen = try await cardState(messages[0], in: webView)
+        XCTAssertEqual(firstOpen["expanded"] as? Bool, true, "the collapsed message holding the match opens")
+        let target = try await evaluate("window.ss.selectedMessageID()", in: webView) as? String
+        XCTAssertEqual(target, RenderPayload.messageKey(for: messages[0].id), "and becomes the target")
+
+        let second = try await state("window.ss.findStep(1)", in: webView)
+        XCTAssertEqual(second["index"] as? Int, 1)
+        current = try await currentMatch(in: webView)
+        XCTAssertEqual(current["quoted"] as? Bool, true)
+        let quoted = try await cardState(messages[1], in: webView)
+        XCTAssertEqual(quoted["expanded"] as? Bool, true)
+        XCTAssertEqual(quoted["quotesShown"] as? Bool, true, "quoted text holding the current match unfolds")
+        try await waitUntil("window.ss.findState().current.marked === true", in: webView)
+        let label = try await evaluate("""
+            document.querySelector('.ss-card[data-id="\(RenderPayload.messageKey(for: messages[1].id))"] .ss-toggle-quote').textContent
+            """, in: webView) as? String
+        XCTAssertEqual(label, "Hide quoted text", "the mark says the quote is open, and “.” folds it again")
+
+        let third = try await state("window.ss.findStep(1)", in: webView)
+        XCTAssertEqual(third["index"] as? Int, 2)
+        let wrapped = try await state("window.ss.findStep(1)", in: webView)
+        XCTAssertEqual(wrapped["index"] as? Int, 0, "after the last match comes the first")
+        let back = try await state("window.ss.findStep(-1)", in: webView)
+        XCTAssertEqual(back["index"] as? Int, 2, "and before the first, the last")
+
+        _ = try await evaluate("window.ss.findClear()", in: webView)
+        let stillOpen = try await cardState(messages[1], in: webView)
+        XCTAssertEqual(stillOpen["quotesShown"] as? Bool, true, "what the find opened stays open")
+        XCTAssertEqual(handler.finds.map { $0["index"] as? Int }, [0, 1, 2, 0, 2, -1])
+    }
+
+    func testAMatchInAFoldedRunUnfoldsIt() async throws {
+        let (webView, _) = try await loadedShell()
+        let messages = (1...9).map { F.message("m\($0)", date: F.utc(2025, 3, $0, 9, 0)) }
+        var bodies: [MessageID: StoredBody] = [:]
+        for (index, message) in messages.enumerated() {
+            bodies[message.id] = F.body(html: index == 4 ? "<p>The needle.</p>" : "<p>Hay.</p>")
+        }
+        try await render(messages, bodies: bodies, in: webView)
+        let folds = try await count(".ss-fold", in: webView)
+        XCTAssertEqual(folds, 1)
+        let result = try await state("window.ss.find('needle')", in: webView)
+        XCTAssertEqual(result["count"] as? Int, 1)
+        let after = try await count(".ss-fold", in: webView)
+        XCTAssertEqual(after, 0, "the run opens")
+        let open = try await cardState(messages[4], in: webView)
+        XCTAssertEqual(open["expanded"] as? Bool, true)
+        try await waitUntil("window.ss.findState().marks === 1", in: webView)
+    }
+
+    func testAMatchUnderAnInvitationCardUnfoldsTheMessage() async throws {
+        let (webView, _) = try await loadedShell()
+        let message = F.message("m1", isRead: false)
+        var body = F.body(html: "<p>Agenda: the quarterly figures.</p>")
+        body.invitation = CalendarInvitation(
+            method: .request, uid: "uid-1", title: "Design review", start: F.utc(2025, 3, 11, 15), end: F.utc(2025, 3, 11, 16),
+            organizer: CalendarInvitation.Person(name: "Ben Carter", address: "ben@example.com"),
+            attendees: [CalendarInvitation.Person(address: "me@example.com", response: .needsAction)],
+            userAddress: "me@example.com", userResponse: .needsAction, calendarText: "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n")
+        try await render([message], bodies: [message.id: body], in: webView)
+        try await waitForFrames(in: webView)
+        let folded = try await cardState(message, in: webView)
+        XCTAssertEqual(folded["foldsMessage"] as? Bool, true)
+        XCTAssertEqual(folded["messageShown"] as? Bool, false, "the message starts folded under its card")
+        let result = try await state("window.ss.find('quarterly')", in: webView)
+        XCTAssertEqual(result["count"] as? Int, 1)
+        let shown = try await cardState(message, in: webView)
+        XCTAssertEqual(shown["messageShown"] as? Bool, true, "the message holding the current match unfolds")
+        let card = try await state("window.ss.find('design review')", in: webView)
+        XCTAssertEqual(card["count"] as? Int, 0, "the card's own words are the header's, not the message's")
+    }
+
+    /// The find keystroke's budget row (docs/ARCHITECTURE.md): a common word over a long conversation, most of it
+    /// collapsed, with the open messages marked. Printed for the record; asserted against the budget.
+    func testAFindOverALongConversationStaysInsideItsBudget() async throws {
+        let (webView, _) = try await loadedShell()
+        let paragraph = "<p>The quarterly figures for the northern region are attached, and the team will review them on Monday.</p>"
+        let messages = (1...30).map { F.message("m\($0)", date: F.utc(2025, 3, 1, 9, $0), isRead: $0 < 28) }
+        var bodies: [MessageID: StoredBody] = [:]
+        for message in messages {
+            // About 20 KB of text each, half of it quoted.
+            let text = String(repeating: paragraph, count: 90)
+            bodies[message.id] = F.body(html: "<div>" + text + "</div><div class=\"ss-quote\">" + text + "</div>")
+        }
+        try await render(messages, bodies: bodies, in: webView)
+        try await waitForFrames(in: webView)
+        // The first find parses the collapsed bodies once; later keystrokes read the kept text.
+        _ = try await evaluate("window.ss.find('t')", in: webView)
+        var timings: [Double] = []
+        for query in ["th", "the", "the ", "the q", "the qu"] {
+            let ms = try await evaluate("""
+                (function () { var t = performance.now(); window.ss.find(\(ConversationShellAssets.jsStringLiteral(query)));
+                  return performance.now() - t; })()
+                """, in: webView) as? Double ?? .infinity
+            timings.append(ms)
+        }
+        let found = try await findState(in: webView)
+        XCTAssertEqual(found["count"] as? Int, 30 * 180, "every paragraph of every message, quoted text included")
+        print("Find keystroke over 30 messages (ms): \(timings.map { String(format: "%.1f", $0) }.joined(separator: ", "))")
+        let budget: Double = 50
+        XCTAssertLessThan(timings.sorted()[timings.count / 2], budget, "median keystroke: \(timings)")
+    }
+
+    func testTheCurrentMatchIsScrolledIntoView() async throws {
+        let (webView, _) = try await loadedShell()
+        let messages = (1...3).map { F.message("m\($0)", date: F.utc(2025, 3, $0, 9, 0), isRead: false) }
+        var bodies: [MessageID: StoredBody] = [:]
+        for (index, message) in messages.enumerated() {
+            bodies[message.id] = F.body(html: "<div style=\"height:900px\">Filler \(index)</div><p>Marker \(index)</p>")
+        }
+        try await render(messages, bodies: bodies, in: webView)
+        try await waitForFrames(in: webView)
+        _ = try await evaluate("window.scrollTo(0, 0)", in: webView)
+        _ = try await evaluate("window.ss.find('marker 2')", in: webView)
+        let place = numbers(try await evaluate("""
+            (function () {
+              var frame = document.querySelector('.ss-card[data-id="\(RenderPayload.messageKey(for: messages[2].id))"] iframe');
+              var mark = frame.contentDocument.querySelector('mark.ss-find');
+              return [frame.getBoundingClientRect().top + mark.getBoundingClientRect().top, window.innerHeight, window.scrollY,
+                      frame.contentDocument.scrollingElement.scrollTop];
+            })()
+            """, in: webView))
+        XCTAssertEqual(place.count, 4)
+        XCTAssertGreaterThan(place[2], 0, "the page scrolled")
+        XCTAssertGreaterThanOrEqual(place[0], 0, "the match is on screen: \(place)")
+        XCTAssertLessThan(place[0], place[1], "the match is on screen: \(place)")
+        XCTAssertEqual(place[3], 0, "the frame itself never scrolls")
+    }
+
+    // MARK: Refreshes
+
+    func testAStoreRefreshKeepsTheSearchAndTheCurrentMatch() async throws {
+        let (webView, handler) = try await loadedShell()
+        let messages = (1...2).map { F.message("m\($0)", date: F.utc(2025, 3, $0, 9, 0), isRead: false) }
+        var bodies: [MessageID: StoredBody] = [
+            messages[0].id: F.body(html: "<p>alpha beta alpha</p>"),
+            messages[1].id: F.body(html: "<p>alpha</p>"),
+        ]
+        try await render(messages, bodies: bodies, in: webView)
+        try await waitForFrames(in: webView)
+        _ = try await evaluate("window.scrollTo(0, 0)", in: webView)
+        _ = try await evaluate("window.ss.find('alpha')", in: webView)
+        _ = try await evaluate("window.ss.findStep(1)", in: webView)
+        let scrolled = try await evaluate("window.scrollY", in: webView)
+
+        let third = F.message("m3", date: F.utc(2025, 3, 3, 9, 0), isRead: false)
+        bodies[third.id] = F.body(html: "<p>alpha again</p>")
+        let payload = F.builder.build(messages: messages.map { var m = $0; m.isRead = true; return m } + [third], bodies: bodies,
+                                      accounts: F.accounts, now: F.utc(2025, 3, 20, 9, 0))
+        _ = try await evaluate("window.ss.update(\(try payload.jsonString()))", in: webView)
+        let after = try await findState(in: webView)
+        XCTAssertEqual(after["count"] as? Int, 4, "the new message's match counts")
+        XCTAssertEqual(after["index"] as? Int, 1, "the current match stays where it was")
+        let stayed = try await evaluate("window.scrollY", in: webView) as? Double
+        XCTAssertEqual(stayed, scrolled as? Double, "a refresh never scrolls")
+        XCTAssertEqual(handler.finds.last?["count"] as? Int, 4, "the bar hears of it")
+
+        let other = F.message("x1", subject: "Another")
+        let elsewhere = F.builder.build(messages: [other], bodies: [other.id: F.body(html: "<p>alpha</p>")], accounts: F.accounts,
+                                        now: F.utc(2025, 3, 20, 9, 0))
+        _ = try await evaluate("window.ss.render(\(try elsewhere.jsonString()))", in: webView)
+        let gone = try await findState(in: webView)
+        XCTAssertEqual(gone["query"] as? String, "", "another conversation starts with no search")
+        XCTAssertEqual(handler.finds.last?["count"] as? Int, 0)
+    }
+
+    // MARK: Content rules
+
+    func testFindingLoadsNothingAndBodiesKeepTheirPolicy() async throws {
+        let (webView, _) = try await loadedShell()
+        let messages = (1...2).map { F.message("m\($0)", date: F.utc(2025, 3, $0, 9, 0)) }
+        let bodies = [
+            // Collapsed: read through DOMParser, whose document fetches nothing.
+            messages[0].id: F.body(html: "<p>Remote <img src=\"ss-remote://host/collapsed.png\"> picture</p>"),
+            messages[1].id: F.body(html: "<p>Remote <img src=\"ss-remote://host/open.png\"> picture</p>"),
+        ]
+        try await render(messages, bodies: bodies, in: webView)
+        try await waitForFrames(in: webView)
+        let result = try await state("window.ss.find('picture')", in: webView)
+        XCTAssertEqual(result["count"] as? Int, 2)
+        _ = try await evaluate("window.ss.findStep(-1)", in: webView)
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(schemes.paths, [], "no image is fetched, by the parse or by a frame the find opened")
+        let policies = try await evaluate("""
+            Array.prototype.map.call(document.querySelectorAll('.ss-card iframe'), function (f) {
+              return !!f.contentDocument.querySelector('meta[http-equiv="Content-Security-Policy"]');
+            }).join(',')
+            """, in: webView) as? String
+        XCTAssertEqual(policies, "true,true", "every frame, the one the find opened too, keeps the blocking policy")
+        let scripts = try await evaluate("document.querySelectorAll('.ss-card iframe[sandbox=\"allow-same-origin\"]').length", in: webView) as? Int
+        XCTAssertEqual(scripts, 2, "the frames stay sandboxed with no scripts")
+    }
+
+    // MARK: Helpers
+
+    private func loadedShell() async throws -> (WKWebView, ShellMessages) {
+        guard ProcessInfo.processInfo.environment["SS_UI_TESTS"] == "1" else {
+            throw XCTSkip("Set SS_UI_TESTS=1 to drive WebKit")
+        }
+        let handler = ShellMessages()
+        let configuration = WKWebViewConfiguration()
+        configuration.setURLSchemeHandler(schemes, forURLScheme: ConversationShellAssets.scheme)
+        configuration.setURLSchemeHandler(schemes, forURLScheme: "ss-remote")
+        configuration.userContentController.add(handler, name: ConversationShellAssets.readyHandlerName)
+        configuration.userContentController.add(handler, name: ConversationShellAssets.messageHandlerName)
+        self.configuration = configuration
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 800, height: 600), configuration: configuration)
+        webView.loadHTMLString(ConversationShellAssets.html, baseURL: ConversationShellAssets.baseURL)
+        var attempts = 0
+        while !handler.isReady, attempts < 200 {
+            try await Task.sleep(nanoseconds: 100_000_000)
+            attempts += 1
+        }
+        guard handler.isReady else { throw XCTSkip("no shell") }
+        return (webView, handler)
+    }
+
+    private func render(_ messages: [MessageMetadata], bodies: [MessageID: StoredBody], in webView: WKWebView) async throws {
+        let payload = F.builder.build(messages: messages, bodies: bodies, accounts: F.accounts, now: F.utc(2025, 3, 20, 9, 0))
+        _ = try await evaluate("window.ss.render(\(try payload.jsonString()))", in: webView)
+    }
+
+    /// Every frame built so far has loaded and been measured.
+    private func waitForFrames(in webView: WKWebView) async throws {
+        for _ in 0..<100 {
+            let heights = numbers(try await evaluate("window.ss.measureAll(); window.ss.iframeHeights()", in: webView)).filter { $0 >= 0 }
+            if !heights.isEmpty, heights.allSatisfy({ $0 > 0 }) { return }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        XCTFail("frames never measured")
+    }
+
+    private func waitUntil(_ condition: String, in webView: WKWebView) async throws {
+        for _ in 0..<50 {
+            if try await evaluate("!!(\(condition))", in: webView) as? Bool == true { return }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        XCTFail("never: \(condition)")
+    }
+
+    private func state(_ script: String, in webView: WKWebView) async throws -> [String: Any] {
+        try await evaluate(script, in: webView) as? [String: Any] ?? [:]
+    }
+
+    private func findState(in webView: WKWebView) async throws -> [String: Any] {
+        try await state("window.ss.findState()", in: webView)
+    }
+
+    private func currentMatch(in webView: WKWebView) async throws -> [String: Any] {
+        try await findState(in: webView)["current"] as? [String: Any] ?? [:]
+    }
+
+    private func cardState(_ message: MessageMetadata, in webView: WKWebView) async throws -> [String: Any] {
+        let key = RenderPayload.messageKey(for: message.id)
+        let states = try await evaluate("window.ss.cardStates()", in: webView) as? [[String: Any]] ?? []
+        return states.first { ($0["id"] as? String) == key } ?? [:]
+    }
+
+    private func count(_ selector: String, in webView: WKWebView) async throws -> Int? {
+        try await evaluate("document.querySelectorAll(\(ConversationShellAssets.jsStringLiteral(selector))).length", in: webView) as? Int
+    }
+
+    private func evaluate(_ script: String, in webView: WKWebView) async throws -> Any? {
+        try await withCheckedThrowingContinuation { continuation in
+            webView.evaluateJavaScript(script) { result, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: result)
+                }
+            }
+        }
+    }
+
+    private func numbers(_ value: Any?) -> [Double] {
+        (value as? [NSNumber])?.map(\.doubleValue) ?? []
+    }
+}
