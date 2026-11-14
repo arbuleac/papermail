@@ -569,6 +569,34 @@ final class ReaderWindowTests: XCTestCase {
         harness.close()
     }
 
+    /// View › Inbox, Starred and the rest, and ⌘0 to ⌘9, act in the main window, which comes forward, as G I and the other
+    /// sequences listed beside them do in a reader window (§5.49). A reader window answered none of them, so the items
+    /// were disabled there while their keys worked.
+    func testTheViewMenusMailboxesAndAccountsWorkFromAWindow() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let (_, reader) = try open(0, harness)
+        let viewTag = try XCTUnwrap(MailboxView.allCases.firstIndex(of: .starred))
+        let starred = NSMenuItem(title: "Starred", action: #selector(MainWindowController.goToMailboxView(_:)), keyEquivalent: "")
+        starred.tag = viewTag
+        XCTAssertTrue(reader.responds(to: starred.action), "the window answers the item")
+        XCTAssertTrue(reader.validateMenuItem(starred))
+        reader.goToMailboxView(starred)
+        harness.spin { harness.list.query.view == .starred }
+        XCTAssertEqual(harness.list.query.view, .starred)
+
+        let account = NSMenuItem(title: "Account 1", action: #selector(MainWindowController.selectAccountShortcut(_:)), keyEquivalent: "1")
+        account.tag = 1
+        XCTAssertTrue(reader.responds(to: account.action))
+        XCTAssertTrue(reader.validateMenuItem(account))
+        reader.selectAccountShortcut(account)
+        harness.spin { harness.list.query.accountIDs == [ListTestSupport.accountA.id] }
+        XCTAssertEqual(harness.list.query.accountIDs, [ListTestSupport.accountA.id])
+        let missing = NSMenuItem(title: "Account 9", action: #selector(MainWindowController.selectAccountShortcut(_:)), keyEquivalent: "9")
+        missing.tag = 9
+        XCTAssertFalse(reader.validateMenuItem(missing), "an account that is not there, as in the main window")
+    }
+
     /// Find's words are the session's (§5.50), not one reader's: found in the main window, Find Next is enabled in a
     /// reader window opened afterwards and ⌘G there opens the bar with them, as ⌥⌘F does; words typed in a window reach
     /// the main window's ⌘G too. Each reader kept its own, so a new window's Find Next was disabled and ⌘G beeped.

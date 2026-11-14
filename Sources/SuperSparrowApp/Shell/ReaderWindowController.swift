@@ -302,6 +302,19 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
         opener?.focusSearchField(sender)
     }
 
+    /// View › Inbox, Starred and the rest act in the main window, which comes forward on that view, as the G-sequences
+    /// listed beside them do here (§5.49).
+    @objc func goToMailboxView(_ sender: Any?) {
+        opener?.comeForward()
+        opener?.goToMailboxView(sender)
+    }
+
+    /// View › All Inboxes and the accounts (⌘0 to ⌘9): the main window comes forward on that account.
+    @objc func selectAccountShortcut(_ sender: Any?) {
+        opener?.comeForward()
+        opener?.selectAccountShortcut(sender)
+    }
+
     @objc func nextMessage(_ sender: Any?) { conversation.nextMessage(sender) }
     @objc func previousMessage(_ sender: Any?) { conversation.previousMessage(sender) }
     @objc func toggleQuotedText(_ sender: Any?) { conversation.toggleQuotedText(sender) }
@@ -387,6 +400,9 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
             return conversation.unsubscribeTarget != nil
         case #selector(focusSearchField(_:)):
             return opener?.keyboardWindow != nil
+        case #selector(goToMailboxView(_:)), #selector(selectAccountShortcut(_:)):
+            // As the main window answers them, which is where they act.
+            return opener?.validateMenuItem(menuItem) ?? false
         default:
             return true
         }
