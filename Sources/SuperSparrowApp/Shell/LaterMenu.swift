@@ -36,9 +36,11 @@ enum LaterMenu {
 
     /// One item per named time, each name followed by its time in `ink3` on a right tab stop past the longest name, written
     /// as the rows write times; each carries its time as its `representedObject`. Later's presets and Send Later's
-    /// (§5.23) are set the same way. `help` words a time for VoiceOver.
+    /// (§5.23) are set the same way. `help` words a time for VoiceOver; `showsHelp` puts the same words in the item's
+    /// tooltip, for a time that holds a condition a sighted user must see too (Send Later's: only while the app is open,
+    /// §5.46).
     static func timedItems(_ entries: [(title: String, date: Date)], now: Date, formatter: DateFormatting, target: AnyObject,
-                           action: Selector, help: (String) -> String) -> [NSMenuItem] {
+                           action: Selector, showsHelp: Bool = false, help: (String) -> String) -> [NSMenuItem] {
         let reference = formatter.reference(now: now)
         let times = entries.map { formatter.dueTime(for: $0.date, reference: reference) }
         let font = NSFont.menuFont(ofSize: 0)
@@ -56,7 +58,9 @@ enum LaterMenu {
             title.append(NSAttributedString(string: "\t" + time, attributes: [.font: font, .paragraphStyle: style,
                                                                               .foregroundColor: NSColor.qInk3]))
             item.attributedTitle = title
-            item.setAccessibilityHelp(help(time))
+            let words = help(time)
+            item.setAccessibilityHelp(words)
+            if showsHelp { item.toolTip = words }
             items.append(item)
         }
         return items

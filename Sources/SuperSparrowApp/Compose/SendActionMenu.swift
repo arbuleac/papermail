@@ -49,7 +49,9 @@ final class SendActionMenu: NSObject {
     private func laterItems(now: Date) -> [NSMenuItem] {
         let offered = SendLaterPreset.offered(at: now, calendar: .autoupdatingCurrent).map { (title: $0.preset.title, date: $0.date) }
         var items: [NSMenuItem] = [.sectionHeader(title: SendLaterCopy.command)]
-        items += LaterMenu.timedItems(offered, now: now, formatter: formatter, target: self, action: #selector(chosenTime(_:))) {
+        // The time sends only while SuperSparrow is open: said in the tooltip, as the Drafts row and the sheet say it.
+        items += LaterMenu.timedItems(offered, now: now, formatter: formatter, target: self, action: #selector(chosenTime(_:)),
+                                      showsHelp: true) {
             SendLaterCopy.help($0)
         }
         let pick = NSMenuItem(title: SendLaterCopy.pickTime, action: #selector(pickTime(_:)), keyEquivalent: "")

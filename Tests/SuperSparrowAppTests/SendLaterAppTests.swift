@@ -115,6 +115,18 @@ final class SendLaterAppTests: XCTestCase {
 
         let later = composer.sendLaterMenu()
         XCTAssertEqual(later.items.map { name(of: $0) }, ["Send Later"] + offered.map(\.preset.title) + ["Pick a Time…"])
+        // Each time says, where a sighted user sees it, that it sends only while the app is open (spec §5.46).
+        for (item, preset) in zip(times, offered) {
+            XCTAssertEqual(item.toolTip, "Sends " + time(preset.date) + " while SuperSparrow is open")
+            XCTAssertEqual(item.accessibilityHelp(), item.toolTip)
+        }
+        for (item, preset) in zip(later.items.dropFirst().dropLast(), offered) {
+            XCTAssertEqual(item.toolTip, "Sends " + time(preset.date) + " while SuperSparrow is open", "under ⇧⌘L too")
+        }
+        // Later's own times have no such condition and keep their words for VoiceOver alone.
+        let snooze = LaterMenu.build(now: Date(), formatter: formatter, target: self, presetAction: #selector(NSObject.copy),
+                                     pickAction: #selector(NSObject.copy))
+        XCTAssertTrue(snooze.items.allSatisfy { $0.toolTip == nil })
 
         let previous = (MainMenuController.shared, NSApp.windowsMenu, NSApp.helpMenu)
         defer { (MainMenuController.shared, NSApp.windowsMenu, NSApp.helpMenu) = previous }
