@@ -2,7 +2,7 @@ import Foundation
 import SSCore
 
 /// Saves attachment files into a folder the user sees (Downloads for the chip's Download, Download all and Save to
-/// Downloads; the folder Save Attachments… asks for), spec §5.17. The files come from the reader's per-session folder,
+/// Downloads; the folder Save Attachments… asks for; the place Save As… chose), spec §5.17. The files come from the reader's per-session folder,
 /// already quarantined (`AttachmentSafety`); a copy keeps the mark, one that somehow lost it is marked again, and one
 /// that cannot be marked is removed, so nothing saved from mail ever runs without Gatekeeper asking.
 @MainActor
@@ -26,21 +26,43 @@ enum AttachmentSaver {
                 logFailure(error)
                 return nil
             }
-            do {
-                if !AttachmentSafety.isQuarantined(destination) {
-                    try mark(destination)
-                    // Read back from disk through a URL with no cached values: a volume may take the mark and keep
-                    // nothing.
-                    guard AttachmentSafety.isQuarantined(URL(fileURLWithPath: destination.path)) else { throw CocoaError(.fileWriteUnknown) }
-                }
-                return destination
-            } catch {
-                try? manager.removeItem(at: destination)
-                logFailure(error)
-                return nil
-            }
+            return ensureQuarantined(destination, mark: mark) ? destination : nil
         }
         return nil
+    }
+
+    /// Save As…: copies `file` to `destination`, the place the save panel chose, replacing what is there (the panel has
+    /// asked). False when nothing was saved, the copy failing or the copy that could not be quarantined removed, as
+    /// `copy(_:into:mark:)` does.
+    static func copy(_ file: URL, to destination: URL, mark: (URL) throws -> Void = AttachmentSafety.quarantine) -> Bool {
+        let manager = FileManager.default
+        do {
+            if manager.fileExists(atPath: destination.path) {
+                try manager.removeItem(at: destination)
+            }
+            try manager.copyItem(at: file, to: destination)
+        } catch {
+            logFailure(error)
+            return false
+        }
+        return ensureQuarantined(destination, mark: mark)
+    }
+
+    /// Makes sure the copy at `destination` carries the quarantine: one that lost it is marked again and the mark read
+    /// back; one that cannot keep it is removed and the failure logged. True when the copy stays.
+    private static func ensureQuarantined(_ destination: URL, mark: (URL) throws -> Void) -> Bool {
+        do {
+            if !AttachmentSafety.isQuarantined(destination) {
+                try mark(destination)
+                // Read back from disk through a URL with no cached values: a volume may take the mark and keep nothing.
+                guard AttachmentSafety.isQuarantined(URL(fileURLWithPath: destination.path)) else { throw CocoaError(.fileWriteUnknown) }
+            }
+            return true
+        } catch {
+            try? FileManager.default.removeItem(at: destination)
+            logFailure(error)
+            return false
+        }
     }
 
     /// Fetches each of `infos` in turn and copies it into `folder`: Download all and Save Attachments…. `fetch` is the

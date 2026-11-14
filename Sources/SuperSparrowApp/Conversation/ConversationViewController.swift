@@ -1576,15 +1576,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
                 panel.nameFieldStringValue = file.lastPathComponent
                 let save: (NSApplication.ModalResponse) -> Void = { response in
                     guard response == .OK, let destination = panel.url else { return }
-                    do {
-                        if FileManager.default.fileExists(atPath: destination.path) {
-                            try FileManager.default.removeItem(at: destination)
-                        }
-                        try FileManager.default.copyItem(at: file, to: destination)
-                    } catch {
-                        AttachmentSaver.logFailure(error)
-                        NSSound.beep()
-                    }
+                    if !AttachmentSaver.copy(file, to: destination) { NSSound.beep() }
                 }
                 if let window { panel.beginSheetModal(for: window, completionHandler: save) } else { save(panel.runModal()) }
             case .copy:

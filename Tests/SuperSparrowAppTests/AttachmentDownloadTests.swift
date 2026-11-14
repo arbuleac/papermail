@@ -77,6 +77,25 @@ final class AttachmentDownloadTests: XCTestCase {
         XCTAssertEqual(AttachmentSaver.copy(source, into: downloads)?.lastPathComponent, "run.command", "the name was not taken")
     }
 
+    /// Save As… writes where the panel chose, replacing what is there, and holds the copy to the same rule: one that
+    /// lost the mark is marked again, one that cannot keep it is removed and the save fails.
+    func testSaveAsKeepsTheQuarantineOrSavesNothing() throws {
+        let source = folder.appendingPathComponent("run.command")
+        try Data("#!/bin/sh\n".utf8).write(to: source)
+        XCTAssertFalse(AttachmentSafety.isQuarantined(source))
+        let destination = downloads.appendingPathComponent("chosen.command")
+        try Data("old".utf8).write(to: destination)
+        XCTAssertTrue(AttachmentSaver.copy(source, to: destination))
+        XCTAssertEqual(try Data(contentsOf: destination), Data("#!/bin/sh\n".utf8), "the file the panel confirmed is replaced")
+        XCTAssertTrue(AttachmentSafety.isQuarantined(URL(fileURLWithPath: destination.path)))
+
+        struct Refused: Error {}
+        XCTAssertFalse(AttachmentSaver.copy(source, to: destination, mark: { _ in throw Refused() }))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path), "an unmarked copy is not left there")
+        XCTAssertFalse(AttachmentSaver.copy(source, to: destination, mark: { _ in }), "a mark that does not stick is no mark")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
+    }
+
     /// Download all fetches the files one after another and reports one fraction for all of them, rising, by size; a
     /// file that cannot be fetched is reported and the rest are saved.
     func testABatchSavesWhatArrivesWithOneRisingProgress() async throws {
