@@ -341,6 +341,45 @@ final class ConversationShellThemeTests: XCTestCase {
         XCTAssertEqual(shown(), [other.messages[0].id])
     }
 
+    /// WebKit can turn `prefers-color-scheme` before it delivers the media `change` event, so a shell may never hear of
+    /// the new side from the event: a theme switch, a mode change or the app's own call each bring the cards across
+    /// (adapted with the notice and the header action, or as sent), and the shell acts once per change, whoever tells it.
+    func testTheShellFollowsTheAppearanceWhoeverTellsItFirst() async throws {
+        // The shell's dark query, turned by the test and never firing `change`, as when WebKit has not delivered it yet.
+        let silentQuery = """
+            (function () {
+              var real = window.matchMedia.bind(window);
+              window.ssTestDark = { matches: false, media: '(prefers-color-scheme: dark)', addEventListener: function () {}, addListener: function () {} };
+              window.matchMedia = function (q) { return q === '(prefers-color-scheme: dark)' ? window.ssTestDark : real(q); };
+            })();
+            """
+        let (webView, _) = try await loadedShell(beforeShell: silentQuery)
+        _ = try await evaluate("window.ss.render(\(try declaringPayload().jsonString()))", in: webView)
+        try await waitForFrames(count: 1, in: webView)
+        let state = """
+            (function () { var f = document.querySelector('.ss-card iframe');
+              return [f.contentDocument.documentElement.className || '-', document.querySelectorAll('.ss-notice-toggle').length,
+                      document.querySelectorAll('.ss-hact .ss-sym-circle-lefthalf-filled').length].join(' '); })()
+            """
+        try await expect(state, "- 0 0", in: webView, "Light: as sent")
+
+        _ = try await evaluate("window.ssTestDark.matches = true", in: webView)
+        try await expect(state, "- 0 0", in: webView, "nothing has told the shell yet")
+        _ = try await evaluate("window.ss.setTheme({id: 'study', shell: '', body: '', links: {}, quoteLinks: {}})", in: webView)
+        try await expect(state, "ss-adapt 1 1", in: webView, "a theme switch brings it to Dark: adapted, with the notice and the action")
+
+        _ = try await evaluate("window.ssTestDark.matches = false", in: webView)
+        _ = try await evaluate("window.ss.setModes({ic: false, rm: false, rt: false, graphite: false})", in: webView)
+        try await expect(state, "- 0 0", in: webView, "a mode change brings it back to Light")
+
+        _ = try await evaluate("window.ssTestDark.matches = true", in: webView)
+        let first = try await evaluate("window.ss.appearanceChanged()", in: webView) as? Bool
+        let second = try await evaluate("window.ss.appearanceChanged()", in: webView) as? Bool
+        XCTAssertEqual(first, true, "the app's call brings it to Dark")
+        XCTAssertEqual(second, false, "once per change of side")
+        try await expect(state, "ss-adapt 1 1", in: webView)
+    }
+
     // MARK: Fixtures
 
     private func twoMessagePayload() throws -> RenderPayload {
@@ -412,7 +451,8 @@ final class ConversationShellThemeTests: XCTestCase {
     private var handlers: [ShellMessages] = []
 
     /// The shell built in `theme`, in a web view, once it has signalled ready. Skips unless `SS_UI_TESTS=1`.
-    private func loadedShell(dark: Bool = false, theme: ShellTheme = .study) async throws -> (WKWebView, ShellMessages) {
+    /// `beforeShell` runs in the shell's page before the shell's own script.
+    private func loadedShell(dark: Bool = false, theme: ShellTheme = .study, beforeShell: String? = nil) async throws -> (WKWebView, ShellMessages) {
         guard ProcessInfo.processInfo.environment["SS_UI_TESTS"] == "1" else {
             throw XCTSkip("Set SS_UI_TESTS=1 to drive WebKit")
         }
@@ -422,6 +462,9 @@ final class ConversationShellThemeTests: XCTestCase {
         configuration.setURLSchemeHandler(ShellSchemeStub(), forURLScheme: ConversationShellAssets.scheme)
         configuration.userContentController.add(handler, name: ConversationShellAssets.readyHandlerName)
         configuration.userContentController.add(handler, name: ConversationShellAssets.messageHandlerName)
+        if let beforeShell {
+            configuration.userContentController.addUserScript(WKUserScript(source: beforeShell, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        }
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 800, height: 600), configuration: configuration)
         webView.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         webView.loadHTMLString(ConversationShellAssets.document(theme: theme), baseURL: ConversationShellAssets.baseURL)

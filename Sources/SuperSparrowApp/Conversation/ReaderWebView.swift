@@ -22,6 +22,12 @@ final class ReaderWebView: WKWebView {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         updateUnderPageColour()
+        // WebKit may turn `prefers-color-scheme` for the page before it delivers the media `change` event the shell
+        // listens for, and a shell that reads it in between keeps the old half of the theme; told here, it never does.
+        // The next turn, so WebKit has the appearance first; the shell acts once per change, whoever tells it.
+        DispatchQueue.main.async { [weak self] in
+            self?.evaluateJavaScript("window.ss && window.ss.appearanceChanged && window.ss.appearanceChanged()") { _, _ in }
+        }
     }
 
     override func becomeFirstResponder() -> Bool {

@@ -188,6 +188,15 @@ final class ThemeRenderTests: XCTestCase {
             XCTAssertEqual(computed("--q-\(token.rawValue)", in: webView, body: true), hex(token.values(theme: theme)[mode]),
                            label + ": the body's \(token)")
         }
+        // The tokens alone would pass a shell that restyled but never heard of the appearance: in Dark with Adapt on, the
+        // newsletter is adapted and says so, or the image is not the one §5.14 describes.
+        if mode == .dark {
+            let adapted = "(function () { var f = document.querySelector('.ss-card.ss-sheet iframe');"
+                + " return !!f && f.contentDocument.documentElement.classList.contains('ss-adapt')"
+                + " && !!document.querySelector('.ss-card.ss-sheet .ss-notice-toggle'); })()"
+            XCTAssertTrue(ListTestSupport.spin(until: { self.evaluate(adapted, in: webView) as? Bool == true }, timeout: 5),
+                          label + ": the newsletter is adapted, with its notice")
+        }
         ListTestSupport.spin(for: 1)
     }
 

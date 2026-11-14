@@ -764,6 +764,7 @@ public enum ConversationShellAssets {
         if (style && style.textContent !== sheet) { style.textContent = sheet; }
         document.documentElement.setAttribute('data-ss-theme', theme.id);
         syncLinkClasses();
+        appearanceChanged();
         void getComputedStyle(document.documentElement).getPropertyValue('--q-sheet');
         for (var i = 0; i < state.cards.length; i++) {
           var card = state.cards[i];
@@ -2449,10 +2450,20 @@ public enum ConversationShellAssets {
         shell.toggle('ss-graphite', !!modes.graphite);
         syncLinkClasses();
         for (var i = 0; i < state.cards.length; i++) { syncDocumentClasses(state.cards[i]); }
+        appearanceChanged();
       }
 
+      // The cards follow Light and Dark: what a styled message that declares colours shows, its notice, its header action
+      // and the menu's checkmark. WebKit can turn `matches` before it delivers the media `change` event, and a shell that
+      // reads it in between (a theme switch) or never gets the event (a view outside a window when the app's appearance
+      // changes) would keep the old half. So the app also calls this when its view's appearance changes, setTheme and
+      // setModes call it, and it acts once per change of side, whoever calls it first.
+      var syncedDark = isDark();
       function appearanceChanged() {
         syncLinkClasses();
+        var dark = isDark();
+        if (dark === syncedDark) { return false; }
+        syncedDark = dark;
         for (var i = 0; i < state.cards.length; i++) {
           var card = state.cards[i];
           renderBanners(card);
@@ -2460,6 +2471,7 @@ public enum ConversationShellAssets {
           syncPage(card);
         }
         reportOriginals();
+        return true;
       }
       if (darkQuery) {
         if (darkQuery.addEventListener) { darkQuery.addEventListener('change', appearanceChanged); }
@@ -3277,6 +3289,7 @@ public enum ConversationShellAssets {
         },
         setModes: setModes,
         setTheme: setTheme,
+        appearanceChanged: appearanceChanged,
         preferences: setPreferences,
         refit: refit,
         finishAll: finishAll,
