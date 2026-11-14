@@ -176,7 +176,7 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
     // MARK: KeyboardRouterTarget
 
     var keyboardWindow: NSWindow? { window }
-    /// Everything here is the reader: arrows scroll the page and ← is Esc.
+    /// Everything here is the reader: arrows scroll the page, and ← is Esc only while there is something for it to close.
     var isReaderFocused: Bool { true }
     var showsLater: Bool { opener?.showsLater ?? false }
     var sequenceHUDHost: NSView? { window?.contentView }
@@ -221,11 +221,11 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
             opener.focusSearchField(nil)
         case .clearSearch:
             // §6.1: this window's toast first, then an open find bar; nothing else here takes Esc.
-            if undoCenter.toasts.isVisible(in: toastView) {
-                undoCenter.toasts.dismiss(in: toastView)
-            } else {
-                _ = conversation.closeFindForEscape()
-            }
+            _ = closeForEscape()
+        case .back:
+            // There is no list to go back to: ← closes what Esc would, and otherwise is the page's (a chip's or a
+            // Download button's ← →, the reply tabs, a wide body's scroll).
+            return closeForEscape()
         case .undo:
             // The router acts only outside text, so typing is never ⌘Z's target here; Z never cancels a send.
             let commandZ = NSApp.currentEvent?.modifierFlags.contains(.command) == true
@@ -234,6 +234,15 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
             opener.goTo(view)
         }
         return true
+    }
+
+    /// This window's toast, else an open find bar. False when neither was there.
+    private func closeForEscape() -> Bool {
+        if undoCenter.toasts.isVisible(in: toastView) {
+            undoCenter.toasts.dismiss(in: toastView)
+            return true
+        }
+        return conversation.closeFindForEscape()
     }
 
     // MARK: Edit › Undo (§6.1)

@@ -1176,6 +1176,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             return true
         case .clearSearch:
             return escape()
+        case .back:
+            // On a chip or its Download button ← moves along the files in the page (§5.17).
+            if conversation.isAttachmentRowFocused { return false }
+            return escape()
         case .moveToInbox:
             return moveSelectionToInbox()
         case .later:

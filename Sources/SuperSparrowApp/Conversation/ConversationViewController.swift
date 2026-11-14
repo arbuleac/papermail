@@ -1056,8 +1056,9 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     // MARK: Shell messages
 
     private func handle(_ message: ConversationScriptMessage, from slot: PooledConversationView) {
-        if case .focusMark(let on) = message {
+        if case .focusMark(let on, let arrows) = message {
             slot.markFocused = on
+            slot.arrowsFocused = arrows
             return
         }
         guard slot === pool.current else { return }
@@ -1385,8 +1386,20 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     /// so neither Quick Look nor the router's Open takes them. Only while the page itself has the window's focus; the
     /// shell says where focus is inside it.
     var isMarkFocused: Bool {
-        guard let current = pool.current, current.markFocused, !webContainer.isHidden,
-              let responder = view.window?.firstResponder as? NSView else { return false }
+        guard let current = pool.current, current.markFocused else { return false }
+        return pageHasFocus(current)
+    }
+
+    /// Keyboard focus is on an attachment chip or its Download button in the conversation on screen: ← and → move along
+    /// the files there (spec §5.17), so ← does not take the keyboard back to the list.
+    var isAttachmentRowFocused: Bool {
+        guard let current = pool.current, current.arrowsFocused else { return false }
+        return pageHasFocus(current)
+    }
+
+    /// The page on screen has the window's focus; the shell says where focus is inside it.
+    private func pageHasFocus(_ current: PooledConversationView) -> Bool {
+        guard !webContainer.isHidden, let responder = view.window?.firstResponder as? NSView else { return false }
         return responder.isDescendant(of: current.webView)
     }
 

@@ -29,6 +29,8 @@ final class PooledConversationView {
     /// The page's keyboard focus is on an elision mark or a Download control, as its shell last said. Kept per slot, on
     /// screen or not, because a slot swapped back in still has its page's focus.
     var markFocused = false
+    /// The page's keyboard focus is on an attachment chip or its Download button, where ← → move along the files.
+    var arrowsFocused = false
 
     init(webView: WKWebView) {
         self.webView = webView
@@ -64,6 +66,7 @@ final class PooledConversationView {
         renderedInputs = nil
         pendingRender = nil
         markFocused = false
+        arrowsFocused = false
         let waiters = tracker.reset()
         for waiter in waiters { waiter(false) }
     }

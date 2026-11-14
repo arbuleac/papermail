@@ -544,6 +544,57 @@ final class ReaderWindowTests: XCTestCase {
 
     // MARK: Keys and menus
 
+    /// A reader window has no list to go back to: ← closes the window's toast or its find bar as Esc does, and otherwise
+    /// goes on to the page (a chip's or a Download button's ← →, the reply tabs, a wide body's scroll). It was taken
+    /// always, so the page never had it.
+    func testLeftIsThePagesUnlessTheWindowHasSomethingToClose() throws {
+        let harness = try MainWindowHarness()
+        let (_, reader) = try openFromTrash(0, harness)
+        XCTAssertEqual(KeyboardRouter.command(characters: "", keyCode: 123, modifiers: [], pendingG: false,
+                                              readerFocused: reader.isReaderFocused).command, .back)
+        XCTAssertFalse(reader.perform(.back), "nothing to close: ← goes on to the page")
+
+        XCTAssertTrue(reader.perform(.moveToInbox))
+        XCTAssertEqual(message(in: reader), "Moved to Inbox")
+        XCTAssertTrue(reader.perform(.back), "the toast takes it first")
+        XCTAssertNil(message(in: reader))
+        XCTAssertFalse(reader.perform(.back))
+
+        XCTAssertTrue(ListTestSupport.spin(until: { reader.conversation.pool.current?.renderedID == reader.conversationID }, timeout: 10))
+        reader.findInConversation(nil)
+        XCTAssertTrue(reader.conversation.find.isOpen)
+        XCTAssertTrue(reader.perform(.back), "then the find bar")
+        XCTAssertFalse(reader.conversation.find.isOpen)
+        XCTAssertFalse(reader.perform(.back))
+        harness.close()
+    }
+
+    /// The quick reply's Reply · Reply all tabs choose with ← →, so the main window lets a focused tab group have them
+    /// (`ShellKeyHandling`, asked before the router acts); ← went back to the list instead.
+    func testTheReplyTabsKeepTheirArrowsInTheMainWindow() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        select(0, harness)
+        let tabs = try XCTUnwrap(Self.views(in: harness.reader.quickReplyBar).compactMap { $0 as? QuireUnderlineTabs }.first)
+        func key(_ keyCode: UInt16, _ function: Int, _ modifiers: NSEvent.ModifierFlags = []) throws -> NSEvent {
+            let characters = String(UnicodeScalar(function)!)
+            return try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: 0, windowNumber: 0,
+                                                  context: nil, characters: characters, charactersIgnoringModifiers: characters,
+                                                  isARepeat: false, keyCode: keyCode))
+        }
+        let handling = tabs as ShellKeyHandling
+        XCTAssertTrue(handling.handlesKey(try key(123, NSLeftArrowFunctionKey)), "←")
+        XCTAssertTrue(handling.handlesKey(try key(124, NSRightArrowFunctionKey)), "→")
+        XCTAssertFalse(handling.handlesKey(try key(123, NSLeftArrowFunctionKey, .shift)))
+        XCTAssertFalse(handling.handlesKey(try key(125, NSDownArrowFunctionKey)), "↓ is the list's")
+        XCTAssertFalse(handling.handlesKey(try key(14, Int(("e" as Unicode.Scalar).value))))
+    }
+
+    private static func views(in view: NSView?) -> [NSView] {
+        guard let view else { return [] }
+        return [view] + view.subviews.flatMap { views(in: $0) }
+    }
+
     func testTheWindowsKeysAndMenusActOnItsConversation() throws {
         let harness = try MainWindowHarness()
         // Thread 3 is unread (every third is).

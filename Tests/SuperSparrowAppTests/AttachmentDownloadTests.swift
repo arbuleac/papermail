@@ -143,7 +143,9 @@ final class AttachmentDownloadTests: XCTestCase {
         XCTAssertNil(ConversationScriptMessage(body: ["kind": "action", "messageID": key]), "no type")
         XCTAssertNil(ConversationScriptMessage(body: "downloadAttachment"))
         // A focused Download control reports itself as the elision mark does, so Space and ↩ press it.
-        XCTAssertEqual(ConversationScriptMessage(body: ["kind": "focusMark", "on": true]), .focusMark(true))
+        XCTAssertEqual(ConversationScriptMessage(body: ["kind": "focusMark", "on": true]), .focusMark(true, arrows: false))
+        // On a chip or its Download button ← → are the page's too.
+        XCTAssertEqual(ConversationScriptMessage(body: ["kind": "focusMark", "on": false, "arrows": true]), .focusMark(false, arrows: true))
     }
 
     // MARK: The reader
@@ -284,18 +286,55 @@ final class AttachmentDownloadTests: XCTestCase {
         _ = evaluate("document.querySelector('.ss-chip-dl').focus(); true", in: webView)
         XCTAssertTrue(ListTestSupport.spin(until: { slot.markFocused }, timeout: 5), "the shell says a Download button has focus")
         XCTAssertTrue(reader.isMarkFocused)
+        XCTAssertTrue(reader.isAttachmentRowFocused, "where ← → move along the files")
         XCTAssertFalse(reader.openQuickLookForSelectedMessage(), "Space goes on to the page, which presses the button")
 
         _ = evaluate("document.querySelector('.ss-chip').focus(); true", in: webView)
         XCTAssertTrue(ListTestSupport.spin(until: { !slot.markFocused }, timeout: 5), "and that it left it for the chip")
         XCTAssertFalse(reader.isMarkFocused)
+        XCTAssertTrue(reader.isAttachmentRowFocused, "a chip moves along the files too")
 
         _ = evaluate("document.querySelector('.ss-dlall').focus(); true", in: webView)
         XCTAssertTrue(ListTestSupport.spin(until: { slot.markFocused }, timeout: 5), "Download all too")
+        XCTAssertFalse(reader.isAttachmentRowFocused, "Download all is no stop of the files' row")
         XCTAssertFalse(reader.openQuickLookForSelectedMessage())
         _ = evaluate("document.activeElement.blur(); true", in: webView)
         XCTAssertTrue(ListTestSupport.spin(until: { !slot.markFocused }, timeout: 5), "and when focus leaves it")
         XCTAssertTrue(reader.openQuickLookForSelectedMessage(), "Space is Quick Look's again")
+    }
+
+    /// ← on a chip or its Download button in the main window's reader moves along the files in the page (§5.17); it took
+    /// the keyboard back to the list, as it does from anywhere else in the reader.
+    func testLeftMovesAlongTheFilesInTheMainWindowAndGoesBackElsewhere() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let id = ConversationID(accountID: ListTestSupport.accountA.id, providerID: "thread-2")
+        let html = "<p>Attached.</p>"
+        for part in 0..<3 {
+            try harness.environment.store.saveBody(
+                StoredBody(body: MessageBody(html: html, text: nil, attachments: [ReaderFixture.plan, ReaderFixture.notes]),
+                           renderedHTML: html, plainText: ""),
+                for: MessageID(accountID: id.accountID, providerID: "msg-2-\(part)"))
+        }
+        harness.list.selectedConversationID = id
+        harness.list.onSelectionChange?(id)
+        let reader = harness.reader
+        XCTAssertTrue(ListTestSupport.spin(until: {
+            guard let slot = reader.pool.current else { return false }
+            return slot.isReady && slot.pendingRender == nil && !slot.renderInFlight && slot.renderedID == id
+        }, timeout: 10), "the conversation rendered")
+        let webView = try XCTUnwrap(reader.pool.current?.webView)
+        harness.controller.window?.makeFirstResponder(webView)
+        XCTAssertEqual(evaluate("(function () { var b = document.querySelectorAll('.ss-chip-dl'); b[b.length - 1].focus(); return b.length > 1; })()",
+                                in: webView) as? Bool, true)
+        XCTAssertTrue(ListTestSupport.spin(until: { reader.isAttachmentRowFocused }, timeout: 5))
+        XCTAssertFalse(harness.controller.perform(.back), "← goes on to the page")
+        XCTAssertTrue(harness.controller.isReaderFocused)
+
+        _ = evaluate("document.activeElement.blur(); true", in: webView)
+        XCTAssertTrue(ListTestSupport.spin(until: { !reader.isAttachmentRowFocused }, timeout: 5))
+        XCTAssertTrue(harness.controller.perform(.back))
+        XCTAssertFalse(harness.controller.isReaderFocused, "elsewhere in the reader ← goes back to the list")
     }
 
     /// A double-click on Download saves the file once, even when it is already on this Mac and saved before the second

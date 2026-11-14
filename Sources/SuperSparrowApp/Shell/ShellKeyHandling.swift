@@ -1,4 +1,5 @@
 import AppKit
+import SSDesign
 
 /// A shell control that answers some keys itself while it has keyboard focus: a rail tile moves the selection
 /// with ↑/↓ and chooses with ↩ (§5.2), the sync line and its action link run on ↩ (§5.11), and the masthead and
@@ -15,5 +16,13 @@ extension NSEvent {
     var isPlainReturn: Bool {
         guard modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty else { return false }
         return specialKey == .carriageReturn || specialKey == .enter
+    }
+}
+
+extension QuireUnderlineTabs: ShellKeyHandling {
+    /// ← → choose the quick reply's Reply or Reply all (§5.18); ← would otherwise take the keyboard back to the list.
+    func handlesKey(_ event: NSEvent) -> Bool {
+        guard isEnabled, event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty else { return false }
+        return event.specialKey == .leftArrow || event.specialKey == .rightArrow
     }
 }

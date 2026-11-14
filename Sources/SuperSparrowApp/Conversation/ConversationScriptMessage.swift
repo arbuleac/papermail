@@ -13,8 +13,9 @@ enum ConversationScriptMessage: Equatable {
     /// An attachment chip took keyboard focus: Space previews from it.
     case focusAttachment(MessageID, String)
     /// Keyboard focus landed on an elision mark, a Download button or Download all (true) or left it (false): Space and
-    /// ↩ are that control's while it has it (spec §5.15, §5.17).
-    case focusMark(Bool)
+    /// ↩ are that control's while it has it (spec §5.15, §5.17). `arrows`: it is on an attachment chip or its Download
+    /// button, where ← and → move along the files.
+    case focusMark(Bool, arrows: Bool)
     /// A message switched between Original and Adaptive colors.
     case originalColors(MessageID, Bool)
     /// A height animation started; the next key press finishes it.
@@ -48,7 +49,7 @@ enum ConversationScriptMessage: Equatable {
             self = .focusAttachment(messageID, attachmentID)
         case "focusMark":
             guard let on = dictionary["on"] as? Bool else { return nil }
-            self = .focusMark(on)
+            self = .focusMark(on, arrows: dictionary["arrows"] as? Bool ?? false)
         case "originalColors":
             guard let messageID, let on = dictionary["on"] as? Bool else { return nil }
             self = .originalColors(messageID, on)

@@ -130,7 +130,7 @@ final class KeyboardRouterExtendTests: XCTestCase {
         XCTAssertEqual(command("", keyCode: 124, []), .open)
         XCTAssertNil(command("", keyCode: 123, []), "← on the list does nothing")
         XCTAssertNil(reader(124), "→ in the reader stays the web view's")
-        XCTAssertEqual(reader(123), .clearSearch, "← in the reader goes back to the list")
+        XCTAssertEqual(reader(123), .back, "← in the reader goes back to the list, along Esc's path")
         XCTAssertNil(command("", keyCode: 124, .shift))
     }
 }

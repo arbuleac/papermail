@@ -23,6 +23,9 @@ enum KeyCommand: Equatable {
     case search
     /// Esc outside the search field: drop the search and go back to the mailbox.
     case clearSearch
+    /// ← in the reader: back to the list along Esc's path, so a visible toast still goes first (§6.1). Where nothing
+    /// takes it (a focused attachment chip, a reader window with no toast or find bar), it is the page's.
+    case back
     /// Back to the inbox, out of the trash or the archive.
     case moveToInbox
     /// L: the Later menu for the selection (spec §5.45).
@@ -210,7 +213,7 @@ final class KeyboardRouter {
         // → opens like ↩ from the list (§6); in the reader it is the web view's (horizontal scroll).
         case 124: return (!readerFocused && modifiers.isEmpty ? .open : nil, false)
         // ← goes back to the list from the reader along Esc's path, so a visible toast still goes first (§6.1).
-        case 123: return (readerFocused && modifiers.isEmpty ? .clearSearch : nil, false)
+        case 123: return (readerFocused && modifiers.isEmpty ? .back : nil, false)
         default: break
         }
 

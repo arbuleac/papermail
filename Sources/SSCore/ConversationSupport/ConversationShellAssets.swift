@@ -3036,15 +3036,21 @@ public enum ConversationShellAssets {
       // The app sees every key before the page, and in the reader Space is Quick Look and ↩ is Open (spec §6). On a
       // focused elision mark both are the mark's (§5.15), and on a focused Download button or Download all they press
       // it (§5.17), so the shell tells the app whenever focus lands on one of them or leaves it, and the app lets those
-      // two keys through. Focus can also go with no event (its node replaced by a render), so the renders report too;
-      // only a change is posted.
+      // two keys through. ← → are the page's on a chip and on its Download button, which move along the files
+      // (§5.17), so the shell says that too (`arrows`) and the app lets ← through there rather than going back to the
+      // list. Focus can also go with no event (its node replaced by a render), so the renders report too; only a
+      // change is posted.
       var markFocusPosted = false;
+      var arrowsFocusPosted = false;
       function reportMarkFocus() {
         var active = document.activeElement;
-        var on = !!active && !!active.classList && (active.classList.contains('ss-elide') || active.classList.contains('ss-dlb'));
-        if (on === markFocusPosted) { return; }
+        var classes = active && active.classList;
+        var on = !!classes && (classes.contains('ss-elide') || classes.contains('ss-dlb'));
+        var arrows = !!classes && (classes.contains('ss-chip') || classes.contains('ss-chip-dl'));
+        if (on === markFocusPosted && arrows === arrowsFocusPosted) { return; }
         markFocusPosted = on;
-        post('ss', { kind: 'focusMark', on: on });
+        arrowsFocusPosted = arrows;
+        post('ss', { kind: 'focusMark', on: on, arrows: arrows });
       }
       document.addEventListener('focusin', reportMarkFocus);
       // The element losing focus may still be the active one while focusout runs.
