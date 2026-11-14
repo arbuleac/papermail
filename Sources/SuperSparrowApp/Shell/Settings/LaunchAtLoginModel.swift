@@ -10,11 +10,13 @@ final class LaunchAtLoginModel: ObservableObject {
     enum State: Equatable {
         /// Not answered yet: the row shows no toggle rather than one that may flip.
         case unknown
+        /// Not a login item, or a copy macOS has not met yet: a press registers it either way.
         case off
         case on
         /// Asked for, and waiting for the user in System Settings (or turned off there since).
         case needsApproval
-        /// macOS cannot open this copy at login; the toggle stays off and disabled.
+        /// macOS cannot open this copy at login: it runs outside an app bundle, or macOS still could not find it after
+        /// a register. The toggle stays off and disabled.
         case unavailable
     }
 
@@ -58,6 +60,9 @@ final class LaunchAtLoginModel: ObservableObject {
     private var generation = 0
     /// A snapshot set the state; the row appearing must not ask over it.
     private var isPinnedForSnapshot = false
+    /// macOS still answered not found after a register, so not found now means it cannot open this copy at login,
+    /// until it answers anything else.
+    private var registerFoundNothing = false
 
     init(handler: LoginItemHandling) {
         self.handler = handler
@@ -86,7 +91,7 @@ final class LaunchAtLoginModel: ObservableObject {
         Task { [weak self] in
             let status = await handler.status()
             guard let self, self.generation == asked else { return }
-            self.settle(on: State(status))
+            self.settle(on: self.read(status))
         }
     }
 
@@ -109,7 +114,7 @@ final class LaunchAtLoginModel: ObservableObject {
             let status = await handler.status()
             guard let self, self.generation == asked else { return }
             self.pending = nil
-            let state = State(status)
+            let state = self.read(status, afterRegister: isOn)
             if !Self.state(state, satisfies: change), state != .unavailable {
                 let error = failure.map { $0 as NSError }
                 Self.log.error("login item not changed: \(error?.domain ?? "no error", privacy: .public) \(error?.code ?? 0, privacy: .public)")
@@ -134,6 +139,27 @@ final class LaunchAtLoginModel: ObservableObject {
         self.state = state
     }
 
+    /// What macOS's answer shows. Not found reads as off, so the toggle can register a copy macOS has not met yet; only
+    /// a register that leaves it not found makes it unavailable, and that holds until macOS answers anything else.
+    private func read(_ status: LoginItemStatus, afterRegister: Bool = false) -> State {
+        switch status {
+        case .enabled:
+            registerFoundNothing = false
+            return .on
+        case .notRegistered:
+            registerFoundNothing = false
+            return .off
+        case .requiresApproval:
+            registerFoundNothing = false
+            return .needsApproval
+        case .notFound:
+            if afterRegister { registerFoundNothing = true }
+            return registerFoundNothing ? .unavailable : .off
+        case .noAppBundle:
+            return .unavailable
+        }
+    }
+
     /// The answer replaces the state; a failure's words go once macOS stands where the user asked, or once the row
     /// says the toggle cannot be used at all.
     private func settle(on state: State) {
@@ -151,16 +177,5 @@ final class LaunchAtLoginModel: ObservableObject {
 
     private static func failureWords(_ change: Change) -> String {
         change == .turnOn ? turnOnFailureWords : turnOffFailureWords
-    }
-}
-
-private extension LaunchAtLoginModel.State {
-    init(_ status: LoginItemStatus) {
-        switch status {
-        case .enabled: self = .on
-        case .notRegistered: self = .off
-        case .requiresApproval: self = .needsApproval
-        case .notFound: self = .unavailable
-        }
     }
 }

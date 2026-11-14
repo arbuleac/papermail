@@ -44,7 +44,8 @@ final class LaunchAtLoginSettingsTests: XCTestCase {
         XCTAssertEqual(answered(.enabled).model.state, .on)
         XCTAssertEqual(answered(.notRegistered).model.state, .off)
         XCTAssertEqual(answered(.requiresApproval).model.state, .needsApproval)
-        XCTAssertEqual(answered(.notFound).model.state, .unavailable)
+        XCTAssertEqual(answered(.notFound).model.state, .off, "a copy macOS has not met yet, until a register says otherwise")
+        XCTAssertEqual(answered(.noAppBundle).model.state, .unavailable)
     }
 
     func testTurningItOnAsksMacOSOnceThenShowsTheAnswer() {
@@ -187,20 +188,72 @@ final class LaunchAtLoginSettingsTests: XCTestCase {
         XCTAssertEqual(model.row, .init(isOn: false))
     }
 
-    func testUnavailableDisablesTheToggleWithACaption() {
+    /// macOS answers not found for a copy it has never seen as a login item, as a fresh install in Applications is, and
+    /// the first register moves it on: the toggle is off and usable, and a press turns it on.
+    func testACopyMacOSHasNotMetYetIsOffAndAPressRegistersIt() {
         let (model, item) = answered(.notFound)
+        XCTAssertEqual(model.row, .init(isOn: false), "off and enabled, with no caption")
+
+        model.setOn(true)
+        spin { model.pending == nil && item.registerCalls == 1 }
+        XCTAssertEqual(model.state, .on)
+        XCTAssertEqual(model.row, .init(isOn: true))
+
+        // Held for approval the same way as any other copy.
+        let (waiting, held) = answered(.notFound)
+        held.registerLeaves = .requiresApproval
+        waiting.setOn(true)
+        spin { waiting.pending == nil && held.registerCalls == 1 }
+        XCTAssertEqual(waiting.row, .init(isOn: true, needsApproval: true))
+    }
+
+    /// Only a register that leaves macOS answering not found says it cannot open this copy at login: then the toggle is
+    /// off and disabled with the caption, never the failure's words, and stays so as the app comes back to the front.
+    func testUnavailableOnlyOnceARegisterLeavesItNotFound() {
+        let (model, item) = answered(.notFound)
+        item.registerLeaves = .notFound
+        XCTAssertNil(model.row.caption, "not before a register")
+
+        model.setOn(true)
+        spin { model.pending == nil && item.registerCalls == 1 }
+        XCTAssertEqual(model.state, .unavailable)
         XCTAssertEqual(model.row, .init(isOn: false, isToggleEnabled: false, caption: LaunchAtLoginModel.unavailableWords))
         model.setOn(true)
         ListTestSupport.spin(for: 0.05)
-        XCTAssertEqual(item.changeCalls, 0, "the disabled toggle asks nothing")
+        XCTAssertEqual(item.changeCalls, 1, "the disabled toggle asks nothing")
 
-        // A failure that leaves macOS unable to find the app says so once, in the caption.
+        let asked = item.statusCalls
+        model.refresh()
+        spin { item.statusCalls > asked }
+        ListTestSupport.spin(for: 0.05)
+        XCTAssertEqual(model.state, .unavailable, "asking again keeps what the register showed")
+
+        // Added in System Settings meanwhile: macOS found it after all, and not found is a fresh question again.
+        item.answers = .enabled
+        model.refresh()
+        spin { model.state == .on }
+        XCTAssertEqual(model.row, .init(isOn: true))
+        item.answers = .notFound
+        model.refresh()
+        spin { model.state == .off }
+        XCTAssertEqual(model.row, .init(isOn: false))
+
+        // A register that throws and leaves it not found says so once, in the caption.
         let (other, failing) = answered(.notRegistered)
         failing.failure = NSError(domain: "SMAppServiceErrorDomain", code: 1)
         failing.answers = .notFound
         other.setOn(true)
         spin { other.pending == nil && failing.registerCalls == 1 }
         XCTAssertEqual(other.row, .init(isOn: false, isToggleEnabled: false, caption: LaunchAtLoginModel.unavailableWords))
+    }
+
+    /// A build run outside an app bundle has no app for macOS to open: unavailable from the first answer.
+    func testOutsideAnAppBundleTheToggleIsDisabledWithACaption() {
+        let (model, item) = answered(.noAppBundle)
+        XCTAssertEqual(model.row, .init(isOn: false, isToggleEnabled: false, caption: LaunchAtLoginModel.unavailableWords))
+        model.setOn(true)
+        ListTestSupport.spin(for: 0.05)
+        XCTAssertEqual(item.changeCalls, 0, "the disabled toggle asks nothing")
     }
 
     func testWhatTheRowShowsInEachState() {

@@ -9,7 +9,8 @@ final class FakeLoginItem: LoginItemHandling {
     var answers: LoginItemStatus
     /// What `register()` and `unregister()` throw; nil succeeds.
     var failure: Error?
-    /// The status a `register()` that does not throw leaves (macOS may hold the item for the user's approval).
+    /// The status a `register()` that does not throw leaves (macOS may hold the item for the user's approval, or still
+    /// not find this copy).
     var registerLeaves: LoginItemStatus = .enabled
     /// Holds `register()` and `unregister()` until `release()`.
     var holdsChange = false

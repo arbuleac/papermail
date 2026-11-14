@@ -9,8 +9,12 @@ enum LoginItemStatus: Equatable, Sendable {
     /// Registered, but the user has to allow it in System Settings › General › Login Items & Extensions first, or
     /// turned it off there after it was added.
     case requiresApproval
-    /// macOS cannot find this copy of the app as a service, as for a build run outside an app bundle.
+    /// macOS has no record of this copy as a service. It answers this for a copy it has not met yet, which the first
+    /// `register()` settles, as well as for one it cannot open at login, so only a register that leaves it here says
+    /// which.
     case notFound
+    /// Running outside an app bundle (a bare build), so there is no app for macOS to open at login.
+    case noAppBundle
 }
 
 /// SuperSparrow as a login item. Settings › General asks and changes it only through this, so the app's tests, which
@@ -29,7 +33,9 @@ protocol LoginItemHandling {
 struct MainAppLoginItem: LoginItemHandling {
     /// Off the main thread: each call is a round trip to the system's background task daemon.
     func status() async -> LoginItemStatus {
-        await Task.detached(priority: .userInitiated) {
+        // `mainApp` names the bundle this process runs from; a bare executable has none to name.
+        guard Bundle.main.bundleURL.pathExtension == "app" else { return .noAppBundle }
+        return await Task.detached(priority: .userInitiated) {
             LoginItemStatus(SMAppService.mainApp.status)
         }.value
     }
@@ -67,7 +73,9 @@ private extension LoginItemStatus {
         case .notRegistered: self = .notRegistered
         case .requiresApproval: self = .requiresApproval
         case .notFound: self = .notFound
-        @unknown default: self = .notFound
+        // A status newer than this build reads as off, so the toggle stays usable and a press shows what macOS makes
+        // of it, rather than one the user can never press.
+        @unknown default: self = .notRegistered
         }
     }
 }
