@@ -23,8 +23,10 @@ final class SendLaterScheduled: NSObject {
         undoAction()
     }
 
-    func post() {
-        NotificationCenter.default.post(name: Self.didSchedule, object: nil, userInfo: [Self.userInfoKey: self])
+    /// `source` is the reader whose quick reply scheduled it, so a reader window's step toasts in that window; nil from a
+    /// composer.
+    func post(from source: AnyObject? = nil) {
+        NotificationCenter.default.post(name: Self.didSchedule, object: source, userInfo: [Self.userInfoKey: self])
     }
 }
 

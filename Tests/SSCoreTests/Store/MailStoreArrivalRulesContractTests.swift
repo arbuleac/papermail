@@ -49,6 +49,19 @@ extension MailStoreContractTests {
         XCTAssertEqual(try conversationIDs(ConversationQuery(view: .inbox)), ["c2"], "unmuting moves nothing back")
     }
 
+    /// `isMuted` reads the flag of one conversation, as a reader window asks it for its own (spec, Reader window (Q3.5)),
+    /// whether or not any list holds the row.
+    func testIsMutedReadsOneConversationsFlag() throws {
+        try store.upsertMessages([message("m1", in: "c1", date: date(10)), message("m2", in: "c2", date: date(20))])
+        XCTAssertFalse(try store.isMuted(conversation("c1")))
+        try mute("c1", archiving: ["m1"])
+        XCTAssertTrue(try store.isMuted(conversation("c1")))
+        XCTAssertFalse(try store.isMuted(conversation("c2")))
+        XCTAssertFalse(try store.isMuted(conversation("nowhere")), "no summary, not muted")
+        try store.setMuted(false, conversations: [conversation("c1")], enqueueing: [])
+        XCTAssertFalse(try store.isMuted(conversation("c1")))
+    }
+
     func testTheMuteShowsInEveryViewAndOutlivesWritesToItsMessages() throws {
         try store.upsertMessages([message("m1", in: "c1", date: date(10), isRead: false)])
         try mute("c1", archiving: ["m1"])

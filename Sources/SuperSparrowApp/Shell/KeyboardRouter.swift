@@ -46,16 +46,20 @@ protocol KeyboardRouterTarget: AnyObject {
     func sequenceHUDWillAppear()
     /// Later's tile is in the rail, so G L goes there and the HUD lists it (§5.2, §5.32).
     var showsLater: Bool { get }
+    /// The window ? opens the cheat sheet over: the main window, which a reader window brings forward for it (§5.49).
+    var cheatSheetWindow: NSWindow? { get }
 }
 
 extension KeyboardRouterTarget {
     var sequenceHUDHost: NSView? { keyboardWindow?.contentView }
     func sequenceHUDWillAppear() {}
     var showsLater: Bool { false }
+    var cheatSheetWindow: NSWindow? { keyboardWindow }
 }
 
-/// A local key monitor for the main window. It only acts when the main window is key and the first responder
-/// is not a place to type, so `e` in the search field or the quick reply stays an `e`.
+/// A local key monitor for one window, the main window or a reader window (§5.49), each with a router of its own. It
+/// only acts when its window is key and the first responder is not a place to type, so `e` in the search field or the
+/// quick reply stays an `e`.
 ///
 /// Every key press first finishes running animations (`Quire.Motion.finishAll()`, spec §4.10), so held keys
 /// never queue motion. G arms a sequence for 2000 ms (§5.32): I, S, T, D, # or A completes it, and L while Later shows;
@@ -85,6 +89,10 @@ final class KeyboardRouter {
     /// The installed router, for the debug snapshots (`--snapshot-hud`), which have no other way to reach it.
     private(set) static weak var active: KeyboardRouter?
 
+    /// The window the app's tests deliver keys to as if it were key: a test's window is seldom key, and the routers act
+    /// only in the key window. Nil outside tests.
+    static weak var keyWindowForTests: NSWindow?
+
     func install() {
         guard monitor == nil else { return }
         Self.active = self
@@ -108,7 +116,7 @@ final class KeyboardRouter {
         guard let target, let window = target.keyboardWindow, event.window === window else { return false }
         let cheatSheet = CheatSheetController.shared
         if cheatSheet.isPresented(in: window) { return cheatSheet.route(event) }
-        guard window.isKeyWindow else { return false }
+        guard window.isKeyWindow || window === Self.keyWindowForTests else { return false }
         guard !Self.isTextInput(window.firstResponder) else {
             disarmSequence()
             return false
@@ -128,7 +136,9 @@ final class KeyboardRouter {
         }
 
         if Self.opensCheatSheet(characters: characters, modifiers: modifiers) {
-            cheatSheet.present(in: window)
+            let sheetWindow = target.cheatSheetWindow ?? window
+            if sheetWindow !== window { sheetWindow.makeKeyAndOrderFront(nil) }
+            cheatSheet.present(in: sheetWindow)
             return true
         }
 

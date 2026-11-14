@@ -20,6 +20,12 @@ extension Quire {
             public static let readerNarrow: CGFloat = 560
             public static let readerKeycapsMin: CGFloat = 616
         }
+        public enum ReaderWindow {
+            public static let defaultWidth: CGFloat = 840
+            public static let defaultHeight: CGFloat = 800
+            public static let minWidth: CGFloat = 520
+            public static let minHeight: CGFloat = 420
+        }
         public enum TrafficLights {
             public static let mechanism: String = "emptyUnifiedToolbar"
             public static let centerY: CGFloat = 26

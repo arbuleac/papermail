@@ -31,6 +31,12 @@ final class ReaderHeaderView: NSView {
 
     var onAction: ((ReaderActionSet.Action) -> Void)?
 
+    /// Where the kicker may start at the earliest. 0 in the main window, where the list stands between the lights and the
+    /// reader; in a reader window the lights are on the header's own line, and the kicker starts clear of them (§5.49).
+    var kickerMinX: CGFloat = 0 {
+        didSet { if oldValue != kickerMinX { needsLayout = true } }
+    }
+
     private(set) var content = Content(kicker: nil, headline: nil, placeholder: "No subject", actions: .make(.nothing))
     private let kickerView = ReaderKickerView()
     private let headline = ReaderHeadlineView()
@@ -200,8 +206,9 @@ final class ReaderHeaderView: NSView {
             }
         }
         let kickerHeight = QuireFont.Role.runningHead.lineHeight
-        let kickerWidth = max(0, firstActionX - metrics.kickerActionGap - column.x)
-        kickerView.frame = NSRect(x: column.x, y: metrics.kickerCenterY - kickerHeight / 2, width: kickerWidth, height: kickerHeight)
+        let kickerX = max(column.x, kickerMinX)
+        let kickerWidth = max(0, firstActionX - metrics.kickerActionGap - kickerX)
+        kickerView.frame = NSRect(x: kickerX, y: metrics.kickerCenterY - kickerHeight / 2, width: kickerWidth, height: kickerHeight)
         // The headline's text view lays the role's 30 pt line out exactly, so its frame is the line itself.
         headline.frame = NSRect(x: column.x, y: metrics.headlineTop, width: column.width, height: metrics.headlineHeight)
         let hair = QuireHairline.width(for: self)

@@ -801,6 +801,11 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         notifyAll()
     }
 
+    public func isMuted(_ conversation: ConversationID) throws -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return mutedConversations.contains(conversation)
+    }
+
     public func senderRules() throws -> [SenderRule] {
         lock.lock(); defer { lock.unlock() }
         return senderRulesLocked()

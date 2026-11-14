@@ -89,8 +89,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             start(mode: options.demo ? .demo : .real)
         }
         NSApp.activate()
-        if options.snapshotPath != nil || options.composeSnapshotPath != nil {
-            runSnapshots(main: options.snapshotPath, compose: options.composeSnapshotPath)
+        if options.snapshotPath != nil || options.composeSnapshotPath != nil || options.readerWindowSnapshotPath != nil {
+            runSnapshots(main: options.snapshotPath, compose: options.composeSnapshotPath, readerWindow: options.readerWindowSnapshotPath)
         }
         runQuittingSnapshots()
         #if DEBUG
@@ -101,9 +101,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     // MARK: Snapshots (debug aid)
 
     /// In demo mode: waits for the inbox, opens its first conversation, waits for the reader's render to
-    /// land, then writes the window (reader composited in) and, when asked, a reply composer. Outside demo
-    /// mode the window is written as it is after a few seconds.
-    private func runSnapshots(main: String?, compose: String?) {
+    /// land, then writes the window (reader composited in) and, when asked, a reply composer and the conversation in a
+    /// reader window. Outside demo mode the window is written as it is after a few seconds.
+    private func runSnapshots(main: String?, compose: String?, readerWindow: String?) {
         guard options.demo else {
             DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in
                 MainActor.assumeIsolated {
@@ -123,6 +123,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                         self.captureReader(webView) { image in
                             if let main { self.writeWindowSnapshot(to: main, reader: image.map { ($0, webView) }) }
                             if let compose { self.writeComposeSnapshot(to: compose) }
+                            if let readerWindow { self.writeReaderWindowSnapshot(to: readerWindow) }
                             #if DEBUG
                             // The Later menu and Pick a Date… are the system's own windows, which no window snapshot
                             // holds: they are opened on screen afterwards, for a screen capture.
@@ -159,7 +160,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     /// `cacheDisplay` cannot draw WKWebView content, so the reader's own snapshot is drawn over its frame.
     private func writeWindowSnapshot(to path: String, reader: (image: NSImage, webView: WKWebView?)?) {
-        guard let view = mainWindow?.window?.contentView?.superview ?? mainWindow?.window?.contentView,
+        writeSnapshot(of: mainWindow?.window, to: path, reader: reader)
+    }
+
+    /// The selected conversation (the first, as `--snapshot` opens it) in a reader window, once its own render has landed.
+    private func writeReaderWindowSnapshot(to path: String) {
+        guard let main = mainWindow, let id = main.list.selectedConversationID, let reader = main.openInNewWindow(id) else {
+            Self.log.error("snapshot: no conversation to open in a reader window")
+            return
+        }
+        reader.conversation.whenShownRenderLands(timeout: 10) { webView in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                MainActor.assumeIsolated {
+                    self.captureReader(webView) { image in
+                        self.writeSnapshot(of: reader.window, to: path, reader: image.map { ($0, webView) })
+                    }
+                }
+            }
+        }
+    }
+
+    private func writeSnapshot(of window: NSWindow?, to path: String, reader: (image: NSImage, webView: WKWebView?)?) {
+        guard let view = window?.contentView?.superview ?? window?.contentView,
               let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
         view.cacheDisplay(in: view.bounds, to: bitmap)
         if let reader, let webView = reader.webView, webView.window === view.window,
@@ -222,7 +244,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     private func quittingSnapshotFinished() {
         pendingQuittingSnapshots -= 1
-        guard pendingQuittingSnapshots == 0, options.snapshotPath == nil, options.composeSnapshotPath == nil else { return }
+        guard pendingQuittingSnapshots == 0, options.snapshotPath == nil, options.composeSnapshotPath == nil,
+              options.readerWindowSnapshotPath == nil else { return }
         // Not from inside a main-queue callout: with an environment open, terminate waits (terminateLater) in a
         // nested run loop for a main-actor task to reply, and a nested loop cannot drain the queue it was
         // entered from, so terminating from a dispatch block would hang. A run-loop block can.

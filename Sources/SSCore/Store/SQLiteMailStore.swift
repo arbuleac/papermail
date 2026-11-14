@@ -393,6 +393,10 @@ public final class SQLiteMailStore: MailStoring, MailStoreMaintenance, Sendable 
         }
     }
 
+    public func isMuted(_ conversation: ConversationID) throws -> Bool {
+        try read { try MuteTable.isMuted(conversation, in: $0) }
+    }
+
     public func senderRules() throws -> [SenderRule] {
         try read { try SenderRuleTable.all($0) }
     }

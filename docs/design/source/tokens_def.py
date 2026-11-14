@@ -170,6 +170,7 @@ MOTION = {
 LAYOUT = {
  "window": {"dividerHit": 6, "defaultWidth": 1280, "defaultHeight": 800, "minWidth": 960, "minHeight": 600, "titlebarZone": 52, "composerTitlebar": 28, "composerTitlebar26": 32,
             "readerMinWidth": 400, "readerNarrow": 560, "readerKeycapsMin": 616},
+ "readerWindow": {"defaultWidth": 840, "defaultHeight": 800, "minWidth": 520, "minHeight": 420},
  "trafficLights": {"mechanism": "emptyUnifiedToolbar", "centerY": 26, "originX": 20, "size": 12, "gap": 8, "endX": 72,
                    "originX26": 19, "size26": 14, "gap26": 9, "endX26": 79, "toolbarContainer26": 66, "tolerance": 0.5},
  "rail": {"width": 76, "lightsClearance": 4, "width26": 84, "tile": 38, "tileHit": 44, "tileRadius": 11, "tileCenterX": 38,
@@ -335,7 +336,7 @@ CHEAT_SHEET_SEARCH = ("Search", ["from:", "to:", "subject:", "is:unread", "is:re
 
 # Keyboard cheat sheet content (§5.32), band by band, left to right; keys separated by spaces, "then" and "…" are words.
 CHEAT_SHEET = [
- ("Move", [("J K", "Next · previous"), ("⇧J ⇧K", "Extend the selection"), ("↩", "Open"), ("esc", "Back to the list"),
+ ("Move", [("J K", "Next · previous"), ("⇧J ⇧K", "Extend the selection"), ("↩", "Open"), ("⌘O", "Open in a new window"), ("esc", "Back to the list"),
            ("N P", "Next · previous message"), ("space", "Quick Look attachments"),
            ("⇧⌘D", "Save attachments to Downloads"), ("/", "Search"), ("↩", "In search: ask the server")]),
  ("Act", [("E", "Archive"), ("L", "Snooze until later"), ("#", "Move to Trash"), ("!", "Mark as spam"), ("⇧I", "Move to Inbox"),

@@ -74,6 +74,10 @@ Checked on macOS 27.0.1 (build 26A434), with in-process tests and a scratch buil
 
 Not yet checked on macOS 15 or 26.
 
+## A conversation in its own window
+
+Press `⌘O` (**File → Open in New Window**), or hold `⌘` and double-click a conversation in the list, to open it in a window of its own, to read beside a reply you are writing. The window is the reader alone: the same keys and **Message** menu act on its conversation (`e`, `l`, `#`, `s`, `u`, `r`, `z` and the rest). Archiving, snoozing, moving it to the Trash, discarding its draft or unsubscribing closes the window, and the main window comes forward with **Undo**, which brings the conversation back and opens its window again where it was. A reply sent with **Send and Archive** from the window closes it too, its **Undo send** in a panel on the main window. Text you typed in the window's reply field is kept when it closes: it is there again when the window reopens, or in the main window when you open the conversation there. Undo works across windows: `z` in any window undoes the last action, wherever it was taken, and its confirmation shows there. Opening a conversation that is already open brings its window forward. Each window keeps a web view of its own, about 25 MB.
+
 ## Send and Archive
 
 Replying usually finishes a conversation, so **Send** sends and archives the conversation you answered, as `e` would: it leaves the Inbox the moment the message is queued and, in the Inbox, the next conversation opens. The arrow beside **Send** (in a composer and in the reply field under a conversation) chooses what Send and `⌘↩` do: **Send and Archive** (the default) or **Send**; the choice applies to every Send button at once and is kept. `⇧⌘↩` (**Message → Send and Archive** in a composer) always sends and archives. A new message only sends. Send's tooltip says which it does. Undo send (in the panel, the reply field's strip or `⌘Z`) also brings the conversation back to the Inbox; once the message has left, it stays archived. In **Later**, Send and Archive stops the conversation's return and keeps it archived, as `e` does there.
@@ -147,6 +151,7 @@ Operators combine (`from:ben is:unread after:2026-01-01 -invoice`), ignore case,
 |---|---|
 | `j` / `k`, `↓` / `↑` | Next / previous conversation |
 | `Return` | Open the conversation in the reader |
+| `⌘O`, `⌘`-double-click | Open the conversation in a window of its own |
 | `e` | Archive |
 | `l` | Later: snooze until a time |
 | `m` | Mute / unmute: new mail in the conversation skips the Inbox |

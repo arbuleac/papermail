@@ -96,6 +96,25 @@ final class WindowChromeTests: XCTestCase {
         XCTAssertEqual(QuireWindowChrome.fallbackMetrics.railWidth, Quire.Layout.Rail.width)
     }
 
+    // MARK: A reader window (§5.49)
+
+    func testReaderWindowSharesTheMainWindowsCentreLine() throws {
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: QuireWindowChrome.readerWindowDefaultSize),
+                              styleMask: QuireWindowChrome.mainStyleMask, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        QuireWindowChrome.configureReaderWindow(window, title: "Contoso rollout")
+        window.contentView?.layoutSubtreeIfNeeded()
+        XCTAssertNotNil(window.toolbar, "the band the reader header's row 1 is drawn for")
+        XCTAssertEqual(window.titleVisibility, .hidden)
+        XCTAssertEqual(window.title, "Contoso rollout", "the subject names the window for the Window menu and VoiceOver")
+        XCTAssertEqual(window.contentMinSize, NSSize(width: 520, height: 420))
+        XCTAssertEqual(try XCTUnwrap(window.contentView).bounds.size, NSSize(width: 840, height: 800))
+        let metrics = QuireWindowChrome.metrics(of: window)
+        XCTAssertEqual(metrics.lightsCenterY, Quire.Layout.ReaderHeader.kickerCenterY, accuracy: Quire.Layout.TrafficLights.tolerance)
+        XCTAssertGreaterThanOrEqual(metrics.mastheadMinimalX, metrics.lightsEnd + Quire.Layout.Rail.lightsClearance,
+                                    "the kicker, which starts there at the least, clears the lights")
+    }
+
     // MARK: The composer
 
     func testComposerFieldRowsStartAtTheMeasuredTitleBar() throws {

@@ -199,6 +199,9 @@ public protocol MailStoring: AnyObject, Sendable {
     /// the store holds no summary row for is left alone.
     func setMuted(_ muted: Bool, conversations: [ConversationID], enqueueing operations: [Operation],
                   returnMarks: [ConversationID: Date]) throws
+    /// Whether `conversation` is muted (`conversations.muted`): a reader window asks for its one conversation, which the
+    /// list may no longer hold (spec, Reader window (Q3.5)). False for a conversation the store holds no summary of.
+    func isMuted(_ conversation: ConversationID) throws -> Bool
     /// Every sender rule, by account and then address.
     func senderRules() throws -> [SenderRule]
     /// In one transaction: applies and queues `operations` as `enqueue` does (the rule's change on the sender's mail in

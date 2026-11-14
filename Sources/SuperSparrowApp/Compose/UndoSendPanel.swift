@@ -288,7 +288,7 @@ final class UndoSendPanel: NSPanel {
 
     // MARK: ⌘Z
 
-    /// The main window, which ranks the panels against its toasts and the quick reply's countdown (§6.1).
+    /// The app's undo center, which ranks the panels against its toast and the quick replies' countdowns (§6.1).
     /// Without one, the newest counting panel holds ⌘Z.
     static weak var undoKeyArbiter: UndoKeyArbiter?
 
@@ -366,7 +366,7 @@ private final class PanelAnchorObserver {
     }
 }
 
-/// Ranks ⌘Z for the panels: the main window, which also knows its toasts and the quick reply's countdown.
+/// Ranks ⌘Z for the panels: the app's undo center (`MailUndoCenter`), which also knows its toast and the quick replies' countdowns.
 @MainActor
 protocol UndoKeyArbiter: AnyObject {
     /// The send ⌘Z would cancel with no text in the way, if any.
@@ -374,7 +374,7 @@ protocol UndoKeyArbiter: AnyObject {
 }
 
 /// Claims ⌘Z while an undo-send panel can take it and the key window has no undo order of its own (Settings,
-/// or no window at all). The main window and composers rank ⌘Z themselves through Edit › Undo, so the menu
+/// or no window at all). The main window, reader windows and composers rank ⌘Z themselves through Edit › Undo, so the menu
 /// item and the key always agree. A text view that can undo typing keeps its ⌘Z (§6.1, row 1).
 @MainActor
 private final class UndoKeyMonitor {
@@ -397,7 +397,7 @@ private final class UndoKeyMonitor {
     private static func handle(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.capsLock, .numericPad, .function])
         guard flags == [.command], event.charactersIgnoringModifiers?.lowercased() == "z",
-              !(NSApp.keyWindow is MainWindow), !(NSApp.keyWindow is ComposeWindow),
+              !(NSApp.keyWindow is MainWindow), !(NSApp.keyWindow is ComposeWindow), !(NSApp.keyWindow is ReaderWindow),
               let owner = UndoSendPanel.undoKeyOwner else { return false }
         if let text = NSApp.keyWindow?.firstResponder as? NSTextView, text.isEditable, text.undoManager?.canUndo == true {
             return false

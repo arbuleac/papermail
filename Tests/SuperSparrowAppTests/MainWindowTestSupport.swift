@@ -26,6 +26,8 @@ final class MainWindowHarness {
         controller = MainWindowController(environment: environment, settings: settings, remembersScope: remembersScope)
         controller.window?.setFrameAutosaveName("")
         controller.window?.setFrameOrigin(NSPoint(x: -20_000, y: -20_000))
+        // Showing a window moves it onto a screen: reader windows open, and this one comes forward, off screen and unshown.
+        controller.bringForward = { _ in }
         if accounts { ListTestSupport.spin(until: { !self.list.conversations.isEmpty }, timeout: 5) }
     }
 

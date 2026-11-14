@@ -106,6 +106,7 @@ final class PageFailingStore: MailStoring, @unchecked Sendable {
                   returnMarks: [ConversationID: Date]) throws {
         try base.setMuted(muted, conversations: conversations, enqueueing: operations, returnMarks: returnMarks)
     }
+    func isMuted(_ conversation: ConversationID) throws -> Bool { try base.isMuted(conversation) }
     func senderRules() throws -> [SenderRule] { try base.senderRules() }
     func setSenderRule(_ action: SenderRule.Action?, for address: String, accountID: AccountID,
                        enqueueing operations: [SSCore.Operation], at now: Date) throws {

@@ -13,6 +13,9 @@ struct LaunchOptions: Equatable {
     var snapshotPath: String?
     /// Debug aid (demo mode): open a reply to the first inbox conversation and render its composer here.
     var composeSnapshotPath: String?
+    /// Debug aid (demo mode): open the first inbox conversation in a reader window (§5.49) and render that window here,
+    /// its web content composited in.
+    var readerWindowSnapshotPath: String?
     /// Debug aid: force the app's appearance ("light" or "dark") regardless of the system setting, so
     /// snapshots can verify both appearances from one machine.
     var appearance: String?
@@ -63,6 +66,8 @@ struct LaunchOptions: Equatable {
                 typeface = Self.typeface(named: Self.value(of: value, after: "--font="))
             case let value where value.hasPrefix("--snapshot-compose="):
                 composeSnapshotPath = Self.value(of: value, after: "--snapshot-compose=")
+            case let value where value.hasPrefix("--snapshot-reader-window="):
+                readerWindowSnapshotPath = Self.value(of: value, after: "--snapshot-reader-window=")
             case let value where value.hasPrefix("--snapshot-gallery="):
                 gallerySnapshotPath = Self.value(of: value, after: "--snapshot-gallery=")
             case let value where value.hasPrefix("--snapshot-welcome="):
@@ -91,8 +96,8 @@ struct LaunchOptions: Equatable {
         }
     }
 
-    /// The snapshots that quit the app once written. `--snapshot` and `--snapshot-compose` leave it running,
-    /// as they always have.
+    /// The snapshots that quit the app once written. `--snapshot`, `--snapshot-compose` and `--snapshot-reader-window`
+    /// leave it running, as the first two always have.
     var hasQuittingSnapshots: Bool {
         gallerySnapshotPath != nil || welcomeSnapshotPath != nil || settingsSnapshotPath != nil || welcomeStatesSnapshotPath != nil
             || settingsStatesSnapshotPath != nil || cheatSheetSnapshotPath != nil || hudSnapshotPath != nil || alertsSnapshotPath != nil
@@ -102,20 +107,22 @@ struct LaunchOptions: Equatable {
     /// default size and divider positions, ignore the pointer, and never read or write the user's saved frames,
     /// so a render depends on nothing but the build (§5.1 1280 × 800, §5.20 640 × 600).
     var isWindowSnapshot: Bool {
-        snapshotPath != nil || composeSnapshotPath != nil || cheatSheetSnapshotPath != nil || hudSnapshotPath != nil
+        snapshotPath != nil || composeSnapshotPath != nil || readerWindowSnapshotPath != nil || cheatSheetSnapshotPath != nil
+            || hudSnapshotPath != nil
     }
 
     /// Any snapshot at all. Such a launch neither reads nor writes what the app remembers between launches (the
     /// main window's account scope), so a render depends on nothing but the build and never changes the user's
     /// choice.
     var isSnapshot: Bool {
-        snapshotPath != nil || composeSnapshotPath != nil || hasQuittingSnapshots
+        snapshotPath != nil || composeSnapshotPath != nil || readerWindowSnapshotPath != nil || hasQuittingSnapshots
     }
 
     /// The gallery, welcome and alert snapshots need no mail store of the user's (or the demo's); with nothing
     /// else asked for, launch skips opening one.
     var needsMailEnvironment: Bool {
-        snapshotPath != nil || composeSnapshotPath != nil || settingsSnapshotPath != nil || settingsStatesSnapshotPath != nil
+        snapshotPath != nil || composeSnapshotPath != nil || readerWindowSnapshotPath != nil || settingsSnapshotPath != nil
+            || settingsStatesSnapshotPath != nil
             || cheatSheetSnapshotPath != nil || hudSnapshotPath != nil || !hasQuittingSnapshots
     }
 
