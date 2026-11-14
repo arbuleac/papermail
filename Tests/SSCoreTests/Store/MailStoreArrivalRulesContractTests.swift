@@ -33,6 +33,25 @@ extension MailStoreContractTests {
     private var spammer: EmailAddress { EmailAddress(name: "Deals", address: "deals@shop.example") }
     private var newsletter: EmailAddress { EmailAddress(name: "Weekly", address: "news@letter.example") }
 
+    // MARK: What a notification is about
+
+    /// The newest unread message in the Inbox of each conversation asked about, in one read: not the conversation's newest
+    /// when a rule archived that, nor a read one, nor one in the Trash or Spam; none for a conversation without one.
+    func testTheNewestUnreadInboxMessageOfEachConversation() throws {
+        try store.upsertMessages([
+            message("old", in: "c1", date: date(10), roles: [.inbox], isRead: false),
+            message("arrival", in: "c1", date: date(20), roles: [.inbox], isRead: false),
+            message("read", in: "c1", date: date(30), roles: [.inbox], isRead: true),
+            message("ruled", in: "c1", date: date(40), roles: [], isRead: false),
+            message("trashed", in: "c1", date: date(50), roles: [.inbox, .trash], isRead: false),
+            message("reply", in: "c2", date: date(10), roles: [.sent], isRead: true),
+            message("archived", in: "c2", date: date(5), roles: [], isRead: false),
+        ])
+        let newest = try store.newestUnreadInboxMessages(in: [conversation("c1"), conversation("c2"), conversation("nowhere")])
+        XCTAssertEqual(newest.mapValues(\.id.providerID), [conversation("c1"): "arrival"])
+        XCTAssertEqual(try store.newestUnreadInboxMessages(in: []), [:])
+    }
+
     // MARK: Mute
 
     func testMutingArchivesAndMarksTheConversationInOneWrite() throws {

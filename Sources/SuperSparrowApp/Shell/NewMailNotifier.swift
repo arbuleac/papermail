@@ -33,16 +33,20 @@ final class NewMailNotifier {
     var isFrontmost: () -> Bool = { NSApp.isActive }
     /// The conversation open in a key window, which never notifies: its new message is already on screen.
     var conversationOpenInKeyWindow: () -> ConversationID? = { nil }
-    /// Whether a row's newest message is itself in the Inbox, read only for a row that would otherwise notify. Mail a
-    /// sender rule archived as it arrived can still be the newest of a conversation that stays in the Inbox for older
-    /// mail; it never notifies (spec, Sender rules (Q4.2)), nor does the user's own reply.
-    var latestMessageIsInInbox: (MessageID) -> Bool = { _ in true }
+    /// The newest unread message in the Inbox of each conversation, read in one go and only for rows that would otherwise
+    /// notify, and only while notifications are on. A notification is about that message, which may not be the row's
+    /// newest: mail a sender rule archived as it arrived can be the newest of a conversation the Inbox still holds for
+    /// other mail, and it never notifies (spec, Sender rules (Q4.2)), nor does the user's own reply, while an arrival
+    /// beside it does. Nil (no store, or a read that failed) takes each row's newest message as the arrival.
+    var newestUnreadInInbox: ([ConversationID]) -> [ConversationID: MessageMetadata]? = { _ in nil }
 
     private let settings: AppSettings
     private let launchDate: Date
     /// When each account's first sync was seen to end this session.
     private var firstSyncEndedAt: [AccountID: Date] = [:]
     private var seenLatest: Set<MessageID> = []
+    /// Inbox messages notified about that were not their row's newest when they were (an arrival beside a ruled one).
+    private var notified: Set<MessageID> = []
     private var seeded = false
     /// When each account's recent notifications were posted, for the summary rule.
     private var recentPosts: [AccountID: [Date]] = [:]
@@ -93,22 +97,44 @@ final class NewMailNotifier {
     func plan(_ rows: [ConversationSummary], accounts: [AccountID: Account], now: Date) -> [Post] {
         defer { seeded = true }
         let open = conversationOpenInKeyWindow()
-        var fresh: [ConversationSummary] = []
+        let seenBefore = seenLatest
+        // Every row's newest message counts as seen, notifications on or off; the rest is judged only while they are on.
+        var candidates: [ConversationSummary] = []
         for row in rows where seenLatest.insert(row.latestMessageID).inserted {
-            // Downloaded pages land after launch too; only mail dated after launch, and after its account's first
-            // sync ended, is new to the user.
-            let newSince = max(launchDate, firstSyncEndedAt[row.id.accountID] ?? launchDate)
-            guard seeded, row.unreadCount > 0, row.latestDate > newSince.addingTimeInterval(-60) else { continue }
+            guard seeded, settings.notificationsEnabled, row.unreadCount > 0 else { continue }
             // Back from Later is not new mail: the Inbox badge and the row's Back tag say it came back (§5.41).
             guard row.returnedAt == nil else { continue }
             guard !accountsInFirstSync.contains(row.id.accountID) else { continue }
             if row.id == open { continue }
             // A muted conversation's mail is archived as it arrives; one moved back to the Inbox stays quiet too (spec,
             // Mute (Q3.7)).
-            guard !row.isMuted, latestMessageIsInInbox(row.latestMessageID) else { continue }
-            fresh.append(row)
+            guard !row.isMuted else { continue }
+            candidates.append(row)
         }
-        guard !fresh.isEmpty, settings.notificationsEnabled else { return [] }
+        guard !candidates.isEmpty else { return [] }
+        let newest = newestUnreadInInbox(candidates.map(\.id))
+        var fresh: [ConversationSummary] = []
+        for row in candidates {
+            // The message the notification is about: the row's newest, or with the store's word the newest unread one in
+            // the Inbox, which must be new too: never one seen as a row's newest before, nor one already notified.
+            var shown = row
+            if let newest {
+                guard let message = newest[row.id] else { continue }
+                if message.id != row.latestMessageID {
+                    guard !seenBefore.contains(message.id), notified.insert(message.id).inserted else { continue }
+                    shown.latestMessageID = message.id
+                    shown.latestDate = message.date
+                    shown.snippet = message.snippet
+                    if let from = message.from { shown.participants = [from] }
+                }
+            }
+            // Downloaded pages land after launch too; only mail dated after launch, and after its account's first sync
+            // ended, is new to the user.
+            let newSince = max(launchDate, firstSyncEndedAt[row.id.accountID] ?? launchDate)
+            guard shown.latestDate > newSince.addingTimeInterval(-60) else { continue }
+            fresh.append(shown)
+        }
+        guard !fresh.isEmpty else { return [] }
         let sound = !isFrontmost()
         var posts: [Post] = []
         for (accountID, rows) in Dictionary(grouping: fresh, by: \.id.accountID) {

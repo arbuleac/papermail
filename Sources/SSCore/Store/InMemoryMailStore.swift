@@ -275,6 +275,15 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         return messagesLocked(in: conversation)
     }
 
+    public func newestUnreadInboxMessages(in conversations: [ConversationID]) throws -> [ConversationID: MessageMetadata] {
+        lock.lock(); defer { lock.unlock() }
+        var newest: [ConversationID: MessageMetadata] = [:]
+        for id in conversations {
+            newest[id] = messagesLocked(in: id).last { $0.isInInbox && !$0.isRead }
+        }
+        return newest
+    }
+
     private func messagesLocked(in conversation: ConversationID) -> [MessageMetadata] {
         messagesByID.values
             .filter { $0.conversationID == conversation }

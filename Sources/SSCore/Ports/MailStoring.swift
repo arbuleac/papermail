@@ -53,6 +53,10 @@ public protocol MailStoring: AnyObject, Sendable {
     func message(_ id: MessageID) throws -> MessageMetadata?
     /// Messages of a conversation, oldest first.
     func messages(in conversation: ConversationID) throws -> [MessageMetadata]
+    /// The newest unread message in the Inbox (not in the Trash or Spam) of each of `conversations` that has one, in one
+    /// read: what a new-mail notification is about, which the conversation's newest message may not be (a sender rule
+    /// archived it as it arrived, or it is the user's own reply).
+    func newestUnreadInboxMessages(in conversations: [ConversationID]) throws -> [ConversationID: MessageMetadata]
     /// Stores the body render-ready. A body that was evicted is whole again: it leaves the evicted state.
     func saveBody(_ body: StoredBody, for id: MessageID) throws
     /// Stores the body as `saveBody` does, except that one `evictBodies` would take for `cutoff` (the message received
@@ -274,6 +278,16 @@ extension MailStoring {
     /// `setMuted(_:conversations:enqueueing:returnMarks:)` with no return mark to put back.
     public func setMuted(_ muted: Bool, conversations: [ConversationID], enqueueing operations: [Operation]) throws {
         try setMuted(muted, conversations: conversations, enqueueing: operations, returnMarks: [:])
+    }
+
+    /// One conversation at a time, for a store that cannot do better (the test doubles that wrap a real store); both
+    /// stores override it with one read.
+    public func newestUnreadInboxMessages(in conversations: [ConversationID]) throws -> [ConversationID: MessageMetadata] {
+        var newest: [ConversationID: MessageMetadata] = [:]
+        for id in conversations {
+            newest[id] = try messages(in: id).last { $0.isInInbox && !$0.isRead }
+        }
+        return newest
     }
 
     /// One at a time, for a store that cannot do better (the test doubles that wrap a real store); both stores

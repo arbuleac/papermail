@@ -161,6 +161,17 @@ public final class SQLiteMailStore: MailStoring, MailStoreMaintenance, Sendable 
         try read { try MessageTable.fetch(in: conversation, db: $0) }
     }
 
+    public func newestUnreadInboxMessages(in conversations: [ConversationID]) throws -> [ConversationID: MessageMetadata] {
+        guard !conversations.isEmpty else { return [:] }
+        return try read { db in
+            var newest: [ConversationID: MessageMetadata] = [:]
+            for id in Set(conversations) {
+                newest[id] = try MessageTable.fetch(in: id, db: db).last { $0.isInInbox && !$0.isRead }
+            }
+            return newest
+        }
+    }
+
     /// Stores a body for a known message. A body for a message that no longer exists is dropped silently: the
     /// hydrator may have fetched it just before a poll deleted the message.
     public func saveBody(_ body: StoredBody, for id: MessageID) throws {

@@ -503,10 +503,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             return self.conversation.currentConversationID
         }
         let store = environment.store
-        notifier.latestMessageIsInInbox = { id in
-            guard let message = (try? store.message(id)) ?? nil else { return true }
-            return message.isInInbox
-        }
+        notifier.newestUnreadInInbox = { ids in try? store.newestUnreadInboxMessages(in: ids) }
         activity.onChange = { [weak self] in self?.refreshSyncLine() }
         // Back online: check now rather than when the engine's backoff next allows.
         activity.onNetworkReturned = { [weak self] in self?.checkAllAccounts() }

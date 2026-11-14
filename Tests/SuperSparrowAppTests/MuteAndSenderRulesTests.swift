@@ -182,7 +182,7 @@ final class MuteAndSenderRulesTests: XCTestCase {
 
         let notifier = NewMailNotifier(settings: harness.settings, launchDate: Date().addingTimeInterval(-3_600))
         notifier.isFrontmost = { false }
-        notifier.latestMessageIsInInbox = harness.controller.notifier.latestMessageIsInInbox
+        notifier.newestUnreadInInbox = harness.controller.notifier.newestUnreadInInbox
         let inbox = { try store.conversations(ConversationQuery(view: .inbox, limit: 300)) }
         XCTAssertTrue(notifier.plan(try inbox(), accounts: [a.id: a], now: Date()).isEmpty, "the first delivery only records")
 
@@ -191,7 +191,13 @@ final class MuteAndSenderRulesTests: XCTestCase {
                             subject: "New", snippet: "New mail", from: from, to: [EmailAddress(address: a.email)], date: Date(),
                             roles: [.inbox], isRead: false, isStarred: false, hasAttachments: false)
         }
+        // One poll in a fresh conversation: Ben's message, then a minute later one his list's rule archives, the row's newest.
+        let mixed = ConversationID(accountID: a.id, providerID: "mixed")
+        var ruledAfter = arrival("ruled-after", in: mixed, from: EmailAddress(name: "Weekly", address: "news@letter.example"))
+        ruledAfter.date = Date().addingTimeInterval(60)
         try store.upsertMessages([
+            arrival("ben-first", in: mixed, from: EmailAddress(name: "Ben", address: "ben@example.com")),
+            ruledAfter,
             arrival("muted-new", in: muted, from: EmailAddress(name: "Ada", address: "ada@example.com")),
             arrival("blocked-new", in: ConversationID(accountID: a.id, providerID: "blocked"), from: EmailAddress(address: "deals@shop.example")),
             // Archived by its sender's rule, yet the newest message of a conversation the Inbox still holds for older mail.
@@ -199,7 +205,10 @@ final class MuteAndSenderRulesTests: XCTestCase {
             arrival("plain-new", in: ConversationID(accountID: a.id, providerID: "plain"), from: EmailAddress(name: "Ben", address: "ben@example.com")),
         ])
         let posts = notifier.plan(try inbox(), accounts: [a.id: a], now: Date())
-        XCTAssertEqual(posts.map(\.conversation), [ConversationID(accountID: a.id, providerID: "plain")], "only the plain arrival notifies")
+        XCTAssertEqual(Set(posts.compactMap(\.conversation)), [ConversationID(accountID: a.id, providerID: "plain"), mixed],
+                       "the plain arrivals notify, Ben's too though a ruled message came after it")
+        XCTAssertEqual(posts.first { $0.conversation == mixed }?.id, "ben-first", "about Ben's message, not the ruled one")
+        XCTAssertEqual(try inbox().first { $0.id == mixed }?.latestMessageID.providerID, "ruled-after", "the row's newest is the ruled one")
         XCTAssertTrue(try inbox().contains { $0.id == shared }, "the shared conversation stays in the Inbox for its older mail")
     }
 
