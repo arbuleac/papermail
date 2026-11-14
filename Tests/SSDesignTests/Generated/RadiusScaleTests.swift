@@ -22,6 +22,7 @@ final class RadiusScaleTests: XCTestCase {
         assertOnScale("layout.invitation.radius", Quire.Layout.Invitation.radius)
         assertOnScale("layout.attachmentChip.radius", Quire.Layout.AttachmentChip.radius)
         assertOnScale("layout.attachmentChip.tileRadius", Quire.Layout.AttachmentChip.tileRadius)
+        assertOnScale("layout.attachmentChip.downloadRadius", Quire.Layout.AttachmentChip.downloadRadius)
         assertOnScale("layout.quickReply.fieldRadius", Quire.Layout.QuickReply.fieldRadius)
         assertOnScale("layout.composer.stripChipRadius", Quire.Layout.Composer.stripChipRadius)
         assertOnScale("layout.composer.focusRingRadius", Quire.Layout.Composer.focusRingRadius)
@@ -50,8 +51,8 @@ final class RadiusScaleTests: XCTestCase {
     }
 
     func testTheRadiusMetricsAreAllCovered() {
-        // tokens.json has 36 radius metrics under layout; this file asserts each of them.
-        XCTAssertEqual(DesignTokensFile.shared.layoutRadiusPaths().count, 36)
+        // tokens.json has 37 radius metrics under layout; this file asserts each of them.
+        XCTAssertEqual(DesignTokensFile.shared.layoutRadiusPaths().count, 37)
     }
 
     private func assertOnScale(_ path: String, _ value: CGFloat, file: StaticString = #filePath, line: UInt = #line) {

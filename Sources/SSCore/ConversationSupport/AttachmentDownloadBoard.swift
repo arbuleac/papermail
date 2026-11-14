@@ -22,6 +22,14 @@ public struct AttachmentDownloadBoard: Sendable {
             self.message = message
             self.attachmentID = attachmentID
         }
+
+        /// Download all on `message` (spec §5.17): its count line shows one progress for every file. No attachment
+        /// has an empty id, so this never names a chip.
+        public static func allAttachments(of message: MessageID) -> Chip {
+            Chip(message: message, attachmentID: "")
+        }
+
+        public var isAllAttachments: Bool { attachmentID.isEmpty }
     }
 
     /// One fetch's claim on its chip.
@@ -83,5 +91,24 @@ public struct AttachmentDownloadBoard: Sendable {
     /// Whether a fetch is under way on `chip`.
     public func isDownloading(_ chip: Chip) -> Bool {
         entries[chip] != nil
+    }
+
+    /// Each file's share of Download all's one progress (spec §5.17), fetched one after another: by listed size, so a
+    /// large file moves the contrail as much as it takes time; a file with no listed size counts as the average of the
+    /// others, and with no sizes at all each file counts the same. The shares add up to 1.
+    public static func batchShares(sizes: [Int]) -> [Double] {
+        guard !sizes.isEmpty else { return [] }
+        let known = sizes.filter { $0 > 0 }
+        let stand = known.isEmpty ? 1 : Double(known.reduce(0, +)) / Double(known.count)
+        let weights = sizes.map { $0 > 0 ? Double($0) : stand }
+        let total = weights.reduce(0, +)
+        return weights.map { $0 / total }
+    }
+
+    /// Download all's fraction while file `index` of a batch with `shares` is at `fraction` of its own bytes.
+    public static func batchFraction(shares: [Double], index: Int, fraction: Double) -> Double {
+        guard shares.indices.contains(index) else { return 1 }
+        let before = shares[..<index].reduce(0, +)
+        return min(1, before + shares[index] * min(1, max(0, fraction)))
     }
 }

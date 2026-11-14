@@ -219,14 +219,19 @@
 
   <div class="c4 card sheetbg">
     <h3>Attachment chip <code>layout.attachmentChip</code></h3>
-    <p class="cap">Click opens Quick Look; Space too when focused. Progress is a contrail along the meta line.</p>
+    <p class="cap">Click opens Quick Look; Space too when focused. The Download button saves to Downloads; two files or more add a count line with Download all. Progress is a contrail along the meta line, or the count line for Download all.</p>
     <div style="display:grid;gap:8px;justify-items:start">
-      <div class="ach"><span class="tl">{{PY: s('doc', 15)}}</span><div><div class="nm">go-live-checklist.pdf</div><div class="mt">PDF · 240 KB</div></div></div>
-      <div class="ach hov"><span class="tl">{{PY: s('doc', 15)}}</span><div><div class="nm">go-live-checklist.pdf</div><div class="mt">Space to Quick Look</div></div></div>
-      <div class="ach foc"><span class="tl">{{PY: s('tablecells', 15)}}</span><div><div class="nm">capacity-plan.numbers</div><div class="mt">Numbers · 1.2 MB</div></div></div>
-      <div class="ach"><span class="tl">{{PY: s('film', 15)}}</span><div><div class="nm">walkthrough.mov</div><div class="prog"><i class="contrail" style="width:46%"></i></div></div></div>
-      <div class="ach err"><span class="tl">{{PY: s('exclamationmark.triangle.fill', 15)}}</span><div><div class="nm">sso-metadata.xml</div><div class="mt">Couldn’t download · <b style="color:var(--q-accent)">Retry</b></div></div></div>
+      <div class="achead"><span>3 attachments</span><span class="linkb">Download all</span></div>
+      <div class="ach"><span class="tl">{{PY: s('doc', 15)}}</span><div><div class="nm">go-live-checklist.pdf</div><div class="mt">PDF · 240 KB</div></div><span class="dlb">{{PY: s('arrow.down.circle', 14)}}</span></div>
+      <div class="ach hov"><span class="tl">{{PY: s('doc', 15)}}</span><div><div class="nm">go-live-checklist.pdf</div><div class="mt">Space to Quick Look</div></div><span class="dlb">{{PY: s('arrow.down.circle', 14)}}</span></div>
+      <div class="ach hov"><span class="tl">{{PY: s('doc', 15)}}</span><div><div class="nm">go-live-checklist.pdf</div><div class="mt">PDF · 240 KB</div></div><span class="dlb hov">{{PY: s('arrow.down.circle', 14)}}</span></div>
+      <div class="ach foc"><span class="tl">{{PY: s('tablecells', 15)}}</span><div><div class="nm">capacity-plan.numbers</div><div class="mt">Numbers · 1.2 MB</div></div><span class="dlb">{{PY: s('arrow.down.circle', 14)}}</span></div>
+      <div class="ach"><span class="tl">{{PY: s('tablecells', 15)}}</span><div><div class="nm">capacity-plan.numbers</div><div class="mt">Numbers · 1.2 MB</div></div><span class="dlb foc">{{PY: s('arrow.down.circle', 14)}}</span></div>
+      <div class="ach"><span class="tl">{{PY: s('film', 15)}}</span><div><div class="nm">walkthrough.mov</div><div class="prog"><i class="contrail" style="width:46%"></i></div></div><span class="dlb dis">{{PY: s('arrow.down.circle', 14)}}</span></div>
+      <div class="ach err"><span class="tl">{{PY: s('exclamationmark.triangle.fill', 15)}}</span><div><div class="nm">sso-metadata.xml</div><div class="mt">Couldn’t download · <b style="color:var(--q-accent)">Retry</b></div></div><span class="dlb">{{PY: s('arrow.down.circle', 14)}}</span></div>
+      <div class="achead"><div class="prog" style="position:relative;width:{{layout.attachmentChip.progressWidth}}px;height:2px;background:var(--q-rule)"><i class="contrail" style="width:62%"></i></div><span class="linkb dis">Download all</span></div>
     </div>
+    <span class="lbl">count line · rest · hover · Download hovered · focused · Download focused · downloading · error · Download all running</span>
   </div>
 
   <div class="c6 card deskbg">

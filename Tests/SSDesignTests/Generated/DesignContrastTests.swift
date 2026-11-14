@@ -177,6 +177,11 @@ final class DesignContrastTests: XCTestCase {
         assertContrast("Attachment error text", fg: ["danger"], bg: ["sheet"], need: 4.5)
         assertContrast("Attachment progress fill", fg: ["accent"], bg: ["sheet"], need: 3)
         assertContrast("Attachment hover edge", fg: ["ruleStrong"], bg: ["sheet"], need: 3)
+        assertContrast("Attachment Download glyph", fg: ["ink2"], bg: ["sheet"], need: 3)
+        assertContrast("Attachment Download glyph, chip hovered", fg: ["ink2"], bg: ["sheet", "hover"], need: 3)
+        assertContrast("Attachment Download glyph, hover", fg: ["ink"], bg: ["sheet", "hover", "hover"], need: 3)
+        assertContrast("Attachment Download glyph, pressed", fg: ["ink"], bg: ["sheet", "hover", "pressed"], need: 3)
+        assertContrast("Attachment count line", fg: ["ink3"], bg: ["sheet"], need: 4.5)
         assertContrast("Footer ghost buttons", fg: ["ink2"], bg: ["sheet"], need: 4.5)
         assertContrast("Footer ghost buttons, hover", fg: ["ink"], bg: ["sheet", "hover"], need: 4.5)
         assertContrast("Body failed message", fg: ["danger"], bg: ["sheet"], need: 4.5)
@@ -188,15 +193,15 @@ final class DesignContrastTests: XCTestCase {
         assertContrast("Quick reply placeholder", fg: ["ink3"], bg: ["sheet"], need: 4.5)
         assertContrast("Quick reply text", fg: ["ink"], bg: ["sheet"], need: 4.5)
         assertContrast("Quick reply field edge", fg: ["ruleStrong"], bg: ["paper"], need: 3)
+    }
+
+    /// `contrastPairs[160..<200]`
+    func testContrastPairs160() {
         assertContrast("Quick reply keycap legend", fg: ["ink2"], bg: ["raised"], need: 4.5)
         assertContrast("Quick reply mode, active label", fg: ["ink"], bg: ["sheet"], need: 4.5)
         assertContrast("Quick reply mode, active underline", fg: ["ink"], bg: ["sheet"], need: 3)
         assertContrast("Quick reply mode, active underline, window not key", fg: ["ink3"], bg: ["sheet"], need: 3)
         assertContrast("Quick reply mode, inactive label", fg: ["ink2"], bg: ["sheet"], need: 4.5)
-    }
-
-    /// `contrastPairs[160..<200]`
-    func testContrastPairs160() {
         assertContrast("Quick reply tool glyphs", fg: ["ink2"], bg: ["sheet"], need: 3)
         assertContrast("Quick reply tool glyphs, hover", fg: ["ink"], bg: ["sheet", "hover"], need: 3)
         assertContrast("Quick reply strip text (Sending in 4 s)", fg: ["ink"], bg: ["sheet"], need: 4.5)
@@ -232,15 +237,15 @@ final class DesignContrastTests: XCTestCase {
         assertContrast("Autocomplete highlighted name", fg: ["ink"], bg: ["selWash"], need: 4.5)
         assertContrast("Autocomplete highlighted address", fg: ["ink3"], bg: ["selWash"], need: 4.5)
         assertContrast("Autocomplete highlight margin rule vs highlight wash", fg: ["selRule"], bg: ["selWash"], need: 3)
+    }
+
+    /// `contrastPairs[200..<240]`
+    func testContrastPairs200() {
         assertContrast("Autocomplete highlight margin rule vs popover", fg: ["selRule"], bg: ["raised"], need: 3)
         assertContrast("Autocomplete accept keycap legend (raised keycap on the highlight)", fg: ["ink2"], bg: ["raised"], need: 4.5)
         assertContrast("Composer field-row focus ring (inset, on paper)", fg: ["focus"], bg: ["paper"], need: 3)
         assertContrast("Composer body caret (the body's focus indicator)", fg: ["accent"], bg: ["sheet"], need: 3)
         assertContrast("Composer drop label (Drop to attach)", fg: ["accent"], bg: ["sheet"], need: 4.5)
-    }
-
-    /// `contrastPairs[200..<240]`
-    func testContrastPairs200() {
         assertContrast("Composer status: rejected drop warning glyph", fg: ["warning"], bg: ["paper"], need: 3)
         assertContrast("Attachment strip chip name", fg: ["ink"], bg: ["sheet"], need: 4.5)
         assertContrast("Attachment strip chip size", fg: ["ink3"], bg: ["sheet"], need: 4.5)
@@ -276,15 +281,15 @@ final class DesignContrastTests: XCTestCase {
         assertContrast("Text field placeholder", fg: ["ink3"], bg: ["sheet"], need: 4.5)
         assertContrast("Text field edge vs sheet", fg: ["ruleStrong"], bg: ["sheet"], need: 3)
         assertContrast("Text field edge vs desk", fg: ["ruleStrong"], bg: ["canvas"], need: 3)
+    }
+
+    /// `contrastPairs[240..<280]`
+    func testContrastPairs240() {
         assertContrast("Text field edge vs list", fg: ["ruleStrong"], bg: ["paper"], need: 3)
         assertContrast("Field error border and help", fg: ["danger"], bg: ["sheet"], need: 4.5)
         assertContrast("Field error help on desk", fg: ["danger"], bg: ["canvas"], need: 4.5)
         assertContrast("Focus ring vs list", fg: ["focus"], bg: ["paper"], need: 3)
         assertContrast("Focus ring vs sheet", fg: ["focus"], bg: ["sheet"], need: 3)
-    }
-
-    /// `contrastPairs[240..<280]`
-    func testContrastPairs240() {
         assertContrast("Focus ring vs desk", fg: ["focus"], bg: ["canvas"], need: 3)
         assertContrast("Focus ring vs raised", fg: ["focus"], bg: ["raised"], need: 3)
         assertContrast("Checkbox / radio off edge", fg: ["ruleStrong"], bg: ["sheet"], need: 3)
@@ -320,15 +325,15 @@ final class DesignContrastTests: XCTestCase {
         assertContrast("Info banner text", fg: ["info"], bg: ["infoWash"], need: 4.5)
         assertContrast("Success banner text", fg: ["success"], bg: ["successWash"], need: 4.5)
         assertContrast("Warning banner text", fg: ["warning"], bg: ["warningWash"], need: 4.5)
+    }
+
+    /// `contrastPairs[280..<320]`
+    func testContrastPairs280() {
         assertContrast("Error banner text", fg: ["danger"], bg: ["dangerWash"], need: 4.5)
         assertContrast("Banner body text on info wash", fg: ["ink"], bg: ["infoWash"], need: 4.5)
         assertContrast("Banner body text on error wash", fg: ["ink"], bg: ["dangerWash"], need: 4.5)
         assertContrast("Determinate bar fill vs track", fg: ["accent"], bg: ["sheet", "fill"], need: 3)
         assertContrast("Spinner (ink3) on sheet", fg: ["ink3"], bg: ["sheet"], need: 3)
-    }
-
-    /// `contrastPairs[280..<320]`
-    func testContrastPairs280() {
         assertContrast("Toast message", fg: ["onSlip"], bg: ["slip"], need: 4.5)
         assertContrast("Toast Undo", fg: ["onSlip"], bg: ["slip"], need: 4.5)
         assertContrast("Toast Undo, hover", fg: ["onSlip"], bg: ["slip", "slipHover"], need: 4.5)
@@ -364,15 +369,15 @@ final class DesignContrastTests: XCTestCase {
         assertContrast("Settings selection rule vs wash", fg: ["selRule"], bg: ["selWash"], need: 3)
         assertContrast("Settings selection rule vs group", fg: ["selRule"], bg: ["sheet"], need: 3)
         assertContrast("Settings idle selection rule vs idle wash", fg: ["selRuleIdle"], bg: ["selWashIdle"], need: 3)
+    }
+
+    /// `contrastPairs[320..<360]`
+    func testContrastPairs320() {
         assertContrast("Settings idle selection rule vs group", fg: ["selRuleIdle"], bg: ["sheet"], need: 3)
         assertContrast("Settings +/- glyphs", fg: ["ink2"], bg: ["raised"], need: 3)
         assertContrast("Settings +/- edge vs desk", fg: ["ruleStrong"], bg: ["canvas"], need: 3)
         assertContrast("Settings empty-state hint", fg: ["ink3"], bg: ["sheet"], need: 4.5)
         assertContrast("Settings popup label on desk form", fg: ["ink"], bg: ["raised"], need: 4.5)
-    }
-
-    /// `contrastPairs[320..<360]`
-    func testContrastPairs320() {
         assertContrast("Settings focus ring on desk", fg: ["focus"], bg: ["canvas"], need: 3)
         assertContrast("Settings status: up to date glyph", fg: ["success"], bg: ["sheet"], need: 3)
         assertContrast("Settings status: sign in required", fg: ["danger"], bg: ["sheet"], need: 4.5)
@@ -408,15 +413,15 @@ final class DesignContrastTests: XCTestCase {
         assertContrast("Welcome button trailing note, hover", fg: ["ink2"], bg: ["raised", "hover"], need: 4.5)
         assertContrast("Welcome button trailing note, pressed", fg: ["ink2"], bg: ["raised", "pressed"], need: 4.5)
         assertContrast("Welcome waiting label and spinner", fg: ["ink"], bg: ["raised"], need: 4.5)
+    }
+
+    /// `contrastPairs[360..<400]`
+    func testContrastPairs360() {
         assertContrast("Welcome footnote", fg: ["ink3"], bg: ["paper"], need: 4.5)
         assertContrast("Welcome demo link", fg: ["accent"], bg: ["paper"], need: 4.5)
         assertContrast("Welcome error line", fg: ["danger"], bg: ["paper"], need: 4.5)
         assertContrast("Account ink Persimmon on list", fg: ["account:Persimmon"], bg: ["paper"], need: 3, needIC: 3.5)
         assertContrast("Account ink Persimmon on hovered row", fg: ["account:Persimmon"], bg: ["paper", "hover"], need: 3, needIC: 3.5)
-    }
-
-    /// `contrastPairs[360..<400]`
-    func testContrastPairs360() {
         assertContrast("Account ink Persimmon on selected row", fg: ["account:Persimmon"], bg: ["selWash"], need: 3, needIC: 3.5)
         assertContrast("Account ink Persimmon on idle selection", fg: ["account:Persimmon"], bg: ["selWashIdle"], need: 3, needIC: 3.5)
         assertContrast("Account ink Persimmon on rail", fg: ["account:Persimmon"], bg: ["spine"], need: 3, needIC: 3.5)
@@ -452,15 +457,15 @@ final class DesignContrastTests: XCTestCase {
         assertContrast("Account ink Jade on hovered row", fg: ["account:Jade"], bg: ["paper", "hover"], need: 3, needIC: 3.5)
         assertContrast("Account ink Jade on selected row", fg: ["account:Jade"], bg: ["selWash"], need: 3, needIC: 3.5)
         assertContrast("Account ink Jade on idle selection", fg: ["account:Jade"], bg: ["selWashIdle"], need: 3, needIC: 3.5)
+    }
+
+    /// `contrastPairs[400..<440]`
+    func testContrastPairs400() {
         assertContrast("Account ink Jade on rail", fg: ["account:Jade"], bg: ["spine"], need: 3, needIC: 3.5)
         assertContrast("Account ink Jade on hovered rail tile", fg: ["account:Jade"], bg: ["spine", "hover"], need: 3, needIC: 3.5)
         assertContrast("Account ink Jade on sheet / Settings", fg: ["account:Jade"], bg: ["sheet"], need: 3, needIC: 3.5)
         assertContrast("Account ink Jade on reader desk", fg: ["account:Jade"], bg: ["canvas"], need: 3, needIC: 3.5)
         assertContrast("Account ink Jade on raised: popups at rest, and the 2 pt raised halo that keeps the dot or swatch off a hovered or pressed popup face", fg: ["account:Jade"], bg: ["raised"], need: 3, needIC: 3.5)
-    }
-
-    /// `contrastPairs[400..<440]`
-    func testContrastPairs400() {
         assertContrast("Rail monogram on Jade face", fg: ["ink"], bg: ["accountFace:Jade"], need: 4.5)
         assertContrast("Rail monogram on Jade face, pressed (the press wash stays inside the face)", fg: ["ink"], bg: ["accountFace:Jade", "pressed"], need: 4.5)
         assertContrast("Account ink Iris on list", fg: ["account:Iris"], bg: ["paper"], need: 3, needIC: 3.5)
@@ -496,15 +501,15 @@ final class DesignContrastTests: XCTestCase {
         assertContrast("Account ink Umber on raised: popups at rest, and the 2 pt raised halo that keeps the dot or swatch off a hovered or pressed popup face", fg: ["account:Umber"], bg: ["raised"], need: 3, needIC: 3.5)
         assertContrast("Rail monogram on Umber face", fg: ["ink"], bg: ["accountFace:Umber"], need: 4.5)
         assertContrast("Rail monogram on Umber face, pressed (the press wash stays inside the face)", fg: ["ink"], bg: ["accountFace:Umber", "pressed"], need: 4.5)
+    }
+
+    /// `contrastPairs[440..<480]`
+    func testContrastPairs440() {
         assertContrast("Account ink Azure on list", fg: ["account:Azure"], bg: ["paper"], need: 3, needIC: 3.5)
         assertContrast("Account ink Azure on hovered row", fg: ["account:Azure"], bg: ["paper", "hover"], need: 3, needIC: 3.5)
         assertContrast("Account ink Azure on selected row", fg: ["account:Azure"], bg: ["selWash"], need: 3, needIC: 3.5)
         assertContrast("Account ink Azure on idle selection", fg: ["account:Azure"], bg: ["selWashIdle"], need: 3, needIC: 3.5)
         assertContrast("Account ink Azure on rail", fg: ["account:Azure"], bg: ["spine"], need: 3, needIC: 3.5)
-    }
-
-    /// `contrastPairs[440..<476]`
-    func testContrastPairs440() {
         assertContrast("Account ink Azure on hovered rail tile", fg: ["account:Azure"], bg: ["spine", "hover"], need: 3, needIC: 3.5)
         assertContrast("Account ink Azure on sheet / Settings", fg: ["account:Azure"], bg: ["sheet"], need: 3, needIC: 3.5)
         assertContrast("Account ink Azure on reader desk", fg: ["account:Azure"], bg: ["canvas"], need: 3, needIC: 3.5)
@@ -540,6 +545,10 @@ final class DesignContrastTests: XCTestCase {
         assertContrast("Avatar initials, Slate", fg: ["avatarInk:Slate"], bg: ["avatarFace:Slate"], need: 4.5)
         assertContrast("Avatar initials, Heather", fg: ["avatarInk:Heather"], bg: ["avatarFace:Heather"], need: 4.5)
         assertContrast("Avatar initials, Rose", fg: ["avatarInk:Rose"], bg: ["avatarFace:Rose"], need: 4.5)
+    }
+
+    /// `contrastPairs[480..<481]`
+    func testContrastPairs480() {
         assertContrast("Avatar initials, Stone", fg: ["avatarInk:Stone"], bg: ["avatarFace:Stone"], need: 4.5)
     }
 
@@ -655,8 +664,8 @@ final class DesignContrastTests: XCTestCase {
     }
 
     func testPairCounts() {
-        // tokens.json lists 476 contrast pairs and 99 Graphite pairs; a regenerated file must keep them all.
-        XCTAssertEqual(DesignTokensFile.shared.pairCount("contrastPairs"), 476)
+        // tokens.json lists 481 contrast pairs and 99 Graphite pairs; a regenerated file must keep them all.
+        XCTAssertEqual(DesignTokensFile.shared.pairCount("contrastPairs"), 481)
         XCTAssertEqual(DesignTokensFile.shared.pairCount("graphiteContrastPairs"), 99)
     }
 }

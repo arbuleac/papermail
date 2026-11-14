@@ -85,13 +85,17 @@ extension DesignGalleryCards {
             let error = QuireSlipView(kind: .error, message: "Couldn't archive. Restored.")
             error.setAction("Details")?.displayState = .focused
             error.setFrameSize(error.intrinsicContentSize)
+            // A save to Downloads (§5.17): done, nothing to undo, so its action has no keycap.
+            let saved = QuireSlipView(kind: .notice, message: "Saved 3 to Downloads", symbolName: Quire.Icon.download)
+            saved.setAction("Show in Finder")
+            saved.setFrameSize(saved.intrinsicContentSize)
             let toasts = stack([
                 undoable("Archived", symbol: Quire.Icon.archive, action: nil, left: 0.55),
                 undoable("Archived 3 conversations", symbol: Quire.Icon.archive, action: .hover, left: 0.42),
                 undoable("Moved to Trash", symbol: Quire.Icon.trash, action: .pressed, left: 0.2),
-                confirm, error,
+                confirm, error, saved,
             ], gap: 12, caption: "rest (contrail paused) · action hover · action pressed · undo confirmation (no action) · error, "
-                + "action focused")
+                + "action focused · saved (a notice)")
 
             let summary = "Re: Contoso rollout · to Ben Carter"
             @MainActor func counting(left: Double, action: QuireDisplayState? = nil, ownsUndoKey: Bool = true) -> QuireUndoPanelView {

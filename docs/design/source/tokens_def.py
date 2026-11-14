@@ -208,8 +208,9 @@ LAYOUT = {
  "invitation": {"radius": 8, "padX": 16, "padTop": 12, "padBottom": 12, "kickerGlyph": 14, "kickerGap": 6, "titleTop": 6, "whenTop": 2,
                 "detailsTop": 8, "labelColumn": 72, "rowGap": 2, "actionsTop": 12, "actionsPad": 10, "answerGap": 4, "answerSize": "small",
                 "answerGlyph": 12, "attendeesMax": 4, "noticeTop": 10, "gapBelow": 16},
- "attachmentChip": {"height": 44, "minWidth": 196, "maxWidth": 264, "radius": 8, "padLeft": 8, "padRight": 14, "gap": 10, "tile": 28, "tileRadius": 5,
-                    "tileGlyph": 15, "progressWidth": 120, "progressHeight": 2, "chipGap": 8},
+ "attachmentChip": {"height": 44, "minWidth": 196, "maxWidth": 264, "radius": 8, "padLeft": 8, "padRight": 6, "gap": 10, "tile": 28, "tileRadius": 5,
+                    "tileGlyph": 15, "progressWidth": 120, "progressHeight": 2, "chipGap": 8,
+                    "download": 24, "downloadGlyph": 14, "downloadGap": 4, "downloadRadius": 5, "head": 24, "headGap": 8},
  "quickReply": {"rest": 60, "barPadY": 11, "field": 38, "fieldRadius": 8, "fieldPadTop": 9, "fieldPadBottom": 8,
                 "face": 24, "faceX": 12, "faceTop": 7, "faceMonogram": 11, "faceMonogramTwoLetter": 10, "textX": 48, "restTrailing": 67, "focusedTrailing": 12,
                 "restSend": 28, "restSendGlyph": 15, "restSendInset": 5, "restKeycapGap": 8,
@@ -287,6 +288,7 @@ ICON = {
  "reveal": "eye", "conceal": "eye.slash", "invitation": "calendar", "answered": "checkmark",
  "loginApproval": "info.circle",
  "mute": "bell.slash", "unmute": "bell", "blockSender": "hand.raised", "alwaysArchiveSender": "archivebox", "removeRule": "minus",
+ "download": "arrow.down.circle",
 }
 GLYPHS = {
  "ss.quire": {"grid": 16, "stroke": 1.5, "paths": ["M2.75 6.25h10.5a1 1 0 0 1 1 1v5.5a1 1 0 0 1-1 1H2.75a1 1 0 0 1-1-1v-5.5a1 1 0 0 1 1-1z", "M2.1 7 8 10.6 13.9 7", "M3.5 3.75h9", "M5.25 1.5h5.5"], "fills": [], "meaning": "All Inboxes: a gathering of letters"},
@@ -297,7 +299,8 @@ GLYPHS = {
 }
 READER_SYMBOLS = ["star", "star.fill", "arrowshape.turn.up.left", "arrowshape.turn.up.left.2", "arrowshape.turn.up.right", "ellipsis",
                   "circle.lefthalf.filled", "xmark", "photo", "exclamationmark.triangle.fill", "wifi.slash",
-                  "doc", "doc.richtext", "tablecells", "doc.zipper", "film", "calendar", "checkmark", "info.circle"]
+                  "doc", "doc.richtext", "tablecells", "doc.zipper", "film", "calendar", "checkmark", "info.circle",
+                  "arrow.down.circle"]
 
 # Graphite system accent (§3.1): every accent-family token, mapped to the neutral ramp. A value is a token or a stack
 # (composited left to right). Tokens not listed are unchanged, including selWashIdle, selRuleIdle and every account ink.
@@ -325,7 +328,8 @@ CHEAT_SHEET_SEARCH = ("Search", ["from:", "to:", "subject:", "is:unread", "is:re
 # Keyboard cheat sheet content (§5.32), band by band, left to right; keys separated by spaces, "then" and "…" are words.
 CHEAT_SHEET = [
  ("Move", [("J K", "Next · previous"), ("⇧J ⇧K", "Extend the selection"), ("↩", "Open"), ("esc", "Back to the list"),
-           ("N P", "Next · previous message"), ("space", "Quick Look attachments"), ("/", "Search"), ("↩", "In search: ask the server")]),
+           ("N P", "Next · previous message"), ("space", "Quick Look attachments"),
+           ("⇧⌘D", "Save attachments to Downloads"), ("/", "Search"), ("↩", "In search: ask the server")]),
  ("Act", [("E", "Archive"), ("L", "Snooze until later"), ("#", "Move to Trash"), ("!", "Mark as spam"), ("⇧I", "Move to Inbox"),
           ("S", "Star · unstar"), ("U", "Mark as unread · read"), ("M", "Mute · unmute"), ("⇧⌘U", "Unsubscribe"), ("Z", "Undo")]),
  ("Go", [("G then I", "Inbox"), ("G then L", "Later"), ("G then S", "Starred"), ("G then T", "Sent"), ("G then D", "Drafts"),

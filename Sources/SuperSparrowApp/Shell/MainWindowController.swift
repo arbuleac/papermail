@@ -2027,6 +2027,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         case .openAttachment:
             // The reader already opened Quick Look.
             break
+        case .attachmentsSaved(let outcome):
+            showSaved(outcome)
         case .continueDraft(let id):
             continueDraft(id)
         case .discardDrafts(let ids):
@@ -2440,11 +2442,34 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     @objc func loadImages(_ sender: Any?) { conversation.loadImages(sender) }
     @objc func toggleOriginalColors(_ sender: Any?) { conversation.toggleOriginalColors(sender) }
     @objc func saveAttachments(_ sender: Any?) { conversation.saveAttachments(sender) }
+    @objc func downloadAttachments(_ sender: Any?) { conversation.downloadAttachments(sender) }
 
     private static let readerCommands: Set<Selector> = [
         #selector(nextMessage(_:)), #selector(previousMessage(_:)), #selector(toggleQuotedText(_:)), #selector(loadImages(_:)),
-        #selector(toggleOriginalColors(_:)), #selector(saveAttachments(_:)),
+        #selector(toggleOriginalColors(_:)), #selector(saveAttachments(_:)), #selector(downloadAttachments(_:)),
     ]
+
+    /// The toast after a save to Downloads (spec §5.17, §5.30): what was saved, with Show in Finder, which selects the
+    /// copies. It is bound to no undo group, so Z still reaches the last undoable action in its grace (§6.1). A save
+    /// that wrote nothing says so; a file that could not be fetched is told by its chip, not here.
+    private func showSaved(_ outcome: AttachmentSaveOutcome) {
+        let toasts = listPane.toasts
+        let action = AttachmentSaveOutcome.showInFinder
+        let toast = outcome.toast { words in
+            toasts.fits(words, symbol: Quire.Icon.download, actionTitle: action, keycap: nil)
+        }
+        switch toast {
+        case .saved(let words)?:
+            let files = outcome.saved
+            toasts.show(words, kind: .notice, symbol: Quire.Icon.download, actionTitle: action) {
+                NSWorkspace.shared.activateFileViewerSelecting(files)
+            }
+        case .failed(let words)?:
+            toasts.show(words, kind: .error, symbol: Quire.Icon.error)
+        case nil:
+            break
+        }
+    }
 
     @objc func selectAccountShortcut(_ sender: Any?) {
         guard let item = sender as? NSMenuItem else { return }

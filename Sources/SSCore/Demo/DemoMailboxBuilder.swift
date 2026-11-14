@@ -12,6 +12,8 @@ struct DemoMailboxBuilder {
     static let photoAttachmentID = "att-photo-sunset"
     static let photoContentID = "offsite-sunset@demo.test"
     static let invoiceAttachmentID = "att-invoice-2041"
+    static let checklistAttachmentID = "att-golive-checklist"
+    static let trainingAttachmentID = "att-golive-training"
     static let historyDays = 60
 
     let profile: DemoProfile
@@ -267,6 +269,15 @@ struct DemoMailboxBuilder {
                     attachments.append(AttachmentInfo(
                         id: Self.invoiceAttachmentID, filename: "INV-2041.pdf", mimeType: "application/pdf",
                         sizeBytes: DemoAssets.invoicePDF.count, isInline: false
+                    ))
+                case .checklist:
+                    attachments.append(AttachmentInfo(
+                        id: Self.checklistAttachmentID, filename: "go-live-checklist.pdf", mimeType: "application/pdf",
+                        sizeBytes: DemoAssets.checklistPDF.count, isInline: false
+                    ))
+                    attachments.append(AttachmentInfo(
+                        id: Self.trainingAttachmentID, filename: "training-schedule.csv", mimeType: "text/csv",
+                        sizeBytes: DemoAssets.trainingCSV.count, isInline: false
                     ))
                 }
             }

@@ -26,7 +26,7 @@ public enum ConversationShellAssets {
     public static let symbols: [String] = [
         "star", "star.fill", "arrowshape.turn.up.left", "arrowshape.turn.up.left.2", "arrowshape.turn.up.right",
         "ellipsis", "circle.lefthalf.filled", "xmark", "photo", "exclamationmark.triangle.fill", "wifi.slash",
-        "doc", "doc.richtext", "tablecells", "doc.zipper", "film", "calendar", "checkmark", "info.circle",
+        "doc", "doc.richtext", "tablecells", "doc.zipper", "film", "calendar", "checkmark", "info.circle", "arrow.down.circle",
     ]
 
     /// The custom property a rasterised symbol travels in: `star.fill` → `--sym-star-fill`.
@@ -405,16 +405,40 @@ public enum ConversationShellAssets {
     /* Attachment chips (spec §5.17). */
     .ss-atts { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 8px; }
     .ss-atts:empty { display: none; }
+    /* The chip and its Download button are siblings in one wrapper, since a button cannot hold a button; the chip
+       leaves room at its end for the button (padRight 6 + download 24 + downloadGap 4). Hovering either gives the chip
+       its hover surface; only the chip itself shows the hover meta. */
+    .ss-chipw { position: relative; display: flex; min-width: 0; }
     .ss-chip {
-      position: relative; height: 44px; min-width: 196px; max-width: 264px; padding: 0 14px 0 8px; border: 0;
+      position: relative; height: 44px; min-width: 196px; max-width: 264px; padding: 0 34px 0 8px; border: 0;
       border-radius: var(--q-r-lg); background: var(--q-sheet); box-shadow: inset 0 0 0 var(--ss-hair) var(--q-rule);
       display: flex; align-items: center; gap: 10px; text-align: start; overflow: hidden; white-space: nowrap;
     }
-    .ss-chip:hover { background: linear-gradient(var(--q-hover), var(--q-hover)), var(--q-sheet); box-shadow: inset 0 0 0 1px var(--q-ruleStrong); }
-    .ss-chip:active { background: linear-gradient(var(--q-pressed), var(--q-pressed)), var(--q-sheet); }
-    .ss-chip:focus-visible {
+    .ss-chipw:hover > .ss-chip { background: linear-gradient(var(--q-hover), var(--q-hover)), var(--q-sheet); box-shadow: inset 0 0 0 1px var(--q-ruleStrong); }
+    .ss-chipw > .ss-chip:active { background: linear-gradient(var(--q-pressed), var(--q-pressed)), var(--q-sheet); }
+    .ss-chipw > .ss-chip:focus-visible {
       box-shadow: inset 0 0 0 var(--ss-hair) var(--q-rule), 0 0 0 1px var(--q-sheet), 0 0 0 calc(1px + var(--ss-ring)) var(--q-focus);
     }
+    /* Download (spec §5.17): always shown, its own 24 pt hit target; disabled while the chip downloads. */
+    .ss-chip-dl {
+      position: absolute; right: 6px; top: 10px; width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--q-r-sm);
+      background: none; color: var(--q-ink2); display: flex; align-items: center; justify-content: center; font-size: 14px;
+    }
+    .ss-chip-dl:hover { background: var(--q-hover); color: var(--q-ink); }
+    .ss-chip-dl:active { background: var(--q-pressed); color: var(--q-ink); }
+    .ss-chip-dl[aria-disabled="true"], .ss-chip-dl[aria-disabled="true"]:hover, .ss-chip-dl[aria-disabled="true"]:active {
+      background: none; color: var(--q-inkDisabled);
+    }
+    .ss-chip-dl:focus-visible { box-shadow: 0 0 0 1px var(--q-sheet), 0 0 0 calc(1px + var(--ss-ring)) var(--q-focus); }
+    /* A message with two files or more (spec §5.17): the count and Download all on a line of their own above the
+       chips; while Download all runs, the count gives way to the contrail and the link is disabled. */
+    .ss-atts-head {
+      flex: 0 0 100%; display: flex; align-items: center; gap: 4px; height: 24px;
+      font: var(--q-font-meta); color: var(--q-ink3); white-space: nowrap;
+    }
+    .ss-atts-head .ss-link[aria-disabled="true"] { color: var(--q-inkDisabled); text-decoration: none; }
+    .ss-atts-head.ss-loading .ss-atts-count { display: none; }
+    .ss-atts-head.ss-loading .ss-dl { display: block; margin: 0 4px 0 0; }
     .ss-tile {
       flex: none; width: 28px; height: 28px; border-radius: var(--q-r-sm); background: var(--q-fill); color: var(--q-ink2);
       display: flex; align-items: center; justify-content: center; font-size: 15px;
@@ -1527,7 +1551,10 @@ public enum ConversationShellAssets {
         return node;
       }
 
+      // A chip and its Download button (spec §5.17), siblings in one wrapper. The button follows its chip in the Tab
+      // order: both are the roving stop together, so ← → keep them in step.
       function buildChip(card, attachment, index) {
+        var wrap = el('span', 'ss-chipw');
         var chip = button('ss-chip');
         chip.title = attachment.name;
         chip.tabIndex = index === 0 ? 0 : -1;
@@ -1550,14 +1577,27 @@ public enum ConversationShellAssets {
         }
         meta.appendChild(el('span', 'ss-hover-meta', 'Space to Quick Look'));
         text.appendChild(meta);
-        var download = el('span', 'ss-dl');
-        download.setAttribute('aria-hidden', 'true');
-        download.appendChild(el('span', 'ss-dl-fill'));
-        text.appendChild(download);
-        var progress = card.attachmentProgress ? card.attachmentProgress[attachment.id] : undefined;
-        if (progress !== undefined && !failed) { showProgress(chip, progress); }
+        text.appendChild(contrail());
         chip.appendChild(tile);
         chip.appendChild(text);
+        var save = button('ss-chip-dl ss-dlb', null, 'Save to Downloads');
+        save.tabIndex = chip.tabIndex;
+        save.dataset.attachmentId = attachment.id;
+        save.setAttribute('aria-label', 'Download ' + attachment.name);
+        save.appendChild(sym('arrow.down.circle'));
+        save.addEventListener('click', function (event) {
+          stop(event);
+          setTarget(card, true);
+          // A double-click's second click is no second save: a file already on this Mac is saved before it lands, so
+          // the button is not yet disabled (event.detail is 0 from the keyboard, 1 for a single click). The app also
+          // ignores a second press while the file is saved; disabled here so it does not look pressable.
+          if (event.detail > 1 || save.getAttribute('aria-disabled') === 'true') { return; }
+          action('downloadAttachment', card, attachment.id);
+        });
+        wrap.appendChild(chip);
+        wrap.appendChild(save);
+        var progress = card.attachmentProgress ? card.attachmentProgress[attachment.id] : undefined;
+        if (progress !== undefined && !failed) { showProgress(chip, progress); }
         chip.addEventListener('click', function (event) {
           stop(event);
           setTarget(card, true);
@@ -1571,36 +1611,70 @@ public enum ConversationShellAssets {
           stop(event);
           action('openAttachmentWithApp', card, attachment.id);
         });
-        chip.addEventListener('contextmenu', function (event) {
+        // The Download button's right click is the chip's menu too: it belongs to the same file.
+        wrap.addEventListener('contextmenu', function (event) {
           event.preventDefault();
           stop(event);
           setTarget(card, true);
           post('ss', { kind: 'action', type: 'attachmentMenu', messageID: card.message.id, attachmentID: attachment.id,
                        x: event.clientX, y: event.clientY });
         });
-        return chip;
+        return wrap;
+      }
+
+      // The 120 × 2 pt contrail a chip's meta, or the count line, gives way to while files arrive (spec §5.17, §5.37).
+      function contrail() {
+        var bar = el('span', 'ss-dl');
+        bar.setAttribute('aria-hidden', 'true');
+        bar.appendChild(el('span', 'ss-dl-fill'));
+        return bar;
+      }
+
+      // Two files or more: the count and Download all above the chips (spec §5.17). Inline images are never in the
+      // payload's list, so the count is the files the user can save.
+      function buildAttachmentsHead(card) {
+        var m = card.message;
+        var head = el('div', 'ss-atts-head');
+        head.appendChild(el('span', 'ss-atts-count', m.attachments.length + ' attachments'));
+        head.appendChild(contrail());
+        var all = button('ss-link ss-dlall ss-dlb', 'Download all', 'Download Attachments  ⇧⌘D');
+        all.addEventListener('click', function (event) {
+          stop(event);
+          setTarget(card, true);
+          // As on a chip's Download: a double-click saves the files once.
+          if (event.detail > 1 || all.getAttribute('aria-disabled') === 'true') { return; }
+          action('downloadAllAttachments', card, null);
+        });
+        head.appendChild(all);
+        if (card.batchProgress !== undefined) { showProgress(head, card.batchProgress); }
+        return head;
       }
 
       function fillAttachments(card) {
         var m = card.message;
         var list = card.atts;
-        var focused = document.activeElement && list.contains(document.activeElement) ? document.activeElement.dataset.attachmentId : null;
+        var active = document.activeElement && list.contains(document.activeElement) ? document.activeElement : null;
+        var focused = active ? active.dataset.attachmentId : null;
+        var focusedKind = !active ? null : active.classList.contains('ss-chip-dl') ? '.ss-chip-dl'
+          : active.classList.contains('ss-dlall') ? '.ss-dlall' : '.ss-chip';
         list.replaceChildren();
+        if (m.attachments.length >= 2) { list.appendChild(buildAttachmentsHead(card)); }
         for (var i = 0; i < m.attachments.length; i++) { list.appendChild(buildChip(card, m.attachments[i], i)); }
-        if (focused) {
-          var again = list.querySelector('.ss-chip[data-attachment-id="' + CSS.escape(focused) + '"]');
-          if (again) { again.focus(); }
-        }
+        var again = focusedKind === '.ss-dlall' ? list.querySelector('.ss-dlall')
+          : focused ? list.querySelector(focusedKind + '[data-attachment-id="' + CSS.escape(focused) + '"]') : null;
+        if (again) { again.focus(); }
         refitCard(card);
       }
 
-      // A chip's download (spec §5.17): fraction 0…1 fills the contrail, null sweeps it (size unknown), and a
-      // negative value ends the download, giving the meta back. Kept per card so a rebuilt chip keeps it.
-      function showProgress(chip, fraction) {
-        var bar = chip.querySelector('.ss-dl');
-        var fill = chip.querySelector('.ss-dl-fill');
-        chip.classList.add('ss-loading');
-        chip.setAttribute('aria-busy', 'true');
+      // A chip's download, or Download all's on the count line (spec §5.17): fraction 0…1 fills the contrail, null
+      // sweeps it (size unknown), and a negative value ends the download, giving the meta back. Kept per card so a
+      // rebuilt chip keeps it. The control that started it is disabled meanwhile.
+      function showProgress(node, fraction) {
+        var bar = node.querySelector('.ss-dl');
+        var fill = node.querySelector('.ss-dl-fill');
+        node.classList.add('ss-loading');
+        node.setAttribute('aria-busy', 'true');
+        setDownloadDisabled(node, true);
         if (fraction === null) {
           bar.classList.add('ss-sweep');
           fill.style.width = '';
@@ -1610,6 +1684,20 @@ public enum ConversationShellAssets {
         }
       }
 
+      function endProgress(node) {
+        node.classList.remove('ss-loading');
+        node.removeAttribute('aria-busy');
+        setDownloadDisabled(node, false);
+      }
+
+      // The chip's Download button sits beside the chip; Download all sits in the count line.
+      function setDownloadDisabled(node, disabled) {
+        var control = node.classList.contains('ss-chip') ? (node.parentNode && node.parentNode.querySelector('.ss-chip-dl'))
+          : node.querySelector('.ss-dlall');
+        if (!control) { return; }
+        if (disabled) { control.setAttribute('aria-disabled', 'true'); } else { control.removeAttribute('aria-disabled'); }
+      }
+
       function attachmentProgress(id, attachmentID, fraction) {
         var card = state.byID[id];
         if (!card) { return; }
@@ -1617,11 +1705,25 @@ public enum ConversationShellAssets {
         var chip = card.atts.querySelector('.ss-chip[data-attachment-id="' + CSS.escape(attachmentID) + '"]');
         if (fraction !== null && fraction < 0) {
           delete card.attachmentProgress[attachmentID];
-          if (chip) { chip.classList.remove('ss-loading'); chip.removeAttribute('aria-busy'); }
+          if (chip) { endProgress(chip); }
           return;
         }
         card.attachmentProgress[attachmentID] = fraction;
         if (chip) { showProgress(chip, fraction); }
+      }
+
+      // Download all's one progress (spec §5.17), on the count line; the same values as a chip's.
+      function attachmentsProgress(id, fraction) {
+        var card = state.byID[id];
+        if (!card) { return; }
+        var head = card.atts.querySelector('.ss-atts-head');
+        if (fraction !== null && fraction < 0) {
+          delete card.batchProgress;
+          if (head) { endProgress(head); }
+          return;
+        }
+        card.batchProgress = fraction;
+        if (head) { showProgress(head, fraction); }
       }
 
       function attachmentFailed(id, attachmentID, failed) {
@@ -1799,15 +1901,22 @@ public enum ConversationShellAssets {
           if (event.target !== article) { return; }
           if ((event.key === 'Enter') && !card.expanded) { event.preventDefault(); expand(card, true); }
         });
+        // ← → move along the chips, or along their Download buttons from one; a chip and its button share the stop.
         atts.addEventListener('keydown', function (event) {
           if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') { return; }
           var chips = Array.prototype.slice.call(atts.querySelectorAll('.ss-chip'));
+          var saves = Array.prototype.slice.call(atts.querySelectorAll('.ss-chip-dl'));
+          var onSave = false;
           var i = chips.indexOf(document.activeElement);
+          if (i < 0) { i = saves.indexOf(document.activeElement); onSave = i >= 0; }
           if (i < 0) { return; }
           event.preventDefault();
-          var next = chips[Math.max(0, Math.min(chips.length - 1, i + (event.key === 'ArrowRight' ? 1 : -1)))];
-          for (var c = 0; c < chips.length; c++) { chips[c].tabIndex = chips[c] === next ? 0 : -1; }
-          next.focus();
+          var j = Math.max(0, Math.min(chips.length - 1, i + (event.key === 'ArrowRight' ? 1 : -1)));
+          for (var c = 0; c < chips.length; c++) {
+            chips[c].tabIndex = c === j ? 0 : -1;
+            if (saves[c]) { saves[c].tabIndex = c === j ? 0 : -1; }
+          }
+          (onSave && saves[j] ? saves[j] : chips[j]).focus();
         });
 
         card.element = article;
@@ -2337,13 +2446,14 @@ public enum ConversationShellAssets {
 
       document.addEventListener('keydown', function () { keyboardNav = true; }, true);
       // The app sees every key before the page, and in the reader Space is Quick Look and ↩ is Open (spec §6). On a
-      // focused elision mark both are the mark's (§5.15), so the shell tells the app whenever focus lands on a mark or
-      // leaves one, and the app lets those two keys through. Focus can also go with no event (its node replaced by a
-      // render), so the renders report too; only a change is posted.
+      // focused elision mark both are the mark's (§5.15), and on a focused Download button or Download all they press
+      // it (§5.17), so the shell tells the app whenever focus lands on one of them or leaves it, and the app lets those
+      // two keys through. Focus can also go with no event (its node replaced by a render), so the renders report too;
+      // only a change is posted.
       var markFocusPosted = false;
       function reportMarkFocus() {
         var active = document.activeElement;
-        var on = !!active && !!active.classList && active.classList.contains('ss-elide');
+        var on = !!active && !!active.classList && (active.classList.contains('ss-elide') || active.classList.contains('ss-dlb'));
         if (on === markFocusPosted) { return; }
         markFocusPosted = on;
         post('ss', { kind: 'focusMark', on: on });
@@ -2464,7 +2574,8 @@ public enum ConversationShellAssets {
         selectedMessageID: function () { return state.target ? state.target.message.id : null; },
         loadImages: function (id) { loadImages(id ? state.byID[id] : targetCard()); },
         attachmentFailed: attachmentFailed,
-        attachmentProgress: attachmentProgress
+        attachmentProgress: attachmentProgress,
+        attachmentsProgress: attachmentsProgress
       };
 
       post('ssReady', { kind: 'ready' });

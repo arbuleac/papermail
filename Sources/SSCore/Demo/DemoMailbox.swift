@@ -126,6 +126,8 @@ final class DemoMailbox: @unchecked Sendable {
         switch attachmentID {
         case DemoMailboxBuilder.photoAttachmentID: return DemoAssets.offsitePhotoPNG
         case DemoMailboxBuilder.invoiceAttachmentID: return DemoAssets.invoicePDF
+        case DemoMailboxBuilder.checklistAttachmentID: return DemoAssets.checklistPDF
+        case DemoMailboxBuilder.trainingAttachmentID: return DemoAssets.trainingCSV
         default: return nil
         }
     }

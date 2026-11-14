@@ -122,6 +122,8 @@ enum MainMenu {
         menu.addItem(.separator())
         // The reader saves the target message's attachments (spec §5.17).
         menu.addItem(item("Save Attachments…", #selector(MainWindowController.saveAttachments(_:)), symbol: Quire.Icon.attach))
+        menu.addItem(item("Download Attachments", #selector(MainWindowController.downloadAttachments(_:)), "d", [.command, .shift],
+                          symbol: Quire.Icon.download))
         // Shown only in demo mode: the app delegate reveals it when it installs a demo environment.
         let leaveDemo = item("Leave Demo…", #selector(AppDelegate.leaveDemo(_:)), symbol: Quire.Icon.undo, target: delegate)
         leaveDemo.isHidden = true

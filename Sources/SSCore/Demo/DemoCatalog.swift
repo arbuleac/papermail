@@ -12,6 +12,8 @@ enum DemoCatalog {
     enum Attachment {
         case photo
         case invoice
+        /// Two files on one message, so the reader shows the count line and Download all (spec §5.17).
+        case checklist
     }
 
     /// A conversation between people, written out. Lines alternate between the counterpart and Alex, starting
@@ -216,7 +218,7 @@ enum DemoCatalog {
             "Forwarded to IT, they'll send it today. Really appreciate the quick turnaround.",
             "Got the metadata. SSO is configured on staging, can someone on your side test a login?",
             "Tested with three accounts, all good. We're green for the 14th!",
-        ]),
+        ], attachment: .checklist),
         Script(subject: "Design review: message list density", people: [marcus], lines: [
             "Uploaded the new list density explorations. Option B uses 72pt rows with two lines of snippet. I think it's the right balance.",
             "B looks great. Can we try the unread dot on the left edge instead of next to the subject?",
