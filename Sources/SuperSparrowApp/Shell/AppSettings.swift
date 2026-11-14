@@ -330,8 +330,12 @@ final class AppSettings: ObservableObject {
     }
 
     /// Makes the saved theme what every window draws. Called by `theme`'s observer; the app delegate sets the
-    /// environment itself at launch.
+    /// environment itself at launch. The `list.theme` interval (the theme budget in docs/ARCHITECTURE.md) is taken here,
+    /// not in the list: the environment runs its redraw sweep after every observer of the change, the list's among them,
+    /// so only the caller sees the rows rebuilt and every view marked as one span.
     func applyTheme() {
+        let state = ListSignposts.signposter.beginInterval("list.theme")
+        defer { ListSignposts.signposter.endInterval("list.theme", state) }
         QuireEnvironment.shared.setTheme(theme)
     }
 
