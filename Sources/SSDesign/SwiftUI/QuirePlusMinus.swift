@@ -114,6 +114,7 @@ struct QuireJoinedButtonChrome<Label: View>: View {
             }
             .contentShape(shape)
             .quireMinimumHitArea(width: side, height: side)
+            .quirePointer()
             .onHover { isHovered = $0 }
     }
 }

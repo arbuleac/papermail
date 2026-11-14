@@ -65,6 +65,7 @@ struct QuireToggleChrome<Label: View>: View {
                 .foregroundStyle(a.label.style)
         }
         .contentShape(Rectangle())
+        .quirePointer()
     }
 
     /// Knob travel: `dur.quick` `ease.glide`, instant under Reduce Motion (spec §4.10).

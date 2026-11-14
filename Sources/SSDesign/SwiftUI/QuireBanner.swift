@@ -157,6 +157,7 @@ struct QuireBannerDismissChrome<Label: View>: View {
             }
             .contentShape(Rectangle())
             .quireMinimumHitArea(width: side, height: side)
+            .quirePointer()
             .onHover { isHovered = $0 }
     }
 }

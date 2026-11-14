@@ -157,6 +157,7 @@ public struct QuireAccountGroup<AddMenu: View>: View {
                         }
                     }
                     .contentShape(Rectangle())
+                    .quirePointer()
                     .simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in
                         if selection != account.id { selection = account.id }
                     })

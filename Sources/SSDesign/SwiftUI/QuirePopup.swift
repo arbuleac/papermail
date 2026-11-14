@@ -61,6 +61,7 @@ public struct QuirePopup<Value: Hashable>: View {
         .menuIndicator(.hidden)
         .focusEffectDisabled()
         .fixedSize()
+        .quirePointer()
         .accessibilityLabel(title)
         .accessibilityValue(itemTitle(selection))
     }

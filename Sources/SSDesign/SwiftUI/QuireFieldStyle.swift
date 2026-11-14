@@ -72,6 +72,8 @@ public struct QuireFieldStyle: ViewModifier {
                         .contentShape(shape)
                         .onTapGesture { focusField() }
                 }
+                // The whole face, the text included, so the pointer agrees with the field's own I-beam over its text.
+                .quireTextPointer()
                 .overlay {
                     if let gap = a.ringGap {
                         QuireFocusRingView(shape: .roundedRectangle(cornerRadius: f.radius), gap: gap).allowsHitTesting(false)

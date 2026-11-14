@@ -67,6 +67,8 @@ struct QuireChoiceChrome<Label: View>: View {
                 .foregroundStyle(a.label.style)
         }
         .contentShape(Rectangle())
+        // A radio already chosen stays chosen whatever the click: the arrow (§4.17).
+        .quirePointer(acts: !(kind == .radio && isOn))
         .onHover { isHovered = $0 }
     }
 }

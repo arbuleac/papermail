@@ -92,6 +92,7 @@ struct QuireButtonChrome<Label: View>: View {
             }
             .contentShape(shape)
             .quireMinimumHitArea(width: a.width, height: a.height)
+            .quirePointer()
             .onHover { isHovered = $0 }
     }
 }

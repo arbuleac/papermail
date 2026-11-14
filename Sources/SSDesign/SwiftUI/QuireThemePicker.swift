@@ -117,5 +117,7 @@ struct QuireThemeTileButton: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         QuireThemeTile(theme, isChosen: isChosen, isPressed: configuration.isPressed, groupFocused: groupFocused)
+            // The chosen theme stays chosen whatever the click: the arrow (§4.17).
+            .quirePointer(acts: !isChosen)
     }
 }

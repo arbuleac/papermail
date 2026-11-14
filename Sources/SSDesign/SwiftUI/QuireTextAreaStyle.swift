@@ -33,6 +33,7 @@ public struct QuireTextAreaStyle: ViewModifier {
             .frame(height: height)
             .background { QuireFace(shape: shape, fill: a.face, edge: a.edge) }
             .clipShape(shape)
+            .quireTextPointer()
             .overlay {
                 if let gap = a.ringGap {
                     QuireFocusRingView(shape: .roundedRectangle(cornerRadius: f.radius), gap: gap).allowsHitTesting(false)
