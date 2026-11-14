@@ -26,6 +26,9 @@ struct LaunchOptions: Equatable {
     /// Debug aid: force Text size ("small", "default", "large" or "larger") for this process only, so snapshots can
     /// show the list, the reader and a composer at every size (spec §4.15). Never saved, like `typeface`.
     var textSize: QuireFont.TextSize?
+    /// Debug aid: force the theme ("study", "gallery", "rain", "grove" or "dusk") for this process only, so snapshots
+    /// can show every theme from one machine (spec §4.16). Never saved, like `typeface`.
+    var theme: QuireTheme?
     /// Debug aid: open the design gallery (Debug › Design Gallery) at launch.
     var gallery = false
     /// Debug aid: render the whole design gallery page into this PNG, then quit.
@@ -69,6 +72,8 @@ struct LaunchOptions: Equatable {
                 typeface = Self.typeface(named: Self.value(of: value, after: "--font="))
             case let value where value.hasPrefix("--text-size="):
                 textSize = Self.value(of: value, after: "--text-size=").flatMap { QuireFont.TextSize(rawValue: $0.lowercased()) }
+            case let value where value.hasPrefix("--theme="):
+                theme = Self.value(of: value, after: "--theme=").flatMap { QuireTheme(rawValue: $0.lowercased()) }
             case let value where value.hasPrefix("--snapshot-compose="):
                 composeSnapshotPath = Self.value(of: value, after: "--snapshot-compose=")
             case let value where value.hasPrefix("--snapshot-reader-window="):

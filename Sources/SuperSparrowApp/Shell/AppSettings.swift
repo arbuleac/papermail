@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 import SSCore
@@ -49,6 +50,9 @@ final class AppSettings: ObservableObject {
         static let demoAccountScope = "accountScope.demo"
         static let keepMail = "keepMail"
         static let sendAction = "sendAction"
+        static let theme = "theme"
+        static let appearance = "appearance"
+        static let adaptsMailColours = "adaptsMailColours"
     }
 
     /// Account ids are UUIDs, so this can never be one.
@@ -158,6 +162,30 @@ final class AppSettings: ObservableObject {
         return true
     }
 
+    /// Spec §4.16, §5.40 Appearance › Theme. A change is saved and pushed into `QuireEnvironment` at once, so every
+    /// window, Settings included, re-themes live.
+    @Published var theme: QuireTheme {
+        didSet {
+            defaults.set(theme.rawValue, forKey: Key.theme)
+            if oldValue != theme { applyTheme() }
+        }
+    }
+
+    /// Spec §5.40 Appearance › Appearance: Automatic, Light or Dark for this app. A change is saved and applied at once.
+    @Published var appearance: AppAppearance {
+        didSet {
+            defaults.set(appearance.rawValue, forKey: Key.appearance)
+            if oldValue != appearance { applyAppearance() }
+        }
+    }
+
+    /// Spec §5.14, §5.40 Appearance › Dark Mode, “Adapt mail that sets its own colours”: in a dark appearance, styled mail
+    /// that declares its own colours opens adapted to the theme's inks (on, the default) or as sent on a white page
+    /// (off). ⇧⌘O still switches one message. The reader reads it for every render.
+    @Published var adaptsMailColours: Bool {
+        didSet { defaults.set(adaptsMailColours, forKey: Key.adaptsMailColours) }
+    }
+
     @Published var listDensity: ListDensity {
         didSet {
             defaults.set(listDensity.rawValue, forKey: Key.listDensity)
@@ -257,6 +285,9 @@ final class AppSettings: ObservableObject {
             Key.sevenAccountsNoticePending: false,
             Key.keepMail: MailRetention.everything.rawValue,
             Key.sendAction: SendAction.default.rawValue,
+            Key.theme: QuireTheme.study.rawValue,
+            Key.appearance: AppAppearance.automatic.rawValue,
+            Key.adaptsMailColours: true,
         ])
         notificationsEnabled = defaults.bool(forKey: Key.notifications)
         showPreviews = defaults.bool(forKey: Key.previews)
@@ -271,6 +302,11 @@ final class AppSettings: ObservableObject {
         // Not pushed either, for the same reasons; an unknown value is Default.
         textSize = QuireFont.TextSize(rawValue: defaults.string(forKey: Key.textSize) ?? "") ?? .default
         readerTextSize = defaults.string(forKey: Key.readerTextSize).flatMap(QuireFont.TextSize.init(rawValue:))
+        // Not applied either: the app delegate does that at launch, where `--theme` and `--appearance` may win. A value
+        // this version does not know (a theme from a later one) is the default, so every install opens as it did.
+        theme = QuireTheme(rawValue: defaults.string(forKey: Key.theme) ?? "") ?? .study
+        appearance = AppAppearance(rawValue: defaults.string(forKey: Key.appearance) ?? "") ?? .automatic
+        adaptsMailColours = defaults.object(forKey: Key.adaptsMailColours) as? Bool ?? true
         listDensity = ListDensity(rawValue: defaults.string(forKey: Key.listDensity) ?? "") ?? .standard
         showAccountInitials = defaults.bool(forKey: Key.showAccountInitials)
         originalColorsNoticeDismissed = defaults.bool(forKey: Key.originalColorsNoticeDismissed)
@@ -291,6 +327,17 @@ final class AppSettings: ObservableObject {
     /// observer; the app delegate sets the environment itself at launch.
     func applyTextSize() {
         QuireEnvironment.shared.setTextSize(textSize)
+    }
+
+    /// Makes the saved theme what every window draws. Called by `theme`'s observer; the app delegate sets the
+    /// environment itself at launch.
+    func applyTheme() {
+        QuireEnvironment.shared.setTheme(theme)
+    }
+
+    /// Shows the saved appearance. Called by `appearance`'s observer; the app delegate applies it itself at launch.
+    func applyAppearance() {
+        NSApplication.shared.appearance = appearance.nsAppearance
     }
 
     private func postDisplayChange() {

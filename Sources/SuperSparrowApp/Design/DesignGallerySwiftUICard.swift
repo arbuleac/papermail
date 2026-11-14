@@ -4,7 +4,8 @@ import SSDesign
 import SwiftUI
 
 /// The SwiftUI half of the gallery: `QuireSettingsGallery`, the Settings controls in every state, hosted in
-/// one full-width card. It rebuilds on Graphite and contrast overrides, as the Settings root will.
+/// one full-width card, under a `QuireThemeRoot` as every Settings tab is, so it redraws in place on a theme, Graphite
+/// or contrast override.
 @MainActor
 enum DesignGallerySwiftUICard {
     static func make() -> DesignGalleryCard {
@@ -13,7 +14,7 @@ enum DesignGallerySwiftUICard {
                               + "quireForcedStates, disabled and controlActiveState; each caption names them in order.",
                           span: 12, surface: .canvas) { block in
             block.labelWidth = 0
-            let hosting = NSHostingView(rootView: QuireSettingsGallery().quireRefreshesOnEnvironmentChange())
+            let hosting = NSHostingView(rootView: QuireThemeRoot(QuireSettingsGallery()))
             // The gallery sizes itself; the card only gives it a place.
             hosting.setFrameSize(hosting.fittingSize)
             block.full(hosting)

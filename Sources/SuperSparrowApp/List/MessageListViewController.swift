@@ -983,9 +983,10 @@ final class MessageListViewController: NSViewController {
         headRow.textSize = textSize
     }
 
-    /// Appearance, contrast, Graphite, the Font setting and Text size: everything a row's strings and face depend on.
+    /// Appearance, contrast, Graphite, the Font setting, Text size and the theme: everything a row's strings and face
+    /// depend on.
     private func makeEnvironmentKey() -> String {
-        QuireEnvironment.cacheKey(for: view.effectiveAppearance) + "|t" + QuireEnvironment.textSize.rawValue
+        QuireEnvironment.cacheKey(for: view.effectiveAppearance) + "|t" + QuireEnvironment.textSize.rawValue + "|th" + QuireEnvironment.theme.rawValue
     }
 
     /// The rows' metrics at the current density and Text size (spec §5.7, §4.15). Internal for the list's tests.

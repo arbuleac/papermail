@@ -78,11 +78,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         QuireEnvironment.shared.setTypeface(options.typeface ?? settings.typeface)
         // Text size too (§4.15): the list's first rows are measured at it. `--text-size` (debug) wins, unsaved.
         QuireEnvironment.shared.setTextSize(options.textSize ?? settings.textSize)
+        // And the theme (§4.16), so the first window draws in it. `--theme` (debug) wins, unsaved.
+        QuireEnvironment.shared.setTheme(options.theme ?? settings.theme)
         NSApp.mainMenu = MainMenu.build(appDelegate: self)
+        // Settings › Appearance › Appearance; `--appearance` (debug) wins for this process.
         switch options.appearance {
         case "light": NSApp.appearance = NSAppearance(named: .aqua)
         case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
-        default: break
+        default: settings.applyAppearance()
         }
         if options.resetDemo { AppEnvironment.wipeDemoData() }
         wakeups = AppWakeups(setActive: { [weak self] in self?.reportAppActive($0) },
