@@ -331,8 +331,8 @@ final class UnsubscribeTests: XCTestCase {
         let rowMenu = try XCTUnwrap(harness.list.contextMenu(forRow: row))
         XCTAssertEqual(harness.list.selectedConversationIDs, [news])
         XCTAssertEqual(harness.reader.unsubscribeTarget, latest())
-        XCTAssertEqual(Array(rowMenu.items.suffix(4).map { $0.isSeparatorItem ? "—" : $0.title }),
-                       ["—", "Move to Trash", "—", "Unsubscribe"])
+        XCTAssertEqual(Array(rowMenu.items.suffix(5).map { $0.isSeparatorItem ? "—" : $0.title }),
+                       ["—", "Move to Trash", "Mark as Spam", "—", "Unsubscribe"])
 
         // The sheet's right-click (the card's `messageMenu`) shows the same menu.
         let sheetMenu = try XCTUnwrap(harness.reader.messageMenu?())

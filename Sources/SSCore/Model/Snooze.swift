@@ -17,17 +17,27 @@ public struct Snooze: Hashable, Sendable {
     }
 
     /// Whether a conversation of these messages stands for mail put away, which a snooze needs and keeps needing: out of
-    /// the Inbox, out of the Trash, and not one whose mail from others is all in the Trash while the user's own copies
-    /// stay in Sent Items and Drafts (`MailActionRecord.isOwnFolderCopy`), as Move to Trash leaves them on Microsoft:
-    /// its return would bring the deleted mail back, or the user's own copy in its place. Spam counts for nothing. The
-    /// stores keep a snooze only while this holds (`SnoozeTable` writes it in SQL); the window asks it of the messages as
-    /// snoozing would leave them, archived, so L never promises a return the store would refuse.
-    public static func canHold(_ messages: [MessageMetadata]) -> Bool {
-        let counted = messages.filter { !$0.roles.contains(.spam) }
-        let visible = counted.filter { !$0.roles.contains(.trash) }
+    /// the Inbox, out of the Trash, and not one whose mail from others is all in the Trash or Spam while the user's own
+    /// copies stay in Sent Items and Drafts (`MailActionRecord.isOwnFolderCopy`), as Move to Trash leaves them on
+    /// Microsoft and Mark as Spam on both providers: its return would bring the deleted or spam mail back, or the user's
+    /// own copy in its place. The stores keep a snooze only while this holds (`SnoozeTable` writes it in SQL); the window
+    /// asks it of the messages as snoozing would leave them, archived, so L never promises a return the store would refuse.
+    ///
+    /// Spam received after `snoozedAt` (the snooze's `createdAt`) counts for nothing, as it never ends a snooze on arrival
+    /// (`SnoozeTable.endForArrival`): a reply the provider files in Spam must not take away the follow-up the user set on
+    /// their own message. Without a snooze yet (`nil`, when one is being set) every spam message counts, which is never
+    /// looser than the rule the snooze is then kept by.
+    public static func canHold(_ messages: [MessageMetadata], snoozedAt: Date? = nil) -> Bool {
+        let visible = messages.filter { $0.roles.isDisjoint(with: [.trash, .spam]) }
         guard !visible.isEmpty, !visible.contains(where: \.isInInbox) else { return false }
-        let others = counted.filter { !MailActionRecord.isOwnFolderCopy($0) }
-        return !(others.contains { $0.roles.contains(.trash) } && others.allSatisfy { $0.roles.contains(.trash) })
+        let since = snoozedAt.map(MailStoreCodec.milliseconds)
+        let others = messages.filter { message in
+            guard !MailActionRecord.isOwnFolderCopy(message) else { return false }
+            guard let since, message.roles.contains(.spam) else { return true }
+            return MailStoreCodec.milliseconds(message.date) <= since
+        }
+        let away = { (message: MessageMetadata) in !message.roles.isDisjoint(with: [.trash, .spam]) }
+        return !(others.contains(where: away) && others.allSatisfy(away))
     }
 
     /// One conversation's snooze to write, or to end when `until` is nil (`MailStoring.setSnoozes`).

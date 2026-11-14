@@ -269,6 +269,8 @@ public struct ConversationRowText: Hashable, Sendable {
         case .unstar: return "Couldn't unstar"
         case .trash: return "Couldn't move to Trash"
         case .restoreFromTrash: return "Couldn't restore from Trash"
+        case .markSpam: return "Couldn't mark as spam"
+        case .markNotSpam: return "Couldn't mark as not spam"
         case .unsubscribe: return "Couldn't unsubscribe"
         case .answerInvitation: return "Couldn't answer the invitation"
         }

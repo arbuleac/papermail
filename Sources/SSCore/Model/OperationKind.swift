@@ -13,6 +13,8 @@ public enum OperationKind: String, Codable, Sendable, CaseIterable {
     case unstar
     case trash
     case restoreFromTrash
+    case markSpam
+    case markNotSpam
     /// Never stored as a mark: an unsubscribe request that cannot go is dropped quietly, never written as failed.
     case unsubscribe
     case answerInvitation
@@ -25,6 +27,8 @@ public enum OperationKind: String, Codable, Sendable, CaseIterable {
         case .setStarred(let starred): self = starred ? .star : .unstar
         case .trash: self = .trash
         case .restoreFromTrash: self = .restoreFromTrash
+        case .markSpam: self = .markSpam
+        case .markNotSpam: self = .markNotSpam
         case .unsubscribe: self = .unsubscribe
         case .answerInvitation: self = .answerInvitation
         }

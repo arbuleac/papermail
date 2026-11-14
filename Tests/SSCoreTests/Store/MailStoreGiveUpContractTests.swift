@@ -96,6 +96,8 @@ extension MailStoreContractTests {
             (.setStarred(false), [.inbox], true, true),
             (.trash, [.inbox, .sent], true, false),
             (.restoreFromTrash, [.trash], true, false),
+            (.markSpam, [.inbox], true, false),
+            (.markNotSpam, [.spam], true, false),
         ]
         for (index, (change, roles, isRead, isStarred)) in cases.enumerated() {
             let before = message("x\(index)", in: "c\(index)", date: date(100), roles: roles, isRead: isRead, isStarred: isStarred)

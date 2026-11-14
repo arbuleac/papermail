@@ -140,6 +140,33 @@ final class DemoMailboxEndToEndTests: XCTestCase {
         await engine.stopAndWait()
     }
 
+    /// ! in demo mode: the made-up Outlook server files the mail in Junk Email, as Graph would, the next download leaves
+    /// it out, and the undo's step brings it back to the Inbox folder.
+    func testMarkAsSpamRoundTripFilesTheMailInJunkEmail() async throws {
+        let service = DemoMailService(liveInterval: 3_600)
+        let (engine, store, accounts) = try await seededEngine(service: service)
+        let outlook = try XCTUnwrap(accounts.first { $0.kind == .microsoft })
+        let provider = service.provider(for: outlook)
+        let target = try XCTUnwrap(try store.conversations(ConversationQuery(accountIDs: [outlook.id], view: .inbox, limit: 1)).first)
+        let ids = MailActionRecord.targets(for: .markSpam, in: try store.messages(in: target.id), kind: .microsoft).map(\.id)
+        XCTAssertFalse(ids.isEmpty)
+
+        try engine.perform(.markSpam, on: ids)
+        XCTAssertFalse(try store.conversations(ConversationQuery(view: .all, limit: .max)).contains { $0.id == target.id })
+        try await waitUntil("spam replayed to the provider") { try store.pendingOperations(accountID: outlook.id, limit: 10).isEmpty }
+        let remote = try await provider.metadata(for: ids.map(\.providerID))
+        XCTAssertTrue(remote.allSatisfy { $0.roles.contains(.spam) && $0.folderID == "junkemail" })
+        let page = try await provider.bootstrap(page: nil, limit: 500)
+        XCTAssertFalse(page.messages.contains { ids.contains($0.id) }, "a download leaves spam out")
+
+        try engine.perform(.markNotSpam, on: ids)
+        try await waitUntil("undo replayed") { try store.pendingOperations(accountID: outlook.id, limit: 10).isEmpty }
+        let back = try await provider.metadata(for: ids.map(\.providerID))
+        XCTAssertTrue(back.allSatisfy { $0.isInInbox && $0.folderID == "inbox" })
+        XCTAssertTrue(try store.conversations(ConversationQuery(view: .inbox, limit: .max)).contains { $0.id == target.id })
+        await engine.stopAndWait()
+    }
+
     /// A relaunch builds a fresh mailbox over the same store. Acting on a conversation archived in an earlier
     /// run must not bring it back: the regenerated server state would otherwise overwrite the store.
     func testRelaunchKeepsEarlierRunsStateOnTheServer() async throws {

@@ -32,6 +32,12 @@ public struct MailActionRecord: Sendable {
     ///
     /// - Marking unread touches only the latest message, the way Gmail and Outlook do it.
     /// - Moving to the inbox from the trash brings back only what was trashed, not the archived rest.
+    /// - Marking as spam touches other people's mail only, on both providers: the user's own sent messages and drafts
+    ///   in Sent and Drafts are never spam (and Graph could not move them back to Sent Items, below), so a conversation
+    ///   of only those changes nothing. One the Inbox holds too (on Gmail, ⇧I and a return from Later put INBOX on every
+    ///   message) goes with the rest, since the row is to leave the Inbox and no single change both archives one message
+    ///   and sends the others to Spam; the undo brings it back, still in Sent. What is in the Trash stays there, so the
+    ///   undo never has to put a message back in the Trash after bringing it out of Spam.
     /// - On Microsoft accounts, trash and move-to-inbox leave the user's own sent messages and drafts in Sent
     ///   Items and Drafts. Graph keeps one folder per message and there is no change that moves a message back
     ///   to Sent Items, so once such a message left its folder an undo could only drop it in Inbox or Archive.
@@ -40,6 +46,8 @@ public struct MailActionRecord: Sendable {
         switch change {
         case .setRead(false):
             return messages.last.map { [$0] } ?? []
+        case .markSpam:
+            return messages.filter { !$0.roles.contains(.trash) && !isOwnFolderCopy($0) }
         case .trash, .moveToInbox, .restoreFromTrash:
             var candidates = messages
             if change != .trash {
@@ -89,6 +97,15 @@ public struct MailActionRecord: Sendable {
         case .restoreFromTrash:
             title = "Restored"
             inverse = [Step(change: .trash, targets: ids)]
+        case .markSpam:
+            title = "Marked as spam"
+            inverse = [Step(change: .markNotSpam, targets: ids)]
+            // markNotSpam lands everything in the inbox, as restoreFromTrash does; what was archived goes back there.
+            let archived = changed.filter { !$0.roles.contains(.inbox) }.map(\.id)
+            if !archived.isEmpty { inverse.append(Step(change: .archive, targets: archived)) }
+        case .markNotSpam:
+            title = "Marked as not spam"
+            inverse = [Step(change: .markSpam, targets: ids)]
         case .setRead(let read):
             title = read ? "Marked as read" : "Marked as unread"
             inverse = [Step(change: .setRead(!read), targets: ids)]
@@ -107,7 +124,8 @@ public struct MailActionRecord: Sendable {
     }
 
     /// The user's own sent message or draft in Sent Items or Drafts, which Microsoft's trash and move-to-inbox leave
-    /// there. A snooze and its return count it out too (`Snooze.canHold`, `SnoozeTable`, `returnTargets`).
+    /// there, and Mark as Spam leaves on both providers; not one the Inbox holds too, which they take with the rest. A
+    /// snooze and its return count it out too (`Snooze.canHold`, `SnoozeTable`, `returnTargets`).
     static func isOwnFolderCopy(_ message: MessageMetadata) -> Bool {
         !message.roles.contains(.inbox) && (message.roles.contains(.sent) || message.roles.contains(.drafts))
     }

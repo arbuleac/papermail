@@ -11,6 +11,8 @@ public enum MailActionCopy {
         case .archive: return count > 1 ? "Archived \(n) conversations" : "Archived"
         case .trash: return count > 1 ? "Moved \(n) conversations to Trash" : "Moved to Trash"
         case .moveToInbox, .restoreFromTrash: return count > 1 ? "Moved \(n) conversations to Inbox" : "Moved to Inbox"
+        case .markSpam: return count > 1 ? "Marked \(n) as spam" : "Marked as spam"
+        case .markNotSpam: return count > 1 ? "Marked \(n) as not spam" : "Marked as not spam"
         case .setRead(true): return count > 1 ? "Marked \(n) as read" : "Marked as read"
         case .setRead(false): return count > 1 ? "Marked \(n) as unread" : "Marked as unread"
         case .setStarred(true): return count > 1 ? "Starred \(n) conversations" : "Starred"
@@ -44,6 +46,9 @@ public enum MailActionCopy {
         case .archive: return "Archive"
         case .trash: return "Move to Trash"
         case .moveToInbox, .restoreFromTrash: return "Move to Inbox"
+        case .markSpam: return "Mark as Spam"
+        // Never a command of its own: only Mark as Spam's undo sends it.
+        case .markNotSpam: return "Mark as Not Spam"
         case .setRead(true): return "Mark as Read"
         case .setRead(false): return "Mark as Unread"
         case .setStarred(true): return "Star"
@@ -114,6 +119,9 @@ public enum MailActionCopy {
         case .trash: return view != .trash
         // Out of Later too: back in the Inbox, a conversation is no longer snoozed.
         case .moveToInbox, .restoreFromTrash: return view == .trash || view == .later
+        // No view lists spam, so a conversation marked as spam leaves whichever is on screen.
+        case .markSpam: return true
+        case .markNotSpam: return false
         case .setStarred(false): return view == .starred
         case .setStarred(true), .setRead: return false
         // The request goes somewhere the row cannot show, so it is always said.
@@ -134,6 +142,8 @@ public enum MailActionCopy {
         case .star: return "Couldn't star. Restored."
         case .unstar: return "Couldn't unstar. Restored."
         case .trash: return "Couldn't move to Trash. Restored."
+        case .markSpam: return "Couldn't mark as spam. Restored."
+        case .markNotSpam: return "Couldn't mark as not spam. Restored."
         case .unsubscribe: return "Couldn't unsubscribe."
         case .answerInvitation: return "Couldn't answer the invitation. Restored."
         }

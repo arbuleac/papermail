@@ -737,16 +737,17 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
                !(summary.map { $0.inInbox && MailStoreCodec.milliseconds(returned) > MailStoreCodec.milliseconds($0.latestDate) } ?? false) {
                 returnedMarks[id] = nil
             }
-            if snoozeRows[id] != nil, !holdsSnoozeLocked(id) {
+            if let snooze = snoozeRows[id], !holdsSnoozeLocked(id, snoozedAt: snooze.createdAt) {
                 snoozeRows[id] = nil
             }
         }
     }
 
     /// `SnoozeTable.holdsSnooze`, in the words of `Snooze.canHold`: the conversation is stored, out of the Inbox and out
-    /// of the Trash, and its mail other than the user's own copies is not all in the Trash.
-    private func holdsSnoozeLocked(_ id: ConversationID) -> Bool {
-        Snooze.canHold(messagesLocked(in: id))
+    /// of the Trash, and its mail other than the user's own copies is not all in the Trash or Spam (spam received after
+    /// `snoozedAt` counting for nothing).
+    private func holdsSnoozeLocked(_ id: ConversationID, snoozedAt: Date? = nil) -> Bool {
+        Snooze.canHold(messagesLocked(in: id), snoozedAt: snoozedAt)
     }
 
     /// A date as the SQLite store reads it back: to the millisecond.

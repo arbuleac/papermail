@@ -1071,6 +1071,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             // and never trashes the rest of a conversation only partly in Trash (§5.12).
             if listView == .trash { return true }
             return mailAction(.trash)
+        case .markSpam:
+            return markSpam()
         case .reply, .replyAll, .forward:
             // A reply answers one conversation: with several selected R, A and F do nothing (§5.12).
             if isSeveralSelected { return true }
@@ -1163,11 +1165,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// conversation that is gone, or that the change would leave as it is, has none.
     private func actionRecords(_ change: MetadataChange, on ids: [ConversationID]) -> [MailActionRecord] {
         let store = environment.store
-        // Back in the Inbox or in the Trash a conversation is no longer snoozed (the store ends it); out of the Inbox it
-        // no longer sorts as back from Later (the refresh ends the mark). The undo puts either back.
-        let endsSnooze = [.moveToInbox, .restoreFromTrash, .trash].contains(change)
+        // Back in the Inbox, or in the Trash or Spam, a conversation is no longer snoozed (the store ends it); out of the
+        // Inbox it no longer sorts as back from Later (the refresh ends the mark). The undo puts either back.
+        let endsSnooze = [.moveToInbox, .restoreFromTrash, .trash, .markSpam].contains(change)
         let snoozed = endsSnooze ? snoozedUntil : [:]
-        let returned = [.archive, .trash].contains(change) ? returnMarks(of: ids) : [:]
+        let returned = [.archive, .trash, .markSpam].contains(change) ? returnMarks(of: ids) : [:]
         var records: [MailActionRecord] = []
         for id in ids {
             guard let all = try? store.messages(in: id), !all.isEmpty else { continue }
@@ -1186,8 +1188,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         return records
     }
 
-    /// When each of `ids` came back from Later, as the list's rows say (`returnedAt`): Archive, Move to Trash and Snooze
-    /// take the mark away with the conversation's place under Today, and their undo puts it back.
+    /// When each of `ids` came back from Later, as the list's rows say (`returnedAt`): Archive, Move to Trash, Mark as Spam
+    /// and Snooze take the mark away with the conversation's place under Today, and their undo puts it back.
     private func returnMarks(of ids: [ConversationID]) -> [ConversationID: Date] {
         let wanted = Set(ids)
         var marks: [ConversationID: Date] = [:]
@@ -1413,6 +1415,26 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         mailAction(.moveToInbox)
     }
 
+    // MARK: Mark as Spam (spec “Mark as spam”)
+
+    /// Nothing is marked as spam from the Trash, where the mail is on its way out already and Mark as Spam leaves what is
+    /// there (`MailActionRecord.targets`), or from Drafts, which holds the user's own mail; nor from `in:trash` or
+    /// `in:drafts` results. A search typed there lists All Mail (`listView`), whose rows it takes.
+    private var marksSpamInView: Bool { listView != .trash && listView != .drafts }
+
+    /// ! and Mark as Spam: the selection leaves every view, as there is none for spam, with the toast, coalescing and
+    /// undo of #. A snoozed conversation's snooze ends (the store's rule), and the undo puts it back. Where it does not
+    /// apply it beeps, as L does there.
+    @discardableResult
+    private func markSpam() -> Bool {
+        guard !showingWelcome, !selectedIDs.isEmpty else { return false }
+        guard marksSpamInView else {
+            NSSound.beep()
+            return true
+        }
+        return mailAction(.markSpam)
+    }
+
     // MARK: Later (§5.45)
 
     private func snoozesChanged(_ snoozes: [Snooze]) {
@@ -1460,9 +1482,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     }
 
     /// The conversations of `ids` a snooze would hold, judged as snoozing leaves them (archived) by the store's own rule
-    /// (`Snooze.canHold`). One whose mail from others is all in the Trash (on Microsoft # leaves the user's own copies in
-    /// Sent Items and Drafts, so it still lists there, in All Mail and in a search) has nothing to bring back: the store
-    /// would drop its snooze, and a toast saying it was snoozed would promise a return that never comes.
+    /// (`Snooze.canHold`). One whose mail from others is all in the Trash or Spam (# on Microsoft and ! on both leave the
+    /// user's own copies in Sent Items and Drafts, so it still lists there, in All Mail and in a search) has nothing to
+    /// bring back: the store would drop its snooze, and a toast saying it was snoozed would promise a return that never
+    /// comes.
     private func snoozable(_ ids: [ConversationID]) -> [(id: ConversationID, messages: [MessageMetadata])] {
         ids.compactMap { id in
             guard let messages = try? environment.store.messages(in: id),
@@ -1687,17 +1710,17 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         let words = unsubscribeUndoConfirmations.removeValue(forKey: groupID) ?? MailActionCopy.undoConfirmation(for: change)
         listPane.toasts.show(words, kind: .confirmation, symbol: Quire.Icon.undone)
         let restored = group.records.compactMap(\.conversation)
-        if !restored.isEmpty, [.archive, .trash, .moveToInbox, .restoreFromTrash].contains(change) {
+        if !restored.isEmpty, [.archive, .trash, .markSpam, .moveToInbox, .restoreFromTrash].contains(change) {
             // The rows come back; put the selection on them so the user sees what was restored.
             reselect(restored, inLater: fromLater)
         }
         return true
     }
 
-    /// Applies the inverse of `records`, newest first. A Move to Inbox or Move to Trash that ended a snooze puts it back with
-    /// the inverse steps, in one transaction, so the conversation never shows in the Inbox between the two; an Archive or
-    /// Move to Trash of a conversation back from Later puts its return mark back, so the row returns under Today with its
-    /// Back tag.
+    /// Applies the inverse of `records`, newest first. A Move to Inbox, Move to Trash or Mark as Spam that ended a snooze puts
+    /// it back with the inverse steps, in one transaction, so the conversation never shows in the Inbox between the two; an
+    /// Archive, Move to Trash or Mark as Spam of a conversation back from Later puts its return mark back, so the row returns
+    /// under Today with its Back tag.
     private func revert(_ records: [MailActionRecord]) throws {
         let snoozes = records.compactMap { record -> Snooze.Change? in
             guard let id = record.conversation, record.snoozedUntil != nil || record.returnedAt != nil else { return nil }
@@ -1792,7 +1815,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         switch change {
         case .archive: return Quire.Icon.archive
         case .trash: return Quire.Icon.trash
-        case .moveToInbox, .restoreFromTrash: return Quire.Icon.moveToInbox
+        case .moveToInbox, .restoreFromTrash, .markNotSpam: return Quire.Icon.moveToInbox
+        case .markSpam: return Quire.Icon.spam
         case .setRead(true): return Quire.Icon.markRead
         case .setRead(false): return Quire.Icon.markUnread
         case .setStarred: return Quire.Icon.star
@@ -2020,7 +2044,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     // MARK: Context menu (§5.35)
 
     /// Rows and messages share one menu acting on the selection: Reply · Reply All · Forward · — · Archive · Later ›
-    /// · Star · Mark as Unread · Move to Inbox · — · Move to Trash, each with its symbol and shortcut. Items
+    /// · Star · Mark as Unread · Move to Inbox · — · Move to Trash · Mark as Spam, each with its symbol and shortcut. Items
     /// that do not apply stay visible, disabled, through the same validation as the Message menu, so the two
     /// never disagree. Unsubscribe follows, after a separator, only when the open conversation offers it (§5.14):
     /// most mail is not a list's, and a right-click on a row selects and opens it first, so the reader knows.
@@ -2038,6 +2062,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             MainMenu.item("Move to Inbox", #selector(moveSelectionToInbox(_:)), "I", [.shift], symbol: Quire.Icon.moveToInbox, target: self),
             .separator(),
             MainMenu.item("Move to Trash", #selector(trashSelection(_:)), "#", [], symbol: Quire.Icon.trash, target: self),
+            MainMenu.item("Mark as Spam", #selector(markSelectionSpam(_:)), "!", [], symbol: Quire.Icon.spam, target: self),
         ]
         items.forEach(menu.addItem)
         if !isSeveralSelected, conversation.unsubscribeTarget != nil {
@@ -2072,6 +2097,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         }
     }
     @objc func trashSelection(_ sender: Any?) { mailAction(.trash) }
+    @objc func markSelectionSpam(_ sender: Any?) { markSpam() }
     @objc func moveSelectionToInbox(_ sender: Any?) { moveSelectionToInbox() }
     @objc func toggleStarSelection(_ sender: Any?) {
         if let change = starChangeForSelection { mailAction(change) }
@@ -2156,6 +2182,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         case #selector(trashSelection(_:)):
             // Already in Trash (§5.12): Message › Move to Trash is disabled there.
             return !showingWelcome && !typing && list.selectedConversationID != nil && listView != .trash
+        case #selector(markSelectionSpam(_:)):
+            return !showingWelcome && !typing && list.selectedConversationID != nil && marksSpamInView
         case #selector(moveSelectionToInbox(_:)):
             // Everything in the Inbox view is in the Inbox already.
             return !showingWelcome && !typing && list.selectedConversationID != nil && listView != .inbox

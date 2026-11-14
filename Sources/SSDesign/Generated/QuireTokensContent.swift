@@ -62,6 +62,7 @@ extension Quire {
         public static let viewAllMail = "archivebox"
         public static let viewLater = "clock"
         public static let later = "clock"
+        public static let spam = "xmark.bin"
         public static let moveToInbox = "tray.and.arrow.down"
         public static let privacy = "lock"
         public static let success = "checkmark.circle.fill"
@@ -205,12 +206,12 @@ extension Quire {
             QuireCheatSheetRow(keys: "E", label: "Archive"),
             QuireCheatSheetRow(keys: "L", label: "Snooze until later"),
             QuireCheatSheetRow(keys: "#", label: "Move to Trash"),
+            QuireCheatSheetRow(keys: "!", label: "Mark as spam"),
             QuireCheatSheetRow(keys: "⇧I", label: "Move to Inbox"),
             QuireCheatSheetRow(keys: "S", label: "Star · unstar"),
             QuireCheatSheetRow(keys: "U", label: "Mark as unread · read"),
             QuireCheatSheetRow(keys: "⇧⌘U", label: "Unsubscribe"),
             QuireCheatSheetRow(keys: "Z", label: "Undo"),
-            QuireCheatSheetRow(keys: ".", label: "Show · hide quoted text"),
         ]),
         QuireCheatSheetSection(title: "Go", rows: [
             QuireCheatSheetRow(keys: "G then I", label: "Inbox"),
@@ -244,6 +245,7 @@ extension Quire {
         QuireCheatSheetSection(title: "View", rows: [
             QuireCheatSheetRow(keys: "⇧⌘I", label: "Load images"),
             QuireCheatSheetRow(keys: "⇧⌘O", label: "Original colors"),
+            QuireCheatSheetRow(keys: ".", label: "Show · hide quoted text"),
             QuireCheatSheetRow(keys: "⌥⌘C", label: "Compact rows"),
             QuireCheatSheetRow(keys: "⌃⌘S", label: "Show · hide the rail"),
             QuireCheatSheetRow(keys: "⇧⌘N", label: "Check for new mail"),

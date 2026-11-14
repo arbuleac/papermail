@@ -249,6 +249,7 @@ enum MainMenu {
             item("Archive", #selector(MainWindowController.archiveSelection(_:)), "e", [], symbol: Quire.Icon.archive),
             item("Later…", #selector(MainWindowController.laterSelection(_:)), "l", [], symbol: Quire.Icon.later),
             item("Move to Trash", #selector(MainWindowController.trashSelection(_:)), "#", [], symbol: Quire.Icon.trash),
+            item("Mark as Spam", #selector(MainWindowController.markSelectionSpam(_:)), "!", [], symbol: Quire.Icon.spam),
             item("Move to Inbox", #selector(MainWindowController.moveSelectionToInbox(_:)), "I", [.shift], symbol: Quire.Icon.moveToInbox),
             item("Star", #selector(MainWindowController.toggleStarSelection(_:)), "s", [], symbol: Quire.Icon.star),
             item("Mark as Unread", #selector(MainWindowController.markSelectionUnread(_:)), "u", [], symbol: Quire.Icon.markUnread),

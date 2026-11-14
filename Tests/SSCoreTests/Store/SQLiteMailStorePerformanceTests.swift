@@ -94,6 +94,24 @@ final class SQLiteMailStorePerformanceTests: XCTestCase {
         report("archive an 8-message conversation", archive)
         XCTAssertLessThan(archive, 16, "local action budget")
 
+        // Mark as spam of a whole conversation, as the window picks its targets (the user's own copies left in Sent):
+        // unlike archive it can take the summary row away, as Move to Trash does, and it asks the snooze rule.
+        let archived = Set(known.prefix(8).map(\.id))
+        let threads = Dictionary(grouping: mailbox.messages, by: \.conversationID)
+        let spamThread = try XCTUnwrap(mailbox.messages.lazy.compactMap { threads[$0.conversationID] }.first { thread in
+            thread.count == 8 && thread.contains { $0.roles.contains(.inbox) }
+                && thread.allSatisfy { $0.roles.isDisjoint(with: [.trash, .spam]) && !archived.contains($0.id) }
+        })
+        let spamAccount = spamThread[0].id.accountID
+        let spamKind = mailbox.accounts.first { $0.id == spamAccount }?.kind ?? .gmail
+        let spamTargets = MailActionRecord.targets(for: .markSpam, in: spamThread, kind: spamKind).map(\.id)
+        XCTAssertFalse(spamTargets.isEmpty)
+        let markSpam = try measure {
+            try store.enqueue(Operation(accountID: spamAccount, change: .markSpam, targets: spamTargets))
+        }
+        report("mark an 8-message conversation as spam (\(spamTargets.count) from others)", markSpam)
+        XCTAssertLessThan(markSpam, 16, "local action budget")
+
         let hydration = try median(runs: 5) { try store.messageIDsMissingBodies(accountID: mailbox.accounts[0].id, limit: 50) }
         report("next 50 bodies to hydrate", hydration.milliseconds)
     }
