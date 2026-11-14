@@ -85,6 +85,10 @@ final class KeyboardRouter {
     /// The installed router, for the debug snapshots (`--snapshot-hud`), which have no other way to reach it.
     private(set) static weak var active: KeyboardRouter?
 
+    /// The window the app's tests deliver keys to as if it were key: a test's window is seldom key, and the routers act
+    /// only in the key window. Nil outside tests.
+    static weak var keyWindowForTests: NSWindow?
+
     func install() {
         guard monitor == nil else { return }
         Self.active = self
@@ -108,7 +112,7 @@ final class KeyboardRouter {
         guard let target, let window = target.keyboardWindow, event.window === window else { return false }
         let cheatSheet = CheatSheetController.shared
         if cheatSheet.isPresented(in: window) { return cheatSheet.route(event) }
-        guard window.isKeyWindow else { return false }
+        guard window.isKeyWindow || window === Self.keyWindowForTests else { return false }
         guard !Self.isTextInput(window.firstResponder) else {
             disarmSequence()
             return false

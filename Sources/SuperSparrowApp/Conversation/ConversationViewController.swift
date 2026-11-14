@@ -92,7 +92,12 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     private var downloads = AttachmentDownloadBoard()
     /// Messages the shell shows in Original colors this session, for View › Original Colors' checkmark.
     private var originalColorsShown: Set<MessageID> = []
-    private var drafts = QuickReplyDrafts()
+    /// The quick-reply text parked under each conversation, shared with the mailbox's other readers (§5.19a).
+    private let draftShelf: QuickReplyDraftShelf
+    private var drafts: QuickReplyDrafts {
+        get { draftShelf.drafts }
+        set { draftShelf.drafts = newValue }
+    }
     private var quickSend: QuickSend?
     private var quickSendTimer: Timer?
     /// Quick replies whose undo window has ended, watched until they leave: a failure then becomes the error
@@ -129,6 +134,10 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     /// Called whenever a quick reply's undo window opens or closes, so the main window can re-rank ⌘Z (§6.1).
     var onQuickSendChange: (() -> Void)?
 
+    /// Called once a quick reply sent with Send and Archive has archived its conversation, its countdown running: a
+    /// reader window closes then, as after E (§5.19a).
+    var onQuickSendArchived: (() -> Void)?
+
     /// The quick reply's send while ⌘Z can still cancel it.
     var liveQuickSend: UndoPrecedence.LiveSend? {
         quickSend.map { UndoPrecedence.LiveSend(id: $0.sendID, startedAt: $0.startedAt) }
@@ -141,8 +150,10 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
 
     /// `poolSize` 1 is a reader window's (§5.19a): it shows one conversation and pre-renders nothing. A pool of its own
     /// rather than a slot of the main window's, which that reader hands to whatever neighbour it pre-renders next.
-    init(client: MailClient, poolSize: Int = 3) {
+    /// `drafts` is the mailbox's quick-reply text, which every reader of it shares; a reader alone keeps its own.
+    init(client: MailClient, poolSize: Int = 3, drafts: QuickReplyDraftShelf? = nil) {
         self.client = client
+        self.draftShelf = drafts ?? QuickReplyDraftShelf()
         self.pool = WebViewPool(client: client, size: poolSize)
         self.preview = AttachmentPreviewController(client: client)
         var accounts: [AccountID: Account] = [:]
@@ -436,7 +447,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     /// Nothing, or several conversations: no conversation is rendered and the quick reply hides.
     private func showNothing(_ selection: Selection) {
         if let id = currentConversationID {
-            drafts.park(quickReply.text, under: id)
+            drafts.leave(quickReply.text, under: id)
         }
         self.selection = selection
         currentConversationID = nil
@@ -1527,6 +1538,32 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         if let send = quickSend { moveQuickSendToPanel(send) }
     }
 
+    /// The reader is going away (its reader window closing): the replies past their undo window whose outcome it was
+    /// watching, which `watch(_:)` on a reader that stays takes over, so a failure still says so (§5.18).
+    func handOffWatchedSends() -> [String: ComposeDraft] {
+        defer { watchedSends = [:] }
+        return watchedSends
+    }
+
+    /// Watches sends another reader handed over (`handOffWatchedSends`), as if this reader had sent them.
+    func watch(_ sends: [String: ComposeDraft]) {
+        guard !sends.isEmpty else { return }
+        watchedSends.merge(sends) { mine, _ in mine }
+        outboxTick()
+    }
+
+    /// Another reader parked text under the conversation this one shows (a reader window on it closed, §5.19a): the
+    /// text comes into this box, below what it holds, so it is where the conversation is on screen. Not while a
+    /// composer holds the reply, whose bar takes no text.
+    func takeParkedQuickReply() {
+        guard isViewLoaded, case .one(let id) = selection, id == currentConversationID, !quickReply.isComposerOpen else { return }
+        let parked = drafts.draft(under: id)
+        guard !parked.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        drafts.forget(id)
+        let typed = quickReply.text
+        quickReply.restoreDraft(typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? parked : typed + "\n\n" + parked)
+    }
+
     private func focusWebView() {
         guard let window = view.window else { return }
         if let current = pool.current {
@@ -1542,7 +1579,6 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         guard let target = replyTarget(in: currentMessages)?.id else { return }
         onAction?(.replyInComposer(target, all: mode == .replyAll, body: text, attach: attach))
         quickReply.clear()
-        if let id = currentConversationID { drafts.park("", under: id) }
         quickReply.isComposerOpen = replyComposer(for: currentMessages) != nil
     }
 
@@ -1587,6 +1623,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             quickSendTimer = Timer.scheduledTimer(withTimeInterval: Self.undoWindow, repeats: false) { [weak self] _ in
                 MainActor.assumeIsolated { self?.quickSendWindowEnded() }
             }
+            if archive != nil { onQuickSendArchived?() }
         } catch {
             ConversationSignposts.log.error("quick reply send failed: \(String(describing: error), privacy: .public)")
             quickReply.status = .error

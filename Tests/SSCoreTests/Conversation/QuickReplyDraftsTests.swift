@@ -53,4 +53,32 @@ final class QuickReplyDraftsTests: XCTestCase {
         XCTAssertEqual(drafts.draft(under: b), "")
         XCTAssertFalse(drafts.restoreUnsent("oops", under: a, shown: nil))
     }
+
+    /// Two boxes show A at once (the main window's reader and a reader window's, spec §5.19a): the window closes and
+    /// parks its text, then the main window's box, empty, moves on. The window's text waits for the next box on A.
+    func testABoxLeavingABlankThreadKeepsWhatAnotherBoxParked() {
+        var drafts = QuickReplyDrafts()
+        _ = drafts.move(boxText: "", from: nil, to: a)
+        drafts.leave("Typed in the window", under: a)
+        XCTAssertEqual(drafts.move(boxText: "", from: a, to: b), "")
+        XCTAssertEqual(drafts.draft(under: a), "Typed in the window", "an empty box never drops another box's text")
+        XCTAssertEqual(drafts.move(boxText: "", from: b, to: a), "Typed in the window")
+    }
+
+    func testTwoBoxesTextUnderOneThreadIsKeptBoth() {
+        var drafts = QuickReplyDrafts()
+        drafts.leave("From the window", under: a)
+        drafts.leave("From the main window", under: a)
+        XCTAssertEqual(drafts.draft(under: a), "From the window\n\nFrom the main window")
+        drafts.leave("From the main window", under: b)
+        drafts.leave("From the main window", under: b)
+        XCTAssertEqual(drafts.draft(under: b), "From the main window", "the same text is kept once")
+    }
+
+    func testUnsentTextIsKeptAboveWhatWasParkedSince() {
+        var drafts = QuickReplyDrafts()
+        drafts.leave("Typed after sending", under: a)
+        XCTAssertFalse(drafts.restoreUnsent("The reply", under: a, shown: b))
+        XCTAssertEqual(drafts.draft(under: a), "The reply\n\nTyped after sending")
+    }
 }

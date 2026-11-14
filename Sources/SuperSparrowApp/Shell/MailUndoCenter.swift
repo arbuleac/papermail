@@ -157,6 +157,8 @@ final class ReaderWindowPlace {
     var isClosing = false
     /// Whether the step being taken changed anything (it joined the undo history), so the window closes after it.
     var tookStep = false
+    /// The view each Move to Inbox taken here moved the conversation out of, by group id: its undo puts it back.
+    var viewsBeforeMove: [Int: MailboxView] = [:]
 
     init(conversation: ConversationID, view: MailboxView) {
         self.conversation = conversation

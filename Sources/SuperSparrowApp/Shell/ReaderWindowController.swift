@@ -9,8 +9,9 @@ import WebKit
 ///
 /// The main window that opened it owns it and takes its mail actions, by the rules of the view the conversation was opened
 /// from (Later and Unsubscribe included). The undo history and the toast are the app's (`MailUndoCenter`): a step taken
-/// here toasts here and is undone here, and a step that takes the conversation off the desk (E, #, L, Unsubscribe) closes
-/// the window, its toast in the main window and its undo opening the window again.
+/// here toasts here and is undone here, and a step that takes the conversation off the desk (E, #, L, Unsubscribe, a
+/// confirmed Discard Draft…) closes the window, its toast in the main window and its undo opening the window again; so
+/// does Send and Archive from its quick reply, its countdown going to an undo-send panel.
 @MainActor
 final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenuItemValidation, KeyboardRouterTarget {
     private static let sizeDefaultsKey = "ReaderWindowSize"
@@ -30,12 +31,14 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
 
     var conversationID: ConversationID { place.conversation }
 
-    init(place: ReaderWindowPlace, client: MailClient, accountsByID: [AccountID: Account], undoCenter: MailUndoCenter,
-         opener: MainWindowController) {
+    /// `drafts` is the mailbox's quick-reply text, shared with the main window's reader: what is typed here outlives the
+    /// window, for the window an undo opens again or the main window showing the conversation.
+    init(place: ReaderWindowPlace, client: MailClient, accountsByID: [AccountID: Account], drafts: QuickReplyDraftShelf,
+         undoCenter: MailUndoCenter, opener: MainWindowController) {
         self.place = place
         self.undoCenter = undoCenter
         self.opener = opener
-        conversation = ConversationViewController(client: client, poolSize: 1)
+        conversation = ConversationViewController(client: client, poolSize: 1, drafts: drafts)
         conversation.accountsByID = accountsByID
         conversation.mailboxView = place.view
         let size = Self.savedSize() ?? QuireWindowChrome.readerWindowDefaultSize
@@ -74,6 +77,10 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
         conversation.messageMenu = { [weak self] in self?.contextMenu() }
         conversation.isDraftInComposer = { ComposeWindowRegistry.shared.controller(holdingDraft: $0) != nil }
         conversation.onBottomOverlayChange = { [weak self] in self?.window?.contentView?.needsLayout = true }
+        conversation.onQuickSendArchived = { [weak self] in
+            guard let self else { return }
+            self.opener?.quickReplyArchived(in: self)
+        }
     }
 
     // MARK: Placing
@@ -114,8 +121,8 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
 
     // MARK: State
 
-    /// Move to Inbox took the conversation out of the view it was opened from: its keys and header now treat it as an Inbox
-    /// row (Archive in place of Move to Inbox).
+    /// Move to Inbox took the conversation out of the view it was opened from, or its undo put it back: its keys, menus and
+    /// header now treat it as a row of `view` (from the Trash to the Inbox, Archive in place of Move to Inbox).
     func conversationMoved(to view: MailboxView) {
         place.view = view
         conversation.mailboxView = view
@@ -124,6 +131,12 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
     private var isStarred: Bool { conversation.currentMessages.contains(where: \.isStarred) }
     private var hasUnread: Bool { conversation.currentMessages.contains { !$0.isRead } }
     private var showsMessages: Bool { !conversation.currentMessages.isEmpty }
+
+    /// The conversation is in the Trash: opened from it, or every message there now, whichever window put it there. The
+    /// header reads it the same way (§5.12), so it, the menus and # agree: Star · Move to Inbox, and no Move to Trash.
+    private var isInTrash: Bool {
+        place.view == .trash || (showsMessages && conversation.currentMessages.allSatisfy { $0.roles.contains(.trash) })
+    }
 
     /// The message R, A and F answer: the reader's target, else the latest.
     private var replyTarget: MessageID? {
@@ -172,7 +185,7 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
             opener.perform(.archive(id), from: self)
         case .trash:
             // In the Trash # does nothing, quietly (§5.12).
-            if place.view != .trash { opener.perform(.trash(id), from: self) }
+            if !isInTrash { opener.perform(.trash(id), from: self) }
         case .toggleStar:
             opener.perform(.star(id, !isStarred), from: self)
         case .toggleRead:
@@ -284,9 +297,10 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
             return !typing && showsMessages
         case #selector(trashSelection(_:)):
             // Already in Trash (§5.12); an emptied conversation keeps Trash (§5.19).
-            return !typing && place.view != .trash
+            return !typing && !isInTrash
         case #selector(moveSelectionToInbox(_:)):
-            return !typing && showsMessages && place.view != .inbox
+            // Everything opened from the Inbox is there already, unless it has gone to the Trash since.
+            return !typing && showsMessages && (place.view != .inbox || isInTrash)
         case #selector(markSelectionUnread(_:)):
             menuItem.title = hasUnread ? "Mark as Read" : "Mark as Unread"
             return showsMessages
@@ -340,8 +354,10 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
     }
 
     /// The window goes, by the user or by a step that took its conversation away: its reader lets go of the conversation
-    /// (a quick reply still counting down moves to an undo-send panel, §5.18), its toast ends (its undo keeps its grace),
-    /// and the main window forgets it. The place stays in the undo history for the step's undo.
+    /// (a quick reply still counting down moves to an undo-send panel, §5.18; the text in the box is parked with the
+    /// mailbox's, for the next reader to show the conversation; replies past their undo window go on being watched by the
+    /// main window's reader), its toast ends (its undo keeps its grace), and the main window forgets it. The place stays in
+    /// the undo history for the step's undo.
     func windowWillClose(_ notification: Notification) {
         guard !hasClosed else { return }
         hasClosed = true
@@ -352,7 +368,7 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
         router = nil
         conversation.show(nil)
         if place.window === self { place.window = nil }
-        opener?.readerWindowDidClose(self)
+        opener?.readerWindowDidClose(self, watching: conversation.handOffWatchedSends())
     }
 }
 

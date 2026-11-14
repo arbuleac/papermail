@@ -57,6 +57,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     var openUnsubscribePage: (URL) -> Void = { NSWorkspace.shared.open($0) }
     /// Drafts kept on this Mac, which the Drafts view lists and the reader shows beside the provider's.
     let localDrafts = LocalDrafts()
+    /// The quick-reply text parked under each conversation, which this window's reader shares with its reader windows
+    /// (§5.19a): text typed in a window that closes is kept for the next reader to show the conversation.
+    let quickReplyDrafts = QuickReplyDraftShelf()
     let notifier: NewMailNotifier
     private var router: KeyboardRouter?
     private var statusObservation: StoreObservation?
@@ -125,6 +128,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// Puts a window on screen as the key window: a reader window opening, or this window coming forward from one. Showing
     /// a window moves it onto a screen, so the app's tests replace it and keep theirs off screen.
     var bringForward: (NSWindowController) -> Void = { $0.showWindow(nil) }
+    /// Shows an alert as a sheet on a window (`AppAlert.present`); tests replace it to answer it.
+    lazy var presentAlert: (AppAlert, NSWindow?, @escaping AppAlert.Completion) -> Void = { alert, window, done in
+        alert.present(on: window, completion: done)
+    }
 
     // Later (§5.45)
     /// Every snooze the store holds, from its observation; the Later tile, G L and the title menu go by those in scope.
@@ -171,7 +178,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         scopeToRestore = remembersScope ? settings.savedAccountScope(demo: environment.isDemo) : nil
         list = MessageListViewController(store: environment.store)
         listPane = ListPaneViewController(list: list)
-        conversation = ConversationViewController(client: environment.engine)
+        conversation = ConversationViewController(client: environment.engine, drafts: quickReplyDrafts)
         conversationPane = ConversationPaneViewController(conversation: conversation)
         undoCenter = MailUndoCenter(toasts: listPane.toasts)
         inboxMonitor = InboxMonitor(store: environment.store)
@@ -1671,6 +1678,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         let previous = actingReader
         actingReader = place
         defer { actingReader = previous }
+        // A Move to Inbox taken in a reader window made it treat its conversation as an Inbox row; the undo puts the view it
+        // was opened from back, so its keys, menus and header agree with where the conversation is again.
+        if let place, let view = place.viewsBeforeMove.removeValue(forKey: groupID) {
+            if let window = place.window { window.conversationMoved(to: view) } else { place.view = view }
+        }
         guard let change = group.change else {
             groupsFromLater.remove(groupID)
             externalUndos.removeValue(forKey: groupID)?()
@@ -1921,7 +1933,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     @discardableResult
     private func present(_ place: ReaderWindowPlace, at frame: NSRect?) -> ReaderWindowController {
         let reader = ReaderWindowController(place: place, client: environment.engine, accountsByID: accountsByID,
-                                            undoCenter: undoCenter, opener: self)
+                                            drafts: quickReplyDrafts, undoCenter: undoCenter, opener: self)
         readerWindows.append(reader)
         reader.place(at: frame, cascadingFrom: readerWindows.dropLast().last?.window ?? window)
         bringForward(reader)
@@ -1939,25 +1951,54 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         bringForward(self)
     }
 
-    /// A reader window closed (⌘W, the close button, or a step that took its conversation away).
-    func readerWindowDidClose(_ reader: ReaderWindowController) {
+    /// A reader window closed (⌘W, the close button, or a step that took its conversation away). This window's reader goes
+    /// on watching the window's replies past their undo window (`sends`), so a failure still shows its error toast, here
+    /// (§5.18). Closed by the user while this window shows the same conversation, the text the window's quick reply held
+    /// comes into this one's; closed by a step, it stays parked for the window that step's undo opens again.
+    func readerWindowDidClose(_ reader: ReaderWindowController, watching sends: [String: ComposeDraft]) {
         readerWindows.removeAll { $0 === reader }
+        conversation.watch(sends)
+        if reader.place.closedFrame == nil { conversation.takeParkedQuickReply() }
         UndoSendPanel.refreshUndoKeyOwner()
     }
 
+    /// Send and Archive in a reader window's quick reply took the conversation off the desk, as E does: the window closes,
+    /// its countdown moving to an undo-send panel (§5.18) whose Undo brings back the reply and the conversation, and this
+    /// window comes forward with the panel. On the next turn of the run loop, after the send's key has been handled in the
+    /// window it closes.
+    func quickReplyArchived(in reader: ReaderWindowController) {
+        DispatchQueue.main.async { [weak self, weak reader] in
+            MainActor.assumeIsolated {
+                guard let self, let reader, self.readerWindows.contains(where: { $0 === reader }) else { return }
+                reader.close()
+                self.comeForward()
+            }
+        }
+    }
+
     /// A reader window's action on its conversation (spec §5.19a), from its keys, header, menus or page: taken here, by the
-    /// rules of the view the window was opened from, with its toast in that window. Archive, Move to Trash and Unsubscribe
-    /// take the conversation off the desk: the window closes as the step is taken, and the main window comes forward with
-    /// the toast, whose Undo opens the window again.
+    /// rules of the view the window was opened from, with its toast in that window. Archive, Move to Trash, Unsubscribe and
+    /// a confirmed Discard Draft… take the conversation off the desk: the window closes as the step is taken, and the main
+    /// window comes forward with the toast, whose Undo opens the window again.
     func perform(_ action: ConversationAction, from reader: ReaderWindowController) {
         let closes: Bool
         switch action {
         case .archive, .trash, .unsubscribe: closes = true
         case .applyToSelection(let change, _): closes = change == .archive || change == .trash
+        case .discardDrafts(let ids):
+            // Asked on this window, and the confirmed discard is its step: the conversation goes to the Trash, and the
+            // window with it, as after #.
+            confirmDiscardDrafts(ids, from: reader)
+            return
         default: closes = false
         }
+        let view = reader.place.view
         let tookStep = act(in: reader, closing: closes) { handle(action) }
-        if tookStep, case .moveToInbox = action { reader.conversationMoved(to: .inbox) }
+        if tookStep, case .moveToInbox = action {
+            // Its undo puts the view back (`undo(groupID:)`); a press that joined an earlier one keeps that one's.
+            if let id = undoHistory.groups.last?.id, reader.place.viewsBeforeMove[id] == nil { reader.place.viewsBeforeMove[id] = view }
+            reader.conversationMoved(to: .inbox)
+        }
     }
 
     /// L in a reader window: the Later menu for its conversation, hung from its header (§5.45). In the Trash it beeps.
@@ -2055,12 +2096,18 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     }
 
     /// “Discard this draft?” (or “Discard 3 drafts?”), the reader's form (§5.33), from the header, the sheet's
-    /// footer or #.
-    private func confirmDiscardDrafts(_ ids: [ConversationID]) {
+    /// footer or #. From a reader window (`reader`) it asks on that window, and the confirmed discard is that window's
+    /// step: its toast and undo place are the window's, and the window closes with its conversation, as after # (§5.19a).
+    private func confirmDiscardDrafts(_ ids: [ConversationID], from reader: ReaderWindowController? = nil) {
         guard !ids.isEmpty else { return }
         let recipient = ids.count == 1 ? draftMessageID(in: ids[0]).flatMap(draftRecipient(of:)) : nil
-        AppAlert.discardDrafts(count: ids.count, recipient: recipient).present(on: window) { [weak self] choice in
-            if choice == 1 { self?.discardDrafts(ids) }
+        presentAlert(AppAlert.discardDrafts(count: ids.count, recipient: recipient), reader?.window ?? window) { [weak self, weak reader] choice in
+            guard choice == 1, let self else { return }
+            if let reader, self.readerWindows.contains(where: { $0 === reader }) {
+                self.act(in: reader, closing: true) { self.discardDrafts(ids) }
+            } else {
+                self.discardDrafts(ids)
+            }
         }
     }
 
