@@ -37,6 +37,14 @@ final class AccountStripButton: QuireControl {
     var unreadCount = 0 { didSet { if oldValue != unreadCount { needsDisplay = true } } }
     var status: Status = .normal { didSet { if oldValue != status { contentDidChange() } } }
 
+    /// What the unread badge reads, nil while the tile shows none: the words the Dock badge uses for the same
+    /// count (§5.28), so the Inbox tile, All Inboxes, the accounts and the Dock agree. Sign-in and first sync
+    /// replace it; the pending tile never has one.
+    var unreadBadgeText: String? {
+        guard status == .normal, content != .pending else { return nil }
+        return QuireBadge.unreadText(unreadCount)
+    }
+
     /// Called with -1 or +1 when ↑ or ↓ is pressed while the tile has focus.
     var onArrow: ((Int) -> Void)?
 
@@ -216,7 +224,7 @@ final class AccountStripButton: QuireControl {
         case .firstSync:
             break
         case .normal:
-            if unreadCount > 0, content != .pending {
+            if unreadBadgeText != nil {
                 let kind = QuireBadge.Kind.unread(unreadCount)
                 QuireBadge.draw(kind, in: badgeRect(for: kind), cutoutColor: .qSpine)
             }
@@ -270,7 +278,8 @@ final class AccountStripButton: QuireControl {
         switch status {
         case .needsSignIn: return "Sign in required"
         case .firstSync: return "Downloading mail"
-        case .normal: return unreadCount > 0 ? "\(unreadCount) unread" : nil
+        // The real count, as the badge view says it, never the cap.
+        case .normal: return unreadBadgeText == nil ? nil : QuireBadge.unreadAccessibilityText(unreadCount)
         }
     }
 }

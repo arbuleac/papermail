@@ -145,7 +145,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     private var debugKeyStealer: NSWindow?
     #endif
 
-    init(environment: AppEnvironment, settings: AppSettings, remembersScope: Bool = !LaunchOptions().isSnapshot) {
+    /// `dockBadge` nil is the app's Dock tile; tests pass their own so no window of theirs badges a real icon.
+    init(environment: AppEnvironment, settings: AppSettings, remembersScope: Bool = !LaunchOptions().isSnapshot,
+         dockBadge: DockBadge? = nil) {
         self.environment = environment
         self.settings = settings
         // Every Send button reads the user's choice from these settings (§5.23), the reader's built below among them.
@@ -156,7 +158,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         listPane = ListPaneViewController(list: list)
         conversation = ConversationViewController(client: environment.engine)
         conversationPane = ConversationPaneViewController(conversation: conversation)
-        inboxMonitor = InboxMonitor(store: environment.store)
+        inboxMonitor = InboxMonitor(store: environment.store, dockBadge: dockBadge)
         activity = SyncActivityMonitor(store: environment.store)
         notifier = NewMailNotifier(settings: settings)
 

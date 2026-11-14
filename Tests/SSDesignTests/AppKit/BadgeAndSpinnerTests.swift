@@ -30,6 +30,22 @@ final class BadgeAndSpinnerTests: XCTestCase {
         XCTAssertNil(QuireBadge.text(for: .attention))
     }
 
+    /// One formatter for every unread count, the Dock's included: nothing at zero, so the Dock badge clears.
+    func testUnreadTextIsTheOneFormatterTheRailAndTheDockRead() {
+        XCTAssertNil(QuireBadge.unreadText(0), "no badge, not “0”")
+        XCTAssertNil(QuireBadge.unreadText(-3))
+        XCTAssertEqual(QuireBadge.unreadText(1), "1")
+        XCTAssertEqual(QuireBadge.unreadText(99), "99")
+        XCTAssertEqual(QuireBadge.unreadText(100), "99+")
+        XCTAssertEqual(QuireBadge.unreadText(1_234), "99+", "never the grouped number")
+        for count in [1, 7, 99, 100, 128, 1_234, 120_000] {
+            XCTAssertEqual(QuireBadge.text(for: .unread(count)), QuireBadge.unreadText(count), "the rail's badge reads the same for \(count)")
+        }
+        XCTAssertEqual(QuireBadge.unreadAccessibilityText(1_234), "\(1_234.formatted(.number.grouping(.automatic))) unread",
+                       "VoiceOver hears the real count")
+        XCTAssertEqual(QuireBadge(.unread(1_234)).accessibilityLabel(), QuireBadge.unreadAccessibilityText(1_234))
+    }
+
     func testMessageCountsAreExactInTheLocalesGrouping() {
         XCTAssertEqual(QuireBadge.text(for: .messageCount(4)), "4")
         XCTAssertEqual(QuireBadge.text(for: .messageCount(140)), "140", "row counts are not capped")

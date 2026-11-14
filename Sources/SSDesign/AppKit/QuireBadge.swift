@@ -38,18 +38,31 @@ public final class QuireBadge: NSView {
 
     // MARK: Text
 
-    /// The text a count badge shows. Unread counts cap at “99+” (`badge.cap`); message counts are exact, in the
-    /// locale's grouping (§4.13).
+    /// The text a count badge shows. Unread counts cap at “99+” (`badge.cap`, `unreadText`); message counts are
+    /// exact, in the locale's grouping (§4.13).
     public static func text(for kind: Kind) -> String? {
         switch kind {
         case .unread(let count):
-            let cap = Int(Quire.Layout.Badge.cap)
-            return count > cap ? "\(cap)+" : QuireDraw.grouped(max(0, count))
+            return unreadText(count) ?? QuireDraw.grouped(0)
         case .messageCount(let count):
             return QuireDraw.grouped(max(0, count))
         case .dot, .attention:
             return nil
         }
+    }
+
+    /// The words of an unread count wherever one shows: the rail's badges, the title menu's and the Dock tile's
+    /// (§5.28). One formatter, so the Dock and the rail can never disagree about the same count. Nil at zero (or
+    /// below), where nothing shows, not even “0”; above `badge.cap` it reads “99+”.
+    public nonisolated static func unreadText(_ count: Int) -> String? {
+        guard count > 0 else { return nil }
+        let cap = Int(Quire.Layout.Badge.cap)
+        return count > cap ? QuireDraw.grouped(cap) + "+" : QuireDraw.grouped(count)
+    }
+
+    /// What VoiceOver says for an unread count: the real number, never the cap, so a capped badge loses nothing.
+    public nonisolated static func unreadAccessibilityText(_ count: Int) -> String {
+        "\(QuireDraw.grouped(max(0, count))) unread"
     }
 
     private static func label(for kind: Kind) -> NSAttributedString? {
@@ -123,7 +136,7 @@ public final class QuireBadge: NSView {
     public override func accessibilityLabel() -> String? {
         if let explicit = super.accessibilityLabel() { return explicit }
         switch kind {
-        case .unread(let count): return "\(QuireDraw.grouped(count)) unread"
+        case .unread(let count): return QuireBadge.unreadAccessibilityText(count)
         case .messageCount(let count): return "\(QuireDraw.grouped(count)) messages"
         case .dot: return "New mail"
         case .attention: return "Sign in required"

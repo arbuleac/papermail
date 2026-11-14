@@ -67,9 +67,7 @@ enum TitleMenu {
             item.attributedTitle = title
             item.image = QuireSymbol.image(entry.symbol, size: .inText, accessibilityDescription: entry.title)
             item.state = entry.view == model.view ? .on : .off
-            if entry.view == .inbox, model.inboxUnread > 0 {
-                item.badge = NSMenuItemBadge(count: model.inboxUnread)
-            }
+            if entry.view == .inbox { item.badge = unreadBadge(model.inboxUnread) }
             item.setAccessibilityHelp("G then \(entry.sequence.dropFirst(2))")
             menu.addItem(item)
         }
@@ -82,7 +80,7 @@ enum TitleMenu {
         unified.tag = 0
         unified.image = QuireSymbol.image(Quire.Icon.unifiedInbox, size: .inText, accessibilityDescription: "All Inboxes")
         unified.state = model.scope == .unified ? .on : .off
-        if model.unifiedUnread > 0 { unified.badge = NSMenuItemBadge(count: model.unifiedUnread) }
+        unified.badge = unreadBadge(model.unifiedUnread)
         menu.addItem(unified)
         for (index, entry) in model.accounts.enumerated() {
             let name = AccountLabels.name(for: entry.account)
@@ -92,10 +90,16 @@ enum TitleMenu {
             item.tag = index + 1
             item.image = monogramImage(entry.monogram, slot: entry.account.inkSlot)
             item.state = model.scope == .account(entry.account.id) ? .on : .off
-            if entry.unread > 0 { item.badge = NSMenuItemBadge(count: entry.unread) }
+            item.badge = unreadBadge(entry.unread)
             menu.addItem(item)
         }
         return menu
+    }
+
+    /// The system badge for an unread count, in the words the rail's tiles and the Dock use (§5.28): a count badge
+    /// prints the whole number, where the rail this menu stands in for reads 99+. None at zero.
+    static func unreadBadge(_ count: Int) -> NSMenuItemBadge? {
+        QuireBadge.unreadText(count).map { NSMenuItemBadge(string: $0) }
     }
 
     /// A small account face with its ring, drawn when the menu shows so it follows the appearance.
