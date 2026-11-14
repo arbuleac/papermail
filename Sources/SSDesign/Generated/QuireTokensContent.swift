@@ -89,6 +89,7 @@ extension Quire {
         public static let conceal = "eye.slash"
         public static let invitation = "calendar"
         public static let answered = "checkmark"
+        public static let print = "printer"
         public static let loginApproval = "info.circle"
         public static let mute = "bell.slash"
         public static let unmute = "bell"
@@ -255,6 +256,7 @@ extension Quire {
             QuireCheatSheetRow(keys: "⇧⌘I", label: "Load images"),
             QuireCheatSheetRow(keys: "⇧⌘O", label: "Original colors"),
             QuireCheatSheetRow(keys: ".", label: "Show · hide quoted text"),
+            QuireCheatSheetRow(keys: "⌘P", label: "Print the conversation"),
             QuireCheatSheetRow(keys: "⌥⌘C", label: "Compact rows"),
             QuireCheatSheetRow(keys: "⌃⌘S", label: "Show · hide the rail"),
             QuireCheatSheetRow(keys: "⇧⌘N", label: "Check for new mail"),

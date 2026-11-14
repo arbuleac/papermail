@@ -311,6 +311,16 @@ extension Quire {
             public static let noticeTop: CGFloat = 10
             public static let gapBelow: CGFloat = 16
         }
+        public enum Print {
+            public static let pageMargin: CGFloat = 36
+            public static let messageGap: CGFloat = 24
+            public static let partsTop: CGFloat = 6
+            public static let noteTop: CGFloat = 12
+            public static let noteGlyph: CGFloat = 14
+            public static let noteGap: CGFloat = 6
+            public static let attachmentGap: CGFloat = 2
+            public static let imageWait: String = "motion.duration.printImageWait"
+        }
         public enum AttachmentChip {
             public static let height: CGFloat = 44
             public static let minWidth: CGFloat = 196

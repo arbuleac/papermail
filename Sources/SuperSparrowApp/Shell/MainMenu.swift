@@ -124,6 +124,10 @@ enum MainMenu {
         menu.addItem(item("Save Attachments…", #selector(MainWindowController.saveAttachments(_:)), symbol: Quire.Icon.attach))
         menu.addItem(item("Download Attachments", #selector(MainWindowController.downloadAttachments(_:)), "d", [.command, .shift],
                           symbol: Quire.Icon.download))
+        menu.addItem(.separator())
+        // The open conversation's sheets, through the system print panel and its PDF menu (spec §5.48). Not `print(_:)`,
+        // which every view and window answers by printing itself: the list's table or the window would print the screen.
+        menu.addItem(item("Print…", #selector(MainWindowController.printConversation(_:)), "p", symbol: Quire.Icon.print))
         // Shown only in demo mode: the app delegate reveals it when it installs a demo environment.
         let leaveDemo = item("Leave Demo…", #selector(AppDelegate.leaveDemo(_:)), symbol: Quire.Icon.undo, target: delegate)
         leaveDemo.isHidden = true

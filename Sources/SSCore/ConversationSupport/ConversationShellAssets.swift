@@ -2541,6 +2541,7 @@ public enum ConversationShellAssets {
         },
         originalColors: function (id, on) { setOriginal(state.byID[id], !!on); },
         cardCount: function () { return state.cards.length; },
+        // Also what File › Print… follows (PrintSheetState): what each card shows and the live remote sources it holds back.
         cardStates: function () {
           var states = [];
           for (var i = 0; i < state.cards.length; i++) {
@@ -2548,7 +2549,7 @@ public enum ConversationShellAssets {
             states.push({
               id: card.message.id, expanded: card.expanded, imagesLoaded: card.imagesLoaded,
               quotesShown: card.quotesShown, hasFrame: !!card.iframe, folded: card.folded,
-              foldsMessage: foldsMessage(card), messageShown: !!card.messageShown
+              foldsMessage: foldsMessage(card), messageShown: !!card.messageShown, liveRemote: card.liveRemote || 0
             });
           }
           return states;

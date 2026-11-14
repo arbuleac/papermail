@@ -2443,10 +2443,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     @objc func toggleOriginalColors(_ sender: Any?) { conversation.toggleOriginalColors(sender) }
     @objc func saveAttachments(_ sender: Any?) { conversation.saveAttachments(sender) }
     @objc func downloadAttachments(_ sender: Any?) { conversation.downloadAttachments(sender) }
+    @objc func printConversation(_ sender: Any?) { conversation.printConversation(sender) }
 
     private static let readerCommands: Set<Selector> = [
         #selector(nextMessage(_:)), #selector(previousMessage(_:)), #selector(toggleQuotedText(_:)), #selector(loadImages(_:)),
         #selector(toggleOriginalColors(_:)), #selector(saveAttachments(_:)), #selector(downloadAttachments(_:)),
+        #selector(printConversation(_:)),
     ]
 
     /// The toast after a save to Downloads (spec §5.17, §5.30): what was saved, with Show in Finder, which selects the
