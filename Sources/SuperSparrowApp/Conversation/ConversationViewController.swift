@@ -513,7 +513,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         preview.closePanel()
         quickReply.clear()
         if let current = pool.current {
-            current.webView.removeFromSuperview()
+            pool.park(current)
             pool.current = nil
         }
         refreshChrome()
@@ -521,7 +521,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
 
     private func swap(in slot: PooledConversationView) {
         if let current = pool.current, current !== slot {
-            current.webView.removeFromSuperview()
+            pool.park(current)
         }
         if slot.webView.superview !== webContainer {
             slot.webView.frame = webContainer.bounds
@@ -529,6 +529,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             webContainer.addSubview(slot.webView)
         }
         pool.current = slot
+        pool.unpark(slot)
         pool.touch(slot)
         applyBottomInset()
         pushBodyStates(to: slot)

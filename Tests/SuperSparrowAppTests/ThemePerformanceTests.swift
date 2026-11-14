@@ -96,8 +96,12 @@ final class ThemePerformanceTests: XCTestCase {
             NSApplication.shared.appearance = NSAppearance(named: look)
             window.appearance = NSAppearance(named: look)
             window.displayIfNeeded()
-            // The shells take the new appearance through prefers-color-scheme; let them settle before timing. An
-            // appearance may change a shell's height (the notices of adapted mail), a theme never does.
+            // The shells take the new appearance through prefers-color-scheme, the pre-rendered ones outside the window
+            // too; let them settle before timing. An appearance may change a shell's height (the notices of adapted mail),
+            // a theme never does.
+            let dark = name == "Dark"
+            XCTAssertTrue(Support.spin(until: { pool.slots.filter(\.isReady).allSatisfy { self.isDark($0.webView) == dark } }, timeout: 5),
+                          "\(name): every ready shell takes the appearance, outside the window too")
             Support.spin(for: 1)
             let heights = scrollHeights(in: pool)
             for round in 0..<(cycle.count * 2) {
@@ -118,13 +122,11 @@ final class ThemePerformanceTests: XCTestCase {
         // The Dark Mode default, in Dark: the styled bodies that declare colours (15 of each 30) switch between adapted
         // and as sent, by class, with no frame built again; done when every ready shell has said what it shows.
         var defaults: [Double] = []
-        // Only a dark shell offers original colours; a pre-rendered one WebKit has not told of the appearance stays light.
-        let declaring = try declaringMessages(in: pool, store: store).filter { id, _ in
-            pool.slots.first { ObjectIdentifier($0) == id }.map { self.isDark($0.webView) } ?? false
-        }
-        XCTAssertTrue(pool.current.map { declaring[ObjectIdentifier($0)] != nil } ?? false, "the shell on screen is dark")
+        let declaring = try declaringMessages(in: pool, store: store)
+        XCTAssertTrue(pool.slots.filter(\.isReady).allSatisfy { self.isDark($0.webView) }, "every ready shell is dark")
         print("SS_PERF theme dark shells for the Dark Mode default: \(declaring.count)")
-        XCTAssertGreaterThanOrEqual(declaring.values.map(\.count).reduce(0, +), 15, "15 styled bodies in each dark shell")
+        XCTAssertEqual(declaring.count, 3, "the open conversation and its two neighbours")
+        XCTAssertTrue(declaring.values.allSatisfy { $0.count >= 15 }, "15 styled bodies in each shell")
         for round in 0..<12 {
             let adapts = round % 2 == 1
             let start = DispatchTime.now()

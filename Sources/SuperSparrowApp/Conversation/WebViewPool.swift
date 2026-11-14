@@ -42,6 +42,8 @@ final class WebViewPool: NSObject, WKScriptMessageHandler {
     private var preferencesScript = ""
     /// Full Keyboard Access is a keyboard setting, not a display option, so QuireEnvironment never reports it.
     private var fullKeyboardAccessObservation: NSKeyValueObservation?
+    /// The app's appearance (Settings › Appearance, or macOS under Automatic), which AppKit tells no view outside a window.
+    private var appearanceObservation: NSKeyValueObservation?
 
     init(client: MailClient, size: Int = 3) {
         let theme = QuireEnvironment.theme
@@ -75,6 +77,15 @@ final class WebViewPool: NSObject, WKScriptMessageHandler {
         fullKeyboardAccessObservation = NSApp.observe(\.isFullKeyboardAccessEnabled, options: [.new]) { [weak self] _, _ in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated { self?.updateTabFocusesLinks() }
+            }
+        }
+        // The next turn, once the windows have taken the new appearance the views outside them are to share.
+        appearanceObservation = NSApp.observe(\.effectiveAppearance, options: [.new]) { [weak self] _, _ in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.pinWindowless(to: self.windowAppearance)
+                }
             }
         }
     }
@@ -191,6 +202,40 @@ final class WebViewPool: NSObject, WKScriptMessageHandler {
             self.then = nil
             then?()
         }
+    }
+
+    // MARK: Appearance
+
+    /// The appearance the reader's window draws in: the shown view's, else the app's.
+    private var windowAppearance: NSAppearance {
+        if let webView = current?.webView, webView.window != nil { return webView.effectiveAppearance }
+        return NSApp.effectiveAppearance
+    }
+
+    /// AppKit tells a view of a new appearance only while it is in a window, and WebKit turns `prefers-color-scheme` for
+    /// a page only when AppKit tells its view. The slots outside the window (pre-rendered neighbours, a slot taken off
+    /// screen) would keep the old appearance until shown, then restyle in front of the reader, a styled message gaining
+    /// or losing its white page and refitting on its first frames. So each takes the window's appearance as its own, and
+    /// restyles out of sight.
+    func pinWindowless(to appearance: NSAppearance) {
+        for slot in slots where slot.webView.window == nil && slot.webView.appearance?.name != appearance.name {
+            slot.webView.appearance = appearance
+        }
+    }
+
+    /// Takes `slot`'s view out of the window it is shown in, keeping the appearance it drew in there, so it is not
+    /// restyled on the way out and again on the way back.
+    func park(_ slot: PooledConversationView) {
+        let webView = slot.webView
+        webView.appearance = webView.effectiveAppearance
+        webView.removeFromSuperview()
+    }
+
+    /// `slot`'s view is in the window now: it follows the window again, and the views outside take its appearance.
+    func unpark(_ slot: PooledConversationView) {
+        let webView = slot.webView
+        webView.appearance = nil
+        if webView.window != nil { pinWindowless(to: webView.effectiveAppearance) }
     }
 
     // MARK: Lookup
@@ -339,6 +384,7 @@ final class WebViewPool: NSObject, WKScriptMessageHandler {
 
     private func makeWebView() -> WKWebView {
         let webView = ReaderWebView(frame: .zero, configuration: configuration)
+        webView.onWindowAppearanceChange = { [weak self] appearance in self?.pinWindowless(to: appearance) }
         webView.navigationDelegate = navigation
         webView.uiDelegate = navigation
         webView.allowsBackForwardNavigationGestures = false
@@ -356,6 +402,7 @@ final class WebViewPool: NSObject, WKScriptMessageHandler {
         ConversationSignposts.log.notice("web content process terminated; recreating view")
         assign(nil, to: slot)
         slot.replaceWebView(with: makeWebView())
+        if slot.webView.window == nil { slot.webView.appearance = windowAppearance }
         onViewRecreated?(slot)
     }
 

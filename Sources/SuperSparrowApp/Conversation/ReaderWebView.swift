@@ -11,6 +11,10 @@ import WebKit
 /// whenever that changes or the theme does (`WebViewPool`); otherwise a theme's desk would flash as Study's.
 @MainActor
 final class ReaderWebView: WKWebView {
+    /// Called when this view, inside a window, takes a new appearance: the pool gives it to its views outside any window,
+    /// which AppKit does not tell.
+    var onWindowAppearanceChange: ((NSAppearance) -> Void)?
+
     func updateUnderPageColour() {
         var colour = NSColor.qCanvas
         effectiveAppearance.performAsCurrentDrawingAppearance {
@@ -28,6 +32,7 @@ final class ReaderWebView: WKWebView {
         DispatchQueue.main.async { [weak self] in
             self?.evaluateJavaScript("window.ss && window.ss.appearanceChanged && window.ss.appearanceChanged()") { _, _ in }
         }
+        if window != nil { onWindowAppearanceChange?(effectiveAppearance) }
     }
 
     override func becomeFirstResponder() -> Bool {

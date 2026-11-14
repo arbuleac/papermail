@@ -221,38 +221,75 @@ final class ThemeSettingTests: XCTestCase {
     // MARK: Appearance
 
     /// Appearance picks the half of the theme the app shows: Dark sets the app's appearance to Dark Aqua, which every
-    /// window without its own appearance takes, the reader's shells through `prefers-color-scheme` and the colour under
-    /// their pages included; Light sets Aqua; Automatic gives the choice back to macOS.
+    /// window without its own appearance takes, and so does every reader shell, the pre-rendered ones outside the window
+    /// too, through `prefers-color-scheme`, with the colour under their pages, and styled mail that declares its colours
+    /// adapted, with its notice, in Dark (spec §5.14); Light sets Aqua; Automatic gives the choice back to macOS.
     func testAppearanceSetsTheAppsAppearanceAndTheReaderFollows() throws {
         let harness = try MainWindowHarness()
         defer { harness.close() }
         let window = try XCTUnwrap(harness.controller.window)
         window.appearance = nil
         harness.settings.theme = .dusk
+        // Whichever conversations the pool holds, open or pre-rendered, are styled mail that sets its own colours.
+        for summary in harness.list.conversations {
+            try declareColours(in: summary.id, store: harness.environment.store)
+        }
         harness.selectFirst(1)
         try settled(harness.reader)
-        let webView = try XCTUnwrap(harness.reader.pool.current?.webView)
+        let pool = harness.reader.pool
+        let current = try XCTUnwrap(pool.current)
+        XCTAssertTrue(ListTestSupport.spin(until: {
+            pool.slots.contains { $0 !== current && $0.isReady && $0.renderedID != nil && !$0.renderInFlight && $0.webView.window == nil }
+        }, timeout: 5), "a pre-rendered shell outside the window")
+        // Every body frame's adapted state, and how many notices the shell shows.
+        let adapted = "(function () { var f = document.querySelectorAll('.ss-card iframe');"
+            + " return Array.prototype.map.call(f, function (x) { var d = x.contentDocument;"
+            + " return d && d.documentElement.classList.contains('ss-adapt') ? 'a' : '-'; }).join('')"
+            + " + ' ' + document.querySelectorAll('.ss-notice-toggle').length; })()"
 
         for (appearance, name, dark) in [(AppAppearance.dark, NSAppearance.Name.darkAqua, true), (.light, .aqua, false), (.dark, .darkAqua, true)] {
             harness.settings.appearance = appearance
             let label = "\(appearance)"
             XCTAssertEqual(NSApplication.shared.appearance?.name, name, label)
             XCTAssertEqual(window.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]), name, label + ": the main window follows")
-            XCTAssertTrue(ListTestSupport.spin(until: {
-                self.evaluate("matchMedia('(prefers-color-scheme: dark)').matches", in: webView) as? Bool == dark
-            }, timeout: 5), label + ": the reader's shell follows")
             let mode: QuireMode = dark ? .dark : .light
-            XCTAssertEqual(computed("--q-sheet", in: webView), hex(QuireColorToken.sheet.values(theme: .dusk)[mode]),
-                           label + ": Dusk's \(mode) sheet")
-            XCTAssertTrue(ListTestSupport.spin(until: {
-                self.hex(webView.underPageBackgroundColor) == self.hex(QuireColorToken.canvas.values(theme: .dusk)[mode])
-            }, timeout: 5), label + ": the colour under the page")
+            for slot in pool.slots where slot.isReady {
+                let webView = slot.webView
+                let shell = label + (slot === current ? ", the shell on screen" : ", a shell outside the window")
+                XCTAssertTrue(ListTestSupport.spin(until: {
+                    self.evaluate("matchMedia('(prefers-color-scheme: dark)').matches", in: webView) as? Bool == dark
+                }, timeout: 5), shell + " follows")
+                XCTAssertEqual(computed("--q-sheet", in: webView), hex(QuireColorToken.sheet.values(theme: .dusk)[mode]),
+                               shell + ": Dusk's \(mode) sheet")
+                XCTAssertTrue(ListTestSupport.spin(until: {
+                    self.hex(webView.underPageBackgroundColor) == self.hex(QuireColorToken.canvas.values(theme: .dusk)[mode])
+                }, timeout: 5), shell + ": the colour under the page")
+                guard slot.renderedID != nil else { continue }
+                var state = ""
+                XCTAssertTrue(ListTestSupport.spin(until: {
+                    state = self.evaluate(adapted, in: webView) as? String ?? ""
+                    let parts = state.split(separator: " ")
+                    guard parts.count == 2, let frames = parts.first, !frames.isEmpty, let notices = Int(parts[1]) else { return false }
+                    return dark ? frames.allSatisfy { $0 == "a" } && notices > 0 : frames.allSatisfy { $0 == "-" } && notices == 0
+                }, timeout: 5), shell + (dark ? ": its mail adapted, with the notice" : ": its mail as sent, no notice") + " (\(state))")
+            }
         }
         harness.settings.appearance = .automatic
         XCTAssertNil(NSApplication.shared.appearance, "Automatic follows macOS")
     }
 
     // MARK: Helpers
+
+    /// Every message of `conversation` is styled mail that sets its own colours, as a newsletter is.
+    private func declareColours(in conversation: ConversationID, store: MailStoring) throws {
+        let html = "<table bgcolor=\"#B91C1C\"><tr><td style=\"color:#ffffff\">Northwind</td></tr></table>"
+        for message in try store.messages(in: conversation) {
+            var body = StoredBody(body: MessageBody(html: html, text: "Northwind", attachments: []), renderedHTML: html, plainText: "Northwind")
+            body.typesetting = .styled
+            body.declaresColors = true
+            try store.saveBody(body, for: message.id)
+        }
+    }
 
     private func settled(_ reader: ConversationViewController) throws {
         var landed: WKWebView??
