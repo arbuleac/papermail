@@ -114,7 +114,8 @@ public struct PendingSend: Hashable, Codable, Sendable, Identifiable {
     public var lastError: String?
     /// The draft kept on this Mac that a Send Later message was written in (the app's `ComposeDraftStore`), so opening
     /// it from Drafts brings back what was written. Opaque to the engine, which only keeps a delivered send that has one
-    /// as `sent`, for the app to remove the draft and then the row. Nil for every other send.
+    /// as `sent`, for the app to remove the draft and then the row, and tells by it that a `scheduled` send left by a
+    /// quit is a Send Later message waiting out a throttle, which the next launch asks about. Nil for every other send.
     public var draftID: UUID?
 
     public init(

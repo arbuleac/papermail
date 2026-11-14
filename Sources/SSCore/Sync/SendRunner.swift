@@ -13,6 +13,10 @@ import Foundation
 ///
 /// A Send Later time that passed while the app was closed is never sent at launch: the runner's first read marks it
 /// `missed`, which it never claims, and the app asks the user (spec §5.23); `sendNow` sends it once they say so.
+///
+/// It reads the outbox as summaries (`MailStoring.pendingSendSummaries`), which leave the attachments out, and writes only
+/// a send's state back: a Send Later message waits for days, and the runner looks at the outbox at every poll interval.
+/// The whole message is read once, for the provider.
 actor SendRunner {
     private let store: MailStoring
     private let registry: AccountRegistry
@@ -93,7 +97,7 @@ actor SendRunner {
     /// was closed. False once it has been claimed for sending, or was never queued.
     nonisolated func cancel(id: String) throws -> Bool {
         claimLock.lock(); defer { claimLock.unlock() }
-        guard let send = try store.pendingSends().first(where: { $0.id == id }),
+        guard let send = try store.pendingSendSummaries().first(where: { $0.id == id }),
               send.status == .scheduled || send.isHeldForLater else {
             return false
         }
@@ -108,7 +112,7 @@ actor SendRunner {
         var released: [String] = []
         try claimLock.withLock {
             let now = clock.now()
-            for var send in try store.pendingSends() where wanted.contains(send.id) && send.isHeldForLater {
+            for var send in try store.pendingSendSummaries() where wanted.contains(send.id) && send.isHeldForLater {
                 // Still `later`, not `scheduled`: if the app quits before it goes, the next launch asks again rather than
                 // sending a message the user may since have thought better of.
                 send.status = .later
@@ -137,12 +141,14 @@ actor SendRunner {
     /// What the previous process left, read once before the first claim. A row left in `sending` may or may not have
     /// gone out; nobody can tell, so it is reported as failed rather than silently sent twice. A Send Later time that
     /// passed while the app was closed becomes `missed`: the user may have changed their mind meanwhile, so it waits for
-    /// them to say (spec §5.23) instead of going the moment the app opens.
+    /// them to say (spec §5.23) instead of going the moment the app opens. So does a Send Later message a throttle put
+    /// back to retry (`scheduled`, still carrying its draft id) whose retry time passed while the app was closed: it is
+    /// that message, not an undo-send left behind, which goes within a minute of launch.
     private func recoverPreviousRun() {
         guard !recoveredPreviousRun else { return }
         recoveredPreviousRun = true
         claimLock.lock(); defer { claimLock.unlock() }
-        guard let sends = try? store.pendingSends() else { return }
+        guard let sends = try? store.pendingSendSummaries() else { return }
         let now = clock.now()
         for var send in sends {
             switch send.status {
@@ -150,6 +156,8 @@ actor SendRunner {
                 send.status = .failed
                 send.lastError = "interrupted while sending; check Sent before sending again"
             case .later where send.sendAfter <= now:
+                send.status = .missed
+            case .scheduled where send.draftID != nil && send.sendAfter <= now:
                 send.status = .missed
             default:
                 continue
@@ -181,7 +189,7 @@ actor SendRunner {
 
     /// A send marked `sending`, with the status it had before: a stop puts it back as it was.
     private struct Claim {
-        var send: PendingSend
+        var send: PendingSendSummary
         let from: PendingSendStatus
     }
 
@@ -206,7 +214,7 @@ actor SendRunner {
             let now = clock.now()
             let uptime = clock.uptime()
             var stillHeld: [String: HeldSend] = [:]
-            for var send in try store.pendingSends() where send.status == .scheduled || send.status == .later {
+            for var send in try store.pendingSendSummaries() where send.status == .scheduled || send.status == .later {
                 let due = dueTime(of: send, now: now, uptime: uptime)
                 if due <= uptime + Self.dueTolerance {
                     let from = send.status
@@ -234,7 +242,7 @@ actor SendRunner {
     /// A Send Later message is timed by the wall clock at every read instead: its time is one the user named on the
     /// wall (“Monday 09:00”), so setting the clock moves it as it moves the meeting it was written for. The engine wakes
     /// the runner when the clock is set, which a wait on the continuous clock cannot see.
-    private func dueTime(of send: PendingSend, now: Date, uptime: TimeInterval) -> TimeInterval {
+    private func dueTime(of send: PendingSendSummary, now: Date, uptime: TimeInterval) -> TimeInterval {
         if send.status == .later {
             return uptime + max(0, send.sendAfter.timeIntervalSince(now))
         }
@@ -244,17 +252,31 @@ actor SendRunner {
         return uptime + min(max(0, send.sendAfter.timeIntervalSince(now)), tuning.userRetryAfterCap)
     }
 
-    private func deliver(_ send: PendingSend) async {
+    private func deliver(_ send: PendingSendSummary) async {
         var send = send
-        let accountID = send.message.accountID
+        let accountID = send.accountID
         guard let context = registry.context(for: accountID) else {
             send.status = .failed
             send.lastError = "account is not available"
             try? store.updateSend(send)
             return
         }
+        let message: OutgoingMessage
         do {
-            _ = try await context.provider.send(send.message)
+            // The claim read the outbox without the attachments; the provider needs them. A row gone meanwhile went with
+            // its account.
+            guard let whole = try store.pendingSend(id: send.id) else { return }
+            message = whole.message
+        } catch {
+            let description = SyncErrorDescription.describe(error)
+            send.status = .failed
+            send.lastError = description
+            try? store.updateSend(send)
+            SyncLog.logger.error("send: could not read the message for \(accountID.rawValue, privacy: .public): \(description, privacy: .private)")
+            return
+        }
+        do {
+            _ = try await context.provider.send(message)
             send.status = .sent
             try? store.updateSend(send)
             // A Send Later message stays, `sent`, until the app has removed the draft it was written in and then the
@@ -268,6 +290,8 @@ actor SendRunner {
                 retryAfter: retryAfter, attempt: send.attempts, base: tuning.backoffBase, cap: tuning.userRetryAfterCap
             )
             let due = clock.uptime() + delay
+            // A Send Later message keeps its draft id, so the Drafts row still reads “Sending…” and a quit before the
+            // retry makes it `missed` at the next launch (`recoverPreviousRun`).
             send.status = .scheduled
             send.sendAfter = clock.now().addingTimeInterval(delay)
             send.lastError = SyncErrorDescription.describe(ProviderError.throttled(retryAfter: retryAfter))

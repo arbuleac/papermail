@@ -190,7 +190,7 @@ final class UndoSendPanel: NSPanel {
 
     /// The outbox is in the store: a sent message's row is removed, a failed one stays with its reason.
     private func pollOutcome() {
-        guard let sends = try? client.store.pendingSends() else { return }
+        guard let sends = try? client.store.pendingSendSummaries() else { return }
         let send = sends.first { $0.id == sendID }
         switch send?.status {
         case nil, .sent?:

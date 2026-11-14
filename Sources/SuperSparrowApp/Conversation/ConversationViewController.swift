@@ -100,7 +100,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     private var watchedSends: [String: ComposeDraft] = [:]
     /// Replies on their way out (scheduled or sending, not forwards): the open conversation shows the ones that
     /// answer it as pending sheets (spec §5.14). Read on events and on each outbox tick, never per selection.
-    private var outbox: [PendingSend] = []
+    private var outbox: [PendingSendSummary] = []
     /// Ticks once a second while a send is watched or a reply is on its way, and stops as soon as neither is, so an
     /// idle reader keeps no timer. It predates the store's outbox observation (`observePendingSends`), which could
     /// replace it.
@@ -1662,7 +1662,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     /// One read of the outbox serves both the watched sends and the pending sheets; the timer runs only while
     /// either has something to follow.
     func outboxTick() {
-        if let sends = try? client.store.pendingSends() {
+        if let sends = try? client.store.pendingSendSummaries() {
             settleWatchedSends(sends)
             updateOutbox(sends)
         }
@@ -1688,7 +1688,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
 
     /// A sent reply's row is gone (or marked sent); a failed one stays with its reason. The failure is kept
     /// as a draft on this Mac before the toast offers to open it, so closing the toast loses nothing.
-    private func settleWatchedSends(_ sends: [PendingSend]) {
+    private func settleWatchedSends(_ sends: [PendingSendSummary]) {
         guard !watchedSends.isEmpty else { return }
         let byID = Dictionary(sends.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         for (id, draft) in watchedSends {
@@ -1710,8 +1710,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     }
 
     /// The replies on their way changed: the open conversation gains or loses its pending sheets.
-    private func updateOutbox(_ sends: [PendingSend]) {
-        let leaving = sends.filter { ($0.status == .scheduled || $0.status == .sending) && !$0.message.isForward && $0.message.inReplyTo != nil }
+    private func updateOutbox(_ sends: [PendingSendSummary]) {
+        let leaving = sends.filter { ($0.status == .scheduled || $0.status == .sending) && !$0.isForward && $0.inReplyTo != nil }
         guard leaving.map(\.id) != outbox.map(\.id) else { return }
         outbox = leaving
         if case .one(let id) = selection, !currentMessages.isEmpty { refreshCurrentIfStale(currentMessages, id: id) }

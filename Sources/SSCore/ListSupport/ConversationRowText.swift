@@ -84,6 +84,9 @@ public struct ConversationRowText: Hashable, Sendable {
     public let senderNames: String
     public let isSenderPlaceholder: Bool
     public let timeText: String
+    /// What the time says on hover, where the slot has no room for it: a waiting Send Later message's condition,
+    /// “Sends Mon 09:00 while SuperSparrow is open” (spec §5.46). Nil for every other row.
+    public let timeToolTip: String?
     public let subjectText: String
     public let isSubjectPlaceholder: Bool
     public let snippetText: String
@@ -140,7 +143,13 @@ public struct ConversationRowText: Hashable, Sendable {
         // A Send Later row says when it sends, whatever view lists it (only Drafts does).
         if let state = summary.sendLater {
             timeText = SendLaterCopy.status(state, formatter: formatter, reference: reference)
+            if case .waiting(let date) = state {
+                timeToolTip = SendLaterCopy.help(formatter.dueTime(for: date, reference: reference))
+            } else {
+                timeToolTip = nil
+            }
         } else {
+            timeToolTip = nil
             switch context.timeSource {
             case .latestMessage:
                 timeText = formatter.string(for: summary.latestDate, reference: reference, style: context.timeStyle)

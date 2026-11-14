@@ -19,30 +19,29 @@ public struct PendingSheet: Hashable, Sendable {
 
     /// The sheets for `sends` that answer one of `messages` (a conversation's), oldest first. Forwards start a
     /// new conversation and failed or finished sends are not on their way, so neither shows.
-    public static func sheets(for sends: [PendingSend], answering messages: [MessageMetadata], accounts: [AccountID: Account]) -> [PendingSheet] {
+    public static func sheets(for sends: [PendingSendSummary], answering messages: [MessageMetadata], accounts: [AccountID: Account]) -> [PendingSheet] {
         guard !sends.isEmpty, !messages.isEmpty else { return [] }
         let byID = Dictionary(messages.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         return sends
             .filter { $0.status == .scheduled || $0.status == .sending }
             .sorted { $0.createdAt < $1.createdAt }
             .compactMap { send -> PendingSheet? in
-                guard !send.message.isForward, let originalID = send.message.inReplyTo, let original = byID[originalID] else { return nil }
-                return sheet(for: send, original: original, account: accounts[send.message.accountID])
+                guard !send.isForward, let originalID = send.inReplyTo, let original = byID[originalID] else { return nil }
+                return sheet(for: send, original: original, account: accounts[send.accountID])
             }
     }
 
-    static func sheet(for send: PendingSend, original: MessageMetadata, account: Account?) -> PendingSheet {
-        let message = send.message
-        let text = message.text
+    static func sheet(for send: PendingSendSummary, original: MessageMetadata, account: Account?) -> PendingSheet {
+        let text = send.text
         let rendered = PlainTextRenderer.render(text)
         let html = "<div class=\"\(HTMLSanitizer.bodyClass) \(HTMLSanitizer.plainBodyClass)\">" + rendered.html + "</div>"
         let plain = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let snippet = String(plain.split(whereSeparator: \.isNewline).first.map(String.init)?.prefix(200) ?? "")
-        let id = MessageID(accountID: message.accountID, providerID: idPrefix + send.id)
+        let id = MessageID(accountID: send.accountID, providerID: idPrefix + send.id)
         let from = account.map { EmailAddress(name: $0.displayName, address: $0.email) }
         let metadata = MessageMetadata(
-            id: id, conversationID: original.conversationID, subject: message.subject, snippet: snippet, from: from,
-            to: message.to, cc: message.cc, bcc: message.bcc, date: send.createdAt, roles: [.sent], isRead: true,
+            id: id, conversationID: original.conversationID, subject: send.subject, snippet: snippet, from: from,
+            to: send.to, cc: send.cc, bcc: send.bcc, date: send.createdAt, roles: [.sent], isRead: true,
             isStarred: false, hasAttachments: false
         )
         let body = StoredBody(

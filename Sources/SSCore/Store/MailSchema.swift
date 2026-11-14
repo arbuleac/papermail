@@ -134,9 +134,30 @@ enum MailSchema {
                 """)
         }
         migrator.registerMigration("v18-scheduled-sends") { db in
-            // Send Later (docs/DATA-MODEL.md, `pending_sends`). NULL for every send already in the outbox: those are
-            // undo-sends, which keep no draft. The new statuses (`later`, `missed`) need no change to the column.
-            try db.execute(sql: "ALTER TABLE pending_sends ADD COLUMN draft_id TEXT")
+            // Send Later (docs/DATA-MODEL.md, `pending_sends`). A message now waits in the outbox for days with its
+            // attachments inline, and the outbox is read every second while a send is on its way, so the table is
+            // rebuilt with the message last and a small summary of it before: a read of the other columns stops short of
+            // the message's overflow pages. `draft_id` and `summary_json` are NULL for every send already in the outbox:
+            // those are undo-sends, which keep no draft, and their summaries are read from the message. The new statuses
+            // (`later`, `missed`) need no change to the column. Nothing references the table or indexes it.
+            try db.execute(sql: """
+                CREATE TABLE pending_sends_v18 (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                    created_at INTEGER NOT NULL,
+                    send_after INTEGER NOT NULL,
+                    status TEXT NOT NULL,
+                    attempts INTEGER NOT NULL,
+                    last_error TEXT,
+                    draft_id TEXT,
+                    summary_json TEXT,
+                    message_json TEXT NOT NULL
+                );
+                INSERT INTO pending_sends_v18 (id, account_id, created_at, send_after, status, attempts, last_error, message_json)
+                    SELECT id, account_id, created_at, send_after, status, attempts, last_error, message_json FROM pending_sends;
+                DROP TABLE pending_sends;
+                ALTER TABLE pending_sends_v18 RENAME TO pending_sends;
+                """)
         }
         return migrator
     }

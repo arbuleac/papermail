@@ -189,7 +189,7 @@ final class SendLaterRunnerTests: XCTestCase {
         XCTAssertEqual(send.status, .later)
         XCTAssertNil(send.draftID)
         XCTAssertEqual(send.sendAfter, london.date(from: DateComponents(year: 2025, month: 3, day: 10, hour: 9)))
-        XCTAssertEqual(SendLaterConversation.listed([send]).count, 1, "listed in Drafts")
+        XCTAssertEqual(SendLaterConversation.listed([PendingSendSummary(send)]).count, 1, "listed in Drafts")
         XCTAssertNil(try DemoSeeder.seedSendLater(harness.engine, accounts: [], now: thursday, calendar: london))
         await harness.shutdown()
     }
@@ -206,7 +206,49 @@ final class SendLaterRunnerTests: XCTestCase {
         try await waitUntil("back in the outbox") { try store.pendingSends().first { $0.id == id }?.status == .scheduled }
         let row = try XCTUnwrap(try store.pendingSends().first { $0.id == id })
         XCTAssertEqual(row.draftID, draft)
-        XCTAssertEqual(SendLaterState(row), .sending, "still listed in Drafts while it waits to retry")
+        XCTAssertEqual(SendLaterState(PendingSendSummary(row)), .sending, "still listed in Drafts while it waits to retry")
+        await harness.shutdown()
+    }
+
+    /// A throttle at its time puts it back to retry (`scheduled`, with its draft id); a quit before the retry, and a launch
+    /// after it, must not send it then as an undo-send left behind would go: it was a Send Later message whose time came
+    /// while the app was open, but it has not gone, and the user is asked as for any time missed while the app was closed.
+    func testAThrottledMessageLeftByAQuitIsAskedAboutAtTheNextLaunch() async throws {
+        let store = try SQLiteMailStore.inMemory()
+        let clock = HandClock()
+        let first = try harness(clock, engineStore: store)
+        first.provider.sendResults = [.failure(ProviderError.throttled(retryAfter: 30))]
+        _ = try await sleep(0, of: clock)
+        let id = try first.engine.scheduleSend(Fixtures.outgoing(), at: clock.now, draftID: draft)
+        try await waitUntil("throttled") { first.provider.sendCalls.count == 1 }
+        try await waitUntil("back in the outbox to retry") { try store.pendingSendSummaries().first { $0.id == id }?.status == .scheduled }
+        await first.engine.stopAndWait()
+        await first.shutdown()
+
+        // The next morning.
+        let next = HandClock(wallStart: clock.now.addingTimeInterval(86_400))
+        let second = try harness(next, engineStore: store)
+        try await waitUntil("marked missed") { try store.pendingSendSummaries().first { $0.id == id }?.status == .missed }
+        _ = try await sleep(0, of: next)
+        for index in 1...3 {
+            XCTAssertEqual(next.advance(fallback), 1)
+            _ = try await sleep(index, of: next)
+        }
+        XCTAssertTrue(second.provider.sendCalls.isEmpty, "not sent at launch")
+        XCTAssertEqual(try store.pendingSendSummaries().first { $0.id == id }?.draftID, draft)
+        XCTAssertEqual(try second.engine.sendNow([id]), [id])
+        try await waitUntil("sent once asked") { second.provider.sendCalls.count == 1 }
+        XCTAssertEqual(second.provider.sendCalls.first?.subject, Fixtures.outgoing().subject, "the whole message, read for the provider")
+        await second.shutdown()
+    }
+
+    /// An undo-send left by a quit is unchanged: it carries no draft, so it goes within the retry cap of launch as before.
+    func testAnUndoSendLeftByAQuitStillGoesAtLaunch() async throws {
+        let clock = HandClock()
+        let harness = try harness(clock, start: false)
+        try harness.store.enqueueSend(PendingSend(message: Fixtures.outgoing(), sendAfter: clock.now.addingTimeInterval(-60)))
+        harness.engine.start()
+        try await waitUntil("sent") { harness.provider.sendCalls.count == 1 }
         await harness.shutdown()
     }
 }

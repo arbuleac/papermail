@@ -22,14 +22,16 @@ final class SendLaterTests: XCTestCase {
         DateFormatting(locale: british, calendar: london, timeZone: london.timeZone)
     }
 
-    private func send(status: PendingSendStatus = .later, at time: Date, draft: UUID? = UUID(), attachments: [OutgoingAttachment] = []) -> PendingSend {
-        PendingSend(
+    /// As the outbox's readers see it (`MailStoring.pendingSendSummaries`).
+    private func send(status: PendingSendStatus = .later, at time: Date, draft: UUID? = UUID(),
+                      attachments: [OutgoingAttachment] = []) -> PendingSendSummary {
+        PendingSendSummary(PendingSend(
             id: "s1",
             message: OutgoingMessage(accountID: account, to: [EmailAddress(name: "Ben Carter", address: "ben@contoso.test")],
                                      subject: "Re: Contoso rollout", html: "<p>Thanks Ben</p>",
                                      text: "Thanks Ben, forwarding to IT now.\n\nAlex", attachments: attachments),
             createdAt: date(2025, 3, 6, 9, 20), sendAfter: time, status: status, draftID: draft
-        )
+        ))
     }
 
     // MARK: Presets
@@ -91,6 +93,9 @@ final class SendLaterTests: XCTestCase {
         XCTAssertEqual(summary.snippet, "Thanks Ben, forwarding to IT now. Alex")
         XCTAssertEqual(summary.sendLater, .waiting(until: time))
         XCTAssertTrue(summary.hasAttachments)
+        let inline = OutgoingAttachment(filename: "logo.png", mimeType: "image/png", data: Data([1]), contentID: "logo")
+        XCTAssertEqual(SendLaterConversation.summary(for: send(at: time, attachments: [inline]))?.hasAttachments, false,
+                       "an inline image is no attachment to list")
         XCTAssertEqual(summary.unreadCount, 0)
         XCTAssertEqual(summary.latestDate, pending.createdAt)
         XCTAssertNil(SendLaterConversation.summary(for: send(status: .scheduled, at: time, draft: nil)))
@@ -101,7 +106,7 @@ final class SendLaterTests: XCTestCase {
         XCTAssertEqual(message.to.map(\.address), ["ben@contoso.test"])
         XCTAssertEqual(message.conversationID, summary.id)
         let body = SendLaterConversation.body(for: pending)
-        XCTAssertEqual(body.plainText, pending.message.text)
+        XCTAssertEqual(body.plainText, pending.text)
     }
 
     /// “Sends Mon 09:00” in the time slot, “Not sent” once missed, “Sending…” on its way; VoiceOver hears the condition too.
@@ -117,10 +122,12 @@ final class SendLaterTests: XCTestCase {
         XCTAssertEqual(monday.timeText, "Sends Mon 09:00")
         XCTAssertEqual(monday.senderLine, "Draft to Ben Carter")
         XCTAssertTrue(monday.accessibilityLabel.contains("Sends Mon 09:00, while SuperSparrow is open."), monday.accessibilityLabel)
+        XCTAssertEqual(monday.timeToolTip, "Sends Mon 09:00 while SuperSparrow is open", "and the time's tooltip says it")
         XCTAssertEqual(try row(.later, date(2025, 3, 6, 15)).timeText, "Sends 15:00", "today: the time alone")
         XCTAssertEqual(try row(.later, date(2025, 4, 2, 9)).timeText, "Sends 2 Apr 09:00", "beyond the week: the date")
         let missed = try row(.missed, date(2025, 3, 6, 9))
         XCTAssertEqual(missed.timeText, "Not sent")
+        XCTAssertNil(missed.timeToolTip, "nothing waits on the app any more: the launch alert asked")
         XCTAssertTrue(missed.accessibilityLabel.contains("Not sent, was due 09:00."), missed.accessibilityLabel)
         XCTAssertEqual(try row(.sending, date(2025, 3, 6, 9)).timeText, "Sending\u{2026}")
         XCTAssertNotEqual(ConversationRowText.cacheKey(for: try XCTUnwrap(SendLaterConversation.summary(for: send(at: date(2025, 3, 10, 9)))), dayStamp: 1),

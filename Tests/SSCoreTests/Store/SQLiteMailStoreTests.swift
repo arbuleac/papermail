@@ -477,6 +477,39 @@ final class SQLiteMailStoreTests: XCTestCase {
         try store.close()
     }
 
+    /// The outbox's summaries are read without the message, which a Send Later message keeps for days with its
+    /// attachments inline, and a state write never rewrites it: with the message's column made unreadable, both work.
+    func testOutboxSummariesNeverReadTheMessage() throws {
+        let path = try temporaryPath("outbox.sqlite")
+        let store = try SQLiteMailStore(path: path)
+        try seedAccounts(in: store, [accountA])
+        let file = OutgoingAttachment(filename: "plan.pdf", mimeType: "application/pdf", data: Data(repeating: 7, count: 300_000))
+        let message = OutgoingMessage(accountID: accountA, to: [EmailAddress(name: "Ben", address: "ben@example.com")], subject: "Plan",
+                                      html: "<p>Attached</p>", text: "Attached", attachments: [file])
+        let send = PendingSend(id: "l1", message: message, createdAt: base, sendAfter: base.addingTimeInterval(86_400), status: .later,
+                               draftID: UUID())
+        try store.enqueueSend(send)
+        XCTAssertEqual(try store.pendingSend(id: "l1"), send)
+        try store.close()
+
+        var handle: OpaquePointer?
+        guard sqlite3_open(path, &handle) == SQLITE_OK,
+              sqlite3_exec(handle, "UPDATE pending_sends SET message_json = 'unreadable'", nil, nil, nil) == SQLITE_OK else {
+            sqlite3_close(handle)
+            return XCTFail("could not change the message: \(String(cString: sqlite3_errmsg(handle)))")
+        }
+        sqlite3_close(handle)
+
+        let reopened = try SQLiteMailStore(path: path)
+        XCTAssertEqual(try reopened.pendingSendSummaries(), [PendingSendSummary(send)], "the summaries never decode the message")
+        var missed = PendingSendSummary(send)
+        missed.status = .missed
+        try reopened.updateSend(missed)
+        XCTAssertEqual(try reopened.pendingSendSummaries(), [missed])
+        XCTAssertThrowsError(try reopened.pendingSend(id: "l1"), "the message stays as it was: a state write never rewrites it")
+        try reopened.close()
+    }
+
     private func dropFullTextTable(inFileAt path: String) throws {
         var handle: OpaquePointer?
         defer { sqlite3_close(handle) }

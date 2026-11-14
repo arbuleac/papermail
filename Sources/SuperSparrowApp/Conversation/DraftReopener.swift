@@ -5,8 +5,13 @@ import SSCore
 /// that already continues it comes forward, else the kept draft that continues it reopens as it was left,
 /// else a composer opens holding the draft's recipients, subject and text, read from the store. The composer
 /// remembers the provider's draft, so sending discards it instead of leaving the original behind.
+///
+/// A kept draft a Send Later message was written in opens as that message's Drafts row does: its schedule is cancelled
+/// first, since what is being changed must not also go at the old time; once the message is on its way it cannot be
+/// opened, and nothing else is either, since a fresh copy of the provider's draft would go beside it.
 @MainActor
 enum DraftReopener {
+    /// False when nothing opened: the caller beeps.
     @discardableResult
     static func present(_ id: MessageID, client: MailClient, accounts: [Account]) -> Bool {
         if let open = ComposeWindowRegistry.shared.controller(holdingDraft: id) {
@@ -14,9 +19,10 @@ enum DraftReopener {
             NSApp.activate()
             return true
         }
-        // Not one a Send Later message is waiting with: that one opens from its own Drafts row, which cancels it first.
-        if let kept = ComposeDraftStore.shared.keptDraft(continuing: id, accounts: accounts),
-           !SendLaterOutbox.heldDraftIDs(in: client.store).contains(kept.id) {
+        if let kept = ComposeDraftStore.shared.keptDraft(continuing: id, accounts: accounts) {
+            if let scheduled = SendLaterOutbox.send(writtenIn: kept.id, in: client.store) {
+                guard SendLaterState(scheduled)?.isHeld == true, (try? client.cancelSend(id: scheduled.id)) == true else { return false }
+            }
             ComposeWindowController.present(client: client, accounts: accounts, draft: kept)
             return true
         }

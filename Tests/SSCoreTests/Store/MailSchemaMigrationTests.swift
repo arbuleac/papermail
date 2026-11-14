@@ -51,10 +51,12 @@ final class MailSchemaMigrationTests: XCTestCase {
         DELETE FROM grdb_migrations WHERE identifier = 'v15-calendar-invitations';
         """ + MailSchemaMigrationTests.withoutV18
 
-    /// Takes v18 back out of a migrated file: a file from before it keeps no draft with a send. Part of `withoutV15`,
-    /// since every file the tests build from before v15 is from before v18 too.
+    /// Takes v18 back out of a migrated file: a file from before it keeps no draft and no summary with a send (the column
+    /// order v18 changed is left as it is; nothing reads the table by position). Part of `withoutV15`, since every file the
+    /// tests build from before v15 is from before v18 too.
     private static let withoutV18 = """
         ALTER TABLE pending_sends DROP COLUMN draft_id;
+        ALTER TABLE pending_sends DROP COLUMN summary_json;
         DELETE FROM grdb_migrations WHERE identifier = 'v18-scheduled-sends';
         """
 
@@ -712,10 +714,11 @@ final class MailSchemaMigrationTests: XCTestCase {
             .contains("v15-calendar-invitations"))
     }
 
-    /// v18 adds `pending_sends.draft_id` and nothing else, NULL for every send already in the outbox: those are
-    /// undo-sends, which keep no draft. The file is a real v15 one (a v1 file taken through the shipped migrations up to
-    /// v15) with a send held in its undo window; opened by the current build, the send reads as before, with no draft,
-    /// and the runner would still send it as an undo-send.
+    /// v18 rebuilds `pending_sends` with `draft_id` and `summary_json`, NULL for every send already in the outbox (those
+    /// are undo-sends, which keep no draft), and the message last, so a read of the summaries stops short of it. The file
+    /// is a real v15 one (a v1 file taken through the shipped migrations up to v15) with a send held in its undo window;
+    /// opened by the current build, the send reads as before, whole and as a summary made from its message, with no draft,
+    /// and the runner would still send it as an undo-send. The rebuilt table still goes with its account.
     func testVersion15DatabaseGainsTheDraftColumnAndKeepsItsOutbox() throws {
         let path = try XCTUnwrap(directory).appendingPathComponent("mail.sqlite").path
         try writeVersion1Database(at: path)
@@ -733,12 +736,21 @@ final class MailSchemaMigrationTests: XCTestCase {
         XCTAssertEqual(sends.map(\.id), ["s1"])
         XCTAssertEqual(sends.first?.status, .scheduled)
         XCTAssertNil(sends.first?.draftID, "an undo-send keeps no draft")
-        XCTAssertNil(sends.first.flatMap(SendLaterState.init), "and is never listed in Drafts")
         XCTAssertEqual(sends.first?.message.subject, "Lunch")
+        let summaries = try store.pendingSendSummaries()
+        XCTAssertEqual(summaries, sends.map(PendingSendSummary.init), "read from the message, which it has no summary of")
+        XCTAssertNil(summaries.first.flatMap(SendLaterState.init), "and is never listed in Drafts")
         try store.close()
-        XCTAssertEqual(try query("SELECT type, \"notnull\", dflt_value FROM pragma_table_info('pending_sends') WHERE name = 'draft_id'", at: path),
-                       [["TEXT", "0", nil]], "TEXT NULL with no default")
-        XCTAssertEqual(try query("SELECT draft_id FROM pending_sends", at: path), [[nil]])
+        XCTAssertEqual(try query("SELECT name FROM pragma_table_info('pending_sends') ORDER BY cid", at: path).compactMap(\.first),
+                       ["id", "account_id", "created_at", "send_after", "status", "attempts", "last_error", "draft_id", "summary_json",
+                        "message_json"], "the message last")
+        for column in ["draft_id", "summary_json"] {
+            XCTAssertEqual(try query("SELECT type, \"notnull\", dflt_value FROM pragma_table_info('pending_sends') WHERE name = '\(column)'",
+                                     at: path), [["TEXT", "0", nil]], "\(column): TEXT NULL with no default")
+        }
+        XCTAssertEqual(try query("SELECT draft_id, summary_json FROM pending_sends", at: path), [[nil, nil]])
+        XCTAssertEqual(try query("SELECT \"table\", \"from\", \"to\", on_delete FROM pragma_foreign_key_list('pending_sends')", at: path),
+                       [["accounts", "account_id", "id", "CASCADE"]])
         XCTAssertTrue(try query("SELECT identifier FROM grdb_migrations ORDER BY rowid", at: path).compactMap(\.first)
             .contains("v18-scheduled-sends"))
     }

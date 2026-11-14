@@ -13,6 +13,8 @@ final class ConversationRowContent {
     let time: NSAttributedString
     /// Measured once so `layout()` never has to ask the text system for a size.
     let timeWidth: CGFloat
+    /// The time's tooltip: a waiting Send Later message's condition (`ConversationRowText.timeToolTip`).
+    let timeToolTip: String?
     let subject: NSAttributedString
     let snippet: NSAttributedString
     /// The subject's natural width, for compact density, where it gives way to the snippet past 60 % of the line,
@@ -42,6 +44,7 @@ final class ConversationRowContent {
         senderWidth = ceil(sender.size().width)
         time = QuireFont.attributedString(text.timeText, role: unread ? .metaStrong : .meta, color: unread ? .qAccent : .qInk3)
         timeWidth = ceil(time.size().width)
+        timeToolTip = text.timeToolTip
         subject = Style.subject(text, unread: unread)
         snippet = QuireFont.attributedString(text.snippetText, role: .snippet, color: .qInk2)
         subjectWidth = ceil(subject.size().width)

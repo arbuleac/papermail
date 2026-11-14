@@ -198,12 +198,20 @@ public protocol MailStoring: AnyObject, Sendable {
     @discardableResult
     func pruneFailedOperations(accountID: AccountID, now: Date) throws -> Int
     func enqueueSend(_ send: PendingSend) throws
+    /// Every send in the outbox, whole (attachments included), oldest first. Nothing that looks at the outbox often reads
+    /// this: a Send Later message waits there for days with its attachments; `pendingSendSummaries` leaves them out.
     func pendingSends() throws -> [PendingSend]
-    func updateSend(_ send: PendingSend) throws
+    /// Every send in the outbox as `pendingSends` lists them, without the message's HTML, references and attachments.
+    func pendingSendSummaries() throws -> [PendingSendSummary]
+    /// One send, whole, or nil once it has gone: what the runner delivers, and what a draft is made from.
+    func pendingSend(id: String) throws -> PendingSend?
+    /// Writes a send's state (`sendAfter`, `status`, `attempts`, `lastError`) over its row; its message, draft and creation
+    /// time stay as queued, so a status change never rewrites the attachments. Does nothing once the row has gone.
+    func updateSend(_ send: PendingSendSummary) throws
     func deleteSend(id: String) throws
-    /// Every pending send as `pendingSends` lists them, after every change to the outbox. The first value is read
-    /// off the main thread like the later ones (rows carry their attachments), so it may arrive after this returns.
-    func observePendingSends(onChange: @escaping @Sendable ([PendingSend]) -> Void) -> StoreObservation
+    /// Every pending send as `pendingSendSummaries` lists them, after every change to the outbox. The first value is read
+    /// off the main thread like the later ones, so it may arrive after this returns.
+    func observePendingSends(onChange: @escaping @Sendable ([PendingSendSummary]) -> Void) -> StoreObservation
 
     // MARK: Contacts
     /// Addresses seen in from/to/cc, ranked by how often and how recently they appear. Prefix matches name or address.
@@ -222,6 +230,11 @@ extension MailStoring {
     /// override it with one transaction.
     public func enqueue(_ operations: [Operation]) throws {
         for operation in operations { try enqueue(operation) }
+    }
+
+    /// `updateSend` for a whole send: only its state is written.
+    public func updateSend(_ send: PendingSend) throws {
+        try updateSend(PendingSendSummary(send))
     }
 
     /// One batch of `evictBodies(from:limit:rules:)` from the oldest message, with fixed rules.

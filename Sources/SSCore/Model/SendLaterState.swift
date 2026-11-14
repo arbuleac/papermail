@@ -12,7 +12,7 @@ public enum SendLaterState: Hashable, Sendable {
     /// The state a send in the outbox shows, or nil for one that is not a Send Later message on its way: an undo-send,
     /// or one that has left or failed. A Send Later message keeps its draft id while it goes, which is how one that a
     /// throttle put back in the outbox (`scheduled`) is still told apart from an undo-send.
-    public init?(_ send: PendingSend) {
+    public init?(_ send: PendingSendSummary) {
         switch send.status {
         case .later: self = .waiting(until: send.sendAfter)
         case .missed: self = .missed(send.sendAfter)

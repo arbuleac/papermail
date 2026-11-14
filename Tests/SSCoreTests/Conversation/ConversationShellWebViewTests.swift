@@ -645,7 +645,7 @@ final class ConversationShellWebViewTests: XCTestCase {
         let original = F.message("m1")
         let outgoing = OutgoingMessage(accountID: original.id.accountID, to: [EmailAddress(name: "Ada", address: "ada@example.com")],
                                        subject: "Re: Engines", html: "<p>On my way</p>", text: "On my way", inReplyTo: original.id)
-        let sheet = try XCTUnwrap(PendingSheet.sheets(for: [PendingSend(id: "s1", message: outgoing, sendAfter: Date())],
+        let sheet = try XCTUnwrap(PendingSheet.sheets(for: [PendingSendSummary(PendingSend(id: "s1", message: outgoing, sendAfter: Date()))],
                                                       answering: [original], accounts: F.accounts).first)
         let payload = F.builder.build(messages: [original, sheet.metadata],
                                       bodies: [original.id: F.body(html: "<p>Engines</p>"), sheet.metadata.id: sheet.body],

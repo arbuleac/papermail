@@ -17,7 +17,10 @@ final class LocalDrafts {
         didSet { if oldValue != accounts { reload() } }
     }
     /// The Send Later messages the Drafts view lists (`SendLaterConversation.listed`), oldest first.
-    private(set) var laterSends: [PendingSend] = []
+    private(set) var laterSends: [PendingSendSummary] = []
+    /// The drafts of Send Later messages that went: out of the list from the moment the outbox says so (`sent`) until
+    /// the draft store has removed them, which happens on its own queue, so the row never turns back into its draft.
+    private var departed: Set<UUID> = []
     /// After the kept drafts changed on disk, or the Send Later messages changed.
     var onChange: (() -> Void)?
     private var bodies: [UUID: (editedAt: Date, body: StoredBody)] = [:]
@@ -44,22 +47,25 @@ final class LocalDrafts {
         records = accounts.isEmpty ? [] : store.records(accounts: accounts)
         let live = Set(records.map(\.id))
         bodies = bodies.filter { live.contains($0.key) }
+        departed.formIntersection(live)
     }
 
     /// Takes the outbox's Send Later messages; tells `onChange` when what the Drafts view shows of them changed.
-    func setLaterSends(_ sends: [PendingSend]) {
+    func setLaterSends(_ sends: [PendingSendSummary]) {
         let listed = SendLaterConversation.listed(sends)
-        guard listed != laterSends else { return }
+        let gone = departed.union(sends.filter { $0.status == .sent }.compactMap(\.draftID))
+        guard listed != laterSends || gone != departed else { return }
         laterSends = listed
+        departed = gone
         onChange?()
     }
 
     /// The Drafts rows: the kept drafts, newest first, then the Send Later messages, each in place of its kept draft.
     var summaries: [ConversationSummary] {
         let known = Set(accounts.map(\.id))
-        let later = laterSends.filter { known.contains($0.message.accountID) }
-        let standIns = Set(later.compactMap(\.draftID))
-        return records.filter { !standIns.contains($0.id) }.map(LocalDraftConversation.summary(for:))
+        let later = laterSends.filter { known.contains($0.accountID) }
+        let hidden = departed.union(later.compactMap(\.draftID))
+        return records.filter { !hidden.contains($0.id) }.map(LocalDraftConversation.summary(for:))
             + later.compactMap(SendLaterConversation.summary(for:))
     }
 
@@ -74,7 +80,7 @@ final class LocalDrafts {
     }
 
     /// The Send Later message behind a Drafts row, while the outbox holds it.
-    func laterSend(for id: ConversationID) -> PendingSend? {
+    func laterSend(for id: ConversationID) -> PendingSendSummary? {
         guard let sendID = SendLaterConversation.sendID(of: id) else { return nil }
         return laterSends.first { $0.id == sendID }
     }
@@ -84,7 +90,7 @@ final class LocalDrafts {
         var states: [MessageID: SendLaterState] = [:]
         for send in laterSends {
             guard let state = SendLaterState(send) else { continue }
-            states[SendLaterConversation.messageID(sendID: send.id, account: send.message.accountID)] = state
+            states[SendLaterConversation.messageID(sendID: send.id, account: send.accountID)] = state
         }
         return states
     }
@@ -94,7 +100,7 @@ final class LocalDrafts {
     func messages(in id: ConversationID) -> [MessageMetadata]? {
         guard LocalDraftConversation.isLocal(id) else { return nil }
         if SendLaterConversation.sendID(of: id) != nil {
-            guard let send = laterSend(for: id), let account = accounts.first(where: { $0.id == send.message.accountID }) else { return [] }
+            guard let send = laterSend(for: id), let account = accounts.first(where: { $0.id == send.accountID }) else { return [] }
             return [SendLaterConversation.message(for: send, sender: EmailAddress(name: account.displayName, address: account.email))]
         }
         guard let record = record(for: id), let account = accounts.first(where: { $0.id == record.accountID }) else { return [] }

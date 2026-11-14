@@ -70,7 +70,7 @@ Replying usually finishes a conversation, so **Send** sends and archives the con
 
 ## Send Later
 
-The arrow beside **Send** (in a composer and in the reply field) also offers **Send Later**: **Tomorrow** or **Monday** at 09:00, or **Pick a Time…**; `⇧⌘L` (**Message → Send Later…**) shows the same choices. The message waits on this Mac and goes at that time **while SuperSparrow is open**; nothing is archived until then. Until it goes it is listed in **Drafts** as "Sends Mon 09:00", with **Cancel** beside the time in the reader; opening it cancels the schedule so you can change it. If SuperSparrow was closed when the time came, it is not sent on its own when it opens: it asks whether to send it now or keep it in Drafts. Gmail's and Outlook's own scheduled send cannot be reached through their APIs, so a message scheduled there is not listed here.
+The arrow beside **Send** (in a composer and in the reply field) also offers **Send Later**: **Tomorrow** or **Monday** at 09:00, or **Pick a Time…**; `⇧⌘L` (**Message → Send Later…**) shows the same choices. The message waits on this Mac and goes at that time **while SuperSparrow is open**; nothing is archived: Send Later only sends. Until it goes it is listed in **Drafts** as "Sends Mon 09:00", with **Cancel** beside the time in the reader; opening it cancels the schedule so you can change it. If SuperSparrow was closed when the time came, it is not sent on its own when it opens: it asks whether to send it now or keep it in Drafts. Gmail's and Outlook's own scheduled send cannot be reached through their APIs, so a message scheduled there is not listed here.
 
 ## Later
 

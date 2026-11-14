@@ -236,11 +236,57 @@ final class SendLaterAppTests: XCTestCase {
         XCTAssertTrue(ComposeDraftStore.shared.contains(id: draft.id))
 
         XCTAssertTrue(harness.controller.perform(.undo))
+        // Built from the draft as the composer builds it, its attachments read off the main thread first.
+        harness.spin { !self.sends(harness).isEmpty }
         let again = try XCTUnwrap(sends(harness).first)
         XCTAssertEqual(again.status, .later)
         XCTAssertEqual(again.draftID, draft.id)
+        XCTAssertEqual(again.message.subject, "Lisbon")
         XCTAssertEqual(again.sendAfter.timeIntervalSince1970, date.timeIntervalSince1970, accuracy: 0.001)
+        harness.spin { harness.list.selectedConversationID == self.row(again.id) }
         XCTAssertEqual(harness.list.selectedConversationID, row(again.id))
+    }
+
+    /// The draft is free to change once cancelled: Undo schedules it as it is then, not the message as it was cancelled.
+    func testUndoingCancelSchedulesTheDraftAsItIsNow() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        var draft = newDraft()
+        let sendID = try schedule(draft, at: Date().addingTimeInterval(86_400), harness)
+        showDrafts(listing: row(sendID), harness)
+        harness.controller.cancelSendLater(row(sendID))
+        draft.subject = "Lisbon, Friday"
+        ComposeDraftStore.shared.saveNow(draft)
+        XCTAssertTrue(harness.controller.perform(.undo))
+        harness.spin { !self.sends(harness).isEmpty }
+        XCTAssertEqual(sends(harness).map(\.message.subject), ["Lisbon, Friday"])
+    }
+
+    /// Once the cancelled draft has gone (sent from a composer, discarded) or while a composer holds it, Undo schedules
+    /// nothing: the old message must not go beside what the user did with it.
+    func testUndoingCancelSchedulesNothingOnceTheDraftIsOpenOrGone() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let draft = newDraft()
+        let sendID = try schedule(draft, at: Date().addingTimeInterval(86_400), harness)
+        showDrafts(listing: row(sendID), harness)
+        harness.controller.cancelSendLater(row(sendID))
+        let composer = composer(draft, harness)
+        XCTAssertTrue(harness.controller.perform(.undo))
+        ListTestSupport.spin(until: { false }, timeout: 0.3)
+        XCTAssertTrue(sends(harness).isEmpty, "open in a composer")
+        composer.closeWithoutSaving()
+
+        let other = newDraft("Porto")
+        let otherID = try schedule(other, at: Date().addingTimeInterval(86_400), harness)
+        harness.spin { harness.list.conversations.contains { $0.id == self.row(otherID) } }
+        harness.controller.cancelSendLater(row(otherID))
+        // Sent from a composer meanwhile: its draft went with it.
+        ComposeDraftStore.shared.remove(id: other.id)
+        ComposeDraftStore.shared.waitForWrites()
+        XCTAssertTrue(harness.controller.perform(.undo))
+        ListTestSupport.spin(until: { false }, timeout: 0.3)
+        XCTAssertTrue(sends(harness).isEmpty, "gone")
     }
 
     /// Discard takes the schedule and the draft; Undo brings back both.
@@ -257,7 +303,38 @@ final class SendLaterAppTests: XCTestCase {
         XCTAssertEqual(harness.toastMessage, "Draft discarded")
         XCTAssertTrue(harness.controller.perform(.undo))
         XCTAssertTrue(ComposeDraftStore.shared.contains(id: draft.id))
+        harness.spin { !self.sends(harness).isEmpty }
         XCTAssertEqual(sends(harness).map(\.draftID), [draft.id], "scheduled again")
+    }
+
+    /// The row's time says on what condition it sends, in its tooltip (spec §5.46), as VoiceOver hears it.
+    func testTheRowsTimeSaysItSendsWhileTheAppIsOpen() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let date = Date().addingTimeInterval(86_400)
+        let sendID = try schedule(newDraft(), at: date, harness)
+        showDrafts(listing: row(sendID), harness)
+        harness.controller.window?.displayIfNeeded()
+        let index = try XCTUnwrap(harness.list.conversations.firstIndex { $0.id == row(sendID) })
+        let tableRow = try XCTUnwrap(harness.list.layout.row(ofConversation: index))
+        let cell = try XCTUnwrap(harness.list.tableView.view(atColumn: 0, row: tableRow, makeIfNecessary: true) as? ConversationCellView)
+        let tip = try XCTUnwrap(cell.toolTipRegions().first { $0.text.hasPrefix("Sends ") })
+        XCTAssertEqual(tip.text, "Sends " + time(date) + " while SuperSparrow is open")
+        XCTAssertGreaterThan(tip.rect.minX, cell.bounds.midX, "over the time, at the row's trailing edge")
+    }
+
+    /// Continue Editing on a provider's draft whose kept continuation is scheduled opens that one, its schedule cancelled
+    /// first, rather than a fresh copy of the provider's draft that would go beside it.
+    func testContinuingAProvidersDraftWhoseContinuationIsScheduledCancelsTheSchedule() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let provider = MessageID(accountID: ListTestSupport.accountA.id, providerID: "server-draft-x")
+        var draft = newDraft()
+        draft.continuesDraft = provider
+        _ = try schedule(draft, at: Date().addingTimeInterval(86_400), harness)
+        XCTAssertTrue(DraftReopener.present(provider, client: harness.environment.engine, accounts: harness.controller.accounts))
+        XCTAssertTrue(sends(harness).isEmpty, "the schedule is cancelled first")
+        XCTAssertEqual(ComposeWindowRegistry.shared.openControllers.map(\.draftID), [draft.id])
     }
 
     // MARK: Outcomes
@@ -268,13 +345,21 @@ final class SendLaterAppTests: XCTestCase {
         defer { harness.close() }
         let draft = newDraft()
         let sendID = try schedule(draft, at: Date().addingTimeInterval(60), harness)
+        harness.controller.sendLaterOutbox.refresh()
+        XCTAssertTrue(harness.controller.localDrafts.summaries.contains { $0.id == row(sendID) })
         var send = try XCTUnwrap(sends(harness).first { $0.id == sendID })
         send.status = .sent
         try harness.environment.store.updateSend(send)
+        // Told now, before the draft store has removed the draft on its own queue: the row leaves without turning back
+        // into its draft for a moment.
+        harness.controller.sendLaterOutbox.refresh()
+        XCTAssertFalse(harness.controller.localDrafts.summaries.contains { $0.id == row(sendID) || $0.id == draftRow(draft) })
         harness.spin { self.sends(harness).isEmpty }
         XCTAssertTrue(sends(harness).isEmpty)
         ComposeDraftStore.shared.waitForWrites()
         XCTAssertFalse(ComposeDraftStore.shared.contains(id: draft.id), "no draft left of a message that went")
+        ListTestSupport.spin(until: { false }, timeout: 0.3)
+        XCTAssertFalse(harness.controller.localDrafts.summaries.contains { $0.id == draftRow(draft) })
     }
 
     /// A failure when its time came keeps the draft with the reason and says so; the row goes.

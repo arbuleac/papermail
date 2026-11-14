@@ -35,25 +35,24 @@ public enum SendLaterConversation {
     }
 
     /// The sends the Drafts view lists: those a Send Later state describes (waiting, missed, or going with its draft).
-    public static func listed(_ sends: [PendingSend]) -> [PendingSend] {
+    public static func listed(_ sends: [PendingSendSummary]) -> [PendingSendSummary] {
         sends.filter { SendLaterState($0) != nil }
     }
 
     /// The Drafts row, dated when it was scheduled, with its state for the time slot; nil for a send that is not one.
-    public static func summary(for send: PendingSend) -> ConversationSummary? {
+    public static func summary(for send: PendingSendSummary) -> ConversationSummary? {
         guard let state = SendLaterState(send) else { return nil }
-        let message = send.message
-        let account = message.accountID
+        let account = send.accountID
         return ConversationSummary(
             id: conversationID(sendID: send.id, account: account),
-            subject: message.subject,
-            snippet: ComposeDraftRecord.preview(of: message.text),
+            subject: send.subject,
+            snippet: ComposeDraftRecord.preview(of: send.text),
             participants: [],
             latestDate: send.createdAt,
             messageCount: 1,
             unreadCount: 0,
             isStarred: false,
-            hasAttachments: message.attachments.contains { $0.contentID == nil },
+            hasAttachments: send.hasFiles,
             inInbox: false,
             inboxSection: .focused,
             latestMessageID: messageID(sendID: send.id, account: account),
@@ -64,29 +63,28 @@ public enum SendLaterConversation {
 
     /// The message as the one message of its conversation, from `sender` (the account) to its recipients: the row names
     /// them (“Draft to Ben Carter”) and the reader's draft sheet heads with them.
-    public static func message(for send: PendingSend, sender: EmailAddress) -> MessageMetadata {
-        let message = send.message
-        return MessageMetadata(
-            id: messageID(sendID: send.id, account: message.accountID),
-            conversationID: conversationID(sendID: send.id, account: message.accountID),
-            subject: message.subject,
-            snippet: ComposeDraftRecord.preview(of: message.text),
+    public static func message(for send: PendingSendSummary, sender: EmailAddress) -> MessageMetadata {
+        MessageMetadata(
+            id: messageID(sendID: send.id, account: send.accountID),
+            conversationID: conversationID(sendID: send.id, account: send.accountID),
+            subject: send.subject,
+            snippet: ComposeDraftRecord.preview(of: send.text),
             from: sender,
-            to: message.to,
-            cc: message.cc,
-            bcc: message.bcc,
+            to: send.to,
+            cc: send.cc,
+            bcc: send.bcc,
             date: send.createdAt,
             roles: [.drafts],
             isRead: true,
             isStarred: false,
             inboxSection: .focused,
-            hasAttachments: message.attachments.contains { $0.contentID == nil }
+            hasAttachments: send.hasFiles
         )
     }
 
     /// The body the reader renders: the message's plain-text part as it will be sent, set as typed (string work, never
     /// an HTML parse), its quoted original folded as a received quote is.
-    public static func body(for send: PendingSend) -> StoredBody {
-        LocalDraftConversation.body(text: send.message.text, quoted: nil)
+    public static func body(for send: PendingSendSummary) -> StoredBody {
+        LocalDraftConversation.body(text: send.text, quoted: nil)
     }
 }
