@@ -2,7 +2,7 @@
 and the rendered DESIGN-LANGUAGE.md. Colour order: light, dark, lightHC, darkHC."""
 
 NAME = "Quire"
-VERSION = "1.6.4"
+VERSION = "1.6.5"
 
 # (token, light, dark, lightHC, darkHC, group, use)
 COLOR = [
@@ -31,7 +31,7 @@ COLOR = [
  # washes (alpha, composited over the surface beneath)
  ("hover",   "#1D1B180C", "#EDE9E20E", "#1D1B1812", "#FFFFFF17", "wash", "Pointer hover wash (never on selected rows)"),
  ("pressed", "#1D1B1817", "#EDE9E21A", "#1D1B1821", "#FFFFFF26", "wash", "Pressed wash"),
- ("fill",    "#1D1B180F", "#EDE9E214", "#1D1B1817", "#FFFFFF1F", "wash", "Quiet fill: count badge, quoted-text toggle, address token, toggle-off track, skeleton"),
+ ("fill",    "#1D1B180F", "#EDE9E214", "#1D1B1817", "#FFFFFF1F", "wash", "Quiet fill: count badge, quoted-text toggle, address token, toggle-off track, skeleton (a composer picture still being prepared)"),
  ("slipHover",   "#F3F0EA24", "#EDE9E21F", "#FFFFFF2E", "#FFFFFF33", "wash", "Hover wash on slip actions"),
  ("slipPressed", "#F3F0EA38", "#EDE9E233", "#FFFFFF42", "#FFFFFF47", "wash", "Pressed wash on slip actions"),
  ("scrim",   "#1D1B1847", "#00000080", "#1D1B1866", "#00000099", "wash", "Dimming behind the cheat-sheet overlay, the only app-drawn modal surface and the only translucent app-drawn surface (AppKit dims system sheets itself)"),
@@ -331,7 +331,7 @@ CHEAT_SHEET = [
  ("Write", [("C", "New message"), ("R", "Reply"), ("A", "Reply all"), ("F", "Forward"), ("⇧⌘R", "Open in composer"), ("⌘↩", "Send"), ("⇧⌘↩", "Send and archive"),
            ("⇧⌘A", "Attach files")]),
  ("Format", [("⇧⌘T", "Format row"), ("⌘B ⌘I ⌘U", "Bold · italic · underline"), ("⇧⌘8 ⇧⌘7", "Bulleted · numbered list"), ("⌘'", "Quote"),
-             ("⌘K", "Add link"), ("⇧⌘C ⇧⌘B", "Cc · Bcc field")]),
+             ("⌘K", "Add link"), ("⌥⌘I", "Insert picture"), ("⇧⌘C ⇧⌘B", "Cc · Bcc field")]),
  ("View", [("⇧⌘I", "Load images"), ("⇧⌘O", "Original colors"), ("⌥⌘C", "Compact rows"), ("⌃⌘S", "Show · hide the rail"),
            ("⇧⌘N", "Check for new mail"), ("?", "This sheet")]),
 ]

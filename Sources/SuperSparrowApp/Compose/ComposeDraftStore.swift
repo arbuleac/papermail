@@ -80,9 +80,11 @@ final class ComposeDraftStore {
         }, then: { completion?(outcome.ok) })
     }
 
-    /// Writes the draft before returning: closing a window must not lose the last keystrokes.
+    /// Writes the draft before returning: closing a window must not lose the last keystrokes, nor a picture pasted
+    /// just before, which is waited for.
     @discardableResult
     func saveNow(_ draft: ComposeDraft) -> Bool {
+        ComposeInlineImages.finishPreparing(in: draft.body)
         let package = Self.package(draft)
         let folder = folder(for: draft.id, account: draft.account.id)
         let stale = folders(for: draft.id).filter { $0.standardizedFileURL != folder.standardizedFileURL }
@@ -164,6 +166,20 @@ final class ComposeDraftStore {
         folders(for: id).lazy.compactMap { self.load(folder: $0, accounts: accounts)?.draft }.first
     }
 
+    /// Kept draft `id` as the reader's draft sheet shows it (spec §5.19): its body as text, each picture named as the
+    /// plain-text alternative names it, and its folded original. Only the record and the archived body are read, never
+    /// a picture's or a forwarded part's bytes, which `draft(id:accounts:)` reads and decodes for Continue Editing:
+    /// showing a draft is opening a conversation, and stays in that budget.
+    func readerBody(id: UUID) -> (text: String, quoted: QuotedReply.Rendering?)? {
+        for folder in folders(for: id) {
+            guard let record = Self.record(in: folder) else { continue }
+            let bodyData = (try? Data(contentsOf: folder.appendingPathComponent(ComposeDraftRecord.bodyFile))) ?? Data()
+            let filenames = Dictionary((record.images ?? []).map { ($0.contentID, $0.filename) }, uniquingKeysWith: { first, _ in first })
+            return (ComposeInlineImages.readerText(of: Self.unarchive(bodyData), filenames: filenames), record.quoted)
+        }
+        return nil
+    }
+
     /// Whether draft `id` is on disk, without reading it.
     func contains(id: UUID) -> Bool {
         !folders(for: id).isEmpty
@@ -210,7 +226,9 @@ final class ComposeDraftStore {
                                                  sizeBytes: attachment.sizeBytes, contentID: attachment.contentID,
                                                  fileURL: url, storedFile: stored)
         }
-        let images: [ComposeDraftRecord.Image] = ComposeInlineImages.pictures(in: draft.body).map { picture in
+        // A picture still being prepared has no bytes yet: it goes into the save after it is in (the text view asks for
+        // one), and `saveNow` waits for it.
+        let images: [ComposeDraftRecord.Image] = ComposeInlineImages.readyPictures(in: draft.body).map { picture in
             let name = ComposeDraftRecord.Image.storedFile(for: picture.inlineImage.contentID)
             parts[name] = picture.data
             return ComposeDraftRecord.Image(contentID: picture.inlineImage.contentID, filename: picture.inlineImage.filename,

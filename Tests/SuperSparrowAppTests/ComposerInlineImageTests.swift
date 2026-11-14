@@ -1,5 +1,7 @@
 import AppKit
+import ImageIO
 import SSCore
+import SSDesign
 import XCTest
 @testable import SuperSparrowApp
 
@@ -76,12 +78,16 @@ final class ComposerInlineImageTests: XCTestCase {
         return board
     }
 
-    /// A pasteboard holding `data` as `type`, and `text` beside it when given, as one item.
-    private func board(_ data: Data, as type: NSPasteboard.PasteboardType, text: String? = nil) -> NSPasteboard {
+    /// A pasteboard holding `data` as `type`, and `text` beside it when given, as one item; with `offersURL`, the text is
+    /// offered as a URL (`public.url`) too, as WebKit's Copy Image and a picture dragged from a page offer it.
+    private func board(_ data: Data, as type: NSPasteboard.PasteboardType, text: String? = nil, offersURL: Bool = false) -> NSPasteboard {
         let board = board()
         let item = NSPasteboardItem()
         item.setData(data, forType: type)
-        if let text { item.setString(text, forType: .string) }
+        if let text {
+            item.setString(text, forType: .string)
+            if offersURL { item.setString(text, forType: .URL) }
+        }
         board.writeObjects([item])
         return board
     }
@@ -115,8 +121,45 @@ final class ComposerInlineImageTests: XCTestCase {
         ListTestSupport.spin(for: 0.02)
     }
 
+    /// The pictures in the body once every one is prepared (off the main thread, `ComposeImageAttachment`).
     private func pictures(_ composer: ComposeWindowController) -> [ComposeImageAttachment] {
-        ComposeInlineImages.pictures(in: composer.contents.body)
+        settle(composer)
+        return ComposeInlineImages.pictures(in: composer.contents.body)
+    }
+
+    /// Spins the run loop until no picture in the body is still being prepared, as the window would.
+    private func settle(_ composer: ComposeWindowController) {
+        XCTAssertTrue(ListTestSupport.spin(until: {
+            !ComposeInlineImages.pictures(in: composer.contents.body).contains(where: \.isPreparing)
+        }, timeout: 10), "every picture is prepared")
+    }
+
+    private func draftFolder(_ composer: ComposeWindowController) -> URL {
+        folder.appendingPathComponent("drafts").appendingPathComponent(ListTestSupport.accountA.id.rawValue)
+            .appendingPathComponent(composer.draftID.uuidString)
+    }
+
+    private func storedRecord(_ composer: ComposeWindowController) -> ComposeDraftRecord? {
+        guard let data = try? Data(contentsOf: draftFolder(composer).appendingPathComponent(ComposeDraftRecord.recordFile)) else { return nil }
+        return try? ComposeDraftRecord.decode(data)
+    }
+
+    /// `data` written again with a GPS block, as a phone's photo carries one.
+    private static func withLocation(_ data: Data, as type: String) throws -> Data {
+        let source = try XCTUnwrap(CGImageSourceCreateWithData(data as CFData, nil))
+        let output = NSMutableData()
+        let destination = try XCTUnwrap(CGImageDestinationCreateWithData(output, type as CFString, 1, nil))
+        let gps: [CFString: Any] = [kCGImagePropertyGPSLatitude: 38.7223, kCGImagePropertyGPSLatitudeRef: "N",
+                                    kCGImagePropertyGPSLongitude: 9.1393, kCGImagePropertyGPSLongitudeRef: "W"]
+        CGImageDestinationAddImageFromSource(destination, source, 0, [kCGImagePropertyGPSDictionary: gps] as CFDictionary)
+        XCTAssertTrue(CGImageDestinationFinalize(destination))
+        return output as Data
+    }
+
+    private static func location(in data: Data) -> [CFString: Any]? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else { return nil }
+        return properties[kCGImagePropertyGPSDictionary] as? [CFString: Any]
     }
 
     private func queuedSend(_ harness: MainWindowHarness) throws -> OutgoingMessage {
@@ -159,6 +202,7 @@ final class ComposerInlineImageTests: XCTestCase {
         let picture = try XCTUnwrap(body.attribute(.attachment, at: caret, effectiveRange: nil) as? ComposeImageAttachment)
         XCTAssertEqual(body.attribute(ComposerInlineImage.attributeKey, at: caret, effectiveRange: nil) as? String, picture.inlineImage.contentID)
         XCTAssertEqual(editor.selectedRange(), NSRange(location: caret + 1, length: 0), "the caret after it")
+        settle(composer)
         XCTAssertEqual(picture.data, bytes, "a PNG goes as it came")
         XCTAssertEqual(picture.inlineImage.filename, "image.png")
         XCTAssertEqual(picture.inlineImage.mimeType, "image/png")
@@ -211,7 +255,7 @@ final class ComposerInlineImageTests: XCTestCase {
         XCTAssertTrue(pictures(composer).isEmpty)
         // A browser's Copy Image: the picture, and its address as text, which names it.
         XCTAssertTrue(editor.readPicturesOrFiles(from: board(Self.png(width: 40, height: 20), as: .png,
-                                                             text: "https://example.com/photos/sunset.jpg?w=40"), actionName: nil))
+                                                             text: "https://example.com/photos/sunset.jpg?w=40", offersURL: true), actionName: nil))
         XCTAssertEqual(pictures(composer).map(\.inlineImage.filename), ["sunset.png"], "named from its address, with its own format")
         // Text alone is text: the caller pastes it plain.
         XCTAssertFalse(editor.readPicturesOrFiles(from: { let b = board(); b.setString("Hello", forType: .string); return b }(), actionName: nil))
@@ -286,7 +330,7 @@ final class ComposerInlineImageTests: XCTestCase {
         let composer = try newMessage(harness)
         type("ab", in: composer)
         let editor = composer.bodyEditor
-        let drag = FakeDraggingInfo(pasteboard: board(Self.png(width: 20, height: 20), as: .png, text: "https://example.com/a.png"),
+        let drag = FakeDraggingInfo(pasteboard: board(Self.png(width: 20, height: 20), as: .png, text: "https://example.com/a.png", offersURL: true),
                                     source: nil, mask: [.copy, .generic])
         drag.draggingLocation = try windowPoint(atCharacter: 1, in: editor)
         XCTAssertNotEqual(editor.draggingEntered(drag), [])
@@ -542,6 +586,245 @@ final class ComposerInlineImageTests: XCTestCase {
         composer.bodyEditor.pasteboard = finder
         composer.bodyEditor.paste(nil)
         XCTAssertEqual(pictures(composer).first?.inlineImage.mimeType, "image/jpeg", "a JPEG goes as it came")
-        XCTAssertEqual(ComposeInlineImages.readerText(of: composer.contents.body), "Look [image: pier.jpg]")
+        XCTAssertTrue(ComposeDraftStore.shared.saveNow(composer.contents))
+        let stored = try XCTUnwrap(storedRecord(composer)?.images?.first)
+        // The reader reads the record and the archived body, never the picture: without its file it still names it.
+        try FileManager.default.removeItem(at: draftFolder(composer).appendingPathComponent(stored.storedFile))
+        let shown = try XCTUnwrap(ComposeDraftStore.shared.readerBody(id: composer.draftID))
+        XCTAssertEqual(shown.text, "Look [image: pier.jpg]")
+        XCTAssertNil(shown.quoted)
+        XCTAssertNil(ComposeDraftStore.shared.readerBody(id: UUID()), "a draft that is gone shows nothing")
+    }
+
+    // MARK: Preparing off the main thread
+
+    func testAPictureGoesInAtOnceAsASkeletonOfItsSizeAndSendWaitsForIt() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let composer = try messageToBen(harness)
+        type("Scan:", in: composer)
+        let editor = composer.bodyEditor
+        // A TIFF, which is encoded again as a PNG: the slow path, off the main thread.
+        let tiff = try XCTUnwrap(Self.bitmap(width: 300, height: 200, dpi: 144).tiffRepresentation)
+        editor.pasteboard = board(tiff, as: .tiff)
+        editor.paste(nil)
+
+        // In the text already, at its size on screen, with no bytes yet.
+        XCTAssertEqual(editor.string, "Scan:\u{FFFC}")
+        let picture = try XCTUnwrap(ComposeInlineImages.pictures(in: composer.contents.body).first)
+        XCTAssertTrue(picture.isPreparing)
+        XCTAssertTrue(picture.data.isEmpty)
+        XCTAssertEqual([picture.inlineImage.width, picture.inlineImage.height], [150, 100], "its size from its header")
+        let layout = try XCTUnwrap(editor.layoutManager)
+        layout.ensureLayout(for: try XCTUnwrap(editor.textContainer))
+        XCTAssertEqual(layout.attachmentSize(forGlyphAt: layout.glyphIndexForCharacter(at: 5)), NSSize(width: 150, height: 100),
+                       "its skeleton holds the room the picture will take, so nothing moves when it is in")
+        XCTAssertTrue(ComposeInlineImages.readyPictures(in: composer.contents.body).isEmpty, "nothing to send or store yet")
+
+        // Send at once: it waits for the picture, which goes with the message.
+        composer.send(nil)
+        let message = try queuedSend(harness)
+        let part = try XCTUnwrap(message.attachments.first { $0.contentID == picture.inlineImage.contentID })
+        XCTAssertEqual(part.data.prefix(4), Data([0x89, 0x50, 0x4E, 0x47]), "the TIFF, as a PNG")
+        XCTAssertEqual(part.mimeType, "image/png")
+        XCTAssertTrue(message.html.contains("<img src=\"cid:\(picture.inlineImage.contentID)\""), message.html)
+    }
+
+    func testClosingWaitsForAPictureStillBeingPrepared() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let composer = try newMessage(harness)
+        let tiff = try XCTUnwrap(Self.bitmap(width: 64, height: 32).tiffRepresentation)
+        composer.bodyEditor.pasteboard = board(tiff, as: .tiff)
+        composer.bodyEditor.paste(nil)
+        XCTAssertTrue(ComposeInlineImages.pictures(in: composer.contents.body).first?.isPreparing ?? false)
+        let folder = draftFolder(composer)
+        composer.window?.performClose(nil)
+        ComposeDraftStore.shared.waitForWrites()
+
+        let record = try XCTUnwrap(try ComposeDraftRecord.decode(Data(contentsOf: folder.appendingPathComponent(ComposeDraftRecord.recordFile))))
+        let image = try XCTUnwrap(record.images?.first, "the kept draft has the picture")
+        let bytes = try Data(contentsOf: folder.appendingPathComponent(image.storedFile))
+        XCTAssertEqual(bytes.prefix(4), Data([0x89, 0x50, 0x4E, 0x47]))
+        XCTAssertEqual(image.sizeBytes, bytes.count)
+    }
+
+    func testAnAutosaveLeavesOutAPictureStillBeingPreparedAndTheNextTakesItIn() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let composer = try newMessage(harness)
+        type("Later:", in: composer)
+        let tiff = try XCTUnwrap(Self.bitmap(width: 64, height: 32).tiffRepresentation)
+        composer.bodyEditor.pasteboard = board(tiff, as: .tiff)
+        composer.bodyEditor.paste(nil)
+        ComposeDraftStore.shared.save(composer.contents)
+        ComposeDraftStore.shared.waitForWrites()
+        XCTAssertNotNil(storedRecord(composer))
+        XCTAssertNil(storedRecord(composer)?.images, "no bytes yet, so nothing to name")
+        let files = try FileManager.default.contentsOfDirectory(atPath: draftFolder(composer).path)
+        XCTAssertFalse(files.contains { $0.hasPrefix("image-") }, "and never an empty file in its place")
+
+        // Once it is in, the composer saves again (after the autosave's pause) with it.
+        XCTAssertTrue(ListTestSupport.spin(until: { self.storedRecord(composer)?.images?.count == 1 }, timeout: 10))
+        let image = try XCTUnwrap(storedRecord(composer)?.images?.first)
+        XCTAssertEqual(try Data(contentsOf: draftFolder(composer).appendingPathComponent(image.storedFile)).prefix(4),
+                       Data([0x89, 0x50, 0x4E, 0x47]))
+    }
+
+    func testManyPicturesDroppedTogetherGoInAtOnceInTheirOrder() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let composer = try newMessage(harness)
+        type("ab", in: composer)
+        let editor = composer.bodyEditor
+        let jpeg = try XCTUnwrap(Self.bitmap(width: 30, height: 20).representation(using: .jpeg, properties: [:]))
+        let tiff = try XCTUnwrap(Self.bitmap(width: 40, height: 20).tiffRepresentation)
+        let urls = try [
+            file("one.png", Self.png(width: 10, height: 10)), file("two.tiff", tiff), file("three.jpg", jpeg),
+            file("four.png", Self.png(width: 20, height: 10)), file("five.tiff", tiff),
+        ]
+        let drop = fileDrag(urls)
+        drop.draggingLocation = try windowPoint(atCharacter: 1, in: editor)
+        XCTAssertNotEqual(editor.draggingEntered(drop), [])
+        XCTAssertTrue(editor.performDragOperation(drop))
+        editor.draggingEnded(drop)
+        XCTAssertEqual(editor.string, "a\u{FFFC}\u{FFFC}\u{FFFC}\u{FFFC}\u{FFFC}b", "all in at once, where they were dropped")
+        XCTAssertTrue(ComposeInlineImages.pictures(in: composer.contents.body).allSatisfy(\.isPreparing))
+        XCTAssertEqual(pictures(composer).map(\.inlineImage.filename), ["one.png", "two.png", "three.jpg", "four.png", "five.png"])
+        XCTAssertTrue(pictures(composer).allSatisfy(\.isReady))
+        XCTAssertEqual(try XCTUnwrap(editor.undoManager).undoActionName, "Drop", "one step")
+    }
+
+    func testAPictureThatCannotBeReadAfterAllLeavesTheTextAndItsFileAttaches() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let composer = try newMessage(harness)
+        type("x", in: composer)
+        let editor = composer.bodyEditor
+        // A large picture first keeps the preparing queue busy, so the second file is changed before it is read.
+        let large = try file("large.tiff", XCTUnwrap(Self.bitmap(width: 3000, height: 2000).tiffRepresentation))
+        let cut = try file("cut.png", Self.png(width: 40, height: 30))
+        let finder = board()
+        finder.writeObjects([large as NSURL, cut as NSURL])
+        editor.pasteboard = finder
+        editor.paste(nil)
+        try Data("no longer a picture".utf8).write(to: cut)
+        XCTAssertEqual(editor.string, "x\u{FFFC}\u{FFFC}", "their headers read, so both went in")
+        settle(composer)
+        XCTAssertEqual(editor.string, "x\u{FFFC}", "then the second came out, once its bytes could not be read")
+        XCTAssertEqual(ComposeInlineImages.pictures(in: composer.contents.body).map(\.inlineImage.filename), ["large.png"])
+        XCTAssertEqual(composer.contents.attachments.map(\.filename), ["cut.png"], "attached instead")
+    }
+
+    // MARK: The demo's sample
+
+    func testTheSnapshotsSampleIsWrittenOnceAndKeepsNoDraft() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let composer = try newMessage(harness)
+        composer.writeDemoSample()
+        composer.writeDemoSample()
+        XCTAssertEqual(composer.bodyEditor.string.components(separatedBy: DemoComposerSample.text).count, 2, "the line once")
+        XCTAssertEqual(pictures(composer).map(\.inlineImage.filename), [DemoComposerSample.pictureName], "the picture once")
+        let id = composer.draftID
+        composer.window?.performClose(nil)
+        ComposeDraftStore.shared.waitForWrites()
+        XCTAssertFalse(ComposeDraftStore.shared.contains(id: id), "the next run finds no kept reply to write it into again")
+    }
+
+    // MARK: Insert Picture
+
+    func testInsertPicturePutsChosenFilesAtTheCaretAndIsOnTheFormatMenuWithItsKey() throws {
+        let previous = (MainMenuController.shared, NSApp.windowsMenu, NSApp.helpMenu)
+        defer { (MainMenuController.shared, NSApp.windowsMenu, NSApp.helpMenu) = previous }
+        let bar = MainMenu.build(appDelegate: AppDelegate(options: LaunchOptions(arguments: ["SuperSparrow"])))
+        let format = try XCTUnwrap(bar.items.first { $0.submenu?.title == "Format" }?.submenu)
+        let item = try XCTUnwrap(format.items.first { $0.action == #selector(ComposeWindowController.insertPicture(_:)) })
+        XCTAssertEqual(item.title, "Insert Picture…")
+        XCTAssertEqual(item.keyEquivalent, "i")
+        XCTAssertEqual(item.keyEquivalentModifierMask, [.command, .option])
+        let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command, .option], timestamp: 0,
+                                                   windowNumber: 0, context: nil, characters: "^", charactersIgnoringModifiers: "i",
+                                                   isARepeat: false, keyCode: 34))
+        for candidate in format.items where candidate.isHidden { candidate.isHidden = false }
+        XCTAssertEqual(MainMenuBar.exactItem(for: event, in: bar), item, "⌥⌘I is its own, not Italic's or Load Images'")
+        let formatRows = try XCTUnwrap(Quire.cheatSheet.first { $0.title == "Format" }?.rows)
+        XCTAssertTrue(formatRows.contains { $0.keys == "⌥⌘I" && $0.label == "Insert picture" }, "the cheat sheet lists it")
+
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let composer = try newMessage(harness)
+        type("ab", in: composer)
+        XCTAssertTrue(composer.validateMenuItem(NSMenuItem(title: "", action: #selector(ComposeWindowController.insertPicture(_:)), keyEquivalent: "")))
+        let editor = composer.bodyEditor
+        editor.setSelectedRange(NSRange(location: 1, length: 0))
+        let photo = try file("pier.png", Self.png(width: 20, height: 20))
+        let notes = try file("notes.png", Data("not a picture".utf8))
+        editor.insertPictureFiles([photo, notes])
+        XCTAssertEqual(editor.string, "a\u{FFFC}b")
+        XCTAssertEqual(pictures(composer).map(\.inlineImage.filename), ["pier.png"])
+        XCTAssertEqual(composer.contents.attachments.map(\.filename), ["notes.png"], "a file that is no picture attaches")
+        XCTAssertEqual(try XCTUnwrap(editor.undoManager).undoActionName, "Insert Picture")
+    }
+
+    // MARK: Where a picture comes from
+
+    func testAPictureCopiedInTheReaderPastesAsThePictureNotItsAddress() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let composer = try newMessage(harness)
+        let editor = composer.bodyEditor
+        let tiff = try XCTUnwrap(Self.bitmap(width: 40, height: 20).tiffRepresentation)
+        // Copy Image on an inline picture of a received message: WebKit offers the picture and its address.
+        let address = "ss-cid://acct/18c2f0a9/image001.png@01DA0C3B.5E8F1A20"
+        XCTAssertTrue(editor.readPicturesOrFiles(from: board(tiff, as: .tiff, text: address, offersURL: true), actionName: nil))
+        XCTAssertEqual(pictures(composer).map(\.inlineImage.filename), ["image.png"], "an address that names no file")
+        XCTAssertFalse(editor.string.contains("ss-cid"), "the address is never sent as text")
+        // A web app's picture, its blob: address offered as text alone.
+        XCTAssertTrue(editor.readPicturesOrFiles(from: board(tiff, as: .tiff, text: "blob:https://chat.example.com/4b1d6a8e"), actionName: nil))
+        XCTAssertEqual(pictures(composer).count, 2)
+    }
+
+    func testASpreadsheetCellHoldingALinkPastesTheLink() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let composer = try newMessage(harness)
+        let editor = composer.bodyEditor
+        let tiff = try XCTUnwrap(Self.bitmap(width: 120, height: 20).tiffRepresentation)
+        let cell = board(tiff, as: .tiff, text: "https://example.com/report")
+        XCTAssertFalse(editor.readPicturesOrFiles(from: cell, actionName: nil), "the link, pasted plain by the caller")
+        editor.pasteboard = cell
+        editor.paste(nil)
+        XCTAssertTrue(ComposeInlineImages.pictures(in: composer.contents.body).isEmpty)
+    }
+
+    // MARK: Location
+
+    func testAPhotosLocationIsLeftOutOfWhatIsSent() throws {
+        // A kept JPEG: its metadata written again without the location, at its size.
+        let jpeg = try Self.withLocation(XCTUnwrap(Self.bitmap(width: 40, height: 30).representation(using: .jpeg, properties: [:])),
+                                         as: "public.jpeg")
+        XCTAssertNotNil(Self.location(in: jpeg), "the photo says where it was taken")
+        let kept = try XCTUnwrap(ComposeImageAttachment.withoutLocation(jpeg, as: .jpeg))
+        XCTAssertNil(Self.location(in: kept))
+        let source = try XCTUnwrap(CGImageSourceCreateWithData(kept as CFData, nil))
+        XCTAssertEqual(ComposeImageAttachment.pointSize(of: source), CGSize(width: 40, height: 30))
+        // A photo encoded again (a HEIC to JPEG; here a TIFF, which can carry a GPS block too).
+        let tiff = try Self.withLocation(XCTUnwrap(Self.bitmap(width: 40, height: 30).tiffRepresentation), as: "public.tiff")
+        XCTAssertNotNil(Self.location(in: tiff))
+        XCTAssertNil(Self.location(in: try XCTUnwrap(ComposeImageAttachment.encode(tiff, as: .jpeg))))
+        // A picture without one is kept byte for byte.
+        let plain = Self.png(width: 10, height: 10)
+        XCTAssertEqual(ComposeImageAttachment.withoutLocation(plain, as: .png), plain)
+
+        // Pasted, it is prepared the same way.
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let composer = try newMessage(harness)
+        composer.bodyEditor.pasteboard = board(jpeg, as: NSPasteboard.PasteboardType("public.jpeg"))
+        composer.bodyEditor.paste(nil)
+        let picture = try XCTUnwrap(pictures(composer).first)
+        XCTAssertEqual(picture.inlineImage.mimeType, "image/jpeg")
+        XCTAssertNil(Self.location(in: picture.data))
     }
 }

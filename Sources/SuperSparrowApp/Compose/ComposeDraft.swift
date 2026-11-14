@@ -64,7 +64,8 @@ struct ComposeDraft {
     /// (reading file-backed attachments belongs off the main thread, so the caller does it first). The pictures in the
     /// body are in memory already; each goes as a `cid:` part its `<img>` points at (§5.20, Images in the body).
     func outgoingMessage(normalizedBody: NSAttributedString, loadedAttachments: [OutgoingAttachment]) -> OutgoingMessage {
-        let pictures = ComposeInlineImages.pictures(in: normalizedBody)
+        // Sending has waited for every picture still being prepared; one that could not be read is not sent.
+        let pictures = ComposeInlineImages.readyPictures(in: normalizedBody)
         let images = Dictionary(pictures.map { ($0.inlineImage.contentID, $0.inlineImage) }, uniquingKeysWith: { first, _ in first })
         let export = ComposerHTMLExporter().export(normalizedBody, appending: quoted, images: images)
         // Threading headers name a message of one account; sending from another would hand the provider

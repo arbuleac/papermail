@@ -66,9 +66,10 @@ final class LocalDrafts {
     func body(for id: MessageID) -> StoredBody? {
         guard let draftID = LocalDraftConversation.draftID(of: id), let record = records.first(where: { $0.id == draftID }) else { return nil }
         if let cached = bodies[draftID], cached.editedAt == record.editedAt { return cached.body }
-        guard let draft = store.draft(id: draftID, accounts: accounts) else { return nil }
-        // The sheet sets the draft as text: a picture shows as its plain-text placeholder, never an empty box.
-        let body = LocalDraftConversation.body(text: ComposeInlineImages.readerText(of: draft.body), quoted: draft.quoted)
+        // The record and the archived body alone: a picture shows as its plain-text placeholder, never an empty box, and
+        // its bytes are neither read nor decoded on the way to the screen.
+        guard let draft = store.readerBody(id: draftID) else { return nil }
+        let body = LocalDraftConversation.body(text: draft.text, quoted: draft.quoted)
         bodies[draftID] = (record.editedAt, body)
         return body
     }

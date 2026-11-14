@@ -18,29 +18,41 @@ public enum ComposerPasteContent: Equatable, Sendable {
     ///   - fileTypes: the type identifier of each file offered (empty when it has none), in order.
     ///   - imageTypes: the image types offered besides files.
     ///   - text: the plain text offered, if any.
-    public static func classify(hasFragment: Bool, fileTypes: [String], imageTypes: [String], text: String?) -> ComposerPasteContent {
+    ///   - offersURL: whether the source also offers a web address as such (`public.url`), not only as text.
+    public static func classify(hasFragment: Bool, fileTypes: [String], imageTypes: [String], text: String?,
+                                offersURL: Bool) -> ComposerPasteContent {
         if hasFragment { return .fragment }
         // Files win over the rest: a file copied in the Finder also offers its name as text and its icon as a TIFF.
         if !fileTypes.isEmpty {
             return fileTypes.allSatisfy(ComposerImageFormat.isImage) ? .imageFiles : .files
         }
-        if !imageTypes.isEmpty, !isWriting(text) { return .image }
+        if !imageTypes.isEmpty, !isWriting(text, offersURL: offersURL) { return .image }
         return .text
     }
 
     /// Whether text offered beside an image is what the user copied. A browser's Copy Image offers the picture's
     /// address as text too, and then the picture is the paste; a word processor or a spreadsheet offers a picture of
-    /// the selected text or cells beside the text itself, and then the text is. Blank text is no text.
-    public static func isWriting(_ text: String?) -> Bool {
+    /// the selected text or cells beside the text itself, and then the text is, even when that text is one link.
+    /// Blank text is no text.
+    public static func isWriting(_ text: String?, offersURL: Bool) -> Bool {
         guard let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else { return false }
-        return !isOnlyAnAddress(trimmed)
+        return !isPicturesAddress(trimmed, offersURL: offersURL)
     }
 
-    /// One web, file or data address and nothing else.
-    public static func isOnlyAnAddress(_ text: String) -> Bool {
+    /// Schemes whose address can only be a picture's own, wherever it comes from: data: and a web app's blob: hold no
+    /// page, and the reader serves the pictures of received mail from its own schemes (`ss-cid:`, `ss-attachment:`,
+    /// and the message's `cid:` behind them).
+    public static let pictureOnlySchemes: Set<String> = ["data", "blob", "cid", "ss-cid", "ss-attachment"]
+
+    /// Whether `text` is one address, and nothing else, that names the picture beside it. WebKit's Copy Image and a
+    /// picture dragged from a page offer the address as a URL (`public.url`) too, in a browser and in SuperSparrow's
+    /// own reader, so with `offersURL` any scheme is the picture's. Without it, only the schemes that can name nothing
+    /// but a picture are: a spreadsheet cell or a paragraph holding one link offers that link and a picture of the
+    /// cell, and no URL, and there the link is what was copied.
+    public static func isPicturesAddress(_ text: String, offersURL: Bool) -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !trimmed.contains(where: \.isWhitespace),
               let scheme = URL(string: trimmed)?.scheme?.lowercased() else { return false }
-        return ["http", "https", "file", "data"].contains(scheme)
+        return offersURL || pictureOnlySchemes.contains(scheme)
     }
 }

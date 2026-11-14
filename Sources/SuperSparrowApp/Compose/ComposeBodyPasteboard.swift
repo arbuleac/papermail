@@ -29,7 +29,8 @@ enum ComposeBodyPasteboard {
         let files = (pboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) ?? []).compactMap { $0 as? URL }
         let text = pboard.string(forType: .string)
         let content = ComposerPasteContent.classify(hasFragment: types.contains(fragmentType.rawValue), fileTypes: files.map(typeIdentifier(of:)),
-                                                    imageTypes: types.filter(ComposerImageFormat.isImage), text: text)
+                                                    imageTypes: types.filter(ComposerImageFormat.isImage), text: text,
+                                                    offersURL: types.contains(NSPasteboard.PasteboardType.URL.rawValue))
         return Offer(content: content, fileURLs: files, text: text)
     }
 
@@ -40,22 +41,12 @@ enum ComposeBodyPasteboard {
     }
 
     /// The pictures an `.image` or `.imageFiles` offer holds. Image files the Mac cannot read as pictures are
-    /// returned as `unattached`, for the composer to attach as files instead.
+    /// returned as `unattached`, for the composer to attach as files instead. Only a file's header is read here; its
+    /// bytes are read, and converted where they must be, off the main thread (`ComposeImageAttachment.make`).
     static func pictures(of offer: Offer, from pboard: NSPasteboard) -> (pictures: [ComposeImageAttachment], unattached: [URL]) {
         switch offer.content {
         case .imageFiles:
-            var pictures: [ComposeImageAttachment] = []
-            var unattached: [URL] = []
-            for url in offer.fileURLs {
-                // Read whole, not mapped: the draft keeps these bytes, and a mapped file changed under it would change them.
-                if let data = try? Data(contentsOf: url),
-                   let picture = ComposeImageAttachment.make(data: data, typeIdentifier: typeIdentifier(of: url), filename: url.lastPathComponent) {
-                    pictures.append(picture)
-                } else {
-                    unattached.append(url)
-                }
-            }
-            return (pictures, unattached)
+            return pictures(fromFiles: offer.fileURLs)
         case .image:
             let name = offer.text.flatMap(addressedName(_:))
             var pictures: [ComposeImageAttachment] = []
@@ -71,10 +62,27 @@ enum ComposeBodyPasteboard {
         }
     }
 
-    /// The file name in a picture's address (“sunset.jpg” from a browser's Copy Image), when it names a picture.
+    /// Picture files, in order, and those the Mac cannot read as pictures, to attach instead (a paste or drop of files,
+    /// and Insert Picture…).
+    static func pictures(fromFiles urls: [URL]) -> (pictures: [ComposeImageAttachment], unattached: [URL]) {
+        var pictures: [ComposeImageAttachment] = []
+        var unattached: [URL] = []
+        for url in urls {
+            if let picture = ComposeImageAttachment.make(.file(url), typeIdentifier: typeIdentifier(of: url), filename: url.lastPathComponent) {
+                pictures.append(picture)
+            } else {
+                unattached.append(url)
+            }
+        }
+        return (pictures, unattached)
+    }
+
+    /// The file name in a picture's web or file address (“sunset.jpg” from a browser's Copy Image), when it names a
+    /// picture. Other addresses (data:, blob:, the reader's ss-cid:) name none, and the picture is “image.png”.
     static func addressedName(_ text: String) -> String? {
-        guard ComposerPasteContent.isOnlyAnAddress(text), let url = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)),
-              url.scheme?.lowercased() != "data" else { return nil }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.contains(where: \.isWhitespace), let url = URL(string: trimmed),
+              let scheme = url.scheme?.lowercased(), ["http", "https", "file"].contains(scheme) else { return nil }
         let name = url.lastPathComponent
         guard let type = UTType(filenameExtension: (name as NSString).pathExtension), type.conforms(to: .image) else { return nil }
         return name.removingPercentEncoding ?? name
@@ -87,13 +95,17 @@ enum ComposeBodyPasteboard {
         case picture(data: Data, filename: String, mimeType: String)
     }
 
-    /// `selection` as the body's own copy, nil when it holds no picture (then plain text is copy enough).
+    /// `selection` as the body's own copy, nil when it holds no picture (then plain text is copy enough). A picture
+    /// still being prepared is waited for: its bytes are what is copied.
     static func fragment(of selection: NSAttributedString) -> Data? {
         var segments: [Segment] = []
         var hasPicture = false
         let text = selection.string as NSString
+        ComposeInlineImages.finishPreparing(in: selection)
         selection.enumerateAttribute(.attachment, in: NSRange(location: 0, length: selection.length)) { value, range, _ in
             if let picture = value as? ComposeImageAttachment {
+                // One that could not be read is no picture, and was no words either.
+                guard picture.isReady else { return }
                 hasPicture = true
                 for _ in 0..<range.length {
                     segments.append(.picture(data: picture.data, filename: picture.inlineImage.filename, mimeType: picture.inlineImage.mimeType))

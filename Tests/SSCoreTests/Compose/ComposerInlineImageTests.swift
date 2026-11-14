@@ -42,6 +42,21 @@ final class ComposerInlineImageTests: XCTestCase {
                        "never zero, which some clients read as hidden")
     }
 
+    func testAWidePictureIsGivenAtMost600PixelsSoClientsThatIgnoreStylesShowItAsItWasSeen() {
+        let photo = ComposerInlineImage(contentID: "photo@supersparrow.local", filename: "IMG_0412.jpg", mimeType: "image/jpeg",
+                                        width: 4032, height: 3024)
+        XCTAssertEqual(photo.sentSize.width, 600)
+        XCTAssertEqual(photo.sentSize.height, 450, "its shape kept")
+        XCTAssertTrue(photo.html.contains("width=\"600\" height=\"450\""), photo.html)
+        XCTAssertTrue(photo.html.contains("max-width: 100%"))
+        let exact = ComposerInlineImage(contentID: "e", filename: "e.png", mimeType: "image/png", width: 600, height: 7)
+        XCTAssertEqual(exact.sentSize.width, 600, "never scaled up")
+        XCTAssertEqual(exact.sentSize.height, 7)
+        let sliver = ComposerInlineImage(contentID: "s", filename: "s.png", mimeType: "image/png", width: 5000, height: 2)
+        XCTAssertEqual(sliver.sentSize.height, 1, "never zero")
+        XCTAssertEqual(ComposerInlineImage.plainText(named: "a.png"), "[image: a.png]")
+    }
+
     func testContentIDsAreFreshAddressSpecs() {
         let first = ComposerInlineImage.makeContentID()
         let second = ComposerInlineImage.makeContentID()
@@ -128,32 +143,58 @@ final class ComposerInlineImageTests: XCTestCase {
     // MARK: What a paste or drop puts in the text
 
     func testWhatAPasteOrDropPutsInTheText() {
-        typealias Content = ComposerPasteContent
-        XCTAssertEqual(Content.classify(hasFragment: true, fileTypes: [], imageTypes: ["public.png"], text: "x"), .fragment)
-        XCTAssertEqual(Content.classify(hasFragment: false, fileTypes: ["public.png", "public.jpeg"], imageTypes: ["public.tiff"], text: "a.png"),
+        func classify(fileTypes: [String] = [], imageTypes: [String] = [], text: String? = nil, offersURL: Bool = false,
+                      fragment: Bool = false) -> ComposerPasteContent {
+            ComposerPasteContent.classify(hasFragment: fragment, fileTypes: fileTypes, imageTypes: imageTypes, text: text, offersURL: offersURL)
+        }
+        XCTAssertEqual(classify(imageTypes: ["public.png"], text: "x", fragment: true), .fragment)
+        XCTAssertEqual(classify(fileTypes: ["public.png", "public.jpeg"], imageTypes: ["public.tiff"], text: "a.png"),
                        .imageFiles, "a Finder copy: the files, not their icon or their names")
-        XCTAssertEqual(Content.classify(hasFragment: false, fileTypes: ["public.png", "com.adobe.pdf"], imageTypes: [], text: nil), .files)
-        XCTAssertEqual(Content.classify(hasFragment: false, fileTypes: ["public.folder"], imageTypes: [], text: nil), .files)
-        XCTAssertEqual(Content.classify(hasFragment: false, fileTypes: [""], imageTypes: [], text: nil), .files, "a file of no known type")
-        XCTAssertEqual(Content.classify(hasFragment: false, fileTypes: [], imageTypes: ["public.png"], text: nil), .image, "a screenshot")
-        XCTAssertEqual(Content.classify(hasFragment: false, fileTypes: [], imageTypes: ["public.tiff"], text: "https://example.com/a.jpg"),
-                       .image, "a browser's Copy Image")
-        XCTAssertEqual(Content.classify(hasFragment: false, fileTypes: [], imageTypes: ["public.tiff"], text: "Q3 numbers\t12\t14"),
+        XCTAssertEqual(classify(fileTypes: ["public.png", "com.adobe.pdf"]), .files)
+        XCTAssertEqual(classify(fileTypes: ["public.folder"]), .files)
+        XCTAssertEqual(classify(fileTypes: [""]), .files, "a file of no known type")
+        XCTAssertEqual(classify(imageTypes: ["public.png"]), .image, "a screenshot")
+        XCTAssertEqual(classify(imageTypes: ["public.tiff"], text: "https://example.com/a.jpg", offersURL: true),
+                       .image, "a browser's Copy Image, which offers the address as a URL too")
+        XCTAssertEqual(classify(imageTypes: ["public.tiff"], text: "Q3 numbers\t12\t14"),
                        .text, "a spreadsheet's cells with a picture of them")
-        XCTAssertEqual(Content.classify(hasFragment: false, fileTypes: [], imageTypes: [], text: "Hello"), .text)
-        XCTAssertEqual(Content.classify(hasFragment: false, fileTypes: [], imageTypes: [], text: nil), .text)
+        XCTAssertEqual(classify(imageTypes: ["public.png"], text: "https://example.com/report"),
+                       .text, "a spreadsheet cell holding one link: the link, not a picture of the cell")
+        XCTAssertEqual(classify(imageTypes: ["public.tiff"], text: "Quarterly numbers", offersURL: true), .text, "words are words")
+        XCTAssertEqual(classify(imageTypes: [], text: "Hello"), .text)
+        XCTAssertEqual(classify(), .text)
     }
 
-    func testOnlyALoneAddressIsTakenForAPicturesName() {
-        XCTAssertTrue(ComposerPasteContent.isOnlyAnAddress(" https://example.com/a.png\n"))
-        XCTAssertTrue(ComposerPasteContent.isOnlyAnAddress("file:///Users/alex/Desktop/a.png"))
-        XCTAssertTrue(ComposerPasteContent.isOnlyAnAddress("data:image/png;base64,iVBORw0KGgo="))
-        XCTAssertFalse(ComposerPasteContent.isOnlyAnAddress("see https://example.com/a.png"))
-        XCTAssertFalse(ComposerPasteContent.isOnlyAnAddress("mailto:ben@example.com"))
-        XCTAssertFalse(ComposerPasteContent.isOnlyAnAddress("Lisbon"))
-        XCTAssertFalse(ComposerPasteContent.isWriting(nil))
-        XCTAssertFalse(ComposerPasteContent.isWriting(" \n"))
-        XCTAssertTrue(ComposerPasteContent.isWriting("Lisbon"))
+    func testAPictureCopiedInTheReaderOrFromAWebAppIsThePictureNotItsAddress() {
+        func classify(_ text: String, offersURL: Bool) -> ComposerPasteContent {
+            ComposerPasteContent.classify(hasFragment: false, fileTypes: [], imageTypes: ["public.tiff"], text: text, offersURL: offersURL)
+        }
+        // Copy Image on an inline picture of a received message: WebKit offers the TIFF, the address as text and as a URL.
+        let reader = "ss-cid://acct/18c2f0a9/image001.png@01DA0C3B.5E8F1A20"
+        XCTAssertEqual(classify(reader, offersURL: true), .image)
+        XCTAssertEqual(classify(reader, offersURL: false), .image, "the reader's own address names nothing but a picture")
+        XCTAssertEqual(classify("ss-attachment://acct/18c2f0a9/2", offersURL: false), .image)
+        XCTAssertEqual(classify("blob:https://chat.example.com/4b1d6a8e-2f6c-4f43-9c2b-1a7f0e3d5c9b", offersURL: false), .image,
+                       "a web app's picture")
+        XCTAssertEqual(classify("data:image/png;base64,iVBORw0KGgo=", offersURL: false), .image)
+        XCTAssertEqual(classify("cid:image001.png@01DA0C3B.5E8F1A20", offersURL: false), .image)
+    }
+
+    func testOnlyALoneAddressIsTakenForThePicturesOwn() {
+        typealias Content = ComposerPasteContent
+        XCTAssertTrue(Content.isPicturesAddress(" https://example.com/a.png\n", offersURL: true))
+        XCTAssertFalse(Content.isPicturesAddress("https://example.com/a.png", offersURL: false), "a link, without a URL beside it")
+        XCTAssertFalse(Content.isPicturesAddress("file:///Users/alex/Desktop/a.png", offersURL: false))
+        XCTAssertTrue(Content.isPicturesAddress("file:///Users/alex/Desktop/a.png", offersURL: true))
+        XCTAssertTrue(Content.isPicturesAddress("data:image/png;base64,iVBORw0KGgo=", offersURL: false))
+        XCTAssertTrue(Content.isPicturesAddress("blob:https://example.com/1234", offersURL: false))
+        XCTAssertTrue(Content.isPicturesAddress("SS-CID://acct/1/a@b", offersURL: false), "schemes are compared ignoring case")
+        XCTAssertFalse(Content.isPicturesAddress("see https://example.com/a.png", offersURL: true))
+        XCTAssertFalse(Content.isPicturesAddress("mailto:ben@example.com", offersURL: false))
+        XCTAssertFalse(Content.isPicturesAddress("Lisbon", offersURL: true))
+        XCTAssertFalse(Content.isWriting(nil, offersURL: false))
+        XCTAssertFalse(Content.isWriting(" \n", offersURL: false))
+        XCTAssertTrue(Content.isWriting("Lisbon", offersURL: true))
     }
 
     // MARK: Kept drafts

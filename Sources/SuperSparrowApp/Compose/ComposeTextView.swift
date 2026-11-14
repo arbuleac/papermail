@@ -52,6 +52,10 @@ final class ComposeTextView: NSTextView {
     /// attaches them, as it does files dropped anywhere else in its window (§5.20).
     var onAttachFiles: (([URL]) -> Void)?
 
+    /// A picture prepared off the main thread is in (`ComposeImageAttachment`): the composer saves its draft again, since
+    /// the save before left the picture out.
+    var onPictureReady: (() -> Void)?
+
     /// Where the text starts and stops across the view: the composer's value axis (x = 84) and 24 pt before the
     /// trailing edge by default; the Settings signature field sets its own.
     var leadingInset: CGFloat = Quire.Layout.Composer.valueX {
@@ -353,6 +357,44 @@ final class ComposeTextView: NSTextView {
         }
         replaceSelection(with: inserted, actionName: actionName)
         typingAttributes = typing
+        for picture in pictures where picture.isPreparing {
+            picture.whenPrepared { [weak self] picture in self?.pictureDidFinish(picture) }
+        }
+    }
+
+    /// Picture files chosen with Format › Insert Picture… (§5.20): at the caret, as one undoable edit, as pasting them
+    /// would put them; any the Mac cannot read as a picture attach instead.
+    func insertPictureFiles(_ urls: [URL]) {
+        let read = ComposeBodyPasteboard.pictures(fromFiles: urls)
+        if !read.pictures.isEmpty { insertPictures(read.pictures, actionName: "Insert Picture") }
+        if !read.unattached.isEmpty { onAttachFiles?(read.unattached) }
+    }
+
+    /// Waits for every picture in the text still being prepared (closing saves the draft with them).
+    func finishPreparingPictures() {
+        if let storage = textStorage { ComposeInlineImages.finishPreparing(in: storage) }
+    }
+
+    /// A picture prepared off the main thread is ready, or could not be read after all. A ready one is drawn where its
+    /// skeleton was (its size was known from the start, so nothing moves). One that could not be read comes out of the
+    /// text as an edit of its own, and its file, if it had one, is attached instead, as one that never read is.
+    private func pictureDidFinish(_ picture: ComposeImageAttachment) {
+        guard let storage = textStorage else { return }
+        var ranges: [NSRange] = []
+        storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+            if (value as? ComposeImageAttachment) === picture { ranges.append(range) }
+        }
+        if picture.isReady {
+            for range in ranges { layoutManager?.invalidateDisplay(forCharacterRange: range) }
+            onPictureReady?()
+            return
+        }
+        guard !ranges.isEmpty else { return }
+        for range in ranges.reversed() where shouldChangeText(in: range, replacementString: "") {
+            storage.replaceCharacters(in: range, with: "")
+            didChangeText()
+        }
+        if let url = picture.fileURL { onAttachFiles?([url]) }
     }
 
     /// The body's own copy: its text plain in the style at the caret, its pictures as parts of their own.
@@ -444,7 +486,9 @@ final class ComposeTextView: NSTextView {
             return pboard.setData(data, forType: type)
         }
         if let only = soleSelectedPicture, ComposerImageFormat(mimeType: only.inlineImage.mimeType)?.typeIdentifier == type.rawValue {
-            return pboard.setData(only.data, forType: type)
+            // A picture still being prepared is waited for: its bytes are what is copied.
+            only.finishNow()
+            return only.isReady && pboard.setData(only.data, forType: type)
         }
         if type == .string || type == Self.legacyStringType, !selectedPictures.isEmpty {
             // A picture is no words: its attachment character stays out of what other apps receive as text.

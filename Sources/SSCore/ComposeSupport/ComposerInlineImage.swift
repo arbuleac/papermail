@@ -31,16 +31,35 @@ public struct ComposerInlineImage: Hashable, Codable, Sendable {
         UUID().uuidString.lowercased() + "@supersparrow.local"
     }
 
+    /// The widest a picture is shown in the message, in CSS pixels: the width mail is laid out to, so that it fits every
+    /// client's reading pane. The bytes sent stay whole.
+    public static let sentWidthLimit = 600
+
+    /// The size the `<img>` gives the picture: its size on screen, scaled down, never up, to `sentWidthLimit`, its shape
+    /// kept. The composer shows a wide photo no wider than the text, and clients that ignore CSS (Outlook for Windows)
+    /// would otherwise show it thousands of pixels wide.
+    public var sentSize: (width: Int, height: Int) {
+        guard width > Self.sentWidthLimit else { return (width, height) }
+        let scaled = (Double(height) * Double(Self.sentWidthLimit) / Double(width)).rounded()
+        return (Self.sentWidthLimit, max(1, Int(scaled)))
+    }
+
     /// The `<img>` the exporter writes. The width and height are for clients that ignore CSS (Outlook for Windows);
     /// `max-width` keeps a wide picture inside a phone's screen, and `height: auto` keeps its shape when it does.
     public var html: String {
         let source = ComposerHTMLExporter.escape("cid:" + contentID)
-        return "<img src=\"\(source)\" alt=\"\(ComposerHTMLExporter.escape(filename))\" width=\"\(width)\" height=\"\(height)\""
+        let size = sentSize
+        return "<img src=\"\(source)\" alt=\"\(ComposerHTMLExporter.escape(filename))\" width=\"\(size.width)\" height=\"\(size.height)\""
             + " style=\"max-width: 100%; height: auto;\">"
     }
 
     /// Where the picture stood, in the plain-text alternative: the form Gmail's own alternative uses.
     public var plainText: String {
+        Self.plainText(named: filename)
+    }
+
+    /// The plain-text placeholder of a picture named `filename`.
+    public static func plainText(named filename: String) -> String {
         "[image: \(filename)]"
     }
 

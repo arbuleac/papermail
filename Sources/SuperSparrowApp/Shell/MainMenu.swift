@@ -292,6 +292,8 @@ enum MainMenu {
         menu.addItem(item("Quote", #selector(ComposeWindowController.toggleBlockQuote(_:)), "'", symbol: Quire.Icon.blockQuote))
         menu.addItem(.separator())
         menu.addItem(item("Add Link…", #selector(ComposeWindowController.insertLink(_:)), "k", symbol: Quire.Icon.link))
+        // Pictures into the text from the keyboard (§5.20, Images in the body); Attach Files… puts files on the strip.
+        menu.addItem(item("Insert Picture…", #selector(ComposeWindowController.insertPicture(_:)), "i", [.command, .option]))
         return menu
     }
 
