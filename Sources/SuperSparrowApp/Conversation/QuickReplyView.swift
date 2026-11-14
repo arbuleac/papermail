@@ -182,6 +182,7 @@ final class QuickReplyView: NSView {
         textView.textContainer?.lineFragmentPadding = 0
         textView.textContainerInset = .zero
         if let layoutManager = textView.layoutManager { QuireFont.configure(layoutManager) }
+        textView.textStorage?.delegate = self
         applyWritingStyle()
         textView.textColor = .qInk
         textView.insertionPointColor = .qAccent
@@ -409,6 +410,29 @@ final class QuickReplyView: NSView {
 
     private var showsToolRow: Bool { isFocused && !isComposerOpen && strip.isHidden }
 
+    /// Where the face, the R keycap and the Send circle sit in `field`. All three are centred on the field at rest, so
+    /// they stay in line with each other and with its one line at every Text size (spec §4.15): at Default the face's
+    /// top is `faceTop` and the circle's inset `restSendInset` from the top (spec §5.18), and the field's step moves
+    /// each by half of it. On the device grid, so a half-point step never blurs them.
+    func restMarks(in field: NSRect) -> (face: NSRect, keycap: NSRect, send: NSRect) {
+        let m = Quire.Layout.QuickReply.self
+        let middle = field.minY + restField / 2
+        let scale = window?.backingScaleFactor ?? 2
+        func onGrid(_ y: CGFloat) -> CGFloat { (y * scale).rounded() / scale }
+        let face = NSRect(x: field.minX + m.faceX, y: onGrid(field.minY + m.faceTop + lineStep / 2), width: m.face, height: m.face)
+        let send = NSRect(x: field.maxX - m.restSendInset - m.restSend, y: onGrid(middle - m.restSend / 2), width: m.restSend, height: m.restSend)
+        let cap = restKeycap.intrinsicContentSize
+        let keycap = NSRect(x: send.minX - m.restKeycapGap - cap.width, y: onGrid(middle - cap.height / 2), width: cap.width, height: cap.height)
+        return (face, keycap, send)
+    }
+
+    /// The field and the marks at rest as laid out now (tests read them).
+    var restGeometry: (field: NSRect, face: NSRect, keycap: NSRect, send: NSRect) {
+        let field = fieldRect
+        let marks = restMarks(in: field)
+        return (field, marks.face, marks.keycap, marks.send)
+    }
+
     private func updateHeight(animated: Bool) {
         let m = Quire.Layout.QuickReply.self
         let target = min(m.max + m.maxLines * lineStep, fieldHeight + 2 * m.barPadY)
@@ -454,11 +478,9 @@ final class QuickReplyView: NSView {
         restSend.isHidden = !restVisible
         restKeycap.isHidden = !restVisible || !keycaps
         restSend.isEnabled = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && status != .noRecipients
-        let sendRect = NSRect(x: field.maxX - m.restSendInset - m.restSend, y: field.minY + m.restSendInset, width: m.restSend, height: m.restSend)
-        restSend.frame = restSend.frame(forVisualRect: sendRect)
-        let cap = restKeycap.intrinsicContentSize
-        restKeycap.frame = NSRect(x: sendRect.minX - m.restKeycapGap - cap.width, y: (field.minY + restField / 2 - cap.height / 2).rounded(),
-                                  width: cap.width, height: cap.height)
+        let marks = restMarks(in: field)
+        restSend.frame = restSend.frame(forVisualRect: marks.send)
+        restKeycap.frame = marks.keycap
 
         let rowY = field.minY + m.fieldPadTop + CGFloat(lines) * lineHeight + m.toolRowGap
         let showsStatus = status != .none
@@ -547,7 +569,7 @@ final class QuickReplyView: NSView {
             QuireFocusRing.draw(around: field, cornerRadius: radius, gap: QuireFocusRing.gap, gapColor: .qPaper)
         }
         if let face, strip.isHidden {
-            let rect = NSRect(x: field.minX + m.faceX, y: field.minY + m.faceTop, width: m.face, height: m.face)
+            let rect = restMarks(in: field).face
             QuireAvatarRenderer.drawAccountFace(monogram: face.monogram, slot: face.inkSlot, in: rect)
             QuireAvatarRenderer.drawRing(around: rect, accountSlot: face.inkSlot)
         }
@@ -677,20 +699,14 @@ final class QuickReplyView: NSView {
     }
 
     /// `writing` at the Text size, for what is typed from now on and for what is there already: the field is plain
-    /// text, so one font and one paragraph style cover it all.
+    /// text, so one font and one paragraph style cover it all. Not an edit: the undo stack keeps text at the size it
+    /// was typed at, and the storage's delegate sets what an undo brings back at the size then.
     private func applyWritingStyle() {
         let writing = QuireFont.attributes(.writing, color: .qInk, textSize: textSize)
         textView.font = writing[.font] as? NSFont
         textView.typingAttributes = writing
         textView.defaultParagraphStyle = writing[.paragraphStyle] as? NSParagraphStyle
-        if let storage = textView.textStorage, storage.length > 0 {
-            let range = NSRange(location: 0, length: storage.length)
-            storage.beginEditing()
-            for key in [NSAttributedString.Key.font, .paragraphStyle, .baselineOffset] {
-                if let value = writing[key] { storage.addAttribute(key, value: value, range: range) }
-            }
-            storage.endEditing()
-        }
+        if let storage = textView.textStorage { WritingTextSize.apply(textSize, to: storage) }
     }
 
     /// The writing font in use now (tests read it).
@@ -779,6 +795,18 @@ extension QuickReplyView: NSTextViewDelegate {
         placeholder.isHidden = !text.isEmpty && isFocused
         updateHeight(animated: false)
         needsLayout = true
+    }
+}
+
+extension QuickReplyView: NSTextStorageDelegate {
+    /// Every edit, an undo or a redo included, leaves what it touched at the field's Text size (spec §4.15): an undo
+    /// of an edit made before a switch would otherwise bring its text back at the old size and on the old line.
+    nonisolated func textStorage(_ textStorage: NSTextStorage, didProcessEditing editedMask: NSTextStorageEditActions,
+                                 range editedRange: NSRange, changeInLength delta: Int) {
+        guard Thread.isMainThread else { return }
+        MainActor.assumeIsolated {
+            _ = WritingTextSize.apply(textSize, to: textStorage, in: editedRange)
+        }
     }
 }
 

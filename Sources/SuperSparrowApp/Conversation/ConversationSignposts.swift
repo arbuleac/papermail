@@ -11,6 +11,8 @@ enum ConversationSignposts {
     static let show: StaticString = "conversation.show"
     static let render: StaticString = "conversation.render"
     static let prerender: StaticString = "conversation.prerender"
+    /// A new reader Text size (Settings or ⌘+ / ⌘−) until every ready shell has measured its bodies at it.
+    static let textSize: StaticString = "conversation.textSize"
 
     static func begin(_ name: StaticString) -> OSSignpostIntervalState {
         signposter.beginInterval(name, id: signposter.makeSignpostID())

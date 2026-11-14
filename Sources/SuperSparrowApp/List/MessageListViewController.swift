@@ -1200,18 +1200,48 @@ final class MessageListViewController: NSViewController {
         }
     }
 
-    /// Row heights changed (density or Text size): every row is re-measured; the selection and the scroll position
-    /// follow.
+    /// Row heights changed (density or Text size): every row is re-measured. The row at the top stays at the top, as
+    /// far into it as before, since the same offset in points would land about 4 pt × its index further down; only
+    /// then is the selection brought into view, if the taller rows pushed it out. One `list.remeasure` interval.
     private func remeasureRows() {
+        let state = signposter.beginInterval("list.remeasure")
+        defer { signposter.endInterval("list.remeasure", state) }
+        let anchor = topRowAnchor()
         tableView.rowHeight = rowMetrics.height
         withoutAnimation {
             tableView.reloadData()
+            if let anchor { scroll(to: anchor) }
         }
         tableView.refreshHoverAfterRowEdits()
         syncTableSelection(scroll: true)
         skeletonView.density = density
         skeletonView.textSize = textSize
     }
+
+    /// The row under the top edge of the list and how far into it that edge is, as a fraction of its height.
+    private func topRowAnchor() -> (row: Int, fraction: CGFloat)? {
+        let clip = scrollView.contentView
+        let top = max(0, clip.bounds.minY + scrollView.contentInsets.top)
+        let row = tableView.row(at: NSPoint(x: tableView.bounds.midX, y: top))
+        guard row >= 0 else { return nil }
+        let rect = tableView.rect(ofRow: row)
+        return (row, rect.height > 0 ? (top - rect.minY) / rect.height : 0)
+    }
+
+    private func scroll(to anchor: (row: Int, fraction: CGFloat)) {
+        guard anchor.row < tableView.numberOfRows else { return }
+        let clip = scrollView.contentView
+        let rect = tableView.rect(ofRow: anchor.row)
+        let insets = scrollView.contentInsets
+        let highest = -insets.top
+        let lowest = max(highest, tableView.frame.height + insets.bottom - clip.bounds.height)
+        let y = min(lowest, max(highest, (rect.minY + anchor.fraction * rect.height).rounded() - insets.top))
+        clip.scroll(to: NSPoint(x: clip.bounds.minX, y: y))
+        scrollView.reflectScrolledClipView(clip)
+    }
+
+    /// The row at the top of the list now and how far into it (tests read it).
+    var topVisibleRow: (row: Int, fraction: CGFloat)? { topRowAnchor() }
 
     @objc private func quireEnvironmentChanged(_ notification: Notification) {
         environmentDidChange()

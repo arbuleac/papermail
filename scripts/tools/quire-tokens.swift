@@ -914,7 +914,8 @@ func cssHead(_ t: Tokens) -> [String] {
 
 /// Every role's `--q-font-` shorthand again at each Text size but Default (spec §4.15), under `html.ss-text-<name>`: size
 /// and line height moved by the role's step, which `QuireFont.Role.step(at:)` computes the same way (the size's delta,
-/// held at `platform.minTextSize`). A role the step leaves alone is not repeated.
+/// held at `platform.minTextSize`). After them each role's step as `--q-step-<role>`, for the boxes the shell sizes
+/// around a line of that role (`calc(18px + var(--q-step-bodyStrong, 0px))`). A role the step leaves alone is not repeated.
 func cssTextSizes(_ t: Tokens) -> [String] {
     guard let typography = t.root["typography"]?.object, let sizes = t.root.require("textSize", "").object,
           let floor = t.root["platform"]?["minTextSize"]?.double else { fail("tokens.json is incomplete") }
@@ -925,6 +926,7 @@ func cssTextSizes(_ t: Tokens) -> [String] {
     var lines: [String] = []
     for (name, delta) in zip(names, deltas) where delta != 0 {
         var p: [String] = []
+        var steps: [String] = []
         for (role, v) in typography {
             let size = v["size"]!.double!
             if size == 0 { continue }
@@ -932,8 +934,9 @@ func cssTextSizes(_ t: Tokens) -> [String] {
             if step == 0 { continue }
             let style = v["style"]?.string == "italic" ? "italic " : ""
             p.append("--q-font-\(role):\(style)\(Int(v["weight"]!.double!)) \(pyG(size + step))px/\(pyG(v["lineHeight"]!.double! + step))px \(famvar[v["family"]!.string!]!)")
+            steps.append("--q-step-\(role):\(pyG(step))px")
         }
-        lines.append("html.ss-text-\(name.lowercased()){" + p.joined(separator: ";") + ";}")
+        lines.append("html.ss-text-\(name.lowercased()){" + (p + steps).joined(separator: ";") + ";}")
     }
     return lines
 }

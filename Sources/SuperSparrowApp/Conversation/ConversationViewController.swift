@@ -150,6 +150,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         var accounts: [AccountID: Account] = [:]
         for account in (try? client.accounts()) ?? [] { accounts[account.id] = account }
         self.accountsByID = accounts
+        broadcastTextSize = appSettings.readerSize
         super.init(nibName: nil, bundle: nil)
         header.textSize = appSettings.readerSize
         pool.onMessage = { [weak self] slot, message in self?.handle(message, from: slot) }
@@ -942,7 +943,19 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     /// The typeface and reader Text size last told to the shells. Graphite and contrast changes post the same
     /// notification; they reach the shells through the pool's modes, so only these are broadcast here.
     private var broadcastTypeface = QuireEnvironment.typeface
-    private var broadcastTextSize: QuireFont.TextSize?
+    /// Every payload carries the reader's size, so the shells start at the one the reader has when it is built.
+    private var broadcastTextSize: QuireFont.TextSize
+
+    /// A Text size change's progress through the shells (tests read it; the `conversation.textSize` interval spans it).
+    enum TextSizeEvent: Equatable {
+        /// Told to every ready shell.
+        case began(QuireFont.TextSize)
+        /// Every shell told has measured its bodies again at it (the follow-up pass 50 ms later aside).
+        case measured(QuireFont.TextSize)
+    }
+
+    /// For tests: every Text size broadcast and its end. Nil in the app.
+    var onTextSizeEvent: ((TextSizeEvent) -> Void)?
 
     private func readerTypeMayHaveChanged() {
         header.textSize = appSettings.readerSize
@@ -955,14 +968,25 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     /// size (spec §4.15): the shell's `html.ss-text-*` class, which measures every body again.
     private func broadcastPreferences() {
         let settings = AppSettings.shared
+        let size = appSettings.readerSize
+        let sizeChanged = size != broadcastTextSize
         broadcastTypeface = QuireEnvironment.typeface
-        broadcastTextSize = appSettings.readerSize
+        broadcastTextSize = size
         let sans = broadcastTypeface == .sfPro
-        let size = appSettings.readerSize.rawValue
-        pool.broadcastPreferences(
-            "window.ss && window.ss.preferences({readingSans: \(sans), textSize: '\(size)', "
-                + "colorsNoticeDismissed: \(settings.originalColorsNoticeDismissed)})"
-        )
+        let script = "window.ss && window.ss.preferences({readingSans: \(sans), textSize: '\(size.rawValue)', "
+            + "colorsNoticeDismissed: \(settings.originalColorsNoticeDismissed)})"
+        guard sizeChanged else {
+            pool.broadcastPreferences(script)
+            return
+        }
+        // A new size measures every body of every ready shell again inside the script itself, so the interval (the
+        // Text size budget in docs/ARCHITECTURE.md) ends once the last shell has run it.
+        let interval = ConversationSignposts.begin(ConversationSignposts.textSize)
+        onTextSizeEvent?(.began(size))
+        pool.broadcastPreferences(script) { [weak self] in
+            ConversationSignposts.end(ConversationSignposts.textSize, interval)
+            self?.onTextSizeEvent?(.measured(size))
+        }
     }
 
     /// Wide HTML is refitted once a live resize ends, never per frame (spec §5.14).

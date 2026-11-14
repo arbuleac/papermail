@@ -95,20 +95,48 @@ final class WebViewPool: NSObject, WKScriptMessageHandler {
     }
 
     /// Tells every ready shell the reader's preferences and keeps them for the shells that become ready later.
-    func broadcastPreferences(_ script: String) {
+    /// `ran`, when given, runs once every ready shell has run them.
+    func broadcastPreferences(_ script: String, ran: (() -> Void)? = nil) {
         preferencesScript = script
-        broadcast(script)
+        broadcast(script, ran: ran)
     }
 
     /// Runs `script` in every shell that is ready; slots that become ready later get the modes and the
-    /// preferences on `markReady`.
-    func broadcast(_ script: String) {
-        for slot in slots where slot.isReady {
+    /// preferences on `markReady`. `ran`, when given, runs once the last of them has run it (or failed to), at once
+    /// when none is ready.
+    func broadcast(_ script: String, ran: (() -> Void)? = nil) {
+        let ready = slots.filter(\.isReady)
+        let left = Countdown(ready.count, then: ran)
+        for slot in ready {
             slot.webView.evaluateJavaScript(script) { _, error in
                 if let error {
                     ConversationSignposts.log.error("shell broadcast failed: \(String(describing: error), privacy: .public)")
                 }
+                left.tick()
             }
+        }
+    }
+
+    /// Runs its closure once `tick()` has been called `count` times; at once for none.
+    private final class Countdown {
+        private var count: Int
+        private var then: (() -> Void)?
+
+        init(_ count: Int, then: (() -> Void)?) {
+            self.count = count
+            self.then = then
+            if count == 0 { fire() }
+        }
+
+        func tick() {
+            count -= 1
+            if count == 0 { fire() }
+        }
+
+        private func fire() {
+            let then = then
+            self.then = nil
+            then?()
         }
     }
 

@@ -50,6 +50,27 @@ final class TextSizeSettingTests: XCTestCase {
         return string.attribute(.font, at: 0, effectiveRange: nil) as? NSFont
     }
 
+    /// Every run of `text` in `writing` at `size`: the font's size, the paragraph's line and the baseline.
+    private func assertWriting(at size: QuireFont.TextSize, _ text: NSAttributedString, _ message: String,
+                               file: StaticString = #filePath, line: UInt = #line) {
+        let role = QuireFont.Role.writing
+        let whole = NSRange(location: 0, length: text.length)
+        XCTAssertGreaterThan(text.length, 0, message, file: file, line: line)
+        text.enumerateAttribute(.font, in: whole) { value, range, _ in
+            XCTAssertEqual((value as? NSFont)?.pointSize, role.size(at: size), "\(message): the font at \(range)", file: file, line: line)
+        }
+        text.enumerateAttribute(.paragraphStyle, in: whole) { value, range, _ in
+            let style = value as? NSParagraphStyle
+            XCTAssertEqual(style?.minimumLineHeight, role.lineHeight(at: size), "\(message): the line at \(range)", file: file, line: line)
+            XCTAssertEqual(style?.maximumLineHeight, role.lineHeight(at: size), "\(message): the line at \(range)", file: file, line: line)
+        }
+        text.enumerateAttribute(.baselineOffset, in: whole) { value, range, _ in
+            guard let value = value as? NSNumber else { return }
+            XCTAssertEqual(CGFloat(truncating: value), QuireFont.baselineOffset(role, textSize: size), accuracy: 0.001,
+                           "\(message): the baseline at \(range)", file: file, line: line)
+        }
+    }
+
     // MARK: The setting
 
     func testTheSettingIsSavedPushedIntoQuireAndSetsTheReaderToo() throws {
@@ -188,6 +209,74 @@ final class TextSizeSettingTests: XCTestCase {
         QuireEnvironment.shared.setTextSize(.default)
     }
 
+    /// The row at the top stays at the top through a switch, as far into it as before (the same offset in points would
+    /// land about 4 pt × its index further down), and a selection the taller rows push out of view comes back into it.
+    func testASwitchKeepsTheScrollPosition() throws {
+        let settings = ListTestSupport.settings()
+        let (list, window) = ListTestSupport.host(store: try ListTestSupport.store(threads: 150), settings: settings)
+        defer { window.close() }
+        let clip = list.scrollView.contentView
+        let top = try XCTUnwrap(list.layout.row(ofConversation: 60))
+        func scrollTop(to row: Int, into offset: CGFloat) {
+            clip.scroll(to: NSPoint(x: 0, y: list.tableView.rect(ofRow: row).minY + offset - list.scrollView.contentInsets.top))
+            list.scrollView.reflectScrolledClipView(clip)
+            window.layoutIfNeeded()
+        }
+        func fullyVisible(_ row: Int) -> Bool {
+            list.tableView.visibleRect.contains(list.tableView.rect(ofRow: row))
+        }
+        scrollTop(to: top, into: 17)
+        XCTAssertEqual(list.topVisibleRow?.row, top)
+        // A row a few below the top: on screen at every size, so the selection moves nothing.
+        let near = try XCTUnwrap(list.layout.row(ofConversation: 62))
+        list.selectedConversationID = list.conversations[62].id
+        XCTAssertEqual(list.topVisibleRow?.row, top, "selecting a row on screen scrolls nothing")
+
+        for size in [QuireFont.TextSize.larger, .small, .large, .default] {
+            QuireEnvironment.shared.setTextSize(size)
+            window.layoutIfNeeded()
+            window.displayIfNeeded()
+            let anchor = try XCTUnwrap(list.topVisibleRow, "\(size)")
+            let height = list.tableView.rect(ofRow: top).height
+            XCTAssertEqual(height, QuireRowMetrics(textSize: size, compact: false).height)
+            XCTAssertEqual(anchor.row, top, "\(size): the same row at the top")
+            XCTAssertEqual(anchor.fraction * height, 17 * height / 68, accuracy: 1, "\(size): as far into it")
+            XCTAssertTrue(fullyVisible(near), "\(size): the selection stays on screen")
+            XCTAssertEqual(list.selectedConversationID, list.conversations[62].id)
+        }
+
+        // At the very end of the list the taller rows still keep the top row where it was; shorter ones leave less to
+        // scroll, so the list stops at its end.
+        list.selectedConversationID = nil
+        let end = max(0, list.tableView.frame.height - clip.bounds.height)
+        clip.scroll(to: NSPoint(x: 0, y: end))
+        list.scrollView.reflectScrolledClipView(clip)
+        let bottom = try XCTUnwrap(list.topVisibleRow)
+        QuireEnvironment.shared.setTextSize(.larger)
+        window.layoutIfNeeded()
+        XCTAssertEqual(list.topVisibleRow?.row, bottom.row, "at the end, Larger keeps the top row")
+        QuireEnvironment.shared.setTextSize(.small)
+        window.layoutIfNeeded()
+        XCTAssertEqual(clip.bounds.minY, max(0, list.tableView.frame.height - clip.bounds.height), accuracy: 0.5, "Small stops at the end")
+        QuireEnvironment.shared.setTextSize(.default)
+        window.layoutIfNeeded()
+
+        // The last row wholly on screen, selected: taller rows push it past the bottom, so the list brings it back.
+        scrollTop(to: top, into: 0)
+        let visible = list.tableView.rows(in: list.tableView.visibleRect)
+        let last = try XCTUnwrap((visible.lowerBound..<(visible.upperBound)).last { fullyVisible($0) && list.layout.conversationIndex(atRow: $0) != nil })
+        let index = try XCTUnwrap(list.layout.conversationIndex(atRow: last))
+        list.selectedConversationID = list.conversations[index].id
+        XCTAssertEqual(list.topVisibleRow?.row, top)
+        let before = clip.bounds.minY
+        QuireEnvironment.shared.setTextSize(.larger)
+        window.layoutIfNeeded()
+        XCTAssertTrue(fullyVisible(last), "the selection is brought back into view")
+        XCTAssertGreaterThan(clip.bounds.minY, before, "by scrolling down to it")
+        XCTAssertEqual(list.tableView.rect(ofRow: last).maxY, list.tableView.visibleRect.maxY, accuracy: 1, "and no further than it takes")
+        QuireEnvironment.shared.setTextSize(.default)
+    }
+
     // MARK: The reader
 
     /// Whether every ready shell carries the class, asked of the web views themselves.
@@ -253,6 +342,43 @@ final class TextSizeSettingTests: XCTestCase {
         ListTestSupport.spin(for: 0.05)
         XCTAssertTrue(shells(have: .default), "a new setting sets the reader to it")
         XCTAssertEqual(font(of: reader.header.headlineString)?.pointSize, 24)
+    }
+
+    /// Choosing a Text size while ⌘+ holds the reader at its own size tells the shells once, the new size: never the
+    /// setting's old size on the way, which would measure every body twice. Each broadcast ends once every shell ran it.
+    func testChoosingATextSizeTellsTheReaderOnce() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let settings = harness.settings
+        harness.selectFirst(1)
+        var landed: WKWebView??
+        harness.controller.whenReaderSettles(timeout: 10) { landed = .some($0) }
+        harness.spin(until: { landed != nil })
+        let reader = harness.reader
+        var events: [ConversationViewController.TextSizeEvent] = []
+        reader.onTextSizeEvent = { events.append($0) }
+        defer { reader.onTextSizeEvent = nil }
+
+        XCTAssertTrue(settings.stepReaderTextSize(larger: true))
+        XCTAssertEqual(events.first, .began(.large), "⌘+")
+        ListTestSupport.spin(until: { events.count == 2 }, timeout: 5)
+        XCTAssertEqual(events, [.began(.large), .measured(.large)])
+
+        events = []
+        settings.textSize = .larger
+        ListTestSupport.spin(until: { events.count == 2 }, timeout: 5)
+        ListTestSupport.spin(for: 0.05)
+        XCTAssertEqual(events, [.began(.larger), .measured(.larger)], "one broadcast, at the size chosen")
+        XCTAssertNil(settings.readerTextSize)
+
+        // Back at the size the reader was set to by ⌘+, nothing is broadcast at all.
+        XCTAssertTrue(settings.stepReaderTextSize(larger: false))
+        ListTestSupport.spin(until: { events.count == 4 }, timeout: 5)
+        events = []
+        settings.textSize = .large
+        ListTestSupport.spin(for: 0.05)
+        XCTAssertEqual(events, [], "the reader is at Large already")
+        settings.textSize = .default
     }
 
     /// A shell still loading when the size changes replays a payload built before; the pool then tells it the
@@ -361,6 +487,138 @@ final class TextSizeSettingTests: XCTestCase {
         editor.replaceContents(with: archived)
         XCTAssertEqual(font(of: editor.attributedString())?.pointSize, 16, "the editor's size wins over the draft's")
         XCTAssertEqual((editor.attributedString().attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle)?.minimumLineHeight, 23)
+    }
+
+    /// A switch is not an edit, so the undo stack holds text at the size it was written at: undoing and redoing a ⌘B, a
+    /// quote and a deletion made before a switch bring their text back at the new size, on its line, with its baseline.
+    func testUndoAndRedoAfterASwitchSetTextAtTheNewSize() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let composer = ComposeWindowController(client: harness.environment.engine, account: ListTestSupport.accountA,
+                                               accounts: [ListTestSupport.accountA, ListTestSupport.accountB], mode: .new)
+        defer { composer.closeWithoutSaving() }
+        composer.window?.contentView?.layoutSubtreeIfNeeded()
+        let editor = composer.bodyEditor
+        composer.window?.makeFirstResponder(editor)
+        let original = "Hello there world\nSecond line"
+        editor.replaceContents(with: NSAttributedString(string: original, attributes: ComposeTextView.defaultTypingAttributes))
+        let undo = try XCTUnwrap(editor.undoManager)
+        let manager = NSFontManager.shared
+        func helloIsBold() -> Bool {
+            (editor.attributedString().attribute(.font, at: 0, effectiveRange: nil) as? NSFont).map { manager.traits(of: $0).contains(.boldFontMask) } ?? false
+        }
+        func secondLineIsQuoted() -> Bool {
+            editor.attributedString().attribute(ComposerBlock.attributeKey, at: (editor.string as NSString).length - 1, effectiveRange: nil) != nil
+        }
+
+        // Three steps at Default: “Hello” bold, the second line a quote, “ world” deleted.
+        editor.setSelectedRange(NSRange(location: 0, length: 5))
+        editor.toggleBold(nil)
+        ListTestSupport.spin(for: 0.02)
+        editor.setSelectedRange(NSRange(location: 20, length: 0))
+        editor.toggleBlockQuote(nil)
+        ListTestSupport.spin(for: 0.02)
+        editor.setSelectedRange(NSRange(location: 11, length: 6))
+        editor.delete(nil)
+        ListTestSupport.spin(for: 0.02)
+        XCTAssertEqual(editor.string, "Hello there\nSecond line")
+        XCTAssertTrue(helloIsBold())
+        XCTAssertTrue(secondLineIsQuoted())
+        assertWriting(at: .default, editor.attributedString(), "before the switch")
+
+        harness.settings.textSize = .larger
+        assertWriting(at: .larger, editor.attributedString(), "after the switch")
+        undo.undo()
+        XCTAssertEqual(editor.string, original, "the deletion undone")
+        assertWriting(at: .larger, editor.attributedString(), "the deleted words come back at Larger")
+        undo.undo()
+        XCTAssertFalse(secondLineIsQuoted(), "the quote undone")
+        assertWriting(at: .larger, editor.attributedString(), "the unquoted line comes back on Larger's line")
+        undo.undo()
+        XCTAssertFalse(helloIsBold(), "the bold undone")
+        assertWriting(at: .larger, editor.attributedString(), "the plain word comes back at Larger")
+        XCTAssertFalse(undo.canUndo)
+
+        for _ in 0..<3 { undo.redo() }
+        XCTAssertEqual(editor.string, "Hello there\nSecond line")
+        XCTAssertTrue(helloIsBold())
+        XCTAssertTrue(secondLineIsQuoted())
+        assertWriting(at: .larger, editor.attributedString(), "redone at Larger")
+
+        // Undone at another size again, then typed into: what is typed takes the size too.
+        harness.settings.textSize = .small
+        undo.undo()
+        editor.setSelectedRange(NSRange(location: (editor.string as NSString).length, length: 0))
+        editor.insertText("!", replacementRange: editor.selectedRange())
+        XCTAssertEqual(editor.string, original + "!")
+        assertWriting(at: .small, editor.attributedString(), "undone and typed at Small")
+        harness.settings.textSize = .default
+    }
+
+    /// The quick reply too: an edit made before a switch, undone and redone after it, comes back at the new size.
+    func testTheQuickReplysUndoAfterASwitchKeepsTheNewSize() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        harness.selectFirst(1)
+        harness.spin(until: { !harness.reader.currentMessages.isEmpty })
+        let bar = harness.reader.quickReplyBar
+        let field = try XCTUnwrap(bar.subviews.compactMap { ($0 as? NSScrollView)?.documentView as? NSTextView }.first)
+        bar.focus()
+        field.insertText("Tuesday works for me", replacementRange: NSRange(location: 0, length: 0))
+        ListTestSupport.spin(for: 0.02)
+        field.setSelectedRange(NSRange(location: 8, length: 6))
+        field.delete(nil)
+        ListTestSupport.spin(for: 0.02)
+        XCTAssertEqual(field.string, "Tuesday for me")
+        let undo = try XCTUnwrap(field.undoManager)
+
+        harness.settings.textSize = .larger
+        assertWriting(at: .larger, field.attributedString(), "after the switch")
+        undo.undo()
+        XCTAssertEqual(field.string, "Tuesday works for me")
+        assertWriting(at: .larger, field.attributedString(), "the deleted words come back at Larger")
+        undo.redo()
+        XCTAssertEqual(field.string, "Tuesday for me")
+        assertWriting(at: .larger, field.attributedString(), "redone at Larger")
+        harness.settings.textSize = .default
+        bar.text = ""
+    }
+
+    /// The quick reply at rest, at every size: the bar is 60 pt at Default and a point less or more per step, and the
+    /// face, the R keycap and the Send circle stay centred on the field, so they stay in line (spec §4.15, §5.18).
+    func testTheQuickReplyAtRestStaysInLineAtEverySize() throws {
+        let bar = QuickReplyView(frame: NSRect(x: 0, y: 0, width: 800, height: 60))
+        let window = NSWindow(contentRect: NSRect(x: -20_000, y: -20_000, width: 800, height: 200), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let content = try XCTUnwrap(window.contentView)
+        content.addSubview(bar)
+        NSLayoutConstraint.activate([
+            bar.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            bar.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            bar.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+        ])
+        let m = Quire.Layout.QuickReply.self
+        for size in [QuireFont.TextSize.default, .small, .large, .larger] {
+            QuireEnvironment.shared.setTextSize(size)
+            window.layoutIfNeeded()
+            let step = QuireFont.Role.writing.step(at: size)
+            XCTAssertEqual(bar.barHeight, m.rest + step, "\(size): the bar")
+            XCTAssertEqual(bar.frame.height, m.rest + step, "\(size)")
+            let geometry = bar.restGeometry
+            XCTAssertEqual(geometry.field.height, m.field + step, "\(size): the field")
+            let middle = geometry.field.midY
+            XCTAssertEqual(geometry.send.midY, middle, accuracy: 0.5, "\(size): Send on the field's centre")
+            XCTAssertEqual(geometry.keycap.midY, geometry.send.midY, "\(size): the keycap in line with Send")
+            XCTAssertEqual(geometry.face.midY, middle, accuracy: 0.5, "\(size): the face")
+            XCTAssertEqual(geometry.send.maxX, geometry.field.maxX - m.restSendInset, "\(size): Send's trailing inset")
+            if size == .default {
+                XCTAssertEqual(geometry.send.minY - geometry.field.minY, m.restSendInset, "spec §5.18 at Default")
+                XCTAssertEqual(geometry.face.minY - geometry.field.minY, m.faceTop)
+            }
+        }
+        QuireEnvironment.shared.setTextSize(.default)
     }
 
     // MARK: Settings

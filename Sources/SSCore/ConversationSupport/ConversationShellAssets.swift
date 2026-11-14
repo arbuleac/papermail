@@ -174,12 +174,13 @@ public enum ConversationShellAssets {
     .ss-tint-6 { --ss-face: var(--q-av-rose-face); --ss-avink: var(--q-av-rose-ink); }
     .ss-tint-7 { --ss-face: var(--q-av-stone-face); --ss-avink: var(--q-av-stone-ink); }
 
-    /* The open sheet (spec §5.14): padding 22 28 14 (16 at the sides below 560 pt). */
+    /* The open sheet (spec §5.14): padding 22 28 14 (16 at the sides below 560 pt). The header's boxes are sized for
+       Default's lines and grow with their role's step at the reader's Text size (`--q-step-*`, spec §4.15). */
     .ss-inner { padding: 22px var(--ss-pad-x) 14px; }
     .ss-head { display: flex; gap: 12px; align-items: flex-start; }
     .ss-who { flex: 1; min-width: 0; }
     .ss-nl {
-      display: flex; align-items: center; min-width: 0; height: 18px; white-space: nowrap;
+      display: flex; align-items: center; min-width: 0; height: calc(18px + var(--q-step-bodyStrong, 0px)); white-space: nowrap;
       font: var(--q-font-bodyStrong); color: var(--q-ink);
     }
     .ss-name { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
@@ -198,7 +199,7 @@ public enum ConversationShellAssets {
        line's text; it never shrinks, the name truncates first. */
     .ss-unsub {
       flex: none; margin-left: 6px; padding: 0; border: 0; background: none; border-radius: 3px;
-      font: var(--q-font-snippet); line-height: 16px; color: var(--q-ink2);
+      font: var(--q-font-snippet); line-height: calc(16px + var(--q-step-snippet, 0px)); color: var(--q-ink2);
       text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px;
     }
     .ss-unsub:hover, .ss-unsub:active { color: var(--q-ink); }
@@ -208,7 +209,7 @@ public enum ConversationShellAssets {
     .ss-unsub + .ss-addr { flex-shrink: 1000; }
     .ss-rc {
       display: block; max-width: 100%; padding: 0; border: 0; background: none; border-radius: 3px; text-align: start;
-      font: var(--q-font-snippet); line-height: 16px; color: var(--q-ink2);
+      font: var(--q-font-snippet); line-height: calc(16px + var(--q-step-snippet, 0px)); color: var(--q-ink2);
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
     .ss-rc:focus-visible, .ss-rcx:focus-visible { box-shadow: 0 0 0 1px var(--q-sheet), 0 0 0 calc(1px + var(--ss-ring)) var(--q-focus); }
@@ -220,8 +221,8 @@ public enum ConversationShellAssets {
     .ss-person .ss-pad { color: var(--q-ink3); }
     .ss-more { padding: 0; border: 0; background: none; font: var(--q-font-snippet); color: var(--q-ink2); text-decoration: underline; text-underline-offset: 2px; }
     .ss-meta {
-      flex: none; display: flex; align-items: center; height: 18px;
-      font: var(--q-font-snippet); line-height: 18px; font-variant-numeric: tabular-nums; color: var(--q-ink3);
+      flex: none; display: flex; align-items: center; height: calc(18px + var(--q-step-snippet, 0px));
+      font: var(--q-font-snippet); line-height: calc(18px + var(--q-step-snippet, 0px)); font-variant-numeric: tabular-nums; color: var(--q-ink3);
     }
     .ss-hacts { display: flex; gap: 2px; margin: -3px 8px -3px 0; }
     .ss-hacts:empty { display: none; }
@@ -271,7 +272,7 @@ public enum ConversationShellAssets {
     .ss-banner {
       display: flex; align-items: center; gap: 8px; min-height: 32px; margin-bottom: 12px; padding: 0 6px 0 10px;
       border-radius: var(--q-r-md); background: var(--q-fill); color: var(--q-ink);
-      font: var(--q-font-snippet); line-height: 16px;
+      font: var(--q-font-snippet); line-height: calc(16px + var(--q-step-snippet, 0px));
     }
     .ss-frame .ss-banner { margin: 0; }
     .ss-banner > .ss-sym { font-size: 14px; color: var(--q-ink2); }
@@ -352,7 +353,7 @@ public enum ConversationShellAssets {
     .ss-irep { margin-top: 2px; font: var(--q-font-snippet); letter-spacing: var(--q-track-snippet); color: var(--q-ink2); }
     .ss-idet {
       margin: 8px 0 0; display: grid; grid-template-columns: 72px minmax(0, 1fr); row-gap: 2px;
-      font: var(--q-font-snippet); letter-spacing: var(--q-track-snippet); line-height: 16px;
+      font: var(--q-font-snippet); letter-spacing: var(--q-track-snippet); line-height: calc(16px + var(--q-step-snippet, 0px));
     }
     .ss-idet dt { color: var(--q-ink3); }
     .ss-idet dd { margin: 0; color: var(--q-ink2); overflow-wrap: anywhere; }
@@ -475,7 +476,7 @@ public enum ConversationShellAssets {
     @media (max-width: 615px) { .ss-foot .ss-kbd { display: none !important; } }
 
     /* Drafts (spec §5.19). */
-    .ss-dhead { display: flex; align-items: baseline; gap: 12px; font: var(--q-font-snippet); line-height: 16px; }
+    .ss-dhead { display: flex; align-items: baseline; gap: 12px; font: var(--q-font-snippet); line-height: calc(16px + var(--q-step-snippet, 0px)); }
     .ss-dto { flex: 1; min-width: 0; color: var(--q-ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .ss-ddate { flex: none; color: var(--q-ink3); font-variant-numeric: tabular-nums; }
     .ss-draft .ss-foot { gap: 8px; }

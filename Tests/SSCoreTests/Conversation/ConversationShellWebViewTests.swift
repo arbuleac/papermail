@@ -586,15 +586,20 @@ final class ConversationShellWebViewTests: XCTestCase {
         _ = try await evaluate("window.ss.render(\(try payload.jsonString())); window.ss.expandAll()", in: webView)
         try await waitForFramedCards(in: webView)
         let probe = "(function () { var f = document.querySelectorAll('.ss-card iframe'); var name = document.querySelector('.ss-name');"
+            + " var nl = document.querySelector('.ss-nl'), rc = document.querySelector('.ss-rc'), meta = document.querySelector('.ss-meta');"
             + " return [document.documentElement.className, f[0].contentDocument.documentElement.className,"
             + " getComputedStyle(f[0].contentDocument.body).fontSize, getComputedStyle(f[0].contentDocument.body).lineHeight,"
             + " getComputedStyle(f[1].contentDocument.querySelector('p')).fontSize, name ? getComputedStyle(name).fontSize : '',"
-            + " f[0].getBoundingClientRect().height]; })()"
+            + " f[0].getBoundingClientRect().height, nl ? getComputedStyle(nl).height : '', rc ? getComputedStyle(rc).lineHeight : '',"
+            + " meta ? getComputedStyle(meta).height : '']; })()"
         let before = try await evaluate(probe, in: webView) as? [Any]
         XCTAssertFalse((before?[0] as? String ?? "").contains("ss-text-"), "Default has no class")
         XCTAssertEqual(before?[2] as? String, "15px")
         XCTAssertEqual(before?[3] as? String, "24px")
         XCTAssertEqual(before?[4] as? String, "13px")
+        XCTAssertEqual(before?[7] as? String, "18px", "the name line's box at Default")
+        XCTAssertEqual(before?[8] as? String, "16px", "the recipients line at Default")
+        XCTAssertEqual(before?[9] as? String, "18px", "the date's box at Default")
 
         _ = try await evaluate("window.ss.preferences({readingSans: false, textSize: 'larger', colorsNoticeDismissed: false})", in: webView)
         try await Task.sleep(nanoseconds: 150_000_000)
@@ -607,6 +612,9 @@ final class ConversationShellWebViewTests: XCTestCase {
         if let a = before?[5] as? String, let b = larger?[5] as? String, !a.isEmpty {
             XCTAssertEqual((Double(b.dropLast(2)) ?? 0) - (Double(a.dropLast(2)) ?? 0), 2, "the sheet's header steps too")
         }
+        XCTAssertEqual(larger?[7] as? String, "20px", "the name line's box grows with bodyStrong, so the name fits it")
+        XCTAssertEqual(larger?[8] as? String, "18px", "the recipients line grows with snippet")
+        XCTAssertEqual(larger?[9] as? String, "20px", "and the date's box")
         let grew = (larger?[6] as? Double ?? 0) > (before?[6] as? Double ?? 0)
         XCTAssertTrue(grew, "the plain body was measured again: \(String(describing: before?[6])) → \(String(describing: larger?[6]))")
 
@@ -615,6 +623,8 @@ final class ConversationShellWebViewTests: XCTestCase {
         XCTAssertTrue((small?[0] as? String ?? "").contains("ss-text-small"))
         XCTAssertFalse((small?[0] as? String ?? "").contains("ss-text-larger"), "one size at a time")
         XCTAssertEqual(small?[2] as? String, "14px")
+        XCTAssertEqual(small?[7] as? String, "17px", "the boxes shrink by the step at Small")
+        XCTAssertEqual(small?[8] as? String, "15px")
 
         // A payload carries the size: rendering one built at Default takes the class off again.
         let plainOnly = F.builder.build(messages: [plain], bodies: [plain.id: plainBody], accounts: F.accounts, textSize: "default")

@@ -50,7 +50,8 @@ final class QuireCSSTests: XCTestCase {
     }
 
     /// Text size (spec §4.15): one class per size but Default, each redefining every type shorthand of the head with
-    /// size and line height moved by the step, held at 11 pt; tracking, weight and family stay.
+    /// size and line height moved by the step, held at 11 pt; tracking, weight and family stay. Each role's step is a
+    /// variable of its own (`--q-step-<role>`), which the shell's fixed boxes add to their Default heights.
     func testTextSizesMoveEveryTypeVariableByTheStep() throws {
         let head = Dictionary(uniqueKeysWithValues: variables(QuireCSS.head.components(separatedBy: "\n")).flatMap { $0 }
             .filter { $0.0.hasPrefix("--q-font-") })
@@ -68,10 +69,13 @@ final class QuireCSSTests: XCTestCase {
             for (name, value) in head {
                 let base = try parts(value)
                 let step = max(delta, min(0, 11 - base.size))
+                let stepName = "--q-step-" + name.dropFirst("--q-font-".count)
                 guard step != 0 else {
                     XCTAssertNil(sized[name], "\(name) at \(delta): a role the step leaves alone is not repeated")
+                    XCTAssertNil(sized[stepName], "\(stepName) at \(delta)")
                     continue
                 }
+                XCTAssertEqual(sized[stepName], "\(Int(step))px", "\(stepName) at \(delta)")
                 let moved = try parts(try XCTUnwrap(sized[name], "\(name) at \(delta)"))
                 XCTAssertEqual(moved.size, base.size + step, "\(name) at \(delta)")
                 XCTAssertEqual(moved.line, base.line + step, "\(name) at \(delta)")
@@ -80,6 +84,12 @@ final class QuireCSSTests: XCTestCase {
             }
         }
         XCTAssertTrue(ConversationShellAssets.css.contains(QuireCSS.textSizes), "the shell carries every size")
+        let names = Set(head.keys.map { "--q-step-" + $0.dropFirst("--q-font-".count) })
+        for line in lines {
+            for (name, _) in variables([line])[0] where name.hasPrefix("--q-step-") {
+                XCTAssertTrue(names.contains(name), "\(name) steps a role of the head")
+            }
+        }
     }
 
     func testHeadCoversEveryVariableFamily() {

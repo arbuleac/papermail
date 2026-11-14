@@ -126,8 +126,11 @@ final class AppSettings: ObservableObject {
     @Published var textSize: QuireFont.TextSize {
         didSet {
             defaults.set(textSize.rawValue, forKey: Key.textSize)
-            if oldValue != textSize { readerTextSize = nil }
+            // Quire first, the reader's own size after: the other way round, the reader would hear the reset while
+            // Quire still held the old size, broadcast that and measure every body at a size nobody chose, then
+            // measure them all again at the new one.
             applyTextSize()
+            if oldValue != textSize { readerTextSize = nil }
         }
     }
 

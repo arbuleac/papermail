@@ -87,6 +87,7 @@ final class ComposeTextView: NSTextView {
         ownedStorage = storage
         super.init(frame: frame, textContainer: container)
         configure()
+        storage.delegate = self
         NotificationCenter.default.addObserver(self, selector: #selector(environmentDidChange(_:)),
                                                name: QuireEnvironment.didChangeNotification, object: nil)
     }
@@ -206,15 +207,16 @@ final class ComposeTextView: NSTextView {
     /// Sets everything the editor holds at `textSize` (spec §4.15). The body holds one size of text, `writing`, so
     /// every run takes the new size with its own traits (bold, italic), every paragraph the new line (indents, lists
     /// and quotes kept) and every baseline the new offset; links, underlines, inks, the signature's mark and the
-    /// selection stay. Not an edit: nothing goes on the undo stack.
+    /// selection stay. Not an edit: nothing goes on the undo stack, and what an undo or a redo brings back later is
+    /// set at the size then (`textStorage(_:didProcessEditing:range:changeInLength:)`).
     private func setTextSize(_ newSize: QuireFont.TextSize) {
         guard newSize != textSize else { return }
         textSize = newSize
         // Not `font =`, which would set the whole text in one face and drop its bold and italic runs.
         if let storage = textStorage { Self.setTextSize(newSize, of: storage) }
         var typing = typingAttributes
-        if let typed = typing[.font] as? NSFont { typing[.font] = Self.resized(typed, to: newSize) }
-        if let style = typing[.paragraphStyle] as? NSParagraphStyle { typing[.paragraphStyle] = Self.relined(style, to: newSize) }
+        if let typed = typing[.font] as? NSFont { typing[.font] = WritingTextSize.resized(typed, to: newSize) }
+        if let style = typing[.paragraphStyle] as? NSParagraphStyle { typing[.paragraphStyle] = WritingTextSize.relined(style, to: newSize) }
         typing[.baselineOffset] = QuireFont.baselineOffset(Self.bodyRole, textSize: newSize)
         typingAttributes = typing
         invalidateIntrinsicContentSize()
@@ -223,41 +225,7 @@ final class ComposeTextView: NSTextView {
 
     /// `storage`'s fonts, lines and baselines at `textSize`, whatever size they were set at.
     static func setTextSize(_ textSize: QuireFont.TextSize, of storage: NSTextStorage) {
-        let whole = NSRange(location: 0, length: storage.length)
-        guard whole.length > 0 else { return }
-        let offset = QuireFont.baselineOffset(bodyRole, textSize: textSize)
-        storage.beginEditing()
-        storage.enumerateAttribute(.font, in: whole, options: []) { value, range, _ in
-            guard let font = value as? NSFont else { return }
-            storage.addAttribute(.font, value: resized(font, to: textSize), range: range)
-        }
-        storage.enumerateAttribute(.paragraphStyle, in: whole, options: []) { value, range, _ in
-            guard let style = value as? NSParagraphStyle else { return }
-            storage.addAttribute(.paragraphStyle, value: relined(style, to: textSize), range: range)
-        }
-        storage.enumerateAttribute(.baselineOffset, in: whole, options: []) { value, range, _ in
-            guard value != nil else { return }
-            storage.addAttribute(.baselineOffset, value: offset, range: range)
-        }
-        storage.endEditing()
-    }
-
-    /// The same face at the writing size. From its descriptor, not `NSFontManager.convert(_:toSize:)`, which sets the
-    /// system font's bold back to regular.
-    private static func resized(_ font: NSFont, to textSize: QuireFont.TextSize) -> NSFont {
-        let size = bodyRole.size(at: textSize)
-        return font.pointSize == size ? font : NSFont(descriptor: font.fontDescriptor, size: size) ?? font
-    }
-
-    /// A paragraph style on the writing line at `textSize`; one set on another line (none in a composer) is left alone.
-    private static func relined(_ style: NSParagraphStyle, to textSize: QuireFont.TextSize) -> NSParagraphStyle {
-        let line = bodyRole.lineHeight(at: textSize)
-        let lines = Set(QuireFont.TextSize.allCases.map { bodyRole.lineHeight(at: $0) })
-        guard style.minimumLineHeight != line, lines.contains(style.minimumLineHeight),
-              let copy = style.mutableCopy() as? NSMutableParagraphStyle else { return style }
-        copy.minimumLineHeight = line
-        copy.maximumLineHeight = line
-        return copy
+        WritingTextSize.apply(textSize, to: storage)
     }
 
     // MARK: Geometry
@@ -1020,6 +988,20 @@ final class ComposeTextView: NSTextView {
         let info = paragraphInfo(at: selection.location)
         if let marker = info.markerRange, selection.location < NSMaxRange(marker) {
             setSelectedRange(NSRange(location: NSMaxRange(marker), length: 0))
+        }
+    }
+}
+
+extension ComposeTextView: NSTextStorageDelegate {
+    /// Every edit, an undo or a redo included, leaves what it touched at the editor's Text size (spec §4.15). A switch
+    /// is not an edit, so the undo stack still holds text at the size it was written at: without this, undoing a
+    /// deletion or a ⌘B made before a switch would bring that text back at the old size and on the old line. Changing
+    /// attributes here is allowed; the layout managers hear of the edit after it.
+    nonisolated func textStorage(_ textStorage: NSTextStorage, didProcessEditing editedMask: NSTextStorageEditActions,
+                                 range editedRange: NSRange, changeInLength delta: Int) {
+        guard Thread.isMainThread else { return }
+        MainActor.assumeIsolated {
+            _ = WritingTextSize.apply(textSize, to: textStorage, in: editedRange)
         }
     }
 }
