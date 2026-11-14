@@ -110,6 +110,36 @@ def row_compact(sender, subject, snippet, time, acct=None, unread=False, state='
             '<div class="l2"><span class="sub">%s</span><span class="sn">\u00a0— %s</span><span class="cl">%s</span></div></div>') % (
         'unread' if unread else '', st, ring, '<i class="pip"></i>' if unread else '', html.escape(sender),
         (('<span class="atile" style="--a:%s">%s</span>' % (ring, acct)) if initial_tile else '<i class="asq"></i>') if acct else '', time, html.escape(subject), html.escape(snippet), cl)
+def theme_tiles(chosen='study'):
+    """Settings › Appearance › Theme (§5.40): the five tiles, each picture the main window drawn in its theme's variables
+    (the Themes band's scopes) for the page's appearance; both sets are written and one is shown. The edge is the
+    window's `ruleStrong`, not the pictured theme's. The chosen name is `labelStrong` `ink` with the `selRule` bar."""
+    import themes_def as TD
+    S = T.LAYOUT['settings']
+    w, h = S['themeTile']
+    inset, pip, line = S['themeTileInset'], S['themeTilePip'], S['themeTileLine']
+    list_x, paper = S['themeTileSpine'], S['themeTilePaper']
+    list_line_x = list_x + inset / 2 + pip + inset / 2
+    list_line_w = list_x + paper - inset / 2 - list_line_x
+    sheet_x = list_x + paper + inset
+    sheet_w = w - sheet_x - inset
+    text_x, text_w = sheet_x + inset, sheet_w - 2 * inset
+    first = inset + inset + line / 2
+    def bar(colour, x, centre, width):
+        return '<i style="left:%gpx;top:%gpx;width:%gpx;background:var(--q-%s)"></i>' % (x, centre - line / 2, width, colour)
+    picture = ('<b class="tts" style="width:%gpx"></b><b class="ttl" style="left:%gpx;width:%gpx"></b>' % (list_x, list_x, paper)
+               + '<b class="ttpip" style="left:%gpx;top:%gpx;width:%gpx;height:%gpx"></b>' % (list_x + inset / 2, inset, pip, pip)
+               + bar('ink3', list_line_x, inset + pip / 2, list_line_w) + bar('ink3', list_line_x, inset + pip / 2 + 2 * pip, list_line_w * 0.75)
+               + '<b class="ttsh" style="left:%gpx;top:%gpx;width:%gpx;height:%gpx"></b>' % (sheet_x, inset, sheet_w, h)
+               + bar('ink', text_x, first, text_w) + bar('ink', text_x, first + pip, text_w * 0.75) + bar('accent', text_x, first + 3 * pip, text_w * 0.5))
+    sets = []
+    for mode in ('light', 'dark'):
+        tiles = ''.join('<span class="tt"><span class="tte"><span class="ttp tb-%s-%s">%s</span></span><span class="ttn%s">%s</span></span>' % (
+            th['id'], mode, picture, ' on' if th['id'] == chosen else '', th['name']) for th in TD.THEMES)
+        sets.append('<span class="ttiles %s">%s</span>' % (mode, tiles))
+    caption = next(th['caption'] for th in TD.THEMES if th['id'] == chosen)
+    return ''.join(sets) + '<span class="ttcap">%s</span>' % html.escape(caption)
+
 def running_head(label):
     return '<div class="rhead"><span>%s</span><i></i></div>' % label
 

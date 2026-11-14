@@ -128,7 +128,7 @@
     <div class="win" style="width:{{layout.settings.width}}px;height:630px;background:var(--q-canvas);margin:0 auto 0 0;display:inline-block;vertical-align:top">
       <div class="lights t8" style="top:10px"><i></i><i></i><i></i></div>
       <div style="height:30px;text-align:center;font:600 13px/30px var(--q-sans);color:var(--q-ink2)">Accounts</div>
-      <div class="stabs"><span class="on">{{PY: s('person.crop.circle', 20)}}<b>Accounts</b></span><span>{{PY: s('key', 20)}}<b>OAuth</b></span><span>{{PY: s('gearshape', 20)}}<b>General</b></span></div>
+      <div class="stabs"><span class="on">{{PY: s('person.crop.circle', 20)}}<b>Accounts</b></span><span>{{PY: s('key', 20)}}<b>OAuth</b></span><span>{{PY: s('gearshape', 20)}}<b>General</b></span><span>{{PY: s('paintpalette', 20)}}<b>Appearance</b></span></div>
       <div style="padding:{{layout.settings.padTop}}px {{layout.settings.padX}}px {{layout.settings.padBottom}}px">
         <div class="sgroup">
           <div class="arow sel"><span class="face" style="--a:var(--q-acct-1);--fg:var(--q-selWash)"><span>C</span></span><div class="an"><b><span class="nmx">Contoso</span><span class="tag">Microsoft 365</span></b><i>alex@contoso.test</i></div><span class="ast">{{PY: s('checkmark.circle.fill', 12)}}Up to date</span></div>
@@ -145,13 +145,12 @@
         </div>
       </div>
     </div>
-    <div class="win" style="width:{{layout.settings.width}}px;height:786px;background:var(--q-canvas);display:inline-block;vertical-align:top;margin-left:20px">
+    <div class="win" style="width:{{layout.settings.width}}px;height:746px;background:var(--q-canvas);display:inline-block;vertical-align:top;margin-left:20px">
       <div class="lights t8" style="top:10px"><i></i><i></i><i></i></div>
       <div style="height:30px;text-align:center;font:600 13px/30px var(--q-sans);color:var(--q-ink2)">General</div>
-      <div class="stabs"><span>{{PY: s('person.crop.circle', 20)}}<b>Accounts</b></span><span>{{PY: s('key', 20)}}<b>OAuth</b></span><span class="on">{{PY: s('gearshape', 20)}}<b>General</b></span></div>
+      <div class="stabs"><span>{{PY: s('person.crop.circle', 20)}}<b>Accounts</b></span><span>{{PY: s('key', 20)}}<b>OAuth</b></span><span class="on">{{PY: s('gearshape', 20)}}<b>General</b></span><span>{{PY: s('paintpalette', 20)}}<b>Appearance</b></span></div>
       <div style="padding:{{layout.settings.padTop}}px {{layout.settings.padX}}px {{layout.settings.padBottom}}px">
         <div class="sform">
-          <span>Font</span><span class="pop">New York {{PY: s('chevron.up.chevron.down', 11)}}</span>
           <span>List density</span><span class="rowline" style="gap:16px"><span class="rowline" style="gap:8px"><span class="cb rad on"></span>Standard</span><span class="rowline" style="gap:8px"><span class="cb rad"></span>Compact</span></span>
           <span>Rows</span><span class="rowline" style="gap:8px"><span class="cb"></span>Show account initials in unified views</span>
           <span>Undo send</span><span class="pop">5 seconds {{PY: s('chevron.up.chevron.down', 11)}}</span>
@@ -174,7 +173,7 @@
     <div class="win" style="width:{{layout.settings.width}}px;height:476px;background:var(--q-canvas);flex:none">
       <div class="lights t8" style="top:10px"><i></i><i></i><i></i></div>
       <div style="height:30px;text-align:center;font:600 13px/30px var(--q-sans);color:var(--q-ink2)">OAuth</div>
-      <div class="stabs"><span>{{PY: s('person.crop.circle', 20)}}<b>Accounts</b></span><span class="on">{{PY: s('key', 20)}}<b>OAuth</b></span><span>{{PY: s('gearshape', 20)}}<b>General</b></span></div>
+      <div class="stabs"><span>{{PY: s('person.crop.circle', 20)}}<b>Accounts</b></span><span class="on">{{PY: s('key', 20)}}<b>OAuth</b></span><span>{{PY: s('gearshape', 20)}}<b>General</b></span><span>{{PY: s('paintpalette', 20)}}<b>Appearance</b></span></div>
       <div style="padding:{{layout.settings.padTop}}px {{layout.settings.padX}}px {{layout.settings.padBottom}}px">
         <div class="oform">
           <div class="st">Google</div>
@@ -189,6 +188,25 @@
       </div>
     </div>
     <p class="ann" style="max-width:420px;margin-top:4px">OAuth (§5.40), row by row: Google Client ID and Client secret (a secure field), Microsoft Client ID and Tenant (placeholder “common”), all <code>mono</code>, {{layout.settings.fieldHeight}} pt high and {{layout.settings.fieldWidth}} pt wide, filling to the content padding. The caption is <code>meta</code> <code>ink3</code>, at most {{layout.settings.captionMaxWidth}} pt wide. “Saved” is a status {{layout.settings.savedGap}} pt before Save, which goes quiet again until a field changes; it is not a banner. Account rows show every sync phase in the words of the sync line: up to date, downloading with its {{layout.settings.statusBarWidth}} pt bar, retrying, sign in required. Rows take no hover or pressed wash.</p>
+    </div>
+    <div style="display:flex;gap:20px;align-items:flex-start;margin-top:20px">
+    <div class="win" style="width:{{layout.settings.width}}px;height:502px;background:var(--q-canvas);flex:none">
+      <div class="lights t8" style="top:10px"><i></i><i></i><i></i></div>
+      <div style="height:30px;text-align:center;font:600 13px/30px var(--q-sans);color:var(--q-ink2)">Appearance</div>
+      <div class="stabs"><span>{{PY: s('person.crop.circle', 20)}}<b>Accounts</b></span><span>{{PY: s('key', 20)}}<b>OAuth</b></span><span>{{PY: s('gearshape', 20)}}<b>General</b></span><span class="on">{{PY: s('paintpalette', 20)}}<b>Appearance</b></span></div>
+      <div style="padding:{{layout.settings.padTop}}px {{layout.settings.padX}}px {{layout.settings.padBottom}}px">
+        <div class="sform">
+          <span style="align-self:start;line-height:{{layout.settings.themeTile.1}}px">Theme</span><span style="display:block">{{PY: theme_tiles()}}</span>
+          <span>Appearance</span><span class="rowline" style="gap:16px"><span class="rowline" style="gap:8px"><span class="cb rad on"></span>Automatic</span><span class="rowline" style="gap:8px"><span class="cb rad"></span>Light</span><span class="rowline" style="gap:8px"><span class="cb rad"></span>Dark</span></span>
+          <span>Dark Mode</span><span class="rowline" style="gap:8px"><span class="cb on">{{PY: s('checkmark', 9)}}</span>Adapt mail that sets its own colours</span>
+          <span></span><span class="ann" style="margin-top:-6px;max-width:{{layout.settings.captionMaxWidth}}px">Off: it opens in the sender’s colours, on a white page. ⇧⌘O switches one message.</span>
+          <i class="hr"></i><i class="hr"></i>
+          <span>Font</span><span class="pop">New York {{PY: s('chevron.up.chevron.down', 11)}}</span>
+          <span>Text size</span><span class="pop">Default {{PY: s('chevron.up.chevron.down', 11)}}</span>
+        </div>
+      </div>
+    </div>
+    <p class="ann" style="max-width:420px;margin-top:4px">Appearance (§5.40, §4.16), the fourth tab. Theme: five tiles in a row at the field column, {{layout.settings.themeTileGap}} pt apart, each the main window at {{layout.settings.themeTile.0}} × {{layout.settings.themeTile.1}} pt drawn in its own theme for the current appearance, its name {{layout.settings.themeNameGap}} pt below in <code>label</code>. The chosen name is <code>labelStrong</code> <code>ink</code> with a {{layout.settings.themeUnderline}} pt <code>selRule</code> bar {{layout.settings.themeUnderlineGap}} pt below it (<code>selRuleIdle</code> while Settings is not key), never a ring: a ring is the focus ring’s alone, and it goes round the chosen tile while the group has focus. The chosen theme’s caption sits under the tiles with two lines kept, so a choice never moves the rows below. Appearance is a radio group; Dark Mode is disabled, its caption kept, under Light. Font and Text size moved here from General.</p>
     </div>
     <p class="ann" style="margin-top:10px">Settings {{layout.settings.width}} pt wide. The toolbar and its tabs are system chrome (drawn here for reference); everything below them is Quire-drawn. Rows {{layout.settings.row}} pt ({{layout.settings.accountRow}} pt for accounts); the selected account carries the {{border.marginRule.width}} pt margin rule on <code>selWash</code>; account hairlines start at the text column (x = {{layout.settings.accountHairlineX}}); labels right-aligned in a {{layout.settings.labelColumn}} pt column; +/− are {{layout.settings.plusMinus}} pt squares. The account's Signature is the composer's own editor in a {{layout.settings.fieldWidth}} × {{layout.settings.signatureFieldHeight}} pt field, {{layout.settings.signatureLines}} <code>writing</code> lines that scroll past that, its label level with the first line. Toggle knobs carry a {{layout.toggle.knobEdge}} pt <code>ruleStrong</code> edge; the focused toggle shows the ring outside a {{border.focusRing.gapOnAccentFill}} pt gap because its track is an accent fill.</p>
   </div>

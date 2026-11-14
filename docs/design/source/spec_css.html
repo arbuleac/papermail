@@ -389,6 +389,23 @@ code{font:11px/14px var(--q-mono)}
 .sform > span:nth-child(odd){text-align:right}
 .sform > span:nth-child(even){justify-self:start}
 .sform .hr{height:1px;background:var(--q-rule);margin:2px 0}
+/* Settings › Appearance › Theme (§5.40): the tiles, drawn in each theme's variables for the page's appearance */
+.ttiles{display:flex;gap:{{layout.settings.themeTileGap}}px;height:{{layout.settings.themeRow}}px;align-items:flex-start}
+.ttiles.dark{display:none}
+@media (prefers-color-scheme:dark){.ttiles.light{display:none}.ttiles.dark{display:flex}}
+.tt{display:flex;flex-direction:column;align-items:center;gap:{{layout.settings.themeNameGap}}px;width:{{layout.settings.themeTile.0}}px}
+.tte{position:relative;width:{{layout.settings.themeTile.0}}px;height:{{layout.settings.themeTile.1}}px;border-radius:{{radius.md}}px}
+.tte::after{content:'';position:absolute;inset:0;border-radius:inherit;box-shadow:inset 0 0 0 1px var(--q-ruleStrong)}
+.ttp{position:absolute;inset:0;border-radius:inherit;overflow:hidden;background:var(--q-canvas)}
+.ttp b,.ttp i{position:absolute;display:block}
+.ttp .tts{left:0;top:0;bottom:0;background:var(--q-spine)}
+.ttp .ttl{top:0;bottom:0;background:var(--q-paper)}
+.ttp .ttpip{border-radius:50%;background:var(--q-accent)}
+.ttp .ttsh{border-radius:{{radius.xs}}px;background:var(--q-sheet);box-shadow:inset 0 0 0 1px var(--q-rule)}
+.ttp i{height:{{layout.settings.themeTileLine}}px;border-radius:1px}
+.ttn{font:var(--q-font-label);color:var(--q-ink2);padding-bottom:{{layout.settings.themeUnderlineGap}}px;border-bottom:{{layout.settings.themeUnderline}}px solid transparent}
+.ttn.on{font:var(--q-font-labelStrong);color:var(--q-ink);border-bottom-color:var(--q-selRule)}
+.ttcap{display:block;width:{{layout.settings.captionMaxWidth}}px;height:calc({{layout.settings.themeCaptionLines}} * {{typography.meta.lineHeight}}px);font:var(--q-font-meta);color:var(--q-ink3)}
 .sform.det{margin-top:{{layout.settings.detailTop}}px;grid-auto-rows:{{layout.settings.detailRow}}px;row-gap:0}
 
 /* ----- component sheet ----- */
