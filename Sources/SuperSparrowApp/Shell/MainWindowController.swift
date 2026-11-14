@@ -301,16 +301,17 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             readerWindows.first { $0.conversation === source }
         }
         let windowConversation = fromWindow?.conversationID
-        weak var windowReader = fromWindow?.conversation
+        weak let windowReader = fromWindow?.conversation
+        weak let controller = self
         let record = {
-            self.recordExternalUndo(command: SendLaterCopy.command, toast: SendLaterCopy.sends(time), symbol: Quire.Icon.later) { [weak self] in
+            self.recordExternalUndo(command: SendLaterCopy.command, toast: SendLaterCopy.sends(time), symbol: Quire.Icon.later) {
                 scheduled.undo()
                 // Its window has closed since (⌘W keeps no frame for an undo to open it again at): the reply's text is
                 // parked under its conversation, so a reader showing that conversation takes it, or the main window's
                 // says it was not sent; otherwise nothing on screen would show the undo.
-                guard let self, let id = windowConversation else { return }
-                if let open = windowReader, self.readerWindows.contains(where: { $0.conversation === open }) { return }
-                self.handUnsentQuickReply(under: id)
+                guard let controller, let id = windowConversation else { return }
+                if let open = windowReader, controller.readerWindows.contains(where: { $0.conversation === open }) { return }
+                controller.handUnsentQuickReply(under: id)
             }
         }
         // A reader window's quick reply scheduled it: the step is that window's, so its toast and its undo's confirmation
