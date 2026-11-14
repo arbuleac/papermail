@@ -2161,6 +2161,10 @@ public enum ConversationShellAssets {
       // block's edge as a break no match crosses. A body with no frame is read from its HTML through DOMParser, whose
       // document runs nothing and loads nothing, by the same walk, so the count never changes as frames come and go.
       var find = { query: '', needle: '', matches: [], index: -1, scrollPending: false };
+      // A typed search opens what hides its current match only once typing has rested this long, so the prefixes typed
+      // on the way to the words wanted open nothing.
+      var FIND_REST_MS = 300;
+      var findRest = null;
       var FIND_BLOCKS = {
         ADDRESS: 1, ARTICLE: 1, ASIDE: 1, BLOCKQUOTE: 1, BR: 1, CAPTION: 1, CENTER: 1, DD: 1, DETAILS: 1, DIV: 1, DL: 1, DT: 1,
         FIELDSET: 1, FIGCAPTION: 1, FIGURE: 1, FOOTER: 1, FORM: 1, H1: 1, H2: 1, H3: 1, H4: 1, H5: 1, H6: 1, HEADER: 1, HR: 1,
@@ -2168,11 +2172,13 @@ public enum ConversationShellAssets {
         THEAD: 1, TR: 1, UL: 1
       };
       var FIND_SKIP = { HEAD: 1, SCRIPT: 1, STYLE: 1, TEMPLATE: 1, TITLE: 1, TEXTAREA: 1, SELECT: 1, OPTION: 1, SVG: 1, svg: 1 };
-      // Text a sender hides with the element's own style (preheaders, mostly) is never a match. Hiding by a stylesheet rule
-      // cannot be told from the HTML, so such text still counts.
-      var FIND_HIDDEN = /display\s*:\s*none|visibility\s*:\s*hidden|max-height\s*:\s*0(?![\d.])|font-size\s*:\s*0(?![\d.])|opacity\s*:\s*0(?![\d.])/i;
+      // A font size taken from the parent's: 0 × 1.2em is still 0.
+      var FIND_RELATIVE_SIZE = /^(?:[+-]?[\d.]+(?:e[+-]?\d+)?(?:%|em|ex|ch|cap|ic|lh)|larger|smaller|inherit|unset|revert|revert-layer)$/i;
       var FIND_IGNORED = /[\u00AD\u034F\u200B-\u200F\u2060-\u2064\uFEFF]/;
       var FIND_MARKS = /^[\u0300-\u036F]+$/;
+      // Text that folds as a whole: printable ASCII and white space.
+      var FIND_PLAIN = /^[\t\n\v\f\r\x20-\x7E]*$/;
+      var FIND_SPACES = /[\t\n\v\f\r ]+/g;
       var foldCache = {};
 
       // One UTF-16 unit folded for comparison: '' (ignored), ' ' (white space) or one lower-case unit. Accents come off only
@@ -2212,16 +2218,38 @@ public enum ConversationShellAssets {
         return out.replace(/ $/, '') === '' ? '' : out;
       }
 
-      function hiddenBySender(node) {
+      // Text a sender hides with the element's own style (preheaders, mostly) is never a match; hiding by a stylesheet
+      // rule cannot be told from the HTML, so such text still counts. The style is read as the browser parsed it, in the
+      // frame and in a DOMParser document alike, so shorthands (`font: 13px Arial`) and `!important` count and a
+      // declaration the browser drops does not. `hidden`, `display: none` and a zero opacity or max-height hide the
+      // whole subtree, whatever it says.
+      function hidesSubtree(node, style) {
         if (node.hasAttribute('hidden')) { return true; }
-        var style = node.getAttribute('style');
-        return !!style && FIND_HIDDEN.test(style);
+        return !!style && (style.display === 'none' || parseFloat(style.opacity) === 0 || parseFloat(style.maxHeight) === 0);
+      }
+
+      // A zero font size and `visibility: hidden` are only inherited: a descendant with a size of its own, or
+      // `visibility: visible`, shows its text again. MJML and hybrid templates set a zero size on column wrappers to close
+      // the gaps between inline blocks and size the text inside. Each answers true (hides), false (shows) or null (as
+      // the parent).
+      function zeroSize(size) {
+        if (!size) { return null; }
+        if (parseFloat(size) === 0) { return true; }
+        return FIND_RELATIVE_SIZE.test(size) ? null : false;
+      }
+
+      function unseen(visibility) {
+        if (visibility === 'hidden' || visibility === 'collapse') { return true; }
+        return visibility === 'visible' || visibility === 'initial' ? false : null;
       }
 
       // A body's text, folded, with where each folded unit came from (`nodes[nodeOf[i]]` at `offOf[i]`, -1 for a break),
       // and the ranges that lie in quoted text. The walk is iterative: mail nests tables deeper than a stack likes.
-      function findIndex(body) {
+      // `textOnly` skips where each unit came from, which only a frame being marked needs: a parsed body is read for its
+      // text alone, and the first find in a conversation reads every collapsed one, so its plain runs fold whole.
+      function findIndex(body, textOnly) {
         var chars = [];
+        var length = 0;
         var nodes = [];
         var nodeOf = [];
         var offOf = [];
@@ -2230,7 +2258,15 @@ public enum ConversationShellAssets {
         var pendingBreak = false;
         var quoteDepth = 0;
         var quoteStart = 0;
-        function push(f, node, offset) { chars.push(f); nodeOf.push(node); offOf.push(offset); last = f; }
+        // Inherited by the walk: inside a zero font size, or `visibility: hidden`, that no element below has undone.
+        var small = false;
+        var invisible = false;
+        function push(f, node, offset) {
+          chars.push(f);
+          length++;
+          if (!textOnly) { nodeOf.push(node); offOf.push(offset); }
+          last = f;
+        }
         function breakHere() {
           if (last !== '' && last !== '\n') { push('\n', -1, -1); }
           pendingBreak = false;
@@ -2242,13 +2278,38 @@ public enum ConversationShellAssets {
             if (item.block) { pendingBreak = true; }
             if (item.quote) {
               quoteDepth--;
-              if (quoteDepth === 0 && chars.length > quoteStart) { quotes.push([quoteStart, chars.length]); }
+              if (quoteDepth === 0 && length > quoteStart) { quotes.push([quoteStart, length]); }
+            }
+            if (item.inherited) {
+              small = item.inherited.small;
+              invisible = item.inherited.invisible;
             }
             continue;
           }
           var node = item;
           if (node.nodeType === 3) {
+            if (small || invisible) { continue; }
             var data = node.data;
+            if (textOnly && FIND_PLAIN.test(data)) {
+              // The same folding as the loop below, a node at a time: lower case, each run of white space one space.
+              var plain = data.toLowerCase().replace(FIND_SPACES, ' ');
+              if (plain.charAt(0) === ' ') {
+                if (pendingBreak) {
+                  breakHere();
+                  plain = plain.slice(1);
+                } else if (last === '' || last === ' ' || last === '\n') {
+                  plain = plain.slice(1);
+                }
+              } else if (plain && pendingBreak) {
+                breakHere();
+              }
+              if (plain) {
+                chars.push(plain);
+                length += plain.length;
+                last = plain.charAt(plain.length - 1);
+              }
+              continue;
+            }
             var index = -1;
             for (var i = 0; i < data.length; i++) {
               var f = foldUnit(data.charAt(i));
@@ -2266,15 +2327,27 @@ public enum ConversationShellAssets {
           }
           if (node.nodeType !== 1 && node.nodeType !== 9 && node.nodeType !== 11) { continue; }
           if (node.nodeType === 1) {
-            if (FIND_SKIP[node.tagName] || hiddenBySender(node)) { continue; }
+            if (FIND_SKIP[node.tagName]) { continue; }
+            var style = node.hasAttribute('style') ? node.style || null : null;
+            if (hidesSubtree(node, style)) { continue; }
+            var inherited = null;
+            if (style) {
+              var size = zeroSize(style.fontSize);
+              var seen = unseen(style.visibility);
+              if ((size !== null && size !== small) || (seen !== null && seen !== invisible)) {
+                inherited = { small: small, invisible: invisible };
+                if (size !== null) { small = size; }
+                if (seen !== null) { invisible = seen; }
+              }
+            }
             var block = !!FIND_BLOCKS[node.tagName];
             var quote = !!(node.classList && node.classList.contains('ss-quote'));
             if (block) { pendingBreak = true; }
             if (quote) {
-              if (quoteDepth === 0) { quoteStart = chars.length; }
+              if (quoteDepth === 0) { quoteStart = length; }
               quoteDepth++;
             }
-            if (block || quote) { stack.push({ exit: true, block: block, quote: quote }); }
+            if (block || quote || inherited) { stack.push({ exit: true, block: block, quote: quote, inherited: inherited }); }
           }
           for (var c = node.childNodes.length - 1; c >= 0; c--) { stack.push(node.childNodes[c]); }
         }
@@ -2294,7 +2367,7 @@ public enum ConversationShellAssets {
         var index = { text: '', quotes: [] };
         try {
           var doc = new DOMParser().parseFromString('<!DOCTYPE html><html><head></head><body>' + html + '</body></html>', 'text/html');
-          var read = findIndex(doc.body);
+          var read = findIndex(doc.body, true);
           index = { text: read.text, quotes: read.quotes };
         } catch (e) { /* unreadable HTML finds nothing */ }
         card.findParsed = { html: html, text: index.text, quotes: index.quotes };
@@ -2378,14 +2451,19 @@ public enum ConversationShellAssets {
         return false;
       }
 
+      // The "4 more messages" run a folded card is in.
+      function foldHolding(card) {
+        if (!card.folded) { return null; }
+        for (var i = 0; i < state.folds.length; i++) {
+          if (state.folds[i].cards.indexOf(card) >= 0) { return state.folds[i]; }
+        }
+        return null;
+      }
+
       // Where a card is on screen: a folded card stands at its fold row.
       function cardRect(card) {
-        if (card.folded) {
-          for (var i = 0; i < state.folds.length; i++) {
-            if (state.folds[i].cards.indexOf(card) >= 0) { return state.folds[i].element.getBoundingClientRect(); }
-          }
-        }
-        return card.element.getBoundingClientRect();
+        var fold = foldHolding(card);
+        return (fold ? fold.element : card.element).getBoundingClientRect();
       }
 
       // A new search starts at the first match not scrolled past, so the reader keeps their place.
@@ -2420,10 +2498,19 @@ public enum ConversationShellAssets {
         post('ss', { kind: 'find', query: find.query, count: find.matches.length, index: find.index });
       }
 
+      // Whether something folded or collapsed stands between the reader and the match.
+      function covered(match) {
+        var card = match.card;
+        return !card.expanded || (foldsMessage(card) && !card.messageShown) || (match.quoted && !card.quotesShown);
+      }
+
       // Opens whatever hides the current match (spec §5.19a): its folded run, its collapsed message, the message under an
       // invitation card, its quoted text. Nothing animates, and what opened stays open when the find ends.
       function reveal(match) {
         var card = match.card;
+        // Its own run only: expanding a folded card would open every run in the conversation.
+        var fold = foldHolding(card);
+        if (fold) { unfold(fold, false); }
         if (!card.expanded) {
           expand(card, false);
           find.scrollPending = true;
@@ -2459,22 +2546,45 @@ public enum ConversationShellAssets {
         find.scrollPending = false;
       }
 
+      function cancelFindRest() {
+        if (findRest) { clearTimeout(findRest); findRest = null; }
+      }
+
+      function bringIntoView(match) {
+        reveal(match);
+        if (match.marks && match.marks.length) { scrollToCurrent(); } else { find.scrollPending = true; }
+      }
+
       // `go` opens and scrolls to the current match, which only the user's own find and steps do: a refresh from the
-      // store or a frame loading again never moves the page or the target.
-      function showCurrent(go) {
+      // store or a frame loading again never moves the page or the target. A `typed` search scrolls to a match in
+      // sight at once but opens what hides one only once typing rests, and then whichever match is current by then.
+      function showCurrent(go, typed) {
         for (var i = 0; i < find.matches.length; i++) {
           var marks = find.matches[i].marks || [];
           for (var j = 0; j < marks.length; j++) { marks[j].classList.toggle('ss-find-now', i === find.index); }
         }
         var match = find.matches[find.index];
         if (!match || !go) { return; }
-        reveal(match);
-        if (match.marks && match.marks.length) { scrollToCurrent(); } else { find.scrollPending = true; }
+        cancelFindRest();
+        if (typed && covered(match)) {
+          findRest = setTimeout(function () {
+            findRest = null;
+            var current = find.matches[find.index];
+            if (current) { bringIntoView(current); }
+          }, FIND_REST_MS);
+          return;
+        }
+        bringIntoView(match);
+      }
+
+      function resetFind() {
+        cancelFindRest();
+        find = { query: '', needle: '', matches: [], index: -1, scrollPending: false };
       }
 
       // Finds `find.needle` again from the start. `anchor` keeps the current match ({id, start}); `go` brings it into
-      // view.
-      function runFind(anchor, go) {
+      // view (`typed`: as typing, above).
+      function runFind(anchor, go, typed) {
         clearFindMarks();
         find.matches = [];
         find.index = -1;
@@ -2499,7 +2609,9 @@ public enum ConversationShellAssets {
           }
           find.index = anchor ? atOrAfter(anchor) : -1;
           if (find.index < 0) { find.index = firstInView(); }
-          showCurrent(go);
+          showCurrent(go, typed);
+        } else {
+          cancelFindRest();
         }
         postFind();
         return { count: find.matches.length, index: find.index };
@@ -2516,7 +2628,7 @@ public enum ConversationShellAssets {
         var anchor = anchorOfCurrent();
         find.query = text;
         find.needle = foldQuery(text);
-        return runFind(anchor, true);
+        return runFind(anchor, true, true);
       }
 
       function stepFind(delta) {
@@ -2530,7 +2642,7 @@ public enum ConversationShellAssets {
 
       function endFind() {
         clearFindMarks();
-        find = { query: '', needle: '', matches: [], index: -1, scrollPending: false };
+        resetFind();
         postFind();
       }
 
@@ -2641,7 +2753,7 @@ public enum ConversationShellAssets {
         if (keepFind) {
           runFind(findAnchor, false);
         } else if (find.query) {
-          find = { query: '', needle: '', matches: [], index: -1, scrollPending: false };
+          resetFind();
           postFind();
         }
         return state.cards.length;
@@ -2749,7 +2861,7 @@ public enum ConversationShellAssets {
 
       function clear() {
         teardown();
-        find = { query: '', needle: '', matches: [], index: -1, scrollPending: false };
+        resetFind();
         document.title = '';
         root.replaceChildren();
         reportMarkFocus();

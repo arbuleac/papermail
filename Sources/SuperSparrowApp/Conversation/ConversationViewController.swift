@@ -254,7 +254,11 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         // The bar floats over the page under the header, so the web view's frame never changes (spec §5.19a).
         find.host = root
         find.header = header
-        find.currentSlot = { [weak self] in self?.pool.current }
+        find.currentSlot = { [weak self] in self?.searchableSlot }
+        find.selectedConversation = { [weak self] in
+            guard case .one(let id)? = self?.selection else { return nil }
+            return id
+        }
         find.focusReader = { [weak self] in self?.focusWebView() }
 
         view = root
@@ -383,8 +387,9 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         }
         showSignpost = ConversationSignposts.begin(ConversationSignposts.show)
         if currentConversationID != id {
-            // The find bar belongs to the conversation it searched (spec §5.19a).
-            find.close(returningFocus: false)
+            // The find bar belongs to the conversation it searched (spec §5.19a); one opened for this conversation while
+            // its show waited stays.
+            if find.conversation != id { find.close(returningFocus: false) }
             // The box shows one thread at a time: its text is parked under the thread it was written for
             // and the new thread's draft, if any, takes its place.
             let draft = drafts.move(boxText: quickReply.text, from: currentConversationID, to: id)
@@ -1837,6 +1842,15 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         guard find.isOpen else { return false }
         find.close(returningFocus: true)
         return true
+    }
+
+    /// The slot on screen once it holds the selected conversation. While the selection's show waits, or its render lands
+    /// in another slot, the page on screen is the conversation being left, which the find bar never searches.
+    private var searchableSlot: PooledConversationView? {
+        guard case .one(let id) = selection, id == currentConversationID, let current = pool.current, current.renderedID == id else {
+            return nil
+        }
+        return current
     }
 
     private var showsOneConversation: Bool {

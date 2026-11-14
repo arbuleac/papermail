@@ -8,12 +8,17 @@ import WebKit
 /// The bar belongs to the conversation it searched: showing another conversation, several or none closes it. The query
 /// is kept for the session, so ⌥⌘F opens with it selected and ⌘G finds it again in the next conversation. One shell call
 /// is in flight at a time and a newer query replaces any not yet sent, so a fast typist never queues finds the page
-/// will not show; the shell's reports name their query, and only the bar's own is shown.
+/// will not show; the shell's reports name their query, and only the bar's own is shown. While the selected
+/// conversation's page has not landed (its render is still on its way to another slot), nothing is sent: the page on
+/// screen is the conversation being left, which is never searched.
 @MainActor
 final class ReaderFind {
     private(set) var bar: QuireFindBar?
-    /// The slot the find runs in; reports from any other are not this find's.
+    /// The slot the find runs in, nil until the selected conversation's page is on screen; reports from any other are
+    /// not this find's.
     private(set) weak var slot: PooledConversationView?
+    /// The conversation the bar searches: the one selected when it opened.
+    private(set) var conversation: ConversationID?
     /// The last query with something to find, kept while the app runs.
     private(set) var lastQuery = ""
     /// The shell's latest report for the bar's query.
@@ -22,8 +27,10 @@ final class ReaderFind {
     /// Where the bar goes, and the view it hangs under.
     weak var host: NSView?
     weak var header: NSView?
-    /// The slot on screen.
+    /// The slot on screen, once it holds the selected conversation; nil while that conversation is on its way.
     var currentSlot: () -> PooledConversationView? = { nil }
+    /// The conversation selected in the reader, on screen or on its way.
+    var selectedConversation: () -> ConversationID? = { nil }
     /// Gives the keyboard back to the reader's page when the bar goes from under it.
     var focusReader: () -> Void = {}
 
@@ -63,6 +70,7 @@ final class ReaderFind {
         ])
         self.bar = bar
         slot = currentSlot()
+        conversation = selectedConversation()
         result = nil
         bar.show()
         if !lastQuery.isEmpty {
@@ -93,22 +101,31 @@ final class ReaderFind {
             slot.webView.evaluateJavaScript(ConversationFind.clearScript) { _, _ in }
         }
         slot = nil
+        conversation = nil
         result = nil
         if hadFocus { window?.makeFirstResponder(nil) }
         bar.hide { bar.removeFromSuperview() }
         if hadFocus, returningFocus { focusReader() }
     }
 
-    /// The page on screen changed: another slot holds the conversation, or `restarted`, its shell started over after its
-    /// content process ended. The search is made again there.
+    /// The page on screen changed: the selected conversation's render landed, another slot holds it, or `restarted`,
+    /// its shell started over after its content process ended. A slot no longer searched gives up its marks, and the
+    /// search is made again in the new one; calls for a slot whose render was still landing go now.
     func slotDidChange(restarted: Bool = false) {
-        guard let bar, let current = currentSlot() else { return }
-        guard current !== slot || restarted else { return }
+        guard let bar else { return }
+        let current = currentSlot()
+        guard current !== slot || restarted else {
+            pump()
+            return
+        }
+        if let previous = slot, previous !== current, previous.isReady {
+            previous.webView.evaluateJavaScript(ConversationFind.clearScript) { _, _ in }
+        }
         slot = current
         reset()
         result = nil
         apply()
-        if ConversationFind.isSearchable(bar.query) { send(ConversationFind.findScript(bar.query)) }
+        if current != nil, ConversationFind.isSearchable(bar.query) { send(ConversationFind.findScript(bar.query)) }
     }
 
     // MARK: Finding
@@ -152,6 +169,8 @@ final class ReaderFind {
         bar.hasMatches = shown?.hasMatches ?? false
     }
 
+    /// Queues `script`; while no slot shows the selected conversation it waits there, and `slotDidChange` finds the
+    /// bar's query again once one does.
     private func send(_ script: String) {
         if slot == nil { slot = currentSlot() }
         queue.append(script)

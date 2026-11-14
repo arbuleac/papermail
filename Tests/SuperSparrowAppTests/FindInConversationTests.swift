@@ -78,8 +78,8 @@ final class FindInConversationTests: XCTestCase {
                       "the bar counts \(count), not “\(find.bar?.countText ?? "nothing")”", file: file, line: line)
     }
 
-    private func evaluate(_ script: String) -> String {
-        guard let webView = reader.pool.current?.webView else { return "" }
+    private func evaluate(_ script: String, in slot: PooledConversationView? = nil) -> String {
+        guard let webView = (slot ?? reader.pool.current)?.webView else { return "" }
         var answer: String?
         webView.evaluateJavaScript("(function () { var v = (\(script)); return v === null || v === undefined ? '' : String(v); })()") { value, _ in
             answer = value as? String ?? ""
@@ -185,6 +185,36 @@ final class FindInConversationTests: XCTestCase {
         harness.selectFirst(2)
         XCTAssertTrue(ListTestSupport.spin(until: { !self.find.isOpen }, timeout: 5))
         XCTAssertFalse(validates(#selector(MainWindowController.findInConversation(_:))))
+    }
+
+    /// ⌘G pressed while the next conversation's render is still landing in another slot: the page on screen, the
+    /// conversation being left, is never searched or marked, and the next one is once it lands.
+    func testFindNextBeforeTheNextConversationLandsSearchesOnlyThatConversation() throws {
+        let other = ConversationID(accountID: ListTestSupport.accountA.id, providerID: "thread-6")
+        let html = "<p>Lisbon again.</p>"
+        try harness.environment.store.saveBody(StoredBody(body: MessageBody(html: html, text: nil, attachments: []), renderedHTML: html,
+                                                          plainText: ""), for: MessageID(accountID: ListTestSupport.accountA.id, providerID: "msg-6-0"))
+        show(conversation)
+        harness.controller.findInConversation(nil)
+        try type("lisbon")
+        waitForCount("1 of 4")
+        try command(#selector(NSResponder.cancelOperation(_:)))
+        let leaving = try XCTUnwrap(reader.pool.current)
+        XCTAssertTrue(ListTestSupport.spin(until: { self.evaluate("window.ss.findState().query", in: leaving) == "" }, timeout: 5))
+        // Past the show's debounce, so the selection shows at once and its render starts in another slot.
+        ListTestSupport.spin(until: { false }, timeout: 0.1)
+        harness.list.selectedConversationID = other
+        harness.list.onSelectionChange?(other)
+        XCTAssertTrue(reader.pool.current === leaving, "the conversation being left is still on screen")
+        XCTAssertNotNil(reader.pool.slot(rendering: other), "while the next one renders")
+        harness.controller.findNextMatch(nil)
+        XCTAssertTrue(find.isOpen, "⌘G opens the bar with the kept query")
+        XCTAssertNil(find.slot, "and holds its search until the page lands")
+        waitForCount("1 of 1")
+        XCTAssertTrue(reader.pool.current?.renderedID == other)
+        XCTAssertFalse(reader.pool.current === leaving)
+        XCTAssertEqual(evaluate("window.ss.findState().query", in: leaving), "", "the page left was never searched")
+        XCTAssertEqual(evaluate("window.ss.findState().marks", in: leaving), "0", "nor marked")
     }
 
     func testAStoreChangeUpdatesTheCount() throws {
