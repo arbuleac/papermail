@@ -59,7 +59,7 @@ enum ConversationTable {
         INSERT OR REPLACE INTO conversations (
             account_id, provider_id, subject, snippet, participants_json, latest_date_ms, latest_provider_id,
             message_count, unread_count, is_starred, has_attachments, in_inbox, in_sent, in_drafts, in_trash,
-            inbox_section, has_pending_ops, failed_op_kind, returned_at
+            inbox_section, has_pending_ops, failed_op_kind, returned_at, muted
         )
         SELECT b.account_id, b.cid,
             COALESCE((SELECT s.subject FROM msgs s
@@ -100,7 +100,9 @@ enum ConversationTable {
             CASE WHEN MAX((b.roles & \(MailStoreCodec.inboxBit)) != 0 AND b.trashed = 0) THEN
                 (SELECT c.returned_at FROM conversations c
                  WHERE c.account_id = b.account_id AND c.provider_id = b.cid AND c.returned_at > l.date_ms)
-            END
+            END,
+            -- And the mute, the user's choice (MuteTable): it lasts as long as the summary row does.
+            COALESCE((SELECT c.muted FROM conversations c WHERE c.account_id = b.account_id AND c.provider_id = b.cid), 0)
         FROM basis b
         JOIN latest l ON l.account_id = b.account_id AND l.cid = b.cid
         GROUP BY b.account_id, b.cid
@@ -121,7 +123,7 @@ enum ConversationTable {
     private static let summaryColumns = """
         c.account_id, c.provider_id, c.subject, c.snippet, c.participants_json, c.latest_date_ms, \
         c.latest_provider_id, c.message_count, c.unread_count, c.is_starred, c.has_attachments, c.in_inbox, \
-        c.inbox_section, c.has_pending_ops, c.failed_op_kind, c.returned_at
+        c.inbox_section, c.has_pending_ops, c.failed_op_kind, c.returned_at, c.muted
         """
 
     /// The Inbox's sort key, `ConversationSummary.inboxDate`: the refresh keeps `returned_at` only while it is later
@@ -284,7 +286,8 @@ enum ConversationTable {
         let accountID = AccountID(row[0])
         let failedKind: String? = row[14]
         let returnedAt: Int64? = row[15]
-        let snoozedUntil: Int64? = row[16]
+        let muted: Bool = row[16]
+        let snoozedUntil: Int64? = row[17]
         return ConversationSummary(
             id: ConversationID(accountID: accountID, providerID: row[1]),
             subject: row[2],
@@ -301,7 +304,8 @@ enum ConversationTable {
             hasPendingOperations: row[13],
             failedOperation: failedKind.flatMap(OperationKind.init(rawValue:)),
             returnedAt: returnedAt.map(MailStoreCodec.date),
-            snoozedUntil: snoozedUntil.map(MailStoreCodec.date)
+            snoozedUntil: snoozedUntil.map(MailStoreCodec.date),
+            isMuted: muted
         )
     }
 }

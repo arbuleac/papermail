@@ -77,6 +77,10 @@ final class SettingsModel: ObservableObject {
     /// The signature's HTML (nil for none) for an account, when editing it ends. By id: the field saves for the account
     /// it was editing, which may no longer be the selected one.
     var setSignature: (String?, AccountID) -> Void = { _, _ in }
+    /// Every sender rule, as the store's observation last delivered them (spec, Sender rules (Q4.2)).
+    @Published private(set) var senderRules: [SenderRule] = []
+    /// The Senders sheet's −: the rule goes, and the mail it moved stays where it is.
+    var removeSenderRule: (SenderRule) -> Void = { _ in }
 
     init(isDemo: Bool, oauthFileURL: URL) {
         self.isDemo = isDemo
@@ -99,6 +103,15 @@ final class SettingsModel: ObservableObject {
 
     var selectedAccount: Account? {
         accounts.first { $0.id.rawValue == selection }
+    }
+
+    func setSenderRules(_ fresh: [SenderRule]) {
+        if fresh != senderRules { senderRules = fresh }
+    }
+
+    /// The account's rules, by address, as the Senders sheet lists them.
+    func senderRules(for account: Account) -> [SenderRule] {
+        senderRules.filter { $0.accountID == account.id }
     }
 
     /// One sign-in at a time (§5.44): while one runs, + and every other Reconnect and Retry are disabled.

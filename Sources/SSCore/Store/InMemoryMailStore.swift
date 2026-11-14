@@ -37,6 +37,12 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
     /// `conversations.returned_at`: what a refresh keeps, so it is checked whenever a conversation is touched.
     private var returnedMarks: [ConversationID: Date] = [:]
     private var snoozeObservers: [UUID: SnoozeObserver] = [:]
+    /// `conversations.muted`: lives on the summary row in the SQLite store, so it goes with that row (a wipe, or no
+    /// message left outside Spam).
+    private var mutedConversations: Set<ConversationID> = []
+    /// `sender_rules`, by account and normalized address.
+    private var senderRuleRows: [AccountID: [String: SenderRule]] = [:]
+    private var senderRuleObservers: [UUID: SenderRuleObserver] = [:]
     private var conversationObservers: [UUID: (ConversationQuery, ([ConversationSummary]) -> Void)] = [:]
     private var messageObservers: [UUID: (ConversationID, ([MessageMetadata]) -> Void)] = [:]
     private var sendObservers: [UUID: ([PendingSend]) -> Void] = [:]
@@ -66,6 +72,7 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         wipeLocked(id)
         // The foreign key removes them in the SQLite store; a wipe alone keeps them.
         snoozeRows = snoozeRows.filter { $0.key.accountID != id }
+        senderRuleRows[id] = nil
         for operation in operations.values where operation.accountID == id { priors[operation.id] = nil }
         operations = operations.filter { $0.value.accountID != id }
         sends = sends.filter { $0.value.message.accountID != id }
@@ -133,30 +140,33 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         clearBackfillMarksLocked(accountID)
         lookupQueue = lookupQueue.filter { $0.key.accountID != accountID }
         dropOrphanedMarksLocked()
-        // The summary rows go with the wipe, and the return mark lives on them; the snoozes stay.
+        // The summary rows go with the wipe, and the return mark and the mute live on them; the snoozes stay.
         returnedMarks = returnedMarks.filter { $0.key.accountID != accountID }
+        mutedConversations = mutedConversations.filter { $0.accountID != accountID }
     }
 
     /// The SQLite store keeps the mark on the summary row, which goes when a conversation has no non-spam
     /// message left; a conversation that comes back later starts unmarked there, so it must here too.
     private func dropOrphanedMarksLocked() {
-        guard !failedMarks.isEmpty else { return }
+        guard !failedMarks.isEmpty || !mutedConversations.isEmpty else { return }
         let summarized = Set(messagesByID.values.lazy.filter { !$0.roles.contains(.spam) }.map(\.conversationID))
         failedMarks = failedMarks.filter { summarized.contains($0.key) }
+        mutedConversations = mutedConversations.filter { summarized.contains($0) }
     }
 
     // MARK: Messages
 
     public func upsertMessages(_ messages: [MessageMetadata]) throws {
         lock.lock(); defer { lock.unlock() }
-        upsertLocked(messages)
+        upsertLocked(messages, senderRules: true)
         notifyAll()
     }
 
     /// The one write path for provider metadata, shared by `upsertMessages` and `writeBackfillMessages` as
-    /// `MessageTable.upsert` is in the SQLite store.
-    private func upsertLocked(_ messages: [MessageMetadata]) {
+    /// `MessageTable.upsert` is in the SQLite store; `senderRules` as there (`ArrivalRules`).
+    private func upsertLocked(_ messages: [MessageMetadata], senderRules: Bool) {
         var touched: Set<ConversationID> = []
+        var arrivals: [Arrival] = []
         for incoming in messages {
             var metadata = incoming
             // Headers never change, and a path that cannot carry them (a Graph listing) says nil: one already stored
@@ -178,11 +188,63 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
             if let previous { touched.insert(previous.conversationID) }
             messagesByID[incoming.id] = metadata
             touched.insert(metadata.conversationID)
-            if previous == nil { endSnoozeForArrivalLocked(of: metadata) }
+            if previous == nil {
+                let muted = mutedConversations.contains(metadata.conversationID)
+                let rule = senderRules ? metadata.from.flatMap { senderRuleLocked(metadata.id.accountID, $0.address)?.action } : nil
+                if let change = ArrivalRule.change(for: metadata, inMutedConversation: muted, senderRule: rule) {
+                    arrivals.append(Arrival(message: metadata, change: change, muted: muted && change == .archive))
+                }
+                if !ArrivalRule.keepsSnooze(inMutedConversation: muted, senderRule: rule) {
+                    endSnoozeForArrivalLocked(of: metadata)
+                }
+            }
             recordContacts(of: metadata)
         }
+        enqueueArrivalsLocked(arrivals)
         dropOrphanedMarksLocked()
         applySnoozeRulesLocked(touched: touched)
+    }
+
+    private struct Arrival {
+        var message: MessageMetadata
+        var change: MetadataChange
+        var muted: Bool
+    }
+
+    /// `ArrivalRules.enqueue`: per account one Archive (a muted conversation's every message in the Inbox, a sender's
+    /// own message) and one Move to Trash a millisecond later, applied and queued as a user action is.
+    private func enqueueArrivalsLocked(_ arrivals: [Arrival]) {
+        guard !arrivals.isEmpty else { return }
+        let now = Date()
+        var order: [AccountID] = []
+        for arrival in arrivals where !order.contains(arrival.message.id.accountID) { order.append(arrival.message.id.accountID) }
+        for account in order {
+            let mine = arrivals.filter { $0.message.id.accountID == account }
+            let toTrash = Self.unique(mine.filter { $0.change == .trash }.map(\.message.id))
+            var toArchive: [MessageID] = []
+            var mutedDone: Set<ConversationID> = []
+            for arrival in mine where arrival.change == .archive {
+                if arrival.muted {
+                    guard mutedDone.insert(arrival.message.conversationID).inserted else { continue }
+                    toArchive += messagesLocked(in: arrival.message.conversationID).filter(\.isInInbox).map(\.id)
+                } else {
+                    toArchive.append(arrival.message.id)
+                }
+            }
+            let skipped = Set(toTrash)
+            toArchive = Self.unique(toArchive).filter { !skipped.contains($0) }
+            if !toArchive.isEmpty {
+                enqueueLocked(Operation(accountID: account, change: .archive, targets: toArchive, createdAt: now))
+            }
+            if !toTrash.isEmpty {
+                enqueueLocked(Operation(accountID: account, change: .trash, targets: toTrash, createdAt: now.addingTimeInterval(0.001)))
+            }
+        }
+    }
+
+    private static func unique(_ ids: [MessageID]) -> [MessageID] {
+        var seen: Set<MessageID> = []
+        return ids.filter { seen.insert($0).inserted }
     }
 
     public func deleteMessages(_ ids: [MessageID]) throws {
@@ -380,7 +442,7 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
             !isBackfillSkippableLocked($0.id, includeStored: !refreshExisting)
         }
         guard !written.isEmpty else { return 0 }
-        upsertLocked(written)
+        upsertLocked(written, senderRules: false)
         notifyAll()
         return written.count
     }
@@ -588,7 +650,8 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
             latestMessageID: latest.id,
             hasPendingOperations: pending,
             failedOperation: failedMarks[id],
-            returnedAt: returnedMarks[id]
+            returnedAt: returnedMarks[id],
+            isMuted: mutedConversations.contains(id)
         )
     }
 
@@ -716,6 +779,67 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
             guard let self else { return }
             self.lock.lock(); defer { self.lock.unlock() }
             self.snoozeObservers[token] = nil
+        }
+    }
+
+    // MARK: Mute and sender rules (the rules are written out on `ArrivalRules`)
+
+    private struct SenderRuleObserver {
+        var last: [SenderRule]?
+        var callback: ([SenderRule]) -> Void
+    }
+
+    public func setMuted(_ muted: Bool, conversations: [ConversationID], enqueueing operations: [Operation],
+                         returnMarks: [ConversationID: Date]) throws {
+        lock.lock(); defer { lock.unlock() }
+        guard !conversations.isEmpty || !operations.isEmpty || !returnMarks.isEmpty else { return }
+        for operation in operations { enqueueLocked(operation) }
+        for id in conversations where summaryLocked(id) != nil {
+            if muted { mutedConversations.insert(id) } else { mutedConversations.remove(id) }
+        }
+        for (id, date) in returnMarks { markReturnedLocked(id, at: date) }
+        notifyAll()
+    }
+
+    public func senderRules() throws -> [SenderRule] {
+        lock.lock(); defer { lock.unlock() }
+        return senderRulesLocked()
+    }
+
+    private func senderRulesLocked() -> [SenderRule] {
+        senderRuleRows.values.flatMap(\.values).sorted { ($0.accountID.rawValue, $0.address) < ($1.accountID.rawValue, $1.address) }
+    }
+
+    private func senderRuleLocked(_ accountID: AccountID, _ address: String) -> SenderRule? {
+        senderRuleRows[accountID]?[SenderRule.normalizedAddress(address)]
+    }
+
+    public func setSenderRule(_ action: SenderRule.Action?, for address: String, accountID: AccountID,
+                              enqueueing operations: [Operation], at now: Date) throws {
+        lock.lock(); defer { lock.unlock() }
+        for operation in operations { enqueueLocked(operation) }
+        let key = SenderRule.normalizedAddress(address)
+        if !key.isEmpty {
+            if let action {
+                senderRuleRows[accountID, default: [:]][key] = SenderRule(accountID: accountID, address: key, action: action,
+                                                                          createdAt: Self.storedDate(now))
+            } else {
+                senderRuleRows[accountID]?[key] = nil
+            }
+        }
+        notifyAll()
+    }
+
+    public func observeSenderRules(onChange: @escaping @Sendable ([SenderRule]) -> Void) -> StoreObservation {
+        lock.lock(); defer { lock.unlock() }
+        let token = UUID()
+        let current = senderRulesLocked()
+        senderRuleObservers[token] = SenderRuleObserver(last: current, callback: onChange)
+        deliver { onChange(current) }
+        return StoreObservation { [weak self] in
+            guard let self else { return }
+            self.lock.lock(); defer { self.lock.unlock() }
+            self.senderRuleObservers[token] = nil
         }
     }
 
@@ -1069,10 +1193,19 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
                 snoozeSnapshot.append((observer.callback, current))
             }
         }
+        var ruleSnapshot: [(([SenderRule]) -> Void, [SenderRule])] = []
+        if !senderRuleObservers.isEmpty {
+            let current = senderRulesLocked()
+            for (token, observer) in senderRuleObservers where observer.last != current {
+                senderRuleObservers[token]?.last = current
+                ruleSnapshot.append((observer.callback, current))
+            }
+        }
         deliver {
             for (callback, value) in conversationSnapshot { callback(value) }
             for (callback, value) in messageSnapshot { callback(value) }
             for (callback, value) in snoozeSnapshot { callback(value) }
+            for (callback, value) in ruleSnapshot { callback(value) }
         }
     }
 

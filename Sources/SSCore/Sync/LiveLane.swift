@@ -449,6 +449,11 @@ actor LiveLane {
             throw error
         }
         signposter.endInterval("sync.poll", interval)
+        // Mail that arrived may have met a mute or a sender rule, whose archive or trash the write queued (`ArrivalRules`):
+        // it goes out on the next turn rather than waiting for the next poll, so other devices agree soon after.
+        if !polled.arrived.isEmpty, try !store.pendingOperations(accountID: accountID, limit: 1).isEmpty {
+            link.liveWaker.signal(.operations)
+        }
         try await hydrateNewest(polled.arrived)
         if polled.deferredFor == nil { try await lookUpQueued() }
         return polled.deferredFor.map(PollResult.deferred) ?? .polled

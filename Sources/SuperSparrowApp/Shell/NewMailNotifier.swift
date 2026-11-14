@@ -33,6 +33,10 @@ final class NewMailNotifier {
     var isFrontmost: () -> Bool = { NSApp.isActive }
     /// The conversation open in a key window, which never notifies: its new message is already on screen.
     var conversationOpenInKeyWindow: () -> ConversationID? = { nil }
+    /// Whether a row's newest message is itself in the Inbox, read only for a row that would otherwise notify. Mail a
+    /// sender rule archived as it arrived can still be the newest of a conversation that stays in the Inbox for older
+    /// mail; it never notifies (spec, Sender rules (Q4.2)), nor does the user's own reply.
+    var latestMessageIsInInbox: (MessageID) -> Bool = { _ in true }
 
     private let settings: AppSettings
     private let launchDate: Date
@@ -99,6 +103,9 @@ final class NewMailNotifier {
             guard row.returnedAt == nil else { continue }
             guard !accountsInFirstSync.contains(row.id.accountID) else { continue }
             if row.id == open { continue }
+            // A muted conversation's mail is archived as it arrives; one moved back to the Inbox stays quiet too (spec,
+            // Mute (Q3.7)).
+            guard !row.isMuted, latestMessageIsInInbox(row.latestMessageID) else { continue }
             fresh.append(row)
         }
         guard !fresh.isEmpty, settings.notificationsEnabled else { return [] }

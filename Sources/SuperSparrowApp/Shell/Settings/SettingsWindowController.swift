@@ -20,6 +20,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     private let tabs: SettingsTabViewController
     private var statusObservation: StoreObservation?
     private var storageObservation: StoreObservation?
+    private var senderRuleObservation: StoreObservation?
 
     /// `mailtoHandler` answers and changes which app opens mail links, and `loginItem` whether SuperSparrow opens at
     /// login: macOS in the app, fakes in tests. `measureMailbox` reads the mailbox's size on disk (on a background task);
@@ -67,6 +68,10 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         storageObservation = environment.engine.observeStorageChanges { [weak self] in
             MainActor.assumeIsolated { self?.mailboxMayHaveChanged() }
         }
+        // Rules are set from the main window's menus while the Senders sheet may be open.
+        senderRuleObservation = environment.store.observeSenderRules { [weak self] rules in
+            MainActor.assumeIsolated { self?.model.setSenderRules(rules) }
+        }
     }
 
     /// The engine swept or trimmed, which changes the size by more than mail arriving: measured again only while the
@@ -86,6 +91,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         statusObservation = nil
         storageObservation?.cancel()
         storageObservation = nil
+        senderRuleObservation?.cancel()
+        senderRuleObservation = nil
         model.isWindowOpen = false
         model.stopRetryClock()
         window?.orderOut(nil)

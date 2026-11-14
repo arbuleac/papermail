@@ -709,6 +709,12 @@ extension Quire {
             public static let signatureLines: CGFloat = 3
             public static let signatureFieldHeight: CGFloat = 66
             public static let mailboxSizeGap: CGFloat = 12
+            public static let sendersWidth: CGFloat = 440
+            public static let senderRow: CGFloat = 40
+            public static let senderRowsMax: CGFloat = 8
+            public static let senderRowX: CGFloat = 12
+            public static let senderActionGap: CGFloat = 12
+            public static let senderRemoveInset: CGFloat = 9
         }
         public enum Menu {
             public static let titleMenuOffsetY: CGFloat = 4

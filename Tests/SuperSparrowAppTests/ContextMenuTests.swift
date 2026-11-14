@@ -21,8 +21,10 @@ final class ContextMenuTests: XCTestCase {
         let menu = try XCTUnwrap(harness.list.contextMenu(forRow: row))
         XCTAssertEqual(harness.list.selectedConversationIDs, [second], "a right-click outside the selection selects that row")
         menu.update()
+        // The sender rules close it, as one conversation with mail from someone else is selected (spec, Sender rules (Q4.2)).
         XCTAssertEqual(titles(menu), ["Reply", "Reply All", "Forward", "—", "Archive", "Later", menu.items[6].title, "Mark as Unread",
-                                      "Move to Inbox", "—", "Move to Trash", "Mark as Spam"])
+                                      "Mute", "Move to Inbox", "—", "Move to Trash", "Mark as Spam",
+                                      "—", "Always Archive Mail from This Sender", "Block Sender"])
         XCTAssertTrue(["Star", "Unstar"].contains(menu.items[6].title))
         XCTAssertTrue(menu.items.allSatisfy { $0.isSeparatorItem || $0.image != nil }, "every item has its symbol")
         XCTAssertEqual(menu.items[4].keyEquivalent, "e", "and its shortcut")
@@ -38,6 +40,7 @@ final class ContextMenuTests: XCTestCase {
         XCTAssertEqual(harness.list.selectedConversationIDs, several)
         severalMenu.update()
         XCTAssertFalse(try XCTUnwrap(severalMenu.items.first { $0.title == "Reply" }).isEnabled)
+        XCTAssertFalse(titles(severalMenu).contains("Block Sender"), "a rule is set for one sender, from one conversation")
     }
 
     func testRunningHeadsHaveNoMenu() throws {

@@ -29,6 +29,8 @@ final class ConversationRowContent {
     let isUnread: Bool
     let isStarred: Bool
     let hasAttachments: Bool
+    /// The muted glyph in the glyph cluster (spec §5.7).
+    let isMuted: Bool
     /// The “Back” tag before the time: an Inbox row back from Later, while unread (spec §5.7).
     let showsBackTag: Bool
     let status: ConversationRowText.Status
@@ -53,6 +55,7 @@ final class ConversationRowContent {
         isUnread = unread
         isStarred = text.isStarred
         hasAttachments = text.hasAttachments
+        isMuted = text.isMuted
         showsBackTag = text.showsBackTag
         status = text.status
         if case .failed(let kind) = text.status {

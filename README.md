@@ -82,6 +82,12 @@ Press `l` (or **Message → Later…**, or **Later** in a conversation's right-c
 
 Press `!` (or **Message → Mark as Spam**, or **Mark as Spam** in a conversation's right-click menu) to send the selected conversations to your provider's spam folder: Gmail's Spam, or Junk Email on Microsoft 365 and Outlook.com. They leave the list at once, and **Undo** puts them back where they were. Your own sent messages and drafts in the conversation are never marked as spam and stay in Sent and Drafts (unless the conversation had been moved back to the Inbox whole, as Move to Inbox or a return from Later does on Gmail: then your reply goes with the rest, and Undo brings it back). SuperSparrow has no Spam folder of its own: to rescue a message later, move it out of Spam on the web or your phone, and it comes back here. Mark as spam does nothing in the Trash or Drafts.
 
+## Mute and sender rules
+
+Press `m` (or **Message → Mute**) to mute the selected conversations: they leave the Inbox now, and anything new in them is archived as it arrives, before it can reach the Inbox or a notification. A muted conversation shows a muted bell in its row wherever it is listed; `m` again unmutes it. The archive is the ordinary one, so your phone and the web show the same state once it has gone through (Gmail's own mute cannot be reached through its API).
+
+From a message's menu (right-click it, or its **⋯** button, or the **Message** menu), **Always Archive Mail from This Sender** archives that sender's mail as it arrives, and **Block Sender** moves it to the Trash; either one also moves the sender's mail in the conversation you set it from, with **Undo** in the toast. Rules are kept per account and listed in **Settings → Accounts → Rules → Senders…**, where `−` removes one. They act on mail as it arrives, never on mail already on this Mac or downloaded from further back, and never on your own sent mail. When **Always Archive** takes a message in a conversation that is still in your Inbox for someone else's mail, only that message is archived: the conversation stays, and its row shows that message as its newest, without a notification. Neither a mute nor a rule ends a snooze: a muted or ruled reply to a conversation in Later leaves it to come back at its time.
+
 ## Unsubscribe
 
 A newsletter or other list mail that says how to leave its list shows **Unsubscribe** beside the sender's name in the reader. One click, or `⇧⌘U` (**Message → Unsubscribe**), asks to stop it and archives the conversation, without a confirmation: SuperSparrow uses the one-click request the sender offers (RFC 8058), otherwise sends the unsubscribe email the sender asks for from your account (it appears in Sent), otherwise opens the sender's unsubscribe page in your browser. On a conversation in **Later**, it stops the conversation's return instead, as `e` does there, and it stays archived. **Undo** in the toast brings the conversation back (to Later, if it was there); the request itself cannot be taken back. Mail downloaded before this version shows no link until it is downloaded again.
@@ -125,6 +131,7 @@ Operators combine (`from:ben is:unread after:2026-01-01 -invoice`), ignore case,
 | `Return` | Open the conversation in the reader |
 | `e` | Archive |
 | `l` | Later: snooze until a time |
+| `m` | Mute / unmute: new mail in the conversation skips the Inbox |
 | `s` | Star / unstar |
 | `u` | Mark read / unread |
 | `#`, `⌘⌫` | Move to Trash |

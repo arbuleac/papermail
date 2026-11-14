@@ -71,7 +71,8 @@ enum BackfillMarks {
             skipped.formUnion(ids.lazy.map { MessageID(accountID: accountID, providerID: $0) })
         }
         let written = unique.filter { !skipped.contains($0.id) }
-        try MessageTable.upsert(written, in: db)
+        // Old mail, not arriving: sender rules do not take it (`ArrivalRules`).
+        try MessageTable.upsert(written, senderRules: false, in: db)
         return written.count
     }
 

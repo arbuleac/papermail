@@ -13,8 +13,14 @@ public enum DemoSeeder {
                 $0.kind == profile.kind && $0.email.caseInsensitiveCompare(profile.email) == .orderedSame
             }
             guard !present else { continue }
-            added.append(try await client.addAccount(kind: profile.kind))
+            let account = try await client.addAccount(kind: profile.kind)
+            try client.setSenderRule(.trash, for: blockedSender, accountID: account.id, performing: [])
+            added.append(account)
         }
         return added
     }
+
+    /// A made-up sender each demo account blocks, so Settings › Accounts › Senders… has a rule to show. No demo mail comes
+    /// from it, so the demo's mailboxes are as they were.
+    public static let blockedSender = "offers@deals.example"
 }

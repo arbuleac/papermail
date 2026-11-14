@@ -102,6 +102,18 @@ final class PageFailingStore: MailStoring, @unchecked Sendable {
     func observeSnoozes(onChange: @escaping @Sendable ([Snooze]) -> Void) -> StoreObservation {
         base.observeSnoozes(onChange: onChange)
     }
+    func setMuted(_ muted: Bool, conversations: [ConversationID], enqueueing operations: [SSCore.Operation],
+                  returnMarks: [ConversationID: Date]) throws {
+        try base.setMuted(muted, conversations: conversations, enqueueing: operations, returnMarks: returnMarks)
+    }
+    func senderRules() throws -> [SenderRule] { try base.senderRules() }
+    func setSenderRule(_ action: SenderRule.Action?, for address: String, accountID: AccountID,
+                       enqueueing operations: [SSCore.Operation], at now: Date) throws {
+        try base.setSenderRule(action, for: address, accountID: accountID, enqueueing: operations, at: now)
+    }
+    func observeSenderRules(onChange: @escaping @Sendable ([SenderRule]) -> Void) -> StoreObservation {
+        base.observeSenderRules(onChange: onChange)
+    }
     func enqueue(_ operation: SSCore.Operation) throws { try base.enqueue(operation) }
     func pendingOperations(accountID: AccountID, limit: Int) throws -> [SSCore.Operation] {
         try base.pendingOperations(accountID: accountID, limit: limit)

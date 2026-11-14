@@ -36,6 +36,9 @@ enum ConversationAction {
     /// Unsubscribe, from the link beside a sender or the message's More menu (spec §5.14): the request `message`'s
     /// list headers describe, and the conversation archived.
     case unsubscribe(MessageID)
+    /// A sender rule set from the message's More menu (spec, Sender rules (Q4.2)): mail from `message`'s sender is
+    /// archived, or moved to the Trash, from now on, and theirs in the conversation now.
+    case senderRule(SenderRule.Action, MessageID)
     /// The invitation card's Reconnect: the account signs in again, asking for permission to update its calendar
     /// (spec §5.14, §5.44).
     case reconnect(AccountID)

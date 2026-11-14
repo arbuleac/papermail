@@ -67,8 +67,8 @@ struct AccountsSettingsView: View {
     }
 }
 
-/// The selected account's detail (spec §5.40, Detail form): Colour, Monogram, Signature, Last error when there is one,
-/// and Remove… (Leave Demo… in demo mode), on the Settings grid.
+/// The selected account's detail (spec §5.40, Detail form): Colour, Monogram, Signature, Rules (Senders…, the sender
+/// rules' one list), Last error when there is one, and Remove… (Leave Demo… in demo mode), on the Settings grid.
 struct AccountDetailForm: View {
     @ObservedObject var model: SettingsModel
     let account: Account
@@ -77,6 +77,7 @@ struct AccountDetailForm: View {
     /// because cutting it back to two characters leaves the stored value unchanged and SwiftUI then keeps
     /// the field as typed.
     @State private var monogramText = ""
+    @State private var showsSenders = false
 
     var body: some View {
         let s = Quire.Layout.Settings.self
@@ -100,6 +101,10 @@ struct AccountDetailForm: View {
                 SignatureField(account: account, onCommit: { [model] html, id in model.setSignature(html, id) })
                     .padding(.vertical, (s.detailRow - s.fieldHeight) / 2)
             }
+            QuireSettingsRow("Rules", minHeight: s.detailRow) {
+                Button("Senders…") { showsSenders = true }
+                    .buttonStyle(.quire(.secondary, size: .small))
+            }
             if let error = model.lastError(for: account) {
                 QuireSettingsTextRow("Last error", text: error)
             }
@@ -110,6 +115,11 @@ struct AccountDetailForm: View {
                 .buttonStyle(.quire(.secondary, size: .small))
             }
         }
+        .sheet(isPresented: $showsSenders) {
+            SendersSheet(model: model, account: account) { showsSenders = false }
+        }
+        // Another account chosen while the sheet is up (it is modal to the window, so only from code): it was this one's.
+        .onChange(of: account.id) { showsSenders = false }
     }
 
     private var inkSlot: Binding<Int> {

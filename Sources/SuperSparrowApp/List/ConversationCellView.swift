@@ -189,6 +189,12 @@ final class ConversationCellView: NSView {
             QuireSymbol.draw(Quire.Icon.unstar, size: .row, color: .qStar, centredIn: rect)
             x = rect.minX - Row.glyphGap
         }
+        if content.isMuted {
+            // Beside the star: both are what the user set, before what the mail holds.
+            let rect = NSRect(x: x - Row.glyph, y: line2Mid - Row.glyph / 2, width: Row.glyph, height: Row.glyph)
+            QuireSymbol.draw(Quire.Icon.mute, size: .row, color: .qInk3, centredIn: rect)
+            x = rect.minX - Row.glyphGap
+        }
         if content.hasAttachments {
             let rect = NSRect(x: x - Row.glyph, y: line2Mid - Row.glyph / 2, width: Row.glyph, height: Row.glyph)
             QuireSymbol.draw(Quire.Icon.attach, size: .row, color: .qInk2, centredIn: rect)
@@ -221,11 +227,12 @@ final class ConversationCellView: NSView {
         }
     }
 
-    /// Where line 2's text ends: before the count badge, the clip and the star, from the trailing edge in.
+    /// Where line 2's text ends: before the count badge, the clip, the muted glyph and the star, from the trailing edge in.
     private func line2End(for content: ConversationRowContent) -> CGFloat {
         let right = bounds.width - Row.trailing
         var x = right
         if content.isStarred { x -= Row.glyph + Row.glyphGap }
+        if content.isMuted { x -= Row.glyph + Row.glyphGap }
         if content.hasAttachments { x -= Row.glyph + Row.glyphGap }
         if content.messageCount != nil { x -= content.badgeSize.width + Row.glyphGap }
         return x == right ? right : x + Row.glyphGap - Row.clusterGap

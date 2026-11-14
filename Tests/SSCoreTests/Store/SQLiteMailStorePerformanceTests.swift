@@ -114,6 +114,43 @@ final class SQLiteMailStorePerformanceTests: XCTestCase {
 
         let hydration = try median(runs: 5) { try store.messageIDsMissingBodies(accountID: mailbox.accounts[0].id, limit: 50) }
         report("next 50 bodies to hydrate", hydration.milliseconds)
+
+        // Arrival rules (Mute, sender rules): a page of new mail into a mailbox with mutes and rules set, then a burst every
+        // message of which a rule takes, each archived or trashed in the page's own write. Last, since the operations they
+        // queue make every later upsert replay them.
+        let muted = Array(Set(mailbox.messages.prefix(2_000).map(\.conversationID)).prefix(50))
+        try store.setMuted(true, conversations: muted, enqueueing: [])
+        for account in mailbox.accounts {
+            for n in 0..<100 {
+                try store.setSenderRule(n % 2 == 0 ? .trash : .archive, for: "sender\(n)@rules.example", accountID: account.id,
+                                        enqueueing: [], at: Date())
+            }
+        }
+        let ruled = SyntheticMailbox(seed: 11, accountCount: 3, messageCount: Self.batchSize * 3).messages
+        let arriving = ruled.enumerated().map { index, original in
+            var message = original
+            message.id = MessageID(accountID: original.id.accountID, providerID: "arrive-\(index)")
+            message.roles = [.inbox]
+            if index % 10 == 0, let conversation = muted.first(where: { $0.accountID == original.id.accountID }) {
+                message.conversationID = conversation
+            } else {
+                message.conversationID = ConversationID(accountID: original.id.accountID, providerID: "arrive-" + original.conversationID.providerID)
+            }
+            if index % 10 == 5 { message.from = EmailAddress(address: "sender\(index % 100)@rules.example") }
+            return message
+        }
+        let mixed = try measure { try store.upsertMessages(Array(arriving.prefix(Self.batchSize))) }
+        report("insert \(Self.batchSize) new messages, a tenth muted and a tenth ruled", mixed)
+        XCTAssertLessThan(mixed, 100, "upsert budget with arrival rules")
+
+        let burst = arriving.dropFirst(Self.batchSize).prefix(Self.batchSize).enumerated().map { index, original in
+            var message = original
+            message.from = EmailAddress(address: "sender\(index % 100)@rules.example")
+            return message
+        }
+        let everyOne = try measure { try store.upsertMessages(burst) }
+        report("insert \(Self.batchSize) new messages, every one taken by a rule", everyOne)
+        XCTAssertLessThan(everyOne, 100, "a burst of ruled mail keeps the upsert budget")
     }
 
     // MARK: Timing

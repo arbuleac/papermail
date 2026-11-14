@@ -404,6 +404,36 @@ public final class MailEngine: MailClient, @unchecked Sendable {
         snoozeRunner.wake()
     }
 
+    public func setMuted(_ muted: Bool, conversations: [ConversationID], performing steps: [MailActionRecord.Step],
+                         returnMarks: [ConversationID: Date]) throws {
+        let operations = Self.operations(of: steps, at: Date())
+        try store.setMuted(muted, conversations: conversations, enqueueing: operations, returnMarks: returnMarks)
+        wakeOutbox(for: operations)
+    }
+
+    public func setSenderRule(_ action: SenderRule.Action?, for address: String, accountID: AccountID,
+                              performing steps: [MailActionRecord.Step]) throws {
+        let now = Date()
+        // A rule never spans accounts; a step on another account's mail is not this rule's to take.
+        let operations = Self.operations(of: steps, at: now).filter { $0.accountID == accountID }
+        try store.setSenderRule(action, for: address, accountID: accountID, enqueueing: operations, at: now)
+        wakeOutbox(for: operations)
+    }
+
+    /// Steps a millisecond apart, as `setSnoozes` spaces them, so the outbox replays an undo's steps in their order.
+    private static func operations(of steps: [MailActionRecord.Step], at now: Date) -> [Operation] {
+        steps.enumerated().flatMap { index, step in
+            operations(step.change, on: step.targets, at: now.addingTimeInterval(Double(index) / 1_000))
+        }
+    }
+
+    private func wakeOutbox(for operations: [Operation]) {
+        var woken: Set<AccountID> = []
+        for operation in operations where woken.insert(operation.accountID).inserted {
+            registry.context(for: operation.accountID)?.syncer.wake(.operations)
+        }
+    }
+
     /// One operation per account, in the order the accounts first appear: an operation targets one account's messages.
     private static func operations(_ change: MetadataChange, on messages: [MessageID], at now: Date) -> [Operation] {
         var byAccount: [AccountID: [MessageID]] = [:]

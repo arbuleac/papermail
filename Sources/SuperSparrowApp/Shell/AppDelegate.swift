@@ -950,6 +950,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 guard let account = model?.accounts.first(where: { $0.id == id }) else { return }
                 self?.edit(account) { try $0.setSignature(signature, for: id) }
             }
+            model.removeSenderRule = { [weak self] rule in self?.removeSenderRule(rule) }
             settingsWindow = controller
             reflectSignIn()
         }
@@ -969,6 +970,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         mainWindow?.refreshAccounts()
         settingsWindow?.refreshAccounts()
+    }
+
+    /// The Senders sheet's −: through the engine, as the menus set rules, so its observation reaches both windows.
+    private func removeSenderRule(_ rule: SenderRule) {
+        guard let environment else { return }
+        do {
+            try environment.engine.setSenderRule(nil, for: rule.address, accountID: rule.accountID, performing: [])
+        } catch {
+            Self.log.error("removing a sender rule failed: \(String(describing: error), privacy: .public)")
+            NSSound.beep()
+        }
     }
 
     // MARK: Menu actions
