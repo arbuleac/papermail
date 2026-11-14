@@ -3,15 +3,15 @@ import SSCore
 import SSDesign
 import WebKit
 
-/// Three warm web views sharing one process pool and configuration.
+/// Three warm web views sharing one configuration, on the app's one WebKit process pool.
 ///
 /// Every view loads the shell once; a conversation is then one `ss.render` call. Slots remember which
 /// conversation they hold so `show` of a pre-rendered id is a view swap. The slot on screen is never
 /// handed out; among the rest the least recently used one is evicted first.
 @MainActor
 final class WebViewPool: NSObject, WKScriptMessageHandler {
-    /// One configuration for every view. WebKit gives views built from the same configuration one process
-    /// pool, which is how the three share a content process without naming the deprecated `WKProcessPool`.
+    /// One configuration for every view of the pool, a copy of `template` (each view still runs in a WebContent process
+    /// of its own).
     let configuration: WKWebViewConfiguration
     private(set) var slots: [PooledConversationView] = []
     /// Rendered conversation to slot, so showing a pre-rendered id is one lookup and a view swap.
@@ -39,7 +39,7 @@ final class WebViewPool: NSObject, WKScriptMessageHandler {
     init(client: MailClient, size: Int = 3) {
         let document = ConversationShellAssets.document(symbolCSS: ReaderSymbolSheet.css)
         self.document = document
-        let configuration = WKWebViewConfiguration()
+        let configuration = Self.newConfiguration()
         configuration.setURLSchemeHandler(ShellSchemeHandler(document: document), forURLScheme: ConversationShellAssets.scheme)
         configuration.setURLSchemeHandler(InlineImageSchemeHandler(client: client), forURLScheme: RenderURLScheme.inlineImage)
         configuration.setURLSchemeHandler(AttachmentSchemeHandler(client: client), forURLScheme: RenderURLScheme.attachment)
@@ -66,6 +66,30 @@ final class WebViewPool: NSObject, WKScriptMessageHandler {
                 MainActor.assumeIsolated { self?.updateTabFocusesLinks() }
             }
         }
+    }
+
+    /// The configuration every pool's is copied from, for the WebKit process pool a copy shares with it. WebKit sends each
+    /// new WebContent process the fonts the user installed, and reads them from the font server (every font's properties,
+    /// over a synchronous XPC call) once per process pool, on the main thread, in the first load of a view on a pool it
+    /// has not read them for. A configuration made afresh has a pool of its own, so every reader window paid that read
+    /// again, about 15 ms of its ⌘O (§5.49), where the main window's three views pay it once between them. On this one
+    /// pool the app pays it once.
+    private static let template: WKWebViewConfiguration = {
+        let configuration = WKWebViewConfiguration()
+        // WebKit makes a configuration's process pool with the first view made from it; copies made after that share it.
+        _ = WKWebView(frame: .zero, configuration: configuration)
+        return configuration
+    }()
+
+    /// A configuration of the pool's own on the app's process pool. A copy shares its source's user content controller and
+    /// preferences as well, so it is given its own: the handlers answer this pool's views alone, and Full Keyboard Access
+    /// is switched pool by pool, as when each pool made its configuration afresh.
+    private static func newConfiguration() -> WKWebViewConfiguration {
+        let configuration = template.copy() as! WKWebViewConfiguration
+        configuration.userContentController = WKUserContentController()
+        configuration.preferences = WKPreferences()
+        configuration.defaultWebpagePreferences = WKWebpagePreferences()
+        return configuration
     }
 
     /// Links in a body join the Tab order exactly while Full Keyboard Access is on (spec §5.14), switched in

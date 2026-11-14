@@ -129,6 +129,13 @@ final class ReaderWindowTests: XCTestCase {
         // One web view of its own, outside the main window's pool: one more WebContent process.
         XCTAssertEqual(reader.conversation.pool.slots.count, 1)
         XCTAssertFalse(reader.conversation.pool.configuration === harness.reader.pool.configuration)
+        XCTAssertFalse(reader.conversation.pool.configuration.userContentController === harness.reader.pool.configuration.userContentController,
+                       "its page's messages come to its own pool")
+        // On the app's one WebKit process pool, which reads the installed fonts for its processes once; a pool of its own
+        // read them all again in every ⌘O. Read by key: the property is deprecated, and the build treats that as an error.
+        let readerProcessPool = try XCTUnwrap(reader.conversation.pool.configuration.value(forKey: "processPool") as? NSObject)
+        let mainProcessPool = try XCTUnwrap(harness.reader.pool.configuration.value(forKey: "processPool") as? NSObject)
+        XCTAssertTrue(readerProcessPool === mainProcessPool, "one process pool for every reader")
         XCTAssertNotNil(window.initialFirstResponder)
         XCTAssertTrue(window.initialFirstResponder === reader.conversation.pool.slots[0].webView,
                       "the page, not the quick reply's field, takes the keyboard, so single keys act")

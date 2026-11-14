@@ -45,27 +45,36 @@ final class ReaderWindowPerformanceTests: XCTestCase {
         var warm = false
         harness.reader.whenShownRenderLands(timeout: 10) { _ in warm = true }
         XCTAssertTrue(ListTestSupport.spin(until: { warm }, timeout: 12))
+        // ⌘O comes a moment after the reading, the main thread idle, as it is before every later window here. Opened
+        // straight after the render, while the core it ran on was still at speed, the first window cost about a quarter less
+        // CPU than any other and stood for none of them.
+        ListTestSupport.spin(for: 0.2)
 
         var shown: [Double] = []
         var rendered: [Double] = []
         for id in ids {
-            let start = DispatchTime.now()
-            let reader = try XCTUnwrap(harness.controller.openInNewWindow(id))
-            let window = try XCTUnwrap(reader.window)
-            window.displayIfNeeded()
-            shown.append(milliseconds(since: start))
-            XCTAssertNotNil(reader.conversation.header.content.headline, "the header names the conversation")
+            // The app opens and closes a window inside an event, whose autorelease pool drains after it. Without one of
+            // its own, each window, its reader, its web view and its WebContent process stayed alive to the end of the
+            // test, ten of each by the last window.
+            try autoreleasepool {
+                let start = DispatchTime.now()
+                let reader = try XCTUnwrap(harness.controller.openInNewWindow(id))
+                let window = try XCTUnwrap(reader.window)
+                window.displayIfNeeded()
+                shown.append(milliseconds(since: start))
+                XCTAssertNotNil(reader.conversation.header.content.headline, "the header names the conversation")
 
-            var landed: Double?
-            var finished = false
-            reader.conversation.whenShownRenderLands(timeout: 10) { webView in
-                if webView != nil { landed = self.milliseconds(since: start) }
-                finished = true
+                var landed: Double?
+                var finished = false
+                reader.conversation.whenShownRenderLands(timeout: 10) { webView in
+                    if webView != nil { landed = self.milliseconds(since: start) }
+                    finished = true
+                }
+                XCTAssertTrue(ListTestSupport.spin(until: { finished }, timeout: 12))
+                rendered.append(try XCTUnwrap(landed, "the conversation rendered in its window"))
+                reader.close()
+                window.orderOut(nil)
             }
-            XCTAssertTrue(ListTestSupport.spin(until: { finished }, timeout: 12))
-            rendered.append(try XCTUnwrap(landed, "the conversation rendered in its window"))
-            reader.close()
-            window.orderOut(nil)
             // The window's WebContent process goes with it; the next one starts afresh.
             ListTestSupport.spin(for: 0.2)
         }
