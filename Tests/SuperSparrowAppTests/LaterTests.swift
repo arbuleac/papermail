@@ -22,11 +22,13 @@ final class LaterTests: XCTestCase {
 
     // MARK: Helpers
 
-    /// Tomorrow at 09:20 on this Mac's clock, so every preset is offered whenever the test runs.
+    /// Tomorrow at 09:20 on this Mac's clock, or Monday when tomorrow is a Sunday (whose Next Week would be Tomorrow's
+    /// time, so it is not offered), so every preset is offered whenever the test runs, Saturdays included.
     private let morning: Date = {
         let calendar = Calendar.autoupdatingCurrent
-        let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: Date()))!
-        return calendar.date(bySettingHour: 9, minute: 20, second: 0, of: tomorrow)!
+        var day = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: Date()))!
+        if calendar.component(.weekday, from: day) == 1 { day = calendar.date(byAdding: .day, value: 1, to: day)! }
+        return calendar.date(bySettingHour: 9, minute: 20, second: 0, of: day)!
     }()
 
     private struct PoppedMenu {
