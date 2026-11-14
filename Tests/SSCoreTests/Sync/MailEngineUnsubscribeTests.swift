@@ -286,6 +286,21 @@ final class MailEngineUnsubscribeTests: XCTestCase {
         XCTAssertEqual(stopped, .retry(counted: false, retryAfter: nil), "the engine stopping: the row waits for the next run")
     }
 
+    /// A mailto request the keychain refuses a token for waits for the user, as one whose token the provider refuses
+    /// does; a token refresh that fails sent nothing, so it is tried again without counting towards dropping it.
+    func testAMailtoRequestWhoseTokenCannotBeHadIsNotCounted() async {
+        let provider = ScriptedProvider(accountID: Fixtures.accountID)
+        provider.sendResults = [
+            .failure(AuthError.keychain(status: errSecAuthFailed)),
+            .failure(AuthError.refreshFailed("temporarily_unavailable")),
+        ]
+        let unsubscriber = Unsubscriber()
+        let denied = await unsubscriber.sendMail(mailto, from: Fixtures.accountID, via: provider)
+        XCTAssertEqual(denied, .needsReauth)
+        let unrefreshed = await unsubscriber.sendMail(mailto, from: Fixtures.accountID, via: provider)
+        XCTAssertEqual(unrefreshed, .retry(counted: false, retryAfter: nil))
+    }
+
     func testAStatusSaysWhetherToTryAgain() async {
         XCTAssertEqual(Unsubscriber.outcome(status: 200, retryAfter: nil), .sent)
         XCTAssertEqual(Unsubscriber.outcome(status: 202, retryAfter: nil), .sent)

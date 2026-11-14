@@ -690,6 +690,37 @@ final class MailEngineLaneTests: XCTestCase {
         await harness.shutdown()
     }
 
+    /// A keychain refused while the outbox replays (actions queued at launch, or Sync Now on a parked account) was taken
+    /// for an uncertain provider failure: no park, an attempt counted though nothing was sent, and the poll asked the
+    /// keychain again in the same cycle. The account parks at once now, with the keychain's message, and nothing more
+    /// is asked of it.
+    func testADeniedKeychainInTheOutboxParksTheAccountAtOnce() async throws {
+        let store = InMemoryMailStore()
+        let account = Fixtures.accountID
+        try store.upsertAccount(Fixtures.account())
+        try store.upsertMessages([Fixtures.message(1)])
+        try store.setSyncCursor("c0", for: account)
+        try store.setBootstrapState(BootstrapState(startedAt: Date(), pagesDone: 1, messagesSeen: 1, isComplete: true), for: account)
+        let provider = ScriptedProvider(accountID: account)
+        provider.applyResults = [.failure(AuthError.keychain(status: errSecAuthFailed))]
+        let harness = try EngineHarness(store: store, provider: provider, seedAccount: false)
+        try harness.engine.perform(.archive, on: [id(1)])
+        let statuses = PhaseRecorder()
+        let observation = harness.engine.observeStatus { statuses.record($0) }
+        harness.engine.start()
+
+        try await waitUntil("parked", timeout: 5) { statuses.latest.first?.phase == .needsReauth }
+        XCTAssertEqual(statuses.latest.first?.message, LiveLane.keychainMessage)
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertTrue(provider.changesCalls.isEmpty, "the poll did not ask the keychain a second time")
+        let operation = try XCTUnwrap(try store.pendingOperations(accountID: account, limit: 1).first)
+        XCTAssertEqual(operation.status, .pending)
+        XCTAssertEqual(operation.attempts, 0, "nothing was sent")
+        XCTAssertEqual(try store.message(id(1))?.roles, [])
+        observation.cancel()
+        await harness.shutdown()
+    }
+
     /// A parked account waits for the user. Waking from sleep, the network coming back and coming to the front
     /// (`checkForMail`, `setAppActive`) check the other accounts but never try its token again, which would bring
     /// a refused keychain's prompt back with nobody asking; Sync Now does.

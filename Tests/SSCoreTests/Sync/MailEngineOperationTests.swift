@@ -139,18 +139,26 @@ final class MailEngineOperationTests: XCTestCase {
         await harness.shutdown()
     }
 
+    /// Long backoffs, so an uncertain row's retry lies well ahead of its last attempt (`nextAttemptAt` less the backoff
+    /// the attempt took), as it does in use, without the drain sending it again during the test.
+    private func longBackoff(_ tuning: inout SyncTuning) {
+        tuning.backoffBase = 3000
+        tuning.backoffCap = 3600
+    }
+
+    /// An uncertain row last tried `ago` seconds ago, its retry one backoff after that.
+    private func uncertain(_ change: MetadataChange, _ targets: [MessageID], createdAgo: TimeInterval,
+                           triedAgo: TimeInterval) -> Operation {
+        Operation(accountID: Fixtures.accountID, change: change, targets: targets,
+                  createdAt: Date().addingTimeInterval(-createdAgo), status: .uncertain, attempts: 1,
+                  nextAttemptAt: Date().addingTimeInterval(3000 - triedAgo))
+    }
+
     func testPollSettlesOldUncertainOperations() async throws {
-        let harness = try await bootstrappedHarness()
+        let harness = try await bootstrappedHarness(tune: longBackoff)
         let target = MessageID(accountID: Fixtures.accountID, providerID: "1")
-        let farFuture = Date().addingTimeInterval(3600)
-        let old = Operation(
-            accountID: Fixtures.accountID, change: .setRead(true), targets: [target],
-            createdAt: Date().addingTimeInterval(-700), status: .uncertain, attempts: 1, nextAttemptAt: farFuture
-        )
-        let young = Operation(
-            accountID: Fixtures.accountID, change: .setStarred(true), targets: [target],
-            createdAt: Date(), status: .uncertain, attempts: 1, nextAttemptAt: farFuture
-        )
+        let old = uncertain(.setRead(true), [target], createdAgo: 700, triedAgo: 700)
+        let young = uncertain(.setStarred(true), [target], createdAgo: 0, triedAgo: 0)
         try harness.store.updateOperation(old)
         try harness.store.updateOperation(young)
 
@@ -165,6 +173,105 @@ final class MailEngineOperationTests: XCTestCase {
         XCTAssertEqual(message.isRead, false)
         XCTAssertEqual(message.isStarred, true)
         await harness.shutdown()
+    }
+
+    /// An operation queued offline archived a conversation's two messages; its first attempt moved one and failed on
+    /// the other. Settled because the poll reported the one that moved, it was deleted whole, and the other stayed
+    /// archived here and in the Inbox on the server for good. It is settled only once every target is reported.
+    func testAnUncertainOperationIsSettledOnlyOnceThePollHasSeenEveryTarget() async throws {
+        let harness = try await bootstrappedHarness(tune: longBackoff)
+        let targets = ["1", "2"].map { MessageID(accountID: Fixtures.accountID, providerID: $0) }
+        let archive = uncertain(.archive, targets, createdAgo: 700, triedAgo: 700)
+        try harness.store.updateOperation(archive)
+
+        harness.provider.enqueueChanges(.success(Fixtures.changes(upserts: [Fixtures.message(1, roles: [])], cursor: "c1")))
+        harness.engine.syncNow(accountID: Fixtures.accountID)
+        try await waitUntil("first poll") { try harness.store.syncCursor(for: Fixtures.accountID) == "c1" }
+        XCTAssertEqual(try pendingOperations(harness).map(\.id), [archive.id], "message 2 has not been reported")
+        XCTAssertEqual(try harness.store.message(targets[0])?.roles, [])
+
+        harness.provider.enqueueChanges(.success(Fixtures.changes(upserts: [Fixtures.message(1, roles: []), Fixtures.message(2, roles: [])], cursor: "c2")))
+        harness.engine.syncNow(accountID: Fixtures.accountID)
+        try await waitUntil("second poll") { try harness.store.syncCursor(for: Fixtures.accountID) == "c2" }
+        XCTAssertTrue(try pendingOperations(harness).isEmpty)
+        await harness.shutdown()
+    }
+
+    /// Old enough means old enough since its last attempt, not since it was queued: an operation queued offline an hour
+    /// ago and tried just now may still be landing, and a poll reporting its target for another reason must not drop it.
+    func testAnUncertainOperationTriedJustNowIsNotSettledHoweverOldItIs() async throws {
+        let harness = try await bootstrappedHarness(tune: longBackoff)
+        let target = MessageID(accountID: Fixtures.accountID, providerID: "1")
+        let archive = uncertain(.archive, [target], createdAgo: 3600, triedAgo: 0)
+        try harness.store.updateOperation(archive)
+
+        harness.provider.enqueueChanges(.success(Fixtures.changes(upserts: [Fixtures.message(1, isStarred: true)], cursor: "c1")))
+        harness.engine.syncNow(accountID: Fixtures.accountID)
+        try await waitUntil("poll applied") { try harness.store.syncCursor(for: Fixtures.accountID) == "c1" }
+        XCTAssertEqual(try pendingOperations(harness).map(\.id), [archive.id])
+        XCTAssertEqual(try harness.store.message(target)?.roles, [], "still archived here while it may be landing")
+        await harness.shutdown()
+    }
+
+    /// An operation tried while offline (the network failing every request) kept counting attempts, so after about an
+    /// hour and a half the first server error once the network was back gave it up and put the user's change back. Only
+    /// failures that reached the provider count towards the give-up; offline the backoff still grows to its cap.
+    func testNetworkFailuresDoNotUseUpTheAttemptsAServerErrorGivesUpOn() async throws {
+        let store = InMemoryMailStore()
+        try store.upsertAccount(Fixtures.account())
+        try store.upsertMessages([Fixtures.message(1)])
+        let provider = ScriptedProvider(accountID: Fixtures.accountID)
+        provider.applyResults = Array(repeating: .failure(ProviderError.network("offline")), count: 30)
+            + [.failure(ProviderError.server(status: 500, message: "backend"))]
+        var tuning = SyncTuning()
+        tuning.backoffBase = 0.001
+        tuning.backoffCap = 0.004
+        let runner = OperationRunner(accountID: Fixtures.accountID, store: store, provider: provider, tuning: tuning)
+        let target = MessageID(accountID: Fixtures.accountID, providerID: "1")
+        try store.enqueue(Operation(accountID: Fixtures.accountID, change: .archive, targets: [target], createdAt: Date()))
+
+        var backoffs: [TimeInterval] = []
+        for _ in 0..<31 {
+            _ = await runner.drain()
+            if let operation = try store.pendingOperations(accountID: Fixtures.accountID, limit: 1).first,
+               let next = operation.nextAttemptAt {
+                backoffs.append(next.timeIntervalSinceNow)
+            }
+            try await Task.sleep(for: .milliseconds(8))
+        }
+
+        XCTAssertEqual(provider.applyCalls.count, 31)
+        let operation = try XCTUnwrap(try store.pendingOperations(accountID: Fixtures.accountID, limit: 1).first,
+                                      "a server error after a long offline spell is retried, not given up")
+        XCTAssertEqual(operation.status, .uncertain)
+        XCTAssertLessThan(operation.attempts, tuning.maxOperationAttempts)
+        XCTAssertEqual(try store.message(target)?.roles, [], "the user's archive stands")
+        XCTAssertGreaterThan(backoffs[29], 0.002, "offline, the backoff still reached its cap")
+    }
+
+    /// A token refresh that fails (the token endpoint down, an OAuth client changed in Settings) means nothing left this
+    /// Mac: it is retried on the backoff and never gives the user's change up.
+    func testATokenRefreshThatKeepsFailingNeverGivesTheChangeUp() async throws {
+        let store = InMemoryMailStore()
+        try store.upsertAccount(Fixtures.account())
+        try store.upsertMessages([Fixtures.message(1)])
+        let provider = ScriptedProvider(accountID: Fixtures.accountID)
+        provider.applyResults = Array(repeating: .failure(AuthError.refreshFailed("unauthorized_client")), count: 30)
+        var tuning = SyncTuning()
+        tuning.backoffBase = 0.001
+        tuning.backoffCap = 0.004
+        let runner = OperationRunner(accountID: Fixtures.accountID, store: store, provider: provider, tuning: tuning)
+        let target = MessageID(accountID: Fixtures.accountID, providerID: "1")
+        try store.enqueue(Operation(accountID: Fixtures.accountID, change: .archive, targets: [target], createdAt: Date()))
+
+        for _ in 0..<30 {
+            _ = await runner.drain()
+            try await Task.sleep(for: .milliseconds(8))
+        }
+
+        let operation = try XCTUnwrap(try store.pendingOperations(accountID: Fixtures.accountID, limit: 1).first)
+        XCTAssertEqual(operation.status, .pending, "nothing was sent, so nothing may have landed")
+        XCTAssertEqual(try store.message(target)?.roles, [])
     }
 
     func testGivenUpArchiveReturnsTheConversationToTheInbox() async throws {
@@ -222,7 +329,7 @@ final class MailEngineOperationTests: XCTestCase {
     }
 
     func testPollSettlingALaterUncertainOperationKeepsAnEarlierFailureMarked() async throws {
-        let harness = try await bootstrappedHarness()
+        let harness = try await bootstrappedHarness(tune: longBackoff)
         let conversation = ConversationID(accountID: Fixtures.accountID, providerID: "t1")
         let target = MessageID(accountID: Fixtures.accountID, providerID: "1")
         let farFuture = Date().addingTimeInterval(3600)
@@ -230,10 +337,7 @@ final class MailEngineOperationTests: XCTestCase {
             accountID: Fixtures.accountID, change: .archive, targets: [target],
             createdAt: Date().addingTimeInterval(-800), status: .failed, attempts: 25, nextAttemptAt: farFuture
         )
-        let uncertain = Operation(
-            accountID: Fixtures.accountID, change: .setStarred(true), targets: [target],
-            createdAt: Date().addingTimeInterval(-700), status: .uncertain, attempts: 1, nextAttemptAt: farFuture
-        )
+        let uncertain = uncertain(.setStarred(true), [target], createdAgo: 700, triedAgo: 700)
         try harness.store.updateOperation(failed)
         try harness.store.updateOperation(uncertain)
         XCTAssertEqual(try failedMark(harness, conversation), .archive)

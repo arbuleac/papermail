@@ -404,6 +404,8 @@ actor LiveLane {
         let outcome = await runner.drain()
         // Recorded on every drain, so the ask goes away as soon as the work it waited for can go out.
         statusCenter.update(accountID) { $0.permissionsNeeded = outcome.permissionsNeeded }
+        // Parked before the poll, which would ask the keychain again in the same cycle.
+        if let denial = outcome.keychainDenial { throw denial }
         if outcome.needsReauth { throw ProviderError.unauthorized }
         // The operations wait on their own schedule and the cycle goes on to poll; the backfill pauses, since the
         // outbox spends the same quota.
@@ -635,9 +637,14 @@ actor LiveLane {
     }
 
     /// An uncertain operation is kept so local state wins until the provider's view of its targets is known.
-    /// Once a poll has reported those targets and the operation is old enough for any in-flight request to
-    /// have landed, the provider's state is the truth: the row goes before that state is written. It is
+    /// Once a poll has reported every one of those targets and the operation's last attempt is old enough for its
+    /// request to have landed, the provider's state is the truth: the row goes before that state is written. It is
     /// deleted, not confirmed, because it may never have landed, so it settles no failure mark.
+    ///
+    /// Every target, not one: an attempt can move some messages and fail on others, and settling on the ones that
+    /// moved dropped the rest, left changed here and unchanged on the server. Partly reported, it is retried
+    /// (`apply` is idempotent) until it is confirmed or given up. Old since its last attempt, not since it was queued:
+    /// one queued offline an hour ago and tried just now may still be landing.
     ///
     /// An invitation's answer is never settled this way: it is a mail and a calendar call, which no report of the
     /// message's labels and flags shows, so deleting it would drop an answer that never went out while the card
@@ -646,11 +653,19 @@ actor LiveLane {
         guard !observed.isEmpty else { return }
         let cutoff = Date().addingTimeInterval(-tuning.uncertainSettleAge)
         let operations = (try? store.pendingOperations(accountID: accountID, limit: tuning.pendingOperationsFetchLimit)) ?? []
-        for operation in operations where operation.status == .uncertain && operation.createdAt < cutoff
+        for operation in operations where operation.status == .uncertain && lastAttempt(of: operation) < cutoff
             && OperationKind(operation.change) != .answerInvitation {
-            guard operation.targets.contains(where: observed.contains) else { continue }
+            guard !operation.targets.isEmpty, operation.targets.allSatisfy(observed.contains) else { continue }
             try? store.deleteOperation(id: operation.id)
         }
+    }
+
+    /// When an uncertain operation was last sent: every attempt writes its retry one backoff after it
+    /// (`OperationRunner`), so that is its retry less the backoff of its attempt count, never before it was queued.
+    private func lastAttempt(of operation: Operation) -> Date {
+        guard let next = operation.nextAttemptAt, operation.attempts > 0 else { return operation.createdAt }
+        let backoff = Backoff.delay(attempt: operation.attempts, base: tuning.backoffBase, cap: tuning.backoffCap)
+        return max(operation.createdAt, next.addingTimeInterval(-backoff))
     }
 
     // MARK: Hydration
