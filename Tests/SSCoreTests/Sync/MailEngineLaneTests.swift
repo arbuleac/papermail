@@ -690,6 +690,34 @@ final class MailEngineLaneTests: XCTestCase {
         await harness.shutdown()
     }
 
+    /// A listing page that keeps failing (a 500 every time) threw the turn before its body batch, so paced bodies
+    /// stopped for the account: new mail past the live lane's twenty, and bodies whose live fetch failed, never came
+    /// until opened. A body batch still follows the failed page now, and the page backs off as before.
+    func testAListingPageThatKeepsFailingNoLongerStopsTheBodies() async throws {
+        let store = InMemoryMailStore()
+        let account = Fixtures.accountID
+        try store.upsertAccount(Fixtures.account())
+        try store.upsertMessages((1...3).map { Fixtures.message($0) })
+        try store.setSyncCursor("c0", for: account)
+        var state = BootstrapState(startedAt: Date(), pagesDone: 1, messagesSeen: 3)
+        state.checkpoint = BootstrapCheckpoint(providerPage: "p2", changeCursor: "c0")
+        try store.setBootstrapState(state, for: account)
+        let provider = ScriptedProvider(accountID: account)
+        provider.bootstrapRuns = [["p2": .failure(ProviderError.server(status: 500, message: "backend"))]]
+        for number in 1...3 {
+            provider.bodies[String(number)] = .success(MessageBody(html: nil, text: "body \(number)"))
+        }
+        let harness = try EngineHarness(store: store, provider: provider, seedAccount: false)
+        harness.engine.start()
+
+        try await waitUntil("bodies fetched", timeout: 10) {
+            try (1...3).allSatisfy { try store.body(for: self.id($0)) != nil }
+        }
+        XCTAssertFalse(try XCTUnwrap(try store.bootstrapState(for: account)).isComplete, "the page still fails")
+        XCTAssertFalse(provider.backfillListingCalls.isEmpty)
+        await harness.shutdown()
+    }
+
     /// A keychain refused while the outbox replays (actions queued at launch, or Sync Now on a parked account) was taken
     /// for an uncertain provider failure: no park, an attempt counted though nothing was sent, and the poll asked the
     /// keychain again in the same cycle. The account parks at once now, with the keychain's message, and nothing more

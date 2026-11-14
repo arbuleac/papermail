@@ -208,7 +208,15 @@ actor BackfillLane {
         let state = try store.bootstrapState(for: accountID)
         if let state, !state.isComplete {
             publishProgress(state)
-            try await enumerate(state, generation: generation)
+            do {
+                try await enumerate(state, generation: generation)
+            } catch let error where !Self.stopsTheTurn(error) {
+                // A page that keeps failing (a 500 every time, a lookup the reconcile cannot finish) must not stop the
+                // paced bodies with it: new mail past the live lane's twenty would come only when opened. Its batch
+                // goes, and the failure backs off as before.
+                try await hydrateBatch()
+                throw error
+            }
             pagesSinceIdle += 1
             try await hydrateBatch()
             await hydrator.backfillDesignFacts()
@@ -407,6 +415,16 @@ actor BackfillLane {
         guard !lost.isEmpty else { return }
         try fenced(generation) { try store.deleteMessages(lost.map { MessageID(accountID: accountID, providerID: $0) }) }
         SyncLog.logger.info("reconcile for \(self.accountID.rawValue, privacy: .public): removed \(lost.count, privacy: .public) messages the provider no longer has though an operation targets them")
+    }
+
+    /// What a body batch would meet too, or what ends the turn for another reason: a throttle, a refused token or
+    /// keychain, the network, a park, a replaced backfill, a stop.
+    private static func stopsTheTurn(_ error: Error) -> Bool {
+        if error is StaleBackfill || error is Parked || error is CancellationError || error is AuthError { return true }
+        switch error as? ProviderError {
+        case .throttled?, .unauthorized?, .network?, .cancelled?: return true
+        default: return false
+        }
     }
 
     /// Errors that say the page token itself is no good, as opposed to the provider being unwell.

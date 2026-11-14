@@ -255,9 +255,11 @@ actor LiveLane {
                 case .polled: break
                 }
             }
-            // A poll held back has not caught up: "checked" would claim it had.
+            // A poll held back has not caught up: "checked" would claim it had. Only a cycle that polled moves the
+            // phase: an outbox-only cycle (a user action during a failing poll's backoff) says nothing about the
+            // polls, and setting it idle showed "Up to date" between failing polls and dropped the retry countdown.
             let caughtUp = full && pollAfter == nil
-            setPhase(.idle, markSuccess: caughtUp)
+            if full { setPhase(.idle, markSuccess: caughtUp) }
             if caughtUp { checkCaughtUp() }
             return .completed(nextAttemptAt: nextAttemptAt, pollAfter: pollAfter)
         } catch is CancellationError {
