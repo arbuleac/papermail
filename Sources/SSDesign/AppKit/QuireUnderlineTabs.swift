@@ -11,11 +11,11 @@ import AppKit
 @MainActor
 public final class QuireUnderlineTabs: QuireControl {
     public var items: [Item] {
-        didSet { invalidateIntrinsicContentSize(); needsDisplay = true }
+        didSet { invalidateIntrinsicContentSize(); needsDisplay = true; pointerRegionsDidChange() }
     }
 
     public var selectedIndex: Int {
-        didSet { if oldValue != selectedIndex { needsDisplay = true } }
+        didSet { if oldValue != selectedIndex { needsDisplay = true; pointerRegionsDidChange() } }
     }
 
     /// The tab a forced `displayState` applies to: the selected tab for `.focused`, the first other tab for
@@ -154,6 +154,14 @@ public final class QuireUnderlineTabs: QuireControl {
     }
 
     // MARK: Pointer
+
+    /// Each tab's own hit area (§4.17): the hand over a tab a click would choose, the arrow over the chosen one and over
+    /// one that is disabled, which a click leaves as they are. Between the tabs there is none.
+    public override var pointerRegions: [QuirePointerRegion] {
+        items.indices.map { index in
+            .control(hitRect(forTab: index).intersection(bounds), acts: isEnabled && items[index].isEnabled && index != selectedIndex)
+        }
+    }
 
     public override func updateTrackingAreas() {
         if let moveArea { removeTrackingArea(moveArea) }

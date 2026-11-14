@@ -14,7 +14,7 @@ import AppKit
 /// search line scroll under the fixed title row. `QuireCheatSheetOverlay`
 /// places it over the window with the scrim and runs its motion and keys.
 @MainActor
-public final class QuireCheatSheetPanel: NSView {
+public final class QuireCheatSheetPanel: NSView, QuirePointerTarget {
     public static let title = "Keyboard Shortcuts"
 
     public let sections: [QuireCheatSheetSection]
@@ -112,6 +112,17 @@ public final class QuireCheatSheetPanel: NSView {
         let top = QuireCheatSheetPanel.bandsTop
         scrollView.frame = NSRect(x: 0, y: top, width: bounds.width, height: max(0, bounds.height - top - c.pad))
         bands.frame = NSRect(x: 0, y: 0, width: bounds.width, height: QuireCheatSheetPanel.bandsHeight(for: sections, searchTerms: searchTerms))
+        pointerRegionsDidChange()
+    }
+
+    /// The arrow over the panel around its close button (§4.17): a click on it does nothing, and the scrim around it,
+    /// which a click dismisses, shows the hand.
+    public var pointerRegions: [QuirePointerRegion] {
+        QuirePointerRegion.regions(bounds, cursor: .arrow, cutting: childPointerAreas())
+    }
+
+    public override func resetCursorRects() {
+        addPointerRects()
     }
 
     /// Scrolls the bands by `lines` rows (arrow keys) or pages (Page Up / Down), when they scroll.

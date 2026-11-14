@@ -125,6 +125,12 @@ public final class QuireIconButton: QuireControl {
             spinner = nil
         }
         needsDisplay = true
+        pointerRegionsDidChange()
+    }
+
+    /// The arrow while loading, as `QuireButton` (§4.17).
+    public override var pointerCursor: NSCursor? {
+        isLoading ? .arrow : super.pointerCursor
     }
 
     public override func activate() {

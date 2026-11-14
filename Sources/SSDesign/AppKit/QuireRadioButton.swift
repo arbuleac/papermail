@@ -13,12 +13,15 @@ public final class QuireRadioButton: QuireControl {
         didSet {
             guard oldValue != isSelected else { return }
             needsDisplay = true
+            pointerRegionsDidChange()
             QuireAccessibility.valueChanged(self)
         }
     }
 
     /// The group this radio belongs to; set by `QuireRadioGroupView`.
-    public internal(set) weak var group: QuireRadioGroupView?
+    public internal(set) weak var group: QuireRadioGroupView? {
+        didSet { pointerRegionsDidChange() }
+    }
 
     public var state: NSControl.StateValue {
         get { isSelected ? .on : .off }
@@ -64,6 +67,11 @@ public final class QuireRadioButton: QuireControl {
             QuireFocusRing.draw(around: circle, cornerRadius: circle.height / 2,
                                 gap: isSelected ? QuireFocusRing.gapOnFill : QuireFocusRing.gap)
         }
+    }
+
+    /// The arrow over a group's chosen radio, which a click leaves as it is (§4.17).
+    public override var pointerCursor: NSCursor? {
+        group != nil && isSelected ? .arrow : super.pointerCursor
     }
 
     /// Choosing a radio selects it and deselects the rest of its group.

@@ -10,7 +10,7 @@ import AppKit
 /// Previous and Next are disabled while nothing matches. The count is announced to VoiceOver as it changes while the
 /// field has the keyboard.
 @MainActor
-public final class QuireFindBar: NSView {
+public final class QuireFindBar: NSView, QuirePointerTarget {
     public var textField: NSTextField { field.textField }
     public let previousButton = QuireIconButton(symbolName: Quire.Icon.findPrevious, size: .medium, accessibilityLabel: "Previous Match")
     public let nextButton = QuireIconButton(symbolName: Quire.Icon.findNext, size: .medium, accessibilityLabel: "Next Match")
@@ -145,6 +145,29 @@ public final class QuireFindBar: NSView {
         for (position, button) in [previousButton, nextButton, closeButton].enumerated() {
             button.frame = button.frame(forVisualRect: buttonRect(position))
         }
+        pointerRegionsDidChange()
+    }
+
+    // MARK: Pointer
+
+    /// The arrow over the panel around the field and buttons (§4.17): the bar lies on the reader's page, whose own
+    /// cursor (a link's hand, the body's I-beam) would otherwise show through it.
+    public var pointerRegions: [QuirePointerRegion] {
+        QuirePointerRegion.regions(bounds, cursor: .arrow, cutting: childPointerAreas())
+    }
+
+    public override func resetCursorRects() {
+        addPointerRects()
+    }
+
+    public override func viewDidHide() {
+        super.viewDidHide()
+        pointerRegionsDidChange()
+    }
+
+    public override func viewDidUnhide() {
+        super.viewDidUnhide()
+        pointerRegionsDidChange()
     }
 
     // MARK: Actions
@@ -258,6 +281,9 @@ private final class FindField: QuireControl, NSTextFieldDelegate {
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(textField)
     }
+
+    /// The I-beam over the whole face, as the search field's (§4.17).
+    override var pointerCursor: NSCursor? { .iBeam }
 
     func controlTextDidChange(_ obj: Notification) {
         contentDidChange()

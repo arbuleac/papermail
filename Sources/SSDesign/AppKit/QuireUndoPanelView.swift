@@ -166,6 +166,8 @@ public final class QuireUndoPanelView: NSView {
         let button = actionButton ?? {
             let button = QuireSlipActionButton(title: title, target: self, action: #selector(actionClicked(_:)))
             button.showsRestingOutline = true
+            // The panel never becomes key, where cursor rects apply (§5.31).
+            button.tracksPointerOutsideKeyWindow = true
             content.addSubview(button, positioned: .below, relativeTo: contrail)
             actionButton = button
             return button

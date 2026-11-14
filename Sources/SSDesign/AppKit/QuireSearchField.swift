@@ -256,6 +256,12 @@ public final class QuireSearchField: QuireControl, NSTextFieldDelegate {
         window?.makeFirstResponder(textField)
     }
 
+    /// The I-beam over the whole face, the magnifier and keycap included, since a click anywhere on it puts the caret in
+    /// the field; the clear button keeps its own hand (§4.17).
+    public override var pointerCursor: NSCursor? {
+        isEnabled ? .iBeam : .arrow
+    }
+
     // MARK: Editing
 
     @objc private func clearClicked(_ sender: Any?) {

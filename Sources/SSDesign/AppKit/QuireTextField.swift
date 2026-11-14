@@ -260,6 +260,12 @@ public final class QuireTextField: QuireControl {
         window?.makeFirstResponder(textField)
     }
 
+    /// The I-beam over the whole face, padding included, since a click anywhere on it puts the caret in the field; the
+    /// reveal button keeps its own hand (§4.17).
+    public override var pointerCursor: NSCursor? {
+        isEnabled ? .iBeam : .arrow
+    }
+
     // MARK: Drawing
 
     public override func draw(_ dirtyRect: NSRect) {

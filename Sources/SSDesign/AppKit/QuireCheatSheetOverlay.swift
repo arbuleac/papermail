@@ -15,7 +15,7 @@ import AppKit
 /// `dur.standard` (`ease.settle`); out, both fade over `dur.quick` (`ease.leave`). Reduce Motion keeps the
 /// fades and drops the scale. Under Reduce Transparency the scrim is opaque (`scrimSolid`).
 @MainActor
-public final class QuireCheatSheetOverlay: NSView {
+public final class QuireCheatSheetOverlay: NSView, QuirePointerTarget {
     public let scrim = QuireScrimView(frame: .zero)
     public let panel: QuireCheatSheetPanel
 
@@ -61,6 +61,30 @@ public final class QuireCheatSheetOverlay: NSView {
         panel.layer?.transform = CATransform3DIdentity
         panel.frame = QuireCheatSheetOverlay.panelFrame(in: bounds.size, sections: panel.sections)
         if let transform { panel.layer?.transform = transform }
+        pointerRegionsDidChange()
+    }
+
+    // MARK: Pointer
+
+    /// The hand over the scrim, which a click dismisses, around the panel (§4.17). The rects cover the window's content,
+    /// so the reader's page under them sets no cursor of its own; controls under the scrim may still show theirs, as
+    /// AppKit gives overlapping rects no order.
+    public var pointerRegions: [QuirePointerRegion] {
+        QuirePointerRegion.regions(bounds, cursor: .pointingHand, cutting: childPointerAreas())
+    }
+
+    public override func resetCursorRects() {
+        addPointerRects()
+    }
+
+    public override func viewDidHide() {
+        super.viewDidHide()
+        pointerRegionsDidChange()
+    }
+
+    public override func viewDidUnhide() {
+        super.viewDidUnhide()
+        pointerRegionsDidChange()
     }
 
     // MARK: Motion

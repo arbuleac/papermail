@@ -9,7 +9,7 @@ import AppKit
 /// the bottom edge over the toast's life, only when there is an action; it freezes while the pointer rests on
 /// the slip (`onPointerHover` tells the shell, which pauses its own timer).
 @MainActor
-public final class QuireSlipView: NSView {
+public final class QuireSlipView: NSView, QuirePointerTarget {
     public var kind: Kind {
         didSet { contentDidChange() }
     }
@@ -166,6 +166,29 @@ public final class QuireSlipView: NSView {
         let head = Quire.Layout.Progress.contrailHead
         // The contrail's line lies on the slip's bottom edge, inside the corner clip.
         contrail.frame = NSRect(x: 0, y: bounds.height - line - (head - line) / 2, width: bounds.width, height: head)
+        pointerRegionsDidChange()
+    }
+
+    // MARK: Pointer
+
+    /// The arrow over the slip around its action (§4.17): a click on the words does nothing, and the slip lies on the
+    /// list, whose rows' hand would otherwise show through it.
+    public var pointerRegions: [QuirePointerRegion] {
+        QuirePointerRegion.regions(bounds, cursor: .arrow, cutting: childPointerAreas())
+    }
+
+    public override func resetCursorRects() {
+        addPointerRects()
+    }
+
+    public override func viewDidHide() {
+        super.viewDidHide()
+        pointerRegionsDidChange()
+    }
+
+    public override func viewDidUnhide() {
+        super.viewDidUnhide()
+        pointerRegionsDidChange()
     }
 
     private func contentDidChange() {

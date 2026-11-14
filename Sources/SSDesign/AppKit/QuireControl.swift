@@ -8,12 +8,12 @@ import AppKit
 /// as `alignmentRectInsets`, so the ring is drawn inside the frame (AppKit clips a view's drawing to it) while
 /// Auto Layout aligns, sizes and spaces the visual rect. `intrinsicContentSize` is therefore the token size.
 /// Clicks count inside the visual rect grown to at least `button.minHit` (24 × 24, §4.14), never in the rest
-/// of the margin.
+/// of the margin, and the pointer follows them: the pointing hand over that hit rect (§4.17).
 ///
 /// Subclasses draw in `draw(_:)` from `interactionState`, `showsFocusRing` and `isWindowKey`, and put what a
 /// click, Space or VoiceOver's press does in their override of `activate()`.
 @MainActor
-open class QuireControl: NSControl {
+open class QuireControl: NSControl, QuirePointerTarget {
     // MARK: Forced states
 
     /// Forces the look of one state (rest, hover, pressed or focused) whatever the pointer and the first
@@ -64,6 +64,7 @@ open class QuireControl: NSControl {
             if oldValue != isEnabled {
                 if !isEnabled { isPressed = false; isTrackingPress = false }
                 stateDidChange()
+                pointerRegionsDidChange()
             }
         }
     }
@@ -157,6 +158,50 @@ open class QuireControl: NSControl {
         needsDisplay = true
     }
 
+    // MARK: Pointer
+
+    /// The pointer over `hitRect` (spec §4.17): the pointing hand while enabled, the arrow while disabled. A subclass
+    /// returns the arrow while a click would do nothing (a button that is loading, the chosen radio), the I-beam for a
+    /// field, or nil for no region at all, and calls `pointerRegionsDidChange()` when what it reads changes; enabling,
+    /// hiding and layout are handled here.
+    open var pointerCursor: NSCursor? { isEnabled ? .pointingHand : .arrow }
+
+    /// `pointerCursor` over `hitRect`, never the ring margin, which overlaps the neighbours' (the rail's tiles), with
+    /// the areas of the controls inside it left to them (a field's clear button, a status line's link).
+    open var pointerRegions: [QuirePointerRegion] {
+        guard let cursor = pointerCursor else { return [] }
+        return QuirePointerRegion.regions(hitRect, cursor: cursor, cutting: childPointerAreas())
+    }
+
+    open override func resetCursorRects() {
+        addPointerRects()
+    }
+
+    open override func layout() {
+        super.layout()
+        // The controls inside move in layout, and their areas are cut out of this one's.
+        if subviews.contains(where: { $0 is QuirePointerTarget }) { pointerRegionsDidChange() }
+    }
+
+    /// Sets the pointer from mouse tracking too, for a control in a window that never becomes key (the undo-send panel,
+    /// §5.31): AppKit applies cursor rects in the key window only.
+    public var tracksPointerOutsideKeyWindow = false {
+        didSet { if oldValue != tracksPointerOutsideKeyWindow { updateTrackingAreas() } }
+    }
+
+    private var pointerArea: NSTrackingArea?
+
+    /// The pointer came over a control that tracks it itself. In the key window the cursor rects already show it.
+    func pointerEntered() {
+        guard window?.isKeyWindow != true else { return }
+        pointerCursor?.set()
+    }
+
+    func pointerExited() {
+        guard window?.isKeyWindow != true else { return }
+        NSCursor.arrow.set()
+    }
+
     // MARK: Hover
 
     private var hoverArea: NSTrackingArea?
@@ -166,6 +211,14 @@ open class QuireControl: NSControl {
         let area = NSTrackingArea(rect: hitRect, options: [.mouseEnteredAndExited, .activeInActiveApp], owner: self, userInfo: nil)
         addTrackingArea(area)
         hoverArea = area
+        if let pointerArea { removeTrackingArea(pointerArea) }
+        pointerArea = nil
+        if tracksPointerOutsideKeyWindow {
+            // Active always: the panel's app need not be active for its Undo to be pointed at.
+            let area = NSTrackingArea(rect: hitRect, options: [.mouseEnteredAndExited, .activeAlways], owner: self, userInfo: nil)
+            addTrackingArea(area)
+            pointerArea = area
+        }
         super.updateTrackingAreas()
         syncHoverWithPointer()
     }
@@ -192,13 +245,27 @@ open class QuireControl: NSControl {
     open override func viewDidHide() {
         super.viewDidHide()
         resetPointerState()
+        pointerRegionsDidChange()
+    }
+
+    open override func viewDidUnhide() {
+        super.viewDidUnhide()
+        pointerRegionsDidChange()
     }
 
     open override func mouseEntered(with event: NSEvent) {
+        if let pointerArea, event.trackingArea === pointerArea {
+            pointerEntered()
+            return
+        }
         setHovered(true)
     }
 
     open override func mouseExited(with event: NSEvent) {
+        if let pointerArea, event.trackingArea === pointerArea {
+            pointerExited()
+            return
+        }
         setHovered(false)
     }
 

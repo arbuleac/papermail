@@ -330,6 +330,7 @@ public final class QuireButton: QuireControl {
         invalidateIntrinsicContentSize()
         needsLayout = true
         stateDidChange()
+        pointerRegionsDidChange()
     }
 
     private func loadingDidChange() {
@@ -352,6 +353,11 @@ public final class QuireButton: QuireControl {
     public override func stateDidChange() {
         super.stateDidChange()
         if let spinner, !spinner.color.isEqual(spinnerColor) { spinner.color = spinnerColor }
+    }
+
+    /// The arrow while loading: the work a click started is running, and a second click starts nothing (§4.17).
+    public override var pointerCursor: NSCursor? {
+        isLoading ? .arrow : super.pointerCursor
     }
 
     // MARK: Keyboard

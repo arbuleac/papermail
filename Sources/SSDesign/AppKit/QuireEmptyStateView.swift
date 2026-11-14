@@ -11,7 +11,7 @@ import AppKit
 ///
 /// The block centres itself in the view's bounds, so the view can simply fill the pane.
 @MainActor
-public final class QuireEmptyStateView: NSView {
+public final class QuireEmptyStateView: NSView, QuirePointerTarget {
     public var sentence: String {
         didSet { contentDidChange() }
     }
@@ -292,6 +292,15 @@ public final class QuireEmptyStateView: NSView {
         }
     }
 
+    /// The hand over the hint's link (§4.17); the words around it are not a control and add nothing.
+    public var pointerRegions: [QuirePointerRegion] {
+        linkRect.map { [.control($0, acts: true)] } ?? []
+    }
+
+    public override func resetCursorRects() {
+        addPointerRects()
+    }
+
     /// For VoiceOver's press and the tests: what a click on the link does.
     public func performLink() {
         guard linkText != nil else { return }
@@ -301,6 +310,8 @@ public final class QuireEmptyStateView: NSView {
     private func contentDidChange() {
         invalidateIntrinsicContentSize()
         needsDisplay = true
+        // The link moves with the words; a font switch comes here too.
+        pointerRegionsDidChange()
         if linkText == nil {
             isLinkHovered = false
             isLinkPressed = false
