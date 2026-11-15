@@ -1,8 +1,8 @@
 import Foundation
 
 /// Rewrites CSS so it can only paint. Comments go, remote fetches become `none`, cid references become `ss-cid`
-/// URLs, `#id` selectors follow the `ss-` prefix applied to id attributes, and the legacy script-ish vectors
-/// (expression(), behavior, -moz-binding, @import, position: fixed) disappear.
+/// URLs, `#id` selectors follow the `ss-` prefix applied to id attributes, the legacy script-ish vectors
+/// (expression(), behavior, -moz-binding, @import, position: fixed) disappear, and so does `cursor`.
 ///
 /// The scanner works on UTF-8 bytes rather than a CSS grammar: a newsletter carries tens of kilobytes of style
 /// and sanitizing runs for every message at sync time, so this has to stay a single linear pass. CSS that needs
@@ -636,8 +636,10 @@ private struct Scanner {
         "inherit", "initial", "unset", "revert", "revert-layer", "currentcolor", "transparent", "none",
     ].map { Array($0.utf8) })
 
+    /// `cursor` paints nothing, and the reader sets the pointer from what a click does (spec §4.17): a sender's hand over
+    /// the cell around a link, or its arrow over the text, would promise a click that does nothing or hide the I-beam.
     static let droppedProperties: Set<[UInt8]> = [
-        Array("behavior".utf8), Array("-ms-behavior".utf8), Array("-moz-binding".utf8),
+        Array("behavior".utf8), Array("-ms-behavior".utf8), Array("-moz-binding".utf8), Array("cursor".utf8),
     ]
     static let expressionNeedle = Array("expression".utf8)
     static let expressionCall = Array("expression(".utf8)

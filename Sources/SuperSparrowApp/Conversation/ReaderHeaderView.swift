@@ -361,9 +361,7 @@ private final class ReaderHeadlineView: NSTextView {
     /// to their bounds, reaches over the whole reader: its I-beam would sit over the page and stop the page's links from
     /// showing their hand. None under the cheat sheet, which covers the reader.
     override func resetCursorRects() {
-        let line = bounds.intersection(visibleRect)
-        guard !line.isEmpty, !isUnderPointerCover else { return }
-        addCursorRect(line, cursor: .iBeam)
+        addTextPointerRects()
     }
 
     init() {

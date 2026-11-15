@@ -635,12 +635,20 @@ public enum ConversationShellAssets {
       text-decoration-line: underline !important; text-decoration-thickness: 1px !important; text-underline-offset: 2px !important;
     }
     html.ss-original { color-scheme: light; }
-    /* The pointer (spec §4.17): every link shows the pointing hand, the ones the reader linked in plain text included,
-       whatever cursor a sender's CSS gives it, and so does a sender's `summary`, which opens its `details` with no
-       script. WebKit's own hand is only `cursor: auto` resolved over a link, which any sender rule replaces, since a
-       sender's style comes after this sheet (`:root body` and !important outrank it); over a summary it shows none. */
+    /* The pointer (spec §4.17). A sender's own cursors go first: a cell or picture around a link would show the hand
+       over padding a click does nothing on, and a `default` on the body would take the I-beam from its text. Everything
+       falls back to WebKit's `auto`: the I-beam over text, the arrow over the rest. Then every link shows the pointing
+       hand, the ones the reader linked in plain text included, and so does a sender's `summary`, which opens its
+       `details` with no script; WebKit's own hand is only `auto` resolved over a link, and over a summary it shows
+       none. A link a click does nothing with shows its text's I-beam: `#`, which names no place, and an inline
+       picture's `ss-cid:`, which no app opens. A sender's style comes after this sheet, so !important and specificity
+       decide: `:root:root body *` (0,2,1) outranks a sender's !important rule of a class and tags, which mail stored
+       before `CSSFilter` dropped senders' cursors may hold, and each later rule is as specific or more. */
+    :root:root body, :root:root body * { cursor: auto !important; }
     :root body a[href], :root body a[href] *, :root body area[href],
-    :root body summary, :root body summary * { cursor: pointer !important; }
+    :root:root body summary, :root:root body summary * { cursor: pointer !important; }
+    :root body a[href="#"], :root body a[href="#"] *,
+    :root body a[href^="ss-cid:"], :root body a[href^="ss-cid:"] * { cursor: text !important; }
     /* Find in conversation (spec §5.50). The marks carry their own opaque fill and `ink`, so they read on any page a
        sender designed; `:root body` outranks the dark adaptation's `body *` and a sender's own `mark` rules. No padding:
        a mark never moves the text around it. */
@@ -3323,6 +3331,26 @@ public enum ConversationShellAssets {
         finishAll: finishAll,
         step: step,
         target: function (id) { var card = state.byID[id]; if (card) { setTarget(card, false); } },
+        // An in-message anchor a click asked for (the app's navigation policy cancels the click, whose address WebKit
+        // resolves against the shell's): the place `name` names, in the target message first, which the click made the
+        // target, then in any other that shows one. The page scrolls to it, as find scrolls to a match; the frame is
+        // as tall as its body, so its own scroll goes back to the top.
+        anchor: function (name) {
+          var cards = state.target ? [state.target].concat(state.cards) : state.cards;
+          for (var i = 0; i < cards.length; i++) {
+            var doc = frameDocument(cards[i]);
+            var node = doc && (doc.getElementById(name) || doc.getElementsByName(name)[0]);
+            if (!node || !node.getClientRects().length) { continue; }
+            try { node.scrollIntoView({ block: 'start', inline: 'nearest' }); } catch (e) { node.scrollIntoView(); }
+            var scroller = doc.scrollingElement || doc.documentElement;
+            if (scroller) {
+              scroller.scrollTop = 0;
+              if (!cards[i].wide) { scroller.scrollLeft = 0; }
+            }
+            return true;
+          }
+          return false;
+        },
         focusChanged: focusChanged,
         targetState: function () {
           var card = targetCard();

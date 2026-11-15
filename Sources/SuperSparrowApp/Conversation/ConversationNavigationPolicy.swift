@@ -5,12 +5,16 @@ import WebKit
 /// Navigation and UI delegate shared by every pooled web view.
 ///
 /// The shell is the only document a reader view ever shows: the initial `loadHTMLString` is allowed,
-/// `srcdoc` body frames are allowed, link clicks go to the default browser, and everything else is cancelled.
+/// `srcdoc` body frames are allowed, link clicks go to the app that opens them (the browser, the composer, FaceTime for a
+/// phone number), an in-message anchor scrolls the page to its place, and everything else is cancelled. A link a click does
+/// nothing with (`#`, an inline picture's `ss-cid:`) shows no pointing hand (`ConversationShellAssets.bodyCSS`).
 @MainActor
 final class ConversationNavigationPolicy: NSObject, WKNavigationDelegate, WKUIDelegate {
     enum Decision: Equatable {
         case allow
         case openExternally
+        /// Cancelled, and the shell scrolls to the place in a message this names (`ss.anchor`).
+        case moveToAnchor(String)
         case cancel
     }
 
@@ -20,7 +24,8 @@ final class ConversationNavigationPolicy: NSObject, WKNavigationDelegate, WKUIDe
     static func decision(for url: URL?, navigationType: WKNavigationType, isMainFrame: Bool) -> Decision {
         guard let url, let scheme = url.scheme?.lowercased() else { return .cancel }
         if navigationType == .linkActivated {
-            return isOpenableExternally(scheme) ? .openExternally : .cancel
+            if isOpenableExternally(scheme) { return .openExternally }
+            return inMessageAnchor(url, isMainFrame: isMainFrame).map { .moveToAnchor($0) } ?? .cancel
         }
         // The shell document itself, loaded once per view.
         if scheme == "ss-shell", isMainFrame, navigationType == .other { return .allow }
@@ -29,8 +34,21 @@ final class ConversationNavigationPolicy: NSObject, WKNavigationDelegate, WKUIDe
         return .cancel
     }
 
+    /// The schemes the sanitizer keeps on a link (`URLPolicy`) that another app opens: the links a body's pointing hand
+    /// promises a click for (§4.17).
     static func isOpenableExternally(_ scheme: String) -> Bool {
-        ["http", "https", "mailto"].contains(scheme)
+        ["http", "https", "mailto", "tel"].contains(scheme)
+    }
+
+    /// The place a link in a body names in its own message, `#ss-…` once the sanitizer has prefixed the ids, or nil. A
+    /// body's `srcdoc` document takes the shell's base address, so WebKit asks to load the shell's address with the
+    /// fragment into the frame, which would replace the body; the shell scrolls to the place instead. A bare `#` names
+    /// no place.
+    static func inMessageAnchor(_ url: URL, isMainFrame: Bool) -> String? {
+        guard !isMainFrame, let fragment = url.fragment, fragment.hasPrefix("ss-"), fragment.count > 3,
+              let hash = url.absoluteString.firstIndex(of: "#") else { return nil }
+        let document = String(url.absoluteString[..<hash])
+        return [ConversationShellAssets.baseURLString, "about:srcdoc"].contains(document) ? fragment : nil
     }
 
     // MARK: WKNavigationDelegate
@@ -48,6 +66,9 @@ final class ConversationNavigationPolicy: NSObject, WKNavigationDelegate, WKUIDe
         case .openExternally:
             if let url { openExternally(url) }
             decisionHandler(.cancel)
+        case .moveToAnchor(let name):
+            decisionHandler(.cancel)
+            webView.evaluateJavaScript("window.ss && window.ss.anchor(" + ConversationShellAssets.jsStringLiteral(name) + ")")
         case .cancel:
             decisionHandler(.cancel)
         }

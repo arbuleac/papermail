@@ -38,13 +38,37 @@ final class ConversationShellPointerTests: XCTestCase {
         XCTAssertTrue(script.contains("var node = el('button', cls, label);"), "button() makes <button> elements")
     }
 
-    /// Every link in a body document shows the hand, whatever a sender's sheet says: the rule is `!important` under
-    /// `:root body`, and it covers the words and pictures inside a link, image-map areas and a sender's `summary`.
-    func testBodyDocumentsGiveEveryLinkTheHand() {
+    /// Every link in a body document shows the hand, whatever a sender's sheet says, and nothing else does: the sender's
+    /// own cursors give way to WebKit's `auto` (the I-beam over text, the arrow elsewhere), then the hand goes on every
+    /// link, the words and pictures inside it, image-map areas and a sender's `summary`, then a link a click does nothing
+    /// with (`#`, an inline picture's `ss-cid:`) goes back to its text's I-beam. Each rule is `!important`, the first
+    /// outranks a sender's of a class and tags, and each later one is as specific as the one before it or more, so it
+    /// wins.
+    func testBodyDocumentsGiveEveryLinkTheHandAndNothingElse() {
         let css = ConversationShellAssets.bodyCSS.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-        XCTAssertTrue(css.contains(":root body a[href], :root body a[href] *, :root body area[href], :root body summary, "
-                                   + ":root body summary * { cursor: pointer !important; }"))
-        XCTAssertEqual(declarations(of: "cursor", in: css), 1, "no other cursor rule in a body document")
+        let reset = ":root:root body, :root:root body * { cursor: auto !important; }"
+        let links = ":root body a[href], :root body a[href] *, :root body area[href], :root:root body summary, "
+            + ":root:root body summary * { cursor: pointer !important; }"
+        let dead = ##":root body a[href="#"], :root body a[href="#"] *, :root body a[href^="ss-cid:"], :root body a[href^="ss-cid:"] * "##
+            + "{ cursor: text !important; }"
+        let order = [reset, links, dead].map { css.range(of: $0)?.lowerBound }
+        XCTAssertFalse(order.contains(nil), "every rule is there")
+        XCTAssertEqual(order.compactMap { $0 }, order.compactMap { $0 }.sorted(), "in this order")
+        XCTAssertEqual(declarations(of: "cursor", in: css), 3, "no other cursor rule in a body document")
+    }
+
+    /// A sender's `cursor` declarations go at sync time, from its style attributes and its sheets alike: a cell's hand
+    /// around a link or a body's arrow never reach mail stored since, whatever `!important` says.
+    func testTheSanitizerDropsASendersCursor() {
+        let id = MessageID(accountID: F.accountID, providerID: "cursors")
+        let html = """
+            <style>body { cursor: default !important; color: #333333; } td.cta { cursor: pointer; }</style>
+            <table><tr><td class="cta" style="cursor:pointer !important;padding:12px"><a href="https://example.com/buy">Buy</a></td></tr></table>
+            """
+        let sanitized = HTMLSanitizer().sanitize(MessageBody(html: html, text: nil), messageID: id)
+        XCTAssertFalse(sanitized.html.lowercased().contains("cursor"), sanitized.html)
+        XCTAssertTrue(sanitized.html.contains("padding: 12px"), "the rest of the style stays: \(sanitized.html)")
+        XCTAssertTrue(sanitized.html.contains("color: #333333"), sanitized.html)
     }
 
     /// A sender's `details` and `summary` reach the body, where a click on the summary opens it with no script: a
@@ -254,6 +278,39 @@ final class ConversationShellPointerTests: XCTestCase {
             """
         let opened = try await evaluate(disclosure, in: webView) as? String
         XCTAssertEqual(opened, "pointer pointer false true", "the summary and its words take the hand, and a click opens it")
+    }
+
+    /// Mail stored before senders' cursors were dropped keeps them, and the body's rules still win: a cell a sender gave
+    /// the hand around its link shows the hand only over the link's words, a body that asks for the arrow keeps the I-beam
+    /// over its text, a picture a sender gave the hand shows the arrow, and a link a click does nothing with (`#`, an
+    /// inline picture's `ss-cid:`) its text's I-beam, while a phone number and an in-message anchor, which a click
+    /// opens, keep the hand.
+    func testASendersCursorsGiveWayToWhatAClickDoes() async throws {
+        let (webView, _) = try await loadedShell()
+        let message = F.message("m1", date: F.utc(2025, 3, 1, 9, 0))
+        var body = F.body(html: """
+            <style>body { cursor: default !important; } td.cta, img { cursor: pointer !important; }</style>
+            <p id="ss-top">Our news</p>
+            <table><tr><td class="cta" style="cursor:pointer;padding:12px"><a href="https://example.com/buy">Buy <b>now</b></a></td></tr></table>
+            <img alt="Logo" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==" width="20" height="20">
+            <p><a href="#">Read more</a> <a href="ss-cid://acct/msg/logo"><b>Logo</b></a>
+            <a href="tel:+15551234">Call</a> <a href="#ss-top">Top</a></p>
+            """)
+        body.typesetting = .styled
+        let payload = F.builder.build(messages: [message], bodies: [message.id: body], accounts: F.accounts, now: F.utc(2025, 3, 20, 9, 0))
+        _ = try await evaluate("window.ss.render(\(try payload.jsonString()))", in: webView)
+        try await waitForFrames(count: 1, in: webView)
+        let probe = """
+            (function () {
+              var d = document.querySelector('.ss-card iframe').contentDocument;
+              function c(s) { var n = d.querySelector(s); return n ? getComputedStyle(n).cursor : 'missing'; }
+              return [c('body'), c('#ss-top'), c('td.cta'), c('td.cta a'), c('td.cta a b'), c('img'),
+                      c('a[href="#"]'), c('a[href^="ss-cid:"]'), c('a[href^="ss-cid:"] b'), c('a[href^="tel:"]'),
+                      c('a[href="#ss-top"]')].join(' ');
+            })()
+            """
+        let computed = try await evaluate(probe, in: webView) as? String
+        XCTAssertEqual(computed, "auto auto auto pointer pointer auto text text text pointer pointer")
     }
 
     /// Nothing kept the hand from the links the reader finds in plain text: the pointer over one reaches it. The shell
