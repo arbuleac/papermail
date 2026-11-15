@@ -59,17 +59,44 @@ final class SwipeActionColorTests: XCTestCase {
     }
 
     /// Archive is the theme's own fill, as on a primary button; under Graphite, and in Gallery, whose ink is its text
-    /// ink, `ink` would turn light at night under a white title, so Archive takes the slip there.
-    func testArchiveIsTheThemesFillAndTheSlipWithoutColour() throws {
+    /// ink, `ink` would turn light at night under a white title, so Archive takes the neutral there: the slip by day,
+    /// and at night a grey lighter than the slip, which would sink into the row.
+    func testArchiveIsTheThemesFillAndTheNeutralWithoutColour() throws {
         for theme in QuireTheme.allCases {
             for mode in QuireMode.allCases {
                 force(theme, graphite: false)
                 let archive = hex(TokenResolver.rgba(QuireSwipeAction.archive.fill, mode))
                 let fill = hex(TokenResolver.rgba(.qAccentFill, mode))
-                let slip = hex(TokenResolver.rgba(.qSlip, mode))
-                XCTAssertEqual(archive, theme == .gallery ? slip : fill, "\(theme) \(mode.rawValue)")
+                let neutral = TokenResolver.rgba(.qSwipeArchiveNeutral, mode)
+                let slip = TokenResolver.rgba(.qSlip, mode)
+                XCTAssertEqual(archive, theme == .gallery ? hex(neutral) : fill, "\(theme) \(mode.rawValue)")
                 force(theme, graphite: true)
-                XCTAssertEqual(hex(TokenResolver.rgba(QuireSwipeAction.archive.fill, mode)), slip, "\(theme) \(mode.rawValue) Graphite")
+                XCTAssertEqual(hex(TokenResolver.rgba(QuireSwipeAction.archive.fill, mode)), hex(neutral), "\(theme) \(mode.rawValue) Graphite")
+                if mode.isDark {
+                    XCTAssertGreaterThan(ColorLib.luminance(neutral), ColorLib.luminance(slip), "\(theme) \(mode.rawValue): lighter than the slip")
+                } else {
+                    XCTAssertEqual(hex(neutral), hex(slip), "\(theme) \(mode.rawValue): the slip by day")
+                }
+            }
+        }
+    }
+
+    /// Each capsule shows against the row it is uncovered on, and Archive more than Read on every one: at rest, hovered
+    /// and in both selections, in every theme and mode and under Graphite, so Archive is never the button that sinks
+    /// into the row (§5.7). Under Graphite the runtime resolves Archive and the key selection to their substitutes.
+    func testArchiveStandsOutFromTheRowMoreThanRead() {
+        for theme in QuireTheme.allCases {
+            for graphite in [false, true] {
+                force(theme, graphite: graphite)
+                for mode in QuireMode.allCases {
+                    for row in [["paper"], ["paper", "hover"], ["selWash"], ["selWashIdle"]] {
+                        let archive = TokenResolver.ratio(fg: ["swipeArchive"], bg: row, mode)
+                        let read = TokenResolver.ratio(fg: ["swipeRead"], bg: row, mode)
+                        let label = "\(theme) \(mode.rawValue)\(graphite ? " Graphite" : "") on \(row.joined(separator: " + "))"
+                        XCTAssertGreaterThan(archive, read, label)
+                        XCTAssertGreaterThan(read, 1.15, "Read's capsule still shows: " + label)
+                    }
+                }
             }
         }
     }

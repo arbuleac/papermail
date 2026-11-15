@@ -8,13 +8,15 @@ import AppKit
 /// later). So the title's colour is AppKit's, recorded as `onSwipe`, and each fill is chosen to hold it at 4.5:1 in
 /// every theme and mode and under Graphite, which the contrast pairs assert.
 public enum QuireSwipeAction: CaseIterable, Sendable {
-    /// Archive, on the trailing edge: the theme's fill (`swipeArchive`, the slip under Graphite and in Gallery).
+    /// Archive, on the trailing edge: the theme's fill (`swipeArchive`; under Graphite and in Gallery
+    /// `swipeArchiveNeutral`, the slip by day and a grey that stands out from the row at night).
     case archive
-    /// Mark as Read or Mark as Unread, on the leading edge: the ramp's quiet mid grey (`swipeRead`).
+    /// Mark as Read or Mark as Unread, on the leading edge: the ramp's quiet grey (`swipeRead`).
     case readState
 
-    /// The capsule's fill. A live colour that AppKit resolves each time the button draws, so a button already out follows
-    /// a theme switch (the redraw sweep marks it), the appearance, Increase Contrast and Graphite.
+    /// The capsule's fill: the live token, never a colour resolved when the action is made. AppKit resolves it again
+    /// only on an appearance change or when the button's views are marked for display, so a button already out follows
+    /// a theme, Graphite or Increase Contrast change because the list marks it (spec §5.7).
     public var fill: NSColor {
         switch self {
         case .archive: return .qSwipeArchive

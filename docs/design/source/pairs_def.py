@@ -1,6 +1,8 @@
 """Every foreground-on-surface combination the components produce. (use, fg, bg-stack, need).
 bg stacks are composited left to right: the first item is opaque, later ones are alpha washes."""
 T, U = 4.5, 3.0
+# a scan cue's floor: build.py knows the cues by it, and does not regenerate them under Graphite
+CUE = 1.25
 PAIRS = [
  # ---- list: rows, all states
  ("Row sender/subject, rest", "ink", ["paper"], T),
@@ -44,7 +46,7 @@ PAIRS = [
  ("Failed glyph (danger), rest", "danger", ["paper"], U),
  ("Failed glyph, selected", "danger", ["selWash"], U),
  ("Failed glyph, selected idle", "danger", ["selWashIdle"], U),
- ("Selection wash vs list (scan cue for j/k, with the rule)", "selWash", ["paper"], 1.25),
+ ("Selection wash vs list (scan cue for j/k, with the rule)", "selWash", ["paper"], CUE),
  ("Margin rule vs selection wash", "selRule", ["selWash"], U),
  ("Margin rule vs adjacent paper", "selRule", ["paper"], U),
  ("Idle margin rule vs idle wash", "selRuleIdle", ["selWashIdle"], U),
@@ -57,6 +59,17 @@ PAIRS = [
  # a swipe's button (§5.7): AppKit draws its title white on whatever fill it is given, so each fill must hold onSwipe
  ("Swipe button title (AppKit's white) on Archive's fill", "onSwipe", ["swipeArchive"], T),
  ("Swipe button title (AppKit's white) on Mark as Read or Mark as Unread's fill", "onSwipe", ["swipeRead"], T),
+ # ...and each capsule against the row it is uncovered on. White at 4.5:1 caps a fill at about L* 50, so no capsule
+ # reaches 3:1 on a selected row at night: each surface has floors of its own, Archive's above Read's, so Archive stays
+ # the louder button and neither sinks into the row (the slip under Graphite did)
+ ("Swipe Archive capsule on the row, rest", "swipeArchive", ["paper"], U),
+ ("Swipe Archive capsule on the row, hover", "swipeArchive", ["paper", "hover"], 2.5),
+ ("Swipe Archive capsule on the row, selected", "swipeArchive", ["selWash"], 1.9),
+ ("Swipe Archive capsule on the row, selected idle", "swipeArchive", ["selWashIdle"], 2.3),
+ ("Swipe Mark as Read or Unread capsule on the row, rest", "swipeRead", ["paper"], 2.0),
+ ("Swipe Mark as Read or Unread capsule on the row, hover", "swipeRead", ["paper", "hover"], 1.6),
+ ("Swipe Mark as Read or Unread capsule on the row, selected", "swipeRead", ["selWash"], 1.2),
+ ("Swipe Mark as Read or Unread capsule on the row, selected idle", "swipeRead", ["selWashIdle"], 1.5),
  # ---- list header, search, sync line, empty states
  ("Masthead", "ink", ["paper"], T),
  ("Masthead chevron, compose glyph", "ink2", ["paper"], U),
@@ -145,8 +158,8 @@ PAIRS = [
  ("Find match text", "ink", ["findWash"], T),
  ("Find current match text", "ink", ["findCurrent"], T),
  ("Find current match ring", "ruleStrong", ["sheet"], U),
- ("Find match wash vs the page (a scan cue: the count says how many)", "findWash", ["sheet"], 1.25),
- ("Find current match vs the other matches (a scan cue: the ring carries the state)", "findCurrent", ["findWash"], 1.25),
+ ("Find match wash vs the page (a scan cue: the count says how many)", "findWash", ["sheet"], CUE),
+ ("Find current match vs the other matches (a scan cue: the ring carries the state)", "findCurrent", ["findWash"], CUE),
  ("Remote-images banner text", "ink", ["sheet", "fill"], T),
  ("Remote-images banner glyph", "ink2", ["sheet", "fill"], U),
  ("Load images link, rest and hover (hover adds the underline; link buttons never take a wash)", "accent", ["sheet", "fill"], T),
@@ -342,7 +355,7 @@ PAIRS = [
  ("Settings selected row secondary", "ink2", ["selWash"], T),
  ("Settings selected row text, window not key", "ink", ["selWashIdle"], T),
  ("Settings selected row secondary, window not key", "ink2", ["selWashIdle"], T),
- ("Settings selection wash vs group (scan cue, with the rule)", "selWash", ["sheet"], 1.25),
+ ("Settings selection wash vs group (scan cue, with the rule)", "selWash", ["sheet"], CUE),
  ("Settings selection rule vs wash", "selRule", ["selWash"], U),
  ("Settings selection rule vs group", "selRule", ["sheet"], U),
  ("Settings idle selection rule vs idle wash", "selRuleIdle", ["selWashIdle"], U),

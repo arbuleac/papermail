@@ -1,7 +1,7 @@
 import json, re, sys, itertools, os
 import colorlib as c
 import tokens_def as T
-from pairs_def import PAIRS
+from pairs_def import PAIRS, CUE
 H = c.hex2rgba
 REPO = os.environ.get('QUIRE_OUT', os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..')))
 MODES = ['light', 'dark', 'lightHC', 'darkHC']
@@ -125,7 +125,7 @@ def touches(fg, stack):
 GRAPHITE_PAIRS = []
 for p in ALL_PAIRS:
     # the 1.25 scan cues are not regenerated: under Graphite the selection wash is the idle wash and the ink rule is the cue
-    if p[3] < 3 or not touches(p[1], p[2]):
+    if p[3] == CUE or not touches(p[1], p[2]):
         continue
     GRAPHITE_PAIRS.append(('Graphite · ' + p[0], g_sub_fg(p[1]), g_sub_stack(p[2])) + tuple(p[3:]))
 tokens['graphite'] = {k: {'value': v[0], 'use': v[1]} for k, v in T.GRAPHITE.items()}
@@ -229,6 +229,23 @@ def page_variables(colors, mode, graphite=None):
     if graphite is not None:
         return [('focusOnPage', graphite['focus'][light]), ('linkOnPage', graphite['accent'][mode])]
     return [('focusOnPage', theme_rules.focus_on_page(colors, mode)), ('linkOnPage', theme_rules.link_on_page(mode))]
+# a swipe's capsules (§5.7): a pair's floor holds one capsule on one row, not the two apart, so Archive is also held to
+# stand out from every row it can be uncovered on more than Read does, in every mode and under Graphite. The neutral
+# Archive is the slip by day, so Graphite and Gallery change only the night's capsule.
+SWIPE_ROWS = (['paper'], ['paper', 'hover'], ['selWash'], ['selWashIdle'])
+def swipe_fails(colors):
+    out = []
+    for m in MODES:
+        if not m.startswith('dark') and colors['swipeArchiveNeutral'][m] != colors['slip'][m]:
+            out.append('%s: swipeArchiveNeutral is not the slip' % m)
+        for graphite in (False, True):
+            sub = g_sub_stack if graphite else list
+            for row in SWIPE_ROWS:
+                archive, read = (ratio(sub([t])[0], sub(row), m, colors) for t in ('swipeArchive', 'swipeRead'))
+                if archive <= read:
+                    out.append('%s: swipe Archive %.2f is no louder than Read %.2f on %s%s' % (
+                        m, archive, read, ' + '.join(row), ' under Graphite' if graphite else ''))
+    return out
 def _passes(res, m):
     return sum(1 for r in res if r[3] > 0 and r[4][m] >= (r[6] if (r[6] is not None and m in IC_MODES) else r[3]) - 1e-9)
 def _tightest(res, m):
@@ -251,6 +268,7 @@ for th in themes_def.THEMES:
     t_rules = account_rule_fails(t_acct, inkless)
     waived = [r for r in account_rule_fails(t_acct) if r not in t_rules]
     t_theme, t_flags, t_vals = theme_rules.check(tab, spec, is_default=th['spec'] is None)
+    t_theme += swipe_fails(tab)
     sheet_page = {m: theme_rules.sheet_is_page(tab, m) for m in MODES}
     # the reader offers original colours only in dark appearances, because the light sheet is the page (R1)
     t_theme += ['%s: sheetIsPage is %s' % (m, sheet_page[m]) for m in MODES if sheet_page[m] == m.startswith('dark')]
@@ -399,10 +417,11 @@ def _margins(res, k=6):
     return sorted(best.values(), key=lambda t: t[0])[:k]
 def contrast_summary():
     n = sum(1 for r in results if r[3] > 0)
-    cue = sum(1 for r in results if 0 < r[3] < 3)
+    cue = sum(1 for r in results if r[3] == CUE)
+    capsule = sum(1 for r in results if r[1] in ('swipeArchive', 'swipeRead'))
     ng = len(g_results)
-    s = '%d pairs × 4 modes = %d checks, plus %d Graphite pairs × 4 = %d, %d failures (%d of the pairs are scan cues with a 1.25 floor; account inks need 3.0, or 3.5 in IC; the rest need 4.5 or 3.0). Smallest margins: ' % (
-        n, n * 4, ng, ng * 4, len(fails), cue)
+    s = '%d pairs × 4 modes = %d checks, plus %d Graphite pairs × 4 = %d, %d failures (%d of the pairs are scan cues with a 1.25 floor; %d hold a swipe\'s capsule on its row, Archive\'s floors above Read\'s, §5.7; account inks need 3.0, or 3.5 in IC; the rest need 4.5 or 3.0). Smallest margins: ' % (
+        n, n * 4, ng, ng * 4, len(fails), cue, capsule)
     s += '; '.join('%s %.2f (%s, needs %.1f)' % (u, v, MODE_LABEL[m], nd) for _, u, m, v, nd in _margins(results)) + '.'
     return s
 def graphite_summary():

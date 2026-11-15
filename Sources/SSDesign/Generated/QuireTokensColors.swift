@@ -27,8 +27,10 @@ extension NSColor {
     /// `color.knob`: Toggle knob face (its boundary is the 1 pt ruleStrong knob edge, layout.toggle) (surface).
     /// Under Graphite: `paper`.
     public static let qKnob = NSColor.quire("knob", themes: QuireThemeTable.knob, graphite: QuireThemeTable.knobGraphite)
-    /// `color.swipeRead`: Fill of a swipe's Mark as Read or Mark as Unread button (§5.7): the ramp's mid grey, nearly one value in both appearances, quiet beside Archive and dark enough for AppKit's white title (surface).
+    /// `color.swipeRead`: Fill of a swipe's Mark as Read or Mark as Unread button (§5.7): a grey of the ramp, mid by day and low at night, quiet beside Archive on every row and dark enough for AppKit's white title (surface).
     public static let qSwipeRead = NSColor.quire("swipeRead", themes: QuireThemeTable.swipeRead)
+    /// `color.swipeArchiveNeutral`: Fill of a swipe's Archive button under Graphite and in Gallery (§5.7): the slip by day; at night a grey light enough to stand out from the row, which the slip sinks into, and dark enough for AppKit's white title (surface).
+    public static let qSwipeArchiveNeutral = NSColor.quire("swipeArchiveNeutral", themes: QuireThemeTable.swipeArchiveNeutral)
     /// `color.originalPage`: Page under a styled message shown in its original colours (drawn only in dark appearances: the sender designed for white) (surface).
     public static let qOriginalPage = NSColor.quire("originalPage", QuireColorValues(light: 0xFFFFFFFF, dark: 0xFFFFFFFF, lightHC: 0xFFFFFFFF, darkHC: 0xFFFFFFFF))
     /// `color.scrimSolid`: The cheat-sheet scrim under Reduce Transparency: opaque, the value `scrim` gives over `canvas`, so the window behind is hidden instead of dimmed (surface).
@@ -83,8 +85,8 @@ extension NSColor {
     /// `color.onAccent`: Text and glyphs on accentFill (accent).
     /// Under Graphite: `paper`.
     public static let qOnAccent = NSColor.quire("onAccent", themes: QuireThemeTable.onAccent, graphite: QuireThemeTable.onAccentGraphite)
-    /// `color.swipeArchive`: Fill of a swipe's Archive button (§5.7): accentFill by another name, apart only under Graphite and in Gallery, where it is the slip, since AppKit's white title needs a dark fill in both appearances (accent).
-    /// Under Graphite: `slip`.
+    /// `color.swipeArchive`: Fill of a swipe's Archive button (§5.7): accentFill by another name, apart only under Graphite and in Gallery, where it is swipeArchiveNeutral, since `ink` would turn light at night under AppKit's white title (accent).
+    /// Under Graphite: `swipeArchiveNeutral`.
     public static let qSwipeArchive = NSColor.quire("swipeArchive", themes: QuireThemeTable.swipeArchive, graphite: QuireThemeTable.swipeArchiveGraphite)
     /// `color.accentWash`: On state of quiet toggles (Hide quoted text, Original colors action, composer format toggles) (accent).
     /// Under Graphite: `selWashIdle`.
@@ -150,6 +152,7 @@ extension Color {
     public static let qSlipEdge = Color(nsColor: .qSlipEdge)
     public static let qKnob = Color(nsColor: .qKnob)
     public static let qSwipeRead = Color(nsColor: .qSwipeRead)
+    public static let qSwipeArchiveNeutral = Color(nsColor: .qSwipeArchiveNeutral)
     public static let qOriginalPage = Color(nsColor: .qOriginalPage)
     public static let qScrimSolid = Color(nsColor: .qScrimSolid)
     public static let qInk = Color(nsColor: .qInk)
@@ -212,6 +215,7 @@ extension ShapeStyle where Self == QuireColorStyle {
     public static var qSlipEdge: QuireColorStyle { QuireColorStyle(.slipEdge) }
     public static var qKnob: QuireColorStyle { QuireColorStyle(.knob) }
     public static var qSwipeRead: QuireColorStyle { QuireColorStyle(.swipeRead) }
+    public static var qSwipeArchiveNeutral: QuireColorStyle { QuireColorStyle(.swipeArchiveNeutral) }
     public static var qOriginalPage: QuireColorStyle { QuireColorStyle(.originalPage) }
     public static var qScrimSolid: QuireColorStyle { QuireColorStyle(.scrimSolid) }
     public static var qInk: QuireColorStyle { QuireColorStyle(.ink) }
@@ -322,11 +326,18 @@ enum QuireThemeTable {
         QuireColorValues(light: 0xFBF9FFFF, dark: 0x161519FF, lightHC: 0xFCFCFFFF, darkHC: 0x0E0C12FF),
     ]
     static let swipeRead: [QuireColorValues] = [
-        QuireColorValues(light: 0x726C65FF, dark: 0x5F5A53FF, lightHC: 0x625C55FF, darkHC: 0x57524BFF),
-        QuireColorValues(light: 0x6D6D6DFF, dark: 0x5B5B5BFF, lightHC: 0x5D5D5DFF, darkHC: 0x535353FF),
-        QuireColorValues(light: 0x626F75FF, dark: 0x505D63FF, lightHC: 0x525F65FF, darkHC: 0x48555BFF),
-        QuireColorValues(light: 0x696F64FF, dark: 0x575D52FF, lightHC: 0x595F54FF, darkHC: 0x4F554AFF),
-        QuireColorValues(light: 0x6E6B77FF, dark: 0x5C5964FF, lightHC: 0x5E5B67FF, darkHC: 0x54515CFF),
+        QuireColorValues(light: 0x726C65FF, dark: 0x524D47FF, lightHC: 0x625C55FF, darkHC: 0x4F4A44FF),
+        QuireColorValues(light: 0x6D6D6DFF, dark: 0x4E4E4EFF, lightHC: 0x5D5D5DFF, darkHC: 0x4B4B4BFF),
+        QuireColorValues(light: 0x626F75FF, dark: 0x445055FF, lightHC: 0x525F65FF, darkHC: 0x414D52FF),
+        QuireColorValues(light: 0x696F64FF, dark: 0x4A4F46FF, lightHC: 0x595F54FF, darkHC: 0x474C43FF),
+        QuireColorValues(light: 0x6E6B77FF, dark: 0x4F4C57FF, lightHC: 0x5E5B67FF, darkHC: 0x4C4954FF),
+    ]
+    static let swipeArchiveNeutral: [QuireColorValues] = [
+        QuireColorValues(light: 0x24221FFF, dark: 0x79736BFF, lightHC: 0x12100EFF, darkHC: 0x77716AFF),
+        QuireColorValues(light: 0x222222FF, dark: 0x747474FF, lightHC: 0x101010FF, darkHC: 0x727272FF),
+        QuireColorValues(light: 0x1E2326FF, dark: 0x67767DFF, lightHC: 0x0D1113FF, darkHC: 0x67747AFF),
+        QuireColorValues(light: 0x21231EFF, dark: 0x70766BFF, lightHC: 0x0F110DFF, darkHC: 0x6E7469FF),
+        QuireColorValues(light: 0x232226FF, dark: 0x75727EFF, lightHC: 0x111013FF, darkHC: 0x73707CFF),
     ]
     static let scrimSolid: [QuireColorValues] = [
         QuireColorValues(light: 0xB8B6B1FF, dark: 0x0B0B0AFF, lightHC: 0x9C9A95FF, darkHC: 0x050504FF),
@@ -526,17 +537,17 @@ enum QuireThemeTable {
     ]
     static let swipeArchive: [QuireColorValues] = [
         QuireColorValues(light: 0x1E5468FF, dark: 0x2D788BFF, lightHC: 0x123E4DFF, darkHC: 0x246F83FF),
-        QuireColorValues(light: 0x222222FF, dark: 0x333333FF, lightHC: 0x101010FF, darkHC: 0x2B2B2BFF),
+        QuireColorValues(light: 0x222222FF, dark: 0x747474FF, lightHC: 0x101010FF, darkHC: 0x727272FF),
         QuireColorValues(light: 0x27555BFF, dark: 0x017B87FF, lightHC: 0x103F4AFF, darkHC: 0x03727EFF),
         QuireColorValues(light: 0x22555AFF, dark: 0x247A7EFF, lightHC: 0x173F44FF, darkHC: 0x147278FF),
         QuireColorValues(light: 0x00556EFF, dark: 0x1E779CFF, lightHC: 0x083E4FFF, darkHC: 0x276E86FF),
     ]
     static let swipeArchiveGraphite: [QuireColorValues] = [
-        QuireColorValues(light: 0x24221FFF, dark: 0x36332EFF, lightHC: 0x12100EFF, darkHC: 0x2E2B27FF),
-        QuireColorValues(light: 0x222222FF, dark: 0x333333FF, lightHC: 0x101010FF, darkHC: 0x2B2B2BFF),
-        QuireColorValues(light: 0x1E2326FF, dark: 0x2C3539FF, lightHC: 0x0D1113FF, darkHC: 0x252D30FF),
-        QuireColorValues(light: 0x21231EFF, dark: 0x31352DFF, lightHC: 0x0F110DFF, darkHC: 0x292D26FF),
-        QuireColorValues(light: 0x232226FF, dark: 0x34323AFF, lightHC: 0x111013FF, darkHC: 0x2C2B31FF),
+        QuireColorValues(light: 0x24221FFF, dark: 0x79736BFF, lightHC: 0x12100EFF, darkHC: 0x77716AFF),
+        QuireColorValues(light: 0x222222FF, dark: 0x747474FF, lightHC: 0x101010FF, darkHC: 0x727272FF),
+        QuireColorValues(light: 0x1E2326FF, dark: 0x67767DFF, lightHC: 0x0D1113FF, darkHC: 0x67747AFF),
+        QuireColorValues(light: 0x21231EFF, dark: 0x70766BFF, lightHC: 0x0F110DFF, darkHC: 0x6E7469FF),
+        QuireColorValues(light: 0x232226FF, dark: 0x75727EFF, lightHC: 0x111013FF, darkHC: 0x73707CFF),
     ]
     static let accentWash: [QuireColorValues] = [
         QuireColorValues(light: 0xDCE8EAFF, dark: 0x1F363CFF, lightHC: 0xC8DCE0FF, darkHC: 0x1A4049FF),
@@ -663,6 +674,7 @@ public enum QuireColorToken: String, CaseIterable, Sendable {
     case slipEdge
     case knob
     case swipeRead
+    case swipeArchiveNeutral
     case originalPage
     case scrimSolid
     case ink
@@ -724,6 +736,7 @@ public enum QuireColorToken: String, CaseIterable, Sendable {
         case .slipEdge: return .qSlipEdge
         case .knob: return .qKnob
         case .swipeRead: return .qSwipeRead
+        case .swipeArchiveNeutral: return .qSwipeArchiveNeutral
         case .originalPage: return .qOriginalPage
         case .scrimSolid: return .qScrimSolid
         case .ink: return .qInk
@@ -786,7 +799,8 @@ public enum QuireColorToken: String, CaseIterable, Sendable {
         case .slip: return QuireColorValues(light: 0x24221FFF, dark: 0x36332EFF, lightHC: 0x12100EFF, darkHC: 0x2E2B27FF)
         case .slipEdge: return QuireColorValues(light: 0x00000000, dark: 0xFFFFFF1A, lightHC: 0x00000000, darkHC: 0xFFFFFF73)
         case .knob: return QuireColorValues(light: 0xFFFFFFFF, dark: 0xDCD7CEFF, lightHC: 0xFFFFFFFF, darkHC: 0xFFFFFFFF)
-        case .swipeRead: return QuireColorValues(light: 0x726C65FF, dark: 0x5F5A53FF, lightHC: 0x625C55FF, darkHC: 0x57524BFF)
+        case .swipeRead: return QuireColorValues(light: 0x726C65FF, dark: 0x524D47FF, lightHC: 0x625C55FF, darkHC: 0x4F4A44FF)
+        case .swipeArchiveNeutral: return QuireColorValues(light: 0x24221FFF, dark: 0x79736BFF, lightHC: 0x12100EFF, darkHC: 0x77716AFF)
         case .originalPage: return QuireColorValues(light: 0xFFFFFFFF, dark: 0xFFFFFFFF, lightHC: 0xFFFFFFFF, darkHC: 0xFFFFFFFF)
         case .scrimSolid: return QuireColorValues(light: 0xB8B6B1FF, dark: 0x0B0B0AFF, lightHC: 0x9C9A95FF, darkHC: 0x050504FF)
         case .ink: return QuireColorValues(light: 0x1D1B18FF, dark: 0xEDE9E2FF, lightHC: 0x0F0E0CFF, darkHC: 0xFFFFFFFF)
@@ -849,6 +863,7 @@ public enum QuireColorToken: String, CaseIterable, Sendable {
         case .slip: return QuireThemeTable.slip[theme.index]
         case .knob: return QuireThemeTable.knob[theme.index]
         case .swipeRead: return QuireThemeTable.swipeRead[theme.index]
+        case .swipeArchiveNeutral: return QuireThemeTable.swipeArchiveNeutral[theme.index]
         case .scrimSolid: return QuireThemeTable.scrimSolid[theme.index]
         case .ink: return QuireThemeTable.ink[theme.index]
         case .ink2: return QuireThemeTable.ink2[theme.index]
@@ -918,6 +933,7 @@ public enum QuireColorToken: String, CaseIterable, Sendable {
         case .slip: return true
         case .knob: return true
         case .swipeRead: return true
+        case .swipeArchiveNeutral: return true
         case .scrimSolid: return true
         case .ink: return true
         case .ink2: return true
@@ -965,7 +981,7 @@ public enum QuireColorToken: String, CaseIterable, Sendable {
         case .accentFillPressed: return ["ink3"]
         case .controlOnPressed: return ["ink3"]
         case .onAccent: return ["paper"]
-        case .swipeArchive: return ["slip"]
+        case .swipeArchive: return ["swipeArchiveNeutral"]
         case .accentWash: return ["selWashIdle"]
         case .accentWashHover: return ["selWashIdle", "hover"]
         case .accentWashPressed: return ["selWashIdle", "pressed"]
@@ -988,6 +1004,7 @@ public enum QuireColorToken: String, CaseIterable, Sendable {
         case .slipEdge: return "surface"
         case .knob: return "surface"
         case .swipeRead: return "surface"
+        case .swipeArchiveNeutral: return "surface"
         case .originalPage: return "surface"
         case .scrimSolid: return "surface"
         case .ink: return "ink"

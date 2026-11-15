@@ -97,7 +97,7 @@ def resolve(table, stack, m):
 # ---------------------------------------------------------------- token families
 NEUTRAL = ['spine', 'paper', 'canvas', 'sheet', 'raised', 'slip', 'knob', 'ink', 'ink2', 'ink3', 'inkDisabled', 'onSlip',
            'onSlip2', 'rule', 'ruleStrong', 'onSlipEdge', 'hover', 'pressed', 'fill', 'slipHover', 'slipPressed', 'scrim',
-           'selWashIdle', 'swipeRead']
+           'selWashIdle', 'swipeRead', 'swipeArchiveNeutral']
 FILLS = ['accentFill', 'accentFillHover', 'accentFillPressed', 'controlOnPressed']
 WASHES = ['accentWash', 'accentWashHover', 'accentWashPressed', 'selWash']
 MARKS = ['accent', 'focus', 'selRule']
