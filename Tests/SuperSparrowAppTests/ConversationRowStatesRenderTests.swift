@@ -192,7 +192,7 @@ final class ConversationRowStatesRenderTests: XCTestCase {
 
     private func emptyCard() -> [NSView] {
         let states: [(String, String, QuireEmptyStateView.Glyph?)] = [
-            ("Nothing left to read.", "New mail will land here.", .sparrow),
+            ("Nothing left to read.", "New mail will land here.", .brandMark),
             ("No starred conversations", "Press S to star one.", nil),
             ("No results for “lisbon flat”", "Search looks at subjects, people and message text.", nil),
             ("You're offline", "Mail will appear when you reconnect.", .offline),

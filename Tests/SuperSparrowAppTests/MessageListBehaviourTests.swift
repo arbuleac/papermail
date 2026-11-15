@@ -170,7 +170,7 @@ final class MessageListBehaviourTests: XCTestCase {
         let inbox = Support.host(store: store, settings: Support.settings()).list
         XCTAssertFalse(inbox.emptyView.isHidden)
         XCTAssertEqual(inbox.emptyView.sentence, "Nothing left to read.")
-        XCTAssertEqual(inbox.emptyView.glyph, .sparrow)
+        XCTAssertEqual(inbox.emptyView.glyph, .brandMark)
 
         inbox.query = ConversationQuery(view: .starred)
         Support.spin(for: 0.05)

@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/brand/lockup-horizontal-reversed.svg">
+  <img src="docs/brand/lockup-horizontal-colour.svg" alt="SuperSparrow" width="405">
+</picture>
+
 # SuperSparrow
 
 A native macOS mail client for Gmail and Microsoft 365 / Outlook.com. One unified inbox, no folders or labels in the way, and every interaction answered from a local SQLite store, so it stays fast: Sparrow's simplicity with Superhuman's speed.
@@ -14,7 +19,7 @@ scripts/run.sh                    # build, bundle dist/SuperSparrow.app and open
 scripts/run.sh -- --demo          # same, in demo mode
 scripts/run.sh release -- --demo  # release build, demo mode
 open dist/SuperSparrow.app --args --demo
-scripts/test.sh                   # the generated design files' check, then the whole suite
+scripts/test.sh                   # the generated design, icon and brand files' checks, then the whole suite
 ```
 
 ### Demo mode

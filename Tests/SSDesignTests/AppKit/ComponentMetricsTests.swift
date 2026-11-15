@@ -283,8 +283,8 @@ final class ComponentMetricsTests: XCTestCase {
         let long = QuireEmptyStateView(sentence: "Every conversation in this account appears here, archived ones too.",
                                        hint: "Search looks at subjects, people and message text.")
         XCTAssertLessThanOrEqual(long.intrinsicContentSize.width, 300)
-        let short = QuireEmptyStateView(sentence: "Nothing left to read.", hint: "New mail will land here.", glyph: .sparrow)
-        XCTAssertEqual(short.intrinsicContentSize.height, 30 + 8 + 24 + 4 + 15, "glyph, gap, aside line, 4 pt, snippet line")
+        let short = QuireEmptyStateView(sentence: "Nothing left to read.", hint: "New mail will land here.", glyph: .brandMark)
+        XCTAssertEqual(short.intrinsicContentSize.height, 40 + 8 + 24 + 4 + 15, "glyph, gap, aside line, 4 pt, snippet line")
     }
 
     /// §5.19: the several-selected hint is one line in a normal reader, wider than the sentence's 300 pt,

@@ -3,6 +3,9 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
-# Generated design files must match docs/design/tokens.json before anything is tested against them.
+# Generated design files must match docs/design/tokens.json before anything is tested against them, and so must the
+# app icon and the brand files drawn from it.
 swift scripts/tools/quire-tokens.swift --check
+swift scripts/tools/app-icon.swift --check
+swift scripts/tools/brand-assets.swift --check
 swift test "$@"

@@ -10,8 +10,8 @@ final class MetricDriftTests: XCTestCase {
     private let file = DesignTokensFile.shared
 
     func testEveryMetricIsCovered() {
-        // tokens.json had 722 leaves under layout, border and platform when this file was generated.
-        XCTAssertEqual(file.leafCount(under: ["layout", "border", "platform"]), 722, "regenerate with swift scripts/tools/quire-tokens.swift")
+        // tokens.json had 747 leaves under layout, border and platform when this file was generated.
+        XCTAssertEqual(file.leafCount(under: ["layout", "border", "platform"]), 747, "regenerate with swift scripts/tools/quire-tokens.swift")
     }
 
     func testLayoutWindow() {
@@ -741,6 +741,7 @@ final class MetricDriftTests: XCTestCase {
         number(Quire.Layout.Welcome.blockCenterY, "layout.welcome.blockCenterY")
         number(Quire.Layout.Welcome.mark, "layout.welcome.mark")
         number(Quire.Layout.Welcome.titleGap, "layout.welcome.titleGap")
+        number(Quire.Layout.Welcome.wordmarkCap, "layout.welcome.wordmarkCap")
         number(Quire.Layout.Welcome.taglineGap, "layout.welcome.taglineGap")
         number(Quire.Layout.Welcome.actionsGap, "layout.welcome.actionsGap")
         number(Quire.Layout.Welcome.buttonWidth, "layout.welcome.buttonWidth")
@@ -834,19 +835,46 @@ final class MetricDriftTests: XCTestCase {
     }
 
     func testLayoutAppIcon() {
-        string(Quire.Layout.AppIcon.faceTop, "layout.appIcon.faceTop")
-        string(Quire.Layout.AppIcon.faceBottom, "layout.appIcon.faceBottom")
-        string(Quire.Layout.AppIcon.darkFaceTop, "layout.appIcon.darkFaceTop")
-        string(Quire.Layout.AppIcon.darkFaceBottom, "layout.appIcon.darkFaceBottom")
-        number(Quire.Layout.AppIcon.laidLineAlpha, "layout.appIcon.laidLineAlpha")
-        number(Quire.Layout.AppIcon.laidLineStep, "layout.appIcon.laidLineStep")
+        number(Quire.Layout.AppIcon.canvas, "layout.appIcon.canvas")
+        number(Quire.Layout.AppIcon.body, "layout.appIcon.body")
         number(Quire.Layout.AppIcon.corner, "layout.appIcon.corner")
-        number(Quire.Layout.AppIcon.stampInset, "layout.appIcon.stampInset")
-        number(Quire.Layout.AppIcon.stampWidth, "layout.appIcon.stampWidth")
-        number(Quire.Layout.AppIcon.stampAlpha, "layout.appIcon.stampAlpha")
-        number(Quire.Layout.AppIcon.markWidth, "layout.appIcon.markWidth")
-        number(Quire.Layout.AppIcon.markOffsetX, "layout.appIcon.markOffsetX")
-        number(Quire.Layout.AppIcon.markOffsetY, "layout.appIcon.markOffsetY")
+        number(Quire.Layout.AppIcon.smoothing, "layout.appIcon.smoothing")
+        number(Quire.Layout.AppIcon.shadowY, "layout.appIcon.shadowY")
+        number(Quire.Layout.AppIcon.shadowBlur, "layout.appIcon.shadowBlur")
+        number(Quire.Layout.AppIcon.shadowAlpha, "layout.appIcon.shadowAlpha")
+        number(Quire.Layout.AppIcon.markX, "layout.appIcon.markX")
+        number(Quire.Layout.AppIcon.markY, "layout.appIcon.markY")
+        number(Quire.Layout.AppIcon.markSize, "layout.appIcon.markSize")
+        strings(Quire.Layout.AppIcon.ground, "layout.appIcon.ground")
+        strings(Quire.Layout.AppIcon.front, "layout.appIcon.front")
+        strings(Quire.Layout.AppIcon.flap, "layout.appIcon.flap")
+        strings(Quire.Layout.AppIcon.groundDark, "layout.appIcon.groundDark")
+        strings(Quire.Layout.AppIcon.frontDark, "layout.appIcon.frontDark")
+        strings(Quire.Layout.AppIcon.flapDark, "layout.appIcon.flapDark")
+        number(Quire.Layout.AppIcon.monoFront, "layout.appIcon.monoFront")
+        number(Quire.Layout.AppIcon.monoFlap, "layout.appIcon.monoFlap")
+        strings(Quire.Layout.AppIcon.frontSmall, "layout.appIcon.frontSmall")
+        strings(Quire.Layout.AppIcon.flapSmall, "layout.appIcon.flapSmall")
+        number(Quire.Layout.AppIcon.Fit16.body, "layout.appIcon.fit16.body")
+        strings(Quire.Layout.AppIcon.Fit16.paths, "layout.appIcon.fit16.paths")
+        number(Quire.Layout.AppIcon.Fit32.body, "layout.appIcon.fit32.body")
+        strings(Quire.Layout.AppIcon.Fit32.paths, "layout.appIcon.fit32.paths")
+    }
+
+    func testLayoutBrand() {
+        string(Quire.Layout.Brand.ink, "layout.brand.ink")
+        string(Quire.Layout.Brand.signal, "layout.brand.signal")
+        string(Quire.Layout.Brand.signalDark, "layout.brand.signalDark")
+        number(Quire.Layout.Brand.capHeight, "layout.brand.capHeight")
+        number(Quire.Layout.Brand.lockupMark, "layout.brand.lockupMark")
+        number(Quire.Layout.Brand.lockupGap, "layout.brand.lockupGap")
+        number(Quire.Layout.Brand.stackedMark, "layout.brand.stackedMark")
+        number(Quire.Layout.Brand.stackedGap, "layout.brand.stackedGap")
+        string(Quire.Layout.Brand.Wordmark.path, "layout.brand.wordmark.path")
+        number(Quire.Layout.Brand.Wordmark.advance, "layout.brand.wordmark.advance")
+        number(Quire.Layout.Brand.Wordmark.top, "layout.brand.wordmark.top")
+        number(Quire.Layout.Brand.Wordmark.bottom, "layout.brand.wordmark.bottom")
+        strings(Quire.Layout.Brand.monoSmall, "layout.brand.monoSmall")
     }
 
     func testBorder() {

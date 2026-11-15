@@ -104,6 +104,9 @@ MARKS = ['accent', 'focus', 'selRule']
 # identical in every theme: a meaning must read the same whatever the paper
 SEMANTIC = ['star', 'success', 'warning', 'danger', 'info', 'successWash', 'warningWash', 'dangerWash', 'infoWash',
             'findWash', 'findCurrent', 'dangerFill', 'dangerFillHover', 'dangerFillPressed', 'onDanger']
+# the brand's own blue (§4.11): the same in every coloured theme, because the mark is the brand's and not the theme's ink;
+# an inkless theme writes it in its text ink, as the system Graphite accent does (T.GRAPHITE)
+BRAND_MARKS = ['brandMark']
 BANNER_WASHES = ['successWash', 'warningWash', 'dangerWash', 'infoWash']
 SURF = ['spine', 'paper', 'canvas', 'sheet', 'raised', 'selWashIdle']
 INKS = ['ink', 'ink2', 'ink3', 'inkDisabled', 'onSlip', 'onSlip2', 'onSlipEdge']
@@ -200,7 +203,7 @@ def derive(spec):
         out['onSwipe'][m] = Q['onSwipe'][m]
         out['selRuleIdle'][m] = out['ink3'][m]
         out['scrimSolid'][m] = c.rgb2hex(c.over(H(out['scrim'][m]), H(out['canvas'][m])))
-        for t in SEMANTIC:
+        for t in SEMANTIC + BRAND_MARKS:
             out[t][m] = Q[t][m]
         if spec.get('inkless'):
             pass  # the accent family is the theme's own Graphite substitution, resolved below once the neutrals are final

@@ -2,7 +2,7 @@ import AppKit
 import SSCore
 import SSDesign
 
-/// First run with no accounts (spec §5.39): the mark, the name and tagline, two equal ways in, the demo for
+/// First run with no accounts (spec §5.39): the mark, the wordmark and tagline, two equal ways in, the demo for
 /// the curious, the privacy promise and the OAuth link, with the waiting, preparing and banner states the spec
 /// defines. Laid out by hand in a flipped view so the block re-centres instantly whenever a state changes its
 /// height.
@@ -206,7 +206,7 @@ final class WelcomeView: NSView {
     }
 
     private let mark = WelcomeMarkView(frame: .zero)
-    private let titleLabel = WelcomeView.label()
+    private let wordmark = WelcomeWordmarkView(frame: .zero)
     private let taglineLabel = WelcomeView.label()
     private let footnote: NSTextField = {
         let text = NSMutableAttributedString()
@@ -234,21 +234,25 @@ final class WelcomeView: NSView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        for subview in [mark, titleLabel, taglineLabel, footnote] as [NSView] { addSubview(subview) }
+        for subview in [mark, wordmark, taglineLabel, footnote] as [NSView] { addSubview(subview) }
         mark.setAccessibilityElement(false)
+        // The greeting the screen no longer prints: the wordmark says the name, and VoiceOver says what the screen is.
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        setAccessibilityLabel("Welcome to SuperSparrow")
         applyLabels()
         NotificationCenter.default.addObserver(self, selector: #selector(environmentDidChange(_:)),
                                                name: QuireEnvironment.didChangeNotification, object: nil)
     }
 
-    /// The title and tagline are New York roles: a Font switch sets them again in place. Their frames are the
-    /// roles' line heights, which twins keep, so nothing moves.
+    /// The tagline is a New York role: a Font switch sets it again in place. Its frame is the role's line height, which
+    /// twins keep, so nothing moves. A theme switch changes `ink`, which the wordmark draws in.
     @objc private func environmentDidChange(_ note: Notification) {
         applyLabels()
+        wordmark.needsDisplay = true
     }
 
     private func applyLabels() {
-        titleLabel.attributedStringValue = Self.string("SuperSparrow", role: .display, color: .qInk)
         taglineLabel.attributedStringValue = Self.string("Your mail, quietly fast.", role: .aside, color: .qInk2)
     }
 
@@ -294,14 +298,14 @@ final class WelcomeView: NSView {
         let w = Quire.Layout.Welcome.self
         let zone = Quire.Layout.Window.titlebarZone
         let centreX = bounds.midX
-        let titleHeight = QuireFont.Role.display.lineHeight
+        let wordmarkSize = wordmark.intrinsicContentSize
         let taglineHeight = QuireFont.Role.aside.lineHeight
         let buttonHeight = QuireButton.Size.large.height
         let footSize = footnote.sizeThatFits(NSSize(width: w.footWidth, height: .greatestFiniteMagnitude))
         let footHeight = ceil(footSize.height)
         let bannerHeight = banner.map { ceil($0.height(forWidth: w.blockWidth)) }
 
-        var height = w.mark + w.titleGap + titleHeight + w.taglineGap + taglineHeight
+        var height = w.mark + w.titleGap + wordmarkSize.height + w.taglineGap + taglineHeight
         if let bannerHeight { height += w.actionsGap + bannerHeight + w.bannerGap } else { height += w.actionsGap }
         height += 2 * buttonHeight + w.buttonGap + w.demoGap + QuireButton.Size.regular.height
         height += w.footGap + footHeight + w.linkGap + QuireButton.Size.small.height
@@ -312,8 +316,8 @@ final class WelcomeView: NSView {
 
         mark.frame = NSRect(x: (centreX - w.mark / 2).rounded(), y: y, width: w.mark, height: w.mark)
         y += w.mark + w.titleGap
-        titleLabel.frame = NSRect(x: 0, y: y, width: bounds.width, height: titleHeight)
-        y += titleHeight + w.taglineGap
+        wordmark.frame = NSRect(x: (centreX - wordmarkSize.width / 2).rounded(), y: y, width: wordmarkSize.width, height: wordmarkSize.height)
+        y += wordmarkSize.height + w.taglineGap
         taglineLabel.frame = NSRect(x: 0, y: y, width: bounds.width, height: taglineHeight)
         y += taglineHeight + w.actionsGap
         if let banner, let bannerHeight {
@@ -337,12 +341,13 @@ final class WelcomeView: NSView {
     }
 }
 
-/// The brand mark, `ss.sparrow` 52 pt in `accent`: the same drawing as the app icon (§5.42).
+/// The brand mark, `ss.italicEnvelope` in `brandMark`: the app icon's drawing in one colour, and the brand's blue rather
+/// than the theme's ink, so the first screen matches the Dock icon (§4.11, §5.42).
 @MainActor
 final class WelcomeMarkView: NSView {
     override var isFlipped: Bool { true }
 
     override func draw(_ dirtyRect: NSRect) {
-        QuireSymbol.draw(Quire.Icon.brand, size: .custom(Quire.Layout.Welcome.mark), color: .qAccent, centredIn: bounds)
+        QuireSymbol.draw(Quire.Icon.brand, size: .custom(Quire.Layout.Welcome.mark), color: .qBrandMark, centredIn: bounds)
     }
 }

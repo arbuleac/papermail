@@ -5,7 +5,7 @@ import CoreGraphics
 
 extension Quire {
     public static let name = "Quire"
-    public static let version = "1.8.2"
+    public static let version = "1.8.3"
 
     /// Every symbol the app draws, by action (spec §4.11). `ss.` names are custom glyphs (`QuireGlyph`).
     public enum Icon {
@@ -69,7 +69,7 @@ extension Quire {
         public static let success = "checkmark.circle.fill"
         public static let info = "info.circle"
         public static let warning = "exclamationmark.triangle.fill"
-        public static let brand = "ss.sparrow"
+        public static let brand = "ss.italicEnvelope"
         public static let keyboard = "keyboard"
         public static let dismiss = "xmark"
         public static let removeAccount = "minus"
@@ -82,7 +82,7 @@ extension Quire {
         public static let link = "link"
         public static let undone = "arrow.uturn.backward"
         public static let demo = "info.circle"
-        public static let addAccountProvider = "envelope"
+        public static let addAccountProvider = "person.crop.circle.badge.plus"
         public static let attention = "exclamationmark"
         public static let waitingToSync = "clock"
         public static let discardDraft = "trash"
@@ -109,7 +109,7 @@ extension Quire {
         case ssNib = "ss.nib"
         case ssElide = "ss.elide"
         case ssQueued = "ss.queued"
-        case ssSparrow = "ss.sparrow"
+        case ssItalicEnvelope = "ss.italicEnvelope"
 
         /// The side of the square design grid.
         public var grid: CGFloat {
@@ -118,7 +118,7 @@ extension Quire {
             case .ssNib: return 16
             case .ssElide: return 16
             case .ssQueued: return 12
-            case .ssSparrow: return 24
+            case .ssItalicEnvelope: return 40
             }
         }
 
@@ -129,7 +129,7 @@ extension Quire {
             case .ssNib: return 1.5
             case .ssElide: return 1.5
             case .ssQueued: return 1.5
-            case .ssSparrow: return 0
+            case .ssItalicEnvelope: return 0
             }
         }
 
@@ -140,7 +140,7 @@ extension Quire {
             case .ssNib: return ["M2.91 13.09 L4.32 7.01 C4.43 6.27 4.99 5.7 5.67 5.53 L8.64 4.68 L11.32 7.36 L10.47 10.33 C10.3 11.01 9.73 11.57 8.99 11.68 Z", "M10.47 2.56 L13.44 5.53 L11.46 7.51 L8.49 4.54 Z", "M2.91 13.09 L6.66 9.34"]
             case .ssElide: return ["M4.75 2.75h-2v10.5h2", "M11.25 2.75h2v10.5h-2"]
             case .ssQueued: return ["M5.75 6.25 9.75 2.25", "M6.25 2.25h3.5v3.5"]
-            case .ssSparrow: return ["M7.6 12.9 C8.3 9.9 10.9 7.6 14 7.2 C14.7 5 16.5 3.7 18.5 3.9 C20 4.1 21.1 5.1 21.5 6.3 L23.4 7.3 L21.5 8 C21.3 12.8 17.9 16.7 13.2 17.3 C11.6 17.5 10.1 17.3 8.8 16.8 L2.2 18.6 L3.4 16.9 L1.2 15.9 Z M10.4 12.3 C12 10.7 14.3 10.1 16.4 10.4 C14.6 10.9 12.7 11.9 11.2 13.6 Z M18.6 6.55 m-0.85 0 a0.85 0.85 0 1 0 1.7 0 a0.85 0.85 0 1 0 -1.7 0 Z"]
+            case .ssItalicEnvelope: return ["M4.687 12.2 C10.757 14.955 16.004 18.815 20.427 23.779 C21.08 24.511 22.236 24.511 22.888 23.779 C27.312 18.815 32.559 14.955 38.629 12.2 L34.986 29.339 C34.656 30.89 33.285 32 31.699 32 L4.035 32 C2.204 32 0.837 30.313 1.218 28.521 L4.687 12.2 Z", "M8.301 8 L35.965 8 C37.796 8 39.163 9.687 38.782 11.479 L38.629 12.2 C31.514 14.126 25.959 16.673 21.964 19.84 C21.785 19.982 21.531 19.982 21.352 19.84 C17.357 16.673 11.802 14.126 4.687 12.2 L5.014 10.661 C5.344 9.11 6.715 8 8.301 8 Z"]
             }
         }
 
@@ -151,18 +151,18 @@ extension Quire {
             case .ssNib: return [QuireGlyphCircle(cx: 7.47, cy: 8.53, r: 0.9)]
             case .ssElide: return [QuireGlyphCircle(cx: 5.6, cy: 10.6, r: 0.95), QuireGlyphCircle(cx: 8, cy: 10.6, r: 0.95), QuireGlyphCircle(cx: 10.4, cy: 10.6, r: 0.95)]
             case .ssQueued: return [QuireGlyphCircle(cx: 2.75, cy: 9.25, r: 1.6)]
-            case .ssSparrow: return []
+            case .ssItalicEnvelope: return []
             }
         }
 
-        /// How filled paths treat overlaps (`evenodd` cuts the sparrow's wing and eye).
+        /// How filled paths treat overlaps (`evenodd` cuts a hole where subpaths overlap).
         public var fillRule: CGPathFillRule {
             switch self {
             case .ssQuire: return .winding
             case .ssNib: return .winding
             case .ssElide: return .winding
             case .ssQueued: return .winding
-            case .ssSparrow: return .evenOdd
+            case .ssItalicEnvelope: return .winding
             }
         }
 
@@ -173,7 +173,7 @@ extension Quire {
             case .ssNib: return "New message: a pen nib"
             case .ssElide: return "Quoted text folded: the editor's […]"
             case .ssQueued: return "Applied on this Mac, waiting to reach the server: a dot (here) and a straight arrow (on its way). Static, never rotates"
-            case .ssSparrow: return "Brand mark (welcome, app icon, About, inbox zero)"
+            case .ssItalicEnvelope: return "Brand mark, the italic envelope: a √2 envelope sheared 12°, its crease a tapered V (welcome, app icon, About, inbox zero)"
             }
         }
     }

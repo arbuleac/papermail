@@ -5,7 +5,7 @@ import AppKit
 /// `ink`; the hint is `snippet` in `ink3`, 4 pt below, and may carry keycaps inline (“J K to move · ↩ to
 /// open”). A hint with keycaps is a row of commands, so it may use the whole pane rather than the sentence's
 /// 300 pt, and it wraps only between commands: a keycap never ends a line apart from the words it goes with.
-/// Inbox zero adds the sparrow, offline the `wifi.slash` glyph, 8 pt above the sentence. A hint may end with a link
+/// Inbox zero adds the brand mark, offline the `wifi.slash` glyph, 8 pt above the sentence. A hint may end with a link
 /// that acts (`HintPart.link`, the empty search's “Search Gmail”): `accent`, underlined on hover, `ink2` while pressed,
 /// clicked through `onLink`, and a button to VoiceOver.
 ///
@@ -166,7 +166,7 @@ public final class QuireEmptyStateView: NSView, QuirePointerTarget {
         guard let glyph else { return nil }
         let e = Quire.Layout.EmptyState.self
         switch glyph {
-        case .sparrow: return (Quire.Icon.brand, e.glyph, e.glyphGap)
+        case .brandMark: return (Quire.Icon.brand, e.glyph, e.glyphGap)
         case .offline: return (Quire.Icon.offline, e.offlineGlyph, e.offlineGlyphGap)
         }
     }

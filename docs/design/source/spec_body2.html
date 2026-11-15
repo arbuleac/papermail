@@ -110,19 +110,19 @@
     <div class="win" style="height:430px">
       <div class="lights"><i></i><i></i><i></i></div>
       <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center">
-        <span style="color:var(--q-accent)">{{PY: g('ss.sparrow', 52)}}</span>
-        <div style="font:var(--q-font-display);letter-spacing:var(--q-track-display);margin-top:{{layout.welcome.titleGap}}px">SuperSparrow</div>
+        <span style="color:var(--q-brandMark)">{{PY: g('ss.italicEnvelope', T.LAYOUT['welcome']['mark'])}}</span>
+        <div style="color:var(--q-ink);line-height:0;margin-top:{{layout.welcome.titleGap}}px" aria-label="Welcome to SuperSparrow">{{PY: wordmark(T.LAYOUT['welcome']['wordmarkCap'])}}</div>
         <div style="font:var(--q-font-aside);color:var(--q-ink2);margin-top:{{layout.welcome.taglineGap}}px">Your mail, quietly fast.</div>
         <div style="display:grid;gap:{{layout.welcome.buttonGap}}px;margin-top:22px;width:300px">
-          <span class="btn lg secondary foc" style="justify-content:flex-start">{{PY: s('envelope', 16)}}Add Gmail account<span style="margin-left:auto;font:var(--q-font-snippet);color:var(--q-ink2)">Google</span></span>
-          <span class="btn lg secondary" style="justify-content:flex-start">{{PY: s('envelope', 16)}}Add Microsoft account<span style="margin-left:auto;font:var(--q-font-snippet);color:var(--q-ink2)">365 · Outlook</span></span>
+          <span class="btn lg secondary foc" style="justify-content:flex-start">{{PY: s(T.ICON['addAccountProvider'], 16)}}Add Gmail account<span style="margin-left:auto;font:var(--q-font-snippet);color:var(--q-ink2)">Google</span></span>
+          <span class="btn lg secondary" style="justify-content:flex-start">{{PY: s(T.ICON['addAccountProvider'], 16)}}Add Microsoft account<span style="margin-left:auto;font:var(--q-font-snippet);color:var(--q-ink2)">365 · Outlook</span></span>
         </div>
         <span class="btn ghost" style="margin-top:8px">Try the demo</span>
         <p style="font:var(--q-font-meta);color:var(--q-ink3);max-width:300px;margin-top:12px">{{PY: s('lock', 10)}} Your mail is stored on this Mac and travels only between this Mac and Google or Microsoft. No analytics, ever.</p>
         <span class="btn linkb" style="margin-top:4px;font-size:12px">Set up OAuth clients…</span>
       </div>
     </div>
-    <p class="ann">Welcome: two equal secondary choices (the first has initial focus), the demo entry, the privacy promise. Trailing notes are <code>ink2</code> so they hold 4.5:1 on hover and press. Waiting: the chosen button returns to its rest face with a spinner and “Finish signing in in your browser…”; “Try the demo” becomes “Preparing the demo…” while the demo store is seeded.</p>
+    <p class="ann">Welcome: the brand mark in <code>brandMark</code>, the brand's blue in every coloured theme ({{layout.welcome.mark}} pt, a multiple of 5 so the envelope's long edges land on whole points), over the drawn wordmark at a {{layout.welcome.wordmarkCap}} pt cap height in <code>ink</code> (never the name set in a font; “Welcome to SuperSparrow” is what VoiceOver says the screen is); two equal secondary choices (the first has initial focus), the demo entry, the privacy promise. Trailing notes are <code>ink2</code> so they hold 4.5:1 on hover and press. Waiting: the chosen button returns to its rest face with a spinner and “Finish signing in in your browser…”; “Try the demo” becomes “Preparing the demo…” while the demo store is seeded.</p>
   </div>
   <div class="c12">
     <div class="win" style="width:{{layout.settings.width}}px;height:630px;background:var(--q-canvas);margin:0 auto 0 0;display:inline-block;vertical-align:top">

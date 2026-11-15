@@ -399,7 +399,7 @@ PAIRS = [
  ("Theme name underline, chosen, Settings not key", "selRuleIdle", ["canvas"], U),
  ("Mono field text", "ink", ["sheet"], T),
  # ---- welcome
- ("Welcome mark", "accent", ["paper"], U),
+ ("Welcome mark (the brand's blue)", "brandMark", ["paper"], U, T),
  ("Welcome title", "ink", ["paper"], T),
  ("Welcome tagline", "ink2", ["paper"], T),
  ("Welcome button trailing note (ink2)", "ink2", ["raised"], T),
