@@ -224,8 +224,12 @@ public enum ConversationShellAssets {
     .ss-unsub:hover, .ss-unsub:active { color: var(--q-ink); }
     .ss-unsub:focus-visible { box-shadow: 0 0 0 1px var(--q-sheet), 0 0 0 calc(1px + var(--ss-ring)) var(--q-focus); }
     /* The link takes room the name line had; the address, which shows nothing at rest, gives its share up before the
-       name gives any, and the line still does not reflow on hover. */
-    .ss-unsub + .ss-addr { flex-shrink: 1000; }
+       name gives any, and the line still does not reflow on hover. Unsubscribe sends a request no undo takes back, so a
+       copy target beside it keeps 8 pt of nothing between the two hits (unsubscribeHitGap): a press that misses the
+       address, which fades in under the pointer, lands on neither. The name, when it is the target, reaches 4 pt past
+       its text, so the link after it starts 12 pt on. */
+    .ss-unsub + .ss-addr { flex-shrink: 1000; margin-left: 8px; }
+    .ss-namet + .ss-unsub { margin-left: 12px; }
     /* The recipients toggle (spec §5.14): the summary folded, “Hide addresses” open, on the same line in both states. Its
        hit is the line and the 8 pt below it (recipientsToggleHitBelow), padding with an equal negative margin; the words
        truncate on an inner box, which also carries the ring, so the ring hugs the line. */
@@ -235,7 +239,14 @@ public enum ConversationShellAssets {
     }
     .ss-rct { display: block; overflow: hidden; text-overflow: ellipsis; border-radius: 3px; }
     .ss-rc:hover, .ss-rc:active { color: var(--q-ink); }
-    .ss-rc.ss-rco .ss-rct { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; }
+    /* Open, the words are shorter than the summary was, and the hit keeps the summary's width through a copy of it that
+       takes no height and shows nothing, so the place clicked to open the list folds it wherever along the summary it
+       was; the words shrink to their own box, so the ring still hugs them. */
+    .ss-rc.ss-rco .ss-rct {
+      display: inline-block; max-width: 100%; vertical-align: top;
+      text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px;
+    }
+    .ss-rcw { display: block; height: 0; overflow: hidden; visibility: hidden; }
     .ss-rc:focus-visible .ss-rct { box-shadow: 0 0 0 1px var(--q-sheet), 0 0 0 calc(1px + var(--ss-ring)) var(--q-focus); }
     /* The open list, 8 pt under the toggle (recipientsTop): every field on one 24 pt pitch (recipientPitch), so the
        targets' hit rects tile. The value column starts 4 pt into the label column, so a line's first face reaches back
@@ -290,6 +301,8 @@ public enum ConversationShellAssets {
     }
     .ss-mark > .ss-sym { width: 12px; height: 12px; }
     .ss-mark.ss-glyph-only > .ss-markw { display: none; }
+    /* The face's own ellipsis is drawn in its colour, not the hidden text's, so it would stay beside the mark. */
+    .ss-face.ss-marked { text-overflow: clip; }
     .ss-uncopy { opacity: 1; transition: opacity var(--q-dur-quick) var(--q-ease-leave); }
     .ss-mark.ss-leaving { opacity: 0; transition: opacity var(--q-dur-quick) var(--q-ease-leave); }
     .ss-meta {
@@ -1593,6 +1606,12 @@ public enum ConversationShellAssets {
         var summary = recipientSummary(card.message);
         var toggle = button('ss-rc' + (open ? ' ss-rco' : ''), null, open ? 'Hide Addresses' : 'Show Addresses');
         toggle.appendChild(el('span', 'ss-rct', open ? 'Hide addresses' : summary));
+        if (open) {
+          // Holds the hit at the summary's width; VoiceOver and Voice Control name the toggle by the words alone.
+          var width = el('span', 'ss-rcw', summary);
+          width.setAttribute('aria-hidden', 'true');
+          toggle.appendChild(width);
+        }
         toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
         // Folded, the name holds the visible words, so Voice Control's “Click to me” works; open, the words are the name.
         if (!open) { toggle.setAttribute('aria-label', summary ? 'Recipients, ' + summary.split(' · ').join(', ') : 'Recipients'); }
@@ -1674,12 +1693,19 @@ public enum ConversationShellAssets {
           more.remove();
           card.animateFit = true;
           refitCard(card);
-          // Focus moves to the first recipient it shows, so the keyboard carries on where the list did.
           if (firstShown) {
             setStop(card, list, firstShown);
-            focusNode(firstShown);
           } else {
             applyStop(card, list);
+          }
+          // From the keyboard (detail 0) focus moves to the first recipient it shows, so the keyboard carries on where the
+          // list did. Pressed, it goes to the sheet, where a press on a button leaves it: this button, which the pointer
+          // focused as a roving stop, has gone, and focus on a recipient would show no ring and still take ↩, Space, ←
+          // and Esc from the app. Tab reaches that recipient next.
+          if (event.detail > 0) {
+            focusNode(card.element);
+          } else if (firstShown) {
+            focusNode(firstShown);
           }
         });
       }
@@ -1809,12 +1835,26 @@ public enum ConversationShellAssets {
         mark.appendChild(sym('checkmark'));
         mark.appendChild(el('span', 'ss-markw', 'Copied'));
         face.appendChild(mark);
+        face.classList.add('ss-marked');
         var faceBox = face.getBoundingClientRect();
+        var faceStyle = getComputedStyle(face);
+        // The face clips its text at its trailing padding, and the mark with it.
+        var shown = face.clientWidth - (parseFloat(faceStyle.paddingRight) || 0);
+        var natural = mark.getBoundingClientRect().width;
         var partBox = part.getBoundingClientRect();
+        var left = partBox.left - faceBox.left;
+        // A name that fills the line cuts the address short or pushes it out of sight, where the mark would show nothing:
+        // it then stands over the whole recipient, as far as the face shows it.
+        if (left + Math.min(natural, partBox.width) > shown + 0.5) {
+          part = target.querySelector('.ss-cpc') || part;
+          partBox = part.getBoundingClientRect();
+          left = partBox.left - faceBox.left;
+        }
+        var width = Math.max(0, Math.min(partBox.width, shown - left));
         // Where the mark is wider than what it stands for (a very short address), the checkmark says it alone.
-        mark.classList.toggle('ss-glyph-only', mark.getBoundingClientRect().width > partBox.width + 0.5);
-        mark.style.left = (partBox.left - faceBox.left) + 'px';
-        mark.style.width = partBox.width + 'px';
+        mark.classList.toggle('ss-glyph-only', natural > width + 0.5);
+        mark.style.left = left + 'px';
+        mark.style.width = width + 'px';
         part.classList.remove('ss-uncopy');
         part.classList.add('ss-copied');
         return true;
@@ -1844,6 +1884,8 @@ public enum ConversationShellAssets {
         for (var i = 0; i < marks.length; i++) { marks[i].remove(); }
         var parts = document.querySelectorAll('.ss-copied, .ss-uncopy');
         for (var j = 0; j < parts.length; j++) { parts[j].classList.remove('ss-copied', 'ss-uncopy'); }
+        var faces = document.querySelectorAll('.ss-marked');
+        for (var k = 0; k < faces.length; k++) { faces[k].classList.remove('ss-marked'); }
       }
 
       function endMark() {
@@ -1881,6 +1923,17 @@ public enum ConversationShellAssets {
       // opens the person menu.
       function listenToWho(card) {
         var who = card.who;
+        // A press never gives a target focus. WebKit focuses anything with a tabindex under the pointer, where a press on
+        // a plain button leaves focus on the sheet, and with no ring (focus from a pointer is not :focus-visible), so ↩,
+        // Space, ←, Esc and ⌘C would pass to the page unseen. Focus goes to the sheet, as after a button, which also takes
+        // it out of another message's body. A target the keyboard already reached keeps its focus and its ring; a press
+        // VoiceOver or Voice Control simulates (detail 0) moves nothing.
+        who.addEventListener('mousedown', function (event) {
+          var target = event.target.closest ? event.target.closest('.ss-cpt') : null;
+          if (!target || !who.contains(target) || event.detail < 1) { return; }
+          event.preventDefault();
+          if (document.activeElement !== target) { focusNode(card.element); }
+        });
         who.addEventListener('click', function (event) {
           var target = event.target.closest ? event.target.closest('.ss-cpt') : null;
           if (!target || !who.contains(target)) { return; }

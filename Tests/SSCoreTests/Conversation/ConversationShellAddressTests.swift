@@ -460,6 +460,181 @@ final class ConversationShellAddressTests: XCTestCase {
         XCTAssertEqual(asked?["type"] as? String, "messageMenu", "a label keeps the conversation's menu")
     }
 
+    // MARK: Real presses
+
+    /// A press on a target copies it and leaves keyboard focus where a press on one of the shell's buttons does, on the
+    /// sheet: focus the pointer put on a span would show no ring and still take ↩, Space, ←, Esc and ⌘C from the app, so
+    /// the focus report must not name it. The recipient pressed becomes the list's Tab stop, and a target the keyboard
+    /// reached keeps its focus through a press.
+    func testAPressCopiesWithoutTakingFocus() async throws {
+        let (webView, messages) = try await openList()
+        hosted(webView)
+        let focus = """
+            (function () { var a = document.activeElement;
+              return [a.classList.contains('ss-card'), (a.dataset && a.dataset.addr) || ''].join(' '); })()
+            """
+        let pressed: [(selector: String, value: String)] = [(".ss-rp[data-addr=\"to:1\"]", "to:1"), (".ss-addr", "from:0")]
+        for (count, target) in pressed.enumerated() {
+            _ = try await evaluate("document.querySelector('.ss-rc').focus(); true", in: webView)
+            let toggle = try await waitForFocusReport(in: messages) { $0["on"] as? Bool == true }
+            XCTAssertNil(toggle?["address"], "the keyboard is on the toggle")
+            try await press(at: try await centre(of: target.selector, in: webView), in: webView)
+            let copies = try await waitForCopies(count + 1, in: messages)
+            XCTAssertEqual(copies.last?["value"] as? String, target.value)
+            let after = try await waitForFocusReport(in: messages) { $0["on"] as? Bool == false }
+            XCTAssertEqual(after?["addresses"] as? Bool, false, target.selector)
+            XCTAssertNil(after?["address"], "⌘C stays WebKit's after a press on \(target.selector)")
+            let active = try await evaluate(focus, in: webView) as? String
+            XCTAssertEqual(active, "true ", "focus is on the sheet, as after a press on a button, not on \(target.selector)")
+        }
+        let stop = try await evaluate("document.querySelector('.ss-rcx [tabindex=\"0\"]').dataset.addr", in: webView) as? String
+        XCTAssertEqual(stop, "to:1", "Tab reaches the recipient last pressed")
+
+        _ = try await evaluate("document.querySelector('.ss-rp[data-addr=\"to:2\"]').focus(); true", in: webView)
+        try await press(at: try await centre(of: ".ss-rp[data-addr=\"to:2\"]", in: webView), in: webView)
+        let copies = try await waitForCopies(3, in: messages)
+        XCTAssertEqual(copies.last?["value"] as? String, "to:2")
+        let kept = try await evaluate(focus, in: webView) as? String
+        XCTAssertEqual(kept, "false to:2", "a target the keyboard reached keeps its focus")
+    }
+
+    /// The control that shows the rest of a long list, pressed, leaves focus where a press on any button does; from the
+    /// keyboard it moves focus to the first recipient it shows, and either way that recipient is the list's Tab stop.
+    func testPressingAndMoreLeavesFocusOnTheSheet() async throws {
+        let crowd = (1...80).map { EmailAddress(name: "Guest \($0)", address: "guest\($0)@example.com") }
+        let (webView, _) = try await openList(to: crowd, cc: [])
+        hosted(webView)
+        let shown = try await evaluate("""
+            Array.prototype.filter.call(document.querySelectorAll('.ss-rp'), function (n) { return n.getClientRects().length; }).length
+            """, in: webView) as? Int ?? 0
+        try await press(at: try await centre(of: ".ss-more", in: webView), in: webView)
+        let whole = try await waitFor("!document.querySelector('.ss-more')", in: webView)
+        XCTAssertTrue(whole, "the rest shows")
+        let after = try await evaluate("""
+            [document.activeElement.classList.contains('ss-card'), document.querySelector('.ss-rcx [tabindex="0"]').dataset.addr]
+            """, in: webView) as? [Any]
+        XCTAssertEqual(after?[0] as? Bool, true, "focus stays on the sheet")
+        XCTAssertEqual(after?[1] as? String, "to:\(shown)", "Tab reaches the first recipient it showed")
+    }
+
+    /// Open, the toggle's hit keeps the folded summary's width: a press where the summary ended folds the list again. The
+    /// words keep a box of their own, where the ring is drawn, and what holds the width is hidden from VoiceOver.
+    func testTheOpenToggleFoldsWhereTheSummaryWas() async throws {
+        let (webView, _) = try await loadedShell()
+        hosted(webView)
+        _ = try await evaluate("window.ss.render(\(try payload().jsonString()))", in: webView)
+        let summary = try await evaluate("""
+            (function () { var r = document.querySelector('.ss-rct').getBoundingClientRect(); return [r.right - 3, r.top + r.height / 2]; })()
+            """, in: webView) as? [Double] ?? []
+        XCTAssertEqual(summary.count, 2)
+        let end = CGPoint(x: summary.first ?? 0, y: summary.last ?? 0)
+        try await press(at: end, in: webView)
+        let opened = try await waitFor("!!document.querySelector('.ss-rcx')", in: webView)
+        XCTAssertTrue(opened, "a press at the summary's end opens the list")
+        let probe = """
+            (function () {
+              var t = document.querySelector('.ss-rc'), words = t.querySelector('.ss-rct'), hold = t.querySelector('.ss-rcw');
+              var under = document.elementFromPoint(\(end.x), \(end.y));
+              return [!!under && under.closest('.ss-rc') === t, words.getBoundingClientRect().width < t.getBoundingClientRect().width - 20,
+                      hold ? hold.getAttribute('aria-hidden') : '', hold ? getComputedStyle(hold).visibility : '',
+                      hold ? Math.round(hold.getBoundingClientRect().height) : -1,
+                      Math.round(t.getBoundingClientRect().height)];
+            })()
+            """
+        let open = try await evaluate(probe, in: webView) as? [Any]
+        XCTAssertEqual(open?[0] as? Bool, true, "the toggle's hit still reaches where the summary ended")
+        XCTAssertEqual(open?[1] as? Bool, true, "the words keep their own box, so the ring hugs them")
+        XCTAssertEqual(open?[2] as? String, "true")
+        XCTAssertEqual(open?[3] as? String, "hidden")
+        XCTAssertEqual(open?[4] as? Int, 0, "it takes no height")
+        XCTAssertEqual(open?[5] as? Int, 24, "its line and the 8 pt below it, nothing more")
+        try await press(at: end, in: webView)
+        let folded = try await waitFor("!document.querySelector('.ss-rcx')", in: webView)
+        XCTAssertTrue(folded, "the place clicked to open the list folds it")
+    }
+
+    /// A long name in a narrow reader cuts its recipient short; the mark then stands over the whole recipient as far as
+    /// the face shows it, so “Copied” is seen, and the face's ellipsis goes while it does. A recipient shown whole keeps
+    /// the mark over its address alone.
+    func testTheMarkOverARecipientCutShortShowsWhereTheFaceDoes() async throws {
+        let long = EmailAddress(name: "The Engineering Leadership Distribution List For Everyone", address: "eng-leadership@example.com")
+        let (webView, _) = try await openList(to: [long, F.bob], cc: [], width: 520)
+        let key = ConversationShellAssets.jsStringLiteral(messageKey)
+        let probe = """
+            (function (value) {
+              var face = document.querySelector('.ss-rp[data-addr="' + value + '"] .ss-face'), mark = face.querySelector('.ss-mark');
+              var word = mark.querySelector('.ss-markw'), fr = face.getBoundingClientRect();
+              var copied = face.querySelector('.ss-copied');
+              return [face.scrollWidth > face.clientWidth + 1, mark.offsetLeft >= 0,
+                      word.getBoundingClientRect().right <= fr.left + face.clientWidth + 0.5, getComputedStyle(word).display,
+                      copied ? copied.className : '', getComputedStyle(face).textOverflow];
+            })
+            """
+        let shown = try await evaluate("window.ss.addressCopied(\(key), 'to:0', 'address')", in: webView) as? Bool
+        XCTAssertEqual(shown, true)
+        let cut = try await evaluate("\(probe)('to:0')", in: webView) as? [Any]
+        XCTAssertEqual(cut?[0] as? Bool, true, "the recipient is cut short")
+        XCTAssertEqual(cut?[1] as? Bool, true)
+        XCTAssertEqual(cut?[2] as? Bool, true, "“Copied” ends inside what the face shows")
+        XCTAssertNotEqual(cut?[3] as? String, "none", "the word shows, not the checkmark alone")
+        XCTAssertEqual(cut?[4] as? String, "ss-cpc ss-copied", "the whole recipient gives way")
+        XCTAssertEqual(cut?[5] as? String, "clip", "no stray ellipsis beside the mark")
+
+        _ = try await evaluate("window.ss.addressCopied(\(key), 'to:1', 'address')", in: webView)
+        let whole = try await evaluate("\(probe)('to:1')", in: webView) as? [Any]
+        XCTAssertEqual(whole?[0] as? Bool, false)
+        XCTAssertEqual(whole?[4] as? String, "ss-rpa ss-cpa ss-copied", "shown whole, only the address gives way")
+
+        _ = try await evaluate("""
+            document.documentElement.style.setProperty('--q-dur-copiedConfirm', '150ms');
+            window.ss.addressCopied(\(key), 'to:0', 'address')
+            """, in: webView)
+        try await Task.sleep(nanoseconds: 700_000_000)
+        let after = try await evaluate("""
+            [document.querySelectorAll('.ss-marked').length, getComputedStyle(document.querySelector('.ss-rp .ss-face')).textOverflow]
+            """, in: webView) as? [Any]
+        XCTAssertEqual(after?[0] as? Int, 0)
+        XCTAssertEqual(after?[1] as? String, "ellipsis", "the ellipsis comes back with the text")
+    }
+
+    /// Unsubscribe sends a request no undo takes back: a copy target beside it keeps 8 pt of nothing between the two hits
+    /// (12 pt between the texts), and a press there lands on neither; so does the name when it is the target.
+    func testUnsubscribeKeepsItsDistanceFromACopyTarget() async throws {
+        let (webView, _) = try await loadedShell(width: 900)
+        func render(_ sender: EmailAddress) async throws {
+            var newsletter = F.message("m1", from: sender, date: F.utc(2025, 3, 6, 9, 0))
+            newsletter.listUnsubscribe = "<https://news.example.com/u/1>"
+            let payload = F.builder.build(messages: [newsletter], bodies: [newsletter.id: F.body(html: "<p>Issue</p>")],
+                                          accounts: F.accounts, now: F.utc(2025, 3, 20, 9, 0))
+            _ = try await evaluate("window.ss.render(\(try payload.jsonString()))", in: webView)
+        }
+        func gap(_ before: String, _ after: String) async throws -> [Double] {
+            try await evaluate("""
+                (function () {
+                  var b = document.querySelector('\(before)').getBoundingClientRect(), a = document.querySelector('\(after)').getBoundingClientRect();
+                  var text = document.querySelector('\(after) .ss-cpa, \(after).ss-unsub');
+                  var middle = document.elementFromPoint((b.right + a.left) / 2, b.top + b.height / 2);
+                  var hit = middle && middle.closest('.ss-unsub, .ss-cpt');
+                  return [Math.round(a.left - b.right), Math.round(text.getBoundingClientRect().left - b.right), hit ? 1 : 0];
+                })()
+                """, in: webView) as? [Double] ?? []
+        }
+        try await render(EmailAddress(name: "Weekly Notes", address: "news@example.com"))
+        let address = try await gap(".ss-unsub", ".ss-addr")
+        XCTAssertEqual(address, [8, 12, 0], "8 pt between the hits, 12 between the texts, and nothing to press between")
+
+        try await render(EmailAddress(name: "news@example.com", address: "news@example.com"))
+        let name = try await evaluate("""
+            (function () {
+              var n = document.querySelector('.ss-namet').getBoundingClientRect(), u = document.querySelector('.ss-unsub').getBoundingClientRect();
+              var text = document.querySelector('.ss-namet .ss-cpa').getBoundingClientRect();
+              var middle = document.elementFromPoint((n.right + u.left) / 2, u.top + u.height / 2);
+              return [Math.round(u.left - n.right), Math.round(u.left - text.right), middle && middle.closest('.ss-unsub, .ss-cpt') ? 1 : 0];
+            })()
+            """, in: webView) as? [Double]
+        XCTAssertEqual(name, [8, 12, 0], "the name that copies keeps the same distance")
+    }
+
     // MARK: Helpers
 
     private var messageKey: String { RenderPayload.messageKey(for: MessageID(accountID: F.accountID, providerID: "m1")) }
@@ -481,6 +656,57 @@ final class ConversationShellAddressTests: XCTestCase {
         let open = try await evaluate("!!document.querySelector('.ss-rcx')", in: webView) as? Bool
         XCTAssertEqual(open, true)
         return (webView, messages)
+    }
+
+    /// The web view in a window of its own, never ordered on screen, so it takes presses as a window delivers them.
+    private func hosted(_ webView: WKWebView) {
+        let window = NSWindow(contentRect: webView.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = webView
+        windows.append(window)
+    }
+
+    /// The centre of the first element `selector` finds, in the page's coordinates.
+    private func centre(of selector: String, in webView: WKWebView) async throws -> CGPoint {
+        let point = try await evaluate("""
+            (function () { var r = document.querySelector(\(ConversationShellAssets.jsStringLiteral(selector))).getBoundingClientRect();
+              return [r.left + r.width / 2, r.top + r.height / 2]; })()
+            """, in: webView) as? [Double] ?? []
+        return CGPoint(x: point.first ?? 0, y: point.last ?? 0)
+    }
+
+    /// A press and release at `point`, in the page's coordinates, as the window delivers them: WebKit hit-tests it and
+    /// moves focus as under the pointer, which `element.click()` never does.
+    private func press(at point: CGPoint, in webView: WKWebView) async throws {
+        let window = try XCTUnwrap(webView.window, "host the web view first")
+        let local = NSPoint(x: point.x, y: webView.isFlipped ? point.y : webView.bounds.height - point.y)
+        let location = webView.convert(local, to: nil)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            let event = try XCTUnwrap(NSEvent.mouseEvent(
+                with: type, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0))
+            if type == .leftMouseDown { webView.mouseDown(with: event) } else { webView.mouseUp(with: event) }
+        }
+        // WebKit hands the page one mouse event at a time, so the release lands a moment after the press.
+        try await Task.sleep(nanoseconds: 150_000_000)
+    }
+
+    /// Whether `script` came to be true within a second.
+    private func waitFor(_ script: String, in webView: WKWebView) async throws -> Bool {
+        for _ in 0..<50 {
+            if try await evaluate(script, in: webView) as? Bool == true { return true }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        return false
+    }
+
+    /// The focus report the shell last posted, once it is one `matches` accepts; nil when none came within a second.
+    private func waitForFocusReport(in messages: ShellMessages, _ matches: ([String: Any]) -> Bool) async throws -> [String: Any]? {
+        for _ in 0..<50 {
+            if let last = messages.received.last(where: { ($0["kind"] as? String) == "focusMark" }), matches(last) { return last }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        return nil
     }
 
     private func copies(in messages: ShellMessages) -> [[String: Any]] {
@@ -524,8 +750,11 @@ final class ConversationShellAddressTests: XCTestCase {
 
     private var configuration: WKWebViewConfiguration?
     private let schemes = SchemeStub()
+    private var windows: [NSWindow] = []
 
     override func tearDown() {
+        for window in windows { window.close() }
+        windows = []
         configuration?.userContentController.removeAllScriptMessageHandlers()
         configuration = nil
         super.tearDown()
