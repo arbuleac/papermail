@@ -11,7 +11,7 @@ import SSDesign
 /// The view owns no mail logic: it reports the text on ⌘↩ (with what Send does now, `sendAction`) and on ⇧⌘↩ (send and
 /// archive), the drop-down's choice and the commands of its buttons, and shows the strip and the states its owner asks for.
 @MainActor
-final class QuickReplyView: NSView {
+final class QuickReplyView: NSView, QuirePointerTarget {
     enum Mode: Int, Equatable {
         case reply = 0
         case replyAll = 1
@@ -167,6 +167,7 @@ final class QuickReplyView: NSView {
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
 
+        scrollView.contentView = QuickReplyClipView()
         scrollView.borderType = .noBorder
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = false
@@ -475,7 +476,9 @@ final class QuickReplyView: NSView {
                                    width: textWidth + 4, height: placeholderHeight)
         // Unfocused with text, the field shows its first line tail-truncated so the reader does not jump.
         let showsPreview = !isFocused && !text.isEmpty && strip.isHidden
-        scrollView.isHidden = !strip.isHidden || showsPreview
+        // While a composer holds the draft the field only brings it forward: the text view, empty, would take the click
+        // and the typing it no longer owns.
+        scrollView.isHidden = !strip.isHidden || showsPreview || isComposerOpen
         placeholder.isHidden = !strip.isHidden || (!text.isEmpty && !showsPreview)
 
         let restVisible = !toolRow && strip.isHidden && !isComposerOpen
@@ -515,7 +518,8 @@ final class QuickReplyView: NSView {
         // The leading status replaces the tabs and tools; Open in Composer follows it when it applies.
         statusGlyph.isHidden = !toolRow || !showsStatus || { if case .counting = status { return true } else { return false } }()
         statusLabel.isHidden = !toolRow || !showsStatus
-        statusAction.isHidden = !toolRow || !showsStatus
+        // Only the countdown has an action of its own; an empty one would still take a click and the Tab key.
+        statusAction.isHidden = !toolRow || !showsStatus || statusAction.title.isEmpty
         statusContrail.isHidden = true
         if toolRow, showsStatus {
             var sx = field.minX + m.textX
@@ -546,6 +550,43 @@ final class QuickReplyView: NSView {
 
         strip.frame = field.insetBy(dx: 1, dy: 1)
         strip.showsKeycaps = keycaps
+        pointerRegionsDidChange()
+    }
+
+    // MARK: Pointer
+
+    /// The pointer over the bar (§4.17). The field's face takes the I-beam, its padding, face and R keycap included,
+    /// since a click anywhere on it puts the caret in it, with its buttons and the strip left to their own pointer; the
+    /// tool row's band around its controls the arrow, as a click there changes nothing. While a composer holds the draft
+    /// the whole field takes the hand, since a click brings the composer forward; a failed send's “Open in composer”
+    /// takes it too. Around the field the bar lies on the reader's page, whose pointer would show through: the arrow.
+    var pointerRegions: [QuirePointerRegion] {
+        let field = fieldRect
+        // The controls keep their own pointer, wherever the bar's growth has them for now, and the text view its I-beam.
+        var holes = childPointerAreas()
+        if !scrollView.isHidden { holes.append(scrollView.frame) }
+        var regions = QuirePointerRegion.regions(bounds, cursor: .arrow, cutting: holes + [field])
+        if isComposerOpen {
+            return regions + QuirePointerRegion.regions(field, cursor: .pointingHand, cutting: holes)
+        }
+        guard strip.isHidden else {
+            return regions + QuirePointerRegion.regions(field, cursor: .arrow, cutting: holes)
+        }
+        if showsToolRow {
+            if status == .error, !statusLabel.isHidden {
+                regions += QuirePointerRegion.regions(statusLabel.frame, cursor: .pointingHand, cutting: holes)
+                holes.append(statusLabel.frame)
+            }
+            let top = scrollView.frame.maxY + Quire.Layout.QuickReply.toolRowGap
+            let toolRow = NSRect(x: field.minX, y: top, width: field.width, height: max(0, field.maxY - top))
+            regions += QuirePointerRegion.regions(toolRow, cursor: .arrow, cutting: holes)
+            holes.append(toolRow)
+        }
+        return regions + QuirePointerRegion.regions(field, cursor: .iBeam, cutting: holes)
+    }
+
+    override func resetCursorRects() {
+        addPointerRects()
     }
 
     // MARK: Drawing
@@ -839,6 +880,15 @@ extension QuickReplyView: NSTextStorageDelegate {
         MainActor.assumeIsolated {
             _ = WritingTextSize.apply(textSize, to: textStorage, in: editedRange)
         }
+    }
+}
+
+/// The text's clip view, which adds the I-beam over the text for its scroll view (§4.17): none while the text is hidden
+/// (AppKit asks a hidden view too, and keeps what it adds), nor under the cheat sheet, which takes the keyboard.
+private final class QuickReplyClipView: NSClipView {
+    override func resetCursorRects() {
+        guard !isHiddenOrHasHiddenAncestor, !isUnderPointerCover else { return }
+        super.resetCursorRects()
     }
 }
 

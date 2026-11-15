@@ -4,7 +4,7 @@ import SSDesign
 /// The strip a quick-reply send leaves in the field (spec §5.18): the undo countdown with its contrail, then
 /// the outcome. It fills the field's frame, so the bar keeps its height and nothing else moves.
 @MainActor
-final class QuickReplyStripView: NSView {
+final class QuickReplyStripView: NSView, QuirePointerTarget {
     enum State: Equatable {
         /// Inside the undo window: "Sending in 4 s" · "to Ben Carter", Undo with ⌘Z before it, the contrail. After Send
         /// and Archive the lead says the conversation went first, “Archived · sending in 4 s”, and Undo brings it back.
@@ -107,6 +107,7 @@ final class QuickReplyStripView: NSView {
             show.isHidden = false
         }
         needsLayout = true
+        pointerRegionsDidChange()
     }
 
     /// Seconds left, as text beside the contrail, always (spec §4.10).
@@ -170,6 +171,31 @@ final class QuickReplyStripView: NSView {
         detail.frame = NSRect(x: x, y: (mid - detailHeight / 2).rounded(), width: max(0, trailing - x), height: detailHeight)
         let head = Quire.Layout.Progress.contrailHead
         contrail.frame = NSRect(x: 0, y: bounds.height - 1 - head / 2 - 1, width: bounds.width, height: head)
+        pointerRegionsDidChange()
+    }
+
+    // MARK: Pointer
+
+    /// During the countdown a click anywhere outside Undo brings the field back for a new reply: the hand. An outcome
+    /// only reports, so the arrow, around its Show link. Its buttons keep their own (§4.17).
+    var pointerRegions: [QuirePointerRegion] {
+        let counting: Bool
+        if case .counting = state { counting = true } else { counting = false }
+        return QuirePointerRegion.regions(bounds, cursor: counting ? .pointingHand : .arrow, cutting: childPointerAreas())
+    }
+
+    override func resetCursorRects() {
+        addPointerRects()
+    }
+
+    override func viewDidHide() {
+        super.viewDidHide()
+        pointerRegionsDidChange()
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        pointerRegionsDidChange()
     }
 
     override func mouseDown(with event: NSEvent) {
