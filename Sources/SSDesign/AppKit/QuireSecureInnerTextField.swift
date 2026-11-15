@@ -34,6 +34,11 @@ final class QuireSecureInnerTextField: NSSecureTextField, QuireInnerField {
         super.textDidChange(notification)
     }
 
+    /// No I-beam under the cheat sheet, which takes the keyboard (§4.17).
+    override func resetCursorRects() {
+        if !isUnderPointerCover { super.resetCursorRects() }
+    }
+
     override func textDidEndEditing(_ notification: Notification) {
         innerFieldWillEndEditing()
         super.textDidEndEditing(notification)

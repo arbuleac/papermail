@@ -101,6 +101,8 @@ final class ListFooterRowView: NSTableRowView {
             let hit = ListFooterRowView.minimumHitHeight
             let pad = Quire.Layout.Button.linkPadX
             retryButton.frame = NSRect(x: x - pad, y: ((bounds.height - hit) / 2).rounded(), width: retryButton.labelWidth + 2 * pad, height: hit)
+            // The table cuts the link's area out of the row's arrow, so it is asked again when the link moves.
+            retryButton.pointerRegionsDidChange()
         }
     }
 
@@ -140,8 +142,8 @@ final class ListFooterRowView: NSTableRowView {
     /// “Retry”: a link in `metaStrong` `accent` (spec §5.10). Link buttons never take a wash, because the
     /// accent label must keep 4.5:1; hover and press show as the underline, which is there at rest too wherever colour
     /// alone does not mark a link (under Graphite, and in a theme whose ink sits near its text ink). The hit area is
-    /// 24 pt tall.
-    private final class RetryButton: NSControl {
+    /// 24 pt tall, and the pointing hand covers it (§4.17).
+    private final class RetryButton: NSControl, QuirePointerTarget {
         var onPress: (() -> Void)?
         private var isHovered = false { didSet { needsDisplay = true } }
         private var isPressedDown = false { didSet { needsDisplay = true } }
@@ -176,6 +178,23 @@ final class ListFooterRowView: NSTableRowView {
             let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self)
             addTrackingArea(area)
             trackingArea = area
+        }
+
+        var pointerRegions: [QuirePointerRegion] { [.control(bounds, acts: true)] }
+
+        override func resetCursorRects() {
+            addPointerRects()
+        }
+
+        // It shows only while a load has failed; the table cuts its area out of the row's.
+        override func viewDidHide() {
+            super.viewDidHide()
+            pointerRegionsDidChange()
+        }
+
+        override func viewDidUnhide() {
+            super.viewDidUnhide()
+            pointerRegionsDidChange()
         }
 
         override func mouseEntered(with event: NSEvent) { isHovered = true }

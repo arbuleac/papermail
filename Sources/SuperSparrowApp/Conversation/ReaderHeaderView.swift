@@ -357,6 +357,15 @@ final class ReaderKickerView: NSView {
 /// would silence J, K and E until focus moved. A read-only text view selects and copies without that.
 @MainActor
 private final class ReaderHeadlineView: NSTextView {
+    /// The I-beam over the headline's own line (§4.17). AppKit's is over the visible rect, which, as views no longer clip
+    /// to their bounds, reaches over the whole reader: its I-beam would sit over the page and stop the page's links from
+    /// showing their hand. None under the cheat sheet, which covers the reader.
+    override func resetCursorRects() {
+        let line = bounds.intersection(visibleRect)
+        guard !line.isEmpty, !isUnderPointerCover else { return }
+        addCursorRect(line, cursor: .iBeam)
+    }
+
     init() {
         // TextKit 1, configured like every Quire text stack, so the role's exact 30 pt line holds (§4.4).
         let storage = NSTextStorage()

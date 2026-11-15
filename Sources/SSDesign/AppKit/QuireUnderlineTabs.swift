@@ -155,12 +155,22 @@ public final class QuireUnderlineTabs: QuireControl {
 
     // MARK: Pointer
 
-    /// Each tab's own hit area (§4.17): the hand over a tab a click would choose, the arrow over the chosen one and over
-    /// one that is disabled, which a click leaves as they are. Between the tabs there is none.
+    /// Each tab's own hit area within the control's (§4.17): the hand over a tab a click would choose, the arrow over the
+    /// chosen one and over one that is disabled, which a click leaves as they are. The arrow between the tabs too: a
+    /// container cuts the whole hit rect out of its own region, and the quick reply's lies on the reader's page, whose
+    /// pointer would show through a gap.
     public override var pointerRegions: [QuirePointerRegion] {
-        items.indices.map { index in
-            .control(hitRect(forTab: index).intersection(bounds), acts: isEnabled && items[index].isEnabled && index != selectedIndex)
+        let area = hitRect
+        var taken: [NSRect] = []
+        var regions: [QuirePointerRegion] = []
+        for index in items.indices {
+            // Where two tabs' areas meet, the first takes the click (`tabIndex(at:)`), so it keeps the pointer.
+            let tab = hitRect(forTab: index).intersection(area)
+            let acts = isEnabled && items[index].isEnabled && index != selectedIndex
+            regions += QuirePointerRegion.regions(tab, cursor: acts ? .pointingHand : .arrow, cutting: taken)
+            taken.append(tab)
         }
+        return regions + QuirePointerRegion.regions(area, cursor: .arrow, cutting: taken)
     }
 
     public override func updateTrackingAreas() {

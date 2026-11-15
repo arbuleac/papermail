@@ -21,6 +21,7 @@ final class MastheadButton: QuireControl {
             invalidateIntrinsicContentSize()
             titleDidChange()
             needsDisplay = true
+            pointerRegionsDidChange()
         }
     }
 
@@ -69,6 +70,9 @@ final class MastheadButton: QuireControl {
     override func hitTest(_ point: NSPoint) -> NSView? {
         isMenu ? super.hitTest(point) : nil
     }
+
+    /// A plain title adds no region, so the title-bar zone's arrow shows over it (§4.17).
+    override var pointerCursor: NSCursor? { isMenu ? super.pointerCursor : nil }
 
     override var acceptsFirstResponder: Bool { isMenu && super.acceptsFirstResponder }
 

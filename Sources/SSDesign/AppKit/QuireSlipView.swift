@@ -9,7 +9,7 @@ import AppKit
 /// the bottom edge over the toast's life, only when there is an action; it freezes while the pointer rests on
 /// the slip (`onPointerHover` tells the shell, which pauses its own timer).
 @MainActor
-public final class QuireSlipView: NSView, QuirePointerTarget {
+public final class QuireSlipView: NSView, QuirePointerCover {
     public var kind: Kind {
         didSet { contentDidChange() }
     }
@@ -172,7 +172,7 @@ public final class QuireSlipView: NSView, QuirePointerTarget {
     // MARK: Pointer
 
     /// The arrow over the slip around its action (§4.17): a click on the words does nothing, and the slip lies on the
-    /// list, whose rows' hand would otherwise show through it.
+    /// list, whose rows' hand would otherwise show through it. As a cover, the rows under it leave its frame to it.
     public var pointerRegions: [QuirePointerRegion] {
         QuirePointerRegion.regions(bounds, cursor: .arrow, cutting: childPointerAreas())
     }
@@ -181,14 +181,32 @@ public final class QuireSlipView: NSView, QuirePointerTarget {
         addPointerRects()
     }
 
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        pointerCoverDidChange()
+    }
+
+    // The slip rises into place and is refitted to its message: the rows under it are asked again each time.
+    public override func setFrameOrigin(_ newOrigin: NSPoint) {
+        super.setFrameOrigin(newOrigin)
+        pointerCoverDidChange()
+    }
+
+    public override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        pointerCoverDidChange()
+    }
+
     public override func viewDidHide() {
         super.viewDidHide()
         pointerRegionsDidChange()
+        pointerCoverDidChange()
     }
 
     public override func viewDidUnhide() {
         super.viewDidUnhide()
         pointerRegionsDidChange()
+        pointerCoverDidChange()
     }
 
     private func contentDidChange() {

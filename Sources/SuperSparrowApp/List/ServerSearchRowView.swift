@@ -129,6 +129,8 @@ final class ServerSearchRowView: NSTableRowView {
         let linkSize = link.intrinsicContentSize
         link.frame = link.frame(forVisualRect: NSRect(x: linkX, y: ((bounds.height - linkSize.height) / 2).rounded(),
                                                       width: linkSize.width, height: linkSize.height))
+        // The table cuts the link's area out of the row's arrow, so it is asked again when the link moves.
+        link.pointerRegionsDidChange()
         guard !keycap.isHidden else { return }
         let capSize = keycap.intrinsicContentSize
         keycap.frame = NSRect(x: linkX + linkSize.width + Footer.gap, y: ((bounds.height - capSize.height) / 2).rounded(),

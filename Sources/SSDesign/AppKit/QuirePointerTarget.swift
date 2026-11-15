@@ -23,14 +23,17 @@ public protocol QuirePointerTarget: NSView {
 }
 
 extension QuirePointerTarget {
-    /// Adds `pointerRegions` as cursor rects, cut to what is visible of the view. Call it from `resetCursorRects()`.
+    /// Adds `pointerRegions` as cursor rects, cut to what is visible of the view and out of what a cover lies on
+    /// (`QuirePointerCover`). Call it from `resetCursorRects()`.
     public func addPointerRects() {
         // AppKit asks a hidden view too, and keeps what it adds.
         guard !isHiddenOrHasHiddenAncestor else { return }
         let visible = visibleRect
+        let covered = pointerCoverAreas()
         for region in pointerRegions {
-            let rect = region.rect.intersection(visible)
-            if !rect.isEmpty { addCursorRect(rect, cursor: region.cursor) }
+            for piece in QuirePointerRegion.regions(region.rect.intersection(visible), cursor: region.cursor, cutting: covered) {
+                addCursorRect(piece.rect, cursor: piece.cursor)
+            }
         }
     }
 

@@ -151,22 +151,29 @@ final class PointerTests: XCTestCase {
         XCTAssertEqual(QuireRadioButton(title: "Alone", isSelected: true).pointerRegions.map(\.cursor), [.pointingHand])
     }
 
-    /// Each tab has its own area: the hand on a tab a click would choose, the arrow on the chosen tab and on a disabled
-    /// one (the quick reply's Reply all with one other person), none between them.
+    /// Each tab has its own area within the control's hit rect: the hand on a tab a click would choose, the arrow on the
+    /// chosen tab and on a disabled one (the quick reply's Reply all with one other person), and the arrow between them,
+    /// so the whole hit rect, which a container cuts out of its own region, has one pointer at every point.
     func testTabsShowTheHandOnlyWhereAClickChooses() {
         let window = window()
         let tabs = QuireUnderlineTabs(items: [.init("Reply"), .init("Reply all"), .init("Forward", isEnabled: false)], selectedIndex: 0)
         window.contentView?.addSubview(tabs)
-        let hit = { tabs.hitRect(forTab: $0).intersection(tabs.bounds) }
-        XCTAssertEqual(tabs.pointerRegions, [QuirePointerRegion(hit(0), cursor: .arrow), QuirePointerRegion(hit(1), cursor: .pointingHand),
-                                             QuirePointerRegion(hit(2), cursor: .arrow)])
+        let cursors = { (0..<3).map { index -> NSCursor? in
+            let slot = tabs.slotRect(forTab: index)
+            return tabs.pointerRegions.first { $0.rect.contains(NSPoint(x: slot.midX, y: slot.midY)) }?.cursor
+        } }
+        XCTAssertEqual(cursors(), [.arrow, .pointingHand, .arrow])
         assertDisjoint(tabs.pointerRegions.map(\.rect))
+        XCTAssertTrue(tabs.pointerRegions.allSatisfy { tabs.hitRect.contains($0.rect) })
+        XCTAssertEqual(area(tabs.pointerRegions.map(\.rect)), area([tabs.hitRect]), accuracy: 0.01, "the gaps take the arrow")
+        let gap = NSPoint(x: (tabs.slotRect(forTab: 0).maxX + tabs.slotRect(forTab: 1).minX) / 2, y: tabs.hitRect.midY)
+        XCTAssertEqual(tabs.pointerRegions.filter { $0.rect.contains(gap) }.map(\.cursor), [.arrow])
         window.invalidated = []
         tabs.selectedIndex = 1
         XCTAssertTrue(window.wasInvalidated(tabs))
-        XCTAssertEqual(tabs.pointerRegions.map(\.cursor), [.pointingHand, .arrow, .arrow])
+        XCTAssertEqual(cursors(), [.pointingHand, .arrow, .arrow])
         tabs.isEnabled = false
-        XCTAssertEqual(tabs.pointerRegions.map(\.cursor), [.arrow, .arrow, .arrow])
+        XCTAssertEqual(cursors(), [.arrow, .arrow, .arrow])
     }
 
     // MARK: Fields

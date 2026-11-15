@@ -15,7 +15,7 @@ import AppKit
 /// `dur.standard` (`ease.settle`); out, both fade over `dur.quick` (`ease.leave`). Reduce Motion keeps the
 /// fades and drops the scale. Under Reduce Transparency the scrim is opaque (`scrimSolid`).
 @MainActor
-public final class QuireCheatSheetOverlay: NSView, QuirePointerTarget {
+public final class QuireCheatSheetOverlay: NSView, QuirePointerCover {
     public let scrim = QuireScrimView(frame: .zero)
     public let panel: QuireCheatSheetPanel
 
@@ -67,8 +67,8 @@ public final class QuireCheatSheetOverlay: NSView, QuirePointerTarget {
     // MARK: Pointer
 
     /// The hand over the scrim, which a click dismisses, around the panel (§4.17). The rects cover the window's content,
-    /// so the reader's page under them sets no cursor of its own; controls under the scrim may still show theirs, as
-    /// AppKit gives overlapping rects no order.
+    /// so the reader's page under them sets no cursor of its own, and as a cover the overlay has the controls under it
+    /// leave its frame to it.
     public var pointerRegions: [QuirePointerRegion] {
         QuirePointerRegion.regions(bounds, cursor: .pointingHand, cutting: childPointerAreas())
     }
@@ -77,14 +77,31 @@ public final class QuireCheatSheetOverlay: NSView, QuirePointerTarget {
         addPointerRects()
     }
 
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        pointerCoverDidChange()
+    }
+
+    public override func setFrameOrigin(_ newOrigin: NSPoint) {
+        super.setFrameOrigin(newOrigin)
+        pointerCoverDidChange()
+    }
+
+    public override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        pointerCoverDidChange()
+    }
+
     public override func viewDidHide() {
         super.viewDidHide()
         pointerRegionsDidChange()
+        pointerCoverDidChange()
     }
 
     public override func viewDidUnhide() {
         super.viewDidUnhide()
         pointerRegionsDidChange()
+        pointerCoverDidChange()
     }
 
     // MARK: Motion

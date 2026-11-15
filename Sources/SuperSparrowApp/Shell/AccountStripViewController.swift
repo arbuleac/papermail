@@ -239,6 +239,8 @@ final class AccountStripViewController: NSViewController {
 
     @objc private func clipDidScroll(_ note: Notification) {
         updateClipEdges()
+        // Their rects are cut to what the clip showed when AppKit last asked.
+        for case let tile as AccountStripButton in stackView.subviews { tile.pointerRegionsDidChange() }
     }
 
     private func updateClipEdges() {
