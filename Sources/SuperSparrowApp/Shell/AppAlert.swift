@@ -37,13 +37,13 @@ struct AppAlert {
         for button in buttons {
             let made = alert.addButton(withTitle: button.title)
             made.hasDestructiveAction = button.role == .destructive
+            // The alert's buttons are AppKit's, so the hand comes from an overlay (§4.17).
+            QuirePointerOverlay.install(on: made)
         }
         // NSAlert gives a first button titled Cancel only Esc, so “Remove …?” would have no default at all.
         // The safe choice is the default (↩, which also moves it to the default position); `installEscape`
         // keeps Esc on it.
         if let first = alert.buttons.first, first.keyEquivalent != "\r" { first.keyEquivalent = "\r" }
-        // NSAlert makes its buttons, so the hand comes from an overlay on each (§4.17).
-        for button in alert.buttons { QuirePointerOverlay.install(on: button) }
         return alert
     }
 

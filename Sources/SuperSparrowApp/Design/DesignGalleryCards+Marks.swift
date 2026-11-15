@@ -202,10 +202,31 @@ extension DesignGalleryCards {
 
             let behind = S.surface(.qCanvas, size: NSSize(width: 150, height: 52), radius: 6,
                                    centring: QuireButton(title: "Behind", variant: .primary))
-            let scrim = QuireScrimView(frame: behind.bounds)
+            let scrim = ScrimSpecimen(frame: behind.bounds)
             behind.addSubview(scrim)
             block.row("Scrim", [behind], ann: "cheat sheet scrim (scrimSolid under Reduce Transparency)")
         }
+    }
+}
+
+/// The scrim as the specimen shows it: on a live button that a click on the scrim never reaches, and with no overlay
+/// for a click to close, so the arrow over all of it keeps the button's hand from showing through (§4.17).
+@MainActor
+private final class ScrimSpecimen: NSView, QuirePointerTarget {
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        let scrim = QuireScrimView(frame: bounds)
+        scrim.autoresizingMask = [.width, .height]
+        addSubview(scrim)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("built in code") }
+
+    var pointerRegions: [QuirePointerRegion] { [QuirePointerRegion(bounds, cursor: .arrow)] }
+
+    override func resetCursorRects() {
+        addPointerRects()
     }
 }
 #endif

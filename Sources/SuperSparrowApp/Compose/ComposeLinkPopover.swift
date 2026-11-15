@@ -8,7 +8,7 @@ import SSDesign
 /// “Remove Link” when editing an existing link, and trailing ghost “Cancel” and small primary “Add Link”
 /// (“Save” when editing). ↩ confirms, Esc cancels, Tab cycles inside. It fades in and out over `dur.quick`.
 @MainActor
-final class ComposeLinkPopover: NSView, NSTextFieldDelegate {
+final class ComposeLinkPopover: NSView, NSTextFieldDelegate, QuirePointerTarget {
     struct Request {
         var range: NSRange
         var existingTarget: String?
@@ -118,9 +118,22 @@ final class ComposeLinkPopover: NSView, NSTextFieldDelegate {
         let linkTop = linkField.alignmentRect(forFrame: linkField.frame).minY
         let textTop = textField.alignmentRect(forFrame: textField.frame).minY
         labels.entries = [("Link", linkTop)] + (request.needsText ? [("Text", textTop)] : [])
+        pointerRegionsDidChange()
     }
 
     private let labels = PopoverLabels()
+
+    // MARK: Pointer
+
+    /// The arrow over the popover around its fields and buttons, which keep their own I-beam and hand (§4.17): it lies
+    /// on the body, or on Settings' form, whose pointer would otherwise show through it.
+    var pointerRegions: [QuirePointerRegion] {
+        QuirePointerRegion.regions(bounds, cursor: .arrow, cutting: childPointerAreas())
+    }
+
+    override func resetCursorRects() {
+        addPointerRects()
+    }
 
     // MARK: Showing
 

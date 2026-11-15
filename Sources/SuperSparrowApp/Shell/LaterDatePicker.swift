@@ -49,7 +49,10 @@ final class LaterDatePicker: NSObject {
         alert.alertStyle = .informational
         let snooze = alert.addButton(withTitle: confirm)
         snooze.keyEquivalent = "\r"
-        alert.addButton(withTitle: "Cancel")
+        let cancel = alert.addButton(withTitle: "Cancel")
+        // The hand over both buttons, from overlays since the buttons are AppKit's; Snooze's follows it as it is
+        // enabled and disabled (§4.17).
+        for button in [snooze, cancel] { QuirePointerOverlay.install(on: button) }
 
         for picker in [calendarPicker, timePicker] {
             picker.calendar = calendar
@@ -81,9 +84,10 @@ final class LaterDatePicker: NSObject {
         accessory.addSubview(timePicker)
         alert.accessoryView = accessory
         alert.window.initialFirstResponder = calendarPicker
-        // AppKit makes and draws all of these, so the hand comes from views laid over them (§4.17): every part of the
-        // calendar a click acts on, the buttons while enabled, the time field's stepper.
-        for button in alert.buttons { QuirePointerOverlay.install(on: button) }
+        // AppKit makes and draws both pickers, so the hand comes from views laid over them (§4.17). A click on the
+        // calendar picks a day or turns the month, and AppKit tells nothing of where its parts lie (its accessibility
+        // gives the date area and three buttons with no frames), so the hand covers the whole calendar as it would any
+        // control's hit rect. The time field's digits are typed over, so only its stepper takes the hand.
         QuirePointerOverlay.install(on: calendarPicker)
         StepperPointerArea.install(on: timePicker)
         updateSnoozeButton()

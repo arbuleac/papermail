@@ -6,7 +6,7 @@ import SSDesign
 /// and above the body text). Clicking the empty space under the text puts the caret at the end, so the whole
 /// page feels like one editor rather than a short box.
 @MainActor
-final class ComposeDocumentView: NSView {
+final class ComposeDocumentView: NSView, QuirePointerTarget {
     weak var editor: ComposeTextView?
 
     private(set) var banner: QuireBannerView?
@@ -30,6 +30,8 @@ final class ComposeDocumentView: NSView {
     override func layout() {
         super.layout()
         layoutBanner()
+        // The editor grows and the quote moves in layout, and their areas shape this view's.
+        pointerRegionsDidChange()
     }
 
     private func layoutBanner() {
@@ -42,6 +44,27 @@ final class ComposeDocumentView: NSView {
         let height = banner.height(forWidth: width)
         banner.frame = NSRect(x: c.bannerInsetX, y: c.bannerInsetY, width: width, height: height)
         editor?.topInset = c.bannerInsetY + height + c.bannerInsetY
+    }
+
+    // MARK: Pointer
+
+    /// The I-beam over the page around the editor, which sets its own, since a click there puts the caret in the text
+    /// (§4.17); the quote's chip and attribution keep their hand. The failed-send banner is a surface on the page: the
+    /// arrow around its controls.
+    var pointerRegions: [QuirePointerRegion] {
+        let controls = childPointerAreas()
+        var page = controls
+        if let editor, editor.superview === self { page.append(editor.frame) }
+        var regions: [QuirePointerRegion] = []
+        if let banner {
+            page.append(banner.frame)
+            regions += QuirePointerRegion.regions(banner.frame, cursor: .arrow, cutting: controls)
+        }
+        return regions + QuirePointerRegion.regions(bounds, cursor: .iBeam, cutting: page)
+    }
+
+    override func resetCursorRects() {
+        addPointerRects()
     }
 
     override func mouseDown(with event: NSEvent) {
