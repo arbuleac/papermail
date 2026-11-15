@@ -207,7 +207,7 @@ LAYOUT = {
             "narrowColumnMargin": 16, "narrowSheetPadX": 16, "htmlMinZoom": 0.74, "starGlyph": 12, "starGap": 4, "targetKeycapGap": 6, "offlinePreviewGap": 12,
             "recipientsLabelColumn": 28, "recipientsFieldGap": 0, "recipientsMaxLines": 8, "recipientsTop": 8,
             "recipientPitch": 24, "recipientFace": 20, "recipientPadX": 4, "recipientRadius": 5,
-            "recipientsToggleHitBelow": 8, "senderAddressHitAbove": 6, "copiedGlyph": 12, "copiedGap": 4},
+            "recipientsToggleHitBelow": 8, "senderAddressHitAbove": 6, "unsubscribeHitGap": 8, "copiedGlyph": 12, "copiedGap": 4},
  "textStyle": {"quoteBar": 2, "quoteIndent": 12, "linkUnderline": 1, "linkUnderlineOffset": 2, "listIndent": 24, "listMarkerGap": 6},
  "quotedToggle": {"height": 24, "radius": 6, "padLeft": 6, "padRight": 9, "gap": 6, "glyph": 14, "composerChip": 22},
  "findBar": {"width": 320, "height": 40, "pad": 6, "radius": 8, "top": 8, "trailing": 16, "fieldGap": 6, "buttonGap": 2,

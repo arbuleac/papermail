@@ -274,6 +274,7 @@ extension Quire {
             public static let recipientRadius: CGFloat = 5
             public static let recipientsToggleHitBelow: CGFloat = 8
             public static let senderAddressHitAbove: CGFloat = 6
+            public static let unsubscribeHitGap: CGFloat = 8
             public static let copiedGlyph: CGFloat = 12
             public static let copiedGap: CGFloat = 4
         }
