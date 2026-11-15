@@ -13,6 +13,22 @@ BRAND = {"ink": "#0E1B30", "signal": "#0A5BE0", "signalDark": "#5AAEFF",
          "groundDark": ["#1C2B4B", "#0A1122"], "frontDark": ["#3E9BFF", "#1458EC"], "flapDark": ["#9CCFFF", "#62AAFF"],
          "frontSmall": ["#2479F7", "#0A4AD8"], "flapSmall": ["#59A8FF", "#3F95FF"]}
 
+
+
+def _wordmark():
+    """The wordmark master (docs/brand/source/wordmark.svg, drawn, never set in a font) in its own units: its path data,
+    baseline y 0, and its frame, the advance across and the overshoot's top to the descender down."""
+    import os, re
+    text = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'brand', 'source', 'wordmark.svg')).read()
+    left, top, advance, height = (float(v) for v in re.search(r'viewBox="([^"]+)"', text).group(1).split())
+    assert left == 0, 'the wordmark frame starts at its origin'
+    whole = lambda v: int(v) if v == int(v) else v
+    return {"path": re.search(r'<path d="([^"]+)"', text).group(1), "advance": whole(advance), "top": whole(top),
+            "bottom": whole(top + height)}
+
+
+WORDMARK = _wordmark()
+
 # (token, light, dark, lightHC, darkHC, group, use)
 COLOR = [
  # surfaces
@@ -272,7 +288,7 @@ LAYOUT = {
  "kbd": {"largeHeight": 24, "largeFont": 12, "height": 18, "minWidth": 18, "padX": 4, "radius": 3, "largeRadius": 5, "inField": 16},
  "progress": {"indeterminateSegment": 0.36, "reducedSegment": 0.4, "barHeight": 4, "barRadius": 2, "contrail": 2, "contrailHead": 4, "contrailTail": 32,
               "spinner": [12, 16, 32], "spinnerStroke": [1.5, 2, 3], "spinnerArc": 0.75},
- "welcome": {"blockWidth": 360, "blockCenterY": 0.45, "mark": 65, "titleGap": 14, "taglineGap": 4, "actionsGap": 28, "buttonWidth": 328, "buttonGap": 10, "demoGap": 12, "footGap": 20, "footWidth": 330, "linkGap": 10, "bannerGap": 16, "spinner": 16},
+ "welcome": {"blockWidth": 360, "blockCenterY": 0.45, "mark": 65, "titleGap": 8, "wordmarkCap": 24, "taglineGap": 6, "actionsGap": 28, "buttonWidth": 328, "buttonGap": 10, "demoGap": 12, "footGap": 20, "footWidth": 330, "linkGap": 10, "bannerGap": 16, "spinner": 16},
  "settings": {"width": 560, "padTop": 20, "padX": 24, "padBottom": 22, "row": 40, "rowGap": 12, "accountRow": 56, "accountFace": 30, "accountHairlineX": 62,
               "groupRadius": 8, "labelColumn": 140, "swatch": 14, "monogramMaxLength": 2, "plusMinus": 22, "plusMinusGlyph": 11, "plusMinusTop": 8,
               "fieldHeight": 24, "noticeGap": 16, "labelGap": 12, "fieldWidth": 360, "captionMaxWidth": 360, "captionGap": 8, "sectionGap": 20,
@@ -288,25 +304,28 @@ LAYOUT = {
  "notification": {"bodyMaxChars": 120, "summaryThreshold": 3, "summaryWindowSeconds": 30},
  # The app icon (spec §5.42) on the macOS 1024 template, y down: the body is the `body` square centred on the `canvas`; the
  # mark is the brand glyph (its front, then its flap) in the `markSize` square at (markX, markY), so the envelope is
- # 432 tall with its top at y 300. `corner`, `smoothing` and the shadow are the macOS 15 template's, for the
- # raster (the system masks and lights the icon itself on macOS 26 and later). Colours come from BRAND: the ground and both
+ # 400 tall with its top at y 316 and about 100 of tile beside its acute corners, the approved board's proportion.
+ # `corner`, `smoothing` and the shadow are the macOS 15 template's, for the raster (the system masks and lights the
+ # icon itself on macOS 26 and later). Colours come from BRAND: the ground and both
  # parts run top to bottom over their own height; `mono*` are the parts' white opacity in the tinted and clear appearances.
  # `fit16` and `fit32` are the pixel-fitted 16 and 32 px masters: the body a whole number of pixels, and the envelope's
  # front and flap drawn on that size's own pixel grid (path data in pixels).
  "appIcon": {"canvas": 1024, "body": 824, "corner": 0.225, "smoothing": 0.6, "shadowY": 10, "shadowBlur": 15, "shadowAlpha": 0.28,
-             "markX": 152, "markY": 156, "markSize": 720,
+             "markX": 178.67, "markY": 182.67, "markSize": 666.67,
              "ground": BRAND["ground"], "front": BRAND["front"], "flap": BRAND["flap"],
              "groundDark": BRAND["groundDark"], "frontDark": BRAND["frontDark"], "flapDark": BRAND["flapDark"],
              "monoFront": 0.7, "monoFlap": 1, "frontSmall": BRAND["frontSmall"], "flapSmall": BRAND["flapSmall"],
              "fit16": {"body": 768, "paths": ["M3.97 7 L6 7 L6 8 L8 8 L8 9 L9 9 L9 8 L11 8 L11 7 L12.455 7 L11.731 10.406 C11.658 10.752 11.352 11 10.998 11 L3.861 11 C3.479 11 3.194 10.648 3.274 10.275 L3.97 7 Z", "M5.002 5 L12.139 5 C12.521 5 12.806 5.352 12.726 5.725 L12.668 6 L11 6 L11 7 L9 7 L9 8 L8 8 L8 7 L6 7 L6 6 L4.182 6 L4.269 5.594 C4.342 5.248 4.648 5 5.002 5 Z"]},
-             "fit32": {"body": 832, "paths": ["M6.991 11.812 C10.393 13.727 13.551 15.946 16.465 18.467 C16.771 18.732 17.227 18.732 17.533 18.466 C20.438 15.951 23.513 13.779 26.76 11.951 L24.681 21.733 C24.524 22.472 23.871 23 23.116 23 L6.28 23 C5.421 23 4.781 22.209 4.959 21.369 L6.991 11.812 Z", "M8.884 9 L25.72 9 C26.579 9 27.219 9.791 27.041 10.631 L27.026 10.699 C22.909 12.497 19.624 14.227 17.169 15.891 C17.067 15.961 16.932 15.961 16.829 15.891 C14.378 14.229 11.17 12.532 7.206 10.801 L7.319 10.267 C7.476 9.528 8.129 9 8.884 9 Z"]}},
+             "fit32": {"body": 832, "paths": ["M8.407 13.005 C11.295 14.462 13.991 16.175 16.494 18.144 C16.791 18.378 17.209 18.378 17.506 18.144 C19.999 16.18 22.615 14.507 25.352 13.126 L23.749 20.669 C23.584 21.445 22.899 22 22.106 22 L8.274 22 C7.358 22 6.675 21.156 6.865 20.261 L8.407 13.005 Z", "M10.407 10 L24.238 10 C25.154 10 25.837 10.844 25.647 11.739 L25.609 11.918 C22.091 13.261 19.274 14.578 17.158 15.869 C17.061 15.929 16.939 15.929 16.842 15.869 C14.73 14.579 11.989 13.292 8.62 12.006 L8.763 11.331 C8.928 10.555 9.613 10 10.407 10 Z"]}},
  # The brand palette's one-colour inks and the lockups (docs/brand, spec §5.42). Lockup metrics are in the wordmark's units
  # (x-height 100, cap height `capHeight`): the envelope's height and the gap between its sheared right side and the word's
  # 12° origin line beside the word, or its height and its space above the cap height stacked. `monoSmall` is the
- # one-colour mark below 24 px, on the glyph's grid: the crease kept open at the sides and wider at the apex.
+ # one-colour mark below 24 px, on the glyph's grid: the master's box and corners, its crease arms offset symmetrically
+ # about the apex, 2 wide across the arm where they meet the sides and 5 at the apex, so it never closes up. `wordmark`
+ # is the drawn word for the welcome screen, read from its master so the two never part.
  "brand": {"ink": BRAND["ink"], "signal": BRAND["signal"], "signalDark": BRAND["signalDark"], "capHeight": 138,
-           "lockupMark": 144.9, "lockupGap": 72.45, "stackedMark": 303.6, "stackedGap": 82.8,
-           "monoSmall": ["M11.341 17.456 C14.641 19.726 17.802 22.259 20.827 25.055 C21.296 25.488 22.02 25.488 22.488 25.055 C24.128 23.538 25.792 22.106 27.481 20.762 C31.498 17.564 36.699 21.278 35.631 26.3 L34.986 29.339 C34.656 30.89 33.285 32 31.699 32 L4.035 32 C2.204 32 0.837 30.313 1.218 28.521 L2.792 21.118 C3.628 17.183 8.027 15.176 11.341 17.456 Z", "M6.695 8 L37.934 8 C38.751 8 39.361 8.753 39.191 9.552 L39.178 9.613 C38.99 10.501 38.363 11.231 37.518 11.563 C30.923 14.154 25.729 16.703 21.938 19.21 C21.768 19.322 21.548 19.322 21.378 19.21 C17.725 16.792 12.884 14.381 6.856 11.977 C5.731 11.529 5.083 10.339 5.335 9.155 L5.348 9.091 C5.483 8.455 6.045 8 6.695 8 Z"]},
+           "lockupMark": 144.9, "lockupGap": 72.45, "stackedMark": 303.6, "stackedGap": 82.8, "wordmark": WORDMARK,
+           "monoSmall": ["M4.476 13.197 C10.458 15.844 15.781 19.734 20.447 24.867 C21.094 25.579 22.222 25.579 22.869 24.867 C27.412 19.869 32.58 16.049 38.372 13.407 L34.986 29.339 C34.656 30.89 33.285 32 31.699 32 L4.035 32 C2.204 32 0.837 30.313 1.218 28.521 L4.476 13.197 Z", "M8.301 8 L36.42 8 C38.017 8 39.209 9.471 38.877 11.033 L38.863 11.095 L38.291 11.259 C31.113 13.312 25.673 15.851 21.97 18.874 C21.789 19.023 21.527 19.023 21.345 18.874 C17.643 15.851 12.203 13.312 5.024 11.259 L4.895 11.222 L5.014 10.661 C5.344 9.11 6.715 8 8.301 8 Z"]},
 }
 ICON = {
  "archive": "archivebox", "trash": "trash", "star": "star", "unstar": "star.fill", "markUnread": "envelope.badge", "markRead": "envelope.open",
@@ -325,7 +344,7 @@ ICON = {
  "brand": "ss.italicEnvelope", "keyboard": "keyboard", "dismiss": "xmark",
  "removeAccount": "minus", "bold": "bold", "italic": "italic", "underline": "underline", "bulletedList": "list.bullet", "numberedList": "list.number",
  "blockQuote": "text.quote", "link": "link", "undone": "arrow.uturn.backward", "demo": "info.circle",
- "addAccountProvider": "envelope", "attention": "exclamationmark", "waitingToSync": "clock", "discardDraft": "trash",
+ "addAccountProvider": "person.crop.circle.badge.plus", "attention": "exclamationmark", "waitingToSync": "clock", "discardDraft": "trash",
  "reveal": "eye", "conceal": "eye.slash", "invitation": "calendar", "answered": "checkmark", "print": "printer",
  "findInConversation": "text.magnifyingglass", "findPrevious": "chevron.up", "findNext": "chevron.down",
  "loginApproval": "info.circle",

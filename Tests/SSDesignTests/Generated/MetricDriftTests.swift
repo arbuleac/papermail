@@ -10,8 +10,8 @@ final class MetricDriftTests: XCTestCase {
     private let file = DesignTokensFile.shared
 
     func testEveryMetricIsCovered() {
-        // tokens.json had 732 leaves under layout, border and platform when this file was generated.
-        XCTAssertEqual(file.leafCount(under: ["layout", "border", "platform"]), 732, "regenerate with swift scripts/tools/quire-tokens.swift")
+        // tokens.json had 737 leaves under layout, border and platform when this file was generated.
+        XCTAssertEqual(file.leafCount(under: ["layout", "border", "platform"]), 737, "regenerate with swift scripts/tools/quire-tokens.swift")
     }
 
     func testLayoutWindow() {
@@ -731,6 +731,7 @@ final class MetricDriftTests: XCTestCase {
         number(Quire.Layout.Welcome.blockCenterY, "layout.welcome.blockCenterY")
         number(Quire.Layout.Welcome.mark, "layout.welcome.mark")
         number(Quire.Layout.Welcome.titleGap, "layout.welcome.titleGap")
+        number(Quire.Layout.Welcome.wordmarkCap, "layout.welcome.wordmarkCap")
         number(Quire.Layout.Welcome.taglineGap, "layout.welcome.taglineGap")
         number(Quire.Layout.Welcome.actionsGap, "layout.welcome.actionsGap")
         number(Quire.Layout.Welcome.buttonWidth, "layout.welcome.buttonWidth")
@@ -859,6 +860,10 @@ final class MetricDriftTests: XCTestCase {
         number(Quire.Layout.Brand.lockupGap, "layout.brand.lockupGap")
         number(Quire.Layout.Brand.stackedMark, "layout.brand.stackedMark")
         number(Quire.Layout.Brand.stackedGap, "layout.brand.stackedGap")
+        string(Quire.Layout.Brand.Wordmark.path, "layout.brand.wordmark.path")
+        number(Quire.Layout.Brand.Wordmark.advance, "layout.brand.wordmark.advance")
+        number(Quire.Layout.Brand.Wordmark.top, "layout.brand.wordmark.top")
+        number(Quire.Layout.Brand.Wordmark.bottom, "layout.brand.wordmark.bottom")
         strings(Quire.Layout.Brand.monoSmall, "layout.brand.monoSmall")
     }
 

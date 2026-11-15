@@ -19,8 +19,10 @@
 //   --check                  writes nothing in the repository: renders into a temporary folder, compares both outputs
 //                            byte for byte, and exits 1 listing every file that is missing, stale or no longer made.
 //   --preview <png>          optional, for review: the document's six system appearances rendered by Xcode's `ictool`
-//                            (when Xcode is installed), the .icns sizes, and the icon in a light and a dark Dock at 64 and
-//                            32 px beside Apple Mail's, which App Review 5.2.5 says it must not resemble.
+//                            (when Xcode is installed), the .icns sizes, the icon in a light Dock at 64 and 32 px beside
+//                            Apple Mail's, which App Review 5.2.5 says it must not resemble, and in a dark Dock on its own.
+//                            NSWorkspace hands back Mail's light icon under every appearance, so the preview cannot
+//                            compare the dark, tinted or clear looks; those are checked by hand against Mail itself.
 //
 // Plain Foundation, AppKit and ImageIO, no packages. The SVG path parser below handles the commands the token
 // file's glyphs use (M L H V C A Z, absolute and relative) and fails loudly on anything else.
@@ -670,10 +672,11 @@ if let previewPath {
         x += shown + CGFloat(gap)
     }
     y += CGFloat(cell + rowGap)
-    label("In the Dock at 64 and 32 px beside Apple Mail (comparison only), light and dark: the system's render, then the .icns; the badge at 64 px",
+    label("In the Dock at 64 and 32 px: light beside Apple Mail (comparison only), dark on its own; the system's render, then the .icns; the badge at 64 px",
           x: CGFloat(gap), y: y, bold: true)
     y += CGFloat(labelHeight)
-    // Apple Mail as the system shows it: the full template canvas, margin included, like the .icns.
+    // Apple Mail as the system shows it: the full template canvas, margin included, like the .icns. Only its light icon:
+    // NSWorkspace returns that one under darkAqua too, and setting it beside the dark icon would pass for a dark comparison.
     let mail = NSWorkspace.shared.icon(forFile: "/System/Applications/Mail.app")
     func mailImage(_ size: Int) -> CGImage? {
         var rect = NSRect(x: 0, y: 0, width: size * 2, height: size * 2)
@@ -686,9 +689,12 @@ if let previewPath {
         for size in [64, 32] {
             let s = CGFloat(size), margin = s * 100 / 1024
             let top = strip.midY - s / 2
-            // Apple Mail, then the system's render of this icon (the body alone, so set in the template's margin), then the .icns.
-            if let mailIcon = mailImage(size) { draw(mailIcon, in: CGRect(x: left, y: top, width: s, height: s)) }
-            left += s * 1.25
+            // Apple Mail (light only), then the system's render of this icon (the body alone, so set in the template's
+            // margin), then the .icns.
+            if index == 0 {
+                if let mailIcon = mailImage(size) { draw(mailIcon, in: CGRect(x: left, y: top, width: s, height: s)) }
+                left += s * 1.25
+            }
             let ours = CGRect(x: left, y: top, width: s, height: s)
             if let tool, let system = systemRender(tool, rendition: rendition, size: 2 * size) {
                 draw(system, in: ours.insetBy(dx: margin, dy: margin))
@@ -706,7 +712,8 @@ if let previewPath {
             if index == 0 { draw(image(size == 32 ? 32 : 128), in: CGRect(x: left, y: top, width: s, height: s)) }
             left += s * 1.25 + 40
         }
-        label(index == 0 ? "light: Mail · system render · .icns" : "dark: Mail · system render", x: left, y: strip.midY - 7,
+        label(index == 0 ? "light: Mail · system render · .icns" : "dark: system render only (no dark Mail to compare here: check it by hand)",
+              x: left, y: strip.midY - 7,
               ink: Ink(index == 0 ? "#3C4352" : "#B8BCC6"))
     }
     NSGraphicsContext.current = nil

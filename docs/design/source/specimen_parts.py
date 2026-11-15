@@ -22,6 +22,18 @@ def g(name, pt=15, cls=''):
     else:
         body = '<g fill="currentColor" fill-rule="%s">%s</g>' % (gl.get('fillRule', 'nonzero'), paths)
     return '<svg class="glyph %s" viewBox="0 0 %d %d" style="width:%gpx;height:%gpx">%s</svg>' % (cls, grid, grid, pt, pt, body)
+def wordmark(cap):
+    """The drawn wordmark (`layout.brand.wordmark`, never set in a font) as inline SVG in the current colour, `cap` px
+    to the cap height: the frame runs from the overshoot to the descender and across the word's ink, which the italic
+    carries past the advance."""
+    W = T.LAYOUT['brand']['wordmark']
+    nums = [float(v) for v in re.findall(r'-?\d+(?:\.\d+)?', W['path'])]
+    # Every number pair in the outline is a point on or beside it, and the italic's ink lies within them across.
+    left, right = min(nums[0::2]), max(nums[0::2])
+    scale = cap / T.LAYOUT['brand']['capHeight']
+    width, height = right - left, W['bottom'] - W['top']
+    return ('<svg class="wordmark" viewBox="%g %g %g %g" style="width:%gpx;height:%gpx" role="img" aria-label="SuperSparrow">'
+            '<path fill="currentColor" d="%s"/></svg>') % (left, W['top'], width, height, width * scale, height * scale, W['path'])
 _icons = [0]
 def app_icon(px, appearance='default'):
     """The app icon (spec §5.42) as inline SVG over its 824 body: the ground's gradient, then the brand mark's front and flap,

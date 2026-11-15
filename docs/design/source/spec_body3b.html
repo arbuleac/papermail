@@ -18,7 +18,7 @@
         <div class="sync">{{PY: s('info.circle', 11)}}<b>Demo</b> · made-up mail, nothing syncs</div>
       </div>
       <div class="menu" style="position:absolute;left:152px;top:40px;width:226px;z-index:20">
-        <div class="mi">{{PY: s('envelope', 14)}}Add a Real Account…<span class="kc">{{PY: s('chevron.right', 9)}}</span></div>
+        <div class="mi">{{PY: s(T.ICON['addAccountProvider'], 14)}}Add a Real Account…<span class="kc">{{PY: s('chevron.right', 9)}}</span></div>
         <div class="msep"></div>
         <div class="mi hi">{{PY: s('arrow.uturn.backward', 14)}}Leave Demo…</div>
       </div>
@@ -43,8 +43,8 @@
         <div class="sync"><span class="spin" style="--sz:11px;color:var(--q-ink3)"></span><b>Finish signing in in your browser</b> · Gmail<span class="act" style="border-radius:5px;box-shadow:0 0 0 2px var(--q-focus);padding:0 3px">Cancel</span></div>
       </div>
       <div class="menu" style="position:absolute;left:24px;top:540px;width:236px;z-index:20">
-        <div class="mi hi">{{PY: s('envelope', 14)}}Add Gmail Account…</div>
-        <div class="mi">{{PY: s('envelope', 14)}}Add Microsoft Account…</div>
+        <div class="mi hi">{{PY: s(T.ICON['addAccountProvider'], 14)}}Add Gmail Account…</div>
+        <div class="mi">{{PY: s(T.ICON['addAccountProvider'], 14)}}Add Microsoft Account…</div>
       </div>
     </div>
     <p class="ann" style="margin-top:10px">Adding an account (§5.44): rail + opens a provider menu (no alert); while the browser is open the rail shows a dashed pending tile with a spinner at the end of the account stack, scrolled into view (the hairline marks the clipped top edge), and the sync line offers Cancel, which joins the Tab order (shown focused). Failures arrive as an alert sheet with “Try Again”.</p>

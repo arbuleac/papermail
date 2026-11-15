@@ -20,15 +20,15 @@ Everything here except this README and `source/` is built by `swift scripts/tool
 | `lockup-stacked-*` | The same four with the mark above the word, for square spaces |
 | `wordmark`, `wordmark-white` | The word alone, where the mark or the app icon is already beside it |
 | `symbol-colour`, `symbol-reversed` | The mark alone, on light grounds and on dark ones |
-| `symbol-mono` | The mark in the surrounding text colour (`currentColor`; its PNG is ink), from 24 px up |
-| `symbol-mono-small` | The same below 24 px (16 and 20 pt in a sidebar or a menu bar): its crease keeps a width at the sides and opens wider at the apex, so the flap and the front never run together |
+| `symbol-mono` | The mark in one colour, from 24 px up. The SVG fills with `currentColor`, which takes the surrounding text colour only when the SVG is inlined in a page; through `<img>`, as a CSS background or opened as a file it draws black. For ink in those places use its PNG, which is drawn in Ink |
+| `symbol-mono-small` | The same below 24 px, for 16 and 20 pt in a sidebar or a menu bar: the master's box and corners, its crease 2 wide across the arm where it meets the sides and 5 at the apex, symmetric about it, so the flap and the front never run together. An icon rather than a logo file: the SVG is the mark's square 40-unit grid with no clear space (the sidebar or menu bar gives the space), in `currentColor`; the PNGs are 16, 20 and 32 px squares in Ink, each with the envelope's top and bottom edges on whole pixels |
 
-Each comes as SVG (use it wherever you can) and PNG at twice the SVG's size: the horizontal lockup 1620 × 259 px, the stacked lockup 1402 × 720 px, the wordmark 1320 × 251 px, the mark 512 × 361 px.
+Each comes as SVG (use it wherever you can) and PNG at twice the SVG's size: the horizontal lockup 1620 × 259 px, the stacked lockup 1402 × 720 px, the wordmark 1320 × 251 px, the mark 1021 × 720 px (`symbol-mono-small` excepted, above). The two-colour SVGs name their gradients after themselves (`ssb-<file>-front`, `ssb-<file>-flap`), so any of them can be inlined in one page together, the colour lockup beside the reversed one, without one file's `url(#…)` reaching the other's ramps.
 
 ## Clear space and size
 
-- **Clear space** is a quarter of the envelope's height on every side, measured from the envelope's construction box (the sheared √2 box before its corners are rounded) and from the word's ink. It is built into every file, so place the file whole and let nothing into its frame.
-- **Minimum size**: the mark alone 16 px wide in one colour (`symbol-mono-small`), 24 px in full colour; the horizontal lockup with its envelope 16 px tall (the word's cap height is then about 15 px).
+- **Clear space** is a quarter of the envelope's height on every side, measured from the envelope's construction box (the sheared √2 box before its corners are rounded) and from the word's ink. It is built into every file but `symbol-mono-small`, so place the file whole and let nothing into its frame.
+- **Minimum size**: the mark alone 16 px in one colour (`symbol-mono-small`, its 16 px PNG), 24 px in full colour; the horizontal lockup with its envelope 16 px tall (the word's cap height is then about 15 px).
 - **Beside the word**, the envelope is 1.05 × the cap height and stands on the baseline. Its sheared right side runs parallel to the word's 12° stems, half the envelope's height before the word's origin line, so the shared angle shows. **Stacked**, it is 2.2 × the cap height, centred over the word, 0.6 × the cap height above it.
 
 ## Colour
@@ -59,10 +59,10 @@ The app icon's tile is white to `#E7EFFB` (`#1C2B4B` to `#0A1122` in dark). Ever
 
 The interface draws the mark in one colour (spec §4.11):
 
-- **Welcome screen**: 65 pt in `brandMark`, the brand's own blue: Signal on light pages and Signal Dark on dark ones (`#084BBA` and `#8CC8FF` under Increase Contrast), in every coloured theme. It is never the theme's ink, so the first screen after launch shows the blue the Dock icon just showed. Under the Graphite accent and in the Gallery theme, which both ask for no colour, it is drawn in `ink`.
+- **Welcome screen**: the mark at 65 pt in `brandMark`, the brand's own blue: Signal on light pages and Signal Dark on dark ones (`#084BBA` and `#8CC8FF` under Increase Contrast), in every coloured theme. It is never the theme's ink, so the first screen after launch shows the blue the Dock icon just showed. Under the Graphite accent and in the Gallery theme, which both ask for no colour, it is drawn in `ink`. Under it is the wordmark, drawn from these outlines (`layout.brand.wordmark` in the token file, read from `source/wordmark.svg`) in the theme's `ink` with a 24 pt cap height, about half the envelope's height below it, as on the brand board: the one place the app shows the name with the mark, so it is the real wordmark.
 - **Inbox zero**: 40 pt in `ink3`, a quiet neutral.
 - **Sizes** are multiples of 5 pt, so the envelope's top and bottom edges (8 and 32 on the mark's 40-unit grid) land on whole points and its long edges stay crisp.
-- **The name** is never set in a font beside the mark, which would read as the stacked lockup with the wordmark typeset. The welcome screen greets with a sentence, “Welcome to SuperSparrow”, as plain interface text.
+- **The name** is never set in a font beside the mark: wherever the two appear together the name is the drawn wordmark. “Welcome to SuperSparrow” is not printed on the welcome screen; it is what VoiceOver says the screen is, and the wordmark reads as “SuperSparrow”.
 
 Only the app icon and these files use two colours.
 

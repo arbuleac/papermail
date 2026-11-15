@@ -12,7 +12,10 @@
 // line and `lockupGap` before it; stacked, it is `stackedMark` tall, centred over the word's ink, `stackedGap` above the
 // cap height's overshoot. Every file carries its clear space, a quarter of its envelope's height on every side, around
 // the envelope's construction box (the √2 box before its corners are rounded) and the word's ink. SVGs are sized at
-// 0.5 px per unit (the mark alone 10 px per glyph unit); PNGs at twice that.
+// 0.5 px per unit (the mark alone 10 px per glyph unit); PNGs at twice that. The one exception is the small one-colour
+// mark (`layout.brand.monoSmall`), an icon for a sidebar or a menu bar: it sits on the glyph's square grid, as an icon
+// is drawn, and its PNGs are the sizes it is for, 16, 20 and 32 px, each scaled so the envelope's top and bottom edges
+// land on whole pixels.
 import AppKit
 import Foundation
 import ImageIO
@@ -248,21 +251,48 @@ struct PathScanner {
 
 // MARK: - Artwork
 
-/// One filled shape: path data in its own units, placed by a scale and an offset, and its paint.
+/// One filled shape: path data in its own units, placed by a scale and an offset, its paint, and its part ("front",
+/// "flap" or "word"), which names its gradient.
 struct Shape {
     let data: String
     let scale: CGFloat
     let x: CGFloat, y: CGFloat
     let paint: Paint
+    let part: String
 }
 
-/// A brand file: its frame in units, the shapes on it, and how many pixels a unit is in the SVG and in the PNG.
+/// One PNG of a brand file: its name and pixel size, and where the file's frame lands in it (`scale` pixels per unit,
+/// the frame's origin at (x, y) pixels).
+struct Raster {
+    let name: String
+    let width: Int, height: Int
+    let scale: CGFloat
+    let x: CGFloat, y: CGFloat
+}
+
+/// A brand file: its frame in units, the shapes on it, how many pixels a unit is in the SVG, and its PNGs.
 struct Artwork {
     let name: String
     let width: CGFloat, height: CGFloat
     let shapes: [Shape]
     let svgScale: CGFloat
-    let pngScale: CGFloat
+    let rasters: [Raster]
+
+    /// One PNG named after the file, `pngScale` pixels per unit.
+    init(name: String, width: CGFloat, height: CGFloat, shapes: [Shape], svgScale: CGFloat, pngScale: CGFloat) {
+        self.init(name: name, width: width, height: height, shapes: shapes, svgScale: svgScale,
+                  rasters: [Raster(name: name, width: Int((width * pngScale).rounded()), height: Int((height * pngScale).rounded()),
+                                   scale: pngScale, x: 0, y: 0)])
+    }
+
+    init(name: String, width: CGFloat, height: CGFloat, shapes: [Shape], svgScale: CGFloat, rasters: [Raster]) {
+        self.name = name
+        self.width = width
+        self.height = height
+        self.shapes = shapes
+        self.svgScale = svgScale
+        self.rasters = rasters
+    }
 }
 
 /// A number written the same way on every run, so the files only change when their sources do.
@@ -276,19 +306,23 @@ func fixed(_ value: CGFloat, _ places: Int = 2) -> String {
 func svg(_ art: Artwork) -> String {
     var defs = ""
     var body = ""
-    for (index, shape) in art.shapes.enumerated() {
-        let transform = shape.scale == 1 ? "translate(\(fixed(shape.x)) \(fixed(shape.y)))"
-            : "matrix(\(fixed(shape.scale, 4)) 0 0 \(fixed(shape.scale, 4)) \(fixed(shape.x)) \(fixed(shape.y)))"
+    for shape in art.shapes {
+        let transform = shape.scale == 1 && shape.x == 0 && shape.y == 0 ? ""
+            : shape.scale == 1 ? " transform=\"translate(\(fixed(shape.x)) \(fixed(shape.y)))\""
+            : " transform=\"matrix(\(fixed(shape.scale, 4)) 0 0 \(fixed(shape.scale, 4)) \(fixed(shape.x)) \(fixed(shape.y)))\""
         let fill: String
         switch shape.paint {
         case .solid(let colour): fill = colour
         case .current: fill = "currentColor"
         case .ramp(let top, let bottom):
-            defs += "<linearGradient id=\"g\(index)\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"\(top)\"/>"
+            // Ids unique to the file: two files inlined in one page share one id space, where `url(#…)` takes the first
+            // definition, so a shared id would paint the reversed file with the colour file's ramps.
+            let id = "ssb-\(art.name)-\(shape.part)"
+            defs += "<linearGradient id=\"\(id)\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"\(top)\"/>"
                 + "<stop offset=\"1\" stop-color=\"\(bottom)\"/></linearGradient>"
-            fill = "url(#g\(index))"
+            fill = "url(#\(id))"
         }
-        body += "<path transform=\"\(transform)\" fill=\"\(fill)\" d=\"\(shape.data)\"/>"
+        body += "<path\(transform) fill=\"\(fill)\" d=\"\(shape.data)\"/>"
     }
     return "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"\(fixed(art.width * art.svgScale))\" height=\"\(fixed(art.height * art.svgScale))\" "
         + "viewBox=\"0 0 \(fixed(art.width)) \(fixed(art.height))\" role=\"img\" aria-label=\"SuperSparrow\">"
@@ -301,14 +335,13 @@ func cgColor(_ hex: String) -> CGColor {
                    blue: CGFloat(value & 0xFF) / 255, alpha: 1)
 }
 
-func png(_ art: Artwork) -> CGImage {
-    let width = Int((art.width * art.pngScale).rounded()), height = Int((art.height * art.pngScale).rounded())
-    guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+func png(_ art: Artwork, _ raster: Raster) -> CGImage {
+    guard let context = CGContext(data: nil, width: raster.width, height: raster.height, bitsPerComponent: 8, bytesPerRow: 0,
                                   space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { fail("cannot make \(art.name).png") }
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { fail("cannot make \(raster.name).png") }
     // y down, in units.
-    context.translateBy(x: 0, y: CGFloat(height))
-    context.scaleBy(x: art.pngScale, y: -art.pngScale)
+    context.translateBy(x: raster.x, y: CGFloat(raster.height) - raster.y)
+    context.scaleBy(x: raster.scale, y: -raster.scale)
     for shape in art.shapes {
         var transform = CGAffineTransform(a: shape.scale, b: 0, c: 0, d: shape.scale, tx: shape.x, ty: shape.y)
         guard let placed = parsePath(shape.data).copy(using: &transform) else { fail("cannot place a shape in \(art.name)") }
@@ -334,7 +367,7 @@ func png(_ art: Artwork) -> CGImage {
             context.restoreGState()
         }
     }
-    guard let image = context.makeImage() else { fail("cannot finish \(art.name).png") }
+    guard let image = context.makeImage() else { fail("cannot finish \(raster.name).png") }
     return image
 }
 
@@ -362,7 +395,8 @@ let variants: [(String, Colours)] = [
 func mark(height: CGFloat, x: CGFloat, y: CGFloat, _ c: Colours, paths: [String] = partData) -> [Shape] {
     let scale = height / markBounds.height
     let ox = x - markBounds.minX * scale, oy = y - markBounds.minY * scale
-    return [Shape(data: paths[0], scale: scale, x: ox, y: oy, paint: c.front), Shape(data: paths[1], scale: scale, x: ox, y: oy, paint: c.flap)]
+    return [Shape(data: paths[0], scale: scale, x: ox, y: oy, paint: c.front, part: "front"),
+            Shape(data: paths[1], scale: scale, x: ox, y: oy, paint: c.flap, part: "flap")]
 }
 
 /// The word's ink, which the italic carries past the advance on the right.
@@ -374,22 +408,38 @@ var artworks: [Artwork] = []
 do {
     let clear = markBounds.height / 4
     let width = markBounds.width + 2 * clear, height = markBounds.height + 2 * clear
-    let marks: [(String, Colours, [String])] = [
-        ("symbol-colour", variants[0].1, partData), ("symbol-reversed", variants[1].1, partData),
-        ("symbol-mono", Colours(front: .current, flap: .current, word: .current), partData),
-        ("symbol-mono-small", Colours(front: .current, flap: .current, word: .current), smallData),
+    let marks: [(String, Colours)] = [
+        ("symbol-colour", variants[0].1), ("symbol-reversed", variants[1].1),
+        ("symbol-mono", Colours(front: .current, flap: .current, word: .current)),
     ]
-    for (name, c, paths) in marks {
-        artworks.append(Artwork(name: name, width: width, height: height, shapes: mark(height: markBounds.height, x: clear, y: clear, c, paths: paths),
-                                svgScale: 10, pngScale: 512 / width))
+    for (name, c) in marks {
+        artworks.append(Artwork(name: name, width: width, height: height, shapes: mark(height: markBounds.height, x: clear, y: clear, c),
+                                svgScale: 10, pngScale: 20))
     }
+}
+
+// The small one-colour mark: an icon on the glyph's square grid (the space around it is the sidebar's or the menu
+// bar's), 0.5 px per unit in the SVG, 20 px. Each PNG takes the scale nearest to its size that makes the envelope a whole
+// number of pixels tall, with its top edge on a whole pixel and the box centred across, so its long edges stay crisp.
+do {
+    let shapes = [Shape(data: smallData[0], scale: 1, x: 0, y: 0, paint: .current, part: "front"),
+                  Shape(data: smallData[1], scale: 1, x: 0, y: 0, paint: .current, part: "flap")]
+    let rasters = [16, 20, 32].map { size -> Raster in
+        let side = CGFloat(size)
+        let tall = (markBounds.height * side / grid).rounded()
+        let scale = tall / markBounds.height
+        let top = ((side - tall) / 2).rounded(.down)
+        return Raster(name: "symbol-mono-small-\(size)", width: size, height: size, scale: scale,
+                      x: side / 2 - markBounds.midX * scale, y: top - markBounds.minY * scale)
+    }
+    artworks.append(Artwork(name: "symbol-mono-small", width: grid, height: grid, shapes: shapes, svgScale: 0.5, rasters: rasters))
 }
 
 // The wordmark alone: its ink with the same clear space a lockup gives it.
 for (name, colour) in [("wordmark", ink), ("wordmark-white", white)] {
     let clear = capHeight / 4
     artworks.append(Artwork(name: name, width: wordInk.width + 2 * clear, height: wordBottom - wordTop + 2 * clear,
-                            shapes: [Shape(data: wordmarkPath, scale: 1, x: clear - wordInk.minX, y: clear - wordTop, paint: .solid(colour))],
+                            shapes: [Shape(data: wordmarkPath, scale: 1, x: clear - wordInk.minX, y: clear - wordTop, paint: .solid(colour), part: "word")],
                             svgScale: 0.5, pngScale: 1))
 }
 
@@ -405,7 +455,7 @@ do {
     let ox = clear - left, baseline = clear - top
     for (variant, c) in variants {
         let shapes = mark(height: markHeight, x: ox + markLeft, y: baseline - markHeight, c)
-            + [Shape(data: wordmarkPath, scale: 1, x: ox, y: baseline, paint: c.word)]
+            + [Shape(data: wordmarkPath, scale: 1, x: ox, y: baseline, paint: c.word, part: "word")]
         artworks.append(Artwork(name: "lockup-horizontal-\(variant)", width: right - left + 2 * clear, height: bottom - top + 2 * clear,
                                 shapes: shapes, svgScale: 0.5, pngScale: 1))
     }
@@ -420,7 +470,8 @@ do {
     let baseline = clear + markHeight + gap - wordTop
     for (variant, c) in variants {
         let shapes = mark(height: markHeight, x: clear + (width - markWidth) / 2, y: clear, c)
-            + [Shape(data: wordmarkPath, scale: 1, x: clear + (width - wordInk.width) / 2 - wordInk.minX, y: baseline, paint: c.word)]
+            + [Shape(data: wordmarkPath, scale: 1, x: clear + (width - wordInk.width) / 2 - wordInk.minX, y: baseline, paint: c.word,
+                     part: "word")]
         artworks.append(Artwork(name: "lockup-stacked-\(variant)", width: width + 2 * clear, height: baseline + wordBottom + clear,
                                 shapes: shapes, svgScale: 0.5, pngScale: 1))
     }
@@ -443,11 +494,14 @@ do { try fm.createDirectory(at: output, withIntermediateDirectories: true) } cat
 var made: [String] = []
 for art in artworks {
     do { try Data(svg(art).utf8).write(to: output.appendingPathComponent("\(art.name).svg")) } catch { fail("cannot write \(art.name).svg: \(error)") }
-    writePNG(png(art), to: output.appendingPathComponent("\(art.name).png"))
-    made += ["\(art.name).svg", "\(art.name).png"]
+    made.append("\(art.name).svg")
+    for raster in art.rasters {
+        writePNG(png(art, raster), to: output.appendingPathComponent("\(raster.name).png"))
+        made.append("\(raster.name).png")
+    }
 }
 if !check {
-    print("brand-assets: wrote \(artworks.count) SVG and \(artworks.count) PNG files to docs/brand")
+    print("brand-assets: wrote \(artworks.count) SVG and \(made.count - artworks.count) PNG files to docs/brand")
     exit(0)
 }
 

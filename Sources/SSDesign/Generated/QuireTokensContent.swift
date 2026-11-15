@@ -82,7 +82,7 @@ extension Quire {
         public static let link = "link"
         public static let undone = "arrow.uturn.backward"
         public static let demo = "info.circle"
-        public static let addAccountProvider = "envelope"
+        public static let addAccountProvider = "person.crop.circle.badge.plus"
         public static let attention = "exclamationmark"
         public static let waitingToSync = "clock"
         public static let discardDraft = "trash"

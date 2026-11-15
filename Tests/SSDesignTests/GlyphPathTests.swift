@@ -44,18 +44,58 @@ final class GlyphPathTests: XCTestCase {
     /// The brand mark (spec §4.11, §5.42): a √2 box 24 tall on the 40 grid, its top at y 8 and its bottom at y 32 (a fifth
     /// and four fifths, so a multiple of 5 pt puts both on whole points), sheared 12° about its centre. Two paths, the front
     /// then the flap, because the app icon colours them apart; between them the crease is open from side to side and
-    /// symmetric about its apex.
+    /// symmetric about its apex, and it tapers to nothing where it meets the sides.
     func testItalicEnvelopeKeepsItsSlantAndAnOpenSymmetricCrease() throws {
         let glyph = Quire.CustomGlyph.ssItalicEnvelope
         XCTAssertEqual(glyph.grid, 40)
         XCTAssertEqual(glyph.paths.count, 2)
-        let front = try QuireSVGPath.parse(glyph.paths[0]), flap = try QuireSVGPath.parse(glyph.paths[1])
-        XCTAssertEqual(flap.boundingBoxOfPath.minY, 8, accuracy: 1e-3, "the flap carries the top edge")
-        XCTAssertEqual(front.boundingBoxOfPath.maxY, 32, accuracy: 1e-3, "the front carries the bottom edge")
+        let crease = try assertEnvelope(glyph.paths, apexAtLeast: 3.6)
+        for opening in [crease.left, crease.right] {
+            XCTAssertLessThan(opening?.height ?? 0, 0.15, "the master's crease closes where it meets the sides")
+        }
+    }
+
+    /// The one-colour mark below 24 px (`layout.brand.monoSmall`, docs/brand's symbol-mono-small): the master's box,
+    /// corners and slant, its crease kept open where it meets the sides (2 across the arm, at the master's crease start on
+    /// both sides) and widening to 5 at the apex, symmetric about it, so the flap and the front never run together at
+    /// 16 or 20 pt.
+    func testSmallMonoMarkIsTheMasterWithAWiderCrease() throws {
+        let paths = Quire.Layout.Brand.monoSmall
+        XCTAssertEqual(paths.count, 2)
+        let crease = try assertEnvelope(paths, apexAtLeast: 5)
+        let left = try XCTUnwrap(crease.left, "open at the left side"), right = try XCTUnwrap(crease.right, "open at the right side")
+        for (side, opening) in [("left", left), ("right", right)] {
+            // Vertically the cut is a little taller on the right, where the side meets the crease more obliquely.
+            XCTAssertEqual(opening.height, 2.15, accuracy: 0.35, "about 2 open at the \(side) side")
+            XCTAssertEqual(opening.centre, 12.2, accuracy: 0.15, "the \(side) opening sits on the master's crease start")
+        }
+        XCTAssertEqual(left.centre, right.centre, accuracy: 0.1, "both sides open at the same height")
+    }
+
+    /// The opening where the crease meets one side, measured down a line 0.2 inside that side of the √2 box.
+    private struct SideOpening {
+        let top: CGFloat, bottom: CGFloat
+        var height: CGFloat { bottom - top }
+        var centre: CGFloat { (top + bottom) / 2 }
+    }
+
+    /// Holds a two-path envelope on the 40 grid to the mark's construction, as GlyphPathTests' master checks do: its
+    /// edges, its 12° slant, its √2 width and centre, a crease open across every column between the sides, the parts never
+    /// overlapping, the flap always above the front, the V symmetric about its apex and widest there. Returns the
+    /// openings at the two sides for the caller's own rule.
+    @discardableResult
+    private func assertEnvelope(_ data: [String], apexAtLeast: CGFloat, file: StaticString = #filePath,
+                                line: UInt = #line) throws -> (left: SideOpening?, right: SideOpening?) {
+        let front = try QuireSVGPath.parse(data[0]), flap = try QuireSVGPath.parse(data[1])
+        XCTAssertEqual(flap.boundingBoxOfPath.minY, 8, accuracy: 1e-3, "the flap carries the top edge", file: file, line: line)
+        XCTAssertEqual(front.boundingBoxOfPath.maxY, 32, accuracy: 1e-3, "the front carries the bottom edge", file: file, line: line)
 
         // The sides, found where a row of the whole mark starts and ends, below the crease (whose lowest point, the front's
-        // notch, is above y 25) and above the bottom corners' rounding.
-        let mark = QuireGlyph.path(glyph)
+        // notch, is near the middle, so a search from each side toward x 20 stays in the front) and above the bottom
+        // corners' rounding.
+        let mark = CGMutablePath()
+        mark.addPath(front)
+        mark.addPath(flap)
         func side(y: CGFloat, fromLeft: Bool) -> CGFloat {
             var outside: CGFloat = fromLeft ? 0 : 40, inside: CGFloat = 20
             for _ in 0..<40 {
@@ -65,12 +105,16 @@ final class GlyphPathTests: XCTestCase {
             return inside
         }
         let slant = tan(12 * CGFloat.pi / 180)
-        XCTAssertEqual((side(y: 25, fromLeft: true) - side(y: 28, fromLeft: true)) / 3, slant, accuracy: 1e-3, "the left side leans 12°")
-        XCTAssertEqual((side(y: 25, fromLeft: false) - side(y: 28, fromLeft: false)) / 3, slant, accuracy: 1e-3, "the right side leans 12°")
+        XCTAssertEqual((side(y: 25, fromLeft: true) - side(y: 28, fromLeft: true)) / 3, slant, accuracy: 1e-3, "the left side leans 12°",
+                       file: file, line: line)
+        XCTAssertEqual((side(y: 25, fromLeft: false) - side(y: 28, fromLeft: false)) / 3, slant, accuracy: 1e-3, "the right side leans 12°",
+                       file: file, line: line)
         // The centre line of the sheared box passes through (20, 20): at y 28 it is 8 · tan 12° left of x 20.
-        XCTAssertEqual((side(y: 28, fromLeft: true) + side(y: 28, fromLeft: false)) / 2, 20 - 8 * slant, accuracy: 1e-3, "centred on x 20")
+        XCTAssertEqual((side(y: 28, fromLeft: true) + side(y: 28, fromLeft: false)) / 2, 20 - 8 * slant, accuracy: 1e-3, "centred on x 20",
+                       file: file, line: line)
         for y: CGFloat in [25, 28] {
-            XCTAssertEqual(side(y: y, fromLeft: false) - side(y: y, fromLeft: true), 24 * 2.0.squareRoot(), accuracy: 1e-3, "√2 × 24 wide at y \(y)")
+            XCTAssertEqual(side(y: y, fromLeft: false) - side(y: y, fromLeft: true), 24 * 2.0.squareRoot(), accuracy: 1e-3,
+                           "√2 × 24 wide at y \(y)", file: file, line: line)
         }
 
         // Column by column, from just inside one side to just inside the other: the flap, then the open crease, then the
@@ -80,8 +124,8 @@ final class GlyphPathTests: XCTestCase {
             for step in 0...2400 {
                 let point = CGPoint(x: x, y: 8 + CGFloat(step) / 100)
                 let inFlap = flap.contains(point), inFront = front.contains(point)
-                XCTAssertFalse(inFlap && inFront, "the parts overlap at \(point)")
-                if inFlap { XCTAssertFalse(seenFront, "flap below the front at \(point)"); seenFlap = true }
+                XCTAssertFalse(inFlap && inFront, "the parts overlap at \(point)", file: file, line: line)
+                if inFlap { XCTAssertFalse(seenFront, "flap below the front at \(point)", file: file, line: line); seenFlap = true }
                 if inFront { seenFront = true }
                 if seenFlap, !seenFront, !inFlap, !inFront { gap += 0.01 }
             }
@@ -89,12 +133,33 @@ final class GlyphPathTests: XCTestCase {
         }
         let apexX: CGFloat = 21.658
         for x in stride(from: CGFloat(6), through: 37, by: 1) {
-            XCTAssertGreaterThan(crease(atX: x), 0.05, "the crease is shut at x \(x)")
+            XCTAssertGreaterThan(crease(atX: x), 0.05, "the crease is shut at x \(x)", file: file, line: line)
         }
-        XCTAssertGreaterThan(crease(atX: apexX), 3.6, "the crease is widest at its apex")
+        XCTAssertGreaterThan(crease(atX: apexX), apexAtLeast, "the crease is widest at its apex", file: file, line: line)
+        var inner = crease(atX: apexX)
         for d: CGFloat in [3, 8, 13] {
-            XCTAssertEqual(crease(atX: apexX - d), crease(atX: apexX + d), accuracy: 0.03, "the V is symmetric \(d) from its apex")
+            let left = crease(atX: apexX - d), right = crease(atX: apexX + d)
+            XCTAssertEqual(left, right, accuracy: 0.03, "the V is symmetric \(d) from its apex", file: file, line: line)
+            XCTAssertLessThan(left, inner, "the crease narrows away from its apex (\(d) out)", file: file, line: line)
+            inner = left
         }
+
+        // Down each side of the √2 box, 0.2 inside it: past the top corner's rounding into the flap, then the crease's
+        // opening, if any, until the front.
+        func opening(right: Bool) -> SideOpening? {
+            var seenInside = false
+            var top: CGFloat?
+            for step in 0...1200 {
+                let y = 8 + CGFloat(step) / 100
+                let edge = (right ? 20 + 12 * 2.0.squareRoot() : 20 - 12 * 2.0.squareRoot()) - slant * (y - 20)
+                let point = CGPoint(x: edge + (right ? -0.2 : 0.2), y: y)
+                let inside = flap.contains(point) || front.contains(point)
+                if inside, let top { return SideOpening(top: top, bottom: y) }
+                if inside { seenInside = true } else if seenInside, top == nil { top = y }
+            }
+            return nil
+        }
+        return (opening(right: false), opening(right: true))
     }
 
     func testImagesAreTemplatesAtTheRequestedSize() {
