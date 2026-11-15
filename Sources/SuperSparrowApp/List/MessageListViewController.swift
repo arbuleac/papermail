@@ -1324,10 +1324,16 @@ final class MessageListViewController: NSViewController {
         } else {
             reconfigureVisibleRows()
         }
+        // AppKit keeps a swipe button's fill as a resolved colour on a view nested inside the button, and resolves it
+        // again only when that view is marked or the appearance changes, so a button that is out is marked all the way
+        // down or it keeps the old Graphite or contrast fill (spec §5.7).
+        let swipeButtonOut = tableView.rowActionsVisible
         tableView.enumerateAvailableRowViews { rowView, _ in
             rowView.needsDisplay = true
             // The footer's Retry link draws its own label.
-            for subview in rowView.subviews { subview.needsDisplay = true }
+            for subview in rowView.subviews {
+                if swipeButtonOut { Self.markNeedsDisplay(subview) } else { subview.needsDisplay = true }
+            }
         }
         // Increase Contrast and Graphite are not appearance changes, so AppKit does not redraw these on its own:
         // the paper below a short list, the skeleton bars and the focus ring would keep the old values.
@@ -1336,6 +1342,11 @@ final class MessageListViewController: NSViewController {
         scrollView.contentView.needsDisplay = true
         skeletonView.needsDisplay = true
         focusOverlay.needsDisplay = true
+    }
+
+    private static func markNeedsDisplay(_ view: NSView) {
+        view.needsDisplay = true
+        for subview in view.subviews { markNeedsDisplay(subview) }
     }
 
     /// The selection's wash and rule follow the window's key state, not the first responder (spec §3.4).
@@ -1440,19 +1451,17 @@ extension MessageListViewController: NSTableViewDelegate {
         return cell
     }
 
-    /// One button per edge, so a swipe carried across the row has one thing to do (spec §5.7, Swipe). Regular, not
-    /// destructive: AppKit gives a destructive button its own animation as the row goes, and the list never animates a
-    /// row leaving. The button keys to the conversation, not the row number, which a refresh can move meanwhile.
+    /// One button per edge, so a swipe carried across the row has one thing to do (spec §5.7, Swipe), in the colours of
+    /// its change (`QuireSwipeAction`). The button keys to the conversation, not the row number, which a refresh can move
+    /// meanwhile.
     func tableView(_ tableView: NSTableView, rowActionsForRow row: Int, edge: NSTableView.RowActionEdge) -> [NSTableViewRowAction] {
         guard let index = layout.conversationIndex(atRow: row), conversations.indices.contains(index) else { return [] }
         let id = conversations[index].id
-        guard let change = swipeChange(for: id, edge: edge == .trailing ? .trailing : .leading) else { return [] }
-        let action = NSTableViewRowAction(style: .regular, title: RowSwipe.title(for: change)) { [weak self] _, _ in
+        guard let change = swipeChange(for: id, edge: edge == .trailing ? .trailing : .leading),
+              let style = QuireSwipeAction(change) else { return [] }
+        return [style.rowAction(title: RowSwipe.title(for: change)) { [weak self] _, _ in
             MainActor.assumeIsolated { self?.performRowAction(change, on: id) }
-        }
-        // A native control, so the app's accent asset (§3.1): AppKit draws the title white, as on a default button.
-        action.backgroundColor = .controlAccentColor
-        return [action]
+        }]
     }
 
     /// Heads, the footer and the server row are never selectable (spec §5.8, §5.10).

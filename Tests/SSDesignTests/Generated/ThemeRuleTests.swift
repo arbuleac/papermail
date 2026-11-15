@@ -28,7 +28,7 @@ final class ThemeRuleTests: XCTestCase {
         avatarFaceVsSurfaceMinDE00: 5,
         linkUnderlineMinDE00: 15,
         linkUnderlineMinAnyVision: 10,
-        neutralTokens: ["spine", "paper", "canvas", "sheet", "raised", "slip", "knob", "ink", "ink2", "ink3", "inkDisabled", "onSlip", "onSlip2", "rule", "ruleStrong", "onSlipEdge", "hover", "pressed", "fill", "slipHover", "slipPressed", "scrim", "selWashIdle"],
+        neutralTokens: ["spine", "paper", "canvas", "sheet", "raised", "slip", "knob", "ink", "ink2", "ink3", "inkDisabled", "onSlip", "onSlip2", "rule", "ruleStrong", "onSlipEdge", "hover", "pressed", "fill", "slipHover", "slipPressed", "scrim", "selWashIdle", "swipeRead", "swipeArchiveNeutral"],
         ratioLock: [("rule", "sheet"), ("selWashIdle", "paper"), ("accentWash", "sheet"), ("accentWashHover", "sheet"), ("accentWashPressed", "sheet")],
         bannerWashes: ["successWash", "warningWash", "dangerWash", "infoWash"],
         avatarSurfaces: ["paper", "sheet", "canvas", "selWash", "selWashIdle"],
