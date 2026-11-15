@@ -30,8 +30,10 @@ final class ComposeDocumentView: NSView, QuirePointerTarget {
     override func layout() {
         super.layout()
         layoutBanner()
-        // The editor grows and the quote moves in layout, and their areas shape this view's.
+        // The editor grows and the quote moves in layout, and their areas shape this view's; the banner's shapes the
+        // editor's.
         pointerRegionsDidChange()
+        if let editor { window?.invalidateCursorRects(for: editor) }
     }
 
     private func layoutBanner() {

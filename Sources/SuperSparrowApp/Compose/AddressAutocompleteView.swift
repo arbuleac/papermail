@@ -9,7 +9,7 @@ import SSDesign
 /// The highlighted row is a selection, drawn like the list's: `selWash` with the 3 pt `selRule` margin rule on
 /// its leading edge, inks unchanged, and a trailing “↩” keycap. It opens, closes and moves instantly.
 @MainActor
-final class AddressAutocompleteView: NSView, QuirePointerTarget {
+final class AddressAutocompleteView: NSView, QuirePointerCover {
     var onAccept: ((EmailAddress) -> Void)?
 
     private(set) var suggestions: [EmailAddress] = []
@@ -84,8 +84,9 @@ final class AddressAutocompleteView: NSView, QuirePointerTarget {
 
     // MARK: Pointer
 
-    /// The pointing hand over each suggestion, which a click accepts, and the arrow over the padding around them (§4.17):
-    /// the popover lies on the body and the other recipient rows, whose I-beam would otherwise show through it.
+    /// The pointing hand over each suggestion, which a click accepts, and the arrow over the padding around them (§4.17).
+    /// The popover lies on the body, the other recipient rows, the subject and their buttons, whose pointers would
+    /// otherwise show through it: as a `QuirePointerCover` they leave its frame to it.
     var pointerRegions: [QuirePointerRegion] {
         let rowRects = suggestions.indices.map { convert(rowRect($0), from: rows) }
         return rowRects.map { QuirePointerRegion.control($0, acts: true) }
@@ -94,6 +95,34 @@ final class AddressAutocompleteView: NSView, QuirePointerTarget {
 
     override func resetCursorRects() {
         addPointerRects()
+    }
+
+    // As a cover, the views under it leave its frame to it: they are asked again when it comes, goes, moves or hides.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        pointerCoverDidChange()
+    }
+
+    override func setFrameOrigin(_ newOrigin: NSPoint) {
+        let old = frame.origin
+        super.setFrameOrigin(newOrigin)
+        if frame.origin != old { pointerCoverDidChange() }
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let old = frame.size
+        super.setFrameSize(newSize)
+        if frame.size != old { pointerCoverDidChange() }
+    }
+
+    override func viewDidHide() {
+        super.viewDidHide()
+        pointerCoverDidChange()
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        pointerCoverDidChange()
     }
 
     // MARK: Rows

@@ -280,6 +280,9 @@ final class UndoSendPanel: NSPanel {
         isFinished = true
         pollTimer?.invalidate()
         pollTimer = nil
+        // An ordered-out panel sends its action no exit event, so a pointer resting on Undo or Open draft would keep the
+        // hand the action set over whatever lies under it; hidden, the action takes it back first (§4.17).
+        slip.isHidden = true
         orderOut(nil)
         ComposeWindowRegistry.shared.unregister(self)
         Self.restack()

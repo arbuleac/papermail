@@ -1582,7 +1582,14 @@ private final class ComposeSubjectField: NSTextField {
         let accepted = super.becomeFirstResponder()
         if accepted, let editor = currentEditor() as? NSTextView {
             editor.insertionPointColor = .qAccent
+            leaveTheFieldEditorsPointerToTheField()
         }
         return accepted
+    }
+
+    /// The I-beam over the field (§4.17), cut out of what lies on it (the autocomplete, the link popover), which AppKit's
+    /// own could not be. None while a send locks it, which leaves it neither editable nor selectable.
+    override func resetCursorRects() {
+        if isEnabled, isSelectable { addTextPointerRects() }
     }
 }

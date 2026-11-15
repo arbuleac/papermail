@@ -269,6 +269,24 @@ final class ComposeTextView: NSTextView {
         }
     }
 
+    // MARK: Pointer
+
+    /// The I-beam over the editor's own frame (§4.17). AppKit's lies over the visible rect, which, as views no longer
+    /// clip to their bounds, is the whole page the editor sits on: it would lie over the quote's chip and attribution
+    /// and the failed-send banner, and AppKit shows overlapping pointers in no order. What is laid on the editor (that
+    /// banner, a popover, the cheat sheet) keeps its own, and links keep the I-beam, since a click there places the
+    /// caret.
+    override func resetCursorRects() {
+        addTextPointerRects(cutting: overlyingSiblingAreas())
+    }
+
+    /// The frames of the views laid on the editor after it in its superview (the failed-send banner in its top inset),
+    /// in its coordinates.
+    private func overlyingSiblingAreas() -> [NSRect] {
+        guard let superview, let index = superview.subviews.firstIndex(where: { $0 === self }) else { return [] }
+        return superview.subviews[(index + 1)...].filter { !$0.isHidden }.map { convert($0.bounds, from: $0) }
+    }
+
     // MARK: Sizing
 
     private var lastIntrinsicWidth: CGFloat = 0

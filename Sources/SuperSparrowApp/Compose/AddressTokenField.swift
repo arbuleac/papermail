@@ -48,6 +48,7 @@ final class AddressTokenField: NSView, NSTextFieldDelegate {
             input.isEditable = !isLocked
             document.needsDisplay = true
             document.pointerRegionsDidChange()
+            window?.invalidateCursorRects(for: input)
         }
     }
 
@@ -729,7 +730,8 @@ final class TokenDocumentView: NSView, QuirePointerTarget {
     /// The pointing hand over each token, which a click selects, double-click edits and a drag moves, and over
     /// “+N more” as far as its click reaches; the I-beam over the rest of the field, where a click puts the caret in
     /// the text (§4.17). The text field keeps its own. While a send locks the field a click there changes nothing, so
-    /// the tokens and the field show the arrow, as they show the disabled ink.
+    /// the tokens and the field show the arrow, as they show the disabled ink, the text field's area included, which
+    /// then adds none.
     var pointerRegions: [QuirePointerRegion] {
         guard let field else { return [] }
         let tokens = field.tokenRects().map(\.rect)
@@ -741,7 +743,8 @@ final class TokenDocumentView: NSView, QuirePointerTarget {
             regions += QuirePointerRegion.regions(reach, cursor: .pointingHand, cutting: taken)
             taken.append(reach)
         }
-        return regions + QuirePointerRegion.regions(bounds, cursor: field.isLocked ? .arrow : .iBeam, cutting: taken)
+        guard field.isLocked else { return regions + QuirePointerRegion.regions(bounds, cursor: .iBeam, cutting: taken) }
+        return regions + QuirePointerRegion.regions(bounds, cursor: .arrow, cutting: regions.map(\.rect))
     }
 
     override func resetCursorRects() {
@@ -946,6 +949,12 @@ final class TokenInputField: NSTextField {
         fatalError("TokenInputField is built in code")
     }
 
+    /// The I-beam over the field (§4.17), cut out of what lies on it (the autocomplete, the link popover), which AppKit's
+    /// own could not be. None while a send locks the recipients: the row's arrow covers the field then.
+    override func resetCursorRects() {
+        if isEnabled, isEditable { addTextPointerRects() }
+    }
+
     /// Where the typed text starts, in this field's coordinates (the cell's text inset).
     var textStartX: CGFloat {
         let rect = cell?.drawingRect(forBounds: bounds) ?? bounds
@@ -956,6 +965,7 @@ final class TokenInputField: NSTextField {
         let accepted = super.becomeFirstResponder()
         if accepted, let editor = currentEditor() as? NSTextView {
             editor.insertionPointColor = .qAccent
+            leaveTheFieldEditorsPointerToTheField()
         }
         return accepted
     }

@@ -1,6 +1,6 @@
 import AppKit
 import SSCore
-import SSDesign
+@testable import SSDesign
 import XCTest
 @testable import SuperSparrowApp
 
@@ -309,11 +309,24 @@ final class ComposerPointerTests: XCTestCase {
         let page = try XCTUnwrap(descendants(ComposeDocumentView.self, of: content).first)
         XCTAssertTrue(page.pointerRegions.allSatisfy { $0.cursor === NSCursor.iBeam })
 
+        let window = try XCTUnwrap(composer.window)
+        let input = try XCTUnwrap(to.field?.input)
+        let typing = NSRect(x: input.bounds.midX, y: input.bounds.midY, width: 0, height: 0)
+        XCTAssertEqual(CursorRectRecorder(window).cursors(atCentreOf: typing, in: input), [.iBeam], "the recipients' text field")
+        let subject = try XCTUnwrap(descendants(NSTextField.self, of: content).first { "\(type(of: $0))" == "ComposeSubjectField" })
+        let words = NSRect(x: subject.bounds.midX, y: subject.bounds.midY, width: 0, height: 0)
+        XCTAssertEqual(CursorRectRecorder(window).cursors(atCentreOf: words, in: subject), [.iBeam], "the subject")
+
         composer.send(nil)
         XCTAssertTrue(bar.sendButton.isLoading, "Send is on its way")
         XCTAssertEqual(bar.sendButton.pointerRegions.map(\.cursor), [.arrow], "a second click sends nothing")
         XCTAssertEqual(bar.sendOptionsButton.pointerRegions.map(\.cursor), [.arrow])
         XCTAssertTrue(to.pointerRegions.allSatisfy { $0.cursor === NSCursor.arrow }, "the tokens are locked")
+        XCTAssertEqual(CursorRectRecorder(window).cursors(atCentreOf: typing, in: input), [.arrow],
+                       "and so is their text field: the arrow alone, its I-beam gone")
+        XCTAssertFalse(subject.isEditable || subject.isSelectable, "the send locks the subject too")
+        XCTAssertEqual(CursorRectRecorder(window).cursors(atCentreOf: words, in: subject), [],
+                       "so it adds no I-beam: a click there leaves it as it is, and the arrow shows")
         XCTAssertTrue(ListTestSupport.spin(until: { (try? harness.environment.store.pendingSends().isEmpty) == false }, timeout: 5))
     }
 
@@ -349,7 +362,161 @@ final class ComposerPointerTests: XCTestCase {
         composer.closeWithoutSaving()
     }
 
+    /// Read from the cursor rects the window gets: the editor's I-beam is its own frame, not the page it lies on, so the
+    /// quote's chip and attribution, and the failed-send banner laid in the editor's top inset, each have one pointer
+    /// alone: the hand over the chip, the attribution and Try again, the arrow over the banner's words.
+    func testTheEditorsIBeamLeavesTheQuoteAndTheBannerTheirOwn() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let composer = try replyComposer(harness)
+        let window = try XCTUnwrap(composer.window)
+        let content = try XCTUnwrap(window.contentView)
+        let page = try XCTUnwrap(descendants(ComposeDocumentView.self, of: content).first)
+        page.setFailureBanner("Couldn't send. The server didn't answer.")
+        let banner = try XCTUnwrap(page.banner)
+        let retry = try XCTUnwrap(banner.setAction("Try again"))
+        content.layoutSubtreeIfNeeded()
+        let quote = try XCTUnwrap(descendants(QuotedOriginalView.self, of: content).first)
+        let attribution = try XCTUnwrap(quote.subviews.first { $0 is QuirePointerTarget && !($0 is QuireControl) })
+        let editor = try XCTUnwrap(descendants(ComposeTextView.self, of: content).first)
+
+        let recorder = CursorRectRecorder(window)
+        XCTAssertEqual(recorder.cursors(atCentreOf: quote.chip.hitRect, in: quote.chip), [.pointingHand], "the chip")
+        XCTAssertEqual(recorder.cursors(atCentreOf: attribution.bounds, in: attribution), [.pointingHand], "the attribution")
+        XCTAssertEqual(recorder.cursors(atCentreOf: retry.hitRect, in: retry), [.pointingHand], "Try again")
+        let words = NSRect(x: banner.bounds.minX + 40, y: banner.bounds.midY, width: 0, height: 0)
+        XCTAssertEqual(recorder.cursors(atCentreOf: words, in: banner), [.arrow], "the banner's words")
+        let text = NSRect(x: editor.bounds.midX, y: editor.bounds.maxY - 4, width: 0, height: 0)
+        XCTAssertEqual(recorder.cursors(atCentreOf: text, in: editor), [.iBeam], "the text")
+        for rect in recorder.rects(of: editor) {
+            let own = editor.convert(editor.bounds, to: nil).insetBy(dx: -0.5, dy: -0.5)
+            XCTAssertTrue(own.contains(rect.rect), "the editor adds \(rect.rect) outside its \(own)")
+        }
+        composer.closeWithoutSaving()
+    }
+
+    /// The autocomplete and the link popover lie on the recipient rows, the subject, their buttons and the body, whose
+    /// pointers AppKit would show in no order with theirs. As covers they have everything under them leave their frame
+    /// to them, the text fields and the editor included: read from the window's cursor rects, every point of each
+    /// popover has one pointer, its own. Gone, the views under it have their area back.
+    func testThePopoversCoverWhatTheyLieOn() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let composer = try replyComposer(harness)
+        let window = try XCTUnwrap(composer.window)
+        let content = try XCTUnwrap(window.contentView)
+        let subject = try XCTUnwrap(descendants(NSTextField.self, of: content).first { "\(type(of: $0))" == "ComposeSubjectField" })
+        let editor = try XCTUnwrap(descendants(ComposeTextView.self, of: content).first)
+        let rows = descendants(TokenDocumentView.self, of: content).filter { !$0.isHiddenOrHasHiddenAncestor }
+        XCTAssertFalse(rows.isEmpty)
+
+        // Where the To row's suggestions fall: from under its line, over the subject, into the body.
+        let suggestions = AddressAutocompleteView(frame: .zero)
+        content.addSubview(suggestions, positioned: .above, relativeTo: nil)
+        suggestions.show((1...4).map { EmailAddress(name: "Ben Carter \($0)", address: "ben\($0)@contoso.test") }, typed: "be")
+        let subjectTop = content.convert(subject.bounds, from: subject).minY
+        let top = max(0, subjectTop - 30)
+        suggestions.setFrameFromPopover(NSRect(origin: NSPoint(x: 60, y: top), size: suggestions.fittingSize))
+        let underSuggestions = [subject, editor] + rows
+        XCTAssertTrue(underSuggestions.contains { content.convert($0.bounds, from: $0).intersects(suggestions.frame) },
+                      "the suggestions lie on a field")
+        var recorder = CursorRectRecorder(window)
+        assertOnePointer(over: suggestions, in: recorder, hands: suggestions.pointerRegions.filter { $0.cursor === NSCursor.pointingHand }.map(\.rect))
+        suggestions.removeFromSuperview()
+        recorder = CursorRectRecorder(window)
+        let subjectCentre = NSRect(x: subject.bounds.midX, y: subject.bounds.midY, width: 0, height: 0)
+        XCTAssertEqual(recorder.cursors(atCentreOf: subjectCentre, in: subject), [.iBeam], "gone, the subject has its I-beam back")
+
+        // The link popover over the body's first lines, where ⌘K puts it.
+        let popover = ComposeLinkPopover(request: .init(range: NSRange(location: 0, length: 0), existingTarget: nil, needsText: true))
+        let editorTop = content.convert(editor.bounds, from: editor).minY
+        popover.present(in: content, frame: NSRect(origin: NSPoint(x: 90, y: editorTop + 8), size: popover.preferredSize))
+        content.layoutSubtreeIfNeeded()
+        XCTAssertTrue(content.convert(editor.bounds, from: editor).intersects(popover.frame), "the popover lies on the editor")
+        recorder = CursorRectRecorder(window)
+        let buttons = descendants(QuireButton.self, of: popover).filter { !$0.isHiddenOrHasHiddenAncestor }
+        let fields = descendants(QuireTextField.self, of: popover).filter { !$0.isHiddenOrHasHiddenAncestor }
+        for button in buttons {
+            XCTAssertEqual(recorder.cursors(atCentreOf: button.hitRect, in: button), [.pointingHand], button.title)
+        }
+        for field in fields {
+            let face = NSRect(x: field.hitRect.minX + 6, y: field.hitRect.midY, width: 0, height: 0)
+            XCTAssertEqual(Set(recorder.cursors(atCentreOf: face, in: field).map(ObjectIdentifier.init)), [ObjectIdentifier(NSCursor.iBeam)])
+        }
+        let surface = NSRect(x: 4, y: 4, width: 0, height: 0)
+        XCTAssertEqual(recorder.cursors(atCentreOf: surface, in: popover), [.arrow], "the popover's own surface")
+        assertOnePointer(over: popover, in: recorder, hands: nil)
+        popover.removeFromSuperview()
+        composer.closeWithoutSaving()
+    }
+
+    // MARK: Undo-send panel
+
+    /// The panel never becomes key, so its action set the hand itself, and no exit event follows when the panel goes:
+    /// a click on Open draft orders it out under the resting pointer, and the action takes the hand back first.
+    func testTheUndoPanelTakesBackTheHandWhenAClickOrdersItOut() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let draft = ComposeDraft(id: UUID(), mode: .new, account: ListTestSupport.accountA, to: [EmailAddress(address: "ben@contoso.test")],
+                                 cc: [], bcc: [], subject: "Lisbon", body: NSAttributedString(string: "See you there"), attachments: [],
+                                 quoted: nil, threading: nil)
+        let panel = UndoSendPanel(client: harness.environment.engine, accounts: harness.controller.accounts, sendID: "pointer-\(UUID())",
+                                  draft: draft, undoWindow: 5)
+        defer { panel.orderOut(nil) }
+        let slip = try XCTUnwrap(descendants(QuireUndoPanelView.self, of: panel.contentView).first)
+        slip.state = .failed
+        let action = try XCTUnwrap(slip.actionButton, "Open draft")
+        XCTAssertFalse(panel.isKeyWindow)
+
+        action.pointerEntered()
+        XCTAssertTrue(NSCursor.current === NSCursor.pointingHand, "the pointer rests on Open draft")
+        XCTAssertTrue(NSApp.sendAction(try XCTUnwrap(action.action), to: action.target, from: action))
+        XCTAssertFalse(panel.isVisible, "the click ordered the panel out")
+        XCTAssertTrue(NSCursor.current === NSCursor.arrow, "and the hand went with it")
+        XCTAssertFalse(action.hasSetPointer)
+        NSCursor.arrow.set()
+    }
+
     // MARK: Helpers
+
+    /// Every point of `popover` on a 6 pt grid has exactly one pointer, unless it lies in two of its own controls' rects
+    /// with the same pointer (a field and the text field inside it); with `hands`, the hand inside them and the arrow
+    /// elsewhere.
+    private func assertOnePointer(over popover: NSView, in recorder: CursorRectRecorder, hands: [NSRect]?,
+                                  file: StaticString = #filePath, line: UInt = #line) {
+        var checked = 0
+        for x in stride(from: popover.bounds.minX + 1, to: popover.bounds.maxX, by: 6) {
+            for y in stride(from: popover.bounds.minY + 1, to: popover.bounds.maxY, by: 6) {
+                let point = popover.convert(NSPoint(x: x, y: y), to: nil)
+                let foreign = recorder.rects.filter { $0.rect.contains(point) && !$0.view.isDescendant(of: popover) }
+                XCTAssertEqual(foreign.map { "\(type(of: $0.view))" }, [], "at \(x), \(y) under the popover", file: file, line: line)
+                let cursors = Set(recorder.cursors(at: point).map(ObjectIdentifier.init))
+                XCTAssertEqual(cursors.count, 1, "at \(x), \(y): \(recorder.rects.filter { $0.rect.contains(point) }.map { "\(type(of: $0.view))" })",
+                               file: file, line: line)
+                if let hands {
+                    let expected = hands.contains { $0.contains(NSPoint(x: x, y: y)) } ? NSCursor.pointingHand : NSCursor.arrow
+                    XCTAssertEqual(cursors, [ObjectIdentifier(expected)], "at \(x), \(y)", file: file, line: line)
+                }
+                checked += 1
+            }
+        }
+        XCTAssertGreaterThan(checked, 100, file: file, line: line)
+    }
+
+    /// A reply composer whose original has folded in under the editor.
+    private func replyComposer(_ harness: MainWindowHarness) throws -> ComposeWindowController {
+        let original = MessageID(accountID: ListTestSupport.accountA.id, providerID: "msg-0-0")
+        try harness.environment.store.saveBody(StoredBody(body: MessageBody(html: "<p>The quarterly plan is attached.</p>",
+                                                                            text: "The quarterly plan is attached."),
+                                                          renderedHTML: "<p>The quarterly plan is attached.</p>",
+                                                          plainText: "The quarterly plan is attached."), for: original)
+        let accounts = harness.controller.accounts
+        let composer = ComposeWindowController.present(client: harness.environment.engine, account: accounts[0], accounts: accounts,
+                                                       mode: .reply(original, all: false))
+        XCTAssertTrue(ListTestSupport.spin(until: { composer.contents.quoted != nil }, timeout: 5), "the original folds in")
+        composer.window?.contentView?.layoutSubtreeIfNeeded()
+        return composer
+    }
 
     private func descendants<T: NSView>(_ type: T.Type, of view: NSView?) -> [T] {
         guard let view else { return [] }

@@ -8,7 +8,7 @@ import SSDesign
 /// “Remove Link” when editing an existing link, and trailing ghost “Cancel” and small primary “Add Link”
 /// (“Save” when editing). ↩ confirms, Esc cancels, Tab cycles inside. It fades in and out over `dur.quick`.
 @MainActor
-final class ComposeLinkPopover: NSView, NSTextFieldDelegate, QuirePointerTarget {
+final class ComposeLinkPopover: NSView, NSTextFieldDelegate, QuirePointerCover {
     struct Request {
         var range: NSRange
         var existingTarget: String?
@@ -125,14 +125,43 @@ final class ComposeLinkPopover: NSView, NSTextFieldDelegate, QuirePointerTarget 
 
     // MARK: Pointer
 
-    /// The arrow over the popover around its fields and buttons, which keep their own I-beam and hand (§4.17): it lies
-    /// on the body, or on Settings' form, whose pointer would otherwise show through it.
+    /// The arrow over the popover around its fields and buttons, which keep their own I-beam and hand (§4.17). It lies
+    /// on the body, the recipient rows and their buttons, or on the signature field in Settings, whose pointers would
+    /// otherwise show through it: as a `QuirePointerCover` they leave its frame to it.
     var pointerRegions: [QuirePointerRegion] {
         QuirePointerRegion.regions(bounds, cursor: .arrow, cutting: childPointerAreas())
     }
 
     override func resetCursorRects() {
         addPointerRects()
+    }
+
+    // As a cover, the views under it leave its frame to it: they are asked again when it comes, goes, moves or hides.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        pointerCoverDidChange()
+    }
+
+    override func setFrameOrigin(_ newOrigin: NSPoint) {
+        let old = frame.origin
+        super.setFrameOrigin(newOrigin)
+        if frame.origin != old { pointerCoverDidChange() }
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let old = frame.size
+        super.setFrameSize(newSize)
+        if frame.size != old { pointerCoverDidChange() }
+    }
+
+    override func viewDidHide() {
+        super.viewDidHide()
+        pointerCoverDidChange()
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        pointerCoverDidChange()
     }
 
     // MARK: Showing
