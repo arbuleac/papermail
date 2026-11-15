@@ -99,10 +99,11 @@ public enum ConversationShellAssets {
     button:focus, [tabindex]:focus { outline: none; }
     /* The pointer (spec §4.17): the pointing hand over everything a click acts on, which is every button the script
        makes and every element it gives the button role (a collapsed message, the fold, the open recipients), down to
-       the glyphs and words inside them; the arrow over one that is disabled. The only cursor rules in the shell, so no
-       later rule takes the hand away. Text outside them keeps the I-beam the selectable body gives it. */
+       the glyphs and words inside them; the arrow over one that is disabled, and over the invitation's chosen answer,
+       which a click leaves as it is, as it leaves a chosen radio. The only cursor rules in the shell, so no later rule
+       takes the hand away. Text outside them keeps the I-beam the selectable body gives it. */
     button, [role="button"] { cursor: pointer; }
-    button:disabled, [aria-disabled="true"] { cursor: default; }
+    button:disabled, [aria-disabled="true"], .ss-ans.ss-chosen { cursor: default; }
 
     /* The reading column (spec §5.12): x = max(margin, (width − 680) / 2); margin 32, or 16 below 560 pt. */
     #ss-root {
@@ -635,9 +636,11 @@ public enum ConversationShellAssets {
     }
     html.ss-original { color-scheme: light; }
     /* The pointer (spec §4.17): every link shows the pointing hand, the ones the reader linked in plain text included,
-       whatever cursor a sender's CSS gives it. WebKit's own hand is only `cursor: auto` resolved over a link, which any
-       sender rule replaces, since a sender's style comes after this sheet; `:root body` and !important outrank it. */
-    :root body a[href], :root body a[href] *, :root body area[href] { cursor: pointer !important; }
+       whatever cursor a sender's CSS gives it, and so does a sender's `summary`, which opens its `details` with no
+       script. WebKit's own hand is only `cursor: auto` resolved over a link, which any sender rule replaces, since a
+       sender's style comes after this sheet (`:root body` and !important outrank it); over a summary it shows none. */
+    :root body a[href], :root body a[href] *, :root body area[href],
+    :root body summary, :root body summary * { cursor: pointer !important; }
     /* Find in conversation (spec §5.50). The marks carry their own opaque fill and `ink`, so they read on any page a
        sender designed; `:root body` outranks the dark adaptation's `body *` and a sender's own `mark` rules. No padding:
        a mark never moves the text around it. */

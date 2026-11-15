@@ -669,7 +669,7 @@ The pointer tells what a click will do before it is made.
 - A surface that lies on something clickable shows the arrow, so nothing under it shows through: the find bar and the quick reply on the reader's page, a toast on the list, the cheat sheet's panel on its scrim.
 - **AppKit.** Every `QuireControl` is a `QuirePointerTarget`: it adds `pointerCursor` over its hit rect as a cursor rect (a loading button, a field and a group's chosen radio override it), and `pointerRegions` lists the rects with the controls inside cut out (`QuirePointerRegion`). Another view that acts on a click adopts `QuirePointerTarget`; a control AppKit makes, such as an alert's buttons, gets a `QuirePointerOverlay`. Cursor rects apply in the key window only, so the undo-send panel's action, in a panel that never becomes key, also sets the pointer from its tracking area (§5.31).
 - **SwiftUI.** Every Quire style and control applies `.quirePointer()`, which is `.pointerStyle(.link)` while the control is enabled and acts; a field or text area takes `.horizontalText` over its whole face. SwiftUI shows no hand over a link inside text, so the inline link (§5.38, §5.40) lays a box with the hand over its own words.
-- **Reader.** The shell has one rule: `button, [role="button"]` take `cursor: pointer`, and `:disabled` or `aria-disabled` ones `default`. Body documents set `cursor: pointer !important` on every `a[href]` and `area[href]` under `:root body`, which outranks a sender's sheet (§8.4).
+- **Reader.** The shell has one rule: `button, [role="button"]` take `cursor: pointer`, and `:disabled` or `aria-disabled` ones `default`, as does the invitation's chosen answer, which a click leaves as it is (§5.14). Body documents set `cursor: pointer !important` on every `a[href]` and `area[href]`, and on a sender's `summary`, which opens its `details` with no script, under `:root body`, which outranks a sender's sheet (§8.4).
 
 ---
 ## 5. Components
@@ -1074,7 +1074,7 @@ States: rest; hover (`hover` across the row, end rows clipped to the radius); pr
 | Details | {{layout.invitation.detailsTop}} pt below: rows {{layout.invitation.rowGap}} pt apart, each a label in a {{layout.invitation.labelColumn}} pt column (`snippet` `ink3`) and its value (`snippet` `ink2`, wrapping): **Where** the location (a web address is a link, `accent`, underlined on hover and press as a link button, §5.24, and always under Graphite; it keeps to one line, cut with an ellipsis when longer, the whole address in its tooltip, since a Teams link runs to hundreds of characters), then a meeting link on its own row when the invitation names one apart from the location; **Organizer** the organizer's name, or “You”; **Guests** the user first as “You”, then the others by name, at most {{layout.invitation.attendeesMax}}, then “+3 more” (rooms and equipment are never listed; the organizer has their own row) |
 | Actions | {{layout.invitation.actionsTop}} pt below, a hairline `rule` above and {{layout.invitation.actionsPad}} pt between: Accept · Tentative · Decline as **small** buttons ({{layout.button.small.height}} pt, §5.24), {{layout.invitation.answerGap}} pt apart, sentence case (§4.13); then, trailing, the link button “Open in Calendar” (Calendar is the app's name) |
 | Answer, not chosen | small secondary: `raised`, `ink` `label`, {{border.strong.width}} pt `ruleStrong` inset; hover `raised + hover`, pressed `raised + pressed`; focus ring outside a 1 pt `sheet` gap |
-| Answer, chosen | the user's answer: `accentWash` with `checkmark` {{layout.invitation.answerGlyph}} pt and the label in `labelStrong` `accent`, no edge; hover `accentWashHover`, pressed `accentWashPressed` (the quoted-text toggle's on state, §5.15: tested pairs). The checkmark and the weight carry the state, not the colour. Clicking another answer moves the mark at once; clicking the chosen one does nothing. An answer this Mac could not record goes back at once to the one it holds |
+| Answer, chosen | the user's answer: `accentWash` with `checkmark` {{layout.invitation.answerGlyph}} pt and the label in `labelStrong` `accent`, no edge; hover `accentWashHover`, pressed `accentWashPressed` (the quoted-text toggle's on state, §5.15: tested pairs). The checkmark and the weight carry the state, not the colour. Clicking another answer moves the mark at once; clicking the chosen one does nothing, so it shows the arrow (§4.17). An answer this Mac could not record goes back at once to the one it holds |
 | Permission notice | {{layout.invitation.noticeTop}} pt below the actions, an info banner (§5.38: `infoWash`, `info.circle` `info`), multi-line: “Answer invitations: SuperSparrow needs permission to update your calendar.” and the link “Reconnect” (§5.44). Only on a card answered on this Mac whose account waits for that permission |
 
 | State | Look |
@@ -2450,8 +2450,9 @@ html.ss-adapt a, html.ss-adapt a * { color: var(--q-accent) !important; }
 
 ```css
 button, [role="button"] { cursor: pointer; }                 /* the shell: every button and button-role element */
-button:disabled, [aria-disabled="true"] { cursor: default; }
-:root body a[href], :root body a[href] *, :root body area[href] { cursor: pointer !important; }   /* every body */
+button:disabled, [aria-disabled="true"], .ss-ans.ss-chosen { cursor: default; }   /* and the chosen answer */
+:root body a[href], :root body a[href] *, :root body area[href],
+:root body summary, :root body summary * { cursor: pointer !important; }               /* every body */
 ```
 
 - **Target message.** `ss.target(id)` marks the target sheet (`.ss-target`: footer keycaps, and the `ruleStrong` edge when `.ss-multi` is on the container); the app calls it on click, `n`/`p`, Tab and open.
