@@ -1440,19 +1440,17 @@ extension MessageListViewController: NSTableViewDelegate {
         return cell
     }
 
-    /// One button per edge, so a swipe carried across the row has one thing to do (spec §5.7, Swipe). Regular, not
-    /// destructive: AppKit gives a destructive button its own animation as the row goes, and the list never animates a
-    /// row leaving. The button keys to the conversation, not the row number, which a refresh can move meanwhile.
+    /// One button per edge, so a swipe carried across the row has one thing to do (spec §5.7, Swipe), in the colours of
+    /// its change (`QuireSwipeAction`). The button keys to the conversation, not the row number, which a refresh can move
+    /// meanwhile.
     func tableView(_ tableView: NSTableView, rowActionsForRow row: Int, edge: NSTableView.RowActionEdge) -> [NSTableViewRowAction] {
         guard let index = layout.conversationIndex(atRow: row), conversations.indices.contains(index) else { return [] }
         let id = conversations[index].id
-        guard let change = swipeChange(for: id, edge: edge == .trailing ? .trailing : .leading) else { return [] }
-        let action = NSTableViewRowAction(style: .regular, title: RowSwipe.title(for: change)) { [weak self] _, _ in
+        guard let change = swipeChange(for: id, edge: edge == .trailing ? .trailing : .leading),
+              let style = QuireSwipeAction(change) else { return [] }
+        return [style.rowAction(title: RowSwipe.title(for: change)) { [weak self] _, _ in
             MainActor.assumeIsolated { self?.performRowAction(change, on: id) }
-        }
-        // A native control, so the app's accent asset (§3.1): AppKit draws the title white, as on a default button.
-        action.backgroundColor = .controlAccentColor
-        return [action]
+        }]
     }
 
     /// Heads, the footer and the server row are never selectable (spec §5.8, §5.10).

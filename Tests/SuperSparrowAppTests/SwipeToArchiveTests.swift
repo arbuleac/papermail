@@ -1,5 +1,6 @@
 import AppKit
 import SSCore
+import SSDesign
 import XCTest
 @testable import SuperSparrowApp
 
@@ -68,7 +69,8 @@ final class SwipeToArchiveTests: XCTestCase {
         let archive = try action(forConversation: 2, edge: .trailing, in: harness)
         XCTAssertEqual(archive.title, "Archive", "the menu's command, a verb (§4.13)")
         XCTAssertEqual(archive.style, .regular, "no destructive animation: the list never animates a row leaving")
-        XCTAssertEqual(archive.backgroundColor, .controlAccentColor, "a native control on the app's accent asset (§3.1)")
+        XCTAssertTrue(archive.backgroundColor === QuireSwipeAction.archive.fill, "Archive's fill, the live token (§5.7)")
+        XCTAssertNil(archive.image, "no image: it would push the title out of the capsule")
 
         try press(archive)
         XCTAssertFalse(try inInbox(id, harness), "archived in the store at once")
@@ -129,6 +131,41 @@ final class SwipeToArchiveTests: XCTestCase {
         try press(archive, row: 3)
         XCTAssertFalse(try inInbox(id, harness))
         XCTAssertTrue(try inInbox(harness.list.conversations[3].id, harness), "the row now fourth is left alone")
+    }
+
+    // MARK: Colours
+
+    /// The two edges in their own colours, which follow the theme on buttons already made: the list hands AppKit the
+    /// live tokens, which it resolves again whenever it draws (§5.7, §4.16; `SwipeButtonRenderTests` watches it do so).
+    func testTheEdgesWearTheirOwnColoursAndFollowTheTheme() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let environment = QuireEnvironment.shared
+        let saved = environment.overrides
+        defer { environment.setOverrides(saved) }
+        func force(_ theme: QuireTheme) {
+            environment.setOverrides(.init(isGraphite: false, increaseContrast: false, reduceMotion: false, reduceTransparency: false,
+                                           theme: theme))
+        }
+        func hex(_ color: NSColor, _ mode: QuireMode) -> String {
+            let c = mode.performAsCurrent { color.usingColorSpace(.sRGB) }!
+            return String(format: "#%02X%02X%02X", Int((c.redComponent * 255).rounded()), Int((c.greenComponent * 255).rounded()),
+                          Int((c.blueComponent * 255).rounded()))
+        }
+        let archive = try action(forConversation: 1, edge: .trailing, in: harness)
+        let unread = try action(forConversation: 1, edge: .leading, in: harness)
+        for mode in QuireMode.allCases {
+            var seen: [QuireTheme: [String]] = [:]
+            for theme in QuireTheme.allCases {
+                force(theme)
+                let fills = [hex(archive.backgroundColor, mode), hex(unread.backgroundColor, mode)]
+                XCTAssertNotEqual(fills[0], fills[1], "\(theme) \(mode.rawValue): the edges never look alike")
+                XCTAssertEqual(fills, [hex(.qSwipeArchive, mode), hex(.qSwipeRead, mode)], "\(theme) \(mode.rawValue)")
+                seen[theme] = fills
+            }
+            XCTAssertEqual(Set(seen.values.map { $0[0] }).count, QuireTheme.allCases.count, "\(mode.rawValue): Archive per theme")
+            XCTAssertEqual(Set(seen.values.map { $0[1] }).count, QuireTheme.allCases.count, "\(mode.rawValue): the grey per theme")
+        }
     }
 
     // MARK: Where E would change nothing
@@ -196,7 +233,13 @@ final class SwipeToArchiveTests: XCTestCase {
 
         let markRead = try action(forConversation: 0, edge: .leading, in: harness)
         XCTAssertEqual(markRead.title, "Mark as Read")
-        XCTAssertEqual(try action(forConversation: 1, edge: .leading, in: harness).title, "Mark as Unread")
+        let markUnread = try action(forConversation: 1, edge: .leading, in: harness)
+        XCTAssertEqual(markUnread.title, "Mark as Unread")
+        for button in [markRead, markUnread] {
+            XCTAssertTrue(button.backgroundColor === QuireSwipeAction.readState.fill, "the quiet grey, never Archive's fill (§5.7)")
+            XCTAssertEqual(button.style, .regular)
+            XCTAssertNil(button.image)
+        }
         try press(markRead)
         XCTAssertTrue(try harness.environment.store.messages(in: unread.id).allSatisfy(\.isRead), "read in the store at once")
         XCTAssertNil(harness.toastMessage, "as with U, the row itself shows the change")
