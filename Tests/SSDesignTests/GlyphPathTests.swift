@@ -36,18 +36,65 @@ final class GlyphPathTests: XCTestCase {
         // ss.queued: the arrow only (the dot is a fill), on the 12 grid.
         assertRect(QuireGlyph.path(.ssQueued).boundingBoxOfPath, 5.75, 2.25, 4, 4)
         XCTAssertEqual(Quire.CustomGlyph.ssQueued.fills, [QuireGlyphCircle(cx: 2.75, cy: 9.25, r: 1.6)])
-        XCTAssertEqual(Quire.CustomGlyph.ssSparrow.fillRule, .evenOdd)
-        XCTAssertEqual(Quire.CustomGlyph.ssSparrow.stroke, 0)
+        XCTAssertEqual(Quire.CustomGlyph.ssItalicEnvelope.fillRule, .winding)
+        XCTAssertEqual(Quire.CustomGlyph.ssItalicEnvelope.stroke, 0)
+        XCTAssertEqual(Quire.Icon.brand, Quire.CustomGlyph.ssItalicEnvelope.rawValue)
     }
 
-    func testTheSparrowsEyeIsAHoleOfRadius085() {
-        // The eye is a full circle drawn with two relative arcs; even-odd turns it into a hole in the head.
-        let eye = try? QuireSVGPath.parse("M18.6 6.55 m-0.85 0 a0.85 0.85 0 1 0 1.7 0 a0.85 0.85 0 1 0 -1.7 0 Z")
-        XCTAssertNotNil(eye)
-        assertRect(eye!.boundingBoxOfPath, 17.75, 5.7, 1.7, 1.7, accuracy: 1e-3)
-        let sparrow = QuireGlyph.path(.ssSparrow)
-        XCTAssertFalse(sparrow.contains(CGPoint(x: 18.6, y: 6.55), using: .evenOdd), "the eye must be cut out")
-        XCTAssertTrue(sparrow.contains(CGPoint(x: 17.0, y: 9.0), using: .evenOdd), "the head must be filled")
+    /// The brand mark (spec §4.11, §5.42): a √2 box 24 tall on the 40 grid, its top at y 8 and its bottom at y 32 (a fifth
+    /// and four fifths, so a multiple of 5 pt puts both on whole points), sheared 12° about its centre. Two paths, the front
+    /// then the flap, because the app icon colours them apart; between them the crease is open from side to side and
+    /// symmetric about its apex.
+    func testItalicEnvelopeKeepsItsSlantAndAnOpenSymmetricCrease() throws {
+        let glyph = Quire.CustomGlyph.ssItalicEnvelope
+        XCTAssertEqual(glyph.grid, 40)
+        XCTAssertEqual(glyph.paths.count, 2)
+        let front = try QuireSVGPath.parse(glyph.paths[0]), flap = try QuireSVGPath.parse(glyph.paths[1])
+        XCTAssertEqual(flap.boundingBoxOfPath.minY, 8, accuracy: 1e-3, "the flap carries the top edge")
+        XCTAssertEqual(front.boundingBoxOfPath.maxY, 32, accuracy: 1e-3, "the front carries the bottom edge")
+
+        // The sides, found where a row of the whole mark starts and ends, below the crease (whose lowest point, the front's
+        // notch, is above y 25) and above the bottom corners' rounding.
+        let mark = QuireGlyph.path(glyph)
+        func side(y: CGFloat, fromLeft: Bool) -> CGFloat {
+            var outside: CGFloat = fromLeft ? 0 : 40, inside: CGFloat = 20
+            for _ in 0..<40 {
+                let mid = (outside + inside) / 2
+                if mark.contains(CGPoint(x: mid, y: y)) { inside = mid } else { outside = mid }
+            }
+            return inside
+        }
+        let slant = tan(12 * CGFloat.pi / 180)
+        XCTAssertEqual((side(y: 25, fromLeft: true) - side(y: 28, fromLeft: true)) / 3, slant, accuracy: 1e-3, "the left side leans 12°")
+        XCTAssertEqual((side(y: 25, fromLeft: false) - side(y: 28, fromLeft: false)) / 3, slant, accuracy: 1e-3, "the right side leans 12°")
+        // The centre line of the sheared box passes through (20, 20): at y 28 it is 8 · tan 12° left of x 20.
+        XCTAssertEqual((side(y: 28, fromLeft: true) + side(y: 28, fromLeft: false)) / 2, 20 - 8 * slant, accuracy: 1e-3, "centred on x 20")
+        for y: CGFloat in [25, 28] {
+            XCTAssertEqual(side(y: y, fromLeft: false) - side(y: y, fromLeft: true), 24 * 2.0.squareRoot(), accuracy: 1e-3, "√2 × 24 wide at y \(y)")
+        }
+
+        // Column by column, from just inside one side to just inside the other: the flap, then the open crease, then the
+        // front, never both at once. The crease's height in each column is kept to check its symmetry.
+        func crease(atX x: CGFloat) -> CGFloat {
+            var gap: CGFloat = 0, seenFront = false, seenFlap = false
+            for step in 0...2400 {
+                let point = CGPoint(x: x, y: 8 + CGFloat(step) / 100)
+                let inFlap = flap.contains(point), inFront = front.contains(point)
+                XCTAssertFalse(inFlap && inFront, "the parts overlap at \(point)")
+                if inFlap { XCTAssertFalse(seenFront, "flap below the front at \(point)"); seenFlap = true }
+                if inFront { seenFront = true }
+                if seenFlap, !seenFront, !inFlap, !inFront { gap += 0.01 }
+            }
+            return gap
+        }
+        let apexX: CGFloat = 21.658
+        for x in stride(from: CGFloat(6), through: 37, by: 1) {
+            XCTAssertGreaterThan(crease(atX: x), 0.05, "the crease is shut at x \(x)")
+        }
+        XCTAssertGreaterThan(crease(atX: apexX), 3.6, "the crease is widest at its apex")
+        for d: CGFloat in [3, 8, 13] {
+            XCTAssertEqual(crease(atX: apexX - d), crease(atX: apexX + d), accuracy: 0.03, "the V is symmetric \(d) from its apex")
+        }
     }
 
     func testImagesAreTemplatesAtTheRequestedSize() {

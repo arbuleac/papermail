@@ -152,7 +152,7 @@ enum ComponentGallery {
         builder.newline()
 
         builder.section("Empty states · banners")
-        let zero = QuireEmptyStateView(sentence: "Nothing left to read.", hint: "New mail will land here.", glyph: .sparrow)
+        let zero = QuireEmptyStateView(sentence: "Nothing left to read.", hint: "New mail will land here.", glyph: .brandMark)
         zero.setFrameSize(NSSize(width: 300, height: 90))
         builder.add(zero, width: 320)
         let none = QuireEmptyStateView(sentence: "No conversation selected",

@@ -945,7 +945,7 @@ func emitContent(_ t: Tokens) -> String {
             return "QuireGlyphCircle(cx: \(swiftNumber(c[0].double!)), cy: \(swiftNumber(c[1].double!)), r: \(swiftNumber(c[2].double!)))"
         }.joined(separator: ", ") + "]"
     }
-    glyphSwitch("fillRule", "CGPathFillRule", "How filled paths treat overlaps (`evenodd` cuts the sparrow's wing and eye).") { k, v in
+    glyphSwitch("fillRule", "CGPathFillRule", "How filled paths treat overlaps (`evenodd` cuts a hole where subpaths overlap).") { k, v in
         switch v["fillRule"]?.string {
         case nil, "nonzero": return ".winding"
         case "evenodd": return ".evenOdd"

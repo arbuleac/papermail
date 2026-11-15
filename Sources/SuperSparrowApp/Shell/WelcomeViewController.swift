@@ -248,7 +248,9 @@ final class WelcomeView: NSView {
     }
 
     private func applyLabels() {
-        titleLabel.attributedStringValue = Self.string("SuperSparrow", role: .display, color: .qInk)
+        // A sentence, never the bare name: the name set in a font under the mark would read as the stacked lockup with
+        // the wordmark typeset (§5.39, docs/brand).
+        titleLabel.attributedStringValue = Self.string("Welcome to SuperSparrow", role: .display, color: .qInk)
         taglineLabel.attributedStringValue = Self.string("Your mail, quietly fast.", role: .aside, color: .qInk2)
     }
 
@@ -337,12 +339,13 @@ final class WelcomeView: NSView {
     }
 }
 
-/// The brand mark, `ss.sparrow` 52 pt in `accent`: the same drawing as the app icon (§5.42).
+/// The brand mark, `ss.italicEnvelope` in `brandMark`: the app icon's drawing in one colour, and the brand's blue rather
+/// than the theme's ink, so the first screen matches the Dock icon (§4.11, §5.42).
 @MainActor
 final class WelcomeMarkView: NSView {
     override var isFlipped: Bool { true }
 
     override func draw(_ dirtyRect: NSRect) {
-        QuireSymbol.draw(Quire.Icon.brand, size: .custom(Quire.Layout.Welcome.mark), color: .qAccent, centredIn: bounds)
+        QuireSymbol.draw(Quire.Icon.brand, size: .custom(Quire.Layout.Welcome.mark), color: .qBrandMark, centredIn: bounds)
     }
 }

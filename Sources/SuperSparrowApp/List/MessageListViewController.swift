@@ -1147,7 +1147,7 @@ final class MessageListViewController: NSViewController {
         }
         emptyView.hint = hint
         switch state.glyph {
-        case .sparrow?: emptyView.glyph = .sparrow
+        case .brandMark?: emptyView.glyph = .brandMark
         case .offline?: emptyView.glyph = .offline
         case nil: emptyView.glyph = nil
         }

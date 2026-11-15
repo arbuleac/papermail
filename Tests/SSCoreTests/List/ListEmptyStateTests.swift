@@ -10,7 +10,7 @@ final class ListEmptyStateTests: XCTestCase {
     }
 
     func testEveryViewHasItsPair() {
-        XCTAssertEqual(state(.inbox), ListEmptyState(sentence: "Nothing left to read.", hint: "New mail will land here.", glyph: .sparrow))
+        XCTAssertEqual(state(.inbox), ListEmptyState(sentence: "Nothing left to read.", hint: "New mail will land here.", glyph: .brandMark))
         XCTAssertEqual(state(.starred), ListEmptyState(sentence: "No starred conversations", hint: "Press S to star one."))
         XCTAssertEqual(state(.sent), ListEmptyState(sentence: "No sent mail", hint: "Messages you send appear here."))
         XCTAssertEqual(state(.drafts), ListEmptyState(sentence: "Nothing in Drafts", hint: "Drafts you start here are kept on this Mac."))
@@ -19,7 +19,7 @@ final class ListEmptyStateTests: XCTestCase {
                                                    hint: "Every conversation in this account appears here, archived ones too."))
     }
 
-    func testOnlyInboxZeroCarriesTheSparrow() {
+    func testOnlyInboxZeroCarriesTheBrandMark() {
         for view in MailboxView.allCases where view != .inbox {
             XCTAssertNil(state(view).glyph, "\(view)")
         }
@@ -68,7 +68,7 @@ final class ListEmptyStateTests: XCTestCase {
         XCTAssertEqual(starred, ListEmptyState(sentence: "No starred conversations", hint: "Older mail is still downloading."))
         let inbox = ListEmptyState.make(query: ConversationQuery(view: .inbox), olderMailDownloading: true)
         XCTAssertEqual(inbox, ListEmptyState(sentence: "Nothing left to read.", hint: "Older mail is still downloading."),
-                       "no sparrow before inbox zero is known")
+                       "no brand mark before inbox zero is known")
         let search = ListEmptyState.make(query: ConversationQuery(view: .all, searchText: "lisbon"), olderMailDownloading: true)
         XCTAssertEqual(search.sentence, "No results for “lisbon”", "search keeps its own line")
     }

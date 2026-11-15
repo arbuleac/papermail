@@ -5,8 +5,8 @@ import Foundation
 public struct ListEmptyState: Hashable, Sendable {
     /// The only glyphs an empty list carries.
     public enum Glyph: Hashable, Sendable {
-        /// Inbox zero: the sparrow.
-        case sparrow
+        /// Inbox zero: the brand mark.
+        case brandMark
         /// Offline with nothing cached: `wifi.slash`.
         case offline
     }
@@ -54,7 +54,7 @@ public struct ListEmptyState: Hashable, Sendable {
         }
         let settled = settledState(query)
         guard olderMailDownloading else { return settled }
-        // No sparrow either: inbox zero is not reached while older inbox mail may still be on its way.
+        // No brand mark either: inbox zero is not reached while older inbox mail may still be on its way.
         return ListEmptyState(sentence: settled.sentence, hint: "Older mail is still downloading.")
     }
 
@@ -62,7 +62,7 @@ public struct ListEmptyState: Hashable, Sendable {
         switch query.view {
         case .inbox:
             // The Inbox always shows all of its mail (§5.5): there is no Focused or Other list to be empty.
-            return ListEmptyState(sentence: "Nothing left to read.", hint: "New mail will land here.", glyph: .sparrow)
+            return ListEmptyState(sentence: "Nothing left to read.", hint: "New mail will land here.", glyph: .brandMark)
         case .starred:
             return ListEmptyState(sentence: "No starred conversations", hint: "Press S to star one.")
         case .sent:

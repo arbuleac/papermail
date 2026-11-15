@@ -131,6 +131,9 @@ extension NSColor {
     public static let qDangerFillPressed = NSColor.quire("dangerFillPressed", QuireColorValues(light: 0x8A2018FF, dark: 0xA93226FF, lightHC: 0x68130CFF, darkHC: 0xA93226FF))
     /// `color.onDanger`: Text and glyph on dangerFill (semantic).
     public static let qOnDanger = NSColor.quire("onDanger", QuireColorValues(light: 0xFFFFFFFF, dark: 0xFFFFFFFF, lightHC: 0xFFFFFFFF, darkHC: 0xFFFFFFFF))
+    /// `color.brandMark`: The brand mark on the welcome screen (one colour, the brand's blue in every coloured theme; `ink` under Graphite and in Gallery) (semantic).
+    /// Under Graphite: `ink`.
+    public static let qBrandMark = NSColor.quire("brandMark", themes: QuireThemeTable.brandMark, graphite: QuireThemeTable.brandMarkGraphite)
 }
 
 extension Color {
@@ -188,6 +191,7 @@ extension Color {
     public static let qDangerFillHover = Color(nsColor: .qDangerFillHover)
     public static let qDangerFillPressed = Color(nsColor: .qDangerFillPressed)
     public static let qOnDanger = Color(nsColor: .qOnDanger)
+    public static let qBrandMark = Color(nsColor: .qBrandMark)
 }
 
 // `.qInk`, `.qCanvas`, … wherever SwiftUI takes a shape style: resolved from the view's `quireTheme`, so a theme
@@ -247,6 +251,7 @@ extension ShapeStyle where Self == QuireColorStyle {
     public static var qDangerFillHover: QuireColorStyle { QuireColorStyle(.dangerFillHover) }
     public static var qDangerFillPressed: QuireColorStyle { QuireColorStyle(.dangerFillPressed) }
     public static var qOnDanger: QuireColorStyle { QuireColorStyle(.onDanger) }
+    public static var qBrandMark: QuireColorStyle { QuireColorStyle(.brandMark) }
 }
 
 /// Every themed token's values per theme, in `QuireTheme` order: static integers, so a theme never drawn costs no
@@ -616,6 +621,20 @@ enum QuireThemeTable {
         QuireColorValues(light: 0xE4EAF5FF, dark: 0x1E2638FF, lightHC: 0xD0DAEEFF, darkHC: 0x22304AFF),
         QuireColorValues(light: 0xDFEAFEFF, dark: 0x1E2638FF, lightHC: 0xD0DAEEFF, darkHC: 0x22304AFF),
     ]
+    static let brandMark: [QuireColorValues] = [
+        QuireColorValues(light: 0x0A5BE0FF, dark: 0x5AAEFFFF, lightHC: 0x084BBAFF, darkHC: 0x8CC8FFFF),
+        QuireColorValues(light: 0x1B1B1BFF, dark: 0xE9E9E9FF, lightHC: 0x0E0E0EFF, darkHC: 0xFFFFFFFF),
+        QuireColorValues(light: 0x0A5BE0FF, dark: 0x5AAEFFFF, lightHC: 0x084BBAFF, darkHC: 0x8CC8FFFF),
+        QuireColorValues(light: 0x0A5BE0FF, dark: 0x5AAEFFFF, lightHC: 0x084BBAFF, darkHC: 0x8CC8FFFF),
+        QuireColorValues(light: 0x0A5BE0FF, dark: 0x5AAEFFFF, lightHC: 0x084BBAFF, darkHC: 0x8CC8FFFF),
+    ]
+    static let brandMarkGraphite: [QuireColorValues] = [
+        QuireColorValues(light: 0x1D1B18FF, dark: 0xEDE9E2FF, lightHC: 0x0F0E0CFF, darkHC: 0xFFFFFFFF),
+        QuireColorValues(light: 0x1B1B1BFF, dark: 0xE9E9E9FF, lightHC: 0x0E0E0EFF, darkHC: 0xFFFFFFFF),
+        QuireColorValues(light: 0x181C1EFF, dark: 0xE2EBF0FF, lightHC: 0x0C0F10FF, darkHC: 0xFFFFFFFF),
+        QuireColorValues(light: 0x1A1C18FF, dark: 0xE6EBE2FF, lightHC: 0x0D0E0CFF, darkHC: 0xFFFFFFFF),
+        QuireColorValues(light: 0x1C1B1FFF, dark: 0xE6E3ECFF, lightHC: 0x0E0E10FF, darkHC: 0xFFFFFFFF),
+    ]
 }
 
 /// Every colour token by its tokens.json name, for code that looks tokens up by name (tests, the CSS bridge).
@@ -674,6 +693,7 @@ public enum QuireColorToken: String, CaseIterable, Sendable {
     case dangerFillHover
     case dangerFillPressed
     case onDanger
+    case brandMark
 
     /// The dynamic colour, Graphite-aware where the token has a substitution.
     public var color: NSColor {
@@ -732,6 +752,7 @@ public enum QuireColorToken: String, CaseIterable, Sendable {
         case .dangerFillHover: return .qDangerFillHover
         case .dangerFillPressed: return .qDangerFillPressed
         case .onDanger: return .qOnDanger
+        case .brandMark: return .qBrandMark
         }
     }
 
@@ -792,6 +813,7 @@ public enum QuireColorToken: String, CaseIterable, Sendable {
         case .dangerFillHover: return QuireColorValues(light: 0x9C251BFF, dark: 0xC8402FFF, lightHC: 0x7A170FFF, darkHC: 0xC8402FFF)
         case .dangerFillPressed: return QuireColorValues(light: 0x8A2018FF, dark: 0xA93226FF, lightHC: 0x68130CFF, darkHC: 0xA93226FF)
         case .onDanger: return QuireColorValues(light: 0xFFFFFFFF, dark: 0xFFFFFFFF, lightHC: 0xFFFFFFFF, darkHC: 0xFFFFFFFF)
+        case .brandMark: return QuireColorValues(light: 0x0A5BE0FF, dark: 0x5AAEFFFF, lightHC: 0x084BBAFF, darkHC: 0x8CC8FFFF)
         }
     }
 
@@ -837,6 +859,7 @@ public enum QuireColorToken: String, CaseIterable, Sendable {
         case .selRuleIdle: return QuireThemeTable.selRuleIdle[theme.index]
         case .successWash: return QuireThemeTable.successWash[theme.index]
         case .infoWash: return QuireThemeTable.infoWash[theme.index]
+        case .brandMark: return QuireThemeTable.brandMark[theme.index]
         default: return values
         }
     }
@@ -857,6 +880,7 @@ public enum QuireColorToken: String, CaseIterable, Sendable {
         case .focus: return QuireThemeTable.focusGraphite[theme.index]
         case .selWash: return QuireThemeTable.selWashGraphite[theme.index]
         case .selRule: return QuireThemeTable.selRuleGraphite[theme.index]
+        case .brandMark: return QuireThemeTable.brandMarkGraphite[theme.index]
         default: return nil
         }
     }
@@ -903,6 +927,7 @@ public enum QuireColorToken: String, CaseIterable, Sendable {
         case .selRuleIdle: return true
         case .successWash: return true
         case .infoWash: return true
+        case .brandMark: return true
         default: return false
         }
     }
@@ -923,6 +948,7 @@ public enum QuireColorToken: String, CaseIterable, Sendable {
         case .focus: return ["ink"]
         case .selWash: return ["selWashIdle"]
         case .selRule: return ["ink"]
+        case .brandMark: return ["ink"]
         default: return nil
         }
     }
@@ -984,6 +1010,7 @@ public enum QuireColorToken: String, CaseIterable, Sendable {
         case .dangerFillHover: return "semantic"
         case .dangerFillPressed: return "semantic"
         case .onDanger: return "semantic"
+        case .brandMark: return "semantic"
         }
     }
 }

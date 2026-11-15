@@ -98,7 +98,7 @@ extension DesignGalleryCards {
         // The sentence is `aside`, or `asideSans` under the SF Pro font; the page rebuilds on a Font switch.
         let face = QuireEnvironment.typeface == .sfPro ? "sans" : "serif"
         return DesignGalleryCard("Empty states", code: "layout.emptyState",
-                                 caption: "One \(face) sentence and one hint. Only inbox zero shows the sparrow.",
+                                 caption: "One \(face) sentence and one hint. Only inbox zero shows the brand mark.",
                                  span: 4) { block in
             block.labelWidth = 0
             let width = block.width
@@ -106,7 +106,7 @@ extension DesignGalleryCards {
                 view.setFrameSize(NSSize(width: width, height: height))
                 return view
             }
-            block.full(empty(QuireEmptyStateView(sentence: "Nothing left to read.", hint: "New mail will land here.", glyph: .sparrow), height: 92))
+            block.full(empty(QuireEmptyStateView(sentence: "Nothing left to read.", hint: "New mail will land here.", glyph: .brandMark), height: 102))
             block.full(empty(QuireEmptyStateView(sentence: "No results for “lisbon flat”",
                                                  hint: "Search looks at subjects, people and message text."), height: 50))
             block.full(empty(QuireEmptyStateView(sentence: "No starred conversations", hint: "Press S to star one."), height: 50))

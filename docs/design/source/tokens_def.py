@@ -4,6 +4,15 @@ and the rendered DESIGN-LANGUAGE.md. Colour order: light, dark, lightHC, darkHC.
 NAME = "Quire"
 VERSION = "1.8.1"
 
+# The brand palette (docs/brand, spec §5.42), written once: `layout.brand`, the app icon's colours (`layout.appIcon`) and
+# the interface's brand mark (`brandMark`) all read it from here. `front` and `flap` are the envelope's two parts, each a
+# top-to-bottom pair; `*Dark` the dark appearance's; `*Small` the pixel-fitted 16 and 32 px icons', a step deeper so the
+# white crease keeps its contrast there. `signal` and `signalDark` are the one-colour mark on light and dark pages.
+BRAND = {"ink": "#0E1B30", "signal": "#0A5BE0", "signalDark": "#5AAEFF",
+         "ground": ["#FFFFFF", "#E7EFFB"], "front": ["#2C86FF", "#0A4FE0"], "flap": ["#6CB4FF", "#4B9EFF"],
+         "groundDark": ["#1C2B4B", "#0A1122"], "frontDark": ["#3E9BFF", "#1458EC"], "flapDark": ["#9CCFFF", "#62AAFF"],
+         "frontSmall": ["#2479F7", "#0A4AD8"], "flapSmall": ["#59A8FF", "#3F95FF"]}
+
 # (token, light, dark, lightHC, darkHC, group, use)
 COLOR = [
  # surfaces
@@ -66,6 +75,8 @@ COLOR = [
  ("dangerFillHover",   "#9C251B", "#C8402F", "#7A170F", "#C8402F", "semantic", "Destructive button hover"),
  ("dangerFillPressed", "#8A2018", "#A93226", "#68130C", "#A93226", "semantic", "Destructive button pressed"),
  ("onDanger",          "#FFFFFF", "#FFFFFF", "#FFFFFF", "#FFFFFF", "semantic", "Text and glyph on dangerFill"),
+ # the brand's own blue, never the theme's ink: Signal and Signal Dark, one step deeper and lighter in IC
+ ("brandMark", BRAND["signal"], BRAND["signalDark"], "#084BBA", "#8CC8FF", "semantic", "The brand mark on the welcome screen (one colour, the brand's blue in every coloured theme; `ink` under Graphite and in Gallery)"),
 ]
 
 ACCOUNTS = [
@@ -195,7 +206,7 @@ LAYOUT = {
                  "compactHeight": 24, "compactLabelX": 24, "compactLabelY": 5, "compactRuleY": 12},
  "listFooter": {"height": 28, "spinner": 12, "gap": 6},
  "syncLine": {"height": 28, "padX": 16, "gap": 6, "glyph": 12},
- "emptyState": {"offlineGlyph": 20, "offlineGlyphGap": 8, "maxWidth": 300, "glyph": 30, "glyphGap": 8, "lineGap": 4},
+ "emptyState": {"offlineGlyph": 20, "offlineGlyphGap": 8, "maxWidth": 300, "glyph": 40, "glyphGap": 8, "lineGap": 4},
  "skeleton": {"delay": "motion.duration.skeletonDelay", "circle": 30, "circleX": 24, "circleY": 19, "barRadius": 3,
               "senderBar": [68, 14, 120, 9], "timeBar": [28, 9], "subjectBar": [68, 32, 190, 10], "snippetBar": [68, 50, 240, 8], "widthJitter": 0.3,
               "bodyBars": [1.0, 0.92, 0.6], "bodyBarHeight": 10, "bodyBarGap": 14},
@@ -261,7 +272,7 @@ LAYOUT = {
  "kbd": {"largeHeight": 24, "largeFont": 12, "height": 18, "minWidth": 18, "padX": 4, "radius": 3, "largeRadius": 5, "inField": 16},
  "progress": {"indeterminateSegment": 0.36, "reducedSegment": 0.4, "barHeight": 4, "barRadius": 2, "contrail": 2, "contrailHead": 4, "contrailTail": 32,
               "spinner": [12, 16, 32], "spinnerStroke": [1.5, 2, 3], "spinnerArc": 0.75},
- "welcome": {"blockWidth": 360, "blockCenterY": 0.45, "mark": 52, "titleGap": 14, "taglineGap": 4, "actionsGap": 28, "buttonWidth": 328, "buttonGap": 10, "demoGap": 12, "footGap": 20, "footWidth": 330, "linkGap": 10, "bannerGap": 16, "spinner": 16},
+ "welcome": {"blockWidth": 360, "blockCenterY": 0.45, "mark": 65, "titleGap": 14, "taglineGap": 4, "actionsGap": 28, "buttonWidth": 328, "buttonGap": 10, "demoGap": 12, "footGap": 20, "footWidth": 330, "linkGap": 10, "bannerGap": 16, "spinner": 16},
  "settings": {"width": 560, "padTop": 20, "padX": 24, "padBottom": 22, "row": 40, "rowGap": 12, "accountRow": 56, "accountFace": 30, "accountHairlineX": 62,
               "groupRadius": 8, "labelColumn": 140, "swatch": 14, "monogramMaxLength": 2, "plusMinus": 22, "plusMinusGlyph": 11, "plusMinusTop": 8,
               "fieldHeight": 24, "noticeGap": 16, "labelGap": 12, "fieldWidth": 360, "captionMaxWidth": 360, "captionGap": 8, "sectionGap": 20,
@@ -275,7 +286,27 @@ LAYOUT = {
  "menu": {"titleMenuOffsetY": 4},
  "iconSize": {"window": 15, "inText": 14, "row": 12, "rail": 18},
  "notification": {"bodyMaxChars": 120, "summaryThreshold": 3, "summaryWindowSeconds": 30},
- "appIcon": {"faceTop": "#FBF8F1", "faceBottom": "#ECE5D7", "darkFaceTop": "#2A2825", "darkFaceBottom": "#171614", "laidLineAlpha": 0.04, "laidLineStep": 0.03125, "corner": 0.225, "stampInset": 0.09, "stampWidth": 0.015625, "stampAlpha": 0.28, "markWidth": 0.6, "markOffsetX": -0.02, "markOffsetY": -0.03},
+ # The app icon (spec §5.42) on the macOS 1024 template, y down: the body is the `body` square centred on the `canvas`; the
+ # mark is the brand glyph (its front, then its flap) in the `markSize` square at (markX, markY), so the envelope is
+ # 432 tall with its top at y 300. `corner`, `smoothing` and the shadow are the macOS 15 template's, for the
+ # raster (the system masks and lights the icon itself on macOS 26 and later). Colours come from BRAND: the ground and both
+ # parts run top to bottom over their own height; `mono*` are the parts' white opacity in the tinted and clear appearances.
+ # `fit16` and `fit32` are the pixel-fitted 16 and 32 px masters: the body a whole number of pixels, and the envelope's
+ # front and flap drawn on that size's own pixel grid (path data in pixels).
+ "appIcon": {"canvas": 1024, "body": 824, "corner": 0.225, "smoothing": 0.6, "shadowY": 10, "shadowBlur": 15, "shadowAlpha": 0.28,
+             "markX": 152, "markY": 156, "markSize": 720,
+             "ground": BRAND["ground"], "front": BRAND["front"], "flap": BRAND["flap"],
+             "groundDark": BRAND["groundDark"], "frontDark": BRAND["frontDark"], "flapDark": BRAND["flapDark"],
+             "monoFront": 0.7, "monoFlap": 1, "frontSmall": BRAND["frontSmall"], "flapSmall": BRAND["flapSmall"],
+             "fit16": {"body": 768, "paths": ["M3.97 7 L6 7 L6 8 L8 8 L8 9 L9 9 L9 8 L11 8 L11 7 L12.455 7 L11.731 10.406 C11.658 10.752 11.352 11 10.998 11 L3.861 11 C3.479 11 3.194 10.648 3.274 10.275 L3.97 7 Z", "M5.002 5 L12.139 5 C12.521 5 12.806 5.352 12.726 5.725 L12.668 6 L11 6 L11 7 L9 7 L9 8 L8 8 L8 7 L6 7 L6 6 L4.182 6 L4.269 5.594 C4.342 5.248 4.648 5 5.002 5 Z"]},
+             "fit32": {"body": 832, "paths": ["M6.991 11.812 C10.393 13.727 13.551 15.946 16.465 18.467 C16.771 18.732 17.227 18.732 17.533 18.466 C20.438 15.951 23.513 13.779 26.76 11.951 L24.681 21.733 C24.524 22.472 23.871 23 23.116 23 L6.28 23 C5.421 23 4.781 22.209 4.959 21.369 L6.991 11.812 Z", "M8.884 9 L25.72 9 C26.579 9 27.219 9.791 27.041 10.631 L27.026 10.699 C22.909 12.497 19.624 14.227 17.169 15.891 C17.067 15.961 16.932 15.961 16.829 15.891 C14.378 14.229 11.17 12.532 7.206 10.801 L7.319 10.267 C7.476 9.528 8.129 9 8.884 9 Z"]}},
+ # The brand palette's one-colour inks and the lockups (docs/brand, spec §5.42). Lockup metrics are in the wordmark's units
+ # (x-height 100, cap height `capHeight`): the envelope's height and the gap between its sheared right side and the word's
+ # 12° origin line beside the word, or its height and its space above the cap height stacked. `monoSmall` is the
+ # one-colour mark below 24 px, on the glyph's grid: the crease kept open at the sides and wider at the apex.
+ "brand": {"ink": BRAND["ink"], "signal": BRAND["signal"], "signalDark": BRAND["signalDark"], "capHeight": 138,
+           "lockupMark": 144.9, "lockupGap": 72.45, "stackedMark": 303.6, "stackedGap": 82.8,
+           "monoSmall": ["M11.341 17.456 C14.641 19.726 17.802 22.259 20.827 25.055 C21.296 25.488 22.02 25.488 22.488 25.055 C24.128 23.538 25.792 22.106 27.481 20.762 C31.498 17.564 36.699 21.278 35.631 26.3 L34.986 29.339 C34.656 30.89 33.285 32 31.699 32 L4.035 32 C2.204 32 0.837 30.313 1.218 28.521 L2.792 21.118 C3.628 17.183 8.027 15.176 11.341 17.456 Z", "M6.695 8 L37.934 8 C38.751 8 39.361 8.753 39.191 9.552 L39.178 9.613 C38.99 10.501 38.363 11.231 37.518 11.563 C30.923 14.154 25.729 16.703 21.938 19.21 C21.768 19.322 21.548 19.322 21.378 19.21 C17.725 16.792 12.884 14.381 6.856 11.977 C5.731 11.529 5.083 10.339 5.335 9.155 L5.348 9.091 C5.483 8.455 6.045 8 6.695 8 Z"]},
 }
 ICON = {
  "archive": "archivebox", "trash": "trash", "star": "star", "unstar": "star.fill", "markUnread": "envelope.badge", "markRead": "envelope.open",
@@ -291,7 +322,7 @@ ICON = {
  "viewInbox": "tray", "viewStarred": "star", "viewSent": "paperplane", "viewDrafts": "doc", "viewTrash": "trash", "viewAllMail": "archivebox",
  "viewLater": "clock", "later": "clock", "spam": "xmark.bin",
  "moveToInbox": "tray.and.arrow.down", "privacy": "lock", "success": "checkmark.circle.fill", "info": "info.circle", "warning": "exclamationmark.triangle.fill",
- "brand": "ss.sparrow", "keyboard": "keyboard", "dismiss": "xmark",
+ "brand": "ss.italicEnvelope", "keyboard": "keyboard", "dismiss": "xmark",
  "removeAccount": "minus", "bold": "bold", "italic": "italic", "underline": "underline", "bulletedList": "list.bullet", "numberedList": "list.number",
  "blockQuote": "text.quote", "link": "link", "undone": "arrow.uturn.backward", "demo": "info.circle",
  "addAccountProvider": "envelope", "attention": "exclamationmark", "waitingToSync": "clock", "discardDraft": "trash",
@@ -306,7 +337,7 @@ GLYPHS = {
  "ss.nib": {"grid": 16, "stroke": 1.5, "paths": ["M2.91 13.09 L4.32 7.01 C4.43 6.27 4.99 5.7 5.67 5.53 L8.64 4.68 L11.32 7.36 L10.47 10.33 C10.3 11.01 9.73 11.57 8.99 11.68 Z", "M10.47 2.56 L13.44 5.53 L11.46 7.51 L8.49 4.54 Z", "M2.91 13.09 L6.66 9.34"], "fills": [{"circle": [7.47, 8.53, 0.9]}], "meaning": "New message: a pen nib"},
  "ss.elide": {"grid": 16, "stroke": 1.5, "paths": ["M4.75 2.75h-2v10.5h2", "M11.25 2.75h2v10.5h-2"], "fills": [{"circle": [5.6, 10.6, 0.95]}, {"circle": [8, 10.6, 0.95]}, {"circle": [10.4, 10.6, 0.95]}], "meaning": "Quoted text folded: the editor's […]"},
  "ss.queued": {"grid": 12, "stroke": 1.5, "paths": ["M5.75 6.25 9.75 2.25", "M6.25 2.25h3.5v3.5"], "fills": [{"circle": [2.75, 9.25, 1.6]}], "meaning": "Applied on this Mac, waiting to reach the server: a dot (here) and a straight arrow (on its way). Static, never rotates"},
- "ss.sparrow": {"grid": 24, "stroke": 0, "fillRule": "evenodd", "paths": ["M7.6 12.9 C8.3 9.9 10.9 7.6 14 7.2 C14.7 5 16.5 3.7 18.5 3.9 C20 4.1 21.1 5.1 21.5 6.3 L23.4 7.3 L21.5 8 C21.3 12.8 17.9 16.7 13.2 17.3 C11.6 17.5 10.1 17.3 8.8 16.8 L2.2 18.6 L3.4 16.9 L1.2 15.9 Z M10.4 12.3 C12 10.7 14.3 10.1 16.4 10.4 C14.6 10.9 12.7 11.9 11.2 13.6 Z M18.6 6.55 m-0.85 0 a0.85 0.85 0 1 0 1.7 0 a0.85 0.85 0 1 0 -1.7 0 Z"], "fills": [], "meaning": "Brand mark (welcome, app icon, About, inbox zero)"},
+ "ss.italicEnvelope": {"grid": 40, "stroke": 0, "paths": ["M4.687 12.2 C10.757 14.955 16.004 18.815 20.427 23.779 C21.08 24.511 22.236 24.511 22.888 23.779 C27.312 18.815 32.559 14.955 38.629 12.2 L34.986 29.339 C34.656 30.89 33.285 32 31.699 32 L4.035 32 C2.204 32 0.837 30.313 1.218 28.521 L4.687 12.2 Z", "M8.301 8 L35.965 8 C37.796 8 39.163 9.687 38.782 11.479 L38.629 12.2 C31.514 14.126 25.959 16.673 21.964 19.84 C21.785 19.982 21.531 19.982 21.352 19.84 C17.357 16.673 11.802 14.126 4.687 12.2 L5.014 10.661 C5.344 9.11 6.715 8 8.301 8 Z"], "fills": [], "meaning": "Brand mark, the italic envelope: a √2 envelope sheared 12°, its crease a tapered V (welcome, app icon, About, inbox zero)"},
 }
 READER_SYMBOLS = ["star", "star.fill", "arrowshape.turn.up.left", "arrowshape.turn.up.left.2", "arrowshape.turn.up.right", "ellipsis",
                   "circle.lefthalf.filled", "xmark", "photo", "exclamationmark.triangle.fill", "wifi.slash",
@@ -317,7 +348,7 @@ READER_SYMBOLS = ["star", "star.fill", "arrowshape.turn.up.left", "arrowshape.tu
 # (composited left to right). Tokens not listed are unchanged, including selWashIdle, selRuleIdle and every account ink.
 # build.py regenerates every contrast pair that touches a listed token with these substitutions and asserts it.
 GRAPHITE = {
- "accent": ("ink", "Pip, unread time, links (underlined at rest under Graphite), margin rule colour, contrail, progress, drop label, caret, welcome mark, dot badges"),
+ "accent": ("ink", "Pip, unread time, links (underlined at rest under Graphite), margin rule colour, contrail, progress, drop label, caret, dot badges"),
  "accentFill": ("ink", "Primary button, unread count badge, checkbox and radio on, toggle on track, selected token"),
  "accentFillHover": ("ink2", "Primary button hover; checkbox and radio on, hover: the fill steps back toward the surface"),
  "accentFillPressed": ("ink3", "Primary button pressed: one step further back"),
@@ -330,6 +361,7 @@ GRAPHITE = {
  "selWash": ("selWashIdle", "Selection, window key: the idle wash; key and not key differ by the rule (`ink` against `ink3`), and the rule is the scan cue"),
  "selRule": ("ink", "Margin rule, window key (rows, rail, Settings account row, autocomplete highlight)"),
  "knob": ("paper", "Toggle knob face, so it stays distinct from the `ink` on track in dark appearances"),
+ "brandMark": ("ink", "The welcome screen's mark: the user asked for no colour, so the brand's blue gives way to the ink"),
 }
 
 # Settings > General > Text size (§4.15, roadmap Q2.6): the popup's names and the step in points each adds to every role where

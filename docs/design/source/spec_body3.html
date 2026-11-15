@@ -319,8 +319,8 @@
 
   <div class="c4 card">
     <h3>Empty states <code>layout.emptyState</code></h3>
-    <p class="cap">One serif sentence and one hint. Only inbox zero shows the sparrow.</p>
-    <div class="empty"><span style="color:var(--q-ink3)">{{PY: g('ss.sparrow', 30)}}</span><b>Nothing left to read.</b><i>New mail will land here.</i></div>
+    <p class="cap">One serif sentence and one hint. Only inbox zero shows the brand mark.</p>
+    <div class="empty"><span style="color:var(--q-ink3)">{{PY: g('ss.italicEnvelope', 40)}}</span><b>Nothing left to read.</b><i>New mail will land here.</i></div>
     <div class="empty" style="margin-top:14px"><b>No results for “lisbon flat”</b><i>Not on this Mac? <span style="color:var(--q-accent)">Search Gmail</span></i></div>
     <div class="empty" style="margin-top:14px"><b>No starred conversations</b><i>Press S to star one.</i></div>
     <div class="empty" style="margin-top:14px;background:var(--q-canvas);border-radius:8px;padding:14px"><b>No conversation selected</b><i><span class="kbd">J</span> <span class="kbd">K</span> to move · <span class="kbd">↩</span> to open</i></div>
@@ -377,7 +377,7 @@
     <h3>Alerts <code>NSAlert sheet</code></h3>
     <p class="cap">System alert, app icon, Quire words. The safe choice is the default; the destructive button sets <code>hasDestructiveAction</code>.</p>
     <div class="alert">
-      <div class="ic">{{PY: '<span class="appicon" style="--s:52px">' + g('ss.sparrow', 31) + '</span>'}}</div>
+      <div class="ic">{{PY: app_icon(52)}}</div>
       <h4>Discard this draft?</h4>
       <p>The message to Ben Carter hasn’t been sent. Discarding removes it from this Mac.</p>
       <div class="bs"><span class="ab def">Keep Writing</span><span class="ab des">Discard</span></div>
@@ -388,10 +388,10 @@
     <h3>Notifications and app icon</h3>
     <p class="cap">System-drawn; Quire supplies the words: the content, and for one conversation the actions Archive, Mark as Read and Reply. Private mode hides sender and subject.</p>
     <div style="display:grid;gap:10px">
-      <div class="notif"><span class="ni appicon" style="--s:36px">{{PY: g('ss.sparrow', 22)}}</span><div class="nt"><b>Ben Carter<span>now</span></b><i>Contoso rollout: go-live checklist</i><em>Tested with three accounts this afternoon, all good.</em></div></div>
-      <div class="notif"><span class="ni appicon" style="--s:36px">{{PY: g('ss.sparrow', 22)}}</span><div class="nt"><b>New message<span>2 min ago</span></b><i>Contoso</i></div></div>
+      <div class="notif"><span class="ni">{{PY: app_icon(36)}}</span><div class="nt"><b>Ben Carter<span>now</span></b><i>Contoso rollout: go-live checklist</i><em>Tested with three accounts this afternoon, all good.</em></div></div>
+      <div class="notif"><span class="ni">{{PY: app_icon(36)}}</span><div class="nt"><b>New message<span>2 min ago</span></b><i>Contoso</i></div></div>
     </div>
-    <div class="rowline" style="margin-top:14px;gap:14px"><span class="appicon" style="--s:64px">{{PY: g('ss.sparrow', 38)}}</span><span class="appicon dk" style="--s:64px">{{PY: g('ss.sparrow', 38)}}</span><span class="appicon tn" style="--s:64px">{{PY: g('ss.sparrow', 38)}}</span><span class="ann">default · dark · tinted</span></div>
+    <div class="rowline" style="margin-top:14px;gap:14px">{{PY: app_icon(64)}}{{PY: app_icon(64, 'dark')}}{{PY: app_icon(64, 'tinted')}}<span class="ann">default · dark · tinted</span></div>
   </div>
 
   <div class="c12 card ic ic-panel">

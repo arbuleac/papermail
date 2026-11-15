@@ -1,5 +1,7 @@
 # Quire
 
+> **Historical proposal.** Its sparrow mark (`ss.sparrow`) and laid-paper app icon are retired. The brand is in [`docs/brand`](../../../brand/README.md), and the design language in [`docs/DESIGN-LANGUAGE.md`](../../../DESIGN-LANGUAGE.md).
+
 **A design language for SuperSparrow.** Editorial direction · proposal · 2 November 2026
 
 A quire is a gathering of folded sheets, the unit a book is sewn from. Quire treats mail the same way: each conversation is a tight stack of folded messages and one open sheet, set in New York on warm paper and marked in a single ink, **Iron Gall**, the blue-black ink letters were written in for a thousand years. The list stays compact and still, like an index. The reader gets the room of a page.

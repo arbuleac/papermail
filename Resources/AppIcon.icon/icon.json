@@ -1,114 +1,157 @@
 {
   "fill-specializations" : [
-    { "value" : { "solid" : "srgb:0.98431,0.97255,0.94510,1.00000" } },
-    { "appearance" : "dark", "value" : { "solid" : "srgb:0.16471,0.15686,0.14510,1.00000" } }
+    {
+      "value" : {
+        "linear-gradient" : [
+          "srgb:1.00000,1.00000,1.00000,1.00000",
+          "srgb:0.90588,0.93725,0.98431,1.00000"
+        ],
+        "orientation" : {
+          "start" : {
+            "x" : 0.5,
+            "y" : 0
+          },
+          "stop" : {
+            "x" : 0.5,
+            "y" : 1
+          }
+        }
+      }
+    },
+    {
+      "appearance" : "dark",
+      "value" : {
+        "linear-gradient" : [
+          "srgb:0.10980,0.16863,0.29412,1.00000",
+          "srgb:0.03922,0.06667,0.13333,1.00000"
+        ],
+        "orientation" : {
+          "start" : {
+            "x" : 0.5,
+            "y" : 0
+          },
+          "stop" : {
+            "x" : 0.5,
+            "y" : 1
+          }
+        }
+      }
+    }
   ],
   "groups" : [
     {
       "layers" : [
-      {
-      "glass" : false,
-      "hidden-specializations" : [
-        { "value" : false },
-        { "appearance" : "dark", "value" : true },
-        { "appearance" : "tinted", "value" : true }
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "linear-gradient" : [
+                  "srgb:0.42353,0.70588,1.00000,1.00000",
+                  "srgb:0.29412,0.61961,1.00000,1.00000"
+                ],
+                "orientation" : {
+                  "start" : {
+                    "x" : 0.5,
+                    "y" : 0
+                  },
+                  "stop" : {
+                    "x" : 0.5,
+                    "y" : 1
+                  }
+                }
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "linear-gradient" : [
+                  "srgb:0.61176,0.81176,1.00000,1.00000",
+                  "srgb:0.38431,0.66667,1.00000,1.00000"
+                ],
+                "orientation" : {
+                  "start" : {
+                    "x" : 0.5,
+                    "y" : 0
+                  },
+                  "stop" : {
+                    "x" : 0.5,
+                    "y" : 1
+                  }
+                }
+              }
+            },
+            {
+              "appearance" : "tinted",
+              "value" : {
+                "solid" : "srgb:1.00000,1.00000,1.00000,1.00000"
+              }
+            }
+          ],
+          "glass" : true,
+          "image-name" : "flap.svg",
+          "name" : "Flap"
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "linear-gradient" : [
+                  "srgb:0.17255,0.52549,1.00000,1.00000",
+                  "srgb:0.03922,0.30980,0.87843,1.00000"
+                ],
+                "orientation" : {
+                  "start" : {
+                    "x" : 0.5,
+                    "y" : 0
+                  },
+                  "stop" : {
+                    "x" : 0.5,
+                    "y" : 1
+                  }
+                }
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "linear-gradient" : [
+                  "srgb:0.24314,0.60784,1.00000,1.00000",
+                  "srgb:0.07843,0.34510,0.92549,1.00000"
+                ],
+                "orientation" : {
+                  "start" : {
+                    "x" : 0.5,
+                    "y" : 0
+                  },
+                  "stop" : {
+                    "x" : 0.5,
+                    "y" : 1
+                  }
+                }
+              }
+            },
+            {
+              "appearance" : "tinted",
+              "value" : {
+                "solid" : "srgb:1.00000,1.00000,1.00000,1.00000"
+              }
+            }
+          ],
+          "glass" : true,
+          "image-name" : "front.svg",
+          "name" : "Front",
+          "opacity-specializations" : [
+            {
+              "value" : 1
+            },
+            {
+              "appearance" : "tinted",
+              "value" : 0.7
+            }
+          ]
+        }
       ],
-      "image-name" : "mark.svg",
-      "name" : "mark"
-      },
-      {
-      "glass" : false,
-      "hidden-specializations" : [
-        { "value" : true },
-        { "appearance" : "dark", "value" : false },
-        { "appearance" : "tinted", "value" : true }
-      ],
-      "image-name" : "mark-dark.svg",
-      "name" : "mark-dark"
-      },
-      {
-      "glass" : false,
-      "hidden-specializations" : [
-        { "value" : true },
-        { "appearance" : "dark", "value" : true },
-        { "appearance" : "tinted", "value" : false }
-      ],
-      "image-name" : "mark-tinted.svg",
-      "name" : "mark-tinted"
-      }
-      ],
-      "name" : "Mark",
-      "shadow" : { "kind" : "none", "opacity" : 0 },
-      "specular" : false,
-      "translucency" : { "enabled" : false, "value" : 0 }
-    },
-    {
-      "layers" : [
-      {
-      "glass" : false,
-      "hidden-specializations" : [
-        { "value" : false },
-        { "appearance" : "dark", "value" : true },
-        { "appearance" : "tinted", "value" : true }
-      ],
-      "image-name" : "stamp.svg",
-      "name" : "stamp"
-      },
-      {
-      "glass" : false,
-      "hidden-specializations" : [
-        { "value" : true },
-        { "appearance" : "dark", "value" : false },
-        { "appearance" : "tinted", "value" : true }
-      ],
-      "image-name" : "stamp-dark.svg",
-      "name" : "stamp-dark"
-      },
-      {
-      "glass" : false,
-      "hidden-specializations" : [
-        { "value" : false },
-        { "appearance" : "dark", "value" : true },
-        { "appearance" : "tinted", "value" : true }
-      ],
-      "image-name" : "laid.svg",
-      "name" : "laid"
-      },
-      {
-      "glass" : false,
-      "hidden-specializations" : [
-        { "value" : true },
-        { "appearance" : "dark", "value" : false },
-        { "appearance" : "tinted", "value" : true }
-      ],
-      "image-name" : "laid-dark.svg",
-      "name" : "laid-dark"
-      },
-      {
-      "glass" : false,
-      "hidden-specializations" : [
-        { "value" : false },
-        { "appearance" : "dark", "value" : true },
-        { "appearance" : "tinted", "value" : true }
-      ],
-      "image-name" : "face.svg",
-      "name" : "face"
-      },
-      {
-      "glass" : false,
-      "hidden-specializations" : [
-        { "value" : true },
-        { "appearance" : "dark", "value" : false },
-        { "appearance" : "tinted", "value" : true }
-      ],
-      "image-name" : "face-dark.svg",
-      "name" : "face-dark"
-      }
-      ],
-      "name" : "Paper",
-      "shadow" : { "kind" : "none", "opacity" : 0 },
-      "specular" : false,
-      "translucency" : { "enabled" : false, "value" : 0 }
+      "name" : "Envelope"
     }
   ],
   "supported-platforms" : {

@@ -196,7 +196,7 @@ extension Quire {
             public static let offlineGlyph: CGFloat = 20
             public static let offlineGlyphGap: CGFloat = 8
             public static let maxWidth: CGFloat = 300
-            public static let glyph: CGFloat = 30
+            public static let glyph: CGFloat = 40
             public static let glyphGap: CGFloat = 8
             public static let lineGap: CGFloat = 4
         }
@@ -688,7 +688,7 @@ extension Quire {
         public enum Welcome {
             public static let blockWidth: CGFloat = 360
             public static let blockCenterY: CGFloat = 0.45
-            public static let mark: CGFloat = 52
+            public static let mark: CGFloat = 65
             public static let titleGap: CGFloat = 14
             public static let taglineGap: CGFloat = 4
             public static let actionsGap: CGFloat = 28
@@ -778,19 +778,45 @@ extension Quire {
             public static let summaryWindowSeconds: CGFloat = 30
         }
         public enum AppIcon {
-            public static let faceTop: String = "#FBF8F1"
-            public static let faceBottom: String = "#ECE5D7"
-            public static let darkFaceTop: String = "#2A2825"
-            public static let darkFaceBottom: String = "#171614"
-            public static let laidLineAlpha: CGFloat = 0.04
-            public static let laidLineStep: CGFloat = 0.03125
+            public static let canvas: CGFloat = 1024
+            public static let body: CGFloat = 824
             public static let corner: CGFloat = 0.225
-            public static let stampInset: CGFloat = 0.09
-            public static let stampWidth: CGFloat = 0.015625
-            public static let stampAlpha: CGFloat = 0.28
-            public static let markWidth: CGFloat = 0.6
-            public static let markOffsetX: CGFloat = -0.02
-            public static let markOffsetY: CGFloat = -0.03
+            public static let smoothing: CGFloat = 0.6
+            public static let shadowY: CGFloat = 10
+            public static let shadowBlur: CGFloat = 15
+            public static let shadowAlpha: CGFloat = 0.28
+            public static let markX: CGFloat = 152
+            public static let markY: CGFloat = 156
+            public static let markSize: CGFloat = 720
+            public static let ground: [String] = ["#FFFFFF", "#E7EFFB"]
+            public static let front: [String] = ["#2C86FF", "#0A4FE0"]
+            public static let flap: [String] = ["#6CB4FF", "#4B9EFF"]
+            public static let groundDark: [String] = ["#1C2B4B", "#0A1122"]
+            public static let frontDark: [String] = ["#3E9BFF", "#1458EC"]
+            public static let flapDark: [String] = ["#9CCFFF", "#62AAFF"]
+            public static let monoFront: CGFloat = 0.7
+            public static let monoFlap: CGFloat = 1
+            public static let frontSmall: [String] = ["#2479F7", "#0A4AD8"]
+            public static let flapSmall: [String] = ["#59A8FF", "#3F95FF"]
+            public enum Fit16 {
+                public static let body: CGFloat = 768
+                public static let paths: [String] = ["M3.97 7 L6 7 L6 8 L8 8 L8 9 L9 9 L9 8 L11 8 L11 7 L12.455 7 L11.731 10.406 C11.658 10.752 11.352 11 10.998 11 L3.861 11 C3.479 11 3.194 10.648 3.274 10.275 L3.97 7 Z", "M5.002 5 L12.139 5 C12.521 5 12.806 5.352 12.726 5.725 L12.668 6 L11 6 L11 7 L9 7 L9 8 L8 8 L8 7 L6 7 L6 6 L4.182 6 L4.269 5.594 C4.342 5.248 4.648 5 5.002 5 Z"]
+            }
+            public enum Fit32 {
+                public static let body: CGFloat = 832
+                public static let paths: [String] = ["M6.991 11.812 C10.393 13.727 13.551 15.946 16.465 18.467 C16.771 18.732 17.227 18.732 17.533 18.466 C20.438 15.951 23.513 13.779 26.76 11.951 L24.681 21.733 C24.524 22.472 23.871 23 23.116 23 L6.28 23 C5.421 23 4.781 22.209 4.959 21.369 L6.991 11.812 Z", "M8.884 9 L25.72 9 C26.579 9 27.219 9.791 27.041 10.631 L27.026 10.699 C22.909 12.497 19.624 14.227 17.169 15.891 C17.067 15.961 16.932 15.961 16.829 15.891 C14.378 14.229 11.17 12.532 7.206 10.801 L7.319 10.267 C7.476 9.528 8.129 9 8.884 9 Z"]
+            }
+        }
+        public enum Brand {
+            public static let ink: String = "#0E1B30"
+            public static let signal: String = "#0A5BE0"
+            public static let signalDark: String = "#5AAEFF"
+            public static let capHeight: CGFloat = 138
+            public static let lockupMark: CGFloat = 144.9
+            public static let lockupGap: CGFloat = 72.45
+            public static let stackedMark: CGFloat = 303.6
+            public static let stackedGap: CGFloat = 82.8
+            public static let monoSmall: [String] = ["M11.341 17.456 C14.641 19.726 17.802 22.259 20.827 25.055 C21.296 25.488 22.02 25.488 22.488 25.055 C24.128 23.538 25.792 22.106 27.481 20.762 C31.498 17.564 36.699 21.278 35.631 26.3 L34.986 29.339 C34.656 30.89 33.285 32 31.699 32 L4.035 32 C2.204 32 0.837 30.313 1.218 28.521 L2.792 21.118 C3.628 17.183 8.027 15.176 11.341 17.456 Z", "M6.695 8 L37.934 8 C38.751 8 39.361 8.753 39.191 9.552 L39.178 9.613 C38.99 10.501 38.363 11.231 37.518 11.563 C30.923 14.154 25.729 16.703 21.938 19.21 C21.768 19.322 21.548 19.322 21.378 19.21 C17.725 16.792 12.884 14.381 6.856 11.977 C5.731 11.529 5.083 10.339 5.335 9.155 L5.348 9.091 C5.483 8.455 6.045 8 6.695 8 Z"]
         }
     }
 }
