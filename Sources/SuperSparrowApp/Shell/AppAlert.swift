@@ -1,5 +1,6 @@
 import AppKit
 import SSCore
+import SSDesign
 
 /// The app's alerts (spec §5.33): system `NSAlert`s with the app icon, a sentence-case title, a body that says
 /// what happens or went wrong and the remedy, and title-case verbs. The safe choice is the default (↩) and
@@ -41,6 +42,8 @@ struct AppAlert {
         // The safe choice is the default (↩, which also moves it to the default position); `installEscape`
         // keeps Esc on it.
         if let first = alert.buttons.first, first.keyEquivalent != "\r" { first.keyEquivalent = "\r" }
+        // NSAlert makes its buttons, so the hand comes from an overlay on each (§4.17).
+        for button in alert.buttons { QuirePointerOverlay.install(on: button) }
         return alert
     }
 

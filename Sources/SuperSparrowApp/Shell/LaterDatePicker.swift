@@ -81,6 +81,11 @@ final class LaterDatePicker: NSObject {
         accessory.addSubview(timePicker)
         alert.accessoryView = accessory
         alert.window.initialFirstResponder = calendarPicker
+        // AppKit makes and draws all of these, so the hand comes from views laid over them (§4.17): every part of the
+        // calendar a click acts on, the buttons while enabled, the time field's stepper.
+        for button in alert.buttons { QuirePointerOverlay.install(on: button) }
+        QuirePointerOverlay.install(on: calendarPicker)
+        StepperPointerArea.install(on: timePicker)
         updateSnoozeButton()
     }
 
@@ -125,4 +130,57 @@ final class LaterDatePicker: NSObject {
             finish(alert.runModal())
         }
     }
+}
+
+/// The hand over the time field's stepper (§4.17), whose arrows a click steps; the time's digits, chosen by a click and
+/// typed over, keep the system's own pointer. AppKit draws the stepper inside the picker and tells nothing of where, so
+/// its width is what it adds to a picker of the same elements laid out without it, at the trailing edge.
+@MainActor
+private final class StepperPointerArea: NSView, QuirePointerTarget {
+    private weak var picker: NSDatePicker?
+    private var enabledObservation: NSKeyValueObservation?
+    private let stepperWidth: CGFloat
+
+    @discardableResult
+    static func install(on picker: NSDatePicker) -> StepperPointerArea {
+        let area = StepperPointerArea(picker: picker)
+        picker.addSubview(area)
+        return area
+    }
+
+    private init(picker: NSDatePicker) {
+        self.picker = picker
+        let plain = NSDatePicker()
+        plain.datePickerStyle = .textField
+        plain.datePickerElements = picker.datePickerElements
+        plain.font = picker.font
+        plain.calendar = picker.calendar
+        plain.locale = picker.locale
+        plain.timeZone = picker.timeZone
+        plain.dateValue = picker.dateValue
+        plain.sizeToFit()
+        stepperWidth = max(0, picker.fittingSize.width - plain.fittingSize.width)
+        super.init(frame: picker.bounds)
+        autoresizingMask = [.width, .height]
+        enabledObservation = picker.observe(\.isEnabled) { [weak self] _, _ in
+            MainActor.assumeIsolated { self?.pointerRegionsDidChange() }
+        }
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("built in code") }
+
+    var pointerRegions: [QuirePointerRegion] {
+        guard let picker, stepperWidth > 0 else { return [] }
+        let width = min(stepperWidth, bounds.width)
+        return [.control(NSRect(x: bounds.maxX - width, y: bounds.minY, width: width, height: bounds.height), acts: picker.isEnabled)]
+    }
+
+    override func resetCursorRects() {
+        addPointerRects()
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func isAccessibilityElement() -> Bool { false }
 }

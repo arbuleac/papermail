@@ -1,7 +1,7 @@
 import AppKit
 import SSDesign
 
-/// The list's table: Return opens, and the pointer's hover wash.
+/// The list's table: Return opens, the pointer's hover wash, and the pointer itself.
 ///
 /// Return and keypad Enter open the selected conversation. Every other key falls through the responder chain
 /// so the window controller can map j/k and friends; type-select is off so letters are not swallowed here.
@@ -10,7 +10,11 @@ import SSDesign
 /// scrolls (spec §5.7, §8.2): rows that slide under a still pointer draw no wash, and when scrolling ends the
 /// row under the pointer, if any, takes the wash once. That keeps a scroll from redrawing rows for hover and
 /// from asking the avatar cache for anything a plain scroll would not.
-final class MessageListTableView: NSTableView {
+///
+/// The pointer (spec §4.17) is the table's too, not each row view's: row views are recycled and their rects would be
+/// cut to whatever was visible when AppKit last asked, so the table lists one region per visible row and has AppKit ask
+/// again whenever rows scroll, come or go.
+final class MessageListTableView: NSTableView, QuirePointerTarget {
     private static let returnKeyCode: UInt16 = 36
     private static let keypadEnterKeyCode: UInt16 = 76
     /// A wheel scroll has no end notification; this long without a scroll event counts as its end.
@@ -60,6 +64,35 @@ final class MessageListTableView: NSTableView {
         guard index >= 0, let rowView = rowView(atRow: index, makeIfNecessary: false),
               let control = rowView.hitTest(local) as? NSControl else { return hit }
         return control
+    }
+
+    // MARK: Pointer
+
+    /// The hand over each visible conversation row, selected or not, swiped open or not: a click, ⌘-click, double-click
+    /// or drag acts on it. The arrow over heads, the tail and the server row, which a click leaves as they
+    /// are, with the links they hold (Retry, Search Gmail) left to their own hand. The empty space below the rows adds
+    /// none.
+    var pointerRegions: [QuirePointerRegion] {
+        let visible = rows(in: visibleRect)
+        guard visible.length > 0 else { return [] }
+        let holes = childPointerAreas()
+        var regions: [QuirePointerRegion] = []
+        for row in visible.location..<(visible.location + visible.length) {
+            let acts = isHoverableRow?(row) ?? true
+            regions += QuirePointerRegion.regions(rect(ofRow: row), cursor: acts ? .pointingHand : .arrow, cutting: holes)
+        }
+        return regions
+    }
+
+    override func resetCursorRects() {
+        addPointerRects()
+    }
+
+    /// Rows were reloaded, and a row may now be another kind: AppKit asks again. Edits and scrolls add and remove row
+    /// views (`didAdd`, `didRemove`), and `refreshHoverAfterRowEdits()` and `boundsDidScroll()` ask too.
+    override func reloadData() {
+        super.reloadData()
+        pointerRegionsDidChange()
     }
 
     // MARK: Hover
@@ -115,6 +148,7 @@ final class MessageListTableView: NSTableView {
     /// Rows were inserted, removed or moved: the hovered index may now name another row, so the wash goes to
     /// whatever is under the pointer now.
     func refreshHoverAfterRowEdits() {
+        pointerRegionsDidChange()
         guard !isHoverSuspended else { return }
         setHoveredRow(-1)
         setHoveredRow(rowUnderPointer())
@@ -135,6 +169,8 @@ final class MessageListTableView: NSTableView {
     /// Any scroll, wheel or programmatic: rows moved under the pointer, so the wash goes until the scroll
     /// settles. Programmatic scrolls (j/k keeping the selection in view) settle at once.
     func boundsDidScroll() {
+        // The regions are the rows in view, and AppKit cut them to what was visible when it last asked.
+        pointerRegionsDidChange()
         guard !isLiveScrolling else { return }
         guard let event = NSApp.currentEvent, event.type == .scrollWheel else {
             if hoveredRow >= 0 { setHoveredRow(-1) }
@@ -168,6 +204,12 @@ final class MessageListTableView: NSTableView {
     override func didAdd(_ rowView: NSTableRowView, forRow row: Int) {
         super.didAdd(rowView, forRow: row)
         (rowView as? ConversationRowView)?.isHovered = (row == hoveredRow && !isHoverSuspended)
+        pointerRegionsDidChange()
+    }
+
+    override func didRemove(_ rowView: NSTableRowView, forRow row: Int) {
+        super.didRemove(rowView, forRow: row)
+        pointerRegionsDidChange()
     }
 
     // MARK: Focus

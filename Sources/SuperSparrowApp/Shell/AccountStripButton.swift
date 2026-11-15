@@ -137,6 +137,14 @@ final class AccountStripButton: QuireControl {
         spinner?.size = content == .pending ? .medium : .small
         needsLayout = true
         needsDisplay = true
+        pointerRegionsDidChange()
+    }
+
+    /// The arrow over the pending tile, which a click leaves as it is (§4.17). Every other tile takes the hand over its
+    /// 44 pt square, never its full-width frame, the selected one too: a click chooses it again, and a folder's ends a
+    /// search.
+    override var pointerCursor: NSCursor? {
+        content == .pending ? .arrow : super.pointerCursor
     }
 
     /// Only the selected tile of each group is a Tab stop: Tab enters the folders once and the accounts once, and

@@ -50,6 +50,12 @@ final class HairlineSplitView: NSSplitView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("built in code") }
 
+    /// The dividers' resize pointer is AppKit's own and cannot be cut: under the cheat sheet, whose scrim takes the click
+    /// there, it is left out (§4.17).
+    override func resetCursorRects() {
+        if !isUnderPointerCover { super.resetCursorRects() }
+    }
+
     /// One device pixel. The split controller's items are added before the view is in a window, so the main
     /// screen's scale is the best guess then; guessing 2 on a 1× display laid out a half-point divider that
     /// pixel rounding then dropped, and the list ran straight into the reader.
