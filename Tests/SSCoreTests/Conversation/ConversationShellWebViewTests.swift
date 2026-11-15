@@ -347,7 +347,7 @@ final class ConversationShellWebViewTests: XCTestCase {
         let line = try await evaluate(
             "Array.prototype.map.call(document.querySelector('.ss-unsub').parentNode.children, function (n) { return n.className; }).join(',')",
             in: webView) as? String
-        XCTAssertEqual(line, "ss-pip7,ss-name,ss-unsub,ss-addr", "beside the sender: after the name, before the address")
+        XCTAssertEqual(line, "ss-pip7,ss-name,ss-unsub,ss-addr ss-cpt", "beside the sender: after the name, before the address")
         let text = try await evaluate("document.querySelector('.ss-unsub').textContent", in: webView) as? String
         XCTAssertEqual(text, "Unsubscribe")
         let tag = try await evaluate("document.querySelector('.ss-unsub').tagName", in: webView) as? String

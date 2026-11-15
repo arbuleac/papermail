@@ -98,7 +98,7 @@ public enum ConversationShellAssets {
     button { font: inherit; color: inherit; margin: 0; -webkit-appearance: none; appearance: none; }
     button:focus, [tabindex]:focus { outline: none; }
     /* The pointer (spec §4.17): the pointing hand over everything a click acts on, which is every button the script
-       makes and every element it gives the button role (a collapsed message, the fold, the open recipients), down to
+       makes and every element it gives the button role (a collapsed message, the fold, a recipient), down to
        the glyphs and words inside them; the arrow over one that is disabled, and over the invitation's chosen answer,
        which a click leaves as it is, as it leaves a chosen radio. The only cursor rules in the shell, so no later rule
        takes the hand away. Text outside them keeps the I-beam the selectable body gives it. */
@@ -202,10 +202,14 @@ public enum ConversationShellAssets {
     .ss-pip7 { width: 7px; height: 7px; border-radius: 50%; background: var(--q-accent); margin-right: 6px; flex: none; display: none; }
     .ss-unread .ss-pip7 { display: inline-block; }
     .ss-nstar { font-size: 12px; color: var(--q-star); margin-left: 4px; }
+    /* The sender's address (spec §5.14): a copy target that shows on the sheet's hover or focus. Its 6 pt text gap is a
+       2 pt margin and the face's 4 pt padding; its 24 pt hit reaches 6 pt up into the sheet's padding (padding with an
+       equal negative margin, since the line's boxes would clip anything drawn outside them) and never down. */
     .ss-addr {
-      flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
-      font: var(--q-font-meta); color: var(--q-ink3); margin-left: 6px; opacity: 0;
+      flex: 0 1 auto; min-width: 0; margin: -6px 0 0 2px; padding-top: 6px;
+      font: var(--q-font-meta); color: var(--q-ink3); opacity: 0;
     }
+    .ss-addr.ss-squeezed { visibility: hidden; }
     .ss-sheet:hover .ss-addr, .ss-sheet:focus-within .ss-addr, .ss-sheet.ss-focus .ss-addr {
       opacity: 1; transition: opacity var(--q-dur-quick) var(--q-ease-settle);
     }
@@ -220,21 +224,87 @@ public enum ConversationShellAssets {
     .ss-unsub:hover, .ss-unsub:active { color: var(--q-ink); }
     .ss-unsub:focus-visible { box-shadow: 0 0 0 1px var(--q-sheet), 0 0 0 calc(1px + var(--ss-ring)) var(--q-focus); }
     /* The link takes room the name line had; the address, which shows nothing at rest, gives its share up before the
-       name gives any, and the line still does not reflow on hover. */
-    .ss-unsub + .ss-addr { flex-shrink: 1000; }
+       name gives any, and the line still does not reflow on hover. Unsubscribe sends a request no undo takes back, so a
+       copy target beside it keeps 8 pt of nothing between the two hits (unsubscribeHitGap): a press that misses the
+       address, which fades in under the pointer, lands on neither. The name, when it is the target, reaches 4 pt past
+       its text, so the link after it starts 12 pt on. */
+    .ss-unsub + .ss-addr { flex-shrink: 1000; margin-left: 8px; }
+    .ss-namet + .ss-unsub { margin-left: 12px; }
+    /* The recipients toggle (spec §5.14): the summary folded, “Hide addresses” open, on the same line in both states. Its
+       hit is the line and the 8 pt below it (recipientsToggleHitBelow), padding with an equal negative margin; the words
+       truncate on an inner box, which also carries the ring, so the ring hugs the line. */
     .ss-rc {
-      display: block; max-width: 100%; padding: 0; border: 0; background: none; border-radius: 3px; text-align: start;
-      font: var(--q-font-snippet); line-height: calc(16px + var(--q-step-snippet, 0px)); color: var(--q-ink2);
+      display: block; max-width: 100%; padding: 0 0 8px; margin-bottom: -8px; border: 0; background: none; text-align: start;
+      font: var(--q-font-snippet); line-height: calc(16px + var(--q-step-snippet, 0px)); color: var(--q-ink2); white-space: nowrap;
+    }
+    .ss-rct { display: block; overflow: hidden; text-overflow: ellipsis; border-radius: 3px; }
+    .ss-rc:hover, .ss-rc:active { color: var(--q-ink); }
+    /* Open, the words are shorter than the summary was, and the hit keeps the summary's width through a copy of it that
+       takes no height and shows nothing, so the place clicked to open the list folds it wherever along the summary it
+       was; the words shrink to their own box, so the ring still hugs them. */
+    .ss-rc.ss-rco .ss-rct {
+      display: inline-block; max-width: 100%; vertical-align: top;
+      text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px;
+    }
+    .ss-rcw { display: block; height: 0; overflow: hidden; visibility: hidden; }
+    .ss-rc:focus-visible .ss-rct { box-shadow: 0 0 0 1px var(--q-sheet), 0 0 0 calc(1px + var(--ss-ring)) var(--q-focus); }
+    /* The open list, 8 pt under the toggle (recipientsTop): every field on one 24 pt pitch (recipientPitch), so the
+       targets' hit rects tile. The value column starts 4 pt into the label column, so a line's first face reaches back
+       there while its text stays at 28 pt. Nothing in it is selectable text, so its labels keep the arrow. */
+    .ss-rcx { margin-top: 8px; -webkit-user-select: none; }
+    .ss-rcf {
+      display: grid; grid-template-columns: 28px minmax(0, 1fr);
+      font: var(--q-font-snippet); line-height: calc(24px + var(--q-step-snippet, 0px));
+    }
+    .ss-rcl { color: var(--q-ink3); }
+    .ss-rcv { color: var(--q-ink2); min-width: 0; margin-left: -4px; }
+    .ss-rp, .ss-rpx {
+      display: inline-block; max-width: 100%; height: calc(24px + var(--q-step-snippet, 0px)); vertical-align: top;
+    }
+    .ss-rp { padding: 2px 0; }
+    .ss-rpx { padding: 0 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ss-rpn { color: var(--q-ink2); }
+    .ss-rpa { color: var(--q-ink3); }
+    .ss-more {
+      height: calc(24px + var(--q-step-snippet, 0px)); padding: 0 4px; border: 0; border-radius: var(--q-r-sm); background: none;
+      vertical-align: top; font: var(--q-font-snippet); line-height: calc(24px + var(--q-step-snippet, 0px)); color: var(--q-ink2);
+      text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px;
+    }
+    .ss-more:hover, .ss-more:active { color: var(--q-ink); }
+    .ss-more:focus-visible { box-shadow: 0 0 0 1px var(--q-sheet), 0 0 0 calc(1px + var(--ss-ring)) var(--q-focus); }
+    /* Copy targets (spec §5.14 “Copying an address”): each recipient, the sender's address, and the name when it is the
+       address. Controls, not text. The face and the ring are drawn on an inner box, so the ring hugs the 20 pt face
+       (18 pt on the name line) while the hit fills the pitch; the face's 4 pt padding reaches past the text, never moving
+       it. */
+    .ss-cpt { -webkit-user-select: none; }
+    .ss-face {
+      position: relative; display: block; padding: 0 4px; border-radius: var(--q-r-sm);
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
-    .ss-rc:focus-visible, .ss-rcx:focus-visible { box-shadow: 0 0 0 1px var(--q-sheet), 0 0 0 calc(1px + var(--ss-ring)) var(--q-focus); }
-    .ss-rcx { display: grid; gap: 2px; border-radius: 3px; }
-    .ss-rcf { display: grid; grid-template-columns: 28px minmax(0, 1fr); font: var(--q-font-snippet); }
-    .ss-rcl { color: var(--q-ink3); }
-    .ss-rcv { color: var(--q-ink2); min-width: 0; }
-    .ss-person { display: inline-block; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: top; margin-right: 0.3em; }
-    .ss-person .ss-pad { color: var(--q-ink3); }
-    .ss-more { padding: 0; border: 0; background: none; font: var(--q-font-snippet); color: var(--q-ink2); text-decoration: underline; text-underline-offset: 2px; }
+    .ss-rp > .ss-face { height: calc(20px + var(--q-step-snippet, 0px)); line-height: calc(20px + var(--q-step-snippet, 0px)); }
+    .ss-addr > .ss-face, .ss-namet > .ss-face {
+      height: calc(18px + var(--q-step-bodyStrong, 0px)); line-height: calc(18px + var(--q-step-bodyStrong, 0px));
+    }
+    .ss-name.ss-namet { overflow: visible; margin: -6px -4px 0; padding-top: 6px; }
+    .ss-cpt:hover > .ss-face, .ss-cpt.ss-menu > .ss-face { background: var(--q-hover); }
+    .ss-cpt:active > .ss-face { background: var(--q-pressed); }
+    .ss-cpt:hover > .ss-face, .ss-cpt:hover .ss-rpn, .ss-cpt:hover .ss-rpa, .ss-cpt:active > .ss-face, .ss-cpt:active .ss-rpn,
+    .ss-cpt:active .ss-rpa, .ss-cpt.ss-menu > .ss-face, .ss-cpt.ss-menu .ss-rpn, .ss-cpt.ss-menu .ss-rpa { color: var(--q-ink); }
+    .ss-cpt:focus-visible > .ss-face { box-shadow: 0 0 0 1px var(--q-sheet), 0 0 0 calc(1px + var(--ss-ring)) var(--q-focus); }
+    /* The copied mark: what was copied keeps its place and its width, unseen, and the checkmark and “Copied” stand over
+       it in ink, leading-aligned (left and width are the part's, set by the script). It comes in at once and, after
+       copiedConfirm, the text cross-fades back. */
+    .ss-copied { opacity: 0; }
+    .ss-mark {
+      position: absolute; top: 0; bottom: 0; display: flex; align-items: center; gap: 4px; overflow: hidden;
+      color: var(--q-ink); pointer-events: none;
+    }
+    .ss-mark > .ss-sym { width: 12px; height: 12px; }
+    .ss-mark.ss-glyph-only > .ss-markw { display: none; }
+    /* The face's own ellipsis is drawn in its colour, not the hidden text's, so it would stay beside the mark. */
+    .ss-face.ss-marked { text-overflow: clip; }
+    .ss-uncopy { opacity: 1; transition: opacity var(--q-dur-quick) var(--q-ease-leave); }
+    .ss-mark.ss-leaving { opacity: 0; transition: opacity var(--q-dur-quick) var(--q-ease-leave); }
     .ss-meta {
       flex: none; display: flex; align-items: center; height: calc(18px + var(--q-step-snippet, 0px));
       font: var(--q-font-snippet); line-height: calc(18px + var(--q-step-snippet, 0px)); font-variant-numeric: tabular-nums; color: var(--q-ink3);
@@ -682,12 +752,25 @@ public enum ConversationShellAssets {
       var heights = {};
       var originalOn = {};
       var recipientsOpen = {};
+      // Per message, while its list of recipients is open: the recipient last reached or clicked, where Tab lands, and
+      // whether “and 24 more” was pressed. Folding forgets both (spec §5.14).
+      var recipientStop = {};
+      var recipientsAll = {};
+      var listSequence = 0;
+      // The one copied mark across the page, since the pasteboard holds one thing ({id, value, form, timer}), the timer of
+      // its cross-fade back, and the target whose person menu is open ({id, value}).
+      var copied = null;
+      var leaveTimer = null;
+      var menuTarget = null;
       var moving = [];
       var motionPosted = false;
       var keyboardNav = false;
       var MIN_ZOOM = 0.74;
       var SKELETON_HEIGHT = 58;
       var MOVE_MS = 180;
+      // `reader.recipientsMaxLines`, and Quire's smallest hit target (`button.minHit`, the recipients' pitch).
+      var RECIPIENT_LINES = 8;
+      var MIN_HIT = 24;
       var IMAGE_POLL_MS = 250;
       var FOCUS_WATCH_MS = 300;
       var IMAGE_LOAD_TIMEOUT = 20000;
@@ -812,11 +895,23 @@ public enum ConversationShellAssets {
       // The app finishes running motion before acting on a key (spec §4.10); it learns that something moves here.
       function noteMotion(node) {
         if (moving.indexOf(node) < 0) { moving.push(node); }
-        if (!motionPosted) {
-          motionPosted = true;
-          post('ss', { kind: 'motion' });
-          setTimeout(function () { motionPosted = false; }, MOVE_MS);
-        }
+        motionStarted();
+      }
+
+      function motionStarted() {
+        if (motionPosted) { return; }
+        motionPosted = true;
+        post('ss', { kind: 'motion' });
+        setTimeout(function () { motionPosted = false; }, MOVE_MS);
+      }
+
+      // A duration token as the head defines it (`--q-dur-copiedConfirm: 1500ms`), so the script waits as long as the
+      // stylesheet says.
+      function cssDuration(name, fallback) {
+        var raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+        var value = parseFloat(raw);
+        if (!isFinite(value)) { return fallback; }
+        return /ms$/.test(raw) ? value : (/s$/.test(raw) ? value * 1000 : value);
       }
 
       function settled(node) {
@@ -842,6 +937,7 @@ public enum ConversationShellAssets {
       }
 
       function finishAll() {
+        if (leaveTimer) { finishLeave(); }
         var running = moving.slice();
         moving = [];
         for (var i = 0; i < state.cards.length; i++) {
@@ -1441,81 +1537,464 @@ public enum ConversationShellAssets {
         return text;
       }
 
-      function personNode(person, last) {
-        var node = el('span', 'ss-person');
-        var label = person.name || '';
-        node.title = label ? label + ' <' + person.address + '>' : person.address;
-        if (label) {
-          node.appendChild(document.createTextNode(label + ' '));
-          node.appendChild(el('span', 'ss-pad', '<' + person.address + '>' + (last ? '' : ',')));
-        } else {
-          node.appendChild(document.createTextNode(person.address + (last ? '' : ',')));
-        }
+      // MARK: Copying an address (spec §5.14)
+
+      // The page names an address by where it stands (`to:1`, `from:0`), never by what it is: the app reads the address
+      // from the store, writes the pasteboard and only then asks for the mark, so no address leaves through a script
+      // message and the page touches no clipboard.
+      function copyAddress(card, value) {
+        post('ss', { kind: 'action', type: 'copyAddress', messageID: card.message.id, attachmentID: null, value: value });
+      }
+
+      // A control the size of its text plus the face's padding, named by its position and, for VoiceOver, by what it shows
+      // without the brackets. `.ss-cpa` is what Copy Address's mark stands over, `.ss-cpc` what Copy Name and Address's does.
+      function copyTarget(cls, value, label) {
+        var node = el('span', cls + ' ss-cpt');
+        node.setAttribute('role', 'button');
+        node.dataset.addr = value;
+        node.setAttribute('aria-label', label);
+        node.title = 'Copy Address';
         return node;
       }
 
-      // The expanded recipients (spec §5.14): one block per field, each recipient whole on its line, cut at
-      // twelve lines behind "and 24 more".
-      function expandedRecipients(card) {
-        var m = card.message;
-        var block = el('div', 'ss-rcx');
-        block.tabIndex = 0;
-        block.setAttribute('role', 'button');
-        block.setAttribute('aria-expanded', 'true');
-        block.setAttribute('aria-label', 'Recipients');
-        block.title = 'Hide Addresses';
-        var fields = m.recipients || [];
-        for (var i = 0; i < fields.length; i++) {
-          var row = el('div', 'ss-rcf');
-          row.appendChild(el('span', 'ss-rcl', fields[i].label));
-          var value = el('span', 'ss-rcv');
-          var people = fields[i].people || [];
-          for (var j = 0; j < people.length; j++) { value.appendChild(personNode(people[j], j === people.length - 1)); }
-          row.appendChild(value);
-          block.appendChild(row);
-        }
-        function close(event) {
-          if (event) { stop(event); }
-          recipientsOpen[m.id] = false;
-          card.animateFit = true;
-          fillWho(card);
-          var summary = card.who.querySelector('.ss-rc');
-          if (summary && block === document.activeElement) { summary.focus(); }
-        }
-        block.addEventListener('click', close);
-        block.addEventListener('keydown', function (event) {
-          if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); close(event); }
-        });
-        return block;
+      // The sender's address on the name line, or the name itself when it is the address.
+      function senderTarget(m, cls, text) {
+        var node = copyTarget(cls, 'from:0', m.from.address);
+        node.tabIndex = 0;
+        var face = el('span', 'ss-face');
+        var part = el('span', 'ss-cpa ss-cpc', text);
+        part.dir = 'ltr';
+        face.appendChild(part);
+        node.appendChild(face);
+        return node;
       }
 
-      function capRecipients(block) {
-        var people = block.querySelectorAll('.ss-person');
-        if (people.length === 0) { return; }
-        var lineHeight = 15;
-        var limit = block.getBoundingClientRect().top + lineHeight * 12 + 2 * 11;
-        var hidden = [];
-        for (var i = 0; i < people.length; i++) {
-          if (people[i].getBoundingClientRect().top >= limit - 1) { hidden.push(people[i]); }
+      // One recipient of the open list: “Ben Carter <ben@contoso.test>,” is one control, comma included. The name keeps
+      // its own direction and the address reads left to right, so an Arabic or Hebrew name leaves the brackets the right
+      // way round.
+      function recipientNode(field, index, person, last) {
+        var comma = last ? '' : ',';
+        if (!person.address) {
+          // An empty group (`undisclosed-recipients:;`) names no one to copy.
+          return el('span', 'ss-rpx', (person.name || '') + comma);
         }
-        if (hidden.length === 0) { return; }
-        for (var j = 0; j < hidden.length; j++) { hidden[j].style.display = 'none'; }
-        var more = button('ss-more', 'and ' + hidden.length + ' more');
+        var node = copyTarget('ss-rp', field + ':' + index, person.name ? person.name + ', ' + person.address : person.address);
+        node.tabIndex = -1;
+        node.dataset.full = person.name ? person.name + ' <' + person.address + '>' : person.address;
+        var face = el('span', 'ss-face');
+        var content = el('span', 'ss-cpc');
+        var address;
+        if (person.name) {
+          var name = el('span', 'ss-rpn', person.name);
+          name.dir = 'auto';
+          content.appendChild(name);
+          content.appendChild(document.createTextNode(' '));
+          address = el('span', 'ss-rpa ss-cpa', '<' + person.address + '>' + comma);
+        } else {
+          // Alone, the address stands where the name would, in the name's ink.
+          address = el('span', 'ss-rpn ss-cpa', person.address + comma);
+        }
+        address.dir = 'ltr';
+        content.appendChild(address);
+        face.appendChild(content);
+        node.appendChild(face);
+        return node;
+      }
+
+      // The toggle keeps its line in both states, so the place clicked to open the list is the place that folds it.
+      function recipientsToggle(card, open) {
+        var summary = recipientSummary(card.message);
+        var toggle = button('ss-rc' + (open ? ' ss-rco' : ''), null, open ? 'Hide Addresses' : 'Show Addresses');
+        toggle.appendChild(el('span', 'ss-rct', open ? 'Hide addresses' : summary));
+        if (open) {
+          // Holds the hit at the summary's width; VoiceOver and Voice Control name the toggle by the words alone.
+          var width = el('span', 'ss-rcw', summary);
+          width.setAttribute('aria-hidden', 'true');
+          toggle.appendChild(width);
+        }
+        toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+        // Folded, the name holds the visible words, so Voice Control's “Click to me” works; open, the words are the name.
+        if (!open) { toggle.setAttribute('aria-label', summary ? 'Recipients, ' + summary.split(' · ').join(', ') : 'Recipients'); }
+        toggle.addEventListener('click', function (event) {
+          stop(event);
+          setTarget(card, true);
+          if (!(card.message.recipients || []).length) { return; }
+          setRecipientsOpen(card, !recipientsOpen[card.message.id]);
+        });
+        return toggle;
+      }
+
+      // The open list (spec §5.14): a group per field, each recipient one control, on one pitch.
+      function openRecipients(card) {
+        var list = el('div', 'ss-rcx');
+        list.id = 'ss-rcx-' + (++listSequence);
+        list.setAttribute('role', 'group');
+        list.setAttribute('aria-label', 'Recipients');
+        var fields = card.message.recipients || [];
+        for (var i = 0; i < fields.length; i++) {
+          var row = el('div', 'ss-rcf');
+          row.setAttribute('role', 'group');
+          row.setAttribute('aria-label', fields[i].label);
+          var label = el('span', 'ss-rcl', fields[i].label);
+          // The group already says it.
+          label.setAttribute('aria-hidden', 'true');
+          row.appendChild(label);
+          var value = el('span', 'ss-rcv');
+          var field = String(fields[i].label || '').toLowerCase();
+          var people = fields[i].people || [];
+          for (var j = 0; j < people.length; j++) { value.appendChild(recipientNode(field, j, people[j], j === people.length - 1)); }
+          row.appendChild(value);
+          list.appendChild(row);
+        }
+        return list;
+      }
+
+      // Past RECIPIENT_LINES lines the list stops at “and 24 more”, which ends the last line: when it would wrap past it,
+      // the recipient before it gives way too. A field with no one left in view goes with its label. Once pressed, the
+      // list stays whole until it folds.
+      function capRecipients(card, list) {
+        var m = card.message;
+        if (recipientsAll[m.id]) { return; }
+        var people = Array.prototype.slice.call(list.querySelectorAll('.ss-rp, .ss-rpx'));
+        var first = list.querySelector('.ss-rcf');
+        if (!people.length || !first) { return; }
+        var pitch = parseFloat(getComputedStyle(first).lineHeight) || MIN_HIT;
+        var limit = list.getBoundingClientRect().top + pitch * RECIPIENT_LINES - 1;
+        var shown = people.filter(function (person) { return person.getBoundingClientRect().top < limit; }).length;
+        if (shown === people.length) { return; }
+        var rows = list.querySelectorAll('.ss-rcf');
+        var more = button('ss-more', '');
+        function place() {
+          for (var i = 0; i < people.length; i++) { people[i].style.display = i < shown ? '' : 'none'; }
+          more.textContent = 'and ' + (people.length - shown) + ' more';
+          var last = people[shown - 1];
+          last.parentNode.insertBefore(more, last.nextSibling);
+          for (var r = 0; r < rows.length; r++) {
+            var seen = rows[r].contains(more);
+            for (var k = 0; k < shown && !seen; k++) { seen = rows[r].contains(people[k]); }
+            rows[r].style.display = seen ? '' : 'none';
+          }
+        }
+        place();
+        while (shown > 1 && more.getBoundingClientRect().top >= limit) {
+          shown -= 1;
+          place();
+        }
         more.addEventListener('click', function (event) {
           stop(event);
-          for (var k = 0; k < hidden.length; k++) { hidden[k].style.display = ''; }
+          setTarget(card, true);
+          recipientsAll[m.id] = true;
+          var firstShown = null;
+          for (var i = shown; i < people.length && !firstShown; i++) {
+            if (people[i].classList.contains('ss-rp')) { firstShown = people[i]; }
+          }
+          for (var p = 0; p < people.length; p++) { people[p].style.display = ''; }
+          for (var r = 0; r < rows.length; r++) { rows[r].style.display = ''; }
           more.remove();
+          card.animateFit = true;
+          refitCard(card);
+          if (firstShown) {
+            setStop(card, list, firstShown);
+          } else {
+            applyStop(card, list);
+          }
+          // From the keyboard (detail 0) focus moves to the first recipient it shows, so the keyboard carries on where the
+          // list did. Pressed, it goes to the sheet, where a press on a button leaves it: this button, which the pointer
+          // focused as a roving stop, has gone, and focus on a recipient would show no ring and still take ↩, Space, ←
+          // and Esc from the app. Tab reaches that recipient next.
+          if (event.detail > 0) {
+            focusNode(card.element);
+          } else if (firstShown) {
+            focusNode(firstShown);
+          }
         });
-        var lastVisible = people[people.length - hidden.length - 1];
-        if (lastVisible && lastVisible.parentNode) { lastVisible.parentNode.insertBefore(more, lastVisible.nextSibling); }
+      }
+
+      function focusNode(node) {
+        try { node.focus({ preventScroll: true }); } catch (e) { node.focus(); }
+      }
+
+      // The list's roving stop (spec §5.14), as on the attachment row: one Tab stop, ← → along it.
+      function rovingStops(list) {
+        return Array.prototype.filter.call(list.querySelectorAll('.ss-rp, .ss-more'), function (node) {
+          return node.getClientRects().length > 0;
+        });
+      }
+
+      function stopName(node) {
+        return node.classList.contains('ss-more') ? 'more' : node.dataset.addr;
+      }
+
+      function setStop(card, list, node) {
+        var all = list.querySelectorAll('.ss-rp, .ss-more');
+        for (var i = 0; i < all.length; i++) { all[i].tabIndex = all[i] === node ? 0 : -1; }
+        recipientStop[card.message.id] = stopName(node);
+      }
+
+      // Tab lands on the recipient last reached or clicked while the list has been open, else the first.
+      function applyStop(card, list) {
+        var stops = rovingStops(list);
+        if (!stops.length) { return; }
+        var remembered = recipientStop[card.message.id];
+        var node = stops[0];
+        for (var i = 0; i < stops.length; i++) { if (stopName(stops[i]) === remembered) { node = stops[i]; } }
+        var all = list.querySelectorAll('.ss-rp, .ss-more');
+        for (var j = 0; j < all.length; j++) { all[j].tabIndex = all[j] === node ? 0 : -1; }
+      }
+
+      function setRecipientsOpen(card, open) {
+        var id = card.message.id;
+        recipientsOpen[id] = open;
+        // Folding forgets where the keyboard was in the list, and that it was shown whole.
+        if (!open) {
+          delete recipientStop[id];
+          delete recipientsAll[id];
+        }
+        card.animateFit = true;
+        fillWho(card);
+      }
+
+      // Esc with focus in an open list (spec §6.1): it folds, and focus goes to its toggle.
+      function foldAddresses() {
+        var active = document.activeElement;
+        for (var i = 0; i < state.cards.length; i++) {
+          var card = state.cards[i];
+          var list = card.who.querySelector('.ss-rcx');
+          if (!list || !active || !list.contains(active)) { continue; }
+          setRecipientsOpen(card, false);
+          var toggle = card.who.querySelector('.ss-rc');
+          if (toggle) { focusNode(toggle); }
+          return true;
+        }
+        return false;
+      }
+
+      // What in the who block has keyboard focus, so a re-render can put it back on the same control (spec §5.14).
+      function whoFocus(card) {
+        var active = document.activeElement;
+        if (!active || !card.who.contains(active)) { return null; }
+        if (active.dataset && active.dataset.addr) { return active.dataset.addr; }
+        if (active.classList.contains('ss-rc')) { return 'toggle'; }
+        if (active.classList.contains('ss-more')) { return 'more'; }
+        if (active.classList.contains('ss-unsub')) { return 'unsub'; }
+        return null;
+      }
+
+      // A recipient that has gone leaves the focus on the toggle, never on the sheet's edge.
+      function restoreWhoFocus(card, kept) {
+        if (!kept) { return; }
+        var who = card.who;
+        var node = kept === 'toggle' ? who.querySelector('.ss-rc') : kept === 'more' ? who.querySelector('.ss-more')
+          : kept === 'unsub' ? who.querySelector('.ss-unsub') : who.querySelector('[data-addr="' + CSS.escape(kept) + '"]');
+        if (node && (!node.getClientRects().length || node.classList.contains('ss-squeezed'))) { node = null; }
+        node = node || who.querySelector('.ss-rc');
+        if (node) { focusNode(node); }
+      }
+
+      // What the header's width decides: the sender's address hides when the line leaves it less than a hit target, and a
+      // recipient cut short by its line shows its full text as its tooltip, since reading it matters more there.
+      function fitHeader(card) {
+        if (!card.expanded || card.message.isDraft) { return; }
+        var address = card.who.querySelector('.ss-addr');
+        if (address) {
+          var squeezed = address.getBoundingClientRect().width < MIN_HIT;
+          if (squeezed !== address.classList.contains('ss-squeezed')) {
+            address.classList.toggle('ss-squeezed', squeezed);
+            address.tabIndex = squeezed ? -1 : 0;
+            if (squeezed) { address.setAttribute('aria-hidden', 'true'); } else { address.removeAttribute('aria-hidden'); }
+          }
+        }
+        var people = card.who.querySelectorAll('.ss-rcx .ss-rp');
+        for (var i = 0; i < people.length; i++) {
+          var face = people[i].firstElementChild;
+          if (!face || !people[i].getClientRects().length) { continue; }
+          var title = face.scrollWidth > face.clientWidth + 1 ? people[i].dataset.full : 'Copy Address';
+          if (people[i].title !== title) { people[i].title = title; }
+        }
+      }
+
+      // The app wrote the pasteboard: what was copied gives way to the mark for copiedConfirm, keeping its width, then
+      // cross-fades back. One mark at a time across the page, since the pasteboard holds one thing; the same target again
+      // restarts it. True when the mark shows.
+      function addressCopied(id, value, form) {
+        endMark();
+        copied = { id: id, value: String(value), form: form === 'nameAndAddress' ? 'nameAndAddress' : 'address', timer: null };
+        copied.timer = setTimeout(leaveMark, cssDuration('--q-dur-copiedConfirm', 1500));
+        var card = state.byID[id];
+        return !!card && showMark(card);
+      }
+
+      function showMark(card) {
+        if (!copied || copied.id !== card.message.id) { return false; }
+        var target = card.who.querySelector('[data-addr="' + CSS.escape(copied.value) + '"]');
+        var face = target && target.querySelector('.ss-face');
+        var part = target && target.querySelector(copied.form === 'nameAndAddress' ? '.ss-cpc' : '.ss-cpa');
+        if (!face || !part) { return false; }
+        var mark = el('span', 'ss-mark');
+        mark.setAttribute('aria-hidden', 'true');
+        mark.appendChild(sym('checkmark'));
+        mark.appendChild(el('span', 'ss-markw', 'Copied'));
+        face.appendChild(mark);
+        face.classList.add('ss-marked');
+        var faceBox = face.getBoundingClientRect();
+        var faceStyle = getComputedStyle(face);
+        // The face clips its text at its trailing padding, and the mark with it.
+        var shown = face.clientWidth - (parseFloat(faceStyle.paddingRight) || 0);
+        var natural = mark.getBoundingClientRect().width;
+        var partBox = part.getBoundingClientRect();
+        var left = partBox.left - faceBox.left;
+        // A name that fills the line cuts the address short or pushes it out of sight, where the mark would show nothing:
+        // it then stands over the whole recipient, as far as the face shows it.
+        if (left + Math.min(natural, partBox.width) > shown + 0.5) {
+          part = target.querySelector('.ss-cpc') || part;
+          partBox = part.getBoundingClientRect();
+          left = partBox.left - faceBox.left;
+        }
+        var width = Math.max(0, Math.min(partBox.width, shown - left));
+        // Where the mark is wider than what it stands for (a very short address), the checkmark says it alone.
+        mark.classList.toggle('ss-glyph-only', natural > width + 0.5);
+        mark.style.left = left + 'px';
+        mark.style.width = width + 'px';
+        part.classList.remove('ss-uncopy');
+        part.classList.add('ss-copied');
+        return true;
+      }
+
+      // The hold is over: the text cross-fades back, which a key press finishes at once (spec §4.10).
+      function leaveMark() {
+        if (!copied) { return; }
+        clearTimeout(copied.timer);
+        copied = null;
+        var parts = document.querySelectorAll('.ss-copied');
+        for (var i = 0; i < parts.length; i++) {
+          parts[i].classList.remove('ss-copied');
+          parts[i].classList.add('ss-uncopy');
+        }
+        var marks = document.querySelectorAll('.ss-mark');
+        for (var j = 0; j < marks.length; j++) { marks[j].classList.add('ss-leaving'); }
+        if (leaveTimer) { clearTimeout(leaveTimer); }
+        leaveTimer = setTimeout(finishLeave, cssDuration('--q-dur-quick', 120) + 20);
+        motionStarted();
+      }
+
+      function finishLeave() {
+        if (leaveTimer) { clearTimeout(leaveTimer); }
+        leaveTimer = null;
+        var marks = document.querySelectorAll('.ss-mark');
+        for (var i = 0; i < marks.length; i++) { marks[i].remove(); }
+        var parts = document.querySelectorAll('.ss-copied, .ss-uncopy');
+        for (var j = 0; j < parts.length; j++) { parts[j].classList.remove('ss-copied', 'ss-uncopy'); }
+        var faces = document.querySelectorAll('.ss-marked');
+        for (var k = 0; k < faces.length; k++) { faces[k].classList.remove('ss-marked'); }
+      }
+
+      function endMark() {
+        if (copied) { clearTimeout(copied.timer); }
+        copied = null;
+        finishLeave();
+      }
+
+      // The person menu (spec §5.14) is the app's system menu; its target keeps the hover face until the app says it closed.
+      function personMenu(card, value, event) {
+        event.preventDefault();
+        stop(event);
+        setTarget(card, true);
+        clearMenuTarget();
+        menuTarget = { id: card.message.id, value: value };
+        markMenuTarget(card);
+        post('ss', { kind: 'action', type: 'personMenu', messageID: card.message.id, attachmentID: null, value: value,
+                     x: event.clientX, y: event.clientY });
+      }
+
+      function markMenuTarget(card) {
+        if (!menuTarget || menuTarget.id !== card.message.id) { return; }
+        var node = card.who.querySelector('[data-addr="' + CSS.escape(menuTarget.value) + '"]');
+        if (node) { node.classList.add('ss-menu'); }
+      }
+
+      function clearMenuTarget() {
+        menuTarget = null;
+        var marked = document.querySelectorAll('.ss-cpt.ss-menu');
+        for (var i = 0; i < marked.length; i++) { marked[i].classList.remove('ss-menu'); }
+      }
+
+      // The who block's copy targets answer through one listener each, on the block, which fillWho fills again: a click or
+      // ↩ / Space copies, ← → move along the open list, Esc folds it, and a right-click on a target or the sender's name
+      // opens the person menu.
+      function listenToWho(card) {
+        var who = card.who;
+        // A press never gives a target focus. WebKit focuses anything with a tabindex under the pointer, where a press on
+        // a plain button leaves focus on the sheet, and with no ring (focus from a pointer is not :focus-visible), so ↩,
+        // Space, ←, Esc and ⌘C would pass to the page unseen. Focus goes to the sheet, as after a button, which also takes
+        // it out of another message's body. A target the keyboard already reached keeps its focus and its ring; a press
+        // VoiceOver or Voice Control simulates (detail 0) moves nothing.
+        who.addEventListener('mousedown', function (event) {
+          var target = event.target.closest ? event.target.closest('.ss-cpt') : null;
+          if (!target || !who.contains(target) || event.detail < 1) { return; }
+          event.preventDefault();
+          if (document.activeElement !== target) { focusNode(card.element); }
+        });
+        who.addEventListener('click', function (event) {
+          var target = event.target.closest ? event.target.closest('.ss-cpt') : null;
+          if (!target || !who.contains(target)) { return; }
+          stop(event);
+          setTarget(card, true);
+          var list = target.closest('.ss-rcx');
+          if (list) { setStop(card, list, target); }
+          // A double-click copies once (event.detail is 0 from the keyboard, 1 for a single click).
+          if (event.detail > 1) { return; }
+          copyAddress(card, target.dataset.addr);
+        });
+        who.addEventListener('keydown', function (event) {
+          var active = document.activeElement;
+          if (!active || !who.contains(active) || event.metaKey || event.ctrlKey || event.altKey) { return; }
+          if (active.classList.contains('ss-cpt') && !event.shiftKey && (event.key === 'Enter' || event.key === ' ')) {
+            event.preventDefault();
+            stop(event);
+            setTarget(card, true);
+            copyAddress(card, active.dataset.addr);
+            return;
+          }
+          var list = active.closest('.ss-rcx');
+          if (!list) { return; }
+          if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+            var stops = rovingStops(list);
+            var i = stops.indexOf(active);
+            if (i < 0) { return; }
+            event.preventDefault();
+            var next = stops[Math.max(0, Math.min(stops.length - 1, i + (event.key === 'ArrowRight' ? 1 : -1)))];
+            setStop(card, list, next);
+            focusNode(next);
+          } else if (event.key === 'Escape') {
+            event.preventDefault();
+            stop(event);
+            foldAddresses();
+          }
+        });
+        who.addEventListener('focusin', function (event) {
+          var node = event.target;
+          var list = node && node.closest ? node.closest('.ss-rcx') : null;
+          if (list && (node.classList.contains('ss-rp') || node.classList.contains('ss-more'))) { setStop(card, list, node); }
+        });
+        who.addEventListener('contextmenu', function (event) {
+          var m = card.message;
+          var target = event.target.closest ? event.target.closest('.ss-cpt, .ss-name') : null;
+          if (!target || !who.contains(target)) { return; }
+          var value = target.dataset.addr || 'from:0';
+          if (value === 'from:0' && !(m.from && m.from.address)) { return; }
+          personMenu(card, value, event);
+        });
       }
 
       function fillWho(card) {
         var m = card.message;
         var who = card.who;
+        var kept = whoFocus(card);
         var line = el('div', 'ss-nl');
         line.appendChild(el('i', 'ss-pip7'));
-        line.appendChild(nameNode(m, 'ss-name'));
+        var address = m.from && m.from.address ? m.from.address : '';
+        // A sender with no name apart from the address shows the address as the name, and the name is what copies.
+        line.appendChild(address && address === m.from.name ? senderTarget(m, 'ss-name ss-namet', m.from.name) : nameNode(m, 'ss-name'));
         if (m.isStarred) { line.appendChild(sym('star.fill', 'ss-nstar')); }
         // Before the address, which takes its place at rest without showing: after it, the link would float.
         if (m.unsubscribe) {
@@ -1530,32 +2009,28 @@ public enum ConversationShellAssets {
           });
           line.appendChild(unsubscribe);
         }
-        if (m.from && m.from.address && m.from.address !== m.from.name) { line.appendChild(el('span', 'ss-addr', m.from.address)); }
-        var parts = [line];
-        if (recipientsOpen[m.id] && (m.recipients || []).length) {
-          var block = expandedRecipients(card);
-          parts.push(block);
-          who.replaceChildren.apply(who, parts);
-          capRecipients(block);
-          refitCard(card);
-          return;
+        if (address && address !== m.from.name) { line.appendChild(senderTarget(m, 'ss-addr', address)); }
+        var open = !!recipientsOpen[m.id] && (m.recipients || []).length > 0;
+        var toggle = recipientsToggle(card, open);
+        var parts = [line, toggle];
+        var list = null;
+        if (open) {
+          list = openRecipients(card);
+          toggle.setAttribute('aria-controls', list.id);
+          parts.push(list);
         }
-        var summary = button('ss-rc', recipientSummary(m), 'Show Addresses');
-        summary.setAttribute('aria-expanded', 'false');
-        summary.setAttribute('aria-label', 'Recipients, collapsed');
-        summary.addEventListener('click', function (event) {
-          stop(event);
-          setTarget(card, true);
-          if (!(m.recipients || []).length) { return; }
-          recipientsOpen[m.id] = true;
-          card.animateFit = true;
-          fillWho(card);
-          var opened = who.querySelector('.ss-rcx');
-          if (opened && keyboardNav) { opened.focus(); }
-        });
-        parts.push(summary);
         who.replaceChildren.apply(who, parts);
+        if (list) {
+          capRecipients(card, list);
+          applyStop(card, list);
+        }
+        // A re-render keeps the mark for its remaining time, and the person menu's target its face.
+        if (copied && copied.id === m.id) { showMark(card); }
+        if (menuTarget && menuTarget.id === m.id) { markMenuTarget(card); }
+        fitHeader(card);
+        restoreWhoFocus(card, kept);
         refitCard(card);
+        reportMarkFocus();
       }
 
       function headerAction(symbolName, title, label, cls) {
@@ -2003,6 +2478,7 @@ public enum ConversationShellAssets {
 
       function fit(card, animate) {
         if (card.collapseTimer || card.folded) { return; }
+        fitHeader(card);
         var target = card.expanded ? Math.ceil(card.inner.getBoundingClientRect().height) : 44;
         if (target <= 0) { return; }
         setHeight(card.element, target, animate);
@@ -2044,6 +2520,12 @@ public enum ConversationShellAssets {
         head.appendChild(avatar);
         head.appendChild(who);
         head.appendChild(meta);
+        // The avatar is the sender's too: its right-click is the person menu (spec §5.14).
+        avatar.addEventListener('contextmenu', function (event) {
+          var current = card.message;
+          if (!card.expanded || current.isDraft || !(current.from && current.from.address)) { return; }
+          personMenu(card, 'from:0', event);
+        });
         var invite = el('section', 'ss-invite');
         invite.setAttribute('role', 'group');
         invite.hidden = true;
@@ -2112,6 +2594,7 @@ public enum ConversationShellAssets {
         card.qrow = qrow;
         card.atts = atts;
         card.foot = foot;
+        listenToWho(card);
         markDesign(card);
         fillHeader(card);
         fillInvitation(card);
@@ -2151,6 +2634,8 @@ public enum ConversationShellAssets {
         card.element.setAttribute('aria-expanded', 'true');
         ensureFrame(card);
         restack();
+        // An open list built while the card was a row was never measured against its lines.
+        if (recipientsOpen[card.message.id]) { fillWho(card); }
         if (animate) {
           card.element.style.transition = 'none';
           card.element.style.height = start + 'px';
@@ -3254,18 +3739,25 @@ public enum ConversationShellAssets {
       // two keys through. ← → are the page's on a chip and on its Download button, which move along the files
       // (§5.17), so the shell says that too (`arrows`) and the app lets ← through there rather than going back to the
       // list. Focus can also go with no event (its node replaced by a render), so the renders report too; only a
-      // change is posted.
-      var markFocusPosted = false;
-      var arrowsFocusPosted = false;
+      // change is posted. A sheet header's addresses join in (spec §5.14): ↩ and Space are the page's on a copy target, the
+      // recipients toggle and “and 24 more”; ← → too on a recipient and “and 24 more”, which Esc folds (`addresses`); and
+      // `address` names the target ⌘C copies, by its position, never by the address.
+      var focusPosted = 'false|false|false|';
       function reportMarkFocus() {
         var active = document.activeElement;
         var classes = active && active.classList;
-        var on = !!classes && (classes.contains('ss-elide') || classes.contains('ss-dlb'));
-        var arrows = !!classes && (classes.contains('ss-chip') || classes.contains('ss-chip-dl'));
-        if (on === markFocusPosted && arrows === arrowsFocusPosted) { return; }
-        markFocusPosted = on;
-        arrowsFocusPosted = arrows;
-        post('ss', { kind: 'focusMark', on: on, arrows: arrows });
+        var target = !!classes && classes.contains('ss-cpt');
+        var inList = !!classes && (classes.contains('ss-rp') || classes.contains('ss-more'));
+        var on = !!classes && (classes.contains('ss-elide') || classes.contains('ss-dlb') || target || inList || classes.contains('ss-rc'));
+        var arrows = !!classes && (classes.contains('ss-chip') || classes.contains('ss-chip-dl') || inList);
+        var owner = target ? active.closest('.ss-card') : null;
+        var address = owner ? { messageID: owner.dataset.id, value: active.dataset.addr } : null;
+        var key = [on, arrows, inList, address ? address.messageID + ' ' + address.value : ''].join('|');
+        if (key === focusPosted) { return; }
+        focusPosted = key;
+        var report = { kind: 'focusMark', on: on, arrows: arrows, addresses: inList };
+        if (address) { report.address = address; }
+        post('ss', report);
       }
       document.addEventListener('focusin', reportMarkFocus);
       // The element losing focus may still be the active one while focusout runs.
@@ -3352,6 +3844,11 @@ public enum ConversationShellAssets {
           return false;
         },
         focusChanged: focusChanged,
+        // Copying an address (spec §5.14): the app wrote the pasteboard and the mark shows; the person menu closed; Esc in
+        // an open list of recipients.
+        addressCopied: addressCopied,
+        personMenuClosed: clearMenuTarget,
+        foldAddresses: foldAddresses,
         targetState: function () {
           var card = targetCard();
           if (!card) { return null; }

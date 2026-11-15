@@ -265,8 +265,18 @@ extension Quire {
             public static let targetKeycapGap: CGFloat = 6
             public static let offlinePreviewGap: CGFloat = 12
             public static let recipientsLabelColumn: CGFloat = 28
-            public static let recipientsFieldGap: CGFloat = 2
-            public static let recipientsMaxLines: CGFloat = 12
+            public static let recipientsFieldGap: CGFloat = 0
+            public static let recipientsMaxLines: CGFloat = 8
+            public static let recipientsTop: CGFloat = 8
+            public static let recipientPitch: CGFloat = 24
+            public static let recipientFace: CGFloat = 20
+            public static let recipientPadX: CGFloat = 4
+            public static let recipientRadius: CGFloat = 5
+            public static let recipientsToggleHitBelow: CGFloat = 8
+            public static let senderAddressHitAbove: CGFloat = 6
+            public static let unsubscribeHitGap: CGFloat = 8
+            public static let copiedGlyph: CGFloat = 12
+            public static let copiedGap: CGFloat = 4
         }
         public enum TextStyle {
             public static let quoteBar: CGFloat = 2

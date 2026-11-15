@@ -243,12 +243,13 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
             opener.comeForward()
             opener.focusSearchField(nil)
         case .clearSearch:
-            // §6.1: this window's toast first, then an open find bar; nothing else here takes Esc.
-            _ = closeForEscape()
+            // §6.1: this window's toast first, then an open find bar, then an open list of recipients with focus in it;
+            // nothing else here takes Esc.
+            _ = closeForEscape(foldingAddresses: true)
         case .back:
             // There is no list to go back to: ← closes what Esc would, and otherwise is the page's (a chip's or a
-            // Download button's ← →, the reply tabs, a wide body's scroll).
-            return closeForEscape()
+            // Download button's ← →, a recipient's in an open list, the reply tabs, a wide body's scroll).
+            return closeForEscape(foldingAddresses: false)
         case .undo:
             // The router acts only outside text, so typing is never ⌘Z's target here; Z never cancels a send.
             let commandZ = NSApp.currentEvent?.modifierFlags.contains(.command) == true
@@ -259,13 +260,15 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
         return true
     }
 
-    /// This window's toast, else an open find bar. False when neither was there.
-    private func closeForEscape() -> Bool {
+    /// This window's toast, else an open find bar, else (for Esc, never ←, which moves along the recipients there) an open
+    /// list of recipients with focus in it. False when none was there.
+    private func closeForEscape(foldingAddresses: Bool) -> Bool {
         if undoCenter.toasts.isVisible(in: toastView) {
             undoCenter.toasts.dismiss(in: toastView)
             return true
         }
-        return conversation.closeFindForEscape()
+        if conversation.closeFindForEscape() { return true }
+        return foldingAddresses && conversation.foldAddressesForEscape()
     }
 
     // MARK: Edit › Undo (§6.1)

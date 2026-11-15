@@ -286,17 +286,17 @@ final class AttachmentDownloadTests: XCTestCase {
         _ = evaluate("document.querySelector('.ss-chip-dl').focus(); true", in: webView)
         XCTAssertTrue(ListTestSupport.spin(until: { slot.markFocused }, timeout: 5), "the shell says a Download button has focus")
         XCTAssertTrue(reader.isMarkFocused)
-        XCTAssertTrue(reader.isAttachmentRowFocused, "where ← → move along the files")
+        XCTAssertTrue(reader.pageTakesArrows, "where ← → move along the files")
         XCTAssertFalse(reader.openQuickLookForSelectedMessage(), "Space goes on to the page, which presses the button")
 
         _ = evaluate("document.querySelector('.ss-chip').focus(); true", in: webView)
         XCTAssertTrue(ListTestSupport.spin(until: { !slot.markFocused }, timeout: 5), "and that it left it for the chip")
         XCTAssertFalse(reader.isMarkFocused)
-        XCTAssertTrue(reader.isAttachmentRowFocused, "a chip moves along the files too")
+        XCTAssertTrue(reader.pageTakesArrows, "a chip moves along the files too")
 
         _ = evaluate("document.querySelector('.ss-dlall').focus(); true", in: webView)
         XCTAssertTrue(ListTestSupport.spin(until: { slot.markFocused }, timeout: 5), "Download all too")
-        XCTAssertFalse(reader.isAttachmentRowFocused, "Download all is no stop of the files' row")
+        XCTAssertFalse(reader.pageTakesArrows, "Download all is no stop of the files' row")
         XCTAssertFalse(reader.openQuickLookForSelectedMessage())
         _ = evaluate("document.activeElement.blur(); true", in: webView)
         XCTAssertTrue(ListTestSupport.spin(until: { !slot.markFocused }, timeout: 5), "and when focus leaves it")
@@ -327,12 +327,12 @@ final class AttachmentDownloadTests: XCTestCase {
         harness.controller.window?.makeFirstResponder(webView)
         XCTAssertEqual(evaluate("(function () { var b = document.querySelectorAll('.ss-chip-dl'); b[b.length - 1].focus(); return b.length > 1; })()",
                                 in: webView) as? Bool, true)
-        XCTAssertTrue(ListTestSupport.spin(until: { reader.isAttachmentRowFocused }, timeout: 5))
+        XCTAssertTrue(ListTestSupport.spin(until: { reader.pageTakesArrows }, timeout: 5))
         XCTAssertFalse(harness.controller.perform(.back), "← goes on to the page")
         XCTAssertTrue(harness.controller.isReaderFocused)
 
         _ = evaluate("document.activeElement.blur(); true", in: webView)
-        XCTAssertTrue(ListTestSupport.spin(until: { !reader.isAttachmentRowFocused }, timeout: 5))
+        XCTAssertTrue(ListTestSupport.spin(until: { !reader.pageTakesArrows }, timeout: 5))
         XCTAssertTrue(harness.controller.perform(.back))
         XCTAssertFalse(harness.controller.isReaderFocused, "elsewhere in the reader ← goes back to the list")
     }

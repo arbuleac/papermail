@@ -123,10 +123,11 @@ final class ConversationShellPointerTests: XCTestCase {
             """, in: webView) as? String
         XCTAssertEqual(text, "auto,auto,pointer", "the open sheet's words are text; a collapsed row's are a control's")
 
-        // The open recipients are a control too: a click anywhere in them folds them.
+        // Each recipient of the open list is a control (spec §5.14), and so is the sender's address.
         _ = try await evaluate("document.querySelector('.ss-sheet .ss-rc').click()", in: webView)
         report = try await cursors(in: webView)
-        XCTAssertTrue(report.classes.contains("ss-rcx"))
+        XCTAssertTrue(report.classes.contains("ss-rp"))
+        XCTAssertTrue(report.classes.contains("ss-addr"))
         XCTAssertEqual(report.wrong, [])
 
         let key = ConversationShellAssets.jsStringLiteral(payload.messages[8].id)
@@ -215,7 +216,7 @@ final class ConversationShellPointerTests: XCTestCase {
         var report = try await cursors(in: webView)
         XCTAssertEqual(report.wrong, [], "every control and what is inside it")
         let probe = """
-            ['.ss-banner.ss-bad .ss-link', '.ss-notice-toggle', '.ss-bx', '.ss-bx .ss-sym', '.ss-hact[aria-pressed]', '.ss-rcx .ss-person',
+            ['.ss-banner.ss-bad .ss-link', '.ss-notice-toggle', '.ss-bx', '.ss-bx .ss-sym', '.ss-hact[aria-pressed]', '.ss-rcx .ss-rp .ss-rpa',
              '.ss-more', '.ss-chip.ss-failed .ss-retry', '.ss-cancelLater', '.ss-continueDraft .ss-glyph', '.ss-discardDraft',
              '.ss-draft .ss-foot .ss-kbd'].map(function (s) {
               var node = document.querySelector(s);
@@ -225,7 +226,7 @@ final class ConversationShellPointerTests: XCTestCase {
         let computed = try await evaluate(probe, in: webView) as? [String]
         XCTAssertEqual(computed, [
             ".ss-banner.ss-bad .ss-link pointer", ".ss-notice-toggle pointer", ".ss-bx pointer", ".ss-bx .ss-sym pointer",
-            ".ss-hact[aria-pressed] pointer", ".ss-rcx .ss-person pointer", ".ss-more pointer", ".ss-chip.ss-failed .ss-retry pointer",
+            ".ss-hact[aria-pressed] pointer", ".ss-rcx .ss-rp .ss-rpa pointer", ".ss-more pointer", ".ss-chip.ss-failed .ss-retry pointer",
             ".ss-cancelLater pointer", ".ss-continueDraft .ss-glyph pointer", ".ss-discardDraft pointer", ".ss-draft .ss-foot .ss-kbd auto",
         ])
 

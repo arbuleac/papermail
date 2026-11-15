@@ -4,6 +4,12 @@ import SSCore
 /// A message posted by the shell through `window.webkit.messageHandlers`. Bodies are untrusted
 /// dictionaries, so parsing is total: anything malformed becomes nil and is ignored.
 enum ConversationScriptMessage: Equatable {
+    /// An address in a sheet header that has keyboard focus (spec §5.14), named by message and position, never by address.
+    struct FocusedAddress: Equatable {
+        let messageID: MessageID
+        let address: HeaderAddress
+    }
+
     case ready
     /// A button in a sheet. `on` is the state a toggle asks for (star); `point` is where a menu opens (More),
     /// in the web view's coordinates; `value` is what the button names (an invitation's answer, a link).
@@ -12,10 +18,12 @@ enum ConversationScriptMessage: Equatable {
     case select(MessageID)
     /// An attachment chip took keyboard focus: Space previews from it.
     case focusAttachment(MessageID, String)
-    /// Keyboard focus landed on an elision mark, a Download button or Download all (true) or left it (false): Space and
-    /// ↩ are that control's while it has it (spec §5.15, §5.17). `arrows`: it is on an attachment chip or its Download
-    /// button, where ← and → move along the files.
-    case focusMark(Bool, arrows: Bool)
+    /// Keyboard focus landed on an elision mark, a Download button, Download all, a sheet header's copy target, the
+    /// recipients toggle or “and 24 more” (true) or left it (false): Space and ↩ are that control's while it has it
+    /// (spec §5.14, §5.15, §5.17). `arrows`: it is on an attachment chip or its Download button, or in an open list of
+    /// recipients, where ← and → move along the row. `addresses`: it is in an open list of recipients, which Esc folds.
+    /// `address`: the copy target it is on, which ⌘C and Edit › Copy copy.
+    case focusMark(Bool, arrows: Bool, addresses: Bool = false, address: FocusedAddress? = nil)
     /// The messages the page shows in the sender's colours, after a render, a switch, an appearance change or a new Dark
     /// Mode default: whichever way each came to it (spec §5.16).
     case originalColors(shown: Set<MessageID>)
@@ -52,7 +60,14 @@ enum ConversationScriptMessage: Equatable {
             self = .focusAttachment(messageID, attachmentID)
         case "focusMark":
             guard let on = dictionary["on"] as? Bool else { return nil }
-            self = .focusMark(on, arrows: dictionary["arrows"] as? Bool ?? false)
+            var focused: FocusedAddress?
+            if let address = dictionary["address"] as? [String: Any],
+               let message = (address["messageID"] as? String).flatMap(RenderPayload.messageID(fromKey:)),
+               let position = (address["value"] as? String).flatMap(HeaderAddress.init) {
+                focused = FocusedAddress(messageID: message, address: position)
+            }
+            self = .focusMark(on, arrows: dictionary["arrows"] as? Bool ?? false, addresses: dictionary["addresses"] as? Bool ?? false,
+                              address: focused)
         case "originalColors":
             guard let shown = dictionary["shown"] as? [String] else { return nil }
             self = .originalColors(shown: Set(shown.compactMap(RenderPayload.messageID(fromKey:))))

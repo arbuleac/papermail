@@ -47,4 +47,9 @@ enum ConversationAction {
     /// The invitation card's Reconnect: the account signs in again, asking for permission to update its calendar
     /// (spec §5.14, §5.44).
     case reconnect(AccountID)
+    /// The person menu's New Message (spec §5.14): a composer to `address` from the conversation's account.
+    case newMessage(to: EmailAddress, from: AccountID)
+    /// The person menu's Show Mail from This Person (spec §5.14): the main window searches `from:` the address, and the
+    /// list takes the keyboard.
+    case showMail(from: String)
 }
