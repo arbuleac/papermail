@@ -22,12 +22,12 @@ final class ReaderWebView: WKWebView {
     var onWindowAppearanceChange: ((NSAppearance) -> Void)?
     /// Whether the shell last said keyboard focus is on an address in a sheet header.
     var hasFocusedAddress: () -> Bool = { false }
-    /// Copies that address; false when it could not.
-    var copyFocusedAddress: () -> Bool = { false }
+    /// Copies that address. The reader beeps when it cannot, once: a beep here as well would make two for one refusal.
+    var copyFocusedAddress: () -> Void = {}
 
     @objc func copy(_ sender: Any?) {
         if hasFocusedAddress() {
-            if !copyFocusedAddress() { NSSound.beep() }
+            copyFocusedAddress()
             return
         }
         copyAsWebKitDoes(sender)

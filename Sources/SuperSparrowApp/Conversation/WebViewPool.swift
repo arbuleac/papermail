@@ -22,8 +22,8 @@ final class WebViewPool: NSObject, WKScriptMessageHandler {
     var onMessage: ((PooledConversationView, ConversationScriptMessage) -> Void)?
     var onReady: ((PooledConversationView) -> Void)?
     /// Edit › Copy and ⌘C in a slot's page while its keyboard focus is on an address in a sheet header (spec §5.14):
-    /// copies it, and says whether the pasteboard took it.
-    var onCopyFocusedAddress: ((PooledConversationView) -> Bool)?
+    /// copies it, or beeps.
+    var onCopyFocusedAddress: ((PooledConversationView) -> Void)?
     /// Called after a content-process crash replaced the slot's web view, so the owner can re-render.
     var onViewRecreated: ((PooledConversationView) -> Void)?
 
@@ -393,8 +393,8 @@ final class WebViewPool: NSObject, WKScriptMessageHandler {
             return self.slot(for: webView)?.focusedAddress != nil
         }
         webView.copyFocusedAddress = { [weak self, weak webView] in
-            guard let self, let webView, let slot = self.slot(for: webView) else { return false }
-            return self.onCopyFocusedAddress?(slot) ?? false
+            guard let self, let webView, let slot = self.slot(for: webView) else { return }
+            self.onCopyFocusedAddress?(slot)
         }
         webView.navigationDelegate = navigation
         webView.uiDelegate = navigation

@@ -1,4 +1,5 @@
 import AppKit
+import ObjectiveC
 import OSLog
 import SSCore
 import WebKit
@@ -87,6 +88,61 @@ final class AddressCopyTests: XCTestCase {
         XCTAssertEqual(pasteboard.changeCount, before, "nothing written")
         XCTAssertEqual(spoken, ["Copied ben@contoso.test.", "Copied priya@contoso.test.", "Copied tom@contoso.test.",
                                 "Copied dana@contoso.test."])
+    }
+
+    /// A copy the pasteboard refuses beeps once, though ⌘C reaches it through the web view, and shows and says nothing;
+    /// ⌘C on a position that names nothing any more beeps once too.
+    func testACopyThatCannotBeMadeBeepsOnce() throws {
+        let reader = harness.reader
+        var beeps = 0
+        reader.beep = { beeps += 1 }
+        let slot = try XCTUnwrap(reader.pool.current)
+        let webView = try XCTUnwrap(slot.webView as? ReaderWebView)
+        _ = evaluate(openList(of: received) + "card.querySelector('.ss-rp[data-addr=\"to:1\"]').focus(); true", in: webView)
+        XCTAssertTrue(ListTestSupport.spin(until: { slot.focusedAddress != nil }, timeout: 5))
+
+        // AppKit hands pasteboards out from a factory, so the private one takes a refusing subclass's class for the write.
+        object_setClass(pasteboard, RefusingPasteboard.self)
+        let handled = NSApp.sendAction(#selector(NSText.copy(_:)), to: webView, from: nil)
+        object_setClass(pasteboard, NSPasteboard.self)
+        XCTAssertTrue(handled)
+        XCTAssertEqual(beeps, 1, "one refusal, one beep")
+        XCTAssertNil(pasteboard.string(forType: .string))
+        XCTAssertEqual(spoken, [], "nothing is announced")
+        ListTestSupport.spin(for: 0.2)
+        XCTAssertEqual(evaluate("document.querySelectorAll('.ss-mark').length", in: webView) as? Int, 0, "and no mark shows")
+
+        slot.focusedAddress = ConversationScriptMessage.FocusedAddress(messageID: received, address: HeaderAddress(field: .to, index: 9))
+        XCTAssertTrue(NSApp.sendAction(#selector(NSText.copy(_:)), to: webView, from: nil))
+        XCTAssertEqual(beeps, 2, "⌘C on a position that names nothing beeps once")
+        XCTAssertNil(pasteboard.string(forType: .string))
+    }
+
+    /// The app copies only what the page was given: a message in the Trash beside one still in the Inbox, or one in Spam,
+    /// has no sheet, so a position on it copies nothing and opens no menu, though the store holds it.
+    func testAMessageThePageDoesNotShowCopiesNothing() throws {
+        let store = harness.environment.store
+        let trashed = MessageID(accountID: ListTestSupport.accountA.id, providerID: "msg-trashed")
+        let spam = MessageID(accountID: ListTestSupport.accountA.id, providerID: "msg-spam")
+        let now = Date()
+        try store.upsertMessages([
+            MessageMetadata(id: trashed, conversationID: conversation, subject: "Re: The plan", snippet: "Old", from: dana, to: [me],
+                            date: now.addingTimeInterval(-30), roles: [.trash], isRead: true, isStarred: false, hasAttachments: false),
+            MessageMetadata(id: spam, conversationID: conversation, subject: "Re: The plan", snippet: "Win", from: desk, to: [me],
+                            date: now.addingTimeInterval(-20), roles: [.spam], isRead: true, isStarred: false, hasAttachments: false),
+        ])
+        XCTAssertEqual(try store.messages(in: conversation).count, 4)
+        ListTestSupport.spin(for: 0.3)
+        let reader = harness.reader
+        let before = pasteboard.changeCount
+        for id in [trashed, spam] {
+            XCTAssertFalse(reader.copyAddress(.sender, of: id, form: .address), id.providerID)
+            XCTAssertFalse(reader.copyAddress(HeaderAddress(field: .to, index: 0), of: id, form: .nameAndAddress), id.providerID)
+            XCTAssertNil(reader.makePersonMenu(for: .sender, of: id), id.providerID)
+        }
+        XCTAssertEqual(pasteboard.changeCount, before, "nothing written")
+        XCTAssertEqual(spoken, [])
+        XCTAssertTrue(reader.copyAddress(.sender, of: received, form: .address), "the messages it shows still copy")
     }
 
     /// Copy Name and Address writes the address as the composer's tokens copy it; for the user it is the name the header
@@ -287,10 +343,18 @@ final class AddressCopyTests: XCTestCase {
         XCTAssertTrue(css.contains(".ss-rcx { margin-top: \(Int(reader.recipientsTop))px;"))
         XCTAssertTrue(css.contains("padding: 0 0 \(Int(reader.recipientsToggleHitBelow))px; margin-bottom: -\(Int(reader.recipientsToggleHitBelow))px;"))
         XCTAssertTrue(css.contains("margin: -\(Int(reader.senderAddressHitAbove))px 0 0 2px; padding-top: \(Int(reader.senderAddressHitAbove))px;"))
+        XCTAssertTrue(css.contains(".ss-unsub + .ss-addr { flex-shrink: 1000; margin-left: \(Int(reader.unsubscribeHitGap))px; }"))
+        XCTAssertTrue(css.contains(".ss-namet + .ss-unsub { margin-left: \(Int(reader.unsubscribeHitGap + reader.recipientPadX))px; }"),
+                      "the name's hit reaches the face's padding past its text")
         XCTAssertTrue(css.contains("display: block; padding: 0 \(Int(reader.recipientPadX))px; border-radius: var(--q-r-sm);"))
         XCTAssertEqual(reader.recipientRadius, Quire.Radius.sm)
         XCTAssertTrue(css.contains(".ss-mark > .ss-sym { width: \(Int(reader.copiedGlyph))px; height: \(Int(reader.copiedGlyph))px; }"))
         XCTAssertTrue(css.contains("display: flex; align-items: center; gap: \(Int(reader.copiedGap))px;"))
+    }
+
+    /// A pasteboard that refuses every write.
+    private final class RefusingPasteboard: NSPasteboard {
+        override func setString(_ string: String, forType dataType: NSPasteboard.PasteboardType) -> Bool { false }
     }
 
     /// Script that finds `id`'s card as `card`, every message open.

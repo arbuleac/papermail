@@ -88,6 +88,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     private var menuPerson: (message: MessageID, address: HeaderAddress)?
     /// Where a copied address goes: the general pasteboard. Tests give a private one, so they never touch the user's.
     var pasteboard: NSPasteboard = .general
+    /// A copy that cannot be made says so with the system beep. Tests count them instead.
+    var beep: () -> Void = { NSSound.beep() }
 
     private var observation: StoreObservation?
     private var statusObservation: StoreObservation?
@@ -195,7 +197,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         super.init(nibName: nil, bundle: nil)
         header.textSize = appSettings.readerSize
         pool.onMessage = { [weak self] slot, message in self?.handle(message, from: slot) }
-        pool.onCopyFocusedAddress = { [weak self] slot in self?.copyFocusedAddress(in: slot) ?? false }
+        pool.onCopyFocusedAddress = { [weak self] slot in self?.copyFocusedAddress(in: slot) }
         pool.onViewRecreated = { [weak self] slot in self?.slotWasRecreated(slot) }
         let center = NotificationCenter.default
         // Block observers stay registered until removed, so their tokens are kept for deinit.
@@ -1335,7 +1337,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         pasteboard.clearContents()
         guard pasteboard.setString(HeaderAddress.text(of: stored, form: form), forType: .string) else {
             ConversationSignposts.log.error("copying an address failed")
-            NSSound.beep()
+            beep()
             return false
         }
         ConversationSignposts.log.debug("copied an address")
@@ -1349,10 +1351,16 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         return true
     }
 
-    /// Edit › Copy and ⌘C while keyboard focus in the page on screen is on an address in a sheet header.
-    private func copyFocusedAddress(in slot: PooledConversationView) -> Bool {
-        guard slot === pool.current, let focused = slot.focusedAddress else { return false }
-        return copyAddress(focused.address, of: focused.messageID, form: .address)
+    /// Edit › Copy and ⌘C while keyboard focus in the page on screen is on an address in a sheet header. A position that
+    /// names nothing any more beeps here, since the user asked for a copy; a write the pasteboard refuses beeps in
+    /// `copyAddress`, the only beep for it.
+    private func copyFocusedAddress(in slot: PooledConversationView) {
+        guard slot === pool.current, let focused = slot.focusedAddress,
+              storedAddress(focused.address, of: focused.messageID) != nil else {
+            beep()
+            return
+        }
+        copyAddress(focused.address, of: focused.messageID, form: .address)
     }
 
     /// The person menu for `address` as it stands, or nil when the position names nothing. Copy Name and Address shows
