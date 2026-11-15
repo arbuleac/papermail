@@ -84,12 +84,13 @@ final class LaterDatePicker: NSObject {
         accessory.addSubview(timePicker)
         alert.accessoryView = accessory
         alert.window.initialFirstResponder = calendarPicker
-        // AppKit makes and draws both pickers, so the hand comes from views laid over them (§4.17). A click on the
+        // AppKit makes and draws both pickers, so the pointer comes from views laid over them (§4.17). A click on the
         // calendar picks a day or turns the month, and AppKit tells nothing of where its parts lie (its accessibility
-        // gives the date area and three buttons with no frames), so the hand covers the whole calendar as it would any
-        // control's hit rect. The time field's digits are typed over, so only its stepper takes the hand.
+        // gives the date area and three buttons with no frames, and its cell's hit test calls the whole calendar
+        // trackable, caption and weekday letters included), so the hand covers the whole calendar as it would any
+        // control's hit rect. The time field's digits are typed over, so they take the I-beam, and its stepper the hand.
         QuirePointerOverlay.install(on: calendarPicker)
-        StepperPointerArea.install(on: timePicker)
+        TimeFieldPointerArea.install(on: timePicker)
         updateSnoozeButton()
     }
 
@@ -136,18 +137,19 @@ final class LaterDatePicker: NSObject {
     }
 }
 
-/// The hand over the time field's stepper (§4.17), whose arrows a click steps; the time's digits, chosen by a click and
-/// typed over, keep the system's own pointer. AppKit draws the stepper inside the picker and tells nothing of where, so
-/// its width is what it adds to a picker of the same elements laid out without it, at the trailing edge.
+/// The pointer over the time field (§4.17): the hand over its stepper, whose arrows a click steps, and the I-beam over the
+/// time's digits, which a click chooses and typing replaces, as over any field's face; the arrow over both while the
+/// picker is disabled. AppKit draws the stepper inside the picker and tells nothing of where, so its width is what it
+/// adds to a picker of the same elements laid out without it, at the trailing edge.
 @MainActor
-private final class StepperPointerArea: NSView, QuirePointerTarget {
+private final class TimeFieldPointerArea: NSView, QuirePointerTarget {
     private weak var picker: NSDatePicker?
     private var enabledObservation: NSKeyValueObservation?
     private let stepperWidth: CGFloat
 
     @discardableResult
-    static func install(on picker: NSDatePicker) -> StepperPointerArea {
-        let area = StepperPointerArea(picker: picker)
+    static func install(on picker: NSDatePicker) -> TimeFieldPointerArea {
+        let area = TimeFieldPointerArea(picker: picker)
         picker.addSubview(area)
         return area
     }
@@ -175,9 +177,12 @@ private final class StepperPointerArea: NSView, QuirePointerTarget {
     required init?(coder: NSCoder) { fatalError("built in code") }
 
     var pointerRegions: [QuirePointerRegion] {
-        guard let picker, stepperWidth > 0 else { return [] }
+        guard let picker else { return [] }
         let width = min(stepperWidth, bounds.width)
-        return [.control(NSRect(x: bounds.maxX - width, y: bounds.minY, width: width, height: bounds.height), acts: picker.isEnabled)]
+        let stepper = NSRect(x: bounds.maxX - width, y: bounds.minY, width: width, height: bounds.height)
+        let digits = NSRect(x: bounds.minX, y: bounds.minY, width: bounds.width - width, height: bounds.height)
+        let field = QuirePointerRegion(digits, cursor: picker.isEnabled ? .iBeam : .arrow)
+        return stepper.isEmpty ? [field] : [.control(stepper, acts: picker.isEnabled), field]
     }
 
     override func resetCursorRects() {

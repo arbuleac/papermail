@@ -29,7 +29,8 @@ final class SystemControlPointerTests: XCTestCase {
 
     /// The Later and Send Later sheet: Snooze (Schedule) and Cancel take the hand; Snooze takes the arrow while the time
     /// chosen has passed, which disables it, and the hand again once it is ahead. The calendar takes the hand over all of
-    /// it; the time field's digits keep the system's pointer, its stepper's own area (`MainWindowPointerTests`) aside.
+    /// it, since AppKit calls all of it trackable; the time field takes the I-beam over its digits and the hand over its
+    /// stepper from its own area (`MainWindowPointerTests`), not an overlay.
     func testTheLaterSheetsButtonsTakeTheHandAndSnoozeFollowsItsState() throws {
         let now = try XCTUnwrap(Calendar.autoupdatingCurrent.date(bySettingHour: 15, minute: 0, second: 0, of: Date()))
         for purpose in [LaterDatePicker.Purpose.snooze(count: 1), .sendLater] {
@@ -53,6 +54,29 @@ final class SystemControlPointerTests: XCTestCase {
             XCTAssertEqual(calendar.pointerRegions, [QuirePointerRegion(picker.calendarPicker.bounds, cursor: .pointingHand)])
             XCTAssertNil(overlay(on: picker.timePicker))
         }
+    }
+
+    /// AppKit's calendar tells nothing of where its days, caption, weekday letters and past days lie: its cell's hit test
+    /// calls every point of it trackable. So the hand covers all of it, as it covers any control's hit rect; should the
+    /// cell come to tell them apart, the hand can follow it.
+    func testTheCalendarCallsAllOfItselfTrackable() throws {
+        let picker = LaterDatePicker(count: 1)
+        picker.alert.layout()
+        let calendar = picker.calendarPicker
+        let window = try XCTUnwrap(calendar.window)
+        let cell = try XCTUnwrap(calendar.cell)
+        var checked = 0
+        for x in stride(from: calendar.bounds.minX + 2, to: calendar.bounds.maxX, by: 9) {
+            for y in stride(from: calendar.bounds.minY + 2, to: calendar.bounds.maxY, by: 9) {
+                let location = calendar.convert(NSPoint(x: x, y: y), to: nil)
+                let event = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDown, location: location, modifierFlags: [], timestamp: 0,
+                                                             windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+                                                             clickCount: 1, pressure: 1))
+                XCTAssertTrue(cell.hitTest(for: event, in: calendar.bounds, of: calendar).contains(.trackableArea), "at \(x), \(y)")
+                checked += 1
+            }
+        }
+        XCTAssertGreaterThan(checked, 100)
     }
 
     /// The gallery's bar is system popups and checkboxes: each takes the hand.

@@ -207,7 +207,8 @@ final class MainWindowPointerTests: XCTestCase {
     // MARK: What AppKit makes
 
     /// An alert's buttons, the Later picker's buttons and calendar take the hand from overlays that follow their
-    /// `isEnabled`; the time field's stepper takes it over its own width, where AppKit draws it, and its digits do not.
+    /// `isEnabled`; the time field's stepper takes it over its own width, where AppKit draws it, and its digits, typed
+    /// over, the I-beam; disabled, both the arrow.
     func testAlertsAndTheLaterPickerTakeTheHand() throws {
         let alert = AppAlert(title: "Remove “Work”?", body: "Its mail leaves this Mac.",
                              buttons: [.init(title: "Cancel"), .init(title: "Remove", role: .destructive)]).makeAlert()
@@ -228,21 +229,26 @@ final class MainWindowPointerTests: XCTestCase {
         XCTAssertEqual(calendar.pointerRegions, [QuirePointerRegion(picker.calendarPicker.bounds, cursor: .pointingHand)])
 
         let time = picker.timePicker
-        let stepper = try XCTUnwrap(time.subviews.compactMap { $0 as? QuirePointerTarget }.first { !($0 is QuirePointerOverlay) })
-        XCTAssertNil(stepper.hitTest(NSPoint(x: 1, y: 1)), "clicks reach the picker")
-        let region = try XCTUnwrap(stepper.pointerRegions.first)
-        XCTAssertEqual(stepper.pointerRegions.count, 1)
+        let area = try XCTUnwrap(time.subviews.compactMap { $0 as? QuirePointerTarget }.first { !($0 is QuirePointerOverlay) })
+        XCTAssertNil(area.hitTest(NSPoint(x: 1, y: 1)), "clicks reach the picker")
+        XCTAssertEqual(area.pointerRegions.count, 2, "the stepper and the digits")
+        let region = try XCTUnwrap(area.pointerRegions.first)
         XCTAssertTrue(region.cursor === NSCursor.pointingHand)
         XCTAssertEqual(region.rect.maxX, time.bounds.maxX)
         XCTAssertGreaterThan(region.rect.width, 10)
-        XCTAssertLessThan(region.rect.width, time.bounds.width / 2, "the digits keep the system's pointer")
+        XCTAssertLessThan(region.rect.width, time.bounds.width / 2)
+        let digits = try XCTUnwrap(area.pointerRegions.last)
+        XCTAssertTrue(digits.cursor === NSCursor.iBeam, "the digits are typed over")
+        XCTAssertEqual(digits.rect.minX, time.bounds.minX)
+        XCTAssertEqual(digits.rect.maxX, region.rect.minX)
+        assertDisjoint(area.pointerRegions.map(\.rect))
         // Where AppKit says the stepper is, it takes the hand.
         let window = try XCTUnwrap(time.window, "the alert's accessory is in its window")
         let incrementor = try XCTUnwrap(incrementorFrame(of: time))
         let local = time.convert(window.convertFromScreen(incrementor), from: nil)
         XCTAssertTrue(region.rect.contains(NSPoint(x: local.midX, y: local.midY)), "\(region.rect) holds the stepper at \(local)")
         time.isEnabled = false
-        XCTAssertEqual(stepper.pointerRegions.map(\.cursor), [.arrow])
+        XCTAssertEqual(area.pointerRegions.map(\.cursor), [.arrow, .arrow])
     }
 
     // MARK: Helpers
