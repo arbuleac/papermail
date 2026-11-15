@@ -33,6 +33,8 @@ _ts = T.TEXT_SIZE
 assert len(_ts['names']) == len(_ts['deltas']) == len(_ts['rowHeights']) == len(_ts['rowCompactHeights'])
 assert _ts['rowHeights'] == [T.LAYOUT['row']['height'] + 4 * d for d in _ts['deltas']], 'textSize.rowHeights'
 assert _ts['rowCompactHeights'] == [T.LAYOUT['rowCompact']['height'] + 4 * d for d in _ts['deltas']], 'textSize.rowCompactHeights'
+# the swipe's Archive is accentFill by another name (§5.7): only its Graphite value sets it apart
+assert all(color['swipeArchive'][m] == color['accentFill'][m] for m in MODES), 'swipeArchive is accentFill by another name'
 tokens['contrastPairs'] = None  # filled after ALL_PAIRS is built
 tokens['cheatSheetContent'] = [{'section': sec, 'rows': [{'keys': k, 'label': l} for k, l in rows]} for sec, rows in T.CHEAT_SHEET]
 tokens['cheatSheetSearch'] = {'title': T.CHEAT_SHEET_SEARCH[0], 'terms': T.CHEAT_SHEET_SEARCH[1]}

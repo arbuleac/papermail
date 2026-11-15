@@ -54,6 +54,9 @@ PAIRS = [
  ("Account initial tile letter, hover", "ink2", ["paper", "hover"], T),
  ("Account initial tile letter, selected", "ink2", ["selWash"], T),
  ("Account initial tile letter, selected idle", "ink2", ["selWashIdle"], T),
+ # a swipe's button (§5.7): AppKit draws its title white on whatever fill it is given, so each fill must hold onSwipe
+ ("Swipe button title (AppKit's white) on Archive's fill", "onSwipe", ["swipeArchive"], T),
+ ("Swipe button title (AppKit's white) on Mark as Read or Mark as Unread's fill", "onSwipe", ["swipeRead"], T),
  # ---- list header, search, sync line, empty states
  ("Masthead", "ink", ["paper"], T),
  ("Masthead chevron, compose glyph", "ink2", ["paper"], U),

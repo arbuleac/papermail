@@ -97,7 +97,7 @@ def resolve(table, stack, m):
 # ---------------------------------------------------------------- token families
 NEUTRAL = ['spine', 'paper', 'canvas', 'sheet', 'raised', 'slip', 'knob', 'ink', 'ink2', 'ink3', 'inkDisabled', 'onSlip',
            'onSlip2', 'rule', 'ruleStrong', 'onSlipEdge', 'hover', 'pressed', 'fill', 'slipHover', 'slipPressed', 'scrim',
-           'selWashIdle']
+           'selWashIdle', 'swipeRead']
 FILLS = ['accentFill', 'accentFillHover', 'accentFillPressed', 'controlOnPressed']
 WASHES = ['accentWash', 'accentWashHover', 'accentWashPressed', 'selWash']
 MARKS = ['accent', 'focus', 'selRule']
@@ -196,6 +196,8 @@ def derive(spec):
         # 3. fixed and derived
         out['slipEdge'][m] = Q['slipEdge'][m]
         out['originalPage'][m] = '#FFFFFF'
+        # AppKit draws a swipe button's title white whatever the fill (§5.7), so its token never moves
+        out['onSwipe'][m] = Q['onSwipe'][m]
         out['selRuleIdle'][m] = out['ink3'][m]
         out['scrimSolid'][m] = c.rgb2hex(c.over(H(out['scrim'][m]), H(out['canvas'][m])))
         for t in SEMANTIC:
@@ -254,6 +256,8 @@ def derive(spec):
                         Yx *= 1.003
                         x = at(Yx, Cx, hx)
                     out[t][m] = x
+            # the swipe's Archive wears the fill as finally lifted; only its Graphite value sets it apart (§5.7)
+            out['swipeArchive'][m] = out['accentFill'][m]
         # 7. key and not-key selection stay apart: the idle wash gives up chroma (toward neutral) until it is
         # SEL_KEY_IDLE_MIN from the key wash and no avatar face sinks into it
         Yi, (L0, Creq, h0) = Y(out['selWashIdle'][m]), lch(out['selWashIdle'][m])

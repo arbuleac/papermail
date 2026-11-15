@@ -36,7 +36,7 @@ A quire is a gathering of folded sheets, the unit a book is sewn from. Quire tre
 
 - **Custom-drawn surfaces use the theme's ink.** Selection, focus, the unread pip, badges and primary buttons are tuned against the paper surfaces in four modes, in every theme; an arbitrary system accent (Yellow, Pink) breaks those pairs.
 - **Native controls follow the app accent asset.** The app ships Iron Gall as its `NSAccentColorName` asset (`AccentColor` colour set: Any `#1E5468`, Dark `#2D788B`, high-contrast `#123E4D` / `#246F83`; the fill value, because macOS draws white text on it in menu highlights and default buttons). Under the default Multicolor setting, NSMenu highlights, NSAlert default buttons and the Settings toolbar's selected tab are therefore Iron Gall and match the custom drawing. (Controls inside Settings are Quire-drawn, §8.3, so they never depend on this.) When the user picks an explicit accent, native controls follow the user and custom-drawn Quire surfaces stay in the theme's ink. The accent asset stays Iron Gall in every theme: it is compiled and read once at launch. Every coloured theme's fill is held within 7.5 ΔE00 of it, so native menus and default buttons stay in family; Gallery has no coloured fill (§4.16).
-- **Graphite exception.** When the system accent is Graphite (`NSColor.currentControlTint == .graphiteControlTint`, or `controlAccentColor` saturation below 0.1), every accent-family token is replaced from **the active theme's** neutral ramp, one row per token below (`graphite` in `tokens.json`). That user asked macOS to take colour out. Account inks are identity, not accent, and stay (the kicker dot, rings, the From dot, swatches); so do `selWashIdle`, `selRuleIdle`, the semantic colours and the star. Because colour no longer tells a link from text, link buttons, invitation links and links in adapted and Quire-set bodies draw their underline at rest under Graphite, **and in any mode where the theme's ink is within 15 ΔE00 of its text ink, or within 10 under a colour-vision simulation; links inside quotes, where the same holds against `ink2` (§4.16)** (hover and pressed as §5.24). Fills step back toward the surface as they are hovered and pressed (`ink` → `ink2` → `ink3`), because `ink` is already the end of the ramp. The build regenerates every contrast pair that touches one of these tokens with the substitutions applied, for each theme (100 Graphite pairs per theme, §7) and asserts them with the others; the two 1.25 scan-cue pairs are the only ones not regenerated, because under Graphite the selection wash is the idle wash and the `ink` margin rule (≥ 12:1 on `paper`) is the cue.
+- **Graphite exception.** When the system accent is Graphite (`NSColor.currentControlTint == .graphiteControlTint`, or `controlAccentColor` saturation below 0.1), every accent-family token is replaced from **the active theme's** neutral ramp, one row per token below (`graphite` in `tokens.json`). That user asked macOS to take colour out. Account inks are identity, not accent, and stay (the kicker dot, rings, the From dot, swatches); so do `selWashIdle`, `selRuleIdle`, the semantic colours and the star. Because colour no longer tells a link from text, link buttons, invitation links and links in adapted and Quire-set bodies draw their underline at rest under Graphite, **and in any mode where the theme's ink is within 15 ΔE00 of its text ink, or within 10 under a colour-vision simulation; links inside quotes, where the same holds against `ink2` (§4.16)** (hover and pressed as §5.24). Fills step back toward the surface as they are hovered and pressed (`ink` → `ink2` → `ink3`), because `ink` is already the end of the ramp. The build regenerates every contrast pair that touches one of these tokens with the substitutions applied, for each theme (101 Graphite pairs per theme, §7) and asserts them with the others; the two 1.25 scan-cue pairs are the only ones not regenerated, because under Graphite the selection wash is the idle wash and the `ink` margin rule (≥ 12:1 on `paper`) is the cue.
 
 | Token | Under Graphite | Where it shows |
 |---|---|---|
@@ -46,6 +46,7 @@ A quire is a gathering of folded sheets, the unit a book is sewn from. Quire tre
 | `accentFillPressed` | `ink3` | Primary button pressed: one step further back |
 | `controlOnPressed` | `ink3` | Checkbox and radio on, pressed |
 | `onAccent` | `paper` | Labels, numerals, checkmark and radio dot on the neutral fills |
+| `swipeArchive` | `slip` | A swipe's Archive button (§5.7): `ink` would turn light in dark appearances under AppKit's white title, so the slip, dark in both |
 | `accentWash` | `selWashIdle` | Quiet toggles on: unfolded quoted text, Original colors action, format toggles, the Format button |
 | `accentWashHover` | `selWashIdle` + `hover` | Quiet toggle on, hover |
 | `accentWashPressed` | `selWashIdle` + `pressed` | Quiet toggle on, pressed |
@@ -144,6 +145,7 @@ Every other mark in the ink stays as it is: the unread pip and unread time, badg
 | `slip` | `#24221F` | `#36332E` | `#12100E` | `#2E2B27` | Toast, undo-send panel, g-sequence HUD (a dark slip in both appearances) |
 | `slipEdge` | `#000000` @ 0% | `#FFFFFF` @ 10% | `#000000` @ 0% | `#FFFFFF` @ 45% | 1 pt edge around the slip in dark appearances |
 | `knob` | `#FFFFFF` | `#DCD7CE` | `#FFFFFF` | `#FFFFFF` | Toggle knob face (its boundary is the 1 pt ruleStrong knob edge, layout.toggle) |
+| `swipeRead` | `#726C65` | `#5F5A53` | `#625C55` | `#57524B` | Fill of a swipe's Mark as Read or Mark as Unread button (§5.7): the ramp's mid grey, nearly one value in both appearances, quiet beside Archive and dark enough for AppKit's white title |
 | `originalPage` | `#FFFFFF` | `#FFFFFF` | `#FFFFFF` | `#FFFFFF` | Page under a styled message shown in its original colours (drawn only in dark appearances: the sender designed for white) |
 | `scrimSolid` | `#B8B6B1` | `#0B0B0A` | `#9C9A95` | `#050504` | The cheat-sheet scrim under Reduce Transparency: opaque, the value `scrim` gives over `canvas`, so the window behind is hidden instead of dimmed |
 
@@ -157,6 +159,7 @@ Every other mark in the ink stays as it is: the unread pip and unread time, badg
 | `inkDisabled` | `#A9A398` | `#5F5A53` | `#8A8479` | `#7D776F` | Disabled text and glyphs only (exempt from contrast minimums) |
 | `onSlip` | `#F3F0EA` | `#EDE9E2` | `#FFFFFF` | `#FFFFFF` | Text and glyphs on the slip |
 | `onSlip2` | `#B8B2A8` | `#C2BCB2` | `#D9D4CB` | `#DCD7CE` | Secondary text and glyphs on the slip; keycap legends on a resting slip action (onSlip while it is hovered or pressed) |
+| `onSwipe` | `#FFFFFF` | `#FFFFFF` | `#FFFFFF` | `#FFFFFF` | Title of a swipe's button (§5.7): white in every mode and theme, because AppKit draws it white and resets any other colour, so the swipe fills are chosen for it |
 
 **Lines**
 
@@ -187,6 +190,7 @@ Every other mark in the ink stays as it is: the unread pip and unread time, badg
 | `accentFillPressed` | `#123A4A` | `#286C7E` | `#082733` | `#1F6375` | Primary button pressed only (darker in every mode, white label >= 4.5:1). Never a control's on fill: it falls below 3:1 on dark surfaces |
 | `controlOnPressed` | `#123A4A` | `#368699` | `#082733` | `#2A7E95` | Checkbox and radio on, pressed: darker in light modes, lighter in dark modes, so the only mark of the on state keeps >= 3:1 on sheet and canvas (toggles show the press on the knob instead) |
 | `onAccent` | `#FFFFFF` | `#FFFFFF` | `#FFFFFF` | `#FFFFFF` | Text and glyphs on accentFill |
+| `swipeArchive` | `#1E5468` | `#2D788B` | `#123E4D` | `#246F83` | Fill of a swipe's Archive button (§5.7): accentFill by another name, apart only under Graphite and in Gallery, where it is the slip, since AppKit's white title needs a dark fill in both appearances |
 | `accentWash` | `#DCE8EA` | `#1F363C` | `#C8DCE0` | `#1A4049` | On state of quiet toggles (Hide quoted text, Original colors action, composer format toggles) |
 | `accentWashHover` | `#D2E2E5` | `#233D44` | `#BDD5DA` | `#1F4A55` | Quiet toggle on, hover |
 | `accentWashPressed` | `#C8DBDF` | `#182D33` | `#B2CDD3` | `#15363E` | Quiet toggle on, pressed (darker in every mode: the toggle is pushed in) |
@@ -833,7 +837,7 @@ Each caption says only what holds in every mode its tile is drawn in. No name is
 | `selWash` | `#CFE0E9` | `#1E3A49` | `#C2D6DF` | `#1C3F4C` |
 | `selWashIdle` | `#E8E7E9` | `#26242A` | `#DAD6E4` | `#2C2A31` |
 
-Tokens each theme keeps from Study in all four modes: Gallery (16): `slipEdge`, `originalPage`, `star`, `success`, `warning`, `danger`, `info`, `successWash`, `warningWash`, `dangerWash`, `findWash`, `findCurrent`, `dangerFill`, `dangerFillHover`, `dangerFillPressed`, `onDanger`. Rain (17): `slipEdge`, `originalPage`, `onAccent`, `star`, `success`, `warning`, `danger`, `info`, `successWash`, `warningWash`, `dangerWash`, `findWash`, `findCurrent`, `dangerFill`, `dangerFillHover`, `dangerFillPressed`, `onDanger`. Grove (17): `slipEdge`, `originalPage`, `onAccent`, `star`, `success`, `warning`, `danger`, `info`, `warningWash`, `dangerWash`, `infoWash`, `findWash`, `findCurrent`, `dangerFill`, `dangerFillHover`, `dangerFillPressed`, `onDanger`. Dusk (17): `slipEdge`, `originalPage`, `onAccent`, `star`, `success`, `warning`, `danger`, `info`, `successWash`, `warningWash`, `dangerWash`, `findWash`, `findCurrent`, `dangerFill`, `dangerFillHover`, `dangerFillPressed`, `onDanger`. Every value of every theme is in `tokens.json` (`themes[].color`).
+Tokens each theme keeps from Study in all four modes: Gallery (17): `slipEdge`, `originalPage`, `onSwipe`, `star`, `success`, `warning`, `danger`, `info`, `successWash`, `warningWash`, `dangerWash`, `findWash`, `findCurrent`, `dangerFill`, `dangerFillHover`, `dangerFillPressed`, `onDanger`. Rain (18): `slipEdge`, `originalPage`, `onSwipe`, `onAccent`, `star`, `success`, `warning`, `danger`, `info`, `successWash`, `warningWash`, `dangerWash`, `findWash`, `findCurrent`, `dangerFill`, `dangerFillHover`, `dangerFillPressed`, `onDanger`. Grove (18): `slipEdge`, `originalPage`, `onSwipe`, `onAccent`, `star`, `success`, `warning`, `danger`, `info`, `warningWash`, `dangerWash`, `infoWash`, `findWash`, `findCurrent`, `dangerFill`, `dangerFillHover`, `dangerFillPressed`, `onDanger`. Dusk (18): `slipEdge`, `originalPage`, `onSwipe`, `onAccent`, `star`, `success`, `warning`, `danger`, `info`, `successWash`, `warningWash`, `dangerWash`, `findWash`, `findCurrent`, `dangerFill`, `dangerFillHover`, `dangerFillPressed`, `onDanger`. Every value of every theme is in `tokens.json` (`themes[].color`).
 
 **How far apart they are.** Mean CIEDE2000 over the tokens that carry identity (`spine`, `canvas`, `paper`, `sheet`, `slip`, `selWash`, `accent`); about 2 is a visible tint across a pane, 4 and up reads as another window:
 
@@ -896,7 +900,7 @@ In light modes the papers and rails carry the coloured themes and the coloured i
 
 The rule, per mode:
 
-1. **Neutral ramp** (`spine`, `paper`, `canvas`, `sheet`, `raised`, `slip`, `knob`, `ink`, `ink2`, `ink3`, `inkDisabled`, `onSlip`, `onSlip2`, `rule`, `ruleStrong`, `onSlipEdge`, `hover`, `pressed`, `fill`, `slipHover`, `slipPressed`, `scrim`, `selWashIdle`). Each takes Study's relative luminance, multiplied by the declared depth for `spine`, `paper`, `canvas`, `sheet` and `raised` in Dark and Dark IC. Hue is the paper hue. Chroma is min(7, max(floor, k × Study's chroma)), where k is the paper factor (0.8 of it for the seven ink tokens) and the floor applies only to the six surfaces in dark modes. Out of gamut, chroma steps down by 0.1. Alpha tokens keep their alpha; pure white and pure black stay.
+1. **Neutral ramp** (`spine`, `paper`, `canvas`, `sheet`, `raised`, `slip`, `knob`, `ink`, `ink2`, `ink3`, `inkDisabled`, `onSlip`, `onSlip2`, `rule`, `ruleStrong`, `onSlipEdge`, `hover`, `pressed`, `fill`, `slipHover`, `slipPressed`, `scrim`, `selWashIdle`, `swipeRead`). Each takes Study's relative luminance, multiplied by the declared depth for `spine`, `paper`, `canvas`, `sheet` and `raised` in Dark and Dark IC. Hue is the paper hue. Chroma is min(7, max(floor, k × Study's chroma)), where k is the paper factor (0.8 of it for the seven ink tokens) and the floor applies only to the six surfaces in dark modes. Out of gamut, chroma steps down by 0.1. Alpha tokens keep their alpha; pure white and pure black stay.
 2. **Ratio lock** (declared depth only). `rule` takes the luminance that gives Study's `rule`-on-`sheet` ratio on the theme's deeper `sheet`, `selWashIdle` Study's ratio on the deeper `paper`, and `accentWash`, `accentWashHover` and `accentWashPressed` Study's ratio on the deeper `sheet`, on the same side of it, at the theme's hue and chroma.
 3. **Night ink** (declared; Dusk, Dark only). `ink` takes the luminance that gives Study's `ink`-on-`sheet` ratio on the deeper sheet, never below 4.6:1 on `findCurrent`, its tightest pair. After 8-bit rounding the build takes the first value that meets the floor, not the nearest.
 4. **The light sheet is the page.** In Light and Light IC, `sheet` gives up chroma until it is no farther from white than Study's sheet, with C\* ≤ 1.6.
@@ -983,30 +987,30 @@ Each theme's Light IC and Dark IC tables are derived from **Study's IC values** 
 | R10 | two flags. **links** (`linkUnderlineAtRest`): every link is underlined at rest where the ink is under 15 ΔE00 from `ink`, or under 10 under any simulation. **quoteLinks** (`quoteLinkUnderlineAtRest`): links inside quotes, where the same holds against `ink2` | colour must not be the only cue, beside body text or beside quoted text |
 | R11 | `--q-linkOnPage` (a link its sender left uncoloured, in a body neither Quire-set nor adapted) is never closer than Study's accent to the text a sender's page sets (`#000`–`#444` light, `#FFF`–`#CCC` dark), normal or under any simulation | the sender's text, not the theme's, is what such a link sits beside |
 
-**Results.** 5 themes × 494 pairs × 4 modes = 9,880 checks, plus 5 × 100 Graphite pairs × 4 = 2,000, plus the theme rules, 0 failures. Per theme and mode, the tightest pair is the smallest margin over its need among pairs needing 3 or more; they are Study's own, because every luminance is Study's:
+**Results.** 5 themes × 496 pairs × 4 modes = 9,920 checks, plus 5 × 101 Graphite pairs × 4 = 2,020, plus the theme rules, 0 failures. Per theme and mode, the tightest pair is the smallest margin over its need among pairs needing 3 or more; they are Study's own, because every luminance is Study's:
 
 | Theme | Mode | Pairs | Tightest pair (ratio, margin) | Graphite pairs | Tightest Graphite pair | Account rules | Theme rules |
 |---|---|---|---|---|---|---|---|
-| Study | Light | 494 / 494 | Tag edge on the selected Settings account row 3.18 (+0.180) | 100 / 100 | Tag edge on the selected Settings account row 3.49 (+0.492) | pass | pass |
-| Study | Dark | 494 / 494 | Primary button label, hover 4.58 (+0.082) | 100 / 100 | Account ink Persimmon on selected row 3.85 (+0.850) | pass | pass |
-| Study | Light IC | 494 / 494 | Account ink Lilac on hovered rail tile 3.56 (+0.055) | 100 / 100 | Account ink Lilac on selected row 3.77 (+0.267) | pass | pass |
-| Study | Dark IC | 494 / 494 | Checkbox / radio on fill vs sheet 3.01 (+0.013) | 100 / 100 | Account ink Jade on selected row 4.30 (+0.804) | pass | pass |
-| Gallery | Light | 494 / 494 | Tag edge on the selected Settings account row 3.16 (+0.160) | 100 / 100 | Tag edge on the selected Settings account row 3.47 (+0.471) | pass | pass |
-| Gallery | Dark | 494 / 494 | Row count badge numerals, selected 4.64 (+0.142) | 100 / 100 | Account ink Persimmon on selected row 3.86 (+0.858) | pass | pass |
-| Gallery | Light IC | 494 / 494 | Account ink Lilac on selected row 3.55 (+0.046) | 100 / 100 | Account ink Lilac on selected row 3.76 (+0.261) | pass | pass |
-| Gallery | Dark IC | 494 / 494 | Account ink Jade on selected row 3.52 (+0.020) | 100 / 100 | Account ink Jade on selected row 4.33 (+0.828) | pass ¹ | pass |
-| Rain | Light | 494 / 494 | Tag edge on the selected Settings account row 3.18 (+0.184) | 100 / 100 | Tag edge on the selected Settings account row 3.48 (+0.482) | pass | pass |
-| Rain | Dark | 494 / 494 | Primary button label, hover 4.57 (+0.074) | 100 / 100 | Account ink Persimmon on selected row 3.86 (+0.862) | pass | pass |
-| Rain | Light IC | 494 / 494 | Account ink Lilac on hovered rail tile 3.55 (+0.054) | 100 / 100 | Account ink Lilac on selected row 3.77 (+0.273) | pass | pass |
-| Rain | Dark IC | 494 / 494 | Checkbox / radio on fill vs sheet 3.04 (+0.039) | 100 / 100 | Account ink Jade on selected row 4.29 (+0.788) | pass | pass |
-| Grove | Light | 494 / 494 | Tag edge on the selected Settings account row 3.17 (+0.166) | 100 / 100 | Tag edge on the selected Settings account row 3.48 (+0.476) | pass | pass |
-| Grove | Dark | 494 / 494 | Primary button label, hover 4.60 (+0.104) | 100 / 100 | Account ink Persimmon on selected row 3.86 (+0.860) | pass | pass |
-| Grove | Light IC | 494 / 494 | Account ink Lilac on hovered rail tile 3.55 (+0.047) | 100 / 100 | Account ink Lilac on selected row 3.76 (+0.258) | pass | pass |
-| Grove | Dark IC | 494 / 494 | Account ink Jade on selected row 3.52 (+0.025) | 100 / 100 | Account ink Jade on selected row 4.29 (+0.785) | pass | pass |
-| Dusk | Light | 494 / 494 | Tag edge on the selected Settings account row 3.19 (+0.186) | 100 / 100 | Tag edge on the selected Settings account row 3.50 (+0.504) | pass | pass |
-| Dusk | Dark | 494 / 494 | Primary button label, hover 4.58 (+0.076) | 100 / 100 | Account ink Persimmon on selected row 4.07 (+1.071) | pass | pass |
-| Dusk | Light IC | 494 / 494 | Account ink Lilac on hovered rail tile 3.55 (+0.048) | 100 / 100 | Account ink Lilac on selected row 3.76 (+0.258) | pass | pass |
-| Dusk | Dark IC | 494 / 494 | Account ink Jade on selected row 3.54 (+0.039) | 100 / 100 | Account ink Jade on selected row 4.45 (+0.951) | pass | pass |
+| Study | Light | 496 / 496 | Tag edge on the selected Settings account row 3.18 (+0.180) | 101 / 101 | Tag edge on the selected Settings account row 3.49 (+0.492) | pass | pass |
+| Study | Dark | 496 / 496 | Primary button label, hover 4.58 (+0.082) | 101 / 101 | Account ink Persimmon on selected row 3.85 (+0.850) | pass | pass |
+| Study | Light IC | 496 / 496 | Account ink Lilac on hovered rail tile 3.56 (+0.055) | 101 / 101 | Account ink Lilac on selected row 3.77 (+0.267) | pass | pass |
+| Study | Dark IC | 496 / 496 | Checkbox / radio on fill vs sheet 3.01 (+0.013) | 101 / 101 | Account ink Jade on selected row 4.30 (+0.804) | pass | pass |
+| Gallery | Light | 496 / 496 | Tag edge on the selected Settings account row 3.16 (+0.160) | 101 / 101 | Tag edge on the selected Settings account row 3.47 (+0.471) | pass | pass |
+| Gallery | Dark | 496 / 496 | Row count badge numerals, selected 4.64 (+0.142) | 101 / 101 | Account ink Persimmon on selected row 3.86 (+0.858) | pass | pass |
+| Gallery | Light IC | 496 / 496 | Account ink Lilac on selected row 3.55 (+0.046) | 101 / 101 | Account ink Lilac on selected row 3.76 (+0.261) | pass | pass |
+| Gallery | Dark IC | 496 / 496 | Account ink Jade on selected row 3.52 (+0.020) | 101 / 101 | Account ink Jade on selected row 4.33 (+0.828) | pass ¹ | pass |
+| Rain | Light | 496 / 496 | Tag edge on the selected Settings account row 3.18 (+0.184) | 101 / 101 | Tag edge on the selected Settings account row 3.48 (+0.482) | pass | pass |
+| Rain | Dark | 496 / 496 | Primary button label, hover 4.57 (+0.074) | 101 / 101 | Account ink Persimmon on selected row 3.86 (+0.862) | pass | pass |
+| Rain | Light IC | 496 / 496 | Account ink Lilac on hovered rail tile 3.55 (+0.054) | 101 / 101 | Account ink Lilac on selected row 3.77 (+0.273) | pass | pass |
+| Rain | Dark IC | 496 / 496 | Checkbox / radio on fill vs sheet 3.04 (+0.039) | 101 / 101 | Account ink Jade on selected row 4.29 (+0.788) | pass | pass |
+| Grove | Light | 496 / 496 | Tag edge on the selected Settings account row 3.17 (+0.166) | 101 / 101 | Tag edge on the selected Settings account row 3.48 (+0.476) | pass | pass |
+| Grove | Dark | 496 / 496 | Primary button label, hover 4.60 (+0.104) | 101 / 101 | Account ink Persimmon on selected row 3.86 (+0.860) | pass | pass |
+| Grove | Light IC | 496 / 496 | Account ink Lilac on hovered rail tile 3.55 (+0.047) | 101 / 101 | Account ink Lilac on selected row 3.76 (+0.258) | pass | pass |
+| Grove | Dark IC | 496 / 496 | Account ink Jade on selected row 3.52 (+0.025) | 101 / 101 | Account ink Jade on selected row 4.29 (+0.785) | pass | pass |
+| Dusk | Light | 496 / 496 | Tag edge on the selected Settings account row 3.19 (+0.186) | 101 / 101 | Tag edge on the selected Settings account row 3.50 (+0.504) | pass | pass |
+| Dusk | Dark | 496 / 496 | Primary button label, hover 4.58 (+0.076) | 101 / 101 | Account ink Persimmon on selected row 4.07 (+1.071) | pass | pass |
+| Dusk | Light IC | 496 / 496 | Account ink Lilac on hovered rail tile 3.55 (+0.048) | 101 / 101 | Account ink Lilac on selected row 3.76 (+0.258) | pass | pass |
+| Dusk | Dark IC | 496 / 496 | Account ink Jade on selected row 3.54 (+0.039) | 101 / 101 | Account ink Jade on selected row 4.45 (+0.951) | pass | pass |
 
 ¹ Inkless: “no account ink within 15 ΔE00 of the ink” is read as under Graphite, and R5 holds 13 instead; Study under the Graphite system accent shows the same distance.
 
@@ -1027,9 +1031,9 @@ The theme rules' values:
 | Rain | Light IC | 0.00 / 0.00 | 13.8 | 2.6 | 0.4 % | 17.6 / 8.8 | 4.2 Indigo | 13.2 (ink3, success) | 11.1 infoWash | 8.7 infoWash | 6.3 | +2.3 |
 | Rain | Dark IC | — | — | 4.9 | 0.5 % | 18.7 / 3.2 | 2.8 Lilac | 12.3 (ink3, success) | 13.7 infoWash | 15.5 infoWash | 11.9 | +1.2 |
 | Grove | Light | 1.28 / 1.08 | 12.5 | 7.4 | 0.6 % | 24.6 / 13.5 | 4.7 Indigo | 8.3 (ink3, success) | 7.6 infoWash | 6.5 successWash | 7.9 | +0.2 |
-| Grove | Dark | — | — | 7.1 | 0.5 % | 23.2 / 11.5 | 4.3 Lilac | 9.1 (ink3, danger) | 9.1 warningWash | 11.0 warningWash | 11.5 | +0.5 |
+| Grove | Dark | — | — | 7.1 | 0.6 % | 23.2 / 11.5 | 4.3 Lilac | 9.1 (ink3, danger) | 9.1 warningWash | 11.0 warningWash | 11.5 | +0.5 |
 | Grove | Light IC | 0.00 / 0.00 | 15.0 | 5.4 | 0.6 % | 21.6 / 11.0 | 3.9 Indigo | 8.3 (ink3, success) | 11.1 successWash | 7.2 successWash | 8.8 | +1.2 |
-| Grove | Dark IC | — | — | 7.0 | 0.5 % | 20.8 / 7.4 | 5.1 Graphite | 6.0 (ink3, danger) | 14.1 warningWash | 16.7 warningWash | 13.8 | +0.1 |
+| Grove | Dark IC | — | — | 7.0 | 0.6 % | 20.8 / 7.4 | 5.1 Graphite | 6.0 (ink3, danger) | 14.1 warningWash | 16.7 warningWash | 13.8 | +0.1 |
 | Dusk | Light | 0.57 / 0.51 | 8.3 | 2.1 | 0.6 % | 13.4 / 4.6 | 4.3 Jade | 17.2 (ink2, success) | 7.8 infoWash | 6.6 infoWash | 7.9 | +0.1 |
 | Dusk | Dark | — | — | 6.3 | 0.4 % | 13.3 / 3.3 | 3.1 Lilac | 19.8 (ink2, success) | 7.9 infoWash | 10.0 infoWash | 13.7 | +1.8 |
 | Dusk | Light IC | 0.00 / 0.00 | 11.8 | 1.0 | 0.4 % | 13.9 / 5.7 | 3.2 Mulberry | 15.5 (ink3, success) | 10.5 infoWash | 7.7 infoWash | 11.9 | +0.8 |
@@ -2974,9 +2978,9 @@ So in the reader with a toast up, the first Esc dismisses the toast and the seco
 
 Computed by the token generator from `tokens.json` with WCAG 2.x relative luminance. Alpha tokens are composited in sRGB over the surface beneath them first; “`a` + `b`” means `b` composited over `a`. Need is 4.5 for text and 3.0 for essential non-text UI (glyphs that carry state, state-bearing edges, focus rings, pips, rules, rings, toggle and checkbox fills). The pair list is every foreground-on-surface combination the components above produce, including hover and pressed washes, both selection washes, washes over washes, fills, slips and all account inks; it is stored as `contrastPairs` in `tokens.json` and asserted by `DesignContrastTests` (§8.7), so a token change that breaks a pair fails `swift test`. Four pairs are scan cues with a 1.25 floor. `selWash` on `paper` and on `sheet` make the current row easy to find, while the margin rule, asserted at 3:1, carries the state; `findWash` on `sheet` and `findCurrent` on `findWash` make matches and the current one easy to find, while the count and the current match's `ruleStrong` ring, asserted at 3:1, carry the state (§5.50). Account-ink pairs carry two needs, 3 in Light and Dark and 3.5 in the IC modes (`needIC`), and the test asserts each mode against its own.
 
-**Result:** 494 pairs × 4 modes = 1976 checks, plus 100 Graphite pairs × 4 = 400, 0 failures (4 of the pairs are scan cues with a 1.25 floor; account inks need 3.0, or 3.5 in IC; the rest need 4.5 or 3.0). Smallest margins: Checkbox / radio on fill vs sheet 3.01 (Dark IC, needs 3.0); Toggle on track vs sheet (rest, hover and pressed: the track never takes a wash) 3.01 (Dark IC, needs 3.0); Account ink Jade on selected row 3.52 (Dark IC, needs 3.5); Account ink Lilac on hovered rail tile 3.56 (Light IC, needs 3.5); Account ink Lilac on selected row 3.56 (Light IC, needs 3.5); Account ink Azure on hovered rail tile 3.57 (Light IC, needs 3.5).
+**Result:** 496 pairs × 4 modes = 1984 checks, plus 101 Graphite pairs × 4 = 404, 0 failures (4 of the pairs are scan cues with a 1.25 floor; account inks need 3.0, or 3.5 in IC; the rest need 4.5 or 3.0). Smallest margins: Checkbox / radio on fill vs sheet 3.01 (Dark IC, needs 3.0); Toggle on track vs sheet (rest, hover and pressed: the track never takes a wash) 3.01 (Dark IC, needs 3.0); Account ink Jade on selected row 3.52 (Dark IC, needs 3.5); Account ink Lilac on hovered rail tile 3.56 (Light IC, needs 3.5); Account ink Lilac on selected row 3.56 (Light IC, needs 3.5); Account ink Azure on hovered rail tile 3.57 (Light IC, needs 3.5).
 
-**Themes** (§4.16): 5 themes × 494 pairs × 4 modes = 9,880 checks, plus 5 × 100 Graphite pairs × 4 = 2,000, plus the theme rules, 0 failures. The pairs below are listed with Study's values; every theme asserts the same pairs against its own table, per mode, with the theme rules beside them (`ThemeRuleTests`), and §4.16 gives each theme's tightest pair. 1.8.0 adds two pairs, the chosen theme tile's underline on the Settings desk (`selRule` and `selRuleIdle` on `canvas`).
+**Themes** (§4.16): 5 themes × 496 pairs × 4 modes = 9,920 checks, plus 5 × 101 Graphite pairs × 4 = 2,020, plus the theme rules, 0 failures. The pairs below are listed with Study's values; every theme asserts the same pairs against its own table, per mode, with the theme rules beside them (`ThemeRuleTests`), and §4.16 gives each theme's tightest pair. 1.8.0 adds two pairs, the chosen theme tile's underline on the Settings desk (`selRule` and `selRuleIdle` on `canvas`).
 
 Not tested on purpose: `inkDisabled` (disabled text and glyphs are exempt), decorative `rule` hairlines (they separate, they do not carry state), the toggle knob's face against the off track (its `ruleStrong` edge is the tested boundary), the popup halo against a hovered or pressed face (the halo is the ink's surface, not a mark), swatches inside the open Colour menu (the item's title names the ink), the cheat-sheet `scrim` and `scrimSolid` (they sit behind the panel and carry nothing), avatar faces and the account face wash against their surroundings (decorative; the initials on them are tested), and system-drawn chrome: menus and their badges, alerts, notifications, tooltips, and the Settings toolbar with its tabs. Every control inside Settings is Quire-drawn and tested. Bodies shown in Original colors are the sender's design on the `originalPage` inset and are not Quire pairs; adapted bodies use only tested inks (§5.14). The account square and the initial tile's edge are drawn in the account ink and are covered by the account-ink rows below, never by a `ruleStrong` pair.
 
@@ -3035,6 +3039,8 @@ Not tested on purpose: `inkDisabled` (disabled text and glyphs are exempt), deco
 | Account initial tile letter, hover | `ink2` | `paper` + `hover` | 4.5 | 6.97 | 7.15 | 10.16 | 10.48 | pass |
 | Account initial tile letter, selected | `ink2` | `selWash` | 4.5 | 5.88 | 5.71 | 7.96 | 7.82 | pass |
 | Account initial tile letter, selected idle | `ink2` | `selWashIdle` | 4.5 | 6.46 | 6.89 | 8.42 | 9.56 | pass |
+| Swipe button title (AppKit's white) on Archive's fill | `onSwipe` | `swipeArchive` | 4.5 | 8.32 | 5.03 | 11.53 | 5.71 | pass |
+| Swipe button title (AppKit's white) on Mark as Read or Mark as Unread's fill | `onSwipe` | `swipeRead` | 4.5 | 5.19 | 6.83 | 6.60 | 7.74 | pass |
 | Masthead | `ink` | `paper` | 4.5 | 16.45 | 14.23 | 18.82 | 18.86 | pass |
 | Masthead chevron, compose glyph | `ink2` | `paper` | 3 | 7.64 | 8.18 | 11.69 | 13.16 | pass |
 | Masthead hover text | `ink` | `paper` + `hover` | 4.5 | 15.00 | 12.45 | 16.36 | 15.02 | pass |
@@ -3479,7 +3485,7 @@ Not tested on purpose: `inkDisabled` (disabled text and glyphs are exempt), deco
 | Avatar initials, Rose | `avatarInk:Rose` | `avatarFace:Rose` | 4.5 | 6.88 | 8.05 | 8.09 | 8.66 | pass |
 | Avatar initials, Stone | `avatarInk:Stone` | `avatarFace:Stone` | 4.5 | 6.89 | 8.27 | 8.53 | 8.94 | pass |
 
-**Graphite.** Every pair above that touches an accent-family token, regenerated with the substitutions of §3.1 (`graphiteContrastPairs` in `tokens.json`, asserted by the same test): 100 pairs × 4 modes = 400 checks, 0 failures. Smallest margins: Graphite · Account ink Lilac on selected row 3.77 (Light IC, needs 3.5); Graphite · Account ink Azure on selected row 3.79 (Light IC, needs 3.5); Graphite · Account ink Persimmon on selected row 3.79 (Light IC, needs 3.5); Graphite · Account ink Fern on selected row 3.80 (Light IC, needs 3.5).
+**Graphite.** Every pair above that touches an accent-family token, regenerated with the substitutions of §3.1 (`graphiteContrastPairs` in `tokens.json`, asserted by the same test): 101 pairs × 4 modes = 404 checks, 0 failures. Smallest margins: Graphite · Account ink Lilac on selected row 3.77 (Light IC, needs 3.5); Graphite · Account ink Azure on selected row 3.79 (Light IC, needs 3.5); Graphite · Account ink Persimmon on selected row 3.79 (Light IC, needs 3.5); Graphite · Account ink Fern on selected row 3.80 (Light IC, needs 3.5).
 
 | Pair | Foreground | Background (composited left to right) | Need | Light | Dark | Light IC | Dark IC |  |
 |---|---|---|---|---|---|---|---|---|
@@ -3504,6 +3510,7 @@ Not tested on purpose: `inkDisabled` (disabled text and glyphs are exempt), deco
 | Graphite · Margin rule vs selection wash | `ink` | `selWashIdle` | 3 | 13.90 | 12.00 | 13.56 | 13.70 | pass |
 | Graphite · Margin rule vs adjacent paper | `ink` | `paper` | 3 | 16.45 | 14.23 | 18.82 | 18.86 | pass |
 | Graphite · Account initial tile letter, selected | `ink2` | `selWashIdle` | 4.5 | 6.46 | 6.89 | 8.42 | 9.56 | pass |
+| Graphite · Swipe button title (AppKit's white) on Archive's fill | `onSwipe` | `slip` | 4.5 | 15.87 | 12.58 | 18.98 | 14.08 | pass |
 | Graphite · Sync line action link | `ink` | `paper` | 4.5 | 16.45 | 14.23 | 18.82 | 18.86 | pass |
 | Graphite · Contrail (sync progress) vs list | `ink` | `paper` | 3 | 16.45 | 14.23 | 18.82 | 18.86 | pass |
 | Graphite · Rail margin rule | `ink` | `spine` | 3 | 14.16 | 15.59 | 14.64 | 20.04 | pass |

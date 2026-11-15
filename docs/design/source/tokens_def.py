@@ -15,6 +15,7 @@ COLOR = [
  ("slip",    "#24221F", "#36332E", "#12100E", "#2E2B27", "surface", "Toast, undo-send panel, g-sequence HUD (a dark slip in both appearances)"),
  ("slipEdge","#00000000", "#FFFFFF1A", "#00000000", "#FFFFFF73", "surface", "1 pt edge around the slip in dark appearances"),
  ("knob",    "#FFFFFF", "#DCD7CE", "#FFFFFF", "#FFFFFF", "surface", "Toggle knob face (its boundary is the 1 pt ruleStrong knob edge, layout.toggle)"),
+ ("swipeRead", "#726C65", "#5F5A53", "#625C55", "#57524B", "surface", "Fill of a swipe's Mark as Read or Mark as Unread button (§5.7): the ramp's mid grey, nearly one value in both appearances, quiet beside Archive and dark enough for AppKit's white title"),
  ("originalPage", "#FFFFFF", "#FFFFFF", "#FFFFFF", "#FFFFFF", "surface", "Page under a styled message shown in its original colours (drawn only in dark appearances: the sender designed for white)"),
  ("scrimSolid", "#B8B6B1", "#0B0B0A", "#9C9A95", "#050504", "surface", "The cheat-sheet scrim under Reduce Transparency: opaque, the value `scrim` gives over `canvas`, so the window behind is hidden instead of dimmed"),
  # ink
@@ -24,6 +25,7 @@ COLOR = [
  ("inkDisabled", "#A9A398", "#5F5A53", "#8A8479", "#7D776F", "ink", "Disabled text and glyphs only (exempt from contrast minimums)"),
  ("onSlip",      "#F3F0EA", "#EDE9E2", "#FFFFFF", "#FFFFFF", "ink", "Text and glyphs on the slip"),
  ("onSlip2",     "#B8B2A8", "#C2BCB2", "#D9D4CB", "#DCD7CE", "ink", "Secondary text and glyphs on the slip; keycap legends on a resting slip action (onSlip while it is hovered or pressed)"),
+ ("onSwipe",     "#FFFFFF", "#FFFFFF", "#FFFFFF", "#FFFFFF", "ink", "Title of a swipe's button (§5.7): white in every mode and theme, because AppKit draws it white and resets any other colour, so the swipe fills are chosen for it"),
  # lines
  ("rule",       "#E4E0D7", "#34312D", "#B9B3A8", "#55514A", "line", "Decorative hairline: row separators, pane dividers, sheet edges, header bottoms"),
  ("ruleStrong", "#7F796F", "#8B857B", "#5E5952", "#A39D93", "line", "State-bearing 1 pt edge (>= 3:1): fields, search, checkbox, toggle-off track, secondary buttons, tags"),
@@ -42,6 +44,7 @@ COLOR = [
  ("accentFillPressed", "#123A4A", "#286C7E", "#082733", "#1F6375", "accent", "Primary button pressed only (darker in every mode, white label >= 4.5:1). Never a control's on fill: it falls below 3:1 on dark surfaces"),
  ("controlOnPressed",  "#123A4A", "#368699", "#082733", "#2A7E95", "accent", "Checkbox and radio on, pressed: darker in light modes, lighter in dark modes, so the only mark of the on state keeps >= 3:1 on sheet and canvas (toggles show the press on the knob instead)"),
  ("onAccent",          "#FFFFFF", "#FFFFFF", "#FFFFFF", "#FFFFFF", "accent", "Text and glyphs on accentFill"),
+ ("swipeArchive",      "#1E5468", "#2D788B", "#123E4D", "#246F83", "accent", "Fill of a swipe's Archive button (§5.7): accentFill by another name, apart only under Graphite and in Gallery, where it is the slip, since AppKit's white title needs a dark fill in both appearances"),
  ("accentWash",        "#DCE8EA", "#1F363C", "#C8DCE0", "#1A4049", "accent", "On state of quiet toggles (Hide quoted text, Original colors action, composer format toggles)"),
  ("accentWashHover",   "#D2E2E5", "#233D44", "#BDD5DA", "#1F4A55", "accent", "Quiet toggle on, hover"),
  ("accentWashPressed", "#C8DBDF", "#182D33", "#B2CDD3", "#15363E", "accent", "Quiet toggle on, pressed (darker in every mode: the toggle is pushed in)"),
@@ -330,6 +333,7 @@ GRAPHITE = {
  "selWash": ("selWashIdle", "Selection, window key: the idle wash; key and not key differ by the rule (`ink` against `ink3`), and the rule is the scan cue"),
  "selRule": ("ink", "Margin rule, window key (rows, rail, Settings account row, autocomplete highlight)"),
  "knob": ("paper", "Toggle knob face, so it stays distinct from the `ink` on track in dark appearances"),
+ "swipeArchive": ("slip", "A swipe's Archive button (§5.7): `ink` would turn light in dark appearances under AppKit's white title, so the slip, dark in both"),
 }
 
 # Settings > General > Text size (§4.15, roadmap Q2.6): the popup's names and the step in points each adds to every role where
