@@ -41,6 +41,7 @@ extension QuireInnerField {
             return
         }
         (currentEditor() as? NSTextView)?.insertionPointColor = .qAccent
+        leaveTheFieldEditorsPointerToTheField()
         onFocusChange?(true)
     }
 

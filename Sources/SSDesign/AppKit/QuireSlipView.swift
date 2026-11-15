@@ -186,15 +186,18 @@ public final class QuireSlipView: NSView, QuirePointerCover {
         pointerCoverDidChange()
     }
 
-    // The slip rises into place and is refitted to its message: the rows under it are asked again each time.
+    // The slip rises into place and is refitted to its message: the rows under it are asked again each time it moves.
+    // Its host sets its frame in every layout pass, mostly to the one it has, which asks nothing.
     public override func setFrameOrigin(_ newOrigin: NSPoint) {
+        let old = frame.origin
         super.setFrameOrigin(newOrigin)
-        pointerCoverDidChange()
+        if frame.origin != old { pointerCoverDidChange() }
     }
 
     public override func setFrameSize(_ newSize: NSSize) {
+        let old = frame.size
         super.setFrameSize(newSize)
-        pointerCoverDidChange()
+        if frame.size != old { pointerCoverDidChange() }
     }
 
     public override func viewDidHide() {

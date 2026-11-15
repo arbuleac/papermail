@@ -85,6 +85,11 @@ public final class QuireSequenceHUDView: NSView {
         }
     }
 
+    // MARK: Pointer
+
+    /// Clicks go through to what is under it, as they do under a reader window's toasts: it only tells which keys go
+    /// where. A HUD that took them would do nothing with them while the rows under it kept their hand (§4.17).
+    public override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     // MARK: Accessibility
 

@@ -83,13 +83,15 @@ public final class QuireCheatSheetOverlay: NSView, QuirePointerCover {
     }
 
     public override func setFrameOrigin(_ newOrigin: NSPoint) {
+        let old = frame.origin
         super.setFrameOrigin(newOrigin)
-        pointerCoverDidChange()
+        if frame.origin != old { pointerCoverDidChange() }
     }
 
     public override func setFrameSize(_ newSize: NSSize) {
+        let old = frame.size
         super.setFrameSize(newSize)
-        pointerCoverDidChange()
+        if frame.size != old { pointerCoverDidChange() }
     }
 
     public override func viewDidHide() {

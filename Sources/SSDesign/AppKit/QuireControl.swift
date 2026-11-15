@@ -191,15 +191,48 @@ open class QuireControl: NSControl, QuirePointerTarget {
 
     private var pointerArea: NSTrackingArea?
 
+    /// The pointer is over a control that set it itself. No exit event follows when the control leaves its window (a
+    /// button the panel's next state removes, the panel ordered out) or hides, so it takes the pointer back then, and it
+    /// sets it again when what it shows changes (disabled, loading) while the pointer stays.
+    private(set) var hasSetPointer = false
+
     /// The pointer came over a control that tracks it itself. In the key window the cursor rects already show it.
     func pointerEntered() {
         guard window?.isKeyWindow != true else { return }
-        pointerCursor?.set()
+        hasSetPointer = true
+        (pointerCursor ?? .arrow).set()
     }
 
     func pointerExited() {
+        hasSetPointer = false
         guard window?.isKeyWindow != true else { return }
         NSCursor.arrow.set()
+    }
+
+    /// What the control shows changed: the pointer it set follows.
+    func trackedPointerDidChange() {
+        guard hasSetPointer, window?.isKeyWindow != true else { return }
+        (pointerCursor ?? .arrow).set()
+    }
+
+    private func releasePointer() {
+        guard hasSetPointer else { return }
+        hasSetPointer = false
+        NSCursor.arrow.set()
+    }
+
+    /// A new tracking area starts with no entered event, so a control that appears or moves under a resting pointer (the
+    /// panel's “Open draft” where Undo was) sets it at once, and one that moves away from it gives it back.
+    private func syncPointerWithMouse() {
+        guard tracksPointerOutsideKeyWindow, let window, window.isKeyWindow == false else { return }
+        // A panel not yet on screen is under no pointer, wherever the pointer rests.
+        let inside = window.isVisible && !isHiddenOrHasHiddenAncestor
+            && hitRect.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil))
+        if inside, !hasSetPointer {
+            pointerEntered()
+        } else if !inside, hasSetPointer {
+            pointerExited()
+        }
     }
 
     // MARK: Hover
@@ -221,6 +254,7 @@ open class QuireControl: NSControl, QuirePointerTarget {
         }
         super.updateTrackingAreas()
         syncHoverWithPointer()
+        syncPointerWithMouse()
     }
 
     /// A new tracking area starts with no entered event, so a control that appears or moves under a resting
@@ -245,6 +279,7 @@ open class QuireControl: NSControl, QuirePointerTarget {
     open override func viewDidHide() {
         super.viewDidHide()
         resetPointerState()
+        releasePointer()
         pointerRegionsDidChange()
     }
 
@@ -380,6 +415,7 @@ open class QuireControl: NSControl, QuirePointerTarget {
         }
         observedWindow = newWindow
         resetPointerState()
+        if newWindow !== window { releasePointer() }
         super.viewWillMove(toWindow: newWindow)
     }
 

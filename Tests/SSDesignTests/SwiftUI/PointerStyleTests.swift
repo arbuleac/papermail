@@ -48,6 +48,21 @@ final class PointerStyleTests: XCTestCase {
         XCTAssertNil(QuirePointerModifier.style(.text, shows: false))
     }
 
+    /// A Quire button whose label is loading takes the arrow, as AppKit's loading button does, since a second click does
+    /// nothing: the label tells the style around it, which sees it only as a view, and the style passes `acts` false.
+    func testALoadingButtonLabelTellsTheStyleAroundIt() {
+        let seen = LoadingLog()
+        for loading in [false, true] {
+            let view = QuireButtonLabel("Send", isLoading: loading, loadingTitle: "Sending…")
+                .onPreferenceChange(QuireButtonLoadingKey.self) { value in MainActor.assumeIsolated { seen.values.append(value) } }
+            let host = SwiftUIHost(view)
+            host.settle(0.1)
+            XCTAssertEqual(seen.values.last, loading)
+            host.close()
+        }
+        XCTAssertTrue(body(of: QuireButtonChrome<Text>.self).contains("QuireButtonLoadingKey"), "the style reads it")
+    }
+
     /// The inline link's box is its own words, read from the text's layout: after the words before it on one line, and
     /// one box per line when the link wraps.
     func testTheInlineLinksBoxesAreItsOwnWords() {
@@ -115,6 +130,11 @@ final class PointerStyleTests: XCTestCase {
 @MainActor
 private final class ClickLog {
     var count = 0
+}
+
+@MainActor
+private final class LoadingLog {
+    var values: [Bool] = []
 }
 
 @MainActor

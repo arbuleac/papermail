@@ -34,9 +34,10 @@ final class QuireSecureInnerTextField: NSSecureTextField, QuireInnerField {
         super.textDidChange(notification)
     }
 
-    /// No I-beam under the cheat sheet, which takes the keyboard (§4.17).
+    /// The I-beam over the field, cut out of what lies on it (§4.17): none under the cheat sheet, which takes the
+    /// keyboard. AppKit's own lies over the whole visible rect and cannot be cut.
     override func resetCursorRects() {
-        if !isUnderPointerCover { super.resetCursorRects() }
+        if isEnabled, isSelectable { addTextPointerRects() }
     }
 
     override func textDidEndEditing(_ notification: Notification) {

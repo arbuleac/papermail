@@ -38,8 +38,10 @@ extension QuirePointerTarget {
     }
 
     /// Has AppKit ask for `pointerRegions` again, and for those of the nearest target around this view, which cuts this
-    /// view's area out of its own.
+    /// view's area out of its own. A control that set the pointer itself, outside the key window, sets it again.
     public func pointerRegionsDidChange() {
+        // A control in a window that never becomes key set the pointer itself, and no cursor rect will change it.
+        (self as? QuireControl)?.trackedPointerDidChange()
         guard let window else { return }
         window.invalidateCursorRects(for: self)
         var ancestor = superview

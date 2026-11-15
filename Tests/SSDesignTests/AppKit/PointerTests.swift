@@ -322,6 +322,53 @@ final class PointerTests: XCTestCase {
         XCTAssertFalse(button.trackingAreas.contains { $0.options.contains(.activeAlways) })
     }
 
+    /// No exit event follows when the pointer is over the panel's action and the action goes (the countdown ends and the
+    /// next state removes it, the panel is ordered out) or hides, so the action takes back the hand it set; and it sets
+    /// the pointer again when what it shows changes under the resting pointer.
+    func testTheUndoPanelsActionTakesBackThePointerItSet() {
+        let window = window()
+        let button = QuireButton(title: "Undo")
+        button.tracksPointerOutsideKeyWindow = true
+        window.contentView?.addSubview(button)
+        XCTAssertFalse(window.isKeyWindow)
+
+        button.pointerEntered()
+        XCTAssertTrue(NSCursor.current === NSCursor.pointingHand)
+        button.isEnabled = false
+        XCTAssertTrue(NSCursor.current === NSCursor.arrow, "disabled under the pointer: the arrow at once")
+        button.isEnabled = true
+        XCTAssertTrue(NSCursor.current === NSCursor.pointingHand, "and the hand again")
+        button.isLoading = true
+        XCTAssertTrue(NSCursor.current === NSCursor.arrow, "loading: a click does nothing")
+        button.isLoading = false
+
+        button.removeFromSuperview()
+        XCTAssertTrue(NSCursor.current === NSCursor.arrow, "removed under the pointer, it takes the hand back")
+        XCTAssertFalse(button.hasSetPointer)
+
+        window.contentView?.addSubview(button)
+        button.pointerEntered()
+        button.isHidden = true
+        XCTAssertTrue(NSCursor.current === NSCursor.arrow, "hidden under the pointer, too")
+        button.isHidden = false
+        button.pointerExited()
+
+        // A control that never set it leaves the pointer alone.
+        NSCursor.iBeam.set()
+        button.removeFromSuperview()
+        XCTAssertTrue(NSCursor.current === NSCursor.iBeam)
+        NSCursor.arrow.set()
+    }
+
+    /// The G-sequence HUD only tells which keys go where: clicks go through it to the rows under it, whose hand is then
+    /// right over it too.
+    func testTheSequenceHUDLetsClicksThrough() {
+        let hud = QuireSequenceHUDView()
+        hud.frame = NSRect(origin: .zero, size: hud.intrinsicContentSize)
+        hud.layoutSubtreeIfNeeded()
+        XCTAssertNil(hud.hitTest(NSPoint(x: hud.bounds.midX, y: hud.bounds.midY)))
+    }
+
     // MARK: Helpers
 
     private func area(_ rects: [NSRect]) -> CGFloat {

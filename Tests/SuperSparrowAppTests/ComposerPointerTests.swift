@@ -193,7 +193,8 @@ final class ComposerPointerTests: XCTestCase {
     // MARK: Attachments
 
     /// An attachment's remove takes the hand over its 24 pt hit square; as the strip scrolls AppKit asks again for the
-    /// chips scrolled into view, so theirs have it too.
+    /// chips scrolled into view, so theirs have it too, all of it once the overlay scroller that showed while the strip
+    /// scrolled, and took the clicks along its edge, has faded.
     func testAnAttachmentsRemoveTakesTheHandAlsoOnceScrolledIntoView() throws {
         let window = RecordingWindow(size: NSSize(width: 400, height: 200))
         let strip = AttachmentStripView(frame: NSRect(x: 0, y: 0, width: 320, height: Quire.Layout.Composer.strip))
@@ -223,8 +224,16 @@ final class ComposerPointerTests: XCTestCase {
         window.resetCursorRects()
         XCTAssertEqual(probe.added, [], "out of view, no rect")
         clip.scroll(to: NSPoint(x: document.frame.width - clip.bounds.width, y: 0))
-        XCTAssertTrue(ListTestSupport.spin(until: { !probe.added.isEmpty }, timeout: 2))
-        XCTAssertEqual(probe.added, [probe.bounds], "scrolled into view, AppKit asks the chips again")
+        XCTAssertTrue(ListTestSupport.spin(until: { !probe.added.isEmpty }, timeout: 2), "scrolled into view, AppKit asks the chips again")
+        if probe.added != [probe.bounds] {
+            // An overlay scroller showed as the strip scrolled, over the chips' lower edge, and took that strip; faded,
+            // the chips are asked again. A legacy scroller, or one already faded, takes nothing.
+            XCTAssertFalse(probe.pointerCoverAreas().isEmpty, "only a showing scroller cuts the chip")
+            window.invalidated = []
+            XCTAssertTrue(ListTestSupport.spin(until: { window.wasInvalidated(probe) && probe.pointerCoverAreas().isEmpty }, timeout: 5))
+            window.resetCursorRects()
+        }
+        XCTAssertEqual(probe.added, [probe.bounds])
         XCTAssertEqual(last.bounds.intersection(last.visibleRect), last.bounds, "the last chip's remove is in view")
     }
 
@@ -371,6 +380,7 @@ private final class CursorProbe: NSView, QuirePointerTarget {
     var pointerRegions: [QuirePointerRegion] { [.control(bounds, acts: true)] }
 
     override func resetCursorRects() {
+        added = []
         addPointerRects()
     }
 

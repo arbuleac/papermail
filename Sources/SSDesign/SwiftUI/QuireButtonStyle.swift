@@ -57,6 +57,9 @@ struct QuireButtonChrome<Label: View>: View {
     @Environment(\.quireForcedStates) private var forced
     @Environment(\.quireUnderlinesLinksAtRest) private var underlinesLinksAtRest
     @State private var isHovered = false
+    /// A `QuireButtonLabel` inside is loading: a second click does nothing, so the arrow shows, as over AppKit's
+    /// loading `QuireButton` (§4.17).
+    @State private var isLoading = false
 
     var body: some View {
         let state = QuireControlState(isHovered: isHovered, isPressed: isPressed, isFocused: isFocused,
@@ -66,6 +69,7 @@ struct QuireButtonChrome<Label: View>: View {
         let a = QuireButtonAppearance.resolve(variant, size: size, state: state)
         let shape = RoundedRectangle(cornerRadius: a.cornerRadius, style: .circular)
         label()
+            .onPreferenceChange(QuireButtonLoadingKey.self) { isLoading = $0 }
             .quireFont(a.font)
             .lineLimit(1)
             .overlay(alignment: Alignment(horizontal: .leading, vertical: .firstTextBaseline)) {
@@ -92,7 +96,7 @@ struct QuireButtonChrome<Label: View>: View {
             }
             .contentShape(shape)
             .quireMinimumHitArea(width: a.width, height: a.height)
-            .quirePointer()
+            .quirePointer(acts: !isLoading)
             .onHover { isHovered = $0 }
     }
 }

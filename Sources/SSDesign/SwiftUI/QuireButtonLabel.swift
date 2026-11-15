@@ -51,6 +51,7 @@ public struct QuireButtonLabel: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityText.map { Text($0) } ?? Text(isLoading ? (loadingTitle ?? title) : title))
+        .preference(key: QuireButtonLoadingKey.self, value: isLoading)
     }
 
     private func row(title: String, spinner: Bool) -> some View {
@@ -65,5 +66,15 @@ public struct QuireButtonLabel: View {
                 Text(title)
             }
         }
+    }
+}
+
+/// Whether a `QuireButtonLabel` in a button is loading, for the `QuireButtonStyle` around it, which sees only its label
+/// as a view and gives a loading button the arrow (§4.17).
+struct QuireButtonLoadingKey: PreferenceKey {
+    static let defaultValue = false
+
+    static func reduce(value: inout Bool, nextValue: () -> Bool) {
+        value = value || nextValue()
     }
 }

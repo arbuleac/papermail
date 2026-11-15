@@ -84,6 +84,35 @@ final class PointerCoverTests: XCTestCase {
         return control.added
     }
 
+    private func reset(_ text: RecordingText, in window: NSWindow) -> [QuirePointerRegion] {
+        text.added = []
+        window.resetCursorRects()
+        return text.added
+    }
+
+    /// Adds the I-beam as a text view does in place of AppKit's.
+    private final class RecordingText: NSView {
+        var added: [QuirePointerRegion] = []
+
+        override func resetCursorRects() {
+            addTextPointerRects()
+        }
+
+        override func addCursorRect(_ rect: NSRect, cursor object: NSCursor) {
+            added.append(QuirePointerRegion(rect, cursor: object))
+            super.addCursorRect(rect, cursor: object)
+        }
+    }
+
+    private func spin(until condition: () -> Bool, timeout: TimeInterval = 2) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition() {
+            guard Date() < deadline else { return false }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
+        return true
+    }
+
     // MARK: Covers
 
     /// A row under a toast's slip leaves the slip's frame to it, so the slip's arrow and its Undo's hand are alone there.
@@ -99,9 +128,11 @@ final class PointerCoverTests: XCTestCase {
         let slip = QuireSlipView(kind: .undoable, message: "Archived")
         let undo = try XCTUnwrap(slip.setAction("Undo", keycap: "Z"))
         window.contentView?.addSubview(slip)
+        PointerCoverRegistry.flush()
         XCTAssertTrue(window.wasInvalidated(row), "the slip's coming asks the views under it again")
         window.invalidated = []
         slip.setFrameOrigin(NSPoint(x: 100, y: 40))
+        PointerCoverRegistry.flush()
         XCTAssertTrue(window.wasInvalidated(row), "and so does its moving")
         slip.layoutSubtreeIfNeeded()
 
@@ -116,6 +147,7 @@ final class PointerCoverTests: XCTestCase {
 
         window.invalidated = []
         slip.isHidden = true
+        PointerCoverRegistry.flush()
         XCTAssertTrue(window.wasInvalidated(row))
         XCTAssertEqual(reset(row, in: window), whole, "a hidden slip covers nothing")
         slip.isHidden = false
@@ -123,6 +155,7 @@ final class PointerCoverTests: XCTestCase {
 
         window.invalidated = []
         slip.removeFromSuperview()
+        PointerCoverRegistry.flush()
         XCTAssertTrue(window.wasInvalidated(row), "its going asks the window it left")
         XCTAssertEqual(reset(row, in: window), whole)
     }
@@ -148,6 +181,7 @@ final class PointerCoverTests: XCTestCase {
         search.frame = NSRect(x: 20, y: 740, width: 240, height: 40)
         window.contentView?.addSubview(button)
         window.contentView?.addSubview(search)
+        search.layoutSubtreeIfNeeded()
         XCTAssertFalse(reset(button, in: window).isEmpty)
         XCTAssertFalse(search.textField.isUnderPointerCover)
 
@@ -155,6 +189,7 @@ final class PointerCoverTests: XCTestCase {
         let overlay = QuireCheatSheetOverlay(frame: NSRect(x: 0, y: 0, width: 1280, height: 800))
         window.contentView?.addSubview(overlay)
         overlay.present(animated: false)
+        PointerCoverRegistry.flush()
         XCTAssertTrue(window.wasInvalidated(button) && window.wasInvalidated(search.textField), "every view under it is asked again")
         XCTAssertEqual(reset(button, in: window), [], "nothing under the scrim or the panel shows through")
         XCTAssertTrue(search.textField.isUnderPointerCover, "the field's own I-beam is left out")
@@ -163,6 +198,82 @@ final class PointerCoverTests: XCTestCase {
         overlay.removeFromSuperview()
         XCTAssertEqual(reset(button, in: window), [QuirePointerRegion(button.hitRect, cursor: .pointingHand)])
         XCTAssertFalse(search.textField.isUnderPointerCover)
+    }
+
+    /// Walking the window waits for the end of the turn and happens once in it, however often the cover moved; a layout
+    /// pass that sets the frame a cover already has asks nothing.
+    func testACoverAsksTheWindowOnceATurnAndOnlyWhenItsFrameChanges() {
+        let window = window()
+        let row = RecordingControl(frame: NSRect(x: 0, y: 0, width: 400, height: 120))
+        window.contentView?.addSubview(row)
+        let slip = QuireSlipView(kind: .confirmation, message: "Archived")
+        window.contentView?.addSubview(slip)
+        slip.frame = NSRect(x: 20, y: 20, width: 200, height: 40)
+        PointerCoverRegistry.flush()
+
+        window.invalidated = []
+        slip.frame = slip.frame
+        PointerCoverRegistry.flush()
+        XCTAssertFalse(window.wasInvalidated(row), "the frame it has asks nothing")
+
+        slip.frame = NSRect(x: 40, y: 30, width: 220, height: 40)
+        slip.setFrameOrigin(NSPoint(x: 50, y: 30))
+        XCTAssertFalse(window.wasInvalidated(row), "not before the turn ends")
+        PointerCoverRegistry.flush()
+        XCTAssertEqual(window.invalidated.filter { $0 === row }.count, 1, "a move and a resize in one turn walk the window once")
+
+        window.invalidated = []
+        slip.setFrameOrigin(NSPoint(x: 60, y: 30))
+        XCTAssertTrue(spin(until: { window.wasInvalidated(row) }), "the turn's end asks by itself")
+    }
+
+    /// A cover lies over a view when it covers the view's own bounds, not its visible rect, which reaches past them; and a
+    /// text view's I-beam is cut out of a cover over part of it, piece by piece, inside its own bounds.
+    func testATextViewsIBeamIsItsOwnBoundsWithTheCoverCutOut() {
+        let window = window()
+        let text = RecordingText(frame: NSRect(x: 20, y: 20, width: 200, height: 60))
+        window.contentView?.addSubview(text)
+        let slip = QuireSlipView(kind: .confirmation, message: "Archived")
+        window.contentView?.addSubview(slip)
+        slip.frame = NSRect(x: 10, y: 10, width: 240, height: 80)
+        XCTAssertTrue(text.isUnderPointerCover, "a slip over all of the text, not over the window")
+        XCTAssertEqual(reset(text, in: window), [], "covered, no I-beam")
+
+        slip.frame = NSRect(x: 120, y: 0, width: 200, height: 50)
+        XCTAssertFalse(text.isUnderPointerCover, "half covered")
+        let pieces = reset(text, in: window)
+        let hole = text.convert(slip.bounds, from: slip)
+        XCTAssertTrue(pieces.allSatisfy { $0.cursor === NSCursor.iBeam && text.bounds.contains($0.rect) })
+        assertDisjoint(pieces.map(\.rect) + [hole])
+        XCTAssertEqual(area(pieces.map(\.rect)), area([text.bounds]) - area([text.bounds.intersection(hole)]), accuracy: 0.01)
+
+        slip.removeFromSuperview()
+        XCTAssertEqual(reset(text, in: window).map(\.rect), [text.bounds], "its bounds, however far its visible rect reaches")
+        text.isHidden = true
+        XCTAssertEqual(reset(text, in: window), [], "hidden, none")
+    }
+
+    // MARK: Overlay scrollers
+
+    /// While an overlay scroller shows it takes the click over the rows' trailing strip, so the rows leave it out; at rest
+    /// it takes none, and once it fades the rows are asked again and have the strip back.
+    func testAShownOverlayScrollerHasTheRowsLeaveItsStripUntilItFades() throws {
+        let window = window(NSSize(width: 300, height: 300))
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 300, height: 300))
+        scroll.hasVerticalScroller = true
+        scroll.scrollerStyle = .overlay
+        let row = RecordingRow(frame: NSRect(x: 0, y: 0, width: 300, height: 2000))
+        scroll.documentView = row
+        window.contentView?.addSubview(scroll)
+        let scroller = try XCTUnwrap(scroll.verticalScroller)
+        let strip = row.convert(scroller.bounds, from: scroller)
+        XCTAssertFalse(row.pointerCoverAreas().contains(strip), "at rest the scroller takes no click")
+
+        scroll.flashScrollers()
+        XCTAssertTrue(spin(until: { row.pointerCoverAreas().contains(strip) }), "shown, it does")
+        window.invalidated = []
+        XCTAssertTrue(spin(until: { window.wasInvalidated(row) }, timeout: 5), "faded, the rows are asked again")
+        XCTAssertFalse(row.pointerCoverAreas().contains(strip), "and have the strip back")
     }
 
     // MARK: Split dividers
