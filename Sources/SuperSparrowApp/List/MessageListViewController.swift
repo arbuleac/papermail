@@ -1324,10 +1324,16 @@ final class MessageListViewController: NSViewController {
         } else {
             reconfigureVisibleRows()
         }
+        // AppKit keeps a swipe button's fill as a resolved colour on a view nested inside the button, and resolves it
+        // again only when that view is marked or the appearance changes, so a button that is out is marked all the way
+        // down or it keeps the old Graphite or contrast fill (spec §5.7).
+        let swipeButtonOut = tableView.rowActionsVisible
         tableView.enumerateAvailableRowViews { rowView, _ in
             rowView.needsDisplay = true
             // The footer's Retry link draws its own label.
-            for subview in rowView.subviews { subview.needsDisplay = true }
+            for subview in rowView.subviews {
+                if swipeButtonOut { Self.markNeedsDisplay(subview) } else { subview.needsDisplay = true }
+            }
         }
         // Increase Contrast and Graphite are not appearance changes, so AppKit does not redraw these on its own:
         // the paper below a short list, the skeleton bars and the focus ring would keep the old values.
@@ -1336,6 +1342,11 @@ final class MessageListViewController: NSViewController {
         scrollView.contentView.needsDisplay = true
         skeletonView.needsDisplay = true
         focusOverlay.needsDisplay = true
+    }
+
+    private static func markNeedsDisplay(_ view: NSView) {
+        view.needsDisplay = true
+        for subview in view.subviews { markNeedsDisplay(subview) }
     }
 
     /// The selection's wash and rule follow the window's key state, not the first responder (spec §3.4).

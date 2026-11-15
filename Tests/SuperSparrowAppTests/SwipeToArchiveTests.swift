@@ -136,7 +136,8 @@ final class SwipeToArchiveTests: XCTestCase {
     // MARK: Colours
 
     /// The two edges in their own colours, which follow the theme on buttons already made: the list hands AppKit the
-    /// live tokens, which it resolves again whenever it draws (§5.7, §4.16; `SwipeButtonRenderTests` watches it do so).
+    /// live tokens, which AppKit resolves again when the list marks a button that is out (§5.7, §4.16;
+    /// `SwipeButtonRenderTests` watches it do so).
     func testTheEdgesWearTheirOwnColoursAndFollowTheTheme() throws {
         let harness = try MainWindowHarness()
         defer { harness.close() }

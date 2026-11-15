@@ -54,8 +54,8 @@ final class SwipeButtonRenderTests: XCTestCase {
         let summary = list.conversations[index]
         XCTAssertEqual(summary.unreadCount, 0, "a read row: Archive and Mark as Unread")
         // One edge is out at a time, so each is swiped open and then taken through every theme, mode and Graphite while
-        // it is out: a theme switch's own redraw sweep, or an appearance or contrast change, has AppKit resolve the live
-        // fill again.
+        // it is out. Nothing here marks the button: AppKit fills its capsule again only when that view is marked or the
+        // appearance changes, so what keeps it in step is the app's own redraw on each change, which this holds.
         var board = [[(paper: CGColor, image: CGImage)]](repeating: [], count: variants.count)
         for (edge, style, title) in [(NSTableView.RowActionEdge.trailing, QuireSwipeAction.archive, "Archive"),
                                      (.leading, .readState, "Mark as Unread")] {
@@ -66,20 +66,32 @@ final class SwipeButtonRenderTests: XCTestCase {
             XCTAssertEqual(rgb(label.textColor), "#FFFFFF", "\(title): AppKit's title is white, onSwipe")
             XCTAssertTrue(label.frame.intersects(try XCTUnwrap(capsuleFrame(capsule, in: button))),
                           "\(title): the title sits on the capsule, so its ratio is the fill's")
+            func expect(_ mode: QuireMode, _ name: String) throws {
+                window.displayIfNeeded()
+                let want = resolved(style.fill, mode)
+                // AppKit fills the capsule on its next pass after the change.
+                ListTestSupport.spin(until: { capsule.backgroundColor.map(rgb) == rgb(want) }, timeout: 1)
+                XCTAssertEqual(rgb(try XCTUnwrap(capsule.backgroundColor, name)), rgb(want), name)
+                XCTAssertEqual(rgb(label.textColor), "#FFFFFF", name)
+            }
             for (line, variant) in variants.enumerated() {
                 for theme in QuireTheme.allCases {
                     environment.setOverrides(.init(isGraphite: variant.graphite, increaseContrast: variant.mode.isIncreasedContrast,
                                                    reduceMotion: false, reduceTransparency: false, theme: theme))
                     window.appearance = variant.mode.appearance
-                    markNeedsDisplay(button)
-                    window.displayIfNeeded()
-                    let want = resolved(style.fill, variant.mode)
-                    // AppKit fills the capsule on its next pass after the switch.
-                    ListTestSupport.spin(until: { capsule.backgroundColor.map(rgb) == rgb(want) }, timeout: 1)
-                    let name = "\(title) in \(theme) \(variant.name)"
-                    XCTAssertEqual(rgb(try XCTUnwrap(capsule.backgroundColor, name)), rgb(want), name)
-                    XCTAssertEqual(rgb(label.textColor), "#FFFFFF", name)
+                    try expect(variant.mode, "\(title) in \(theme) \(variant.name)")
                     board[line].append((resolved(.qPaper, variant.mode), try snapshot(button)))
+                }
+            }
+            // Graphite and Increase Contrast alone, in one theme and appearance: neither is a theme switch, whose sweep
+            // marks every view, nor an appearance change, which AppKit redraws for on its own.
+            for (plain, increased) in [(QuireMode.light, QuireMode.lightHC), (.dark, .darkHC)] {
+                window.appearance = plain.appearance
+                for (graphite, contrast) in [(false, false), (true, false), (true, true), (false, true), (false, false)] {
+                    environment.setOverrides(.init(isGraphite: graphite, increaseContrast: contrast, reduceMotion: false,
+                                                   reduceTransparency: false, theme: .rain))
+                    let mode = contrast ? increased : plain
+                    try expect(mode, "\(title) in Rain \(mode.rawValue)\(graphite ? " under Graphite" : ""), the theme and appearance kept")
                 }
             }
         }
