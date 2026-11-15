@@ -114,6 +114,7 @@ extension Quire {
         public static let undoKeyGrace: TimeInterval = 10
         public static let undoSendDefault: TimeInterval = 5
         public static let sentConfirm: TimeInterval = 1.5
+        public static let copiedConfirm: TimeInterval = 1.5
         public static let toastConfirm: TimeInterval = 2
         public static let stripNotice: TimeInterval = 3
         public static let spinnerTurn: TimeInterval = 0.9
