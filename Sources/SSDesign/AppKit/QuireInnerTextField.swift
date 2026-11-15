@@ -31,6 +31,11 @@ final class QuireInnerTextField: NSTextField, QuireInnerField {
         return accepted
     }
 
+    /// No I-beam under the cheat sheet, which takes the keyboard (§4.17).
+    override func resetCursorRects() {
+        if !isUnderPointerCover { super.resetCursorRects() }
+    }
+
     override func textDidEndEditing(_ notification: Notification) {
         guard !isRestartingEditing else { return super.textDidEndEditing(notification) }
         innerFieldWillEndEditing()
