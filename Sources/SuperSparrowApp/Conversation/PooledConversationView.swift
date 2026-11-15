@@ -29,8 +29,13 @@ final class PooledConversationView {
     /// The page's keyboard focus is on an elision mark or a Download control, as its shell last said. Kept per slot, on
     /// screen or not, because a slot swapped back in still has its page's focus.
     var markFocused = false
-    /// The page's keyboard focus is on an attachment chip or its Download button, where ← → move along the files.
+    /// The page's keyboard focus is on an attachment chip or its Download button, where ← → move along the files, or in an
+    /// open list of recipients, where they move along the recipients.
     var arrowsFocused = false
+    /// The page's keyboard focus is in an open list of recipients, which Esc folds (spec §5.14, §6.1).
+    var addressesFocused = false
+    /// The sheet header's copy target the page's keyboard focus is on, which ⌘C and Edit › Copy copy (spec §5.14).
+    var focusedAddress: ConversationScriptMessage.FocusedAddress?
     /// The messages this page shows in the sender's colours, as its shell last said, for View › Original Colors'
     /// checkmark. Kept per slot, since each shell remembers its own switches and a slot swapped in shows what it holds.
     var originalColorsShown: Set<MessageID> = []
@@ -70,6 +75,8 @@ final class PooledConversationView {
         pendingRender = nil
         markFocused = false
         arrowsFocused = false
+        addressesFocused = false
+        focusedAddress = nil
         originalColorsShown = []
         let waiters = tracker.reset()
         for waiter in waiters { waiter(false) }

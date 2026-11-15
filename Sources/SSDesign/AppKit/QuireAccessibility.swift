@@ -1,10 +1,10 @@
 import AppKit
 
 /// VoiceOver notifications the components post (spec §4.14): value changes NSButton would announce, and the
-/// spoken copies of slips, field errors and search counts. One place, so every component speaks the same way
-/// and tests can listen in.
+/// spoken copies of slips, field errors and search counts, and the app's own announcements (a copied address, §5.14).
+/// One place, so everything speaks the same way and tests can listen in.
 @MainActor
-enum QuireAccessibility {
+public enum QuireAccessibility {
     /// Tests set this to hear what would be posted; nil in the app.
     static var observer: ((NSAccessibility.Notification, String?) -> Void)?
 
@@ -15,7 +15,7 @@ enum QuireAccessibility {
     }
 
     /// Speaks `text` now, ahead of what VoiceOver was reading (`priority` high) or after it (medium).
-    static func announce(_ text: String, from element: Any, priority: NSAccessibilityPriorityLevel = .high) {
+    public static func announce(_ text: String, from element: Any, priority: NSAccessibilityPriorityLevel = .high) {
         guard !text.isEmpty else { return }
         observer?(.announcementRequested, text)
         NSAccessibility.post(element: element, notification: .announcementRequested, userInfo: [

@@ -194,6 +194,14 @@ final class ListPaneViewController: NSViewController {
         onLeaveSearch?()
     }
 
+    /// Show Mail from This Person (spec §5.14): the field takes `query` and runs it as if typed, and the list takes the
+    /// keyboard with the query kept, as ↓ in the field does (§5.6).
+    func runSearch(_ query: String) {
+        header.search.query = query
+        sendQuery()
+        onLeaveSearch?()
+    }
+
     /// Words typed less than the debounce ago that the list has not been given yet.
     var hasPendingSearch: Bool { searchTimer != nil }
 

@@ -83,6 +83,11 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     /// The chip a context menu was opened for: its commands act on it.
     private var menuAttachment: (message: MessageID, attachment: String)?
     private lazy var attachmentMenu = AttachmentMenu { [weak self] command in self?.performAttachment(command) }
+    /// The person menu on an address in a sheet header (spec §5.14), and the address it was opened for.
+    private lazy var personMenu = PersonMenu { [weak self] command in self?.performPerson(command) }
+    private var menuPerson: (message: MessageID, address: HeaderAddress)?
+    /// Where a copied address goes: the general pasteboard. Tests give a private one, so they never touch the user's.
+    var pasteboard: NSPasteboard = .general
 
     private var observation: StoreObservation?
     private var statusObservation: StoreObservation?
@@ -190,6 +195,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         super.init(nibName: nil, bundle: nil)
         header.textSize = appSettings.readerSize
         pool.onMessage = { [weak self] slot, message in self?.handle(message, from: slot) }
+        pool.onCopyFocusedAddress = { [weak self] slot in self?.copyFocusedAddress(in: slot) ?? false }
         pool.onViewRecreated = { [weak self] slot in self?.slotWasRecreated(slot) }
         let center = NotificationCenter.default
         // Block observers stay registered until removed, so their tokens are kept for deinit.
@@ -1078,9 +1084,11 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
 
     private func handle(_ message: ConversationScriptMessage, from slot: PooledConversationView) {
         switch message {
-        case .focusMark(let on, let arrows):
+        case let .focusMark(on, arrows, addresses, address):
             slot.markFocused = on
             slot.arrowsFocused = arrows
+            slot.addressesFocused = addresses
+            slot.focusedAddress = address
             return
         case .originalColors(let shown):
             slot.originalColorsShown = shown
@@ -1158,6 +1166,17 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
                 if let value { openInvitationLink(value) }
             case "reconnectForInvitation":
                 onAction?(.reconnect(messageID.accountID))
+            case "copyAddress":
+                guard let address = value.flatMap(HeaderAddress.init) else { return }
+                copyAddress(address, of: messageID, form: .address)
+            case "personMenu":
+                guard let address = value.flatMap(HeaderAddress.init), let menu = makePersonMenu(for: address, of: messageID) else {
+                    evaluate("window.ss.personMenuClosed()", in: slot)
+                    return
+                }
+                menu.popUp(positioning: nil, at: point ?? .zero, in: slot.webView)
+                // The menu has closed: its target gives up the hover face it kept while the menu was open.
+                evaluate("window.ss.personMenuClosed()", in: slot)
             default:
                 ConversationSignposts.log.debug("unknown shell action \(type, privacy: .public)")
             }
@@ -1282,10 +1301,89 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         case .blockSender:
             onAction?(.senderRule(.trash, id))
         case .copySenderAddress:
-            guard let address = currentMessages.first(where: { $0.id == id })?.from?.address else { return }
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(address, forType: .string)
+            // The click's path, so the mark shows on the sender's address and VoiceOver hears it.
+            copyAddress(.sender, of: id, form: .address)
         }
+    }
+
+    // MARK: Copying an address (spec §5.14)
+
+    /// The user's own addresses, by which the payload decides that a message is the user's and shows its Bcc.
+    private var ownAddresses: Set<String> {
+        Set(accountsByID.values.map { $0.email.lowercased() })
+    }
+
+    /// The message a sheet header shows: one of the conversation's, or a reply still in the outbox (a pending sheet).
+    private func headerMessage(_ id: MessageID) -> MessageMetadata? {
+        if let message = currentMessages.first(where: { $0.id == id }) { return message }
+        guard PendingSheet.isPending(id) else { return nil }
+        return pendingSheets(answering: currentMessages).first { $0.metadata.id == id }?.metadata
+    }
+
+    /// The address a sheet header shows at `address`, read from the store; nil for a position a re-render has taken away.
+    func storedAddress(_ address: HeaderAddress, of messageID: MessageID) -> EmailAddress? {
+        headerMessage(messageID).flatMap { address.address(in: $0, ownAddresses: ownAddresses) }
+    }
+
+    /// Copies one address of a sheet header and, once the pasteboard has it, has the shell show the mark and VoiceOver
+    /// say it. The one path for a click, ↩ and Space, ⌘C and Edit › Copy, the person menu and More › Copy Sender Address.
+    /// A position that names nothing (a click that raced a re-render) is ignored; a write the pasteboard refuses beeps and
+    /// shows no mark. Nothing here logs the address.
+    @discardableResult
+    func copyAddress(_ address: HeaderAddress, of messageID: MessageID, form: HeaderAddress.Form) -> Bool {
+        guard let stored = storedAddress(address, of: messageID) else { return false }
+        pasteboard.clearContents()
+        guard pasteboard.setString(HeaderAddress.text(of: stored, form: form), forType: .string) else {
+            ConversationSignposts.log.error("copying an address failed")
+            NSSound.beep()
+            return false
+        }
+        ConversationSignposts.log.debug("copied an address")
+        if let slot = pool.current {
+            let key = ConversationShellAssets.jsStringLiteral(RenderPayload.messageKey(for: messageID))
+            let value = ConversationShellAssets.jsStringLiteral(address.value)
+            let shape = ConversationShellAssets.jsStringLiteral(form.rawValue)
+            evaluate("window.ss.addressCopied(\(key), \(value), \(shape))", in: slot)
+        }
+        QuireAccessibility.announce(HeaderAddress.announcement(of: stored, form: form), from: view.window ?? view)
+        return true
+    }
+
+    /// Edit › Copy and ⌘C while keyboard focus in the page on screen is on an address in a sheet header.
+    private func copyFocusedAddress(in slot: PooledConversationView) -> Bool {
+        guard slot === pool.current, let focused = slot.focusedAddress else { return false }
+        return copyAddress(focused.address, of: focused.messageID, form: .address)
+    }
+
+    /// The person menu for `address` as it stands, or nil when the position names nothing. Copy Name and Address shows
+    /// only when the header gives a name, New Message only for an address a message can go to.
+    func makePersonMenu(for address: HeaderAddress, of messageID: MessageID) -> NSMenu? {
+        guard let stored = storedAddress(address, of: messageID) else { return nil }
+        menuPerson = (messageID, address)
+        return personMenu.menu(PersonMenu.Options(offersNameAndAddress: HeaderAddress.hasName(stored),
+                                                  offersNewMessage: AddressListParser.isValid(stored.address)))
+    }
+
+    private func performPerson(_ command: PersonMenu.Command) {
+        guard let (messageID, address) = menuPerson, let stored = storedAddress(address, of: messageID) else { return }
+        switch command {
+        case .copyAddress:
+            copyAddress(address, of: messageID, form: .address)
+        case .copyNameAndAddress:
+            copyAddress(address, of: messageID, form: .nameAndAddress)
+        case .newMessage:
+            onAction?(.newMessage(to: stored, from: messageID.accountID))
+        case .showMail:
+            onAction?(.showMail(from: stored.address))
+        }
+    }
+
+    /// Esc with keyboard focus in a sheet's open list of recipients (§6.1 row 9): the list folds and focus goes to its
+    /// toggle. False when focus is elsewhere, so the next row of §6.1 takes the key.
+    func foldAddressesForEscape() -> Bool {
+        guard let current = pool.current, current.addressesFocused, pageHasFocus(current) else { return false }
+        evaluate("window.ss.foldAddresses()", in: current)
+        return true
     }
 
     // MARK: Unsubscribe
@@ -1407,17 +1505,19 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     }
 
     /// Keyboard focus is on an elision mark in the conversation on screen (quoted text, or the message under an
-    /// invitation card), or on a Download button or Download all: Space and ↩ press it in the page (spec §5.15, §5.17),
-    /// so neither Quick Look nor the router's Open takes them. Only while the page itself has the window's focus; the
+    /// invitation card), on a Download button or Download all, or on a sheet header's address, recipients toggle or “and
+    /// 24 more”: Space and ↩ press it in the page (spec §5.14, §5.15, §5.17), so neither Quick Look nor the router's Open
+    /// takes them. Only while the page itself has the window's focus; the
     /// shell says where focus is inside it.
     var isMarkFocused: Bool {
         guard let current = pool.current, current.markFocused else { return false }
         return pageHasFocus(current)
     }
 
-    /// Keyboard focus is on an attachment chip or its Download button in the conversation on screen: ← and → move along
-    /// the files there (spec §5.17), so ← does not take the keyboard back to the list.
-    var isAttachmentRowFocused: Bool {
+    /// Keyboard focus is on an attachment chip or its Download button in the conversation on screen, or in an open list
+    /// of recipients: ← and → move along the files or the recipients there (spec §5.14, §5.17), so ← does not take the
+    /// keyboard back to the list.
+    var pageTakesArrows: Bool {
         guard let current = pool.current, current.arrowsFocused else { return false }
         return pageHasFocus(current)
     }

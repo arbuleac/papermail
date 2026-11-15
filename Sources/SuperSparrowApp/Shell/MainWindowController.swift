@@ -1197,8 +1197,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         case .clearSearch:
             return escape()
         case .back:
-            // On a chip or its Download button ← moves along the files in the page (§5.17).
-            if conversation.isAttachmentRowFocused { return false }
+            // On a chip or its Download button ← moves along the files in the page (§5.17), in an open list of recipients
+            // along the recipients (§5.14).
+            if conversation.pageTakesArrows { return false }
             return escape()
         case .moveToInbox:
             return moveSelectionToInbox()
@@ -1224,8 +1225,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     }
 
     /// Esc outside a text field, by the precedence of §6.1: a visible toast goes first (its undo keeps working
-    /// for the grace period), then an open find bar closes while the reader has the keyboard, then focus in the
-    /// reader returns to the list, then a kept search query clears.
+    /// for the grace period), then an open find bar closes while the reader has the keyboard, then an open list of
+    /// recipients with focus in it folds, then focus in the reader returns to the list, then a kept search query clears.
     /// On the list with nothing to undo Esc does nothing, without a beep.
     private func escape() -> Bool {
         // Only this window's toast: one in a reader window is that window's to dismiss.
@@ -1235,6 +1236,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         }
         // An open find bar closes before the reader gives the keyboard back to the list (§6.1).
         if isReaderFocused, conversation.closeFindForEscape() {
+            return true
+        }
+        // Then an open list of recipients with focus in it folds, focus going to its toggle (§6.1, §5.14).
+        if isReaderFocused, conversation.foldAddressesForEscape() {
             return true
         }
         if isReaderFocused {
@@ -2184,7 +2189,23 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         case .reconnect(let id):
             // The engine adds the permission the account waits for to the sign-in it starts (§5.44).
             if let account = accountsByID[id] { requestReconnect(account) }
+        case let .newMessage(address, accountID):
+            // From the conversation's account, as the composer token's New Message writes from its window's (§5.14).
+            beforeCompose?()
+            guard let account = accountsByID[accountID] ?? newMessageAccount else { return }
+            ComposeWindowController.presentNew(client: environment.engine, account: account, accounts: accounts, to: address)
+        case .showMail(let address):
+            showMail(from: address)
         }
+    }
+
+    /// Show Mail from This Person (spec §5.14): the search field takes `from:` the address and runs it as if typed, and
+    /// the list takes the keyboard with the query kept. A search looks through all the mail but the Trash from any view,
+    /// so this is all of theirs. From a reader window this window comes forward first.
+    func showMail(from address: String) {
+        guard !showingWelcome else { return }
+        if actingReader != nil { comeForward() }
+        listPane.runSearch(HeaderAddress.fromQuery(address))
     }
 
     // MARK: Reader windows (§5.49)
