@@ -24,42 +24,29 @@ def g(name, pt=15, cls=''):
     return '<svg class="glyph %s" viewBox="0 0 %d %d" style="width:%gpx;height:%gpx">%s</svg>' % (cls, grid, grid, pt, pt, body)
 def wordmark(cap):
     """The drawn wordmark (`layout.brand.wordmark`, never set in a font) as inline SVG in the current colour, `cap` px
-    to the cap height: the frame runs from the overshoot to the descender and across the word's ink, which the italic
-    carries past the advance."""
+    to the cap height: the frame runs from the cap height to the descender and across the word's ink."""
     W = T.LAYOUT['brand']['wordmark']
     nums = [float(v) for v in re.findall(r'-?\d+(?:\.\d+)?', W['path'])]
-    # Every number pair in the outline is a point on or beside it, and the italic's ink lies within them across.
+    # Every number pair in the outline is a vertex (straight segments only), so they bound the ink across.
     left, right = min(nums[0::2]), max(nums[0::2])
     scale = cap / T.LAYOUT['brand']['capHeight']
     width, height = right - left, W['bottom'] - W['top']
     return ('<svg class="wordmark" viewBox="%g %g %g %g" style="width:%gpx;height:%gpx" role="img" aria-label="SuperSparrow">'
             '<path fill="currentColor" d="%s"/></svg>') % (left, W['top'], width, height, width * scale, height * scale, W['path'])
-_icons = [0]
 def app_icon(px, appearance='default'):
-    """The app icon (spec §5.42) as inline SVG over its 824 body: the ground's gradient, then the brand mark's front and flap,
-    each with its gradient top to bottom over its own bounds (as Icon Composer maps a layer's fill), placed as on the 1024
-    template. `.appicon` rounds the corners. Tinted is a stand-in for the system's ground with the parts in white at their
-    mono opacities."""
+    """The app icon (spec §5.42) as inline SVG over its 824 body: the tile in one colour, then the brand mark's plane in
+    the other, placed as on the 1024 template. `.appicon` rounds the corners. Tinted shows what the document hands the
+    system (white on black) before the system tints it."""
     A = T.LAYOUT['appIcon']
     gl = T.GLYPHS[T.ICON['brand']]
-    if appearance == 'dark':
-        ground, parts = A['groundDark'], ((A['frontDark'], 1), (A['flapDark'], 1))
-    elif appearance == 'tinted':
-        ground, parts = ('#4A4E57', '#2C2F36'), ((('#FFFFFF', '#FFFFFF'), A['monoFront']), (('#FFFFFF', '#FFFFFF'), A['monoFlap']))
-    else:
-        ground, parts = A['ground'], ((A['front'], 1), (A['flap'], 1))
-    _icons[0] += 1
-    gid = 'appicon-%d-' % _icons[0]
-    def lg(name, stops):
-        return ('<linearGradient id="%s%s" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="%s"/>'
-                '<stop offset="1" stop-color="%s"/></linearGradient>') % (gid, name, stops[0], stops[1])
+    tile, plane = {'dark': (A['tileDark'], A['planeDark']), 'tinted': (A['tileTinted'], A['planeTinted'])}.get(
+        appearance, (A['tile'], A['plane']))
     inset = (A['canvas'] - A['body']) / 2
     scale = A['markSize'] / gl['grid']
-    shapes = ''.join('<path d="%s" fill="url(#%s%d)" fill-opacity="%g"/>' % (d, gid, i, o) for i, (d, (_, o)) in enumerate(zip(gl['paths'], parts)))
-    defs = lg('g', ground) + ''.join(lg(str(i), stops) for i, (stops, _) in enumerate(parts))
-    return ('<span class="appicon" style="--s:%gpx"><svg viewBox="0 0 %g %g" aria-hidden="true"><defs>%s</defs>'
-            '<rect width="%g" height="%g" fill="url(#%sg)"/><g transform="translate(%g %g) scale(%g)">%s</g></svg></span>') % (
-        px, A['body'], A['body'], defs, A['body'], A['body'], gid, A['markX'] - inset, A['markY'] - inset, scale, shapes)
+    shapes = ''.join('<path d="%s" fill="%s"/>' % (d, plane) for d in gl['paths'])
+    return ('<span class="appicon" style="--s:%gpx"><svg viewBox="0 0 %g %g" aria-hidden="true">'
+            '<rect width="%g" height="%g" fill="%s"/><g transform="translate(%g %g) scale(%g)">%s</g></svg></span>') % (
+        px, A['body'], A['body'], A['body'], A['body'], tile, A['markX'] - inset, A['markY'] - inset, scale, shapes)
 
 ACCT_IDX = {'C': 1, 'G': 2, 'F': 3}
 FOLDERS = [('tray', 'Inbox  G I'), ('star', 'Starred  G S'), ('paperplane', 'Sent  G T'), ('doc', 'Drafts  G D'), ('trash', 'Trash  G #'),

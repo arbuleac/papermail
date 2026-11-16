@@ -463,7 +463,7 @@ final class DesignContrastTests: XCTestCase {
             assertContrast("Theme name underline, chosen, Settings key", fg: ["selRule"], bg: ["canvas"], need: 3)
             assertContrast("Theme name underline, chosen, Settings not key", fg: ["selRuleIdle"], bg: ["canvas"], need: 3)
             assertContrast("Mono field text", fg: ["ink"], bg: ["sheet"], need: 4.5)
-            assertContrast("Welcome mark (the brand's blue)", fg: ["brandMark"], bg: ["paper"], need: 3, needIC: 4.5)
+            assertContrast("Welcome mark (the brand mark in ink)", fg: ["ink"], bg: ["paper"], need: 3, needIC: 4.5)
             assertContrast("Welcome title", fg: ["ink"], bg: ["paper"], need: 4.5)
             assertContrast("Welcome tagline", fg: ["ink2"], bg: ["paper"], need: 4.5)
             assertContrast("Welcome button trailing note (ink2)", fg: ["ink2"], bg: ["raised"], need: 4.5)
@@ -704,7 +704,7 @@ final class DesignContrastTests: XCTestCase {
         }
     }
 
-    /// `graphiteContrastPairs[80..<106]`
+    /// `graphiteContrastPairs[80..<105]`
     func testGraphiteContrastPairs080() {
         inEveryTheme {
             assertContrast("Graphite · Dot badge vs list", fg: ["ink"], bg: ["paper"], need: 3)
@@ -721,7 +721,6 @@ final class DesignContrastTests: XCTestCase {
             assertContrast("Graphite · Settings status: waiting to sync (selected)", fg: ["ink3"], bg: ["selWashIdle"], need: 4.5)
             assertContrast("Graphite · Settings status: download bar (selected row)", fg: ["ink"], bg: ["selWashIdle", "fill"], need: 3)
             assertContrast("Graphite · Theme name underline, chosen, Settings key", fg: ["ink"], bg: ["canvas"], need: 3)
-            assertContrast("Graphite · Welcome mark (the brand's blue)", fg: ["ink"], bg: ["paper"], need: 3, needIC: 4.5)
             assertContrast("Graphite · Welcome demo link", fg: ["ink"], bg: ["paper"], need: 4.5)
             assertContrast("Graphite · Account ink Persimmon on selected row", fg: ["account:Persimmon"], bg: ["selWashIdle"], need: 3, needIC: 3.5)
             assertContrast("Graphite · Account ink Indigo on selected row", fg: ["account:Indigo"], bg: ["selWashIdle"], need: 3, needIC: 3.5)
@@ -737,10 +736,10 @@ final class DesignContrastTests: XCTestCase {
     }
 
     func testPairCounts() {
-        // tokens.json lists 507 contrast pairs and 106 Graphite pairs, each asserted in 5 themes; a regenerated
+        // tokens.json lists 507 contrast pairs and 105 Graphite pairs, each asserted in 5 themes; a regenerated
         // file must keep them all.
         XCTAssertEqual(DesignTokensFile.shared.pairCount("contrastPairs"), 507)
-        XCTAssertEqual(DesignTokensFile.shared.pairCount("graphiteContrastPairs"), 106)
+        XCTAssertEqual(DesignTokensFile.shared.pairCount("graphiteContrastPairs"), 105)
         XCTAssertEqual(QuireTheme.allCases.count, 5)
     }
 }

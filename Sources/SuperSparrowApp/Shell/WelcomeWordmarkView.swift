@@ -3,8 +3,8 @@ import SSDesign
 
 /// The wordmark under the welcome screen's mark (spec §5.39): the brand's drawn word (`layout.brand.wordmark`, the
 /// outlines of docs/brand/source/wordmark.svg), never the name set in a font, in `ink` with its cap height
-/// `welcome.wordmarkCap`. The frame runs from the overshoot above the caps to the descender, its baseline on a whole
-/// point so the caps and the baseline stay crisp, and the italic's ink, which runs past the advance, is centred across it.
+/// `welcome.wordmarkCap`. The frame runs from the cap height to the descender (the straight-edged letters have no
+/// overshoot), its baseline on a whole point so the caps and the baseline stay crisp, and the word's ink is centred across it.
 @MainActor
 final class WelcomeWordmarkView: NSView {
     /// Wordmark units, baseline y 0, y down, as the master is drawn. The data is generated and the drift tests hold it to
@@ -21,7 +21,7 @@ final class WelcomeWordmarkView: NSView {
     /// Points per wordmark unit.
     static var scale: CGFloat { Quire.Layout.Welcome.wordmarkCap / Quire.Layout.Brand.capHeight }
 
-    /// The baseline below the frame's top: the cap height and its overshoot, rounded up to a whole point.
+    /// The baseline below the frame's top: the cap height, rounded up to a whole point.
     static var baseline: CGFloat { ceil(-Quire.Layout.Brand.Wordmark.top * scale) }
 
     /// The word's ink in wordmark units.
@@ -51,7 +51,7 @@ final class WelcomeWordmarkView: NSView {
         // Set through NSColor so the theme's ink resolves for this view's appearance.
         NSColor.qInk.setFill()
         context.addPath(Self.outline)
-        // The master overlaps its strokes (the r's stem and arm, the w's diagonals): nonzero fills them as one.
+        // Outer contours run one way and counters the other, so nonzero leaves the counters open.
         context.fillPath(using: .winding)
         context.restoreGState()
     }

@@ -2,22 +2,18 @@
 and the rendered DESIGN-LANGUAGE.md. Colour order: light, dark, lightHC, darkHC."""
 
 NAME = "Quire"
-VERSION = "1.8.3"
+VERSION = "1.8.4"
 
-# The brand palette (docs/brand, spec §5.42), written once: `layout.brand`, the app icon's colours (`layout.appIcon`) and
-# the interface's brand mark (`brandMark`) all read it from here. `front` and `flap` are the envelope's two parts, each a
-# top-to-bottom pair; `*Dark` the dark appearance's; `*Small` the pixel-fitted 16 and 32 px icons', a step deeper so the
-# white crease keeps its contrast there. `signal` and `signalDark` are the one-colour mark on light and dark pages.
-BRAND = {"ink": "#0E1B30", "signal": "#0A5BE0", "signalDark": "#5AAEFF",
-         "ground": ["#FFFFFF", "#E7EFFB"], "front": ["#2C86FF", "#0A4FE0"], "flap": ["#6CB4FF", "#4B9EFF"],
-         "groundDark": ["#1C2B4B", "#0A1122"], "frontDark": ["#3E9BFF", "#1458EC"], "flapDark": ["#9CCFFF", "#62AAFF"],
-         "frontSmall": ["#2479F7", "#0A4AD8"], "flapSmall": ["#59A8FF", "#3F95FF"]}
-
+# The brand palette (docs/brand, spec §5.42), written once: `layout.brand` and the app icon's colours (`layout.appIcon`)
+# read it from here. The mark is black and white only: `paper` is the plane on the icon's tile and the one-colour mark on
+# dark grounds, `ink` the icon's tile and the mark and the wordmark on light grounds; `tintedGround` is the tinted icon's
+# tile, black, so the white plane is the luminance the system tints. No other hue, no gradient, no sheen.
+BRAND = {"ink": "#0A0A0A", "paper": "#FFFFFF", "tintedGround": "#000000"}
 
 
 def _wordmark():
     """The wordmark master (docs/brand/source/wordmark.svg, drawn, never set in a font) in its own units: its path data,
-    baseline y 0, and its frame, the advance across and the overshoot's top to the descender down."""
+    baseline y 0, and its frame, the advance across and the cap height to the descender down."""
     import os, re
     text = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'brand', 'source', 'wordmark.svg')).read()
     left, top, advance, height = (float(v) for v in re.search(r'viewBox="([^"]+)"', text).group(1).split())
@@ -95,8 +91,6 @@ COLOR = [
  ("dangerFillHover",   "#9C251B", "#C8402F", "#7A170F", "#C8402F", "semantic", "Destructive button hover"),
  ("dangerFillPressed", "#8A2018", "#A93226", "#68130C", "#A93226", "semantic", "Destructive button pressed"),
  ("onDanger",          "#FFFFFF", "#FFFFFF", "#FFFFFF", "#FFFFFF", "semantic", "Text and glyph on dangerFill"),
- # the brand's own blue, never the theme's ink: Signal and Signal Dark, one step deeper and lighter in IC
- ("brandMark", BRAND["signal"], BRAND["signalDark"], "#084BBA", "#8CC8FF", "semantic", "The brand mark on the welcome screen (one colour, the brand's blue in every coloured theme; `ink` under Graphite and in Gallery)"),
 ]
 
 ACCOUNTS = [
@@ -294,7 +288,7 @@ LAYOUT = {
  "kbd": {"largeHeight": 24, "largeFont": 12, "height": 18, "minWidth": 18, "padX": 4, "radius": 3, "largeRadius": 5, "inField": 16},
  "progress": {"indeterminateSegment": 0.36, "reducedSegment": 0.4, "barHeight": 4, "barRadius": 2, "contrail": 2, "contrailHead": 4, "contrailTail": 32,
               "spinner": [12, 16, 32], "spinnerStroke": [1.5, 2, 3], "spinnerArc": 0.75},
- "welcome": {"blockWidth": 360, "blockCenterY": 0.45, "mark": 65, "titleGap": 8, "wordmarkCap": 24, "taglineGap": 6, "actionsGap": 28, "buttonWidth": 328, "buttonGap": 10, "demoGap": 12, "footGap": 20, "footWidth": 330, "linkGap": 10, "bannerGap": 16, "spinner": 16},
+ "welcome": {"blockWidth": 360, "blockCenterY": 0.45, "mark": 64, "titleGap": 8, "wordmarkCap": 24, "taglineGap": 6, "actionsGap": 28, "buttonWidth": 328, "buttonGap": 10, "demoGap": 12, "footGap": 20, "footWidth": 330, "linkGap": 10, "bannerGap": 16, "spinner": 16},
  "settings": {"width": 560, "padTop": 20, "padX": 24, "padBottom": 22, "row": 40, "rowGap": 12, "accountRow": 56, "accountFace": 30, "accountHairlineX": 62,
               "groupRadius": 8, "labelColumn": 140, "swatch": 14, "monogramMaxLength": 2, "plusMinus": 22, "plusMinusGlyph": 11, "plusMinusTop": 8,
               "fieldHeight": 24, "noticeGap": 16, "labelGap": 12, "fieldWidth": 360, "captionMaxWidth": 360, "captionGap": 8, "sectionGap": 20,
@@ -308,30 +302,30 @@ LAYOUT = {
  "menu": {"titleMenuOffsetY": 4},
  "iconSize": {"window": 15, "inText": 14, "row": 12, "rail": 18},
  "notification": {"bodyMaxChars": 120, "summaryThreshold": 3, "summaryWindowSeconds": 30},
- # The app icon (spec §5.42) on the macOS 1024 template, y down: the body is the `body` square centred on the `canvas`; the
- # mark is the brand glyph (its front, then its flap) in the `markSize` square at (markX, markY), so the envelope is
- # 400 tall with its top at y 316 and about 100 of tile beside its acute corners, the approved board's proportion.
- # `corner`, `smoothing` and the shadow are the macOS 15 template's, for the raster (the system masks and lights the
- # icon itself on macOS 26 and later). Colours come from BRAND: the ground and both
- # parts run top to bottom over their own height; `mono*` are the parts' white opacity in the tinted and clear appearances.
- # `fit16` and `fit32` are the pixel-fitted 16 and 32 px masters: the body a whole number of pixels, and the envelope's
- # front and flap drawn on that size's own pixel grid (path data in pixels).
- "appIcon": {"canvas": 1024, "body": 824, "corner": 0.225, "smoothing": 0.6, "shadowY": 10, "shadowBlur": 15, "shadowAlpha": 0.28,
-             "markX": 178.67, "markY": 182.67, "markSize": 666.67,
-             "ground": BRAND["ground"], "front": BRAND["front"], "flap": BRAND["flap"],
-             "groundDark": BRAND["groundDark"], "frontDark": BRAND["frontDark"], "flapDark": BRAND["flapDark"],
-             "monoFront": 0.7, "monoFlap": 1, "frontSmall": BRAND["frontSmall"], "flapSmall": BRAND["flapSmall"],
-             "fit16": {"body": 768, "paths": ["M3.97 7 L6 7 L6 8 L8 8 L8 9 L9 9 L9 8 L11 8 L11 7 L12.455 7 L11.731 10.406 C11.658 10.752 11.352 11 10.998 11 L3.861 11 C3.479 11 3.194 10.648 3.274 10.275 L3.97 7 Z", "M5.002 5 L12.139 5 C12.521 5 12.806 5.352 12.726 5.725 L12.668 6 L11 6 L11 7 L9 7 L9 8 L8 8 L8 7 L6 7 L6 6 L4.182 6 L4.269 5.594 C4.342 5.248 4.648 5 5.002 5 Z"]},
-             "fit32": {"body": 832, "paths": ["M8.407 13.005 C11.295 14.462 13.991 16.175 16.494 18.144 C16.791 18.378 17.209 18.378 17.506 18.144 C19.999 16.18 22.615 14.507 25.352 13.126 L23.749 20.669 C23.584 21.445 22.899 22 22.106 22 L8.274 22 C7.358 22 6.675 21.156 6.865 20.261 L8.407 13.005 Z", "M10.407 10 L24.238 10 C25.154 10 25.837 10.844 25.647 11.739 L25.609 11.918 C22.091 13.261 19.274 14.578 17.158 15.869 C17.061 15.929 16.939 15.929 16.842 15.869 C14.73 14.579 11.989 13.292 8.62 12.006 L8.763 11.331 C8.928 10.555 9.613 10 10.407 10 Z"]}},
- # The brand palette's one-colour inks and the lockups (docs/brand, spec §5.42). Lockup metrics are in the wordmark's units
- # (x-height 100, cap height `capHeight`): the envelope's height and the gap between its sheared right side and the word's
- # 12° origin line beside the word, or its height and its space above the cap height stacked. `monoSmall` is the
- # one-colour mark below 24 px, on the glyph's grid: the master's box and corners, its crease arms offset symmetrically
- # about the apex, 2 wide across the arm where they meet the sides and 5 at the apex, so it never closes up. `wordmark`
- # is the drawn word for the welcome screen, read from its master so the two never part.
- "brand": {"ink": BRAND["ink"], "signal": BRAND["signal"], "signalDark": BRAND["signalDark"], "capHeight": 138,
-           "lockupMark": 144.9, "lockupGap": 72.45, "stackedMark": 303.6, "stackedGap": 82.8, "wordmark": WORDMARK,
-           "monoSmall": ["M4.476 13.197 C10.458 15.844 15.781 19.734 20.447 24.867 C21.094 25.579 22.222 25.579 22.869 24.867 C27.412 19.869 32.58 16.049 38.372 13.407 L34.986 29.339 C34.656 30.89 33.285 32 31.699 32 L4.035 32 C2.204 32 0.837 30.313 1.218 28.521 L4.476 13.197 Z", "M8.301 8 L36.42 8 C38.017 8 39.209 9.471 38.877 11.033 L38.863 11.095 L38.291 11.259 C31.113 13.312 25.673 15.851 21.97 18.874 C21.789 19.023 21.527 19.023 21.345 18.874 C17.643 15.851 12.203 13.312 5.024 11.259 L4.895 11.222 L5.014 10.661 C5.344 9.11 6.715 8 8.301 8 Z"]},
+ # The app icon (spec §5.42) on the macOS 1024 template, y down: the body is the `body` square centred on the `canvas`, its
+ # continuous corners `corner` of the body (Apple's corner curve, 185.4 at 824). The mark is the brand glyph, its 80-unit
+ # square at (markX, markY) and `markSize` wide, so one glyph unit is one 8 px unit of the template's 128 x 128 construction
+ # grid and every vertex is a grid point. The plane (640 x 480) is placed optically, as the approved board draws it: its
+ # box runs from (200, 296) to (840, 776), so the nose and the wings sit up and right of centre and the keel hangs below.
+ # The shadow is the macOS 15 template's, for the raster only (the system masks and lights the icon itself on macOS 26 and
+ # later). Colours come from BRAND: the tile and the plane per appearance, nothing else; a white plane on the near-black
+ # tile by default and in dark, and on black for the system to tint. `fit16` and `fit32` are the pixel-fitted 16 and 32 px
+ # masters: the body a whole number of pixels, and the plane redrawn on that size's own pixel grid as straight-edged
+ # polygons, every vertex on a pixel corner (path data in pixels), rendered anti-aliased so its diagonals stay straight
+ # lines rather than staircases. Every other size is the 1024 px master reduced, as the approved images were.
+ "appIcon": {"canvas": 1024, "body": 824, "corner": 0.225, "shadowY": 10, "shadowBlur": 15, "shadowAlpha": 0.28,
+             "markX": 200, "markY": 216, "markSize": 640,
+             "tile": BRAND["ink"], "plane": BRAND["paper"], "tileDark": BRAND["ink"], "planeDark": BRAND["paper"],
+             "tileTinted": BRAND["tintedGround"], "planeTinted": BRAND["paper"],
+             "fit16": {"body": 768, "path": "M13 3 L3 7 L9 10 Z M5 9 L8 11 L7 12 L5 13 Z"},
+             "fit32": {"body": 832, "path": "M27 8 L6 14 L10 16 L20 12 L12 17 L16 19 Z M12 18 L15 20 L12 23 Z"}},
+ # The brand's one-colour inks and the lockup (docs/brand, spec §5.42). Lockup metrics are in the wordmark's units (cap
+ # height `capHeight`, x-height 520, baseline 0, y down): beside the word the plane is `lockupMark` tall (1.75 cap heights),
+ # its box centred on the cap height (`lockupCentre`, half a cap height above the baseline) and `lockupGap` (0.55 cap
+ # heights) before the word's origin. `wordmark` is the drawn word for the welcome screen, read from its master so the two
+ # never part.
+ "brand": {"ink": BRAND["ink"], "paper": BRAND["paper"], "capHeight": 700,
+           "lockupMark": 1225, "lockupCentre": -350, "lockupGap": 385, "wordmark": WORDMARK},
 }
 ICON = {
  "archive": "archivebox", "trash": "trash", "star": "star", "unstar": "star.fill", "markUnread": "envelope.badge", "markRead": "envelope.open",
@@ -347,7 +341,7 @@ ICON = {
  "viewInbox": "tray", "viewStarred": "star", "viewSent": "paperplane", "viewDrafts": "doc", "viewTrash": "trash", "viewAllMail": "archivebox",
  "viewLater": "clock", "later": "clock", "spam": "xmark.bin",
  "moveToInbox": "tray.and.arrow.down", "privacy": "lock", "success": "checkmark.circle.fill", "info": "info.circle", "warning": "exclamationmark.triangle.fill",
- "brand": "ss.italicEnvelope", "keyboard": "keyboard", "dismiss": "xmark",
+ "brand": "ss.paperPlane", "keyboard": "keyboard", "dismiss": "xmark",
  "removeAccount": "minus", "bold": "bold", "italic": "italic", "underline": "underline", "bulletedList": "list.bullet", "numberedList": "list.number",
  "blockQuote": "text.quote", "link": "link", "undone": "arrow.uturn.backward", "demo": "info.circle",
  "addAccountProvider": "person.crop.circle.badge.plus", "attention": "exclamationmark", "waitingToSync": "clock", "discardDraft": "trash",
@@ -362,7 +356,7 @@ GLYPHS = {
  "ss.nib": {"grid": 16, "stroke": 1.5, "paths": ["M2.91 13.09 L4.32 7.01 C4.43 6.27 4.99 5.7 5.67 5.53 L8.64 4.68 L11.32 7.36 L10.47 10.33 C10.3 11.01 9.73 11.57 8.99 11.68 Z", "M10.47 2.56 L13.44 5.53 L11.46 7.51 L8.49 4.54 Z", "M2.91 13.09 L6.66 9.34"], "fills": [{"circle": [7.47, 8.53, 0.9]}], "meaning": "New message: a pen nib"},
  "ss.elide": {"grid": 16, "stroke": 1.5, "paths": ["M4.75 2.75h-2v10.5h2", "M11.25 2.75h2v10.5h-2"], "fills": [{"circle": [5.6, 10.6, 0.95]}, {"circle": [8, 10.6, 0.95]}, {"circle": [10.4, 10.6, 0.95]}], "meaning": "Quoted text folded: the editor's […]"},
  "ss.queued": {"grid": 12, "stroke": 1.5, "paths": ["M5.75 6.25 9.75 2.25", "M6.25 2.25h3.5v3.5"], "fills": [{"circle": [2.75, 9.25, 1.6]}], "meaning": "Applied on this Mac, waiting to reach the server: a dot (here) and a straight arrow (on its way). Static, never rotates"},
- "ss.italicEnvelope": {"grid": 40, "stroke": 0, "paths": ["M4.687 12.2 C10.757 14.955 16.004 18.815 20.427 23.779 C21.08 24.511 22.236 24.511 22.888 23.779 C27.312 18.815 32.559 14.955 38.629 12.2 L34.986 29.339 C34.656 30.89 33.285 32 31.699 32 L4.035 32 C2.204 32 0.837 30.313 1.218 28.521 L4.687 12.2 Z", "M8.301 8 L35.965 8 C37.796 8 39.163 9.687 38.782 11.479 L38.629 12.2 C31.514 14.126 25.959 16.673 21.964 19.84 C21.785 19.982 21.531 19.982 21.352 19.84 C17.357 16.673 11.802 14.126 4.687 12.2 L5.014 10.661 C5.344 9.11 6.715 8 8.301 8 Z"], "fills": [], "meaning": "Brand mark, the italic envelope: a √2 envelope sheared 12°, its crease a tapered V (welcome, app icon, About, inbox zero)"},
+ "ss.paperPlane": {"grid": 80, "stroke": 0, "paths": ["M80 10 L0 30 L16 38 Z M80 10 L20 40 L40 50 Z M38 52 L20 43 L20 70 Z"], "fills": [], "meaning": "Brand mark, the paper plane on an isometric grid: one sheet folded into a dart, its far wing, near wing and keel three straight-edged triangles cut apart by two folds (welcome, app icon, About, inbox zero)"},
 }
 READER_SYMBOLS = ["star", "star.fill", "arrowshape.turn.up.left", "arrowshape.turn.up.left.2", "arrowshape.turn.up.right", "ellipsis",
                   "circle.lefthalf.filled", "xmark", "photo", "exclamationmark.triangle.fill", "wifi.slash",
@@ -387,7 +381,6 @@ GRAPHITE = {
  "selRule": ("ink", "Margin rule, window key (rows, rail, Settings account row, autocomplete highlight)"),
  "knob": ("paper", "Toggle knob face, so it stays distinct from the `ink` on track in dark appearances"),
  "swipeArchive": ("swipeArchiveNeutral", "A swipe's Archive button (§5.7): `ink` would turn light in dark appearances under AppKit's white title, so the slip by day and, at night, a grey light enough to stand out from the row"),
- "brandMark": ("ink", "The welcome screen's mark: the user asked for no colour, so the brand's blue gives way to the ink"),
 }
 
 # Settings > General > Text size (§4.15, roadmap Q2.6): the popup's names and the step in points each adds to every role where

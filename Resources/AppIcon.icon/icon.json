@@ -2,39 +2,19 @@
   "fill-specializations" : [
     {
       "value" : {
-        "linear-gradient" : [
-          "srgb:1.00000,1.00000,1.00000,1.00000",
-          "srgb:0.90588,0.93725,0.98431,1.00000"
-        ],
-        "orientation" : {
-          "start" : {
-            "x" : 0.5,
-            "y" : 0
-          },
-          "stop" : {
-            "x" : 0.5,
-            "y" : 1
-          }
-        }
+        "solid" : "srgb:0.03922,0.03922,0.03922,1.00000"
       }
     },
     {
       "appearance" : "dark",
       "value" : {
-        "linear-gradient" : [
-          "srgb:0.10980,0.16863,0.29412,1.00000",
-          "srgb:0.03922,0.06667,0.13333,1.00000"
-        ],
-        "orientation" : {
-          "start" : {
-            "x" : 0.5,
-            "y" : 0
-          },
-          "stop" : {
-            "x" : 0.5,
-            "y" : 1
-          }
-        }
+        "solid" : "srgb:0.03922,0.03922,0.03922,1.00000"
+      }
+    },
+    {
+      "appearance" : "tinted",
+      "value" : {
+        "solid" : "srgb:0.00000,0.00000,0.00000,1.00000"
       }
     }
   ],
@@ -45,39 +25,13 @@
           "fill-specializations" : [
             {
               "value" : {
-                "linear-gradient" : [
-                  "srgb:0.42353,0.70588,1.00000,1.00000",
-                  "srgb:0.29412,0.61961,1.00000,1.00000"
-                ],
-                "orientation" : {
-                  "start" : {
-                    "x" : 0.5,
-                    "y" : 0
-                  },
-                  "stop" : {
-                    "x" : 0.5,
-                    "y" : 1
-                  }
-                }
+                "solid" : "srgb:1.00000,1.00000,1.00000,1.00000"
               }
             },
             {
               "appearance" : "dark",
               "value" : {
-                "linear-gradient" : [
-                  "srgb:0.61176,0.81176,1.00000,1.00000",
-                  "srgb:0.38431,0.66667,1.00000,1.00000"
-                ],
-                "orientation" : {
-                  "start" : {
-                    "x" : 0.5,
-                    "y" : 0
-                  },
-                  "stop" : {
-                    "x" : 0.5,
-                    "y" : 1
-                  }
-                }
+                "solid" : "srgb:1.00000,1.00000,1.00000,1.00000"
               }
             },
             {
@@ -87,71 +41,21 @@
               }
             }
           ],
-          "glass" : true,
-          "image-name" : "flap.svg",
-          "name" : "Flap"
-        },
-        {
-          "fill-specializations" : [
-            {
-              "value" : {
-                "linear-gradient" : [
-                  "srgb:0.17255,0.52549,1.00000,1.00000",
-                  "srgb:0.03922,0.30980,0.87843,1.00000"
-                ],
-                "orientation" : {
-                  "start" : {
-                    "x" : 0.5,
-                    "y" : 0
-                  },
-                  "stop" : {
-                    "x" : 0.5,
-                    "y" : 1
-                  }
-                }
-              }
-            },
-            {
-              "appearance" : "dark",
-              "value" : {
-                "linear-gradient" : [
-                  "srgb:0.24314,0.60784,1.00000,1.00000",
-                  "srgb:0.07843,0.34510,0.92549,1.00000"
-                ],
-                "orientation" : {
-                  "start" : {
-                    "x" : 0.5,
-                    "y" : 0
-                  },
-                  "stop" : {
-                    "x" : 0.5,
-                    "y" : 1
-                  }
-                }
-              }
-            },
-            {
-              "appearance" : "tinted",
-              "value" : {
-                "solid" : "srgb:1.00000,1.00000,1.00000,1.00000"
-              }
-            }
-          ],
-          "glass" : true,
-          "image-name" : "front.svg",
-          "name" : "Front",
-          "opacity-specializations" : [
-            {
-              "value" : 1
-            },
-            {
-              "appearance" : "tinted",
-              "value" : 0.7
-            }
-          ]
+          "glass" : false,
+          "image-name" : "plane.svg",
+          "name" : "Plane"
         }
       ],
-      "name" : "Envelope"
+      "name" : "Plane",
+      "shadow" : {
+        "kind" : "none",
+        "opacity" : 0
+      },
+      "specular" : false,
+      "translucency" : {
+        "enabled" : false,
+        "value" : 0
+      }
     }
   ],
   "supported-platforms" : {

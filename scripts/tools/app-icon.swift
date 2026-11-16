@@ -1,28 +1,32 @@
-// Draws the app icon (spec §5.42) from docs/design/tokens.json alone: the brand mark's two paths
-// (`customGlyphs[icon.brand]`, the envelope's front then its flap) and the `layout.appIcon` geometry and colours.
-// Nothing is drawn by hand elsewhere.
+// Draws the app icon (spec §5.42) from docs/design/tokens.json alone: the brand mark's path (`customGlyphs[icon.brand]`,
+// the paper plane) and the `layout.appIcon` geometry and colours. Nothing is drawn by hand elsewhere.
 //
 // Usage: swift scripts/tools/app-icon.swift [--check] [--root <repo>] [--preview <png>]
 //
 // Writes:
-//   Resources/AppIcon.icon/  an Icon Composer document (icon.json and one SVG layer per part) that `actool` compiles
-//                            into the asset catalog for macOS 26 and later. The ground is the document's fill (default
-//                            and dark); the envelope is one glass group of two layers, the flap above the front, each
-//                            filled with its own top-to-bottom gradient and specialized for dark and tinted. The system
-//                            masks the squircle and adds Liquid Glass, specular edges and shadow: nothing of the kind is
-//                            drawn into the layers. A macOS AppIcon.appiconset cannot carry dark or tinted images
-//                            (actool reports them as unassigned children); this document can.
-//   Resources/AppIcon.icns   the default appearance on the macOS 15 template (the body on the 1024 canvas, continuous
-//                            corners, the template's drop shadow), built by `iconutil` from a temporary .iconset, 16 to
-//                            1024 px. 16 and 32 px are pixel-fitted masters (`layout.appIcon.fit16`, `fit32`): the body
-//                            on whole pixels and the envelope drawn on that size's own pixel grid.
+//   Resources/AppIcon.icon/  an Icon Composer document (icon.json and one SVG layer) that `actool` compiles into the asset
+//                            catalog for macOS 26 and later. The tile is the document's fill; the plane is one layer in one
+//                            group, each with a solid fill specialized for dark and tinted, and glass, specular, shadow and
+//                            translucency off: black and white, nothing added. The colours live only in icon.json, so no
+//                            per-appearance copy of the artwork can drift from it. The system masks the squircle. A macOS
+//                            AppIcon.appiconset cannot carry dark or tinted images (actool reports them as unassigned
+//                            children); this document can.
+//   Resources/AppIcon.icns   the default appearance on the macOS 15 template (the body on the 1024 canvas, Apple's continuous
+//                            corners, the template's drop shadow outside the body), built by `iconutil` from a temporary
+//                            .iconset, 16 to 1024 px. 16 and 32 px are pixel-fitted masters (`layout.appIcon.fit16`,
+//                            `fit32`): the body on whole pixels and the plane redrawn on that size's own pixel grid, every
+//                            vertex on a pixel corner, anti-aliased. A 1-bit plane would turn each diagonal into a
+//                            staircase, and at these sizes the plane then stops reading as one. 64 to 512 px are the 1024
+//                            master reduced with Core Graphics' high-quality resampling, as the approved board reduces
+//                            it (the pixels `sips -Z` makes): inside the body every size is the approved image, pixel
+//                            for pixel.
 //   --check                  writes nothing in the repository: renders into a temporary folder, compares both outputs
 //                            byte for byte, and exits 1 listing every file that is missing, stale or no longer made.
 //   --preview <png>          optional, for review: the document's six system appearances rendered by Xcode's `ictool`
-//                            (when Xcode is installed), the .icns sizes, the icon in a light Dock at 64 and 32 px beside
-//                            Apple Mail's, which App Review 5.2.5 says it must not resemble, and in a dark Dock on its own.
-//                            NSWorkspace hands back Mail's light icon under every appearance, so the preview cannot
-//                            compare the dark, tinted or clear looks; those are checked by hand against Mail itself.
+//                            (when Xcode is installed), the .icns sizes, and the icon in a light Dock at 64 and 32 px among
+//                            Apple's white-tile apps and Mail (which App Review 5.2.5 says it must not resemble), and in a
+//                            dark Dock on its own. NSWorkspace hands back the other apps' light icons under every
+//                            appearance, so the dark row cannot compare them.
 //
 // Plain Foundation, AppKit and ImageIO, no packages. The SVG path parser below handles the commands the token
 // file's glyphs use (M L H V C A Z, absolute and relative) and fails loudly on anything else.
@@ -82,20 +86,21 @@ func number(_ path: String) -> CGFloat {
     guard let value = lookup(path) as? NSNumber else { fail("\(path) is not a number") }
     return CGFloat(value.doubleValue)
 }
-func strings(_ path: String, count: Int) -> [String] {
-    guard let value = lookup(path) as? [String], value.count == count else { fail("\(path) must be \(count) strings") }
+func string(_ path: String) -> String {
+    guard let value = lookup(path) as? String else { fail("\(path) is not a string") }
     return value
 }
 
-/// The brand mark: its grid and its two paths, the front then the flap (glyph names hold a dot, so this reads the glyph
+/// The brand mark: its grid and its one path, the plane's three facets (glyph names hold a dot, so this reads the glyph
 /// table directly rather than through `lookup`).
 guard let brandName = lookup("icon.brand") as? String, let glyphs = tokens["customGlyphs"] as? [String: Any],
-      let brandGlyph = glyphs[brandName] as? [String: Any], let partData = brandGlyph["paths"] as? [String], partData.count == 2,
+      let brandGlyph = glyphs[brandName] as? [String: Any], let glyphPaths = brandGlyph["paths"] as? [String], glyphPaths.count == 1,
       let brandGrid = (brandGlyph["grid"] as? NSNumber)?.doubleValue, (brandGlyph["stroke"] as? NSNumber)?.doubleValue == 0 else {
-    fail("customGlyphs[icon.brand] must be a filled glyph with two paths, the front then the flap")
+    fail("customGlyphs[icon.brand] must be a filled glyph with one path, the plane")
 }
+let planeData = glyphPaths[0]
 
-/// One colour as the icon uses it: hex for the SVG layers, sRGB components for drawing and for icon.json.
+/// One colour as the icon uses it: hex for the SVG layer, sRGB components for drawing and for icon.json.
 struct Ink {
     let hex: String
     let red: CGFloat, green: CGFloat, blue: CGFloat
@@ -112,45 +117,31 @@ struct Ink {
     }
 }
 
-/// A top-to-bottom pair of stops.
-struct Ramp {
-    let top: Ink, bottom: Ink
-}
-func ramp(_ path: String) -> Ramp {
-    let pair = strings(path, count: 2)
-    return Ramp(top: Ink(pair[0]), bottom: Ink(pair[1]))
-}
-
-/// One appearance's colours: the ground's ramp and the envelope's two parts'.
+/// One appearance's two colours: the tile and the plane. Nothing else is coloured.
 struct Look {
-    let ground: Ramp, front: Ramp, flap: Ramp
+    let tile: Ink, plane: Ink
 }
-let defaultLook = Look(ground: ramp("layout.appIcon.ground"), front: ramp("layout.appIcon.front"), flap: ramp("layout.appIcon.flap"))
-let darkLook = Look(ground: ramp("layout.appIcon.groundDark"), front: ramp("layout.appIcon.frontDark"), flap: ramp("layout.appIcon.flapDark"))
-/// The pixel-fitted sizes take deeper parts on the default ground, so the white crease keeps its contrast there.
-let smallLook = Look(ground: defaultLook.ground, front: ramp("layout.appIcon.frontSmall"), flap: ramp("layout.appIcon.flapSmall"))
-let white = Ink("#FFFFFF")
-let monoFront = number("layout.appIcon.monoFront")
-let monoFlap = number("layout.appIcon.monoFlap")
+let defaultLook = Look(tile: Ink(string("layout.appIcon.tile")), plane: Ink(string("layout.appIcon.plane")))
+let darkLook = Look(tile: Ink(string("layout.appIcon.tileDark")), plane: Ink(string("layout.appIcon.planeDark")))
+let tintedLook = Look(tile: Ink(string("layout.appIcon.tileTinted")), plane: Ink(string("layout.appIcon.planeTinted")))
 
 let canvas = number("layout.appIcon.canvas")
 let body = number("layout.appIcon.body")
 let markRect = CGRect(x: number("layout.appIcon.markX"), y: number("layout.appIcon.markY"),
                       width: number("layout.appIcon.markSize"), height: number("layout.appIcon.markSize"))
-/// The macOS 15 template: the body's continuous corners and the drop shadow under it, in canvas units.
+/// The body's continuous corners (a fraction of its side) and the macOS 15 template's drop shadow, in canvas units.
 let corner = number("layout.appIcon.corner")
-let smoothing = number("layout.appIcon.smoothing")
 let shadow = (y: number("layout.appIcon.shadowY"), blur: number("layout.appIcon.shadowBlur"), alpha: number("layout.appIcon.shadowAlpha"))
 
 /// A pixel-fitted small master: its body in canvas units (a whole number of pixels, centred, so the tile's edge is a
-/// whole pixel rather than a half-covered ring) and the envelope's front and flap in that size's pixels.
+/// whole pixel rather than a half-covered ring) and the plane in that size's pixels.
 struct Fit {
     let body: CGFloat
-    let parts: [String]
+    let plane: String
 }
 func fit(_ size: Int) -> Fit {
     let p = "layout.appIcon.fit\(size)."
-    return Fit(body: number(p + "body"), parts: strings(p + "paths", count: 2))
+    return Fit(body: number(p + "body"), plane: string(p + "path"))
 }
 let fits: [Int: Fit] = [16: fit(16), 32: fit(32)]
 
@@ -309,59 +300,43 @@ func placed(_ data: String, _ transform: CGAffineTransform) -> CGPath {
     return path
 }
 
-/// The front and the flap on the canvas, from the glyph's paths.
-let masterParts: [CGPath] = partData.map { placed($0, markTransform) }
+/// The plane on the canvas, from the glyph's path.
+let masterPlane = placed(planeData, markTransform)
 
-/// A pixel-fitted master's front and flap, from its own pixels onto the canvas.
-func fittedParts(_ fit: Fit, size: Int) -> [CGPath] {
+/// A pixel-fitted master's plane, from its own pixels onto the canvas.
+func fittedPlane(_ fit: Fit, size: Int) -> CGPath {
     let scale = canvas / CGFloat(size)
-    return fit.parts.map { placed($0, CGAffineTransform(scaleX: scale, y: scale)) }
+    return placed(fit.plane, CGAffineTransform(scaleX: scale, y: scale))
 }
 
-/// A rounded square with continuous corners, the shape the macOS 15 template masks icons with: each corner starts
-/// (1 + smoothing) radii from it, eases in along a cubic, turns through an arc and eases out again.
-func squircle(_ rect: CGRect, radius: CGFloat, smoothing: CGFloat) -> CGPath {
-    let r = min(radius, rect.width / 2 / (1 + smoothing))
-    let p = (1 + smoothing) * r
-    let arcMeasure = 90 * (1 - smoothing) * CGFloat.pi / 180
-    let arcSection = sin(arcMeasure / 2) * r * 2.0.squareRoot()
-    let alpha = (CGFloat.pi / 2 - arcMeasure) / 2
-    let p3ToP4 = r * tan(alpha / 2)
-    let beta = CGFloat.pi / 4 * smoothing
-    let c = p3ToP4 * cos(beta)
-    let d = c * tan(beta)
-    let b = (p - arcSection - c - d) / 3
-    let a = 2 * b
+/// A square with Apple's continuous corners of radius `radius`: the shape the system masks icons with. Each corner
+/// leaves its edge 1.52866483 radii before the corner and runs through three cubics to the same distance along the next
+/// edge (the control points in radii, as iOS draws a rounded rectangle whose radius is not limited by its size).
+func squircle(_ rect: CGRect, radius: CGFloat) -> CGPath {
+    let r = min(radius, rect.width / 2 / 1.52866483, rect.height / 2 / 1.52866483)
+    let curve: [[(CGFloat, CGFloat)]] = [
+        [(1.08849323, 0), (0.86840689, 0), (0.66993427, 0.06549600)],
+        [(0.43231650, 0.12608359), (0.12608359, 0.43231650), (0.06549600, 0.66993427)],
+        [(0, 0.86840689), (0, 1.08849323), (0, 1.52866483)],
+    ]
     let path = CGMutablePath()
-    let (minX, minY, maxX, maxY) = (rect.minX, rect.minY, rect.maxX, rect.maxY)
     // Each corner in its own frame: `along` runs with the edge that leads into it, `across` toward the next edge.
-    func corner(_ origin: CGPoint, _ along: CGVector, _ across: CGVector) {
-        func at(_ u: CGFloat, _ v: CGFloat) -> CGPoint {
-            CGPoint(x: origin.x + along.dx * u + across.dx * v, y: origin.y + along.dy * u + across.dy * v)
+    let corners: [(CGPoint, CGVector, CGVector)] = [
+        (CGPoint(x: rect.maxX, y: rect.minY), CGVector(dx: 1, dy: 0), CGVector(dx: 0, dy: 1)),
+        (CGPoint(x: rect.maxX, y: rect.maxY), CGVector(dx: 0, dy: 1), CGVector(dx: -1, dy: 0)),
+        (CGPoint(x: rect.minX, y: rect.maxY), CGVector(dx: -1, dy: 0), CGVector(dx: 0, dy: -1)),
+        (CGPoint(x: rect.minX, y: rect.minY), CGVector(dx: 0, dy: -1), CGVector(dx: 1, dy: 0)),
+    ]
+    path.move(to: CGPoint(x: rect.minX + 1.52866483 * r, y: rect.minY))
+    for (origin, along, across) in corners {
+        func at(_ p: CGFloat, _ q: CGFloat) -> CGPoint {
+            CGPoint(x: origin.x - p * r * along.dx + q * r * across.dx, y: origin.y - p * r * along.dy + q * r * across.dy)
         }
-        // From the start point (p before the corner along the edge) to the start of the arc.
-        path.addCurve(to: at(-p + a + b + c, d), control1: at(-p + a, 0), control2: at(-p + a + b, 0))
-        // The arc's chord runs at 45°; its centre sits r inside both edges.
-        let arcEnd = at(-p + a + b + c + arcSection, d + arcSection)
-        let centre = at(-r, r)
-        let startAngle = atan2(at(-p + a + b + c, d).y - centre.y, at(-p + a + b + c, d).x - centre.x)
-        let endAngle = atan2(arcEnd.y - centre.y, arcEnd.x - centre.x)
-        var sweep = endAngle - startAngle
-        if sweep > .pi { sweep -= 2 * .pi }
-        if sweep < -.pi { sweep += 2 * .pi }
-        path.addArc(center: centre, radius: r, startAngle: startAngle, endAngle: startAngle + sweep, clockwise: sweep < 0)
-        // Out of the arc and onto the next edge, p past the corner: the first cubic mirrored.
-        path.addCurve(to: at(0, p), control1: at(0, p - a - b), control2: at(0, p - a))
+        path.addLine(to: at(1.52866483, 0))
+        for c in curve {
+            path.addCurve(to: at(c[2].0, c[2].1), control1: at(c[0].0, c[0].1), control2: at(c[1].0, c[1].1))
+        }
     }
-    path.move(to: CGPoint(x: minX + p, y: minY))
-    path.addLine(to: CGPoint(x: maxX - p, y: minY))
-    corner(CGPoint(x: maxX, y: minY), CGVector(dx: 1, dy: 0), CGVector(dx: 0, dy: 1))
-    path.addLine(to: CGPoint(x: maxX, y: maxY - p))
-    corner(CGPoint(x: maxX, y: maxY), CGVector(dx: 0, dy: 1), CGVector(dx: -1, dy: 0))
-    path.addLine(to: CGPoint(x: minX + p, y: maxY))
-    corner(CGPoint(x: minX, y: maxY), CGVector(dx: -1, dy: 0), CGVector(dx: 0, dy: -1))
-    path.addLine(to: CGPoint(x: minX, y: minY + p))
-    corner(CGPoint(x: minX, y: minY), CGVector(dx: 0, dy: -1), CGVector(dx: 1, dy: 0))
     path.closeSubpath()
     return path
 }
@@ -375,57 +350,60 @@ func sRGBContext(_ width: Int, _ height: Int) -> CGContext {
     return context
 }
 
-/// One icon image `size` pixels square on the macOS 15 template: the body with the template's drop shadow, its
-
-/// Fills `shape` with `ramp`, top to bottom over the shape's own bounds: the way Icon Composer maps a layer's gradient,
-/// so the raster and the system's render light the parts from the same side.
-func fill(_ context: CGContext, _ shape: CGPath, _ ramp: Ramp, alpha: CGFloat = 1) {
-    let bounds = shape.boundingBoxOfPath
-    context.saveGState()
-    context.addPath(shape)
-    context.clip()
-    let gradient = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB),
-                              colors: [ramp.top.cgColor(alpha: alpha), ramp.bottom.cgColor(alpha: alpha)] as CFArray, locations: [0, 1])!
-    context.drawLinearGradient(gradient, start: CGPoint(x: bounds.midX, y: bounds.minY), end: CGPoint(x: bounds.midX, y: bounds.maxY),
-                               options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
-    context.restoreGState()
+/// The master: the body filled with the tile's colour and the plane in its own, on the whole canvas at one pixel a unit,
+/// with nothing outside the body. Every size but the pixel-fitted ones is this image, reduced.
+func renderMaster(look: Look) -> CGImage {
+    let size = Int(canvas)
+    let context = sRGBContext(size, size)
+    context.setAllowsAntialiasing(true)
+    context.setShouldAntialias(true)
+    // Draw y down, in canvas units, as the path data and the tokens are written.
+    context.translateBy(x: 0, y: canvas)
+    context.scaleBy(x: 1, y: -1)
+    let inset = (canvas - body) / 2
+    context.addPath(squircle(CGRect(x: inset, y: inset, width: body, height: body), radius: corner * body))
+    context.setFillColor(look.tile.cgColor())
+    context.fillPath()
+    context.addPath(masterPlane)
+    context.setFillColor(look.plane.cgColor())
+    context.fillPath(using: .winding)
+    guard let image = context.makeImage() else { fail("cannot finish the master") }
+    return image
 }
 
-/// One icon image `size` pixels square on the macOS 15 template: the body with the template's drop shadow, its ground,
-/// then the front and the flap. 16 and 32 px draw their pixel-fitted masters, body included.
+/// One icon image `size` pixels square on the macOS 15 template, with the template's drop shadow outside the body so the
+/// icon sits on a macOS 15 Dock like its neighbours. 16 and 32 px draw their pixel-fitted masters, body included; every
+/// other size draws the master at that size with high-quality resampling, which is how the approved board reduces it
+/// (64 to 512 px there are `sips -Z` reductions of its 1024 px image, and `sips` resamples exactly so): drawing each size
+/// from the paths instead covers the same edges by area, a softer edge that differs from the approved images by up to
+/// 56 levels at 64 px. Either way the shadow is cast by the opaque body and lies under it, so it changes nothing inside.
 func renderIcon(size: Int, look: Look) -> CGImage {
     let s = CGFloat(size)
     let context = sRGBContext(size, size)
+    // Every size is anti-aliased, the pixel-fitted masters too: their vertices sit on pixel corners, so the coverage
+    // falls only along the diagonals, which stay straight rather than stepping.
+    context.setAllowsAntialiasing(true)
+    context.setShouldAntialias(true)
+    // Shadow offsets ignore the transform: they are in pixels, y up.
+    context.setShadow(offset: CGSize(width: 0, height: -shadow.y * s / canvas), blur: shadow.blur * s / canvas,
+                      color: CGColor(srgbRed: 0, green: 0, blue: 0, alpha: shadow.alpha))
+    guard let fit = fits[size] else {
+        context.interpolationQuality = .high
+        context.draw(master(look), in: CGRect(x: 0, y: 0, width: s, height: s))
+        guard let image = context.makeImage() else { fail("cannot finish the \(size) px image") }
+        return image
+    }
     // Draw y down, in canvas units, as the path data and the tokens are written.
     context.translateBy(x: 0, y: s)
     context.scaleBy(x: s / canvas, y: -s / canvas)
-    let side = fits[size]?.body ?? body
-    let inset = (canvas - side) / 2
-    let face = CGRect(x: inset, y: inset, width: side, height: side)
-    let shape = squircle(face, radius: corner * side, smoothing: smoothing)
-
-    // The template's shadow, so the icon sits on a macOS 15 Dock like its neighbours. Shadow offsets ignore the
-    // transform: they are in pixels, y up.
-    context.saveGState()
-    context.setShadow(offset: CGSize(width: 0, height: -shadow.y * s / canvas), blur: shadow.blur * s / canvas,
-                      color: CGColor(srgbRed: 0, green: 0, blue: 0, alpha: shadow.alpha))
-    context.addPath(shape)
-    context.setFillColor(look.ground.bottom.cgColor())
+    let inset = (canvas - fit.body) / 2
+    context.addPath(squircle(CGRect(x: inset, y: inset, width: fit.body, height: fit.body), radius: corner * fit.body))
+    context.setFillColor(look.tile.cgColor())
     context.fillPath()
-    context.restoreGState()
-
-    // The ground runs over the body; the parts stay inside it (the mark clears its edge), so nothing else is clipped.
-    context.saveGState()
-    context.addPath(shape)
-    context.clip()
-    let gradient = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB),
-                              colors: [look.ground.top.cgColor(), look.ground.bottom.cgColor()] as CFArray, locations: [0, 1])!
-    context.drawLinearGradient(gradient, start: CGPoint(x: face.midX, y: face.minY), end: CGPoint(x: face.midX, y: face.maxY), options: [])
-    context.restoreGState()
-
-    let parts = fits[size].map { fittedParts($0, size: size) } ?? masterParts
-    fill(context, parts[0], look.front)
-    fill(context, parts[1], look.flap)
+    context.setShadow(offset: .zero, blur: 0, color: nil)
+    context.addPath(fittedPlane(fit, size: size))
+    context.setFillColor(look.plane.cgColor())
+    context.fillPath(using: .winding)
     guard let image = context.makeImage() else { fail("cannot finish the \(size) px image") }
     return image
 }
@@ -456,10 +434,19 @@ defer { try? fm.removeItem(at: scratch) }
 /// Where the outputs go: the repository, or under --check a stand-in for it in the scratch folder.
 let output = check ? scratch.appendingPathComponent("check") : root
 
+var masters: [String: CGImage] = [:]
+func master(_ look: Look) -> CGImage {
+    let key = look.tile.hex + look.plane.hex
+    if let made = masters[key] { return made }
+    let made = renderMaster(look: look)
+    masters[key] = made
+    return made
+}
 var rendered: [Int: CGImage] = [:]
-func image(_ size: Int) -> CGImage {
+func image(_ size: Int, look: Look = defaultLook) -> CGImage {
+    if look.tile.hex != defaultLook.tile.hex || look.plane.hex != defaultLook.plane.hex { return renderIcon(size: size, look: look) }
     if let cached = rendered[size] { return cached }
-    let made = renderIcon(size: size, look: fits[size] == nil ? defaultLook : smallLook)
+    let made = renderIcon(size: size, look: look)
     rendered[size] = made
     return made
 }
@@ -505,70 +492,46 @@ indirect enum JSONValue {
     }
 }
 
-func specializations(_ values: [(appearance: String?, value: JSONValue)]) -> JSONValue {
-    .array(values.map { item in
-        var members: [(String, JSONValue)] = [("value", item.value)]
-        if let appearance = item.appearance { members.append(("appearance", .string(appearance))) }
+/// One solid colour per appearance: the default, then dark and tinted.
+func solidFills(_ keyPath: KeyPath<Look, Ink>) -> JSONValue {
+    let looks: [(String?, Look)] = [(nil, defaultLook), ("dark", darkLook), ("tinted", tintedLook)]
+    return .array(looks.map { appearance, look in
+        var members: [(String, JSONValue)] = [("value", .object([("solid", .string(srgb(look[keyPath: keyPath])))]))]
+        if let appearance { members.append(("appearance", .string(appearance))) }
         return .object(members)
     })
 }
 
-func solid(_ ink: Ink) -> JSONValue { .object([("solid", .string(srgb(ink)))]) }
-
-/// A top-to-bottom gradient fill. On a layer Icon Composer maps it onto the layer's own bounds, as the raster does.
-func linear(_ ramp: Ramp) -> JSONValue {
-    .object([
-        ("linear-gradient", .array([.string(srgb(ramp.top)), .string(srgb(ramp.bottom))])),
-        ("orientation", .object([("start", .object([("x", .raw("0.5")), ("y", .raw("0"))])),
-                                 ("stop", .object([("x", .raw("0.5")), ("y", .raw("1"))]))])),
-    ])
-}
-
-/// One part as a glass layer. Its fill is the default gradient, specialized for dark and, white, for tinted; a part
-/// below full white in tinted keeps its value under the other one there and in the clear looks.
-func partLayer(name: String, file: String, defaultRamp: Ramp, darkRamp: Ramp, monoOpacity: CGFloat) -> JSONValue {
-    var layer: [(String, JSONValue)] = [
-        ("fill-specializations", specializations([(nil, linear(defaultRamp)), ("dark", linear(darkRamp)), ("tinted", solid(white))])),
-        ("glass", .raw("true")),
-        ("image-name", .string(file)),
-        ("name", .string(name)),
-    ]
-    if monoOpacity != 1 {
-        layer.append(("opacity-specializations", specializations([(nil, .raw("1")), ("tinted", .raw(fixed(monoOpacity)))])))
-    }
-    return .object(layer)
-}
-
-/// A layer: one part on the canvas grid, in its default gradient (the document's fill replaces it; the SVG says on its
-/// own what the layer is). The viewBox maps the body onto the document's canvas, which is the body alone (the system
-/// adds the margin, the mask and the shadow).
-func layerSVG(_ data: String, _ ramp: Ramp) -> String {
+/// The layer: the plane on the document's canvas, which is the body alone (the system adds the margin and the mask), so
+/// the viewBox is the body on the 1024 template and the glyph keeps its whole-unit path under one transform. Its fill is
+/// the default plane colour; icon.json's specializations replace it, and the SVG says on its own what the layer is.
+func layerSVG() -> String {
     let inset = (canvas - body) / 2
     let t = markTransform
     return "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"\(fixed(canvas))\" height=\"\(fixed(canvas))\" "
         + "viewBox=\"\(fixed(inset)) \(fixed(inset)) \(fixed(body)) \(fixed(body))\">"
-        + "<defs><linearGradient id=\"g\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"\(ramp.top.hex)\"/>"
-        + "<stop offset=\"1\" stop-color=\"\(ramp.bottom.hex)\"/></linearGradient></defs>"
-        + "<path transform=\"matrix(\(fixed(t.a)) 0 0 \(fixed(t.d)) \(fixed(t.tx)) \(fixed(t.ty)))\" fill=\"url(#g)\" d=\"\(data)\"/></svg>\n"
+        + "<path transform=\"matrix(\(fixed(t.a)) 0 0 \(fixed(t.d)) \(fixed(t.tx)) \(fixed(t.ty)))\" fill=\"\(defaultLook.plane.hex)\" d=\"\(planeData)\"/></svg>\n"
 }
 
 let document = output.appendingPathComponent("Resources/AppIcon.icon")
 let assets = document.appendingPathComponent("Assets")
 try? fm.removeItem(at: document)
 do { try fm.createDirectory(at: assets, withIntermediateDirectories: true) } catch { fail("cannot make \(assets.path): \(error)") }
-for (name, data, ramp) in [("front", partData[0], defaultLook.front), ("flap", partData[1], defaultLook.flap)] {
-    do { try Data(layerSVG(data, ramp).utf8).write(to: assets.appendingPathComponent("\(name).svg")) } catch { fail("cannot write \(name).svg: \(error)") }
-}
-// One group, so the envelope is one piece of glass; its layers run front to back, the flap above the front. They never
-// overlap: the crease between them is the ground, in every appearance.
+do { try Data(layerSVG().utf8).write(to: assets.appendingPathComponent("plane.svg")) } catch { fail("cannot write plane.svg: \(error)") }
+// One group of one layer. Glass, specular highlights, shadow and translucency are off: the icon is the two colours.
 let iconJSON = JSONValue.object([
-    ("fill-specializations", specializations([(nil, linear(defaultLook.ground)), ("dark", linear(darkLook.ground))])),
+    ("fill-specializations", solidFills(\.tile)),
     ("groups", .array([.object([
-        ("layers", .array([
-            partLayer(name: "Flap", file: "flap.svg", defaultRamp: defaultLook.flap, darkRamp: darkLook.flap, monoOpacity: monoFlap),
-            partLayer(name: "Front", file: "front.svg", defaultRamp: defaultLook.front, darkRamp: darkLook.front, monoOpacity: monoFront),
-        ])),
-        ("name", .string("Envelope")),
+        ("layers", .array([.object([
+            ("fill-specializations", solidFills(\.plane)),
+            ("glass", .raw("false")),
+            ("image-name", .string("plane.svg")),
+            ("name", .string("Plane")),
+        ])])),
+        ("name", .string("Plane")),
+        ("shadow", .object([("kind", .string("none")), ("opacity", .raw("0"))])),
+        ("specular", .raw("false")),
+        ("translucency", .object([("enabled", .raw("false")), ("value", .raw("0"))])),
     ])])),
     ("supported-platforms", .object([("squares", .array([.string("macOS")]))])),
 ])
@@ -672,15 +635,15 @@ if let previewPath {
         x += shown + CGFloat(gap)
     }
     y += CGFloat(cell + rowGap)
-    label("In the Dock at 64 and 32 px: light beside Apple Mail (comparison only), dark on its own; the system's render, then the .icns; the badge at 64 px",
+    label("In the Dock at 64 and 32 px: light among Apple's white-tile apps and Mail (comparison only), dark on its own; the system's render, then the badge",
           x: CGFloat(gap), y: y, bold: true)
     y += CGFloat(labelHeight)
-    // Apple Mail as the system shows it: the full template canvas, margin included, like the .icns. Only its light icon:
-    // NSWorkspace returns that one under darkAqua too, and setting it beside the dark icon would pass for a dark comparison.
-    let mail = NSWorkspace.shared.icon(forFile: "/System/Applications/Mail.app")
-    func mailImage(_ size: Int) -> CGImage? {
+    // Apple's apps as the system shows them: the full template canvas, margin included, like the .icns. Only their light
+    // icons: NSWorkspace returns those under darkAqua too, and setting them beside the dark icon would pass for a dark
+    // comparison.
+    func appIcon(_ name: String, _ size: Int) -> CGImage? {
         var rect = NSRect(x: 0, y: 0, width: size * 2, height: size * 2)
-        return mail.cgImage(forProposedRect: &rect, context: nil, hints: nil)
+        return NSWorkspace.shared.icon(forFile: "/System/Applications/\(name).app").cgImage(forProposedRect: &rect, context: nil, hints: nil)
     }
     for (index, (rendition, dock)) in [("Default", Ink("#D5D9E1")), ("Dark", Ink("#2A2B30"))].enumerated() {
         let strip = CGRect(x: CGFloat(gap), y: y + CGFloat(index * (dockHeight + gap / 2)), width: CGFloat(width - 2 * gap), height: CGFloat(dockHeight - gap / 2))
@@ -689,32 +652,32 @@ if let previewPath {
         for size in [64, 32] {
             let s = CGFloat(size), margin = s * 100 / 1024
             let top = strip.midY - s / 2
-            // Apple Mail (light only), then the system's render of this icon (the body alone, so set in the template's
-            // margin), then the .icns.
-            if index == 0 {
-                if let mailIcon = mailImage(size) { draw(mailIcon, in: CGRect(x: left, y: top, width: s, height: s)) }
-                left += s * 1.25
+            let neighbours = index == 0 ? ["Calendar", "Notes", "", "Photos", "Reminders", "Freeform", "Mail"] : [""]
+            for name in neighbours {
+                let slot = CGRect(x: left, y: top, width: s, height: s)
+                if name.isEmpty {
+                    // The system's render of this icon is the body alone, so it is set in the template's margin.
+                    if let tool, let system = systemRender(tool, rendition: rendition, size: 2 * size) {
+                        draw(system, in: slot.insetBy(dx: margin, dy: margin))
+                    }
+                    if size == 64 {
+                        // The badge: system red, at the body's top-right corner.
+                        let bodyRect = slot.insetBy(dx: margin, dy: margin)
+                        let badge = CGRect(x: bodyRect.maxX - 13, y: bodyRect.minY - 7, width: 20, height: 20)
+                        context.setFillColor(Ink("#FF3B30").cgColor())
+                        context.fillEllipse(in: badge)
+                        let digit = NSAttributedString(string: "3", attributes: [.font: NSFont.systemFont(ofSize: 12, weight: .semibold), .foregroundColor: NSColor.white])
+                        digit.draw(at: NSPoint(x: badge.midX - digit.size().width / 2, y: badge.midY - digit.size().height / 2))
+                    }
+                } else if let icon = appIcon(name, size) {
+                    draw(icon, in: slot)
+                }
+                left += s * 1.15
             }
-            let ours = CGRect(x: left, y: top, width: s, height: s)
-            if let tool, let system = systemRender(tool, rendition: rendition, size: 2 * size) {
-                draw(system, in: ours.insetBy(dx: margin, dy: margin))
-            }
-            if size == 64 {
-                // The badge: system red, at the body's top-right corner.
-                let bodyRect = ours.insetBy(dx: margin, dy: margin)
-                let badge = CGRect(x: bodyRect.maxX - 13, y: bodyRect.minY - 7, width: 20, height: 20)
-                context.setFillColor(Ink("#FF3B30").cgColor())
-                context.fillEllipse(in: badge)
-                let digit = NSAttributedString(string: "3", attributes: [.font: NSFont.systemFont(ofSize: 12, weight: .semibold), .foregroundColor: NSColor.white])
-                digit.draw(at: NSPoint(x: badge.midX - digit.size().width / 2, y: badge.midY - digit.size().height / 2))
-            }
-            left += s * 1.25
-            if index == 0 { draw(image(size == 32 ? 32 : 128), in: CGRect(x: left, y: top, width: s, height: s)) }
-            left += s * 1.25 + 40
+            left += 32
         }
-        label(index == 0 ? "light: Mail · system render · .icns" : "dark: system render only (no dark Mail to compare here: check it by hand)",
-              x: left, y: strip.midY - 7,
-              ink: Ink(index == 0 ? "#3C4352" : "#B8BCC6"))
+        label(index == 0 ? "light, beside Apple's apps" : "dark: system render only",
+              x: left, y: strip.midY - 7, ink: Ink(index == 0 ? "#3C4352" : "#B8BCC6"))
     }
     NSGraphicsContext.current = nil
     guard let preview = context.makeImage() else { fail("cannot finish the preview") }

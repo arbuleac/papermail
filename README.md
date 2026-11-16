@@ -1,6 +1,6 @@
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/brand/lockup-horizontal-reversed.svg">
-  <img src="docs/brand/lockup-horizontal-colour.svg" alt="SuperSparrow" width="405">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/brand/lockup-horizontal-white.svg">
+  <img src="docs/brand/lockup-horizontal.svg" alt="SuperSparrow" width="420">
 </picture>
 
 # SuperSparrow

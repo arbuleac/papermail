@@ -33,13 +33,13 @@ final class WelcomeWordmarkTests: XCTestCase {
         XCTAssertEqual(view.accessibilityLabel(), "Welcome to SuperSparrow", "the greeting is the screen's description")
     }
 
-    /// Its frame is the word from the overshoot to the descender at `wordmarkCap`, the baseline on a whole point; the caps
+    /// Its frame is the word from the cap height to the descender at `wordmarkCap`, the baseline on a whole point; the caps
     /// reach exactly `wordmarkCap` above it and the ink is centred across.
     func testTheWordmarkDrawsAtItsCapHeightOnAWholePointBaseline() throws {
         let cap = Quire.Layout.Welcome.wordmarkCap
         let scale = cap / Quire.Layout.Brand.capHeight
         XCTAssertEqual(WelcomeWordmarkView.baseline, WelcomeWordmarkView.baseline.rounded(), "baseline on a whole point")
-        XCTAssertGreaterThanOrEqual(WelcomeWordmarkView.baseline, -Quire.Layout.Brand.Wordmark.top * scale, "the overshoot fits")
+        XCTAssertGreaterThanOrEqual(WelcomeWordmarkView.baseline, -Quire.Layout.Brand.Wordmark.top * scale, "the caps fit")
         let wordmark = WelcomeWordmarkView(frame: .zero)
         let size = wordmark.intrinsicContentSize
         wordmark.frame = NSRect(origin: .zero, size: size)
@@ -55,8 +55,9 @@ final class WelcomeWordmarkTests: XCTestCase {
         var rows: [Int] = [], columns: [Int] = []
         for y in 0..<rep.pixelsHigh { for x in 0..<rep.pixelsWide where (rep.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.5 { rows.append(y); columns.append(x) } }
         let top = try XCTUnwrap(rows.min()), left = try XCTUnwrap(columns.min()), right = try XCTUnwrap(columns.max())
-        // The S's overshoot rises 2 units above the cap height, a third of a point here.
-        XCTAssertEqual(CGFloat(top) / 2, WelcomeWordmarkView.baseline - cap - 2 * scale, accuracy: 0.6, "the caps reach wordmarkCap")
+        // The straight-edged caps have no overshoot: the frame's top is the cap height.
+        XCTAssertEqual(Quire.Layout.Brand.Wordmark.top, -Quire.Layout.Brand.capHeight)
+        XCTAssertEqual(CGFloat(top) / 2, WelcomeWordmarkView.baseline - cap, accuracy: 0.5, "the caps reach wordmarkCap")
         XCTAssertEqual(CGFloat(left) / 2, size.width - CGFloat(right + 1) / 2, accuracy: 1, "the ink is centred")
         XCTAssertGreaterThan(rows.count, 2000, "it inks")
     }

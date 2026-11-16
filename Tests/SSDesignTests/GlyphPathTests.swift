@@ -2,7 +2,8 @@ import AppKit
 import XCTest
 @testable import SSDesign
 
-/// The SVG path parser and the five custom glyphs (spec §4.11, §8.7).
+/// The SVG path parser and the five custom glyphs (spec §4.11, §8.7), the brand mark's construction and the app icon's
+/// placement of it (§5.42).
 final class GlyphPathTests: XCTestCase {
     private func assertRect(_ r: CGRect, _ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat, accuracy: CGFloat = 1e-6,
                             file: StaticString = #filePath, line: UInt = #line) {
@@ -36,130 +37,156 @@ final class GlyphPathTests: XCTestCase {
         // ss.queued: the arrow only (the dot is a fill), on the 12 grid.
         assertRect(QuireGlyph.path(.ssQueued).boundingBoxOfPath, 5.75, 2.25, 4, 4)
         XCTAssertEqual(Quire.CustomGlyph.ssQueued.fills, [QuireGlyphCircle(cx: 2.75, cy: 9.25, r: 1.6)])
-        XCTAssertEqual(Quire.CustomGlyph.ssItalicEnvelope.fillRule, .winding)
-        XCTAssertEqual(Quire.CustomGlyph.ssItalicEnvelope.stroke, 0)
-        XCTAssertEqual(Quire.Icon.brand, Quire.CustomGlyph.ssItalicEnvelope.rawValue)
+        XCTAssertEqual(Quire.CustomGlyph.ssPaperPlane.fillRule, .winding)
+        XCTAssertEqual(Quire.CustomGlyph.ssPaperPlane.stroke, 0)
+        XCTAssertEqual(Quire.Icon.brand, Quire.CustomGlyph.ssPaperPlane.rawValue)
     }
 
-    /// The brand mark (spec §4.11, §5.42): a √2 box 24 tall on the 40 grid, its top at y 8 and its bottom at y 32 (a fifth
-    /// and four fifths, so a multiple of 5 pt puts both on whole points), sheared 12° about its centre. Two paths, the front
-    /// then the flap, because the app icon colours them apart; between them the crease is open from side to side and
-    /// symmetric about its apex, and it tapers to nothing where it meets the sides.
-    func testItalicEnvelopeKeepsItsSlantAndAnOpenSymmetricCrease() throws {
-        let glyph = Quire.CustomGlyph.ssItalicEnvelope
-        XCTAssertEqual(glyph.grid, 40)
-        XCTAssertEqual(glyph.paths.count, 2)
-        let crease = try assertEnvelope(glyph.paths, apexAtLeast: 3.6)
-        for opening in [crease.left, crease.right] {
-            XCTAssertLessThan(opening?.height ?? 0, 0.15, "the master's crease closes where it meets the sides")
+    /// The plane's triangles as the path data names them: the far wing (N, WF, T), the near wing (N, S, WN) and the keel
+    /// (X, Sk, K). Only M, L and Z are allowed: every edge of the mark is a straight segment.
+    private func triangles(_ data: String, file: StaticString = #filePath, line: UInt = #line) throws -> [[CGPoint]] {
+        let allowed = CharacterSet(charactersIn: "MLZ0123456789 .-")
+        XCTAssertTrue(data.unicodeScalars.allSatisfy(allowed.contains), "straight segments only (M, L, Z): \(data)", file: file, line: line)
+        return data.split(separator: "Z").map { part in
+            let numbers = part.split(whereSeparator: { "ML ".contains($0) }).compactMap { Double($0) }.map { CGFloat($0) }
+            return stride(from: 0, to: numbers.count - 1, by: 2).map { CGPoint(x: numbers[$0], y: numbers[$0 + 1]) }
+        }.filter { !$0.isEmpty }
+    }
+
+    /// The direction from a to b as a reduced whole-unit step, so a slope reads exactly (1:2 is (2, 1) or (-2, -1)).
+    private func step(_ a: CGPoint, _ b: CGPoint) -> (Int, Int) {
+        var dx = Int(b.x - a.x), dy = Int(b.y - a.y)
+        var g = dx == 0 ? abs(dy) : dy == 0 ? abs(dx) : 1
+        if dx != 0, dy != 0 { var (m, n) = (abs(dx), abs(dy)); while n != 0 { (m, n) = (n, m % n) }; g = m }
+        dx /= g; dy /= g
+        return (dx, dy)
+    }
+
+    /// The brand mark (spec §4.11, §5.42): the paper plane drawn on an isometric grid, its 80 grid one unit to an 8 px
+    /// unit of the icon's 1024 template. Three triangles, every vertex a whole unit; the trailing edge WF–T–S–WN is one
+    /// 1:2 line and the spine N–S runs 1:2; the far leading edge rises 1:4; the near wing's leading edge and the keel's
+    /// foot lie on one 45° line; the keel's top runs 1:2 and its back is vertical; the fold between the wings closes at
+    /// the nose and opens at the tail, the keel's gap stays open; the box is 80 × 60, centred; nothing overlaps.
+    func testPaperPlaneKeepsItsConstruction() throws {
+        let glyph = Quire.CustomGlyph.ssPaperPlane
+        XCTAssertEqual(glyph.grid, 80)
+        XCTAssertEqual(glyph.paths.count, 1, "one path, one colour")
+        let t = try triangles(glyph.paths[0])
+        XCTAssertEqual(t.map(\.count), [3, 3, 3], "far wing, near wing, keel")
+        for point in t.joined() {
+            XCTAssertEqual(point.x, point.x.rounded(), "\(point) on a grid intersection")
+            XCTAssertEqual(point.y, point.y.rounded(), "\(point) on a grid intersection")
         }
-    }
+        let (n, wf, tail) = (t[0][0], t[0][1], t[0][2])
+        XCTAssertEqual(t[1][0], n, "the wings meet at the nose")
+        let (s, wn) = (t[1][1], t[1][2])
+        let (x, sk, k) = (t[2][0], t[2][1], t[2][2])
+        XCTAssertEqual([n, wf, tail, s, wn, sk, x, k],
+                       [CGPoint(x: 80, y: 10), CGPoint(x: 0, y: 30), CGPoint(x: 16, y: 38), CGPoint(x: 20, y: 40),
+                        CGPoint(x: 40, y: 50), CGPoint(x: 20, y: 43), CGPoint(x: 38, y: 52), CGPoint(x: 20, y: 70)],
+                       "the approved vertices")
 
-    /// The one-colour mark below 24 px (`layout.brand.monoSmall`, docs/brand's symbol-mono-small): the master's box,
-    /// corners and slant, its crease kept open where it meets the sides (2 across the arm, at the master's crease start on
-    /// both sides) and widening to 5 at the apex, symmetric about it, so the flap and the front never run together at
-    /// 16 or 20 pt.
-    func testSmallMonoMarkIsTheMasterWithAWiderCrease() throws {
-        let paths = Quire.Layout.Brand.monoSmall
-        XCTAssertEqual(paths.count, 2)
-        let crease = try assertEnvelope(paths, apexAtLeast: 5)
-        let left = try XCTUnwrap(crease.left, "open at the left side"), right = try XCTUnwrap(crease.right, "open at the right side")
-        for (side, opening) in [("left", left), ("right", right)] {
-            // Vertically the cut is a little taller on the right, where the side meets the crease more obliquely.
-            XCTAssertEqual(opening.height, 2.15, accuracy: 0.35, "about 2 open at the \(side) side")
-            XCTAssertEqual(opening.centre, 12.2, accuracy: 0.15, "the \(side) opening sits on the master's crease start")
+        // The lines it is built on.
+        for (a, b) in [(wf, tail), (tail, s), (s, wn)] {
+            XCTAssertTrue(step(a, b) == (2, 1), "the trailing edge runs 1:2, one straight line through \(a) and \(b)")
         }
-        XCTAssertEqual(left.centre, right.centre, accuracy: 0.1, "both sides open at the same height")
-    }
+        XCTAssertTrue(step(s, n) == (2, -1), "the spine N–S runs 1:2")
+        XCTAssertTrue(step(wf, n) == (4, -1), "the far leading edge rises 1:4")
+        for (a, b) in [(k, x), (x, wn), (wn, n)] {
+            XCTAssertTrue(step(a, b) == (1, -1), "the near wing's leading edge and the keel's foot are one 45° line")
+        }
+        XCTAssertTrue(step(sk, x) == (2, 1), "the keel's top is parallel to the trailing edge")
+        XCTAssertEqual(s.x, sk.x, "the keel's back is vertical")
+        XCTAssertEqual(sk.x, k.x, "the keel's back is vertical")
 
-    /// The opening where the crease meets one side, measured down a line 0.2 inside that side of the √2 box.
-    private struct SideOpening {
-        let top: CGFloat, bottom: CGFloat
-        var height: CGFloat { bottom - top }
-        var centre: CGFloat { (top + bottom) / 2 }
-    }
+        // The fold between the wings is a wedge: closed at N, (4, 2) open at the tail, about 3.6 units across.
+        func across(_ p: CGPoint, from a: CGPoint, to b: CGPoint) -> CGFloat {
+            abs((b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x)) / hypot(b.x - a.x, b.y - a.y)
+        }
+        XCTAssertEqual(across(tail, from: n, to: s), 3.58, accuracy: 0.01, "the fold open at the tail")
+        // The keel's gap: 3 units down from the near wing's trailing edge, about 2.7 across, the same all along.
+        XCTAssertEqual(sk.y - s.y, 3, "the keel's gap at its back")
+        XCTAssertEqual(across(sk, from: s, to: wn), across(x, from: s, to: wn), accuracy: 1e-9, "the keel's gap keeps its width")
+        XCTAssertEqual(across(sk, from: s, to: wn), 2.68, accuracy: 0.01)
 
-    /// Holds a two-path envelope on the 40 grid to the mark's construction, as GlyphPathTests' master checks do: its
-    /// edges, its 12° slant, its √2 width and centre, a crease open across every column between the sides, the parts never
-    /// overlapping, the flap always above the front, the V symmetric about its apex and widest there. Returns the
-    /// openings at the two sides for the caller's own rule.
-    @discardableResult
-    private func assertEnvelope(_ data: [String], apexAtLeast: CGFloat, file: StaticString = #filePath,
-                                line: UInt = #line) throws -> (left: SideOpening?, right: SideOpening?) {
-        let front = try QuireSVGPath.parse(data[0]), flap = try QuireSVGPath.parse(data[1])
-        XCTAssertEqual(flap.boundingBoxOfPath.minY, 8, accuracy: 1e-3, "the flap carries the top edge", file: file, line: line)
-        XCTAssertEqual(front.boundingBoxOfPath.maxY, 32, accuracy: 1e-3, "the front carries the bottom edge", file: file, line: line)
+        let box = QuireGlyph.path(glyph).boundingBoxOfPath
+        assertRect(box, 0, 10, 80, 60)
+        XCTAssertEqual(box.midX, glyph.grid / 2, "centred across")
+        XCTAssertEqual(box.midY, glyph.grid / 2, "centred down")
 
-        // The sides, found where a row of the whole mark starts and ends, below the crease (whose lowest point, the front's
-        // notch, is near the middle, so a search from each side toward x 20 stays in the front) and above the bottom
-        // corners' rounding.
-        let mark = CGMutablePath()
-        mark.addPath(front)
-        mark.addPath(flap)
-        func side(y: CGFloat, fromLeft: Bool) -> CGFloat {
-            var outside: CGFloat = fromLeft ? 0 : 40, inside: CGFloat = 20
-            for _ in 0..<40 {
-                let mid = (outside + inside) / 2
-                if mark.contains(CGPoint(x: mid, y: y)) { inside = mid } else { outside = mid }
+        // The triangles never overlap, and the folds are ground: sample the plane's box.
+        let parts = try t.map { triangle -> CGPath in
+            try QuireSVGPath.parse("M" + triangle.map { "\($0.x) \($0.y)" }.joined(separator: " L") + " Z")
+        }
+        for px in stride(from: box.minX + 0.05, to: box.maxX, by: 0.25) {
+            for py in stride(from: box.minY + 0.05, to: box.maxY, by: 0.25) {
+                let point = CGPoint(x: px, y: py)
+                XCTAssertLessThanOrEqual(parts.filter { $0.contains(point) }.count, 1, "triangles overlap at \(point)")
             }
-            return inside
         }
-        let slant = tan(12 * CGFloat.pi / 180)
-        XCTAssertEqual((side(y: 25, fromLeft: true) - side(y: 28, fromLeft: true)) / 3, slant, accuracy: 1e-3, "the left side leans 12°",
-                       file: file, line: line)
-        XCTAssertEqual((side(y: 25, fromLeft: false) - side(y: 28, fromLeft: false)) / 3, slant, accuracy: 1e-3, "the right side leans 12°",
-                       file: file, line: line)
-        // The centre line of the sheared box passes through (20, 20): at y 28 it is 8 · tan 12° left of x 20.
-        XCTAssertEqual((side(y: 28, fromLeft: true) + side(y: 28, fromLeft: false)) / 2, 20 - 8 * slant, accuracy: 1e-3, "centred on x 20",
-                       file: file, line: line)
-        for y: CGFloat in [25, 28] {
-            XCTAssertEqual(side(y: y, fromLeft: false) - side(y: y, fromLeft: true), 24 * 2.0.squareRoot(), accuracy: 1e-3,
-                           "√2 × 24 wide at y \(y)", file: file, line: line)
-        }
+        let plane = QuireGlyph.path(glyph)
+        let foldMid = CGPoint(x: n.x + ((tail.x + s.x) / 2 - n.x) / 2, y: n.y + ((tail.y + s.y) / 2 - n.y) / 2)
+        XCTAssertFalse(plane.contains(foldMid), "the fold is open at \(foldMid)")
+        let gapMid = CGPoint(x: (s.x + wn.x) / 2 + 0.5, y: (s.y + wn.y) / 2 + 1.75)
+        XCTAssertFalse(plane.contains(gapMid), "the keel's gap is open at \(gapMid)")
+    }
 
-        // Column by column, from just inside one side to just inside the other: the flap, then the open crease, then the
-        // front, never both at once. The crease's height in each column is kept to check its symmetry.
-        func crease(atX x: CGFloat) -> CGFloat {
-            var gap: CGFloat = 0, seenFront = false, seenFlap = false
-            for step in 0...2400 {
-                let point = CGPoint(x: x, y: 8 + CGFloat(step) / 100)
-                let inFlap = flap.contains(point), inFront = front.contains(point)
-                XCTAssertFalse(inFlap && inFront, "the parts overlap at \(point)", file: file, line: line)
-                if inFlap { XCTAssertFalse(seenFront, "flap below the front at \(point)", file: file, line: line); seenFlap = true }
-                if inFront { seenFront = true }
-                if seenFlap, !seenFront, !inFlap, !inFront { gap += 0.01 }
-            }
-            return gap
+    /// The app icon (spec §5.42) puts one glyph unit on one 8 px unit of the 1024 template, so every vertex is a grid
+    /// point, and places the plane where the approved board draws it: its box from (200, 296) to (840, 776), set optically
+    /// (midway between the box's centre and the ink's centroid lies within 3 px of the canvas's centre). A white plane on
+    /// the near-black tile, in dark too; white on black for the system to tint.
+    func testAppIconPlacesThePlaneOnTheConstructionGrid() throws {
+        let icon = Quire.Layout.AppIcon.self, glyph = Quire.CustomGlyph.ssPaperPlane
+        XCTAssertEqual(icon.markSize / glyph.grid, 8, "one unit to 8 px")
+        XCTAssertEqual(icon.markX.truncatingRemainder(dividingBy: 8), 0)
+        XCTAssertEqual(icon.markY.truncatingRemainder(dividingBy: 8), 0)
+        let box = QuireGlyph.path(glyph).boundingBoxOfPath
+        assertRect(CGRect(x: icon.markX + box.minX * 8, y: icon.markY + box.minY * 8, width: box.width * 8, height: box.height * 8),
+                   200, 296, 640, 480)
+        // The ink's centroid, from the three triangles' areas.
+        var area: CGFloat = 0, cx: CGFloat = 0, cy: CGFloat = 0
+        for p in try triangles(glyph.paths[0]) {
+            let a = abs((p[1].x - p[0].x) * (p[2].y - p[0].y) - (p[1].y - p[0].y) * (p[2].x - p[0].x)) / 2
+            area += a; cx += a * (p[0].x + p[1].x + p[2].x) / 3; cy += a * (p[0].y + p[1].y + p[2].y) / 3
         }
-        let apexX: CGFloat = 21.658
-        for x in stride(from: CGFloat(6), through: 37, by: 1) {
-            XCTAssertGreaterThan(crease(atX: x), 0.05, "the crease is shut at x \(x)", file: file, line: line)
-        }
-        XCTAssertGreaterThan(crease(atX: apexX), apexAtLeast, "the crease is widest at its apex", file: file, line: line)
-        var inner = crease(atX: apexX)
-        for d: CGFloat in [3, 8, 13] {
-            let left = crease(atX: apexX - d), right = crease(atX: apexX + d)
-            XCTAssertEqual(left, right, accuracy: 0.03, "the V is symmetric \(d) from its apex", file: file, line: line)
-            XCTAssertLessThan(left, inner, "the crease narrows away from its apex (\(d) out)", file: file, line: line)
-            inner = left
-        }
+        let centroid = CGPoint(x: icon.markX + cx / area * 8, y: icon.markY + cy / area * 8)
+        let optical = CGPoint(x: (centroid.x + icon.markX + box.midX * 8) / 2, y: (centroid.y + icon.markY + box.midY * 8) / 2)
+        XCTAssertEqual(optical.x, icon.canvas / 2, accuracy: 3, "placed optically across")
+        XCTAssertEqual(optical.y, icon.canvas / 2, accuracy: 3, "and down")
+        XCTAssertEqual([icon.tile, icon.plane, icon.tileDark, icon.planeDark, icon.tileTinted, icon.planeTinted],
+                       ["#0A0A0A", "#FFFFFF", "#0A0A0A", "#FFFFFF", "#000000", "#FFFFFF"], "black and white only")
+    }
 
-        // Down each side of the √2 box, 0.2 inside it: past the top corner's rounding into the flap, then the crease's
-        // opening, if any, until the front.
-        func opening(right: Bool) -> SideOpening? {
-            var seenInside = false
-            var top: CGFloat?
-            for step in 0...1200 {
-                let y = 8 + CGFloat(step) / 100
-                let edge = (right ? 20 + 12 * 2.0.squareRoot() : 20 - 12 * 2.0.squareRoot()) - slant * (y - 20)
-                let point = CGPoint(x: edge + (right ? -0.2 : 0.2), y: y)
-                let inside = flap.contains(point) || front.contains(point)
-                if inside, let top { return SideOpening(top: top, bottom: y) }
-                if inside { seenInside = true } else if seenInside, top == nil { top = y }
+    /// The 16 and 32 px masters (`layout.appIcon.fit16`, `fit32`) are straight-edged polygons with every vertex on a pixel
+    /// corner, drawn anti-aliased, so only their diagonals carry grey pixels and stay straight, inside a body snapped to
+    /// whole pixels with at least a pixel of tile around.
+    func testPixelFittedMastersAreWholePixelsInsideTheirBodies() throws {
+        let icon = Quire.Layout.AppIcon.self
+        for (size, body, data) in [(16, icon.Fit16.body, icon.Fit16.path), (32, icon.Fit32.body, icon.Fit32.path)] {
+            let side = body * CGFloat(size) / icon.canvas
+            XCTAssertEqual(side, side.rounded(), "\(size) px body on whole pixels")
+            XCTAssertEqual((CGFloat(size) - side) / 2, ((CGFloat(size) - side) / 2).rounded(), "\(size) px body centred on whole pixels")
+            var vertices = 0
+            try QuireSVGPath.parse(data).applyWithBlock { element in
+                let e = element.pointee
+                switch e.type {
+                case .moveToPoint, .addLineToPoint:
+                    let p = e.points[0]
+                    XCTAssertEqual(p.x, p.x.rounded(), "\(size) px vertex \(p) on a pixel corner")
+                    XCTAssertEqual(p.y, p.y.rounded(), "\(size) px vertex \(p) on a pixel corner")
+                    vertices += 1
+                case .closeSubpath:
+                    break
+                default:
+                    XCTFail("\(size) px master: straight segments only")
+                }
             }
-            return nil
+            XCTAssertGreaterThanOrEqual(vertices, 3, "\(size) px master draws a polygon")
+            let inset = (CGFloat(size) - side) / 2
+            let ink = try QuireSVGPath.parse(data).boundingBoxOfPath
+            XCTAssertTrue(CGRect(x: inset, y: inset, width: side, height: side).insetBy(dx: 1, dy: 1).contains(ink),
+                          "\(size) px plane \(ink) keeps a pixel of tile around it")
         }
-        return (opening(right: false), opening(right: true))
     }
 
     func testImagesAreTemplatesAtTheRequestedSize() {
