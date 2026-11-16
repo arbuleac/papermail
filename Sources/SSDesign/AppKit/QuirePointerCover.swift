@@ -170,7 +170,7 @@ extension NSTextField {
     /// takes typing (§4.17). Call it once the field has become first responder: the clip then adds none, and the field's
     /// I-beam, cut out of what lies on it, and the editor's own over its text are all there is.
     public func leaveTheFieldEditorsPointerToTheField() {
-        guard let clip = (currentEditor() as? NSView)?.superview as? NSClipView, clip.documentCursor != nil else { return }
+        guard let clip = currentEditor()?.superview as? NSClipView, clip.documentCursor != nil else { return }
         clip.documentCursor = nil
     }
 }
