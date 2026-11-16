@@ -1,7 +1,7 @@
 import AppKit
 import SSDesign
 
-/// The list's table: Return opens, the pointer's hover wash, and the pointer itself.
+/// The list's table: Return opens, the pointer's hover wash, the pointer itself, and the swipe on its rows.
 ///
 /// Return and keypad Enter open the selected conversation. Every other key falls through the responder chain
 /// so the window controller can map j/k and friends; type-select is off so letters are not swallowed here.
@@ -14,6 +14,10 @@ import SSDesign
 /// The pointer (spec §4.17) is the table's too, not each row view's: row views are recycled and their rects would be
 /// cut to whatever was visible when AppKit last asked, so the table lists one region per visible row and has AppKit ask
 /// again whenever rows scroll, come or go.
+///
+/// A two-finger sideways swipe on a conversation row is the list's own (spec §5.7, Swipe): every scroll event goes to the
+/// list's `RowSwipeController` first, which keeps a swipe's events and hands every other scroll back to the table, so
+/// scrolling up and down, a mouse's wheel and the hover's pause work as they always have.
 final class MessageListTableView: NSTableView, QuirePointerTarget {
     private static let returnKeyCode: UInt16 = 36
     private static let keypadEnterKeyCode: UInt16 = 76
@@ -25,6 +29,8 @@ final class MessageListTableView: NSTableView, QuirePointerTarget {
     var isHoverableRow: ((Int) -> Bool)?
     /// The context menu for a right-click (or control-click) on `row`; nil for rows that have none.
     var menuForRow: ((Int) -> NSMenu?)?
+    /// The swipe on the rows; nil leaves every scroll to the table.
+    weak var swipe: RowSwipeController?
 
     private(set) var hoveredRow = -1
     private(set) var isHoverSuspended = false
@@ -43,6 +49,13 @@ final class MessageListTableView: NSTableView, QuirePointerTarget {
         super.keyDown(with: event)
     }
 
+    // MARK: Swipe
+
+    override func scrollWheel(with event: NSEvent) {
+        guard let swipe else { return super.scrollWheel(with: event) }
+        swipe.scrollWheel(event) { super.scrollWheel(with: $0) }
+    }
+
     // MARK: Context menu
 
     override func menu(for event: NSEvent) -> NSMenu? {
@@ -55,8 +68,10 @@ final class MessageListTableView: NSTableView, QuirePointerTarget {
 
     /// NSTableView hit-tests only into the cell views of its columns and answers itself everywhere else, so a
     /// control a row view owns directly (the list tail's Retry link, spec §5.10) would never see a click: the
-    /// table would take it as a click on an unselectable row. Such a control gets the click it is under.
+    /// table would take it as a click on an unselectable row. Such a control gets the click it is under, and so does
+    /// a swipe's open button, which lies over its row's cell.
     override func hitTest(_ point: NSPoint) -> NSView? {
+        if let button = swipe?.buttonHit(point) { return button }
         let hit = super.hitTest(point)
         guard hit === self else { return hit }
         let local = convert(point, from: superview)

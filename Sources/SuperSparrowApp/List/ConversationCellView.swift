@@ -68,6 +68,17 @@ final class ConversationCellView: NSView {
         needsDisplay = true
     }
 
+    /// How far a swipe has slid the row's content (spec §5.7, Swipe): everything draws moved by it, and what slides past
+    /// the edge is cut. The frame never moves, so the table's own layout cannot undo a swipe.
+    var swipeOffset: CGFloat = 0 {
+        didSet { if oldValue != swipeOffset { needsDisplay = true } }
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        swipeOffset = 0
+    }
+
     override func setFrameSize(_ newSize: NSSize) {
         let widthChanged = newSize.width != frame.width
         super.setFrameSize(newSize)
@@ -138,6 +149,7 @@ final class ConversationCellView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         guard let content else { return }
+        if swipeOffset != 0 { NSGraphicsContext.current?.cgContext.translateBy(x: swipeOffset, y: 0) }
         let compact = isCompact
         let m = metrics
         let textX = m.textX

@@ -169,6 +169,15 @@ extension Quire {
             public static let skeletonTimeBar: [CGFloat] = [28, 9]
             public static let skeletonLine2Bar: [CGFloat] = [24, 29, 260, 9]
         }
+        public enum Swipe {
+            public static let glyph: CGFloat = 16
+            public static let glyphGap: CGFloat = 4
+            public static let padX: CGFloat = 12
+            public static let minWidth: CGFloat = 80
+            public static let snapOpen: CGFloat = 0.5
+            public static let fullSwipe: CGFloat = 0.6
+            public static let rubberBand: CGFloat = 0.55
+        }
         public enum RunningHead {
             public static let height: CGFloat = 28
             public static let labelX: CGFloat = 20

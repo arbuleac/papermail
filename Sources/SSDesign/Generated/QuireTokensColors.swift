@@ -27,9 +27,9 @@ extension NSColor {
     /// `color.knob`: Toggle knob face (its boundary is the 1 pt ruleStrong knob edge, layout.toggle) (surface).
     /// Under Graphite: `paper`.
     public static let qKnob = NSColor.quire("knob", themes: QuireThemeTable.knob, graphite: QuireThemeTable.knobGraphite)
-    /// `color.swipeRead`: Fill of a swipe's Mark as Read or Mark as Unread button (§5.7): a grey of the ramp, mid by day and low at night, quiet beside Archive on every row and dark enough for AppKit's white title (surface).
+    /// `color.swipeRead`: Fill of a swipe's Mark as Read or Mark as Unread button (§5.7): a grey of the ramp, mid by day and low at night, quiet beside Archive on every row and dark enough for its white icon and label (surface).
     public static let qSwipeRead = NSColor.quire("swipeRead", themes: QuireThemeTable.swipeRead)
-    /// `color.swipeArchiveNeutral`: Fill of a swipe's Archive button under Graphite and in Gallery (§5.7): the slip by day; at night a grey light enough to stand out from the row, which the slip sinks into, and dark enough for AppKit's white title (surface).
+    /// `color.swipeArchiveNeutral`: Fill of a swipe's Archive button under Graphite and in Gallery (§5.7): the slip by day; at night a grey light enough to stand out from the row, which the slip sinks into, and dark enough for its white icon and label (surface).
     public static let qSwipeArchiveNeutral = NSColor.quire("swipeArchiveNeutral", themes: QuireThemeTable.swipeArchiveNeutral)
     /// `color.originalPage`: Page under a styled message shown in its original colours (drawn only in dark appearances: the sender designed for white) (surface).
     public static let qOriginalPage = NSColor.quire("originalPage", QuireColorValues(light: 0xFFFFFFFF, dark: 0xFFFFFFFF, lightHC: 0xFFFFFFFF, darkHC: 0xFFFFFFFF))
@@ -47,7 +47,7 @@ extension NSColor {
     public static let qOnSlip = NSColor.quire("onSlip", themes: QuireThemeTable.onSlip)
     /// `color.onSlip2`: Secondary text and glyphs on the slip; keycap legends on a resting slip action (onSlip while it is hovered or pressed) (ink).
     public static let qOnSlip2 = NSColor.quire("onSlip2", themes: QuireThemeTable.onSlip2)
-    /// `color.onSwipe`: Title of a swipe's button (§5.7): white in every mode and theme, because AppKit draws it white and resets any other colour, so the swipe fills are chosen for it (ink).
+    /// `color.onSwipe`: Icon and label of a swipe's button (§5.7): white in every mode and theme, on every swipe fill, which are chosen for it (ink).
     public static let qOnSwipe = NSColor.quire("onSwipe", QuireColorValues(light: 0xFFFFFFFF, dark: 0xFFFFFFFF, lightHC: 0xFFFFFFFF, darkHC: 0xFFFFFFFF))
     /// `color.rule`: Decorative hairline: row separators, pane dividers, sheet edges, header bottoms (line).
     public static let qRule = NSColor.quire("rule", themes: QuireThemeTable.rule)
@@ -85,7 +85,7 @@ extension NSColor {
     /// `color.onAccent`: Text and glyphs on accentFill (accent).
     /// Under Graphite: `paper`.
     public static let qOnAccent = NSColor.quire("onAccent", themes: QuireThemeTable.onAccent, graphite: QuireThemeTable.onAccentGraphite)
-    /// `color.swipeArchive`: Fill of a swipe's Archive button (§5.7): accentFill by another name, apart only under Graphite and in Gallery, where it is swipeArchiveNeutral, since `ink` would turn light at night under AppKit's white title (accent).
+    /// `color.swipeArchive`: Fill of a swipe's Archive button (§5.7): accentFill by another name, apart only under Graphite and in Gallery, where it is swipeArchiveNeutral, since `ink` would turn light at night under the button's white icon and label (accent).
     /// Under Graphite: `swipeArchiveNeutral`.
     public static let qSwipeArchive = NSColor.quire("swipeArchive", themes: QuireThemeTable.swipeArchive, graphite: QuireThemeTable.swipeArchiveGraphite)
     /// `color.accentWash`: On state of quiet toggles (Hide quoted text, Original colors action, composer format toggles) (accent).

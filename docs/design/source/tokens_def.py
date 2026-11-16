@@ -2,7 +2,7 @@
 and the rendered DESIGN-LANGUAGE.md. Colour order: light, dark, lightHC, darkHC."""
 
 NAME = "Quire"
-VERSION = "1.8.4"
+VERSION = "1.8.5"
 
 # The brand palette (docs/brand, spec §5.42), written once: `layout.brand` and the app icon's colours (`layout.appIcon`)
 # read it from here. The mark is black and white only: `paper` is the plane on the icon's tile and the one-colour mark on
@@ -36,8 +36,8 @@ COLOR = [
  ("slip",    "#24221F", "#36332E", "#12100E", "#2E2B27", "surface", "Toast, undo-send panel, g-sequence HUD (a dark slip in both appearances)"),
  ("slipEdge","#00000000", "#FFFFFF1A", "#00000000", "#FFFFFF73", "surface", "1 pt edge around the slip in dark appearances"),
  ("knob",    "#FFFFFF", "#DCD7CE", "#FFFFFF", "#FFFFFF", "surface", "Toggle knob face (its boundary is the 1 pt ruleStrong knob edge, layout.toggle)"),
- ("swipeRead", "#726C65", "#524D47", "#625C55", "#4F4A44", "surface", "Fill of a swipe's Mark as Read or Mark as Unread button (§5.7): a grey of the ramp, mid by day and low at night, quiet beside Archive on every row and dark enough for AppKit's white title"),
- ("swipeArchiveNeutral", "#24221F", "#79736B", "#12100E", "#77716A", "surface", "Fill of a swipe's Archive button under Graphite and in Gallery (§5.7): the slip by day; at night a grey light enough to stand out from the row, which the slip sinks into, and dark enough for AppKit's white title"),
+ ("swipeRead", "#726C65", "#524D47", "#625C55", "#4F4A44", "surface", "Fill of a swipe's Mark as Read or Mark as Unread button (§5.7): a grey of the ramp, mid by day and low at night, quiet beside Archive on every row and dark enough for its white icon and label"),
+ ("swipeArchiveNeutral", "#24221F", "#79736B", "#12100E", "#77716A", "surface", "Fill of a swipe's Archive button under Graphite and in Gallery (§5.7): the slip by day; at night a grey light enough to stand out from the row, which the slip sinks into, and dark enough for its white icon and label"),
  ("originalPage", "#FFFFFF", "#FFFFFF", "#FFFFFF", "#FFFFFF", "surface", "Page under a styled message shown in its original colours (drawn only in dark appearances: the sender designed for white)"),
  ("scrimSolid", "#B8B6B1", "#0B0B0A", "#9C9A95", "#050504", "surface", "The cheat-sheet scrim under Reduce Transparency: opaque, the value `scrim` gives over `canvas`, so the window behind is hidden instead of dimmed"),
  # ink
@@ -47,7 +47,7 @@ COLOR = [
  ("inkDisabled", "#A9A398", "#5F5A53", "#8A8479", "#7D776F", "ink", "Disabled text and glyphs only (exempt from contrast minimums)"),
  ("onSlip",      "#F3F0EA", "#EDE9E2", "#FFFFFF", "#FFFFFF", "ink", "Text and glyphs on the slip"),
  ("onSlip2",     "#B8B2A8", "#C2BCB2", "#D9D4CB", "#DCD7CE", "ink", "Secondary text and glyphs on the slip; keycap legends on a resting slip action (onSlip while it is hovered or pressed)"),
- ("onSwipe",     "#FFFFFF", "#FFFFFF", "#FFFFFF", "#FFFFFF", "ink", "Title of a swipe's button (§5.7): white in every mode and theme, because AppKit draws it white and resets any other colour, so the swipe fills are chosen for it"),
+ ("onSwipe",     "#FFFFFF", "#FFFFFF", "#FFFFFF", "#FFFFFF", "ink", "Icon and label of a swipe's button (§5.7): white in every mode and theme, on every swipe fill, which are chosen for it"),
  # lines
  ("rule",       "#E4E0D7", "#34312D", "#B9B3A8", "#55514A", "line", "Decorative hairline: row separators, pane dividers, sheet edges, header bottoms"),
  ("ruleStrong", "#7F796F", "#8B857B", "#5E5952", "#A39D93", "line", "State-bearing 1 pt edge (>= 3:1): fields, search, checkbox, toggle-off track, secondary buttons, tags"),
@@ -66,7 +66,7 @@ COLOR = [
  ("accentFillPressed", "#123A4A", "#286C7E", "#082733", "#1F6375", "accent", "Primary button pressed only (darker in every mode, white label >= 4.5:1). Never a control's on fill: it falls below 3:1 on dark surfaces"),
  ("controlOnPressed",  "#123A4A", "#368699", "#082733", "#2A7E95", "accent", "Checkbox and radio on, pressed: darker in light modes, lighter in dark modes, so the only mark of the on state keeps >= 3:1 on sheet and canvas (toggles show the press on the knob instead)"),
  ("onAccent",          "#FFFFFF", "#FFFFFF", "#FFFFFF", "#FFFFFF", "accent", "Text and glyphs on accentFill"),
- ("swipeArchive",      "#1E5468", "#2D788B", "#123E4D", "#246F83", "accent", "Fill of a swipe's Archive button (§5.7): accentFill by another name, apart only under Graphite and in Gallery, where it is swipeArchiveNeutral, since `ink` would turn light at night under AppKit's white title"),
+ ("swipeArchive",      "#1E5468", "#2D788B", "#123E4D", "#246F83", "accent", "Fill of a swipe's Archive button (§5.7): accentFill by another name, apart only under Graphite and in Gallery, where it is swipeArchiveNeutral, since `ink` would turn light at night under the button's white icon and label"),
  ("accentWash",        "#DCE8EA", "#1F363C", "#C8DCE0", "#1A4049", "accent", "On state of quiet toggles (Hide quoted text, Original colors action, composer format toggles)"),
  ("accentWashHover",   "#D2E2E5", "#233D44", "#BDD5DA", "#1F4A55", "accent", "Quiet toggle on, hover"),
  ("accentWashPressed", "#C8DBDF", "#182D33", "#B2CDD3", "#15363E", "accent", "Quiet toggle on, pressed (darker in every mode: the toggle is pushed in)"),
@@ -216,6 +216,7 @@ LAYOUT = {
          "separatorX": 68},
  "rowCompact": {"height": 48, "marginRuleY": 6, "marginRuleHeight": 36, "pipX": 7, "pipY": 11.5, "textX": 24, "senderY": 7, "line2Y": 25,
                 "accountSquare": 6, "accountSquareRadius": 1.5, "separatorX": 24, "skeletonSenderBar": [24, 10, 120, 9], "skeletonTimeBar": [28, 9], "skeletonLine2Bar": [24, 29, 260, 9]},
+ "swipe": {"glyph": 16, "glyphGap": 4, "padX": 12, "minWidth": 80, "snapOpen": 0.5, "fullSwipe": 0.6, "rubberBand": 0.55},
  "runningHead": {"height": 28, "labelX": 20, "labelY": 10, "ruleGap": 10, "ruleY": 17, "minConversations": 8,
                  "compactHeight": 24, "compactLabelX": 24, "compactLabelY": 5, "compactRuleY": 12},
  "listFooter": {"height": 28, "spinner": 12, "gap": 6},
@@ -380,7 +381,7 @@ GRAPHITE = {
  "selWash": ("selWashIdle", "Selection, window key: the idle wash; key and not key differ by the rule (`ink` against `ink3`), and the rule is the scan cue"),
  "selRule": ("ink", "Margin rule, window key (rows, rail, Settings account row, autocomplete highlight)"),
  "knob": ("paper", "Toggle knob face, so it stays distinct from the `ink` on track in dark appearances"),
- "swipeArchive": ("swipeArchiveNeutral", "A swipe's Archive button (§5.7): `ink` would turn light in dark appearances under AppKit's white title, so the slip by day and, at night, a grey light enough to stand out from the row"),
+ "swipeArchive": ("swipeArchiveNeutral", "A swipe's Archive button (§5.7): `ink` would turn light in dark appearances under the button's white icon and label, so the slip by day and, at night, a grey light enough to stand out from the row"),
 }
 
 # Settings > General > Text size (§4.15, roadmap Q2.6): the popup's names and the step in points each adds to every role where

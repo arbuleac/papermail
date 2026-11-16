@@ -51,9 +51,10 @@ struct ComponentSnapshot {
     /// The bitmap is rendered at the window's backing scale unless `scale` asks for another: layer content is
     /// rasterised at that scale, and resampling it would blur the edges the tests sample.
     static func render(_ view: NSView, mode: QuireMode, surface: NSColor = .qPaper, padding: CGFloat = 0, scale: CGFloat? = nil,
-                       graphite: Bool = false, reduceMotion: Bool = false, reduceTransparency: Bool = false) -> ComponentSnapshot {
+                       graphite: Bool = false, reduceMotion: Bool = false, reduceTransparency: Bool = false,
+                       theme: QuireTheme? = nil) -> ComponentSnapshot {
         QuireEnvironment.shared.setOverrides(.init(isGraphite: graphite, increaseContrast: mode.isIncreasedContrast,
-                                                   reduceMotion: reduceMotion, reduceTransparency: reduceTransparency))
+                                                   reduceMotion: reduceMotion, reduceTransparency: reduceTransparency, theme: theme))
         let size = NSSize(width: view.frame.width + 2 * padding, height: view.frame.height + 2 * padding)
         let host = SnapshotHost(frame: NSRect(origin: .zero, size: size))
         host.fill = surface

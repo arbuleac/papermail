@@ -138,6 +138,8 @@ final class MessageListViewController: NSViewController {
     let skeletonView = ListSkeletonView()
     private let focusOverlay = ListFocusRingOverlay()
     let rowContentCache: RowContentCache
+    /// The swipe on the rows (spec §5.7). Internal so tests can swipe without fingers.
+    private(set) lazy var swipe = RowSwipeController(tableView: tableView)
     private let signposter = ListSignposts.signposter
     /// Internal so tests can watch a search's interval begin and end.
     let searchSignpost = ListSearchSignpost()
@@ -244,6 +246,10 @@ final class MessageListViewController: NSViewController {
             return self.layout.conversationIndex(atRow: row) != nil
         }
         tableView.onFocusChange = { [weak self] in self?.updateFocusOverlay() }
+        tableView.swipe = swipe
+        swipe.rowAt = { [weak self] row in self?.swipeRow(atTableRow: row) }
+        swipe.rowViewFor = { [weak self] id in self?.conversationRowView(for: id) }
+        swipe.perform = { [weak self] id, edge in self?.performSwipe(on: id, edge: edge) }
 
         scrollView.documentView = tableView
         scrollView.hasVerticalScroller = true
@@ -367,6 +373,34 @@ final class MessageListViewController: NSViewController {
         return RowSwipe.change(for: conversations[index], edge: edge, view: query.view)
     }
 
+    /// The swipe table row `row` offers: a conversation row's button on each edge where the key would change it (the
+    /// trailing edge E's, the leading U's), sized for the list's Text size; nil for heads, the tail, the server row and a
+    /// row that offers nothing. Asked when a gesture starts over the row, so it follows the row as listed then.
+    func swipeRow(atTableRow row: Int) -> RowSwipeGesture.Row? {
+        guard let index = layout.conversationIndex(atRow: row), conversations.indices.contains(index) else { return nil }
+        let id = conversations[index].id
+        func button(_ edge: RowSwipe.Edge) -> RowSwipeGesture.Button? {
+            guard let change = swipeChange(for: id, edge: edge), let kind = QuireSwipeAction(change) else { return nil }
+            let title = RowSwipe.title(for: change)
+            return RowSwipeGesture.Button(kind: kind, title: title, openWidth: QuireSwipeButton.openWidth(title: title, textSize: textSize))
+        }
+        let trailing = button(.trailing), leading = button(.leading)
+        guard trailing != nil || leading != nil else { return nil }
+        return RowSwipeGesture.Row(id: id, width: tableView.bounds.width, trailing: trailing, leading: leading)
+    }
+
+    /// The row view showing `id`, if its row is in view.
+    func conversationRowView(for id: ConversationID) -> ConversationRowView? {
+        guard let index = indexByID[id], let row = layout.row(ofConversation: index) else { return nil }
+        return tableView.rowView(atRow: row, makeIfNecessary: false) as? ConversationRowView
+    }
+
+    /// A full swipe, or a click on the open button: the change the edge offers now, if it still offers one.
+    private func performSwipe(on id: ConversationID, edge: RowSwipe.Edge) {
+        guard let change = swipeChange(for: id, edge: edge) else { return }
+        onRowAction?(change, id)
+    }
+
     /// The row's VoiceOver actions: the swipe's, trailing first, so Archive leads where it applies.
     private func accessibilityRowActions(for id: ConversationID) -> [NSAccessibilityCustomAction] {
         RowSwipe.Edge.allCases.compactMap { edge in
@@ -381,25 +415,10 @@ final class MessageListViewController: NSViewController {
         }
     }
 
+    /// VoiceOver's action: a row swiped open anywhere closes at once, and the change lands as a swipe's would.
     private func performRowAction(_ change: MetadataChange, on id: ConversationID) {
-        closeRowActions()
+        swipe.close(animated: false)
         onRowAction?(change, id)
-    }
-
-    /// The uncovered button closes before the change lands, so a row the change takes away never leaves with it out
-    /// (the list never animates a row leaving, §4.10). Under Reduce Motion it closes at once instead of sliding back.
-    private func closeRowActions() {
-        guard tableView.rowActionsVisible else { return }
-        guard QuireEnvironment.reduceMotion else {
-            tableView.rowActionsVisible = false
-            return
-        }
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0
-            context.allowsImplicitAnimation = false
-            CATransaction.setDisableActions(true)
-            tableView.rowActionsVisible = false
-        }
     }
 
     /// Puts the selection on `ids` (an undo bringing several conversations back) without reporting it, as
@@ -508,7 +527,12 @@ final class MessageListViewController: NSViewController {
     private func syncTableSelection(scroll: Bool) {
         let wasSuppressed = suppressSelectionCallbacks
         suppressSelectionCallbacks = true
-        defer { suppressSelectionCallbacks = wasSuppressed }
+        // A selection change closes a row swiped open (spec §5.7); with none open, j/k pay nothing for it.
+        let selectedBefore = swipe.isActive ? tableView.selectedRowIndexes : nil
+        defer {
+            suppressSelectionCallbacks = wasSuppressed
+            if let selectedBefore, tableView.selectedRowIndexes != selectedBefore { swipe.close() }
+        }
         withoutAnimation {
             if selectedIDs.count > 1 {
                 let rows = IndexSet(selectedIDs.compactMap { id in indexByID[id].flatMap { layout.row(ofConversation: $0) } })
@@ -818,6 +842,9 @@ final class MessageListViewController: NSViewController {
             reconfigureVisibleRows()
         }
         signposter.endInterval("list.diff", diffState)
+        // Rows may have moved or gone under a row swiped open: it closes, and a row a full swipe slid out comes back if
+        // the change left it listed (spec §5.7).
+        swipe.listDidRefresh()
 
         let presentBefore = selectedIDs.count > 1 ? selectedIDs.filter { oldIndexByID[$0] != nil }.count : 0
         let selectionMoved = reconcileSelection(previous: previousSelection, oldIndexByID: oldIndexByID, old: old)
@@ -1217,6 +1244,8 @@ final class MessageListViewController: NSViewController {
 
     @objc private func clipViewBoundsDidChange(_ notification: Notification) {
         tableView.boundsDidScroll()
+        // The list scrolled: a row swiped open closes (spec §5.7).
+        if swipe.isActive { swipe.close() }
         guard hasReceivedFirstPage, !reachedEnd, !isLoadingMore, footerPhase != .failed, !conversations.isEmpty else { return }
         let visible = scrollView.contentView.bounds
         let remaining = tableView.bounds.height - visible.maxY
@@ -1269,6 +1298,7 @@ final class MessageListViewController: NSViewController {
         let state = signposter.beginInterval("list.remeasure")
         defer { signposter.endInterval("list.remeasure", state) }
         let anchor = topRowAnchor()
+        swipe.close(animated: false)
         tableView.rowHeight = rowMetrics.height
         withoutAnimation {
             tableView.reloadData()
@@ -1324,16 +1354,10 @@ final class MessageListViewController: NSViewController {
         } else {
             reconfigureVisibleRows()
         }
-        // AppKit keeps a swipe button's fill as a resolved colour on a view nested inside the button, and resolves it
-        // again only when that view is marked or the appearance changes, so a button that is out is marked all the way
-        // down or it keeps the old Graphite or contrast fill (spec §5.7).
-        let swipeButtonOut = tableView.rowActionsVisible
         tableView.enumerateAvailableRowViews { rowView, _ in
             rowView.needsDisplay = true
-            // The footer's Retry link draws its own label.
-            for subview in rowView.subviews {
-                if swipeButtonOut { Self.markNeedsDisplay(subview) } else { subview.needsDisplay = true }
-            }
+            // The footer's Retry link draws its own label, and a swipe's open button its fill, icon and label.
+            for subview in rowView.subviews { subview.needsDisplay = true }
         }
         // Increase Contrast and Graphite are not appearance changes, so AppKit does not redraw these on its own:
         // the paper below a short list, the skeleton bars and the focus ring would keep the old values.
@@ -1342,11 +1366,6 @@ final class MessageListViewController: NSViewController {
         scrollView.contentView.needsDisplay = true
         skeletonView.needsDisplay = true
         focusOverlay.needsDisplay = true
-    }
-
-    private static func markNeedsDisplay(_ view: NSView) {
-        view.needsDisplay = true
-        for subview in view.subviews { markNeedsDisplay(subview) }
     }
 
     /// The selection's wash and rule follow the window's key state, not the first responder (spec §3.4).
@@ -1451,19 +1470,6 @@ extension MessageListViewController: NSTableViewDelegate {
         return cell
     }
 
-    /// One button per edge, so a swipe carried across the row has one thing to do (spec §5.7, Swipe), in the colours of
-    /// its change (`QuireSwipeAction`). The button keys to the conversation, not the row number, which a refresh can move
-    /// meanwhile.
-    func tableView(_ tableView: NSTableView, rowActionsForRow row: Int, edge: NSTableView.RowActionEdge) -> [NSTableViewRowAction] {
-        guard let index = layout.conversationIndex(atRow: row), conversations.indices.contains(index) else { return [] }
-        let id = conversations[index].id
-        guard let change = swipeChange(for: id, edge: edge == .trailing ? .trailing : .leading),
-              let style = QuireSwipeAction(change) else { return [] }
-        return [style.rowAction(title: RowSwipe.title(for: change)) { [weak self] _, _ in
-            MainActor.assumeIsolated { self?.performRowAction(change, on: id) }
-        }]
-    }
-
     /// Heads, the footer and the server row are never selectable (spec §5.8, §5.10).
     func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
         layout.conversationIndex(atRow: row) != nil
@@ -1481,6 +1487,7 @@ extension MessageListViewController: NSTableViewDelegate {
     func tableViewSelectionDidChange(_ notification: Notification) {
         updateFocusOverlay()
         guard !suppressSelectionCallbacks else { return }
+        if swipe.isActive { swipe.close() }
         let rows = tableView.selectedRowIndexes
         let selected = rows.compactMap { layout.conversationIndex(atRow: $0) }.map { conversations[$0].id }
         let lead: ConversationID?

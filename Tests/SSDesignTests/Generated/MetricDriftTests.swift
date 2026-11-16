@@ -10,8 +10,8 @@ final class MetricDriftTests: XCTestCase {
     private let file = DesignTokensFile.shared
 
     func testEveryMetricIsCovered() {
-        // tokens.json had 739 leaves under layout, border and platform when this file was generated.
-        XCTAssertEqual(file.leafCount(under: ["layout", "border", "platform"]), 739, "regenerate with swift scripts/tools/quire-tokens.swift")
+        // tokens.json had 746 leaves under layout, border and platform when this file was generated.
+        XCTAssertEqual(file.leafCount(under: ["layout", "border", "platform"]), 746, "regenerate with swift scripts/tools/quire-tokens.swift")
     }
 
     func testLayoutWindow() {
@@ -183,6 +183,16 @@ final class MetricDriftTests: XCTestCase {
         numbers(Quire.Layout.RowCompact.skeletonSenderBar.map { Double($0) }, "layout.rowCompact.skeletonSenderBar")
         numbers(Quire.Layout.RowCompact.skeletonTimeBar.map { Double($0) }, "layout.rowCompact.skeletonTimeBar")
         numbers(Quire.Layout.RowCompact.skeletonLine2Bar.map { Double($0) }, "layout.rowCompact.skeletonLine2Bar")
+    }
+
+    func testLayoutSwipe() {
+        number(Quire.Layout.Swipe.glyph, "layout.swipe.glyph")
+        number(Quire.Layout.Swipe.glyphGap, "layout.swipe.glyphGap")
+        number(Quire.Layout.Swipe.padX, "layout.swipe.padX")
+        number(Quire.Layout.Swipe.minWidth, "layout.swipe.minWidth")
+        number(Quire.Layout.Swipe.snapOpen, "layout.swipe.snapOpen")
+        number(Quire.Layout.Swipe.fullSwipe, "layout.swipe.fullSwipe")
+        number(Quire.Layout.Swipe.rubberBand, "layout.swipe.rubberBand")
     }
 
     func testLayoutRunningHead() {

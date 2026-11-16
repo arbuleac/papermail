@@ -56,20 +56,20 @@ PAIRS = [
  ("Account initial tile letter, hover", "ink2", ["paper", "hover"], T),
  ("Account initial tile letter, selected", "ink2", ["selWash"], T),
  ("Account initial tile letter, selected idle", "ink2", ["selWashIdle"], T),
- # a swipe's button (§5.7): AppKit draws its title white on whatever fill it is given, so each fill must hold onSwipe
- ("Swipe button title (AppKit's white) on Archive's fill", "onSwipe", ["swipeArchive"], T),
- ("Swipe button title (AppKit's white) on Mark as Read or Mark as Unread's fill", "onSwipe", ["swipeRead"], T),
- # ...and each capsule against the row it is uncovered on. White at 4.5:1 caps a fill at about L* 50, so no capsule
+ # a swipe's button (§5.7): its icon and label are white on every fill, so each fill must hold onSwipe
+ ("Swipe button icon and label (white) on Archive's fill", "onSwipe", ["swipeArchive"], T),
+ ("Swipe button icon and label (white) on Mark as Read or Mark as Unread's fill", "onSwipe", ["swipeRead"], T),
+ # ...and each fill against the row it is uncovered beside. White at 4.5:1 caps a fill at about L* 50, so no fill
  # reaches 3:1 on a selected row at night: each surface has floors of its own, Archive's above Read's, so Archive stays
  # the louder button and neither sinks into the row (the slip under Graphite did)
- ("Swipe Archive capsule on the row, rest", "swipeArchive", ["paper"], U),
- ("Swipe Archive capsule on the row, hover", "swipeArchive", ["paper", "hover"], 2.5),
- ("Swipe Archive capsule on the row, selected", "swipeArchive", ["selWash"], 1.9),
- ("Swipe Archive capsule on the row, selected idle", "swipeArchive", ["selWashIdle"], 2.3),
- ("Swipe Mark as Read or Unread capsule on the row, rest", "swipeRead", ["paper"], 2.0),
- ("Swipe Mark as Read or Unread capsule on the row, hover", "swipeRead", ["paper", "hover"], 1.6),
- ("Swipe Mark as Read or Unread capsule on the row, selected", "swipeRead", ["selWash"], 1.2),
- ("Swipe Mark as Read or Unread capsule on the row, selected idle", "swipeRead", ["selWashIdle"], 1.5),
+ ("Swipe Archive fill beside the row, rest", "swipeArchive", ["paper"], U),
+ ("Swipe Archive fill beside the row, hover", "swipeArchive", ["paper", "hover"], 2.5),
+ ("Swipe Archive fill beside the row, selected", "swipeArchive", ["selWash"], 1.9),
+ ("Swipe Archive fill beside the row, selected idle", "swipeArchive", ["selWashIdle"], 2.3),
+ ("Swipe Mark as Read or Unread fill beside the row, rest", "swipeRead", ["paper"], 2.0),
+ ("Swipe Mark as Read or Unread fill beside the row, hover", "swipeRead", ["paper", "hover"], 1.6),
+ ("Swipe Mark as Read or Unread fill beside the row, selected", "swipeRead", ["selWash"], 1.2),
+ ("Swipe Mark as Read or Unread fill beside the row, selected idle", "swipeRead", ["selWashIdle"], 1.5),
  # ---- list header, search, sync line, empty states
  ("Masthead", "ink", ["paper"], T),
  ("Masthead chevron, compose glyph", "ink2", ["paper"], U),

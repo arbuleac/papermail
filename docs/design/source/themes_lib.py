@@ -196,7 +196,7 @@ def derive(spec):
         # 3. fixed and derived
         out['slipEdge'][m] = Q['slipEdge'][m]
         out['originalPage'][m] = '#FFFFFF'
-        # AppKit draws a swipe button's title white whatever the fill (§5.7), so its token never moves
+        # a swipe button's icon and label are white whatever the fill (§5.7), so its token never moves
         out['onSwipe'][m] = Q['onSwipe'][m]
         out['selRuleIdle'][m] = out['ink3'][m]
         out['scrimSolid'][m] = c.rgb2hex(c.over(H(out['scrim'][m]), H(out['canvas'][m])))

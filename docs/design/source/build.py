@@ -229,9 +229,9 @@ def page_variables(colors, mode, graphite=None):
     if graphite is not None:
         return [('focusOnPage', graphite['focus'][light]), ('linkOnPage', graphite['accent'][mode])]
     return [('focusOnPage', theme_rules.focus_on_page(colors, mode)), ('linkOnPage', theme_rules.link_on_page(mode))]
-# a swipe's capsules (§5.7): a pair's floor holds one capsule on one row, not the two apart, so Archive is also held to
-# stand out from every row it can be uncovered on more than Read does, in every mode and under Graphite. The neutral
-# Archive is the slip by day, so Graphite and Gallery change only the night's capsule.
+# a swipe's fills (§5.7): a pair's floor holds one fill beside one row, not the two apart, so Archive is also held to
+# stand out from every row it can be uncovered beside more than Read does, in every mode and under Graphite. The neutral
+# Archive is the slip by day, so Graphite and Gallery change only the night's fill.
 SWIPE_ROWS = (['paper'], ['paper', 'hover'], ['selWash'], ['selWashIdle'])
 def swipe_fails(colors):
     out = []
@@ -420,7 +420,7 @@ def contrast_summary():
     cue = sum(1 for r in results if r[3] == CUE)
     capsule = sum(1 for r in results if r[1] in ('swipeArchive', 'swipeRead'))
     ng = len(g_results)
-    s = '%d pairs × 4 modes = %d checks, plus %d Graphite pairs × 4 = %d, %d failures (%d of the pairs are scan cues with a 1.25 floor; %d hold a swipe\'s capsule on its row, Archive\'s floors above Read\'s, §5.7; account inks need 3.0, or 3.5 in IC; the rest need 4.5 or 3.0). Smallest margins: ' % (
+    s = '%d pairs × 4 modes = %d checks, plus %d Graphite pairs × 4 = %d, %d failures (%d of the pairs are scan cues with a 1.25 floor; %d hold a swipe\'s fill beside its row, Archive\'s floors above Read\'s, §5.7; account inks need 3.0, or 3.5 in IC; the rest need 4.5 or 3.0). Smallest margins: ' % (
         n, n * 4, ng, ng * 4, len(fails), cue, capsule)
     s += '; '.join('%s %.2f (%s, needs %.1f)' % (u, v, MODE_LABEL[m], nd) for _, u, m, v, nd in _margins(results)) + '.'
     return s
