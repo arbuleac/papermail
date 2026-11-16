@@ -19,7 +19,11 @@
 //                            staircase, and at these sizes the plane then stops reading as one. 64 to 512 px are the 1024
 //                            master reduced with Core Graphics' high-quality resampling, as the approved board reduces
 //                            it (the pixels `sips -Z` makes): inside the body every size is the approved image, pixel
-//                            for pixel.
+//                            for pixel. It is the bundle's icon only where the asset catalog is not read (a build
+//                            without actool, tools that open CFBundleIconFile): once actool has compiled the document,
+//                            every macOS reads CFBundleIconName from Assets.car, and macOS 15 shows actool's own flat
+//                            renderings of the document. actool ignores an AppIcon.appiconset that shares the
+//                            document's name (Xcode 27.2), so no image set is written for macOS 15 (spec §5.42).
 //   --check                  writes nothing in the repository: renders into a temporary folder, compares both outputs
 //                            byte for byte, and exits 1 listing every file that is missing, stale or no longer made.
 //   --preview <png>          optional, for review: the document's six system appearances rendered by Xcode's `ictool`
@@ -621,7 +625,7 @@ if let previewPath {
         label(name, x: x, y: y + CGFloat(cell) + 4)
     }
     y += CGFloat(cell + rowGap)
-    label("Resources/AppIcon.icns (macOS 15): 1024 px shown at \(cell), then 128, 64, 32 and 16 px at 1×; 32 and 16 px enlarged", x: CGFloat(gap), y: y, bold: true)
+    label("Resources/AppIcon.icns (wherever Assets.car is not read): 1024 px shown at \(cell), then 128, 64, 32 and 16 px at 1×; 32 and 16 px enlarged", x: CGFloat(gap), y: y, bold: true)
     y += CGFloat(labelHeight)
     draw(image(1024), in: CGRect(x: CGFloat(gap), y: y, width: CGFloat(cell), height: CGFloat(cell)))
     var x = CGFloat(gap + cell + gap)

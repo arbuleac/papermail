@@ -306,7 +306,7 @@ LAYOUT = {
  # continuous corners `corner` of the body (Apple's corner curve, 185.4 at 824). The mark is the brand glyph, its 80-unit
  # square at (markX, markY) and `markSize` wide, so one glyph unit is one 8 px unit of the template's 128 x 128 construction
  # grid and every vertex is a grid point. The plane (640 x 480) is placed optically, as the approved board draws it: its
- # box runs from (200, 296) to (840, 776), so the nose and the wings sit up and right of centre and the keel hangs below.
+ # box runs from (200, 296) to (840, 776), so the nose and the wings sit up and right of centre and the keel sits low.
  # The shadow is the macOS 15 template's, for the raster only (the system masks and lights the icon itself on macOS 26 and
  # later). Colours come from BRAND: the tile and the plane per appearance, nothing else; a white plane on the near-black
  # tile by default and in dark, and on black for the system to tint. `fit16` and `fit32` are the pixel-fitted 16 and 32 px

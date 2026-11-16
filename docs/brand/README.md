@@ -30,7 +30,7 @@ The plane is drawn on the app icon's 1024 canvas, on an 8 px construction grid (
 - The near wing's leading edge and the keel's foot, N–WN–X–K, are one 45° line, so the keel is flush with the wing.
 - The keel's top Sk–X runs at 1:2, parallel to the trailing edge; its back S–Sk–K is vertical.
 - The fold between the wings, N–T against N–S, opens from nothing at the nose to 28.6 px across at the tail (T to S is 32 × 16 px). The gap above the keel is 24 px tall, 21.5 px across, and keeps its width.
-- The plane's box is 80 × 60 units (640 × 480 on the icon). On the icon it is placed optically: the point midway between its box's centre and its ink's centroid falls on the canvas's centre, snapped to the grid, so the wings sit up and right and the keel hangs below. Its ink covers about 13% of the tile.
+- The plane's box is 80 × 60 units (640 × 480 on the icon). On the icon it is placed optically: the point midway between its box's centre and its ink's centroid falls within 3 px of the canvas's centre on each axis, the plane snapped to the 8 px grid, so the wings sit up and right and the keel sits low. Its ink covers about 13% of the tile.
 
 ## Which file
 
@@ -63,11 +63,11 @@ Each comes as SVG (use it wherever you can) and PNG: the symbol at 1 px per pixe
 | Paper | `#FFFFFF` | The plane on the app icon, in every appearance; the plane and the word on dark grounds |
 | Black | `#000000` | Only the tinted app icon's tile, under the white plane the system tints |
 
-There is no other colour, no gradient and no sheen. Grey appears only where the system draws it (Liquid Glass's edge, the tinted and clear icons), where the app tints the template mark with a theme's grey, and in the construction drawing's guides, which are ink and paper mixed. The palette is written once, as `BRAND` in `docs/design/source/tokens_def.py`.
+There is no other colour, no gradient and no sheen. Grey appears only where the system draws it (Liquid Glass's edge, the tinted and clear icons, and on macOS 15 the icon `actool` renders from the Icon Composer document, spec §5.42), where the app tints the one-colour mark with the system's secondary label grey at inbox zero, and in the construction drawing's guides, which are ink and paper mixed. The palette is written once, as `BRAND` in `docs/design/source/tokens_def.py`.
 
 ## Never
 
-- Add a colour, a gradient, a shadow, a highlight, an outline or a texture to the plane.
+- Add a colour, a gradient, a shadow, a highlight, an outline or a texture to the plane. (The app icon's `.icns` carries the macOS 15 template's drop shadow outside the tile, as every icon on that system does: the system's convention, not part of the mark, and it touches neither the plane nor the tile.)
 - Round its corners, curve its edges, close or fill its folds, or draw them as lines.
 - Rotate it, mirror it, or point the nose anywhere but up and to the right.
 - Put it in a circle, a badge or a blue tile, or add a trail, letters or anything else to it.
@@ -75,10 +75,10 @@ There is no other colour, no gradient and no sheen. Grey appears only where the 
 
 ## In the app
 
-The interface draws the mark in one colour, as a template image, from the token file's path (spec §4.11):
+The interface draws the mark in one colour, as a template image, from the token file's path (spec §4.11), never in a theme's ink:
 
-- **Welcome screen**: the plane across a 64 pt square in the theme's `ink`, dark on a light page and light on a dark one, with the wordmark under it in the same ink at a 24 pt cap height: the one place the app shows the name with the mark, so it is the drawn wordmark (`layout.brand.wordmark`, read from `source/wordmark.svg`). “Welcome to SuperSparrow” is what VoiceOver says the screen is; the wordmark reads as “SuperSparrow”.
-- **Inbox zero**: 40 pt in `ink3`, the grey of the hint under it.
+- **Welcome screen**: the plane across a 64 pt square in ink (`#0A0A0A`) on a light page and paper (`#FFFFFF`) on a dark one, in every theme, with the wordmark under it in the same colour at a 24 pt cap height: the one place the app shows the name with the mark, so it is the drawn wordmark (`layout.brand.wordmark`, read from `source/wordmark.svg`). “Welcome to SuperSparrow” is what VoiceOver says the screen is; the wordmark reads as “SuperSparrow”.
+- **Inbox zero**: 40 pt in the system's secondary label grey, which tints the one-colour mark (it is not a brand colour).
 - **App icon**: the white plane on the near-black tile, by default and in dark; on black for the system to tint, the white plane its luminance.
 
 ## Distinct from other marks

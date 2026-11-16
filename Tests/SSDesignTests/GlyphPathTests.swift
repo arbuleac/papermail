@@ -133,8 +133,8 @@ final class GlyphPathTests: XCTestCase {
 
     /// The app icon (spec §5.42) puts one glyph unit on one 8 px unit of the 1024 template, so every vertex is a grid
     /// point, and places the plane where the approved board draws it: its box from (200, 296) to (840, 776), set optically
-    /// (midway between the box's centre and the ink's centroid lies within 3 px of the canvas's centre). A white plane on
-    /// the near-black tile, in dark too; white on black for the system to tint.
+    /// (midway between the box's centre and the ink's centroid lies within 3 px of the canvas's centre on each axis, 1.8 px
+    /// left and 2.6 px low). A white plane on the near-black tile, in dark too; white on black for the system to tint.
     func testAppIconPlacesThePlaneOnTheConstructionGrid() throws {
         let icon = Quire.Layout.AppIcon.self, glyph = Quire.CustomGlyph.ssPaperPlane
         XCTAssertEqual(icon.markSize / glyph.grid, 8, "one unit to 8 px")

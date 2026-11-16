@@ -59,7 +59,9 @@ fi
 # Settings › OAuth links to the setup guide (“How to create these…”).
 cp "$ROOT/docs/OAUTH-SETUP.md" "$APP/Contents/Resources/OAUTH-SETUP.md"
 # The drawn .icns replaces the one actool renders from the icon document: it carries every size up to 1024 px on
-# the macOS 15 grid, and it is the icon wherever the asset catalog is not read.
+# the macOS 15 grid, and it is the icon wherever the asset catalog is not read. Where Assets.car holds AppIcon, the
+# system reads CFBundleIconName first on every supported macOS: macOS 15 shows actool's flat renderings of the
+# document, not this file (spec §5.42).
 if [ -f "$ROOT/Resources/AppIcon.icns" ]; then
   cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
   /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string AppIcon" "$APP/Contents/Info.plist" >/dev/null 2>&1 || true

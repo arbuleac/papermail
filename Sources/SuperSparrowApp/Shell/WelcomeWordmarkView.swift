@@ -2,8 +2,8 @@ import AppKit
 import SSDesign
 
 /// The wordmark under the welcome screen's mark (spec §5.39): the brand's drawn word (`layout.brand.wordmark`, the
-/// outlines of docs/brand/source/wordmark.svg), never the name set in a font, in `ink` with its cap height
-/// `welcome.wordmarkCap`. The frame runs from the cap height to the descender (the straight-edged letters have no
+/// outlines of docs/brand/source/wordmark.svg), never the name set in a font, in the brand's ink (paper in dark,
+/// `WelcomeBrandInk`) with its cap height `welcome.wordmarkCap`. The frame runs from the cap height to the descender (the straight-edged letters have no
 /// overshoot), its baseline on a whole point so the caps and the baseline stay crisp, and the word's ink is centred across it.
 @MainActor
 final class WelcomeWordmarkView: NSView {
@@ -48,8 +48,8 @@ final class WelcomeWordmarkView: NSView {
         context.saveGState()
         context.translateBy(x: (bounds.width - ink.width * scale) / 2 - ink.minX * scale, y: Self.baseline)
         context.scaleBy(x: scale, y: scale)
-        // Set through NSColor so the theme's ink resolves for this view's appearance.
-        NSColor.qInk.setFill()
+        // Set through NSColor so ink or paper resolves for this view's appearance.
+        WelcomeBrandInk.color.setFill()
         context.addPath(Self.outline)
         // Outer contours run one way and counters the other, so nonzero leaves the counters open.
         context.fillPath(using: .winding)

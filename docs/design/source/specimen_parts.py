@@ -226,7 +226,10 @@ def type_scale():
 def icon_grid():
     out = ''
     for k, v in T.ICON.items():
-        if v.startswith('ss.'):
+        if v == T.ICON['brand']:
+            # the brand mark is never drawn under 24 px: below that its folds close (§4.11, docs/brand)
+            ic = g(v, 24)
+        elif v.startswith('ss.'):
             ic = g(v, 18)
         elif v in SYM:
             ic = s(v, 16)
@@ -237,7 +240,10 @@ def icon_grid():
 def glyph_specimens():
     out = ''
     for k, gl in T.GLYPHS.items():
-        out += '<div class="gs"><div class="gsz">%s%s%s</div><code>%s</code><p>%s</p></div>' % (g(k, 12), g(k, 16), g(k, 32), k, html.escape(gl['meaning']))
+        # the brand mark at its own sizes, never under 24 px, where its folds close (§4.11, docs/brand): 24, 32 and inbox
+        # zero's 40
+        sizes = (24, 32, T.LAYOUT['emptyState']['glyph']) if k == T.ICON['brand'] else (12, 16, 32)
+        out += '<div class="gs"><div class="gsz">%s</div><code>%s</code><p>%s</p></div>' % (''.join(g(k, pt) for pt in sizes), k, html.escape(gl['meaning']))
     return out
 def motion_curves():
     out = ''

@@ -94,7 +94,8 @@ PAIRS = [
  ("Empty-state sentence (reader desk)", "ink", ["canvas"], T),
  ("Empty-state hint (reader desk)", "ink3", ["canvas"], T),
  ("Empty-state sentence (list)", "ink", ["paper"], T),
- ("Inbox-zero mark", "ink3", ["paper"], U),
+ # inbox zero's mark is the system's secondary label grey, not a colour token (§4.11); ComponentColorTests holds it to
+ # that grey over every mode's paper, at 3:1 or more
  # ---- rail
  ("Rail folder and All Inboxes glyphs", "ink2", ["spine"], U),
  ("Rail folder and All Inboxes glyphs, hover", "ink", ["spine", "hover"], U),
@@ -399,7 +400,8 @@ PAIRS = [
  ("Theme name underline, chosen, Settings not key", "selRuleIdle", ["canvas"], U),
  ("Mono field text", "ink", ["sheet"], T),
  # ---- welcome
- ("Welcome mark (the brand mark in ink)", "ink", ["paper"], U, T),
+ # the mark and the wordmark are the brand's black and white, not a colour token (§4.11); WelcomeWordmarkTests holds
+ # them to layout.brand.ink and paper, at least 15:1 on every theme's paper
  ("Welcome title", "ink", ["paper"], T),
  ("Welcome tagline", "ink2", ["paper"], T),
  ("Welcome button trailing note (ink2)", "ink2", ["raised"], T),

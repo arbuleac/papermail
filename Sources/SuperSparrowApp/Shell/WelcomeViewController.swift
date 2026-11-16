@@ -246,11 +246,9 @@ final class WelcomeView: NSView {
     }
 
     /// The tagline is a New York role: a Font switch sets it again in place. Its frame is the role's line height, which
-    /// twins keep, so nothing moves. A theme switch changes `ink`, which the mark and the wordmark draw in.
+    /// twins keep, so nothing moves. The mark and the wordmark are the brand's black and white, which no setting changes.
     @objc private func environmentDidChange(_ note: Notification) {
         applyLabels()
-        mark.needsDisplay = true
-        wordmark.needsDisplay = true
     }
 
     private func applyLabels() {
@@ -342,13 +340,14 @@ final class WelcomeView: NSView {
     }
 }
 
-/// The brand mark, `ss.paperPlane`, in the theme's `ink`: the app icon's plane as a template, across the square's full
-/// width, in the same ink as the wordmark under it, so it reads dark on a light page and light on a dark one (§4.11, §5.42).
+/// The brand mark, `ss.paperPlane`: the app icon's plane as a template, across the square's full width, in the brand's
+/// black and white like the wordmark under it (`WelcomeBrandInk`: ink on a light page, paper on a dark one) in every
+/// theme (§4.11, §5.42).
 @MainActor
 final class WelcomeMarkView: NSView {
     override var isFlipped: Bool { true }
 
     override func draw(_ dirtyRect: NSRect) {
-        QuireSymbol.draw(Quire.Icon.brand, size: .custom(Quire.Layout.Welcome.mark), color: .qInk, centredIn: bounds)
+        QuireSymbol.draw(Quire.Icon.brand, size: .custom(Quire.Layout.Welcome.mark), color: WelcomeBrandInk.color, centredIn: bounds)
     }
 }

@@ -110,8 +110,8 @@
     <div class="win" style="height:430px">
       <div class="lights"><i></i><i></i><i></i></div>
       <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center">
-        <span style="color:var(--q-ink)">{{PY: g('ss.paperPlane', T.LAYOUT['welcome']['mark'])}}</span>
-        <div style="color:var(--q-ink);line-height:0;margin-top:{{layout.welcome.titleGap}}px" aria-label="Welcome to SuperSparrow">{{PY: wordmark(T.LAYOUT['welcome']['wordmarkCap'])}}</div>
+        <span style="color:var(--brand-mark)">{{PY: g('ss.paperPlane', T.LAYOUT['welcome']['mark'])}}</span>
+        <div style="color:var(--brand-mark);line-height:0;margin-top:{{layout.welcome.titleGap}}px" aria-label="Welcome to SuperSparrow">{{PY: wordmark(T.LAYOUT['welcome']['wordmarkCap'])}}</div>
         <div style="font:var(--q-font-aside);color:var(--q-ink2);margin-top:{{layout.welcome.taglineGap}}px">Your mail, quietly fast.</div>
         <div style="display:grid;gap:{{layout.welcome.buttonGap}}px;margin-top:22px;width:300px">
           <span class="btn lg secondary foc" style="justify-content:flex-start">{{PY: s(T.ICON['addAccountProvider'], 16)}}Add Gmail account<span style="margin-left:auto;font:var(--q-font-snippet);color:var(--q-ink2)">Google</span></span>
@@ -122,7 +122,7 @@
         <span class="btn linkb" style="margin-top:4px;font-size:12px">Set up OAuth clients…</span>
       </div>
     </div>
-    <p class="ann">Welcome: the brand mark, the paper plane, in <code>ink</code> in a {{layout.welcome.mark}} pt square, over the drawn straight-edged wordmark at a {{layout.welcome.wordmarkCap}} pt cap height in <code>ink</code> (never the name set in a font; “Welcome to SuperSparrow” is what VoiceOver says the screen is); two equal secondary choices (the first has initial focus), the demo entry, the privacy promise. Trailing notes are <code>ink2</code> so they hold 4.5:1 on hover and press. Waiting: the chosen button returns to its rest face with a spinner and “Finish signing in in your browser…”; “Try the demo” becomes “Preparing the demo…” while the demo store is seeded.</p>
+    <p class="ann">Welcome: the brand mark, the paper plane, in a {{layout.welcome.mark}} pt square, over the drawn straight-edged wordmark at a {{layout.welcome.wordmarkCap}} pt cap height, both in the brand's black and white, never a theme's ink: <code>{{layout.brand.ink}}</code> on a light page, <code>{{layout.brand.paper}}</code> on a dark one (never the name set in a font; “Welcome to SuperSparrow” is what VoiceOver says the screen is); two equal secondary choices (the first has initial focus), the demo entry, the privacy promise. Trailing notes are <code>ink2</code> so they hold 4.5:1 on hover and press. Waiting: the chosen button returns to its rest face with a spinner and “Finish signing in in your browser…”; “Try the demo” becomes “Preparing the demo…” while the demo store is seeded.</p>
   </div>
   <div class="c12">
     <div class="win" style="width:{{layout.settings.width}}px;height:630px;background:var(--q-canvas);margin:0 auto 0 0;display:inline-block;vertical-align:top">

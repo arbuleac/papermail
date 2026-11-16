@@ -62,6 +62,63 @@ final class WelcomeWordmarkTests: XCTestCase {
         XCTAssertGreaterThan(rows.count, 2000, "it inks")
     }
 
+    /// The mark and the wordmark are the brand's black and white (§4.11, docs/brand): every pixel they cover fully is
+    /// exactly `layout.brand.ink` on a light page and `layout.brand.paper` on a dark one, in every theme, under Increase
+    /// Contrast and under Graphite, so no theme's `ink` tints them; and each holds at least 15:1 on that theme's paper.
+    func testTheMarkAndTheWordmarkAreTheBrandsBlackAndWhiteInEveryTheme() throws {
+        let environment = QuireEnvironment.shared
+        let saved = environment.overrides
+        defer { environment.setOverrides(saved) }
+        let wordmarkSize = WelcomeWordmarkView(frame: .zero).intrinsicContentSize
+        let mark = Quire.Layout.Welcome.mark
+        for mode in QuireMode.allCases {
+            let want = mode.isDark ? Quire.Layout.Brand.paper : Quire.Layout.Brand.ink
+            for theme in QuireTheme.allCases {
+                for graphite in [false, true] {
+                    environment.setOverrides(.init(isGraphite: graphite, increaseContrast: mode.isIncreasedContrast,
+                                                   reduceMotion: false, reduceTransparency: false, theme: theme))
+                    let label = "\(theme) \(mode.rawValue)\(graphite ? " Graphite" : "")"
+                    for (name, build) in [("mark", { WelcomeMarkView(frame: NSRect(x: 0, y: 0, width: mark, height: mark)) as NSView }),
+                                          ("wordmark", { WelcomeWordmarkView(frame: NSRect(origin: .zero, size: wordmarkSize)) as NSView })] {
+                        let rep = try XCTUnwrap(QuireOffscreenRenderer.render(mode: mode, scale: 2, build: build), "\(label): \(name)")
+                        let (solid, colours) = try opaqueColours(rep)
+                        XCTAssertGreaterThan(solid, 500, "\(label): the \(name) inks")
+                        XCTAssertEqual(colours, [want], "\(label): the \(name) is \(want) and nothing else")
+                    }
+                    let paper = mode.performAsCurrent { NSColor.qPaper.usingColorSpace(.sRGB) }
+                    XCTAssertGreaterThanOrEqual(contrast(want, try XCTUnwrap(paper)), 15, "\(label): on paper")
+                }
+            }
+        }
+    }
+
+    /// The pixels `rep` covers fully, counted, and their colours as `#RRGGBB`.
+    private func opaqueColours(_ rep: NSBitmapImageRep) throws -> (Int, Set<String>) {
+        let data = try XCTUnwrap(rep.bitmapData)
+        XCTAssertEqual(rep.samplesPerPixel, 4)
+        XCTAssertFalse(rep.bitmapFormat.contains(.alphaFirst))
+        var count = 0, colours = Set<String>()
+        for y in 0..<rep.pixelsHigh {
+            for x in 0..<rep.pixelsWide {
+                let p = data + y * rep.bytesPerRow + x * 4
+                guard p[3] == 255 else { continue }
+                count += 1
+                colours.insert(String(format: "#%02X%02X%02X", p[0], p[1], p[2]))
+            }
+        }
+        return (count, colours)
+    }
+
+    /// WCAG 2 contrast between `#RRGGBB` and an sRGB colour.
+    private func contrast(_ hex: String, _ background: NSColor) -> CGFloat {
+        func linear(_ c: CGFloat) -> CGFloat { c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4) }
+        func luminance(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> CGFloat { 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b) }
+        let v = UInt32(hex.dropFirst(), radix: 16) ?? 0
+        let a = luminance(CGFloat((v >> 16) & 0xFF) / 255, CGFloat((v >> 8) & 0xFF) / 255, CGFloat(v & 0xFF) / 255)
+        let b = luminance(background.redComponent, background.greenComponent, background.blueComponent)
+        return (max(a, b) + 0.05) / (min(a, b) + 0.05)
+    }
+
     /// The welcome screen in Light and Dark, for looking at (`welcome-<light|dark>.png` in `SS_RENDER_DIR`, the temporary
     /// folder when unset):
     ///

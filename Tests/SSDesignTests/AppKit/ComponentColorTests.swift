@@ -435,6 +435,47 @@ final class ComponentColorTests: XCTestCase {
         XCTAssertEqual(ColorLib.rgb2hex(rgba(button.spinner?.resolvedColor)), "#625C55", "ink3 once it draws as secondary")
     }
 
+    // MARK: Empty states
+
+    /// Inbox zero's brand mark takes the system's secondary label grey, as the identity draws it (§4.11), not a theme's
+    /// `ink3`: the pixels it covers fully are that grey laid over the paper at the grey's own alpha, at least 3:1 on it. A
+    /// template tint alone would lay the translucent grey over the glyph's black, a black plane by day. The offline glyph
+    /// keeps `ink3`.
+    func testInboxZeroTintsTheBrandMarkWithTheSecondaryLabelGrey() {
+        for theme in [QuireTheme.study, .rain] {
+            for mode in QuireMode.allCases {
+                QuireTestEnvironment.forceDefaults(theme: theme)
+                let view = QuireEmptyStateView(sentence: "Nothing left to read.", hint: "New mail will land here.", glyph: .brandMark)
+                view.frame = NSRect(origin: .zero, size: view.intrinsicContentSize)
+                // The snapshot keeps the theme: it overrides contrast, Graphite and motion only.
+                QuireEnvironment.shared.setTheme(theme)
+                defer { QuireEnvironment.shared.setTheme(.study) }
+                let snapshot = ComponentSnapshot.render(view, mode: mode, scale: 2)
+                let paper = expected("paper", mode: mode)
+                let grey = mode.performAsCurrent { NSColor.secondaryLabelColor.usingColorSpace(.sRGB) }
+                guard let grey else { return XCTFail("secondaryLabelColor has no sRGB value") }
+                let a = Double(grey.alphaComponent)
+                let want = RGBA(r: a * Double(grey.redComponent) + (1 - a) * paper.r, g: a * Double(grey.greenComponent) + (1 - a) * paper.g,
+                                b: a * Double(grey.blueComponent) + (1 - a) * paper.b, a: 1)
+                let glyph = Quire.Layout.EmptyState.glyph
+                var solid = 0, past = 0
+                for y in 0..<Int(glyph * 2) {
+                    for x in Int((view.bounds.midX - glyph / 2) * 2)..<Int((view.bounds.midX + glyph / 2) * 2) {
+                        let c = ComponentSnapshot.rgba(of: snapshot.rep, x: x, y: y)
+                        if abs(c.r - want.r) * 255 <= 3, abs(c.g - want.g) * 255 <= 3, abs(c.b - want.b) * 255 <= 3 { solid += 1 }
+                        // Nothing deeper than the grey: no pixel strays past it, away from the paper.
+                        if abs(c.g - paper.g) > abs(want.g - paper.g) + 3 / 255 { past += 1 }
+                    }
+                }
+                let label = "\(theme) \(mode): want \(ColorLib.rgb2hex(want)) on \(ColorLib.rgb2hex(paper))"
+                XCTAssertGreaterThan(solid, 400, label)
+                XCTAssertEqual(past, 0, label)
+                XCTAssertGreaterThanOrEqual(ColorLib.contrast(want, paper), 3, label + ": a glyph's 3:1 on the paper")
+            }
+        }
+        QuireTestEnvironment.forceDefaults()
+    }
+
     private func rgba(_ cg: CGColor?) -> RGBA {
         guard let cg, let c = NSColor(cgColor: cg)?.usingColorSpace(.sRGB) else { return RGBA(r: 0, g: 0, b: 0, a: 0) }
         return RGBA(r: Double(c.redComponent), g: Double(c.greenComponent), b: Double(c.blueComponent), a: Double(c.alphaComponent))

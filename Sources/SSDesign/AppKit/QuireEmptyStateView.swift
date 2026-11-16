@@ -5,7 +5,8 @@ import AppKit
 /// `ink`; the hint is `snippet` in `ink3`, 4 pt below, and may carry keycaps inline (“J K to move · ↩ to
 /// open”). A hint with keycaps is a row of commands, so it may use the whole pane rather than the sentence's
 /// 300 pt, and it wraps only between commands: a keycap never ends a line apart from the words it goes with.
-/// Inbox zero adds the brand mark, offline the `wifi.slash` glyph, 8 pt above the sentence. A hint may end with a link
+/// Inbox zero adds the brand mark (in the system's secondary label grey), offline the `wifi.slash` glyph (in `ink3`), 8 pt
+/// above the sentence. A hint may end with a link
 /// that acts (`HintPart.link`, the empty search's “Search Gmail”): `accent`, underlined on hover, `ink2` while pressed,
 /// clicked through `onLink`, and a button to VoiceOver.
 ///
@@ -162,12 +163,14 @@ public final class QuireEmptyStateView: NSView, QuirePointerTarget {
                                  options: [.usesLineFragmentOrigin]).width)
     }
 
-    private var glyphMetrics: (name: String, size: CGFloat, gap: CGFloat)? {
+    private var glyphMetrics: (name: String, size: CGFloat, gap: CGFloat, color: NSColor)? {
         guard let glyph else { return nil }
         let e = Quire.Layout.EmptyState.self
         switch glyph {
-        case .brandMark: return (Quire.Icon.brand, e.glyph, e.glyphGap)
-        case .offline: return (Quire.Icon.offline, e.offlineGlyph, e.offlineGlyphGap)
+        // The brand mark is the brand's, not a theme's: the identity tints the one-colour mark with the system's
+        // secondary label grey, so no theme's `ink3` turns it warm, blue, green or violet (§4.11).
+        case .brandMark: return (Quire.Icon.brand, e.glyph, e.glyphGap, .secondaryLabelColor)
+        case .offline: return (Quire.Icon.offline, e.offlineGlyph, e.offlineGlyphGap, .qInk3)
         }
     }
 
@@ -225,7 +228,13 @@ public final class QuireEmptyStateView: NSView, QuirePointerTarget {
         var y = (bounds.midY - blockHeight(width: width, available: bounds.width) / 2).rounded()
         if let g = glyphMetrics {
             let rect = NSRect(x: bounds.midX - g.size / 2, y: y, width: g.size, height: g.size)
-            QuireDraw.symbol(g.name, size: .custom(g.size), color: .qInk3, centredIn: rect)
+            // The system's label greys are translucent, and a template tint keeps a colour's components but lays them
+            // over the template's own black: the glyph is tinted with the opaque colour and set down at its alpha.
+            let tint = g.color.usingColorSpace(.sRGB) ?? g.color
+            NSGraphicsContext.current?.cgContext.saveGState()
+            NSGraphicsContext.current?.cgContext.setAlpha(tint.alphaComponent)
+            QuireDraw.symbol(g.name, size: .custom(g.size), color: tint.withAlphaComponent(1), centredIn: rect)
+            NSGraphicsContext.current?.cgContext.restoreGState()
             y += g.size + g.gap
         }
         let sentence = sentenceString()
