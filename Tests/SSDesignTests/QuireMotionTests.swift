@@ -127,4 +127,85 @@ final class QuireMotionTests: XCTestCase {
         Quire.Motion.finishAll()
         XCTAssertEqual(probe.finished, 1, "finishAll clears the registry")
     }
+
+    // MARK: Frame by frame
+
+    /// The curves stepped frame by frame land where Core Animation's would: from 0 to 1, never back, and at the
+    /// documented control points' values (a linear curve is the time itself).
+    func testCurveProgressFollowsTheControlPoints() {
+        for curve in Quire.Motion.Curve.allCases {
+            XCTAssertEqual(curve.progress(at: 0), 0, accuracy: 1e-6, "\(curve)")
+            XCTAssertEqual(curve.progress(at: 1), 1, accuracy: 1e-6, "\(curve)")
+            XCTAssertEqual(curve.progress(at: -1), 0, accuracy: 1e-6, "clamped")
+            XCTAssertEqual(curve.progress(at: 2), 1, accuracy: 1e-6, "clamped")
+            var last = 0.0
+            for i in 1...100 {
+                let p = curve.progress(at: Double(i) / 100)
+                XCTAssertGreaterThanOrEqual(p, last - 1e-9, "\(curve) at \(i)%: never back")
+                last = p
+            }
+        }
+        XCTAssertEqual(Quire.Motion.Curve.linear.progress(at: 0.3), 0.3, accuracy: 1e-6)
+        // ease.settle (0.2, 0.8, 0.2, 1) is most of the way there by half time; ease.leave (0.4, 0, 1, 1) has barely begun.
+        XCTAssertGreaterThan(Quire.Motion.Curve.settle.progress(at: 0.5), 0.85)
+        XCTAssertLessThan(Quire.Motion.Curve.leave.progress(at: 0.25), 0.1)
+    }
+
+    func testAFrameAnimationWithNoTimeToRunStepsToItsEnd() {
+        var values: [CGFloat] = []
+        var completed = 0
+        let loose = NSView(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
+        XCTAssertNil(QuireFrameAnimation.run(from: 0, to: 80, Quire.Motion.standard, .settle, reduced: .instant, in: loose,
+                                             step: { values.append($0) }, completion: { completed += 1 }), "no window: at once")
+        XCTAssertEqual(values, [80])
+        XCTAssertEqual(completed, 1)
+        QuireEnvironment.shared.setOverrides(.init(reduceMotion: true))
+        let window = NSWindow(contentRect: NSRect(x: -10_000, y: -10_000, width: 40, height: 40), styleMask: .borderless,
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let view = NSView(frame: window.contentLayoutRect)
+        window.contentView = view
+        XCTAssertNil(QuireFrameAnimation.run(from: 80, to: 0, Quire.Motion.standard, .settle, reduced: .instant, in: view,
+                                             step: { values.append($0) }, completion: { completed += 1 }), "Reduce Motion: at once")
+        XCTAssertEqual(values, [80, 0])
+        XCTAssertEqual(completed, 2)
+    }
+
+    /// In a window it runs on its own, ends where it was going even when no frame comes, and a keystroke's `finishAll()`
+    /// jumps it to its end; a cancelled one stops where it is, without its completion.
+    func testAFrameAnimationEndsAtItsValueAndIsFinishedByAKeystroke() throws {
+        let window = NSWindow(contentRect: NSRect(x: -10_000, y: -10_000, width: 40, height: 40), styleMask: .borderless,
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let view = NSView(frame: window.contentLayoutRect)
+        window.contentView = view
+        var last: CGFloat = -1
+        var completed = 0
+        let running = try XCTUnwrap(QuireFrameAnimation.run(from: 0, to: 80, Quire.Motion.standard, .settle, reduced: .instant,
+                                                            in: view, step: { last = $0 }, completion: { completed += 1 }))
+        XCTAssertEqual(running.value(after: 0), 0)
+        XCTAssertEqual(running.value(after: Quire.Motion.standard), 80)
+        XCTAssertGreaterThan(running.value(after: Quire.Motion.standard / 2), 40, "ease.settle is past half way at half time")
+        XCTAssertEqual(Quire.Motion.runningCount, 1)
+        let deadline = Date().addingTimeInterval(2)
+        while !running.isDone, Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+        XCTAssertTrue(running.isDone)
+        XCTAssertEqual(last, 80)
+        XCTAssertEqual(completed, 1)
+
+        let finished = try XCTUnwrap(QuireFrameAnimation.run(from: 80, to: 0, Quire.Motion.standard, .settle, reduced: .instant,
+                                                             in: view, step: { last = $0 }, completion: { completed += 1 }))
+        Quire.Motion.finishAll()
+        XCTAssertTrue(finished.isDone)
+        XCTAssertEqual(last, 0)
+        XCTAssertEqual(completed, 2)
+
+        let cancelled = try XCTUnwrap(QuireFrameAnimation.run(from: 0, to: 80, Quire.Motion.standard, .settle, reduced: .instant,
+                                                              in: view, step: { last = $0 }, completion: { completed += 1 }))
+        cancelled.cancel()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        XCTAssertEqual(last, 0, "it stops where it was")
+        XCTAssertEqual(completed, 2, "and never completes")
+        XCTAssertEqual(Quire.Motion.runningCount, 0)
+    }
 }

@@ -129,6 +129,39 @@ extension Quire.Motion {
     }
 }
 
+extension Quire.Motion.Curve {
+    /// How far along the curve is at `time`, a fraction of the duration (0…1, clamped), as Core Animation would place
+    /// it: the cubic Bézier's y where its x is `time`. For motion stepped frame by frame (`QuireFrameAnimation`), which
+    /// must follow the same curves the layers do.
+    public func progress(at time: Double) -> Double {
+        let t = min(1, max(0, time))
+        let (x1, y1, x2, y2) = controlPoints
+        let cx = 3 * Double(x1), bx = 3 * (Double(x2) - Double(x1)) - cx, ax = 1 - cx - bx
+        let cy = 3 * Double(y1), by = 3 * (Double(y2) - Double(y1)) - cy, ay = 1 - cy - by
+        func x(_ s: Double) -> Double { ((ax * s + bx) * s + cx) * s }
+        func dx(_ s: Double) -> Double { (3 * ax * s + 2 * bx) * s + cx }
+        func y(_ s: Double) -> Double { ((ay * s + by) * s + cy) * s }
+        // Newton's method from s = t, then bisection where the slope is too flat to trust.
+        var s = t
+        for _ in 0..<8 {
+            let error = x(s) - t
+            if abs(error) < 1e-7 { return y(s) }
+            let slope = dx(s)
+            if abs(slope) < 1e-6 { break }
+            s -= error / slope
+        }
+        var low = 0.0, high = 1.0
+        s = t
+        for _ in 0..<40 {
+            let value = x(s)
+            if abs(value - t) < 1e-7 { break }
+            if value < t { low = s } else { high = s }
+            s = (low + high) / 2
+        }
+        return y(s)
+    }
+}
+
 /// One `NSAnimationContext` group: finished by removing its participants' running animations.
 @MainActor
 final class GroupAnimation: QuireAnimator {
