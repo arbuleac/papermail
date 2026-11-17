@@ -2,7 +2,7 @@
 and the rendered DESIGN-LANGUAGE.md. Colour order: light, dark, lightHC, darkHC."""
 
 NAME = "Quire"
-VERSION = "1.8.5"
+VERSION = "1.8.6"
 
 # The brand palette (docs/brand, spec §5.42), written once: `layout.brand` and the app icon's colours (`layout.appIcon`)
 # read it from here. The mark is black and white only: `paper` is the plane on the icon's tile and the one-colour mark on
@@ -348,7 +348,7 @@ ICON = {
  "addAccountProvider": "person.crop.circle.badge.plus", "attention": "exclamationmark", "waitingToSync": "clock", "discardDraft": "trash",
  "reveal": "eye", "conceal": "eye.slash", "invitation": "calendar", "answered": "checkmark", "print": "printer",
  "findInConversation": "text.magnifyingglass", "findPrevious": "chevron.up", "findNext": "chevron.down",
- "loginApproval": "info.circle",
+ "loginApproval": "info.circle", "notificationsOff": "bell.slash",
  "mute": "bell.slash", "unmute": "bell", "blockSender": "hand.raised", "alwaysArchiveSender": "archivebox", "removeRule": "minus",
  "download": "arrow.down.circle",
 }

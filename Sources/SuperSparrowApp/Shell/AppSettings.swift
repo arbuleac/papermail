@@ -32,7 +32,6 @@ final class AppSettings: ObservableObject {
         static let previews = "notificationPreviews"
         static let remoteImages = "loadRemoteImages"
         static let undoSend = "undoSendDelay"
-        static let askedForNotifications = "askedForNotificationPermission"
         /// The Font setting's key from when it was Reading font; kept, with its raw values, so the choice carries over.
         static let typeface = "readingFont"
         static let textSize = "textSize"
@@ -263,11 +262,6 @@ final class AppSettings: ObservableObject {
         case .unified?: defaults.set(Self.unifiedScopeValue, forKey: key)
         case .account(let id)?: defaults.set(id.rawValue, forKey: key)
         }
-    }
-
-    var hasAskedForNotifications: Bool {
-        get { defaults.bool(forKey: Key.askedForNotifications) }
-        set { defaults.set(newValue, forKey: Key.askedForNotifications) }
     }
 
     init(defaults: UserDefaults = .standard) {

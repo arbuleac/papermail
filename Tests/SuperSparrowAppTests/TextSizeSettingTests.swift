@@ -632,12 +632,16 @@ final class TextSizeSettingTests: XCTestCase {
         XCTAssertTrue(settings.showsSevenAccountsCaption)
         let mailtoHandler = FakeMailtoHandler()
         let model = DefaultMailAppModel(handler: mailtoHandler)
+        // Notifications' line with its caption, its tallest.
+        let notifications = NotificationPermissionModel(handler: FakeNotificationPermission())
+        notifications.showForSnapshot(.denied)
         var heights: [CGFloat] = []
         for size in QuireFont.TextSize.allCases {
             QuireEnvironment.shared.setTextSize(size)
             let general = NSHostingView(rootView: GeneralSettingsView(settings: settings, defaultMailApp: model,
                                                                       mailboxSize: MailboxSizeModel(measure: { 292_000_000 }),
-                                                                      launchAtLogin: LaunchAtLoginModel(handler: FakeLoginItem())))
+                                                                      launchAtLogin: LaunchAtLoginModel(handler: FakeLoginItem()),
+                                                                      notificationPermission: notifications))
             general.layoutSubtreeIfNeeded()
             heights.append(general.fittingSize.height)
         }

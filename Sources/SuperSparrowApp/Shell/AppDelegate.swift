@@ -508,7 +508,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard let old, let oldWindow = old.window, let newWindow = window.window, oldWindow.isVisible else {
             old?.tearDown()
             window.showWindow(nil)
-            requestNotificationsIfDemo(window)
+            requestNotificationsIfAccounts(window, in: environment)
             return
         }
         newWindow.alphaValue = 0
@@ -522,7 +522,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             old.close()
             oldWindow.alphaValue = 1
         })
-        requestNotificationsIfDemo(window)
+        requestNotificationsIfAccounts(window, in: environment)
     }
 
     /// Mail links open in `window`, the main window `install` just put on screen, which has read its accounts: one that
@@ -546,9 +546,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         notificationResponses.receiver = { [weak window] response in window?.answer(response) }
     }
 
-    private func requestNotificationsIfDemo(_ window: MainWindowController) {
-        // Demo accounts arrive through addAccount like real ones; ask now so notifications work in the demo too.
-        if environment?.isDemo == true { window.notifier.requestAuthorizationIfNeeded() }
+    /// At launch, and as the demo comes or goes, macOS is asked for notifications while there is mail to notify about
+    /// and it has no answer yet (`requestAuthorizationIfNeeded`). Demo accounts are seeded into the store, never added,
+    /// so they are asked for here too, once seeded.
+    private func requestNotificationsIfAccounts(_ window: MainWindowController, in environment: AppEnvironment) {
+        guard environment.isDemo || (try? environment.store.accounts().isEmpty) == false else { return }
+        window.notifier.requestAuthorizationIfNeeded()
     }
 
     /// No notification for an account's first sync (§5.41): the notifier learns which accounts are fetching their
@@ -956,13 +959,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func openSettings(tab: SettingsModel.Tab? = nil, oauthNotice: SettingsModel.OAuthNotice? = nil) {
         guard let environment else { return }
         if settingsWindow == nil {
-            // A snapshot neither asks nor changes which app opens mail links or whether it opens at login, and shows a
-            // fixed mailbox size, so its render depends only on the build.
+            // A snapshot neither asks nor changes which app opens mail links, whether it opens at login or what macOS lets
+            // it show, and shows a fixed mailbox size, so its render depends only on the build.
             let mailtoHandler: MailtoDefaultHandling = options.isSnapshot ? SnapshotMailtoHandler() : LaunchServicesMailtoHandler()
             let loginItem: LoginItemHandling = options.isSnapshot ? SnapshotLoginItem() : MainAppLoginItem()
+            let notifications: NotificationPermissionHandling = options.isSnapshot ? SnapshotNotificationPermission() : SystemNotificationPermission()
             let snapshotSize: (@Sendable () -> Int64)? = options.isSnapshot ? AppSnapshots.mailboxSize : nil
             let controller = SettingsWindowController(environment: environment, settings: settings, mailtoHandler: mailtoHandler,
-                                                      loginItem: loginItem, measureMailbox: snapshotSize)
+                                                      loginItem: loginItem, notifications: notifications, measureMailbox: snapshotSize)
             let model = controller.model
             model.addAccount = { [weak self] kind in self?.addAccount(kind, origin: .settings) }
             model.cancelSignIn = { [weak self] in self?.cancelSignIn() }

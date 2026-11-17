@@ -88,7 +88,8 @@ final class AppearanceSettingsTests: XCTestCase {
         login.showForSnapshot(.off)
         let view = NSHostingView(rootView: QuireThemeRoot(GeneralSettingsView(settings: settings, defaultMailApp: mail,
                                                                               mailboxSize: MailboxSizeModel(measure: { 292_000_000 }),
-                                                                              launchAtLogin: login)))
+                                                                              launchAtLogin: login,
+                                                                              notificationPermission: NotificationPermissionModel(handler: FakeNotificationPermission()))))
         let window = host(view)
         defer { close(window) }
         XCTAssertEqual(focusables(in: view).count, 9,

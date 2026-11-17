@@ -299,17 +299,18 @@ final class LaunchAtLoginSettingsTests: XCTestCase {
         return AppSettings(defaults: try XCTUnwrap(UserDefaults(suiteName: suite)))
     }
 
-    private func general(_ model: LaunchAtLoginModel, settings: AppSettings? = nil,
-                         defaultMailApp: DefaultMailAppModel? = nil) throws -> NSHostingView<GeneralSettingsView> {
+    private func general(_ model: LaunchAtLoginModel, settings: AppSettings? = nil, defaultMailApp: DefaultMailAppModel? = nil,
+                         notifications: NotificationPermissionModel? = nil) throws -> NSHostingView<GeneralSettingsView> {
         NSHostingView(rootView: GeneralSettingsView(settings: try settings ?? throwawaySettings(),
                                                     defaultMailApp: defaultMailApp ?? DefaultMailAppModel(handler: FakeMailtoHandler()),
-                                                    mailboxSize: MailboxSizeModel(measure: { 292_000_000 }), launchAtLogin: model))
+                                                    mailboxSize: MailboxSizeModel(measure: { 292_000_000 }), launchAtLogin: model,
+                                                    notificationPermission: notifications ?? NotificationPermissionModel(handler: FakeNotificationPermission())))
     }
 
     /// The General tab as Settings hosts it, in an ordered window far off screen, sized to its content.
-    private func host(_ model: LaunchAtLoginModel, settings: AppSettings? = nil,
-                      defaultMailApp: DefaultMailAppModel? = nil) throws -> (window: NSWindow, view: NSHostingView<GeneralSettingsView>) {
-        let view = try general(model, settings: settings, defaultMailApp: defaultMailApp)
+    private func host(_ model: LaunchAtLoginModel, settings: AppSettings? = nil, defaultMailApp: DefaultMailAppModel? = nil,
+                      notifications: NotificationPermissionModel? = nil) throws -> (window: NSWindow, view: NSHostingView<GeneralSettingsView>) {
+        let view = try general(model, settings: settings, defaultMailApp: defaultMailApp, notifications: notifications)
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: view.fittingSize), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = view
@@ -430,9 +431,9 @@ final class LaunchAtLoginSettingsTests: XCTestCase {
         XCTAssertEqual(LaunchAtLoginModel.accessibilityLabel, "Open SuperSparrow at login", "VoiceOver reads the toggle with its moment")
     }
 
-    /// General never scrolls (§5.40): with every line it can show at once (the seven-accounts caption, Mail links'
-    /// failure, and At login's tallest line, whichever it is) it stays shorter than Accounts at its tallest, so a screen
-    /// that shows Accounts whole shows General whole.
+    /// General never scrolls (§5.40): with every line it can show at once (the seven-accounts caption, Notifications'
+    /// line with its caption, Mail links' failure, and At login's tallest line, whichever it is) it stays shorter than
+    /// Accounts at its tallest, so a screen that shows Accounts whole shows General whole.
     func testGeneralAtItsTallestStaysShorterThanAccounts() throws {
         let settings = try throwawaySettings()
         settings.accountWasAdded(totalAccounts: 7)
@@ -441,7 +442,9 @@ final class LaunchAtLoginSettingsTests: XCTestCase {
         mail.showForSnapshot(.failed)
         let login = LaunchAtLoginModel(handler: FakeLoginItem())
         login.showForSnapshot(.on)
-        let (window, view) = try host(login, settings: settings, defaultMailApp: mail)
+        let notifications = NotificationPermissionModel(handler: FakeNotificationPermission())
+        notifications.showForSnapshot(.denied)
+        let (window, view) = try host(login, settings: settings, defaultMailApp: mail, notifications: notifications)
         defer { close(window) }
         let states: [(LaunchAtLoginModel.State, LaunchAtLoginModel.Change?)] = [
             (.on, nil), (.needsApproval, nil), (.unavailable, nil), (.off, .turnOn), (.on, .turnOff), (.needsApproval, .turnOff),

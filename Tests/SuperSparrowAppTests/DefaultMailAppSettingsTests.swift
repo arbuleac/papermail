@@ -171,7 +171,8 @@ final class DefaultMailAppSettingsTests: XCTestCase {
     private func host(_ model: DefaultMailAppModel) throws -> (window: NSWindow, view: NSHostingView<GeneralSettingsView>) {
         let view = NSHostingView(rootView: GeneralSettingsView(settings: try throwawaySettings(), defaultMailApp: model,
                                                                mailboxSize: MailboxSizeModel(measure: { 292_000_000 }),
-                                                               launchAtLogin: LaunchAtLoginModel(handler: FakeLoginItem())))
+                                                               launchAtLogin: LaunchAtLoginModel(handler: FakeLoginItem()),
+                                                               notificationPermission: NotificationPermissionModel(handler: FakeNotificationPermission())))
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: view.fittingSize), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = view

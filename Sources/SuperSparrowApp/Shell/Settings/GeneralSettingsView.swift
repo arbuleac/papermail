@@ -2,8 +2,8 @@ import SSDesign
 import SwiftUI
 
 /// Settings › General (spec §5.40): a two-column grid, hairlines between the list and Undo send, the mail group, Keep mail
-/// on this Mac, and At login with Mail links. Nine controls, under General's cap of twelve, so it never scrolls: Font and
-/// Text size moved to Appearance, beside the theme.
+/// on this Mac, and At login with Mail links. Nine controls, ten while macOS keeps notifications from SuperSparrow, under
+/// General's cap of twelve, so it never scrolls: Font and Text size moved to Appearance, beside the theme.
 struct GeneralSettingsView: View {
     static let keepMailCaption = "Older mail stays in the list and in search, and downloads again when you open it."
 
@@ -11,6 +11,7 @@ struct GeneralSettingsView: View {
     @ObservedObject var defaultMailApp: DefaultMailAppModel
     @ObservedObject var mailboxSize: MailboxSizeModel
     @ObservedObject var launchAtLogin: LaunchAtLoginModel
+    @ObservedObject var notificationPermission: NotificationPermissionModel
 
     var body: some View {
         QuireSettingsGrid {
@@ -44,6 +45,16 @@ struct GeneralSettingsView: View {
                     .toggleStyle(.quireCheckbox)
                     .disabled(!settings.notificationsEnabled)
             }
+            // Whatever the toggle says: macOS's answer also decides the Dock badge, which shows with New mail off.
+            if let line = notificationPermission.line {
+                QuireSettingsRow(nil) {
+                    SettingsSystemStatusLine(glyph: Quire.Icon.notificationsOff, words: line.words, buttonTitle: line.buttonTitle,
+                                             action: notificationPermission.act)
+                }
+                if let caption = line.caption {
+                    QuireSettingsCaption(caption)
+                }
+            }
             QuireSettingsDivider()
             QuireSettingsRow("Keep mail on this Mac") {
                 KeepMailControl(settings: settings, mailboxSize: mailboxSize)
@@ -72,12 +83,13 @@ struct GeneralSettingsView: View {
             }
         }
         .settingsTabContent()
-        // The user can pick another mail app in Mail's settings, or approve the login item in System Settings, while
-        // this tab is away; the window asks again as it reopens on this tab and as the app comes back to the front. The
-        // mailbox's size is measured again as well.
+        // The user can pick another mail app in Mail's settings, or approve the login item or allow notifications in
+        // System Settings, while this tab is away; the window asks again as it reopens on this tab and as the app comes
+        // back to the front. The mailbox's size is measured again as well.
         .onAppear {
             defaultMailApp.refresh()
             launchAtLogin.refresh()
+            notificationPermission.refresh()
             mailboxSize.refresh()
         }
     }
@@ -125,28 +137,42 @@ struct LaunchAtLoginToggle: View {
     }
 }
 
-/// At login's second row while macOS waits for the user's approval (§5.40): the account rows' status shape, glyph and
-/// words, then the button that takes the user to the one place the approval can be given.
+/// At login's second row while macOS waits for the user's approval (§5.40).
 struct LaunchAtLoginApproval: View {
     let openLoginItems: () -> Void
+
+    var body: some View {
+        SettingsSystemStatusLine(glyph: Quire.Icon.loginApproval, words: LaunchAtLoginModel.approvalWords,
+                                 buttonTitle: LaunchAtLoginModel.openLoginItemsTitle, action: openLoginItems)
+    }
+}
+
+/// A row in the field column about something macOS holds and only the user can change there (§5.40): the account rows'
+/// status shape, glyph and words, then the button that takes the user to the one place it can be changed. At login's
+/// approval line and Notifications' line.
+struct SettingsSystemStatusLine: View {
+    let glyph: String
+    let words: String
+    let buttonTitle: String
+    let action: () -> Void
 
     var body: some View {
         let s = Quire.Layout.Settings.self
         HStack(spacing: s.statusButtonGap) {
             HStack(spacing: s.statusGlyphGap) {
-                if let glyph = QuireSymbol.image(Quire.Icon.loginApproval, size: .custom(s.statusGlyph)) {
-                    Image(nsImage: glyph)
+                if let image = QuireSymbol.image(glyph, size: .custom(s.statusGlyph)) {
+                    Image(nsImage: image)
                         .renderingMode(.template)
                         .foregroundStyle(.qInk2)
                 }
-                Text(LaunchAtLoginModel.approvalWords)
+                Text(words)
                     .font(.quire(.snippet))
                     .tracking(QuireFont.Role.snippet.tracking)
                     .foregroundStyle(.qInk2)
             }
             .accessibilityElement(children: .combine)
-            .accessibilityLabel(LaunchAtLoginModel.approvalWords)
-            Button(LaunchAtLoginModel.openLoginItemsTitle, action: openLoginItems)
+            .accessibilityLabel(words)
+            Button(buttonTitle, action: action)
                 .buttonStyle(.quire(.secondary, size: .small))
         }
     }

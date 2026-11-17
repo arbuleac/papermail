@@ -72,15 +72,20 @@ final class NewMailNotifier {
         Set(statuses.filter { $0.phase == .bootstrapping }.map(\.accountID))
     }
 
-    /// Asks once, the first time an account is added, so the prompt comes with an obvious reason.
+    /// Asks while macOS says the user has not been asked, and New mail is on: when an account is added, so the prompt
+    /// comes with an obvious reason, and at launch while there are accounts and still no answer (a prompt closed
+    /// unanswered, or one an earlier copy never showed). macOS keeps the answer, not the app's defaults: it shows its
+    /// prompt only while it has none, and after Don't Allow only System Settings changes it, which Settings › General
+    /// then says (`NotificationPermissionModel`), since with it the Dock badge goes too.
     func requestAuthorizationIfNeeded() {
-        guard let center, !settings.hasAskedForNotifications else { return }
-        settings.hasAskedForNotifications = true
-        center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
-            if let error {
+        guard let center, settings.notificationsEnabled else { return }
+        Task {
+            guard await center.notificationSettings().authorizationStatus == .notDetermined else { return }
+            do {
+                let granted = try await center.requestAuthorization(options: [.alert, .sound, .badge])
+                Self.log.notice("notification authorization granted: \(granted, privacy: .public)")
+            } catch {
                 Self.log.notice("notification authorization failed: \(error.localizedDescription, privacy: .public)")
-            } else {
-                Self.log.info("notification authorization granted: \(granted, privacy: .public)")
             }
         }
     }

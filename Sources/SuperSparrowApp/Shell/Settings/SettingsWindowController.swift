@@ -15,6 +15,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     let defaultMailApp: DefaultMailAppModel
     /// General's At login row.
     let launchAtLogin: LaunchAtLoginModel
+    /// General's line under Notifications while macOS keeps them, and the Dock badge, from SuperSparrow.
+    let notificationPermission: NotificationPermissionModel
     /// The size beside General's Keep mail on this Mac.
     let mailboxSize: MailboxSizeModel
     private let environment: AppEnvironment
@@ -23,22 +25,24 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     private var storageObservation: StoreObservation?
     private var senderRuleObservation: StoreObservation?
 
-    /// `mailtoHandler` answers and changes which app opens mail links, and `loginItem` whether SuperSparrow opens at
-    /// login: macOS in the app, fakes in tests. `measureMailbox` reads the mailbox's size on disk (on a background task);
-    /// by default, the environment's files.
+    /// `mailtoHandler` answers and changes which app opens mail links, `loginItem` whether SuperSparrow opens at login,
+    /// and `notifications` what macOS lets it show: macOS in the app, fakes in tests (nil `notifications` is macOS's, which
+    /// outside an app bundle answers that there is nothing to ask). `measureMailbox` reads the mailbox's size on disk (on
+    /// a background task); by default, the environment's files.
     init(environment: AppEnvironment, settings: AppSettings, mailtoHandler: MailtoDefaultHandling, loginItem: LoginItemHandling,
-         measureMailbox: (@Sendable () -> Int64)? = nil) {
+         notifications: NotificationPermissionHandling? = nil, measureMailbox: (@Sendable () -> Int64)? = nil) {
         self.environment = environment
         model = SettingsModel(isDemo: environment.isDemo, oauthFileURL: environment.clientConfigurations.fileURL)
         defaultMailApp = DefaultMailAppModel(handler: mailtoHandler)
         launchAtLogin = LaunchAtLoginModel(handler: loginItem)
+        notificationPermission = NotificationPermissionModel(handler: notifications ?? SystemNotificationPermission())
         let databasePath = environment.databasePath
         let attachments = environment.attachmentDirectory
         mailboxSize = MailboxSizeModel(measure: measureMailbox ?? {
             AppEnvironment.footprint(databasePath: databasePath, attachmentDirectory: attachments)
         })
         tabs = SettingsTabViewController(model: model, settings: settings, defaultMailApp: defaultMailApp, mailboxSize: mailboxSize,
-                                         launchAtLogin: launchAtLogin)
+                                         launchAtLogin: launchAtLogin, notificationPermission: notificationPermission)
         let window = NSWindow(contentViewController: tabs)
         window.styleMask = [.titled, .closable]
         window.toolbarStyle = .preference
@@ -108,11 +112,12 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         if model.tab == .oauth { model.reloadOAuth() }
         let wasVisible = window?.isVisible == true
         model.isWindowOpen = true
-        // Reopened on General, the tab's view does not appear again; the default mail app, the login item and the
-        // mailbox's size may have changed meanwhile.
+        // Reopened on General, the tab's view does not appear again; the default mail app, the login item, the
+        // notification permission and the mailbox's size may have changed meanwhile.
         if !wasVisible, model.tab == .general {
             defaultMailApp.refresh()
             launchAtLogin.refresh()
+            notificationPermission.refresh()
             mailboxSize.refresh()
         }
         showWindow(nil)
@@ -121,12 +126,13 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         if !wasVisible { tabs.clearInitialFocus() }
     }
 
-    /// Back from another app, where the user may have chosen another mail app or approved the login item in System
-    /// Settings: General asks again while it shows.
+    /// Back from another app, where the user may have chosen another mail app, or approved the login item or allowed
+    /// notifications in System Settings: General asks again while it shows.
     @objc private func appDidBecomeActive(_ note: Notification) {
         guard window?.isVisible == true, model.tab == .general else { return }
         defaultMailApp.refresh()
         launchAtLogin.refresh()
+        notificationPermission.refresh()
     }
 
     /// Ends editing in the window, so a field that saves when editing ends (the signature) saves now: before quitting
@@ -156,7 +162,7 @@ final class SettingsTabViewController: NSTabViewController {
     private var isSyncingSelection = false
 
     init(model: SettingsModel, settings: AppSettings, defaultMailApp: DefaultMailAppModel, mailboxSize: MailboxSizeModel,
-         launchAtLogin: LaunchAtLoginModel) {
+         launchAtLogin: LaunchAtLoginModel, notificationPermission: NotificationPermissionModel) {
         self.model = model
         super.init(nibName: nil, bundle: nil)
         tabStyle = .toolbar
@@ -165,7 +171,8 @@ final class SettingsTabViewController: NSTabViewController {
         canPropagateSelectedChildViewControllerTitle = true
         addTab(AccountsSettingsView(model: model, settings: settings), title: "Accounts", symbol: Quire.Icon.accountsTab)
         addTab(OAuthSettingsView(model: model), title: "OAuth", symbol: Quire.Icon.oauthTab)
-        addTab(GeneralSettingsView(settings: settings, defaultMailApp: defaultMailApp, mailboxSize: mailboxSize, launchAtLogin: launchAtLogin),
+        addTab(GeneralSettingsView(settings: settings, defaultMailApp: defaultMailApp, mailboxSize: mailboxSize, launchAtLogin: launchAtLogin,
+                                   notificationPermission: notificationPermission),
                title: "General", symbol: Quire.Icon.generalTab)
         // Appended, so no tab a user knows moves.
         addTab(AppearanceSettingsView(settings: settings), title: "Appearance", symbol: Quire.Icon.appearanceTab)

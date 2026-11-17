@@ -60,12 +60,13 @@ enum AppSnapshots {
     }
 
     /// The Accounts, OAuth and General states of §5.40 that demo mode can show. The OAuth fields are put back before
-    /// the window closes; nothing here saves, Mail links neither asks nor changes which app opens mail links, and At
-    /// login neither asks nor changes the Mac's login items.
+    /// the window closes; nothing here saves, Mail links neither asks nor changes which app opens mail links, At login
+    /// neither asks nor changes the Mac's login items, and Notifications' line neither asks nor opens System Settings.
     static func renderSettingsStates(_ controller: SettingsWindowController, completion: @escaping (NSBitmapImageRep?) -> Void) {
         let model = controller.model
         let defaultMailApp = controller.defaultMailApp
         let launchAtLogin = controller.launchAtLogin
+        let notificationPermission = controller.notificationPermission
         let accounts = model.accounts
         let original = model.oauth
         let steps: [() -> Void] = [
@@ -87,6 +88,9 @@ enum AppSnapshots {
             { defaultMailApp.showForSnapshot(.isDefault); launchAtLogin.showForSnapshot(.needsApproval) },
             { launchAtLogin.showForSnapshot(.unavailable) },
             { launchAtLogin.showForSnapshot(.off, failed: .turnOn) },
+            // Notifications: off for SuperSparrow in System Settings, then only the Dock badge off there.
+            { launchAtLogin.showForSnapshot(.off); notificationPermission.showForSnapshot(.denied) },
+            { notificationPermission.showForSnapshot(.allowedWithoutBadge) },
         ]
         render(controller, steps: steps) { bitmap in
             model.oauth = original
