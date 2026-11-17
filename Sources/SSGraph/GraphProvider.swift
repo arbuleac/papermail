@@ -141,6 +141,11 @@ public final class GraphProvider: MailProvider, Sendable {
         var body = GraphMessageMapper.body(from: message, attachments: attachments)
         if message.isEventMessage {
             body.invitation = try await invitation(forEventMessage: providerID)
+            // An event that cannot be read (an account that granted mail alone) leaves the calendar the message carries
+            // itself, which the hydrator reads as it reads Gmail's. A response to the organizer carries none to show.
+            if body.invitation == nil, !message.isEventResponse {
+                body.calendar = try await calendar(ofEventMessage: providerID)
+            }
         }
         return body
     }
@@ -148,7 +153,8 @@ public final class GraphProvider: MailProvider, Sendable {
     /// The invitation of an event message, read from its expanded event: one more request, only for meeting mail.
     /// Times come in UTC (`outlook.timezone`), the zone the event was written in from `originalStartTimeZone`. A
     /// failure the next request would meet too (a throttle, a refused token, the network) fails the body fetch so it is
-    /// tried again; any other leaves the message without a card rather than without a body.
+    /// tried again; any other leaves the message to its own calendar part. The event is the user's calendar's: Exchange
+    /// refuses it (403) to a token without a calendar scope, which an account has only once the user has answered.
     func invitation(forEventMessage providerID: String) async throws -> CalendarInvitation? {
         do {
             return GraphInvitationMapper.invitation(from: try await eventMessage(providerID))
@@ -157,7 +163,24 @@ public final class GraphProvider: MailProvider, Sendable {
         } catch ProviderError.network(let message) {
             throw ProviderError.network(message)
         } catch {
-            Self.folderLog.notice("invitation: event not read: \(String(describing: error), privacy: .private)")
+            Self.folderLog.notice("invitation: event not read (\(Self.failureLabel(error), privacy: .public)): \(String(describing: error), privacy: .private)")
+            return nil
+        }
+    }
+
+    /// The text/calendar part of an event message's MIME (`$value`, `GraphMIMECalendar`), read behind the mail scope
+    /// alone: one more request, only for meeting mail whose event could not be read. Failures go as the event's do.
+    func calendar(ofEventMessage providerID: String) async throws -> String? {
+        do {
+            var request = GraphRequest(method: .get, url: try GraphURL.make("/me/messages/\(providerID)/$value"))
+            request.accept = "*/*"
+            return GraphMIMECalendar.calendar(in: try await client.send(request).data)
+        } catch let error where Self.failsTheCall(error) {
+            throw error
+        } catch ProviderError.network(let message) {
+            throw ProviderError.network(message)
+        } catch {
+            Self.folderLog.notice("invitation: MIME not read (\(Self.failureLabel(error), privacy: .public)): \(String(describing: error), privacy: .private)")
             return nil
         }
     }
@@ -402,6 +425,7 @@ public final class GraphProvider: MailProvider, Sendable {
     static func failureLabel(_ error: Error) -> String {
         switch error as? ProviderError {
         case .server(let status, _)?: return "HTTP \(status)"
+        case .notFound?: return "HTTP 404"
         case .network?: return "network (or HTTP 502/503/504)"
         case .decoding?: return "a reply that does not decode"
         default: return "other"

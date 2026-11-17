@@ -256,6 +256,31 @@ final class MailEngineInvitationTests: XCTestCase {
         }
     }
 
+    /// A Microsoft event message's own calendar part, read when Graph would not hand over its event (an account that
+    /// granted mail alone): Microsoft answers the event in the user's own calendar, so it is answered as the account,
+    /// named or not, as Graph's own reading of the event is.
+    func testAMicrosoftEventMessagesCalendarIsAnsweredAsTheAccount() throws {
+        func read(accountEmail: String) throws -> CalendarInvitation {
+            let store = InMemoryMailStore()
+            var account = Fixtures.account()
+            account.kind = .microsoft
+            account.email = accountEmail
+            try store.upsertAccount(account)
+            try store.upsertMessages([Fixtures.message(2)])
+            let body = MessageBody(html: "<p>Roadmap review</p>", text: nil, calendar: CalendarFixtures.exchangeRequest)
+            return try XCTUnwrap(Hydrator.invitation(in: body, for: target, store: store))
+        }
+        let named = try read(accountEmail: "alex@northwind.test")
+        XCTAssertEqual(named.userAddress, "alex@northwind.test", "the account named is still \"You\"")
+        XCTAssertEqual(named.answersAsAccount, true)
+        XCTAssertTrue(named.isAnswerable)
+
+        let alias = try read(accountEmail: "a.morgan@northwind.test")
+        XCTAssertNil(alias.userAddress, "an address the account is not is never taken for it")
+        XCTAssertEqual(alias.answersAsAccount, true)
+        XCTAssertTrue(alias.isAnswerable, "the answer goes to the event Exchange put on this account's calendar")
+    }
+
     /// An invitation forwarded from the user's other account names that account, not this one: the card shows "You"
     /// for neither (the answer would speak for this account) and offers no answer, which the engine refuses too.
     func testAnInvitationToTheUsersOtherAccountIsNotAnsweredFromThisOne() async throws {

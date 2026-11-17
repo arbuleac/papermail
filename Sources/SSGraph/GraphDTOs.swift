@@ -95,6 +95,11 @@ struct GraphMessage: Decodable, Sendable {
     var isEventMessage: Bool {
         odataType?.lowercased().contains("eventmessage") ?? false
     }
+
+    /// A response the organizer receives (`#microsoft.graph.eventMessageResponse`): no invitation to show.
+    var isEventResponse: Bool {
+        odataType?.lowercased().hasSuffix("eventmessageresponse") ?? false
+    }
 }
 
 /// A date and time in a named zone, as Graph writes an event's start and end.

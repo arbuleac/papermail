@@ -336,7 +336,11 @@ actor Hydrator {
         if let invitation = body.invitation { return invitation }
         guard let text = body.calendar else { return nil }
         let account = try? store.accounts().first(where: { $0.id == id.accountID })
-        return CalendarInvitationReader.invitation(fromICS: text, userAddresses: account.map { [$0.email] } ?? [])
+        var invitation = CalendarInvitationReader.invitation(fromICS: text, userAddresses: account.map { [$0.email] } ?? [])
+        // Microsoft answers the event Exchange put in the user's own calendar, whomever the invitation named, as its
+        // own reading of the event says; the event message's calendar part (its event unread) is answered so too.
+        if account?.kind == .microsoft { invitation?.answersAsAccount = true }
+        return invitation
     }
 
     private func finish(_ id: MessageID, task: Task<StoredBody, Error>) {

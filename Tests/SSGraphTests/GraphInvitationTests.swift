@@ -194,6 +194,91 @@ final class GraphInvitationTests: GraphTestCase {
         XCTAssertEqual(body.html, "<p>Monthly look at the roadmap.</p>", "the body is stored all the same")
     }
 
+    // MARK: An event the account cannot read
+
+    /// What Exchange answers a token without a calendar scope that expands the event.
+    private let accessDenied = Reply.json(#"{"error": {"code": "ErrorAccessDenied", "message": "Access is denied. Check credentials and try again."}}"#,
+                                          status: 403)
+
+    private func routeBody(event: Reply?, mime: Reply?, type: String = "#microsoft.graph.eventMessageRequest") {
+        let body = bodyReply.replacingOccurrences(of: "#microsoft.graph.eventMessageRequest", with: type)
+        route { request in
+            guard request.method == "GET" else { return nil }
+            switch request.path {
+            case "/v1.0/me/messages/M-EV":
+                if request.query["$expand"] != nil { return event }
+                return .json(body)
+            case "/v1.0/me/messages/M-EV/$value": return mime
+            case "/v1.0/me/messages/M-EV/attachments": return .json(Fixtures.list([]))
+            default: return nil
+            }
+        }
+    }
+
+    private var mimeRequests: [Request] { requests.filter { $0.path.hasSuffix("/$value") } }
+
+    /// The user's case: an account that granted mail alone. The event is refused, so the calendar comes from the
+    /// message's own MIME, which the hydrator reads as it reads Gmail's text/calendar part.
+    func testAnEventTheAccountCannotReadLeavesTheCalendarTheMessageCarries() async throws {
+        routeBody(event: accessDenied, mime: .bytes(GraphMIMECalendarTests.exchangeMIME()))
+        let body = try await makeProvider().body(for: "M-EV")
+        XCTAssertNil(body.invitation, "Graph's own reading, refused")
+        XCTAssertEqual(body.calendar, GraphMIMECalendarTests.ics)
+        XCTAssertEqual(body.html, "<p>Monthly look at the roadmap.</p>", "the body is the first request's, as before")
+        XCTAssertEqual(mimeRequests.count, 1)
+        XCTAssertEqual(mimeRequests.first?.headers["Accept"], "*/*")
+    }
+
+    func testACancellationsCalendarComesTheSameWay() async throws {
+        let cancel = GraphMIMECalendarTests.ics.replacingOccurrences(of: "METHOD:REQUEST", with: "METHOD:CANCEL")
+        routeBody(event: accessDenied, mime: .bytes(GraphMIMECalendarTests.exchangeMIME(calendar: cancel)),
+                  type: "#microsoft.graph.eventMessage")
+        let body = try await makeProvider().body(for: "M-EV")
+        XCTAssertEqual(body.calendar, cancel)
+    }
+
+    /// An event that reads but cannot be shown (no UID, no start: the Calendar Attendant has not put it on the calendar)
+    /// leaves the message's calendar too.
+    func testAnEventThatCannotBeShownLeavesTheCalendarTheMessageCarries() async throws {
+        let noStart = Self.eventMessage().replacingOccurrences(of: #""start": {"dateTime": "2026-11-03T13:00:00.0000000", "timeZone": "UTC"},"#, with: "")
+        routeBody(event: .json(noStart), mime: .bytes(GraphMIMECalendarTests.exchangeMIME()))
+        let body = try await makeProvider().body(for: "M-EV")
+        XCTAssertNil(body.invitation)
+        XCTAssertEqual(body.calendar, GraphMIMECalendarTests.ics)
+    }
+
+    func testAnEventReadWholeFetchesNoMIME() async throws {
+        routeBody(event: .json(Self.eventMessage()), mime: .bytes(GraphMIMECalendarTests.exchangeMIME()))
+        let body = try await makeProvider().body(for: "M-EV")
+        XCTAssertNotNil(body.invitation)
+        XCTAssertNil(body.calendar)
+        XCTAssertTrue(mimeRequests.isEmpty)
+    }
+
+    func testAResponseToTheOrganizerFetchesNoMIME() async throws {
+        routeBody(event: accessDenied, mime: .bytes(GraphMIMECalendarTests.exchangeMIME()), type: "#microsoft.graph.eventMessageResponse")
+        let body = try await makeProvider().body(for: "M-EV")
+        XCTAssertNil(body.invitation)
+        XCTAssertNil(body.calendar)
+        XCTAssertTrue(mimeRequests.isEmpty, "a response carries no invitation to show")
+    }
+
+    func testAMIMEThatCannotBeReadLeavesTheMessageWithoutACard() async throws {
+        routeBody(event: accessDenied, mime: .json(#"{"error": {"code": "ErrorInternalServerError"}}"#, status: 500))
+        let body = try await makeProvider().body(for: "M-EV")
+        XCTAssertNil(body.invitation)
+        XCTAssertNil(body.calendar)
+        XCTAssertEqual(body.html, "<p>Monthly look at the roadmap.</p>", "the body is stored all the same")
+    }
+
+    func testAThrottledMIMEFailsTheBodySoItIsFetchedAgain() async {
+        routeBody(event: accessDenied, mime: .json(#"{"error": {"code": "TooManyRequests"}}"#, status: 429, headers: ["Retry-After": "7"]))
+        await expectProviderError({ try await self.makeProvider().body(for: "M-EV") }) { error in
+            if case .throttled = error { return true }
+            return false
+        }
+    }
+
     func testAThrottledEventFailsTheBodySoItIsFetchedAgain() async {
         routeBody(event: .json(#"{"error": {"code": "TooManyRequests"}}"#, status: 429, headers: ["Retry-After": "7"]))
         await expectProviderError({ try await self.makeProvider().body(for: "M-EV") }) { error in
