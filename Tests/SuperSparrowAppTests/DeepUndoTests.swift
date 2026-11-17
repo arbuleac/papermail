@@ -299,6 +299,57 @@ final class DeepUndoTests: XCTestCase {
         XCTAssertEqual(harness.controller.readerWindows.map(\.conversationID), [open])
     }
 
+    /// A window ↩ opened takes its steps into the one history, and Esc closing it, as ⌘W does, loses none of them and leaves
+    /// no place holding the window: long after, ⌘Z from the main window walks back the window's star, confirming in the
+    /// main window and opening nothing, and ⌘Z from a window a double-click opened reaches the main window's archive
+    /// behind it (§5.49, §6.1).
+    func testDeepUndoReachesStepsOfWindowsReturnOpenedAndEscClosed() throws {
+        let clock = Clock()
+        let harness = try harness(clock)
+        defer { harness.close() }
+        let ids = harness.list.conversations.prefix(4).map(\.id)
+        // Threads 1 to 3 are not starred (every fifth is).
+        let (archived, starred, other) = (ids[1], ids[2], ids[3])
+        XCTAssertFalse(try isStarred(starred, harness))
+
+        select(archived, harness)
+        XCTAssertTrue(harness.controller.perform(.archive))
+        harness.toasts.dismiss()
+        clock.now += 3_600
+
+        select(starred, harness)
+        XCTAssertTrue(harness.controller.perform(.openInWindow), "↩ on the list")
+        let reader = try XCTUnwrap(harness.controller.readerWindows.first { $0.conversationID == starred })
+        XCTAssertTrue(reader.perform(.toggleStar))
+        XCTAssertTrue(try isStarred(starred, harness))
+        let star = try XCTUnwrap(harness.controller.undoCenter.history.latest?.id)
+        let place = try XCTUnwrap(harness.controller.undoCenter.place(of: star).reader, "the window's step")
+        XCTAssertTrue(place.window === reader)
+
+        XCTAssertTrue(reader.perform(.clearSearch), "Esc, with nothing else in the window to close")
+        XCTAssertTrue(harness.controller.readerWindows.isEmpty, "closes the window")
+        XCTAssertNil(place.window, "the step's place lets go of it")
+        XCTAssertEqual(harness.controller.undoCenter.history.groups.count, 2, "and the history keeps both steps")
+        clock.now += 3_600
+
+        XCTAssertEqual(editUndo(harness).title, "Undo Star")
+        harness.controller.performEditUndo()
+        XCTAssertFalse(try isStarred(starred, harness))
+        XCTAssertEqual(harness.toastMessage, "Undid Star", "the closed window's step confirms in the main window")
+        XCTAssertTrue(harness.controller.readerWindows.isEmpty, "a deep ⌘Z opens no window again")
+
+        let index = try XCTUnwrap(harness.list.conversations.firstIndex { $0.id == other })
+        harness.list.rowDoubleClicked(try XCTUnwrap(harness.list.layout.row(ofConversation: index)))
+        let second = try XCTUnwrap(harness.controller.readerWindows.first { $0.conversationID == other }, "a double-click")
+        let item = NSMenuItem(title: "Undo", action: NSSelectorFromString("undo:"), keyEquivalent: "z")
+        XCTAssertTrue(second.validateEditUndo(item))
+        XCTAssertEqual(item.title, "Undo Archive", "the main window's step, from the new window")
+        second.performEditUndo()
+        XCTAssertTrue(try inInbox(archived, harness))
+        XCTAssertEqual(harness.controller.readerWindows.map(\.conversationID), [other])
+        XCTAssertEqual(editUndo(harness).title, "Can't Undo")
+    }
+
     // MARK: Every way in
 
     /// A message's own star (its sheet's, More › Star Message) and More › Mark as Unread from Here are mail actions like S

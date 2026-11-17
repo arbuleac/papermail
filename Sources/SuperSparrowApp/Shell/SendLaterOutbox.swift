@@ -4,7 +4,8 @@ import os
 
 /// The app's half of Send Later (spec §5.19, §5.23): one per main window, it observes the outbox and
 ///
-/// - hands the waiting messages to the Drafts view (`LocalDrafts.setLaterSends`), each in place of its kept draft;
+/// - hands the waiting messages to the Drafts view, each in place of its kept draft, and every send the provider has not
+///   taken yet to the Outbox (`LocalDrafts.setOutbox`, spec §5.53);
 /// - once one has gone (`sent`), removes the draft it was written in, sends the provider's draft it continued to the
 ///   Trash, as sending it from the composer would, and then clears the row;
 /// - once one has failed, keeps its draft with the reason, as a failed undo-send does, clears the row and says so;
@@ -79,7 +80,7 @@ final class SendLaterOutbox {
             case .scheduled, .later, .missed, .sending: break
             }
         }
-        localDrafts.setLaterSends(sends)
+        localDrafts.setOutbox(sends)
         let missed = sends.filter { $0.status == .missed && !asked.contains($0.id) }
         if !missed.isEmpty, let onMissed {
             asked.formUnion(missed.map(\.id))

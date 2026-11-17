@@ -465,13 +465,18 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         list.onRowAction = { [weak self] change, id in self?.rowAction(change, on: id) }
         conversation.messageMenu = { [weak self] in self?.selectionContextMenu() }
         list.onOpen = { [weak self] id in
-            guard let self, !self.continuesEditingInDrafts(id) else { return }
-            if self.conversation.currentConversationID != id { self.conversation.show(id) }
-            self.focusReader()
+            guard let self, !self.continuesEditing(id) else { return }
+            self.showInReader(id)
         }
         list.onOpenInWindow = { [weak self] id in
-            guard let self, !self.continuesEditingInDrafts(id) else { return }
-            self.openInNewWindow(id)
+            guard let self, !self.continuesEditing(id) else { return }
+            // A message on its way is not a conversation a reader window could hold: ↩ and a double-click on an Outbox
+            // row only show it, in the main window's reader, as → does (§5.53).
+            if self.listView == .outbox {
+                self.showInReader(id)
+            } else {
+                self.openInNewWindow(id)
+            }
         }
         list.onRowsChange = { [weak self] in self?.listPane.listRowsDidChange() }
         // The UI never calls a provider: the engine searches, writes what it finds, and the list reads the store.
@@ -1143,6 +1148,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         // The router sees every key first; ↑/↓ and ↩ on a focused rail tile, sync line or menu button are that
         // control's own (§5.2, §5.11), so they go on to it instead of moving or opening the list.
         if focusedControlTakesCurrentKey { return false }
+        if refusesInOutbox(command) {
+            NSSound.beep()
+            return true
+        }
         switch command {
         case .next:
             list.selectNext()
@@ -1229,6 +1238,20 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         case .goTo(let view):
             setView(view)
             return true
+        }
+    }
+
+    /// A mail key on an Outbox row: a message on its way is not mail in the store, so E, S, U, #, !, L, M, ⇧I, R, A and F
+    /// change nothing there and beep, as E does where it changes nothing (§5.53). With nothing selected they pass on, as
+    /// anywhere; the keys that move, open, search, write and go are the list's own.
+    private func refusesInOutbox(_ command: KeyCommand) -> Bool {
+        guard listView == .outbox, list.selectedConversationID != nil else { return false }
+        switch command {
+        case .archive, .toggleStar, .toggleRead, .trash, .markSpam, .moveToInbox, .later, .toggleMute, .reply, .replyAll, .forward:
+            return true
+        case .next, .previous, .extendNext, .extendPrevious, .open, .openInWindow, .compose, .search, .clearSearch, .back, .undo,
+             .goTo:
+            return false
         }
     }
 
@@ -1557,7 +1580,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// Nothing is marked as spam from the Trash, where the mail is on its way out already and Mark as Spam leaves what is
     /// there (`MailActionRecord.targets`), or from Drafts, which holds the user's own mail; nor from `in:trash` or
     /// `in:drafts` results. A search typed there lists All Mail (`listView`), whose rows it takes.
-    private var marksSpamInView: Bool { listView != .trash && listView != .drafts }
+    private var marksSpamInView: Bool { listView != .trash && listView != .drafts && listView != .outbox }
 
     /// ! and Mark as Spam: the selection leaves every view, as there is none for spam, with the toast, coalescing and
     /// undo of #. A snoozed conversation's snooze ends (the store's rule), and the undo puts it back. Where it does not
@@ -1615,7 +1638,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// Nothing is snoozed from the Trash (a trashed conversation ends its snooze) or from Drafts, nor from `in:trash` or
     /// `in:drafts` results; a search typed there lists All Mail (`listView`), whose rows L takes.
     private var canSnoozeSelection: Bool {
-        !showingWelcome && listView != .trash && listView != .drafts && !snoozableSelection.isEmpty
+        !showingWelcome && listView != .trash && listView != .drafts && listView != .outbox && !snoozableSelection.isEmpty
     }
 
     /// The conversations of `ids` a snooze would hold, judged as snoozing leaves them (archived) by the store's own rule
@@ -2349,15 +2372,16 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         return reader.window?.toastView
     }
 
-    /// The conversation ⌘O opens: the one selected, outside Drafts (a draft opens in its composer) and the welcome screen.
+    /// The conversation ⌘O opens: the one selected, outside Drafts (a draft opens in its composer), the Outbox (a message on
+    /// its way is no conversation, §5.53) and the welcome screen.
     private var conversationToOpenInWindow: ConversationID? {
-        guard !showingWelcome, !isSeveralSelected, listView != .drafts, let id = list.selectedConversationID,
-              !LocalDraftConversation.isLocal(id) else { return nil }
+        guard !showingWelcome, !isSeveralSelected, listView != .drafts, listView != .outbox,
+              let id = list.selectedConversationID, !LocalDraftConversation.isLocal(id) else { return nil }
         return id
     }
 
-    /// File › Open in New Window (⌘O): the selected conversation in a reader window. With several selected, in Drafts or
-    /// with nothing selected it beeps.
+    /// File › Open in New Window (⌘O): the selected conversation in a reader window. With several selected, in Drafts, in
+    /// the Outbox or with nothing selected it beeps.
     @objc func openSelectionInNewWindow(_ sender: Any?) {
         guard let id = conversationToOpenInWindow else {
             NSSound.beep()
@@ -2367,10 +2391,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     }
 
     /// Opens `id` in a reader window, or brings forward the one already showing it (⌘O; ↩ on the list and a double-click on
-    /// a row, outside Drafts). The window treats the conversation as a row of the list's view, as the keys here do.
+    /// a row, outside Drafts and the Outbox). The window treats the conversation as a row of the list's view, as the keys
+    /// here do.
     @discardableResult
     func openInNewWindow(_ id: ConversationID) -> ReaderWindowController? {
-        guard !showingWelcome, accountsByID[id.accountID] != nil, !LocalDraftConversation.isLocal(id), listView != .drafts else {
+        guard !showingWelcome, accountsByID[id.accountID] != nil, !LocalDraftConversation.isLocal(id), listView != .drafts,
+              listView != .outbox else {
             NSSound.beep()
             return nil
         }
@@ -2537,16 +2563,32 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// gives way to it.
     private func showLocalDrafts() {
         list.localDrafts = localDrafts.summaries
+        list.outboxRows = localDrafts.outboxSummaries
         let store = environment.store
         list.hiddenDrafts = Set(localDrafts.continuedDrafts.compactMap { try? store.message($0)?.conversationID })
     }
 
     /// In Drafts, ↩, → and a double-click on a row are Continue Editing (§5.19): the draft opens in its composer, never in
-    /// the reader or a reader window. False outside Drafts, where they open the conversation.
-    private func continuesEditingInDrafts(_ id: ConversationID) -> Bool {
-        guard listView == .drafts else { return false }
+    /// the reader or a reader window. In the Outbox they are too on a Send Later message still held (§5.53), which is the
+    /// same row as in Drafts; a message on its way only shows. False elsewhere, where they open the conversation.
+    private func continuesEditing(_ id: ConversationID) -> Bool {
+        switch listView {
+        case .drafts:
+            break
+        case .outbox:
+            guard localDrafts.outboxSend(for: id).flatMap(OutboxState.init)?.isHeld == true else { return false }
+        default:
+            return false
+        }
         if let draft = draftMessageID(in: id) { continueDraft(draft) }
         return true
+    }
+
+    /// ↩ and → outside Drafts, and anything that opens an Outbox row: the conversation in the main window's reader, which
+    /// takes the keyboard.
+    private func showInReader(_ id: ConversationID) {
+        if conversation.currentConversationID != id { conversation.show(id) }
+        focusReader()
     }
 
     /// The draft a Drafts row stands for: a kept draft's own message, or the conversation's newest draft.
@@ -2679,7 +2721,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         // The rows change now rather than at the observation, so the draft can take the selection.
         sendLaterOutbox.refresh()
         let row = LocalDraftConversation.conversationID(draftID: draft.id, account: draft.account.id)
-        if list.selectedConversationID == id { list.selectConversations([row], lead: row) }
+        // In Drafts the draft takes the row's place and the selection; in the Outbox the row just leaves (§5.53).
+        if listView == .drafts, list.selectedConversationID == id { list.selectConversations([row], lead: row) }
         let now = laterNow
         let date = send.sendAfter
         recordExternalUndo(command: SendLaterCopy.command, accounts: [id.accountID], toast: SendLaterCopy.command + " cancelled",
@@ -2941,6 +2984,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         #selector(findPreviousMatch(_:)),
     ]
 
+    /// The Message menu's and the context menu's mail items: what the keys `refusesInOutbox` names do from a menu.
+    private static let mailCommands: Set<Selector> = [
+        #selector(archiveSelection(_:)), #selector(laterSelection(_:)), #selector(snoozeSelectionUntil(_:)), #selector(pickSnoozeDate(_:)),
+        #selector(toggleStarSelection(_:)), #selector(trashSelection(_:)), #selector(markSelectionSpam(_:)),
+        #selector(moveSelectionToInbox(_:)), #selector(markSelectionUnread(_:)), #selector(replyToSelection(_:)),
+        #selector(replyAllToSelection(_:)), #selector(forwardSelection(_:)), #selector(toggleMuteSelection(_:)),
+        #selector(unsubscribeFromConversation(_:)), #selector(alwaysArchiveSender(_:)), #selector(blockSender(_:)),
+    ]
+
     /// The toast after a save to Downloads (spec §5.17, §5.30): what was saved, with Show in Finder, which selects the
     /// copies. It is bound to no undo group, so Z still reaches the last undoable action in its grace (§6.1). A save
     /// that wrote nothing says so; a file that could not be fetched is told by its chip, not here.
@@ -2992,6 +3044,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         if let action = menuItem.action, Self.readerCommands.contains(action) {
             return !showingWelcome && conversation.validateMenuItem(menuItem)
         }
+        // A message on its way in the Outbox is not mail in the store: the mail items are disabled there (§5.53).
+        if listView == .outbox, let action = menuItem.action, Self.mailCommands.contains(action) { return false }
         switch menuItem.action {
         case #selector(archiveSelection(_:)):
             // Plain-letter and ⌘⌫ equivalents must not fire while the user is typing.
@@ -3059,7 +3113,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             menuItem.state = current == action ? .on : .off
             return current != action
         case #selector(openSelectionInNewWindow(_:)):
-            // One conversation, outside Drafts (§5.49).
+            // One conversation, outside Drafts and the Outbox (§5.49, §5.53).
             return conversationToOpenInWindow != nil
         default:
             return true

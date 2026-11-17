@@ -623,7 +623,11 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             showsReply = false
         case .several(let ids):
             emptyState.sentence = Self.severalSentence(ids.count)
-            if mailboxView == .trash {
+            if mailboxView == .outbox {
+                // Nothing applies to messages on their way, one or several (§5.53).
+                emptyState.sentence = Self.severalMessagesSentence(ids.count)
+                emptyState.hint = [.text("Select one to see it.")]
+            } else if mailboxView == .trash {
                 emptyState.hint = [.keys(["\u{21e7}I"]), .text("moves them to Inbox \u{00b7}"), .keys(["S"]), .text("stars them")]
             } else if mailboxView == .drafts {
                 // The header offers only Discard Draft here (§5.19), so the hint names only that.
@@ -638,7 +642,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             emptyState.sentence = "No messages to show"
             emptyState.hint = [.text("They were deleted or moved on another device.")]
             showsWeb = !emptied
-            showsReply = !emptied && !inTrash && mailboxView != .trash && mailboxView != .drafts
+            showsReply = !emptied && !inTrash && mailboxView != .trash && mailboxView != .drafts && mailboxView != .outbox
         }
         emptyState.isHidden = showsWeb
         webContainer.isHidden = !showsWeb
@@ -678,9 +682,11 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         case .nothing:
             return .init(kicker: nil, headline: nil, placeholder: "No subject", actions: .make(.nothing))
         case .several(let ids):
-            let allStarred = ids.allSatisfy(isStarred)
+            // The Outbox's rows are messages, which no star marks (§5.53).
+            let outbox = mailboxView == .outbox
+            let allStarred = !outbox && ids.allSatisfy(isStarred)
             return .init(kicker: .init(inkSlot: nil, lead: "Selection", accountName: nil, trail: nil),
-                         headline: "\(ids.count) conversations selected", placeholder: "No subject",
+                         headline: outbox ? "\(ids.count) messages selected" : "\(ids.count) conversations selected", placeholder: "No subject",
                          actions: .make(.several(count: ids.count, view: mailboxView, allStarred: allStarred)))
         case let .one(id, inTrash, emptied):
             let account = accountsByID[id.accountID]
@@ -688,16 +694,27 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             let name = multipleAccounts ? account.map(AccountLabels.name(for:)) : nil
             let slot = multipleAccounts ? account?.inkSlot : nil
             let drafts = mailboxView == .drafts
+            let outbox = mailboxView == .outbox
             let count = messages.count == 1 ? "1 message" : "\(messages.count) messages"
-            let kicker = drafts
-                ? ReaderHeaderView.Kicker(inkSlot: slot, lead: "Draft", accountName: name, trail: nil)
-                : ReaderHeaderView.Kicker(inkSlot: slot, lead: nil, accountName: name, trail: emptied ? nil : count)
+            let kicker: ReaderHeaderView.Kicker
+            if drafts || outbox {
+                kicker = ReaderHeaderView.Kicker(inkSlot: slot, lead: outbox ? OutboxCopy.title : "Draft", accountName: name, trail: nil)
+            } else {
+                kicker = ReaderHeaderView.Kicker(inkSlot: slot, lead: nil, accountName: name, trail: emptied ? nil : count)
+            }
             let target = replyTarget(in: messages)
             let replyAll = target.map { QuickReplyComposer.replyAllAvailable(for: $0, accounts: accountsByID) } ?? false
-            let actions = ReaderActionSet.make(.one(view: mailboxView, inTrash: inTrash, emptied: emptied,
-                                                    starred: messages.contains(where: \.isStarred), replyAllAvailable: replyAll))
+            let actions: ReaderActionSet
+            if outbox {
+                // Continue Editing while it is a Send Later message still held, as from Drafts; nothing else (§5.53).
+                let held = !emptied && localDrafts?.outboxSend(for: id).flatMap(OutboxState.init)?.isHeld == true
+                actions = .make(.outbox(continues: held))
+            } else {
+                actions = .make(.one(view: mailboxView, inTrash: inTrash, emptied: emptied, starred: messages.contains(where: \.isStarred),
+                                     replyAllAvailable: replyAll))
+            }
             let subject = emptied ? (header.content.headline ?? "") : RenderPayloadBuilder.subject(of: messages)
-            return .init(kicker: kicker, headline: subject, placeholder: drafts ? "New Message" : "No subject", actions: actions)
+            return .init(kicker: kicker, headline: subject, placeholder: drafts || outbox ? "New Message" : "No subject", actions: actions)
         }
     }
 
@@ -709,10 +726,19 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
 
     /// "Three conversations, one keystroke." (spec §5.19), the count spelled out in the locale.
     static func severalSentence(_ count: Int) -> String {
+        spelledOut(count) + " conversations, one keystroke."
+    }
+
+    /// "Three messages selected": several Outbox rows, to which nothing applies together (spec §5.53).
+    static func severalMessagesSentence(_ count: Int) -> String {
+        spelledOut(count) + " messages selected"
+    }
+
+    private static func spelledOut(_ count: Int) -> String {
         let formatter = NumberFormatter()
         formatter.numberStyle = .spellOut
         let words = formatter.string(from: NSNumber(value: count)) ?? String(count)
-        return words.prefix(1).uppercased() + words.dropFirst() + " conversations, one keystroke."
+        return words.prefix(1).uppercased() + words.dropFirst()
     }
 
     /// The message R, A and the quick reply answer: the target (spec §5.14), else the latest.
@@ -797,18 +823,20 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         for sheet in sheets { bodies[sheet.metadata.id] = sheet.body }
         let all = messages + sheets.map(\.metadata)
         let settings = AppSettings.shared
-        // A Send Later message's sheet says when it sends (§5.19); only the drafts on screen are passed, so the inputs of
-        // every other conversation stay as they were.
-        let laterStates = localDrafts?.sendLaterStates.filter { state in messages.contains { $0.id == state.key } } ?? [:]
+        // A Send Later message's sheet says when it sends (§5.19), and in the Outbox every sheet says where its send is
+        // (§5.53); only the drafts on screen are passed, so the inputs of every other conversation stay as they were.
+        let inOutbox = mailboxView == .outbox
+        let laterStates = inOutbox ? [:] : localDrafts?.sendLaterStates.filter { state in messages.contains { $0.id == state.key } } ?? [:]
+        let outboxStates = inOutbox ? localDrafts?.outboxStates.filter { state in messages.contains { $0.id == state.key } } ?? [:] : [:]
         let payload = builder.build(
             messages: all, bodies: bodies, accounts: accountsByID, bodyStates: states,
             loadRemoteImages: Self.loadRemoteImages, readingSans: QuireEnvironment.typeface == .sfPro,
             textSize: appSettings.readerSize.rawValue,
             colorsNoticeDismissed: settings.originalColorsNoticeDismissed, adaptsColours: appSettings.adaptsMailColours,
             pending: Set(sheets.map(\.metadata.id)),
-            invitationPermissionNeeded: invitationPermissionNeeded, sendLater: laterStates
+            invitationPermissionNeeded: invitationPermissionNeeded, sendLater: laterStates, outbox: outboxStates
         )
-        return (payload, RenderInputs(messages: all, sendLater: laterStates) { bodies[$0] != nil })
+        return (payload, RenderInputs(messages: all, sendLater: laterStates, outbox: outboxStates) { bodies[$0] != nil })
     }
 
     private func applyMessages(_ messages: [MessageMetadata], for id: ConversationID) {

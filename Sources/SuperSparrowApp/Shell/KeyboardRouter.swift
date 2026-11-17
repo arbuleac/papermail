@@ -14,7 +14,8 @@ enum KeyCommand: Equatable {
     /// address, which ↩ presses there.
     case open
     /// ↩ and keypad Enter from the list: the selected conversation in a reader window of its own, as ⌘O opens it, or its
-    /// window brought forward (spec §5.49). In Drafts it is Continue Editing (§5.19).
+    /// window brought forward (spec §5.49). In Drafts it is Continue Editing (§5.19); in the Outbox it continues a held Send
+    /// Later message and only shows any other row, in the main window's reader (§5.53).
     case openInWindow
     case archive
     case toggleStar
@@ -181,6 +182,7 @@ final class KeyboardRouter {
         case "s": return .starred
         case "t": return .sent
         case "d": return .drafts
+        case "o": return .outbox
         case "#": return .trash
         case "a": return .all
         default: return nil

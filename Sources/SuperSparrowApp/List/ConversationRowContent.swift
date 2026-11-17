@@ -46,8 +46,9 @@ final class ConversationRowContent {
         let style = Style(textSize: textSize)
         sender = style.sender(text, unread: unread)
         senderWidth = ceil(sender.size().width)
-        time = QuireFont.attributedString(text.timeText, role: unread ? .metaStrong : .meta, color: unread ? .qAccent : .qInk3,
-                                          textSize: textSize)
+        // A failed send's “Couldn't send” is in `danger`, as a failed row's triangle is (§5.53); nothing in the Outbox is unread.
+        time = QuireFont.attributedString(text.timeText, role: unread ? .metaStrong : .meta,
+                                          color: text.isTimeFailure ? .qDanger : unread ? .qAccent : .qInk3, textSize: textSize)
         timeWidth = ceil(time.size().width)
         timeToolTip = text.timeToolTip
         subject = style.subject(text, unread: unread)

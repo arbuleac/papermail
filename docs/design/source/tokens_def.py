@@ -340,7 +340,7 @@ ICON = {
  "file": "doc", "fileText": "doc.richtext", "fileImage": "photo", "fileSheet": "tablecells", "fileArchive": "doc.zipper", "fileVideo": "film",
  "more": "ellipsis", "accountsTab": "person.crop.circle", "oauthTab": "key", "generalTab": "gearshape", "appearanceTab": "paintpalette",
  "viewInbox": "tray", "viewStarred": "star", "viewSent": "paperplane", "viewDrafts": "doc", "viewTrash": "trash", "viewAllMail": "archivebox",
- "viewLater": "clock", "later": "clock", "spam": "xmark.bin",
+ "viewLater": "clock", "viewOutbox": "tray.and.arrow.up", "later": "clock", "spam": "xmark.bin",
  "moveToInbox": "tray.and.arrow.down", "privacy": "lock", "success": "checkmark.circle.fill", "info": "info.circle", "warning": "exclamationmark.triangle.fill",
  "brand": "ss.paperPlane", "keyboard": "keyboard", "dismiss": "xmark",
  "removeAccount": "minus", "bold": "bold", "italic": "italic", "underline": "underline", "bulletedList": "list.bullet", "numberedList": "list.number",
@@ -407,8 +407,10 @@ CHEAT_SHEET = [
  ("Act", [("E ⇧I", "Archive · move to Inbox"), ("L", "Snooze until later"), ("# !", "Move to Trash · spam"), ("S", "Star · unstar"),
           ("U", "Mark as unread · read"), ("M", "Mute · unmute"), ("⇧⌘U", "Unsubscribe"), ("⌘P", "Print the conversation"),
           ("Z", "Undo")]),
+ # The Outbox's G O joins Go, so ⌘0 and ⌘1 … ⌘9 share one row, as the keys that mirror each other do, and Go keeps its nine
+ # rows (§5.32, §5.53).
  ("Go", [("G then I", "Inbox"), ("G then L", "Later"), ("G then S", "Starred"), ("G then T", "Sent"), ("G then D", "Drafts"),
-         ("G then #", "Trash"), ("G then A", "All Mail"), ("⌘0", "All Inboxes"), ("⌘1 … ⌘9", "One account")]),
+         ("G then O", "Outbox"), ("G then #", "Trash"), ("G then A", "All Mail"), ("⌘0 … ⌘9", "All Inboxes · one account")]),
  # R and A share a row, as J K and N P do, so Send later fits the band without making the sheet taller (§5.32).
  ("Write", [("C", "New message"), ("R A", "Reply · reply all"), ("F", "Forward"), ("⇧⌘R", "Open in composer"), ("⌘↩", "Send"),
            ("⇧⌘↩", "Send and archive"), ("⇧⌘L", "Send later"), ("⇧⌘A", "Attach files")]),

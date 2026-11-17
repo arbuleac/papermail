@@ -46,6 +46,9 @@ public struct ListEmptyState: Hashable, Sendable {
             let line = serverSearch.emptyHint
             return ListEmptyState(sentence: sentence, hint: line.text ?? "", link: line.link)
         }
+        // The Outbox holds what this Mac is sending, which no account's sync state changes: offline or downloading, an
+        // empty one is just empty.
+        if query.view == .outbox { return settledState(query) }
         if isOfflineWithNothingCached {
             return ListEmptyState(sentence: "You're offline", hint: "Mail will appear when you reconnect.", glyph: .offline)
         }
@@ -76,6 +79,8 @@ public struct ListEmptyState: Hashable, Sendable {
         case .later:
             // Rarely seen: the view returns to the Inbox once nothing in scope is snoozed (§5.2).
             return ListEmptyState(sentence: "Nothing snoozed", hint: "Press L to bring a conversation back later.")
+        case .outbox:
+            return ListEmptyState(sentence: "Nothing waiting to send", hint: "Messages you send wait here until they have gone.")
         }
     }
 }

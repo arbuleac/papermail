@@ -137,6 +137,20 @@ public struct RenderPayload: Hashable, Codable, Sendable {
         case inComposer
     }
 
+    /// A draft sheet shown in the Outbox (spec §5.53): a message on its way, which the footer never offers to discard.
+    public struct OutboxSheet: Hashable, Codable, Sendable {
+        /// A Send Later message still held: the footer offers Continue editing, which cancels its schedule and opens its
+        /// draft, as from Drafts. Nothing else on a message on its way is the user's to change from here.
+        public var continues: Bool
+        /// It failed: the date line, which then gives the reason, is set in `danger`.
+        public var failed: Bool
+
+        public init(continues: Bool, failed: Bool) {
+            self.continues = continues
+            self.failed = failed
+        }
+    }
+
     public struct Message: Hashable, Codable, Sendable {
         /// Opaque render key (see `RenderPayload.messageKey(for:)`); the shell echoes it in actions.
         public var id: String
@@ -179,6 +193,8 @@ public struct RenderPayload: Hashable, Codable, Sendable {
         /// A Send Later message still waiting for its time (Drafts, spec §5.19): its date line reads “Sends Mon 09:00”
         /// and Cancel follows it, which takes the schedule back and leaves the draft.
         public var cancelsSendLater: Bool
+        /// Set on a draft sheet shown in the Outbox (spec §5.53); nil (and absent from the JSON) everywhere else.
+        public var outbox: OutboxSheet?
         /// The paperclip on the row and the header (spec §5.13), as in the list. Once the body is here it means
         /// attachments the reader shows (inline pictures are part of the body, not attachments); until then it is
         /// the provider's flag, the one the list row draws from.
@@ -209,6 +225,7 @@ public struct RenderPayload: Hashable, Codable, Sendable {
             unsubscribe: Bool = false,
             invitation: Invitation? = nil,
             cancelsSendLater: Bool = false,
+            outbox: OutboxSheet? = nil,
             hasAttachments: Bool? = nil
         ) {
             self.id = id
@@ -235,6 +252,7 @@ public struct RenderPayload: Hashable, Codable, Sendable {
             self.unsubscribe = unsubscribe
             self.invitation = invitation
             self.cancelsSendLater = cancelsSendLater
+            self.outbox = outbox
             self.hasAttachments = hasAttachments ?? !attachments.isEmpty
         }
     }

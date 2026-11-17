@@ -218,6 +218,8 @@ enum MainMenu {
             (.inbox, "Inbox", "G I", Quire.Icon.viewInbox), (.later, "Later", "G L", Quire.Icon.viewLater),
             (.starred, "Starred", "G S", Quire.Icon.viewStarred),
             (.sent, "Sent", "G T", Quire.Icon.viewSent), (.drafts, "Drafts", "G D", Quire.Icon.viewDrafts),
+            // Always listed: the Outbox has no rail tile, so this and G O are the way there (§5.53).
+            (.outbox, OutboxCopy.title, "G O", Quire.Icon.viewOutbox),
             (.trash, "Trash", "G #", Quire.Icon.viewTrash), (.all, "All Mail", "G A", Quire.Icon.viewAllMail),
         ]
         for (view, title, keys, symbol) in views {

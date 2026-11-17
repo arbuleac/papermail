@@ -38,8 +38,11 @@ enum TitleMenu {
         (.all, "All Mail", Quire.Icon.viewAllMail, "G A"),
     ]
 
+    /// The view's name for the masthead and the search placeholder. The Outbox is no entry: it has no rail tile for the
+    /// menu to stand in for (§5.4, §5.53), so View › Outbox and G O are its ways in, and the menu checks nothing there.
     static func title(for view: MailboxView) -> String {
-        entries.first { $0.view == view }?.title ?? "Inbox"
+        if view == .outbox { return OutboxCopy.title }
+        return entries.first { $0.view == view }?.title ?? "Inbox"
     }
 
     /// Builds the menu. View items carry `MailboxView.allCases` indices as tags; account items carry the

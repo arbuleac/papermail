@@ -26,6 +26,10 @@ public struct ReaderActionSet: Equatable, Sendable {
         case one(view: MailboxView, inTrash: Bool, emptied: Bool, starred: Bool, replyAllAvailable: Bool)
         /// Two or more conversations; `allStarred` only when every one is starred.
         case several(count: Int, view: MailboxView, allStarred: Bool)
+        /// One message in the Outbox (spec §5.53): a send on its way, which no mail action changes. `continues` while it
+        /// is a Send Later message still held, whose draft Continue Editing opens, its schedule cancelled first, as from
+        /// Drafts.
+        case outbox(continues: Bool)
     }
 
     /// The first group (Star · Archive · Trash, or the draft actions).
@@ -56,7 +60,11 @@ public struct ReaderActionSet: Equatable, Sendable {
         case .nothing:
             let set = ReaderActionSet(primary: [.star, .archive, .trash], replies: replyGroup)
             return ReaderActionSet(primary: set.primary, replies: set.replies, disabled: Set(set.all))
+        case .outbox(let continues):
+            return ReaderActionSet(primary: continues ? [.continueEditing] : [], replies: [])
         case let .one(view, inTrash, emptied, starred, replyAllAvailable):
+            // The reader asks with `.outbox` there; a conversation named as the Outbox's has nothing to offer either.
+            if view == .outbox { return ReaderActionSet(primary: [], replies: []) }
             if view == .drafts {
                 let set = ReaderActionSet(primary: [.continueEditing, .discardDraft], replies: [])
                 return emptied ? ReaderActionSet(primary: set.primary, replies: [], disabled: Set(set.all)) : set
@@ -77,6 +85,8 @@ public struct ReaderActionSet: Equatable, Sendable {
             switch view {
             case .drafts:
                 return ReaderActionSet(primary: [.discardDraft], replies: [])
+            case .outbox:
+                return ReaderActionSet(primary: [], replies: [])
             case .trash:
                 return ReaderActionSet(primary: [.star, .moveToInbox], replies: [], starOn: allStarred)
             default:

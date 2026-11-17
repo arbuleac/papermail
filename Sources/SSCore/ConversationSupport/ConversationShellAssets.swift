@@ -593,6 +593,7 @@ public enum ConversationShellAssets {
     .ss-dhead { display: flex; align-items: baseline; gap: 12px; font: var(--q-font-snippet); line-height: calc(16px + var(--q-step-snippet, 0px)); }
     .ss-dto { flex: 1; min-width: 0; color: var(--q-ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .ss-ddate { flex: none; color: var(--q-ink3); font-variant-numeric: tabular-nums; }
+    .ss-ddate.ss-dfail { color: var(--q-danger); }
     /* A Send Later message's “Sends Mon 09:00 · Cancel” (spec §5.19): Cancel is a link like Unsubscribe's, after a
        middle dot in the date's colour; the date and the link never shrink, the recipients truncate first. */
     .ss-dlater { flex: none; display: inline-flex; align-items: baseline; gap: 4px; }
@@ -1496,7 +1497,7 @@ public enum ConversationShellAssets {
 
       function headerKey(m) {
         return JSON.stringify([m.from, m.to, m.cc, m.recipients, m.snippet, m.dateDisplay, m.dateISO, m.isUnread, m.isStarred, m.isDraft,
-          !!m.unsubscribe, !!m.cancelsSendLater]);
+          !!m.unsubscribe, !!m.cancelsSendLater, m.outbox || null]);
       }
 
       function nameNode(m, cls) {
@@ -2114,7 +2115,8 @@ public enum ConversationShellAssets {
             later.appendChild(cancel);
             head.appendChild(later);
           } else {
-            head.appendChild(el('span', 'ss-ddate', m.dateDisplay));
+            // In the Outbox a failed send's line gives the reason, in danger (spec §5.53).
+            head.appendChild(el('span', 'ss-ddate' + (m.outbox && m.outbox.failed ? ' ss-dfail' : ''), m.dateDisplay));
           }
           card.head.replaceWith(head);
           card.head = head;
@@ -2416,7 +2418,13 @@ public enum ConversationShellAssets {
           cont.addEventListener('click', function (event) { stop(event); setTarget(card, true); action('continueDraft', card, null); });
           var discard = button('ss-gb ss-discardDraft', 'Discard draft…', 'Discard Draft…  #');
           discard.addEventListener('click', function (event) { stop(event); setTarget(card, true); action('discardDraft', card, null); });
-          parts = [cont, kbd('↩'), discard];
+          // A message on its way in the Outbox is never discarded from there; only a held Send Later message continues
+          // (spec §5.53).
+          if (m.outbox) {
+            parts = m.outbox.continues ? [cont, kbd('↩')] : [];
+          } else {
+            parts = [cont, kbd('↩'), discard];
+          }
         } else {
           parts = parts
             .concat(footerButton(card, 'reply', 'Reply', 'arrowshape.turn.up.left', 'R', 'Reply  R'))
@@ -2458,6 +2466,8 @@ public enum ConversationShellAssets {
         var previous = card.message;
         card.message = m;
         if (headerKey(previous) !== headerKey(m)) { fillHeader(card); }
+        // An Outbox send that stops being held loses Continue editing (spec §5.53).
+        if (JSON.stringify(previous.outbox || null) !== JSON.stringify(m.outbox || null)) { fillFooter(card); }
         if (previous.html !== m.html || previous.hasBody !== m.hasBody) {
           replaceBody(card);
         } else if (previous.bodyState !== m.bodyState) {

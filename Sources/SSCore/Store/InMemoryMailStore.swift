@@ -526,6 +526,8 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
     }
 
     private func conversationsLocked(_ query: ConversationQuery) -> [ConversationSummary] {
+        // As the SQLite store: the Outbox's rows are the outbox's, never a conversation (spec §5.53).
+        guard query.view != .outbox else { return [] }
         let isLater = query.view == .later
         var grouped: [ConversationID: [MessageMetadata]] = [:]
         for message in messagesByID.values {
@@ -586,6 +588,7 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         case .trash: return summaryIsTrash(summary)
         case .all: return summary.messageCount > 0 && !summaryIsTrash(summary)
         case .later: return snoozeRows[summary.id] != nil
+        case .outbox: return false
         }
     }
 
