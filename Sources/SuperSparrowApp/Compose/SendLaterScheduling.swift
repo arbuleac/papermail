@@ -11,15 +11,19 @@ final class SendLaterScheduled: NSObject {
 
     let sendID: String
     let date: Date
-    private let undoAction: @MainActor () -> Void
+    private let undoAction: @MainActor () -> Bool
 
-    init(sendID: String, date: Date, undo: @escaping @MainActor () -> Void) {
+    /// `undo` takes the schedule back and says whether it could: a message already on its way (⌘Z reaches the step
+    /// long after, §6.1) stays sent.
+    init(sendID: String, date: Date, undo: @escaping @MainActor () -> Bool) {
         self.sendID = sendID
         self.date = date
         undoAction = undo
     }
 
-    func undo() {
+    /// Takes the schedule back; false when the message had gone already.
+    @discardableResult
+    func undo() -> Bool {
         undoAction()
     }
 

@@ -11,6 +11,10 @@ enum ConversationAction {
     /// The desired starred state, already inverted from the current one.
     case star(ConversationID, Bool)
     case trash(ConversationID)
+    /// A change to some messages of the conversation rather than all of it (spec §5.14): a sheet's star, More › Star
+    /// Message or Unstar Message, Mark as Unread from Here. The window applies it as a mail action, so it joins the undo
+    /// history and ⌘Z reaches it as it reaches the header's Star (§6.1).
+    case changeMessages(MetadataChange, [MessageID])
     /// Out of the Trash (the Trash view's Archive slot, spec §5.12).
     case moveToInbox(ConversationID)
     /// A header action with several conversations selected (spec §5.19): one change on all of them, so one

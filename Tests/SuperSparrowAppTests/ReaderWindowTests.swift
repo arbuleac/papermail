@@ -338,7 +338,10 @@ final class ReaderWindowTests: XCTestCase {
         let date = Date().addingTimeInterval(86_400)
         let sendID = try harness.environment.engine.scheduleSend(message, at: date, draftID: nil)
         var undone = false
-        SendLaterScheduled(sendID: sendID, date: date) { undone = true }.post(from: reader.conversation)
+        SendLaterScheduled(sendID: sendID, date: date) {
+            undone = true
+            return true
+        }.post(from: reader.conversation)
         XCTAssertTrue(self.message(in: reader)?.hasPrefix("Sends") == true, "the window's step: \(String(describing: self.message(in: reader)))")
         XCTAssertFalse(harness.toasts.isVisible(in: harness.controller.listPane.toastView))
         XCTAssertTrue(reader.perform(.undo))
