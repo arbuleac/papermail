@@ -37,9 +37,11 @@ public enum SendFailureWording {
     }
 
     /// `SendRunner` marks a send it was handing over when the app quit “interrupted while sending”: nobody can tell whether
-    /// the provider took it, so nothing may say it was not sent.
+    /// the provider took it, so nothing may say it was not sent. Its own phrase, not the word alone: a provider's error that
+    /// says “interrupted” (a service notice, a dropped stream) is a failure like any other, and must not tell the user
+    /// SuperSparrow quit.
     public static func isInterrupted(lastError: String?) -> Bool {
-        (lastError ?? "").lowercased().contains("interrupted")
+        (lastError ?? "").lowercased().contains("interrupted while sending")
     }
 
     /// The window's toast once a failed send nobody else answered for is kept in Drafts (spec §5.53, §5.46), with Open

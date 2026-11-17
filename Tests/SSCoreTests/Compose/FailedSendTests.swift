@@ -62,6 +62,10 @@ final class FailedSendTests: XCTestCase {
         XCTAssertTrue(SendFailureWording.isInterrupted(lastError: interrupted))
         XCTAssertFalse(SendFailureWording.isInterrupted(lastError: "HTTP 400"))
         XCTAssertFalse(SendFailureWording.isInterrupted(lastError: nil))
+        let providerSaysInterrupted = "server(status: 503, message: Service interrupted)"
+        XCTAssertFalse(SendFailureWording.isInterrupted(lastError: providerSaysInterrupted), "the provider's own word is no quit")
+        XCTAssertEqual(SendFailureWording.notice(subject: "Lisbon", lastError: providerSaysInterrupted),
+                       "Couldn\u{2019}t send \u{201c}Lisbon\u{201d}")
         for words in [SendFailureWording.notice(subject: "Lisbon", lastError: interrupted),
                       SendFailureWording.banner(lastError: interrupted, provider: .microsoft)] {
             XCTAssertFalse(words.contains("\u{2014}") || words.contains("\u{2013}"), "no long dash: \(words)")

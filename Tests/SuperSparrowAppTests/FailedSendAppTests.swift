@@ -177,6 +177,64 @@ final class FailedSendAppTests: XCTestCase {
         XCTAssertNil(harness.toastMessage, "and the window said nothing")
     }
 
+    /// Opens thread-2 in a reader window of its own, its messages shown.
+    private func openThreadInWindow(_ harness: MainWindowHarness) throws -> ReaderWindowController {
+        try openThread(harness)
+        harness.controller.openSelectionInNewWindow(nil)
+        let reader = try XCTUnwrap(harness.controller.readerWindows.first)
+        harness.spin { reader.conversation.currentMessages.count == 3 }
+        return reader
+    }
+
+    /// A reply from a reader window whose window closes after its countdown: the main window's reader watches it with its
+    /// claim (§5.49), so the window's settler leaves it alone, and that reader keeps the one draft when it fails.
+    func testAReplyWatchedPastItsReaderWindowIsKeptOnceByTheMainWindowsReader() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let reader = try openThreadInWindow(harness)
+        ConversationViewController.undoWindow = 0.05
+        reader.conversation.sendQuickReply("Thanks, sounds good", mode: .reply, action: .send)
+        let sendID = try XCTUnwrap(sends(harness).first?.id)
+        harness.spin { reader.conversation.liveQuickSend == nil }
+        reader.close()
+        XCTAssertTrue(harness.reader.watchedSendIDs.contains(sendID), "the main window's reader watches it now")
+        XCTAssertTrue(SendOwnership.isOwned(sendID), "with its claim")
+
+        try fail(sendID, "HTTP 400", harness)
+        harness.controller.sendLaterOutbox.refresh()
+        XCTAssertEqual(sends(harness).map(\.id), [sendID], "left to the reader")
+        harness.spin { self.sends(harness).isEmpty }
+        XCTAssertTrue(sends(harness).isEmpty, "the row leaves once the draft is kept")
+        XCTAssertEqual(kept(harness).map(\.id), [UUID(uuidString: sendID)].compactMap { $0 }, "one draft")
+        XCTAssertEqual(harness.toastMessage, "Couldn\u{2019}t send your reply")
+        XCTAssertFalse(SendOwnership.isOwned(sendID))
+    }
+
+    /// A reply from a reader window whose window closes mid-countdown: the countdown moves to an undo-send panel, which
+    /// claims the send before the bar lets go, so it is never unowned in between, and the panel keeps the one draft.
+    func testAReplyMovedFromItsReaderWindowToAPanelIsKeptOnceByThePanel() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let reader = try openThreadInWindow(harness)
+        ConversationViewController.undoWindow = 0.3
+        reader.conversation.sendQuickReply("Thanks, sounds good", mode: .reply, action: .send)
+        let sendID = try XCTUnwrap(sends(harness).first?.id)
+        reader.close()
+        XCTAssertNotNil(UndoSendPanel.panel(sendID: sendID), "the countdown went to a panel")
+        XCTAssertTrue(SendOwnership.isOwned(sendID), "which answers for it")
+
+        try fail(sendID, "HTTP 400", harness)
+        harness.controller.sendLaterOutbox.refresh()
+        XCTAssertEqual(sends(harness).map(\.id), [sendID], "left to the panel")
+        harness.spin { self.sends(harness).isEmpty }
+        XCTAssertTrue(sends(harness).isEmpty, "the row leaves once the draft is kept")
+        let drafts = kept(harness)
+        XCTAssertEqual(drafts.map(\.id), [UUID(uuidString: sendID)].compactMap { $0 }, "one draft")
+        XCTAssertEqual(drafts.first?.body.string.hasPrefix("Thanks, sounds good"), true)
+        XCTAssertNil(harness.toastMessage, "the panel says it; the window adds no toast")
+        XCTAssertFalse(SendOwnership.isOwned(sendID))
+    }
+
     // MARK: Nobody to keep it
 
     /// A quick reply whose Undo came too late stops being watched by its bar: when it fails afterwards, the window keeps
