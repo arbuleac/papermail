@@ -175,6 +175,7 @@ final class KeyboardRouter {
         case "s": return .starred
         case "t": return .sent
         case "d": return .drafts
+        case "o": return .outbox
         case "#": return .trash
         case "a": return .all
         default: return nil

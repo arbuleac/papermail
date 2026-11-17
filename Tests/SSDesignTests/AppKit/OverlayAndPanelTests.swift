@@ -84,13 +84,13 @@ final class OverlayAndPanelTests: XCTestCase {
 
     func testHUDRowsComeFromTheCheatSheet() {
         let rows = QuireSequenceHUDView.sequenceRows()
-        XCTAssertEqual(rows.map(\.keys), ["I", "L", "S", "T", "D", "#", "A"])
-        XCTAssertEqual(rows.map(\.label), ["Inbox", "Later", "Starred", "Sent", "Drafts", "Trash", "All Mail"])
+        XCTAssertEqual(rows.map(\.keys), ["I", "L", "S", "T", "D", "O", "#", "A"])
+        XCTAssertEqual(rows.map(\.label), ["Inbox", "Later", "Starred", "Sent", "Drafts", "Outbox", "Trash", "All Mail"])
         let hud = QuireSequenceHUDView()
-        XCTAssertEqual(hud.frame.size, NSSize(width: 220, height: 212), "12 + 28 + 6 + 7 × 22 + 12, Later's row included")
-        // The shell leaves Later's row out while nothing is snoozed (§5.32): the six views, 190 pt.
-        let six = QuireSequenceHUDView(rows: rows.filter { $0.keys != "L" })
-        XCTAssertEqual(six.frame.size, NSSize(width: 220, height: 190), "12 + 28 + 6 + 6 × 22 + 12")
+        XCTAssertEqual(hud.frame.size, NSSize(width: 220, height: 234), "12 + 28 + 6 + 8 × 22 + 12, Later's row included")
+        // The shell leaves Later's row out while nothing is snoozed (§5.32): the seven views with the Outbox, 212 pt.
+        let seven = QuireSequenceHUDView(rows: rows.filter { $0.keys != "L" })
+        XCTAssertEqual(seven.frame.size, NSSize(width: 220, height: 212), "12 + 28 + 6 + 7 × 22 + 12")
         XCTAssertFalse(hud.acceptsFirstResponder, "not focusable")
         XCTAssertEqual(hud.accessibilityLabel()?.hasPrefix("Go to…"), true)
     }

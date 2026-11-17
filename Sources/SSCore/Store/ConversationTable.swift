@@ -138,6 +138,9 @@ enum ConversationTable {
     }
 
     static func fetch(_ query: ConversationQuery, in db: Database) throws -> [ConversationSummary] {
+        // The Outbox's rows are the outbox's (spec §5.53), never a conversation: nothing is read, so an observation of
+        // it tracks no table and never wakes again.
+        guard query.view != .outbox else { return [] }
         let (sql, arguments, isSearch) = statement(for: query)
         // Only a search is worth an interval: the other views are one indexed select. The search's first page is
         // read off the main thread by the observation, but paging reads it on the caller's thread.
@@ -272,6 +275,8 @@ enum ConversationTable {
         case .all: return "c.message_count > 0 AND c.in_trash = 0"
         // The join to `snoozes` is the filter: a snoozed conversation is never in the Inbox or the Trash.
         case .later: return "1"
+        // No conversation is in the Outbox; `fetch` never asks.
+        case .outbox: return "0"
         }
     }
 

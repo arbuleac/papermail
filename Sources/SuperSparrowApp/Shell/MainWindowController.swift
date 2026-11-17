@@ -463,8 +463,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         conversation.messageMenu = { [weak self] in self?.selectionContextMenu() }
         list.onOpen = { [weak self] id in
             guard let self else { return }
-            // In Drafts, ↩ and a double-click are Continue Editing (§5.19).
+            // In Drafts, ↩ and a double-click are Continue Editing (§5.19); in the Outbox too on a Send Later message still
+            // held, and a message on its way only shows (§5.53).
             if self.listView == .drafts {
+                if let draft = self.draftMessageID(in: id) { self.continueDraft(draft) }
+                return
+            }
+            if self.listView == .outbox, self.localDrafts.outboxSend(for: id).flatMap(OutboxState.init)?.isHeld == true {
                 if let draft = self.draftMessageID(in: id) { self.continueDraft(draft) }
                 return
             }
@@ -1135,6 +1140,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         // The router sees every key first; ↑/↓ and ↩ on a focused rail tile, sync line or menu button are that
         // control's own (§5.2, §5.11), so they go on to it instead of moving or opening the list.
         if focusedControlTakesCurrentKey { return false }
+        if refusesInOutbox(command) {
+            NSSound.beep()
+            return true
+        }
         switch command {
         case .next:
             list.selectNext()
@@ -1215,6 +1224,19 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         case .goTo(let view):
             setView(view)
             return true
+        }
+    }
+
+    /// A mail key on an Outbox row: a message on its way is not mail in the store, so E, S, U, #, !, L, M, ⇧I, R, A and F
+    /// change nothing there and beep, as E does where it changes nothing (§5.53). With nothing selected they pass on, as
+    /// anywhere; the keys that move, open, search, write and go are the list's own.
+    private func refusesInOutbox(_ command: KeyCommand) -> Bool {
+        guard listView == .outbox, list.selectedConversationID != nil else { return false }
+        switch command {
+        case .archive, .toggleStar, .toggleRead, .trash, .markSpam, .moveToInbox, .later, .toggleMute, .reply, .replyAll, .forward:
+            return true
+        case .next, .previous, .extendNext, .extendPrevious, .open, .compose, .search, .clearSearch, .back, .undo, .goTo:
+            return false
         }
     }
 
@@ -1512,7 +1534,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// Nothing is marked as spam from the Trash, where the mail is on its way out already and Mark as Spam leaves what is
     /// there (`MailActionRecord.targets`), or from Drafts, which holds the user's own mail; nor from `in:trash` or
     /// `in:drafts` results. A search typed there lists All Mail (`listView`), whose rows it takes.
-    private var marksSpamInView: Bool { listView != .trash && listView != .drafts }
+    private var marksSpamInView: Bool { listView != .trash && listView != .drafts && listView != .outbox }
 
     /// ! and Mark as Spam: the selection leaves every view, as there is none for spam, with the toast, coalescing and
     /// undo of #. A snoozed conversation's snooze ends (the store's rule), and the undo puts it back. Where it does not
@@ -1570,7 +1592,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// Nothing is snoozed from the Trash (a trashed conversation ends its snooze) or from Drafts, nor from `in:trash` or
     /// `in:drafts` results; a search typed there lists All Mail (`listView`), whose rows L takes.
     private var canSnoozeSelection: Bool {
-        !showingWelcome && listView != .trash && listView != .drafts && !snoozableSelection.isEmpty
+        !showingWelcome && listView != .trash && listView != .drafts && listView != .outbox && !snoozableSelection.isEmpty
     }
 
     /// The conversations of `ids` a snooze would hold, judged as snoozing leaves them (archived) by the store's own rule
@@ -2410,6 +2432,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// gives way to it.
     private func showLocalDrafts() {
         list.localDrafts = localDrafts.summaries
+        list.outboxRows = localDrafts.outboxSummaries
         let store = environment.store
         list.hiddenDrafts = Set(localDrafts.continuedDrafts.compactMap { try? store.message($0)?.conversationID })
     }
@@ -2543,7 +2566,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         // The rows change now rather than at the observation, so the draft can take the selection.
         sendLaterOutbox.refresh()
         let row = LocalDraftConversation.conversationID(draftID: draft.id, account: draft.account.id)
-        if list.selectedConversationID == id { list.selectConversations([row], lead: row) }
+        // In Drafts the draft takes the row's place and the selection; in the Outbox the row just leaves (§5.53).
+        if listView == .drafts, list.selectedConversationID == id { list.selectConversations([row], lead: row) }
         let now = laterNow
         let date = send.sendAfter
         recordExternalUndo(command: SendLaterCopy.command, toast: SendLaterCopy.command + " cancelled", symbol: Quire.Icon.later) { [weak self] in
@@ -2804,6 +2828,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         #selector(findPreviousMatch(_:)),
     ]
 
+    /// The Message menu's and the context menu's mail items: what the keys `refusesInOutbox` names do from a menu.
+    private static let mailCommands: Set<Selector> = [
+        #selector(archiveSelection(_:)), #selector(laterSelection(_:)), #selector(snoozeSelectionUntil(_:)), #selector(pickSnoozeDate(_:)),
+        #selector(toggleStarSelection(_:)), #selector(trashSelection(_:)), #selector(markSelectionSpam(_:)),
+        #selector(moveSelectionToInbox(_:)), #selector(markSelectionUnread(_:)), #selector(replyToSelection(_:)),
+        #selector(replyAllToSelection(_:)), #selector(forwardSelection(_:)), #selector(toggleMuteSelection(_:)),
+        #selector(unsubscribeFromConversation(_:)), #selector(alwaysArchiveSender(_:)), #selector(blockSender(_:)),
+    ]
+
     /// The toast after a save to Downloads (spec §5.17, §5.30): what was saved, with Show in Finder, which selects the
     /// copies. It is bound to no undo group, so Z still reaches the last undoable action in its grace (§6.1). A save
     /// that wrote nothing says so; a file that could not be fetched is told by its chip, not here.
@@ -2855,6 +2888,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         if let action = menuItem.action, Self.readerCommands.contains(action) {
             return !showingWelcome && conversation.validateMenuItem(menuItem)
         }
+        // A message on its way in the Outbox is not mail in the store: the mail items are disabled there (§5.53).
+        if listView == .outbox, let action = menuItem.action, Self.mailCommands.contains(action) { return false }
         switch menuItem.action {
         case #selector(archiveSelection(_:)):
             // Plain-letter and ⌘⌫ equivalents must not fire while the user is typing.

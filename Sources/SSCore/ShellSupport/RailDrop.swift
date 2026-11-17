@@ -2,8 +2,9 @@ import Foundation
 
 /// What a rail folder tile does with conversation rows dragged onto it from the list (spec §5.2): Inbox moves
 /// them to the inbox, Trash trashes them, Starred stars them and All Mail archives them, as ⇧I, #, S and E do;
-/// Sent, Drafts and Later take nothing (a snooze needs a time, which a drop cannot give). Pure, so which drops a
-/// tile takes is decided and tested without windows.
+/// Sent, Drafts and Later take nothing (a snooze needs a time, which a drop cannot give), and no tile takes rows dragged
+/// out of the Outbox, which has no tile of its own. Pure, so which drops a tile takes is decided and tested without
+/// windows.
 public enum RailDrop {
     /// The change a drop on `tile` makes, or nil for a tile that takes no drop. Starred only ever stars: a drop
     /// has no all-starred toggle, so dragging onto Starred never takes a star away.
@@ -13,7 +14,7 @@ public enum RailDrop {
         case .starred: return .setStarred(true)
         case .trash: return .trash
         case .all: return .archive
-        case .sent, .drafts, .later: return nil
+        case .sent, .drafts, .later, .outbox: return nil
         }
     }
 
@@ -33,7 +34,8 @@ public enum RailDrop {
     /// No rows (they left the list while being dragged) is refused too.
     public static func accepts(_ tile: MailboxView, rows: [ConversationSummary], selectedView view: MailboxView,
                                isSearching: Bool) -> Bool {
-        guard change(for: tile) != nil, !rows.isEmpty else { return false }
+        // The Outbox's rows are sends on their way, not mail (§5.53): no folder takes them, not even Trash.
+        guard change(for: tile) != nil, !rows.isEmpty, view != .outbox || isSearching else { return false }
         if tile == view, !isSearching || tile == .trash { return false }
         if tile == .trash { return true }
         let mail = rows.filter { !LocalDraftConversation.isLocal($0.id) }
@@ -41,7 +43,7 @@ public enum RailDrop {
         case .inbox: return mail.contains { !$0.inInbox }
         case .starred: return mail.contains { !$0.isStarred }
         case .all: return mail.contains(where: \.inInbox)
-        case .trash, .sent, .drafts, .later: return false
+        case .trash, .sent, .drafts, .later, .outbox: return false
         }
     }
 }

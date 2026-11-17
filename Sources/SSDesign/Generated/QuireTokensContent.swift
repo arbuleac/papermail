@@ -62,6 +62,7 @@ extension Quire {
         public static let viewTrash = "trash"
         public static let viewAllMail = "archivebox"
         public static let viewLater = "clock"
+        public static let viewOutbox = "tray.and.arrow.up"
         public static let later = "clock"
         public static let spam = "xmark.bin"
         public static let moveToInbox = "tray.and.arrow.down"
@@ -234,10 +235,10 @@ extension Quire {
             QuireCheatSheetRow(keys: "G then S", label: "Starred"),
             QuireCheatSheetRow(keys: "G then T", label: "Sent"),
             QuireCheatSheetRow(keys: "G then D", label: "Drafts"),
+            QuireCheatSheetRow(keys: "G then O", label: "Outbox"),
             QuireCheatSheetRow(keys: "G then #", label: "Trash"),
             QuireCheatSheetRow(keys: "G then A", label: "All Mail"),
-            QuireCheatSheetRow(keys: "⌘0", label: "All Inboxes"),
-            QuireCheatSheetRow(keys: "⌘1 … ⌘9", label: "One account"),
+            QuireCheatSheetRow(keys: "⌘0 … ⌘9", label: "All Inboxes · one account"),
         ]),
         QuireCheatSheetSection(title: "Write", rows: [
             QuireCheatSheetRow(keys: "C", label: "New message"),
