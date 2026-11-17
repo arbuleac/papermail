@@ -146,4 +146,24 @@ final class MailActionRecordTests: XCTestCase {
         XCTAssertEqual(ids(MailActionRecord.targets(for: .setRead(false), in: thread, kind: .gmail)), ["m2"])
         XCTAssertEqual(ids(MailActionRecord.targets(for: .setRead(true), in: thread, kind: .gmail)), ["m1", "m2"])
     }
+
+    // MARK: An undo long after (§6.1)
+
+    /// ⌘Z can reach a step long after it was taken: what was deleted since leaves the record, every step on it with it,
+    /// and a record with nothing left to put back is nil, so the undo has nothing to fail on at the provider.
+    func testARecordKeepsOnlyWhatIsStillThere() throws {
+        let thread = [message(1, roles: [.inbox]), message(2, roles: [])]
+        let record = try XCTUnwrap(MailActionRecord.make(.trash, on: thread, conversation: thread[0].conversationID))
+        XCTAssertEqual(record.accountID, account)
+        XCTAssertEqual(record.inverse, [
+            .init(change: .restoreFromTrash, targets: [thread[0].id, thread[1].id]),
+            .init(change: .archive, targets: [thread[1].id]),
+        ])
+        let kept = try XCTUnwrap(record.keeping { $0 == thread[0].id }, "the archived message was deleted since")
+        XCTAssertEqual(kept.targets, [thread[0].id])
+        XCTAssertEqual(kept.inverse, [.init(change: .restoreFromTrash, targets: [thread[0].id])], "no archive step left for it")
+        XCTAssertEqual(kept.conversation, record.conversation)
+        XCTAssertEqual(record.keeping { _ in true }?.inverse, record.inverse)
+        XCTAssertNil(record.keeping { _ in false }, "everything gone: nothing to put back")
+    }
 }

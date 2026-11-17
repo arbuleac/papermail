@@ -1195,10 +1195,11 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
                     // Undo: the schedule goes and the composer comes back with what was written; too late, it is on its way.
                     guard (try? client.cancelSend(id: sendID)) == true else {
                         NSSound.beep()
-                        return
+                        return false
                     }
                     let kept = ComposeDraftStore.shared.draft(id: draft.id, accounts: accounts) ?? draft
                     ComposeWindowController.present(client: client, accounts: accounts, draft: kept)
+                    return true
                 }.post()
             } catch {
                 Self.logger.error("Scheduling a send failed: \(String(describing: error))")
@@ -1351,7 +1352,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         ComposeDraftStore.shared.remove(id: draftID)
         closesWithoutSaving = true
         close()
-        let undo = ComposeDraftUndo {
+        let undo = ComposeDraftUndo(accountID: draft.account.id) {
             ComposeWindowController.present(client: client, accounts: accounts, draft: draft)
         }
         NotificationCenter.default.post(name: Self.draftDiscardedNotification, object: nil, userInfo: [Self.draftUndoKey: undo])
@@ -1467,9 +1468,13 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
 /// Reopens a discarded draft: what the main window's “Draft discarded · Undo” toast calls.
 @MainActor
 final class ComposeDraftUndo: NSObject {
+    /// The account the draft writes from: removing it takes the step out of the undo history, which ⌘Z otherwise reaches
+    /// for as long as it holds the step (§6.1).
+    let accountID: AccountID?
     private let action: @MainActor () -> Void
 
-    init(_ action: @escaping @MainActor () -> Void) {
+    init(accountID: AccountID? = nil, _ action: @escaping @MainActor () -> Void) {
+        self.accountID = accountID
         self.action = action
     }
 
@@ -1490,7 +1495,7 @@ final class ComposeWindow: NSWindow {
 
     private var undoTarget: UndoPrecedence.Target {
         let textCanUndo = KeyboardRouter.isTextInput(firstResponder) && undoManager?.canUndo == true
-        return UndoPrecedence.commandZ(textCanUndo: textCanUndo, sends: UndoSendPanel.liveSends, toast: nil, graceGroup: nil)
+        return UndoPrecedence.commandZ(textCanUndo: textCanUndo, sends: UndoSendPanel.liveSends, toast: nil, latestGroup: nil)
     }
 
     @objc func undo(_ sender: Any?) {

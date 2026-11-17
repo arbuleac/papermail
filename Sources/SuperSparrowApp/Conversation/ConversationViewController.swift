@@ -1235,18 +1235,15 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     /// The accounts whose answered invitations wait for permission to update the calendar, as the cards show them.
     private var invitationPermissionNeeded: Set<AccountID> = []
 
+    /// A change to one message (its sheet's star, More › Star Message), taken by the window as a mail action so it joins
+    /// the undo history (§6.1).
     private func performOnMessage(_ change: MetadataChange, _ id: MessageID) {
         // A kept draft lives only on this Mac: there is nothing to star or mark on a provider.
         guard !LocalDraftConversation.isLocal(id) else {
             NSSound.beep()
             return
         }
-        do {
-            try client.perform(change, on: [id])
-        } catch {
-            ConversationSignposts.log.error("message action failed: \(String(describing: error), privacy: .public)")
-            NSSound.beep()
-        }
+        onAction?(.changeMessages(change, [id]))
     }
 
     // MARK: More menu
@@ -1287,11 +1284,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             guard let index = currentMessages.firstIndex(where: { $0.id == id }) else { return }
             markReadTimer?.invalidate()
             markReadTimer = nil
-            do {
-                try client.perform(.setRead(false), on: currentMessages[index...].map(\.id))
-            } catch {
-                ConversationSignposts.log.error("mark unread failed: \(String(describing: error), privacy: .public)")
-            }
+            // The window's own mail action, so ⌘Z reaches it as it reaches U (§6.1).
+            onAction?(.changeMessages(.setRead(false), currentMessages[index...].map(\.id)))
         case .loadImages:
             evaluate("window.ss.loadImages(null)", in: current)
         case .toggleOriginal:
@@ -1981,7 +1975,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             SendLaterScheduled(sendID: sendID, date: date) { [weak self] in
                 guard (try? client.cancelSend(id: sendID)) == true else {
                     NSSound.beep()
-                    return
+                    return false
                 }
                 ComposeDraftStore.shared.remove(id: draft.id)
                 if let self, self.currentConversationID != nil {
@@ -1992,6 +1986,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
                     // showing that conversation (`MainWindowController.sendLaterScheduled`).
                     _ = shelf.drafts.restoreUnsent(text, under: conversation, shown: nil)
                 }
+                return true
             }.post(from: self)
         } catch {
             ConversationSignposts.log.error("quick reply schedule failed: \(String(describing: error), privacy: .public)")
