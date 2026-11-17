@@ -14,7 +14,8 @@ import WebKit
 /// window again while Z still reaches the step (a deeper ⌘Z brings the conversation back in the main window instead); so
 /// does Send and Archive from its quick reply, its countdown going to an undo-send panel. Esc, once nothing else in the
 /// window takes it, closes the window as ⌘W does while its quick reply holds none of the user's work (§6.1), the way Esc
-/// closes an untouched composer.
+/// closes an untouched composer; only a fresh press does, never the key's repeat, so holding Esc down cannot close one
+/// window after another.
 @MainActor
 final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenuItemValidation, KeyboardRouterTarget {
     private static let sizeDefaultsKey = "ReaderWindowSize"
@@ -179,11 +180,14 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
 
     private func handle(_ action: ConversationAction) {
         switch action {
-        case .escapeQuickReply:
-            // §6.1: this window's toast takes the first Esc (row 7). The next closes the window over an empty bar (row 10),
-            // and over one holding the user's work gives the page the keyboard, the bar keeping it (row 11).
+        case .escapeQuickReply(let repeated):
+            // §6.1: this window's toast takes the first Esc (row 7), held down or not. The next closes the window over an
+            // empty bar (row 10), a fresh press only, and over one holding the user's work gives the page the keyboard, the
+            // bar keeping it (row 11); a repeat does neither.
             if undoCenter.toasts.isVisible(in: toastView) {
                 undoCenter.toasts.dismiss()
+            } else if repeated {
+                return
             } else if !conversation.quickReplyHoldsWork {
                 closeAfterThisKey()
             } else {
@@ -254,6 +258,10 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
             if !closeForEscape(foldingAddresses: true), !conversation.quickReplyHoldsWork {
                 window?.performClose(nil)
             }
+        case .escapeRepeat:
+            // Esc held down: its repeats still take the rows before the window's (toast, find bar, recipients), as they
+            // always have, but never close the window (§6.1 row 10), and are spent quietly, without a beep.
+            _ = closeForEscape(foldingAddresses: true)
         case .back:
             // There is no list to go back to: ← closes what Esc would, and otherwise is the page's (a chip's or a
             // Download button's ← →, a recipient's in an open list, the reply tabs, a wide body's scroll).
@@ -515,7 +523,13 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
         router = nil
         conversation.show(nil)
         if place.window === self { place.window = nil }
-        opener?.readerWindowDidClose(self, watching: conversation.handOffWatchedSends())
+        let watched = conversation.handOffWatchedSends()
+        if let opener {
+            opener.readerWindowDidClose(self, watching: watched)
+        } else {
+            // No main window to watch them: their failures are the window's settler's, at the next launch if need be (§5.53).
+            for id in watched.keys { SendOwnership.release(id) }
+        }
     }
 }
 

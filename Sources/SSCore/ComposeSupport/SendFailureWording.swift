@@ -12,9 +12,8 @@ public enum SendFailureWording {
     public static func reason(lastError: String?, provider: ProviderKind) -> String {
         let name = providerName(provider)
         let error = (lastError ?? "").lowercased()
-        // `SendRunner` marks a send it was handing over when the app quit “interrupted while sending”: the provider may
-        // have it, so saying it refused the message would invite a second copy (spec §5.53).
-        if error.contains("interrupted") {
+        // The provider may have it, so saying it refused the message would invite a second copy (spec §5.53).
+        if isInterrupted(lastError: lastError) {
             return "SuperSparrow quit while sending it, so it may have gone. Check Sent before sending it again."
         }
         if error.contains("413") || error.contains("too large") || error.contains("size") || error.contains("exceed") {
@@ -35,6 +34,24 @@ public enum SendFailureWording {
             return "\(name) rejected a recipient's address."
         }
         return "\(name) didn't accept the message."
+    }
+
+    /// `SendRunner` marks a send it was handing over when the app quit “interrupted while sending”: nobody can tell whether
+    /// the provider took it, so nothing may say it was not sent.
+    public static func isInterrupted(lastError: String?) -> Bool {
+        (lastError ?? "").lowercased().contains("interrupted")
+    }
+
+    /// The window's toast once a failed send nobody else answered for is kept in Drafts (spec §5.53, §5.46), with Open
+    /// draft: “Couldn’t send “Lisbon””. One the app quit while handing over may have gone, so its toast says that and where
+    /// to look instead, never that it failed: ““Lisbon” may have gone. Check Sent.”
+    public static func notice(subject: String, lastError: String?) -> String {
+        let subject = subject.trimmingCharacters(in: .whitespaces)
+        if isInterrupted(lastError: lastError) {
+            let what = subject.isEmpty ? "Your message" : "\u{201c}\(subject)\u{201d}"
+            return what + " may have gone. Check Sent."
+        }
+        return subject.isEmpty ? "Couldn\u{2019}t send your message" : "Couldn\u{2019}t send \u{201c}\(subject)\u{201d}"
     }
 
     public static func providerName(_ provider: ProviderKind) -> String {

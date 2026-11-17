@@ -6,7 +6,7 @@ import Foundation
 ///
 /// A Send Later message waiting or missed reads as Drafts reads it (`SendLaterState`); the Outbox also shows what Drafts
 /// never lists: an undo-send counting down, a send waiting to go again after a throttle or a failure that never left this
-/// Mac, and one that failed.
+/// Mac, and one that failed, until it is kept in Drafts.
 public enum OutboxState: Hashable, Sendable {
     /// Going now: in its undo window (the undo-send panel or the quick reply can still take it back), claimed by the send
     /// runner, or due and about to be: “Sending…”.
@@ -19,7 +19,8 @@ public enum OutboxState: Hashable, Sendable {
     /// “Retrying shortly”. `lastError` is the outbox's technical description of what stopped it; `isSendLater` when it is
     /// a Send Later message (it keeps its draft id while it goes), which Continue Editing can still take back.
     case retrying(lastError: String?, isSendLater: Bool)
-    /// Failed after the request may have reached the provider, so it is never tried again: “Couldn't send”, in `danger`.
+    /// Failed after the request may have reached the provider, so it is never tried again: “Couldn't send”, in `danger`,
+    /// for the moment until it is kept as a draft and its row cleared, when it leaves for Drafts (`FailedSend`).
     case failed(lastError: String?)
 
     /// The state `send` shows, or nil for a send the provider has taken (`sent`).

@@ -128,7 +128,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     private var quickSend: QuickSend?
     private var quickSendTimer: Timer?
     /// Quick replies whose undo window has ended, watched until they leave: a failure then becomes the error
-    /// toast of §5.18 (“Couldn't send your reply · Open draft”). Keyed by send id.
+    /// toast of §5.18 (“Couldn't send your reply · Open draft”), the reply kept as a draft and its row cleared (§5.53).
+    /// Keyed by send id; each holds its send's claim (`SendOwnership`), as `quickSend` does through the undo window.
     private var watchedSends: [String: ComposeDraft] = [:]
     /// Replies on their way out (scheduled or sending, not forwards): the open conversation shows the ones that
     /// answer it as pending sheets (spec §5.14). Read on events and as the outbox changes, never per selection.
@@ -144,7 +145,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     /// Called each time a show's render has landed and its web view is on screen.
     private var showLandedWaiters: [(WKWebView?) -> Void] = []
 
-    /// A quick reply inside its undo window.
+    /// A quick reply inside its undo window. The bar claims its send as it is queued (`SendOwnership`), and the claim
+    /// moves with it: to `watchedSends` when the window ends, to an undo-send panel when the bar hides.
     private struct QuickSend {
         let sendID: String
         let text: String
@@ -298,7 +300,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         quickReply.onChooseSendAction = { SendActionPreference.choose($0) }
         quickReply.onSendLater = { [weak self] text, mode, date in self?.sendQuickReplyLater(text, mode: mode, at: date) }
         quickReply.sendAction = SendActionPreference.current
-        quickReply.onEscape = { [weak self] in self?.quickReplyEscape() }
+        quickReply.onEscape = { [weak self] repeated in self?.quickReplyEscape(repeated: repeated) }
         quickReply.onHeightChange = { [weak self] _ in self?.applyBottomInset() }
         quickReply.onOpenInComposer = { [weak self] text, mode in self?.openQuickReplyInComposer(text: text, mode: mode, attach: false) }
         quickReply.onAttach = { [weak self] text, mode in self?.openQuickReplyInComposer(text: text, mode: mode, attach: true) }
@@ -661,7 +663,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
 
     /// The bar hides mid-countdown (Trash, Drafts, nothing or several selected): the countdown moves to an
     /// undo-send panel for its remaining seconds, so Undo is never lost (§5.18). The panel's Undo reopens the
-    /// reply in a composer, as a composer send's does (§5.31).
+    /// reply in a composer, as a composer send's does (§5.31). The panel claims the send before the bar lets go of it, so
+    /// the window never sees a moment with nobody answering for it; a countdown already over is watched here instead.
     private func moveQuickSendToPanel(_ send: QuickSend) {
         quickSendTimer?.invalidate()
         quickSendTimer = nil
@@ -673,6 +676,9 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             let accounts = accountsByID.values.sorted { $0.addedAt < $1.addedAt }
             UndoSendPanel.show(client: client, accounts: accounts, sendID: send.sendID, draft: send.draft, undoWindow: Self.undoWindow,
                                remaining: remaining, startedAt: send.startedAt, archive: send.archive)
+            SendOwnership.release(send.sendID)
+        } else {
+            watchOutcome(of: send.sendID, draft: send.draft)
         }
         onQuickSendChange?()
     }
@@ -1860,9 +1866,9 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
 
     /// Esc in the quick reply: the window decides (§6.1 rows 7, 10 and 11). Without one the field lets go and the web view
     /// takes focus.
-    private func quickReplyEscape() {
+    private func quickReplyEscape(repeated: Bool) {
         if let onAction {
-            onAction(.escapeQuickReply)
+            onAction(.escapeQuickReply(repeated: repeated))
         } else {
             leaveQuickReply()
         }
@@ -1882,15 +1888,18 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     }
 
     /// The reader is going away (its reader window closing): the replies past their undo window whose outcome it was
-    /// watching, which `watch(_:)` on a reader that stays takes over, so a failure still says so (§5.18).
+    /// watching, which `watch(_:)` on a reader that stays takes over, so a failure still says so (§5.18). Their claims go
+    /// with them (`SendOwnership`): the caller hands them to `watch(_:)` or lets go of them.
     func handOffWatchedSends() -> [String: ComposeDraft] {
         defer { watchedSends = [:] }
         return watchedSends
     }
 
-    /// Watches sends another reader handed over (`handOffWatchedSends`), as if this reader had sent them.
+    /// Watches sends another reader handed over (`handOffWatchedSends`), as if this reader had sent them, with their claims;
+    /// one this reader watches already keeps the claim it has.
     func watch(_ sends: [String: ComposeDraft]) {
         guard !sends.isEmpty else { return }
+        for id in sends.keys where watchedSends[id] != nil { SendOwnership.release(id) }
         watchedSends.merge(sends) { mine, _ in mine }
         outboxTick()
     }
@@ -1947,6 +1956,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
                                  attachments: [], quoted: nil, threading: ReplyThreading(original: latest, isReply: true))
         do {
             let sendID = try client.send(message, undoWindow: Self.undoWindow)
+            // The bar answers for the reply from now on, before the outbox's observation can say anything about it (§5.53).
+            SendOwnership.claim(sendID)
             let startedAt = Date()
             let endsAt = startedAt.addingTimeInterval(Self.undoWindow)
             let names = (message.to + message.cc).map(\.shortDisplay)
@@ -2079,7 +2090,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         watchOutcome(of: send.sendID, draft: send.draft)
     }
 
-    /// Watches a send past its undo window until it leaves, as the undo-send panel does for a composer's.
+    /// Watches a send past its undo window until it leaves, as the undo-send panel does for a composer's; the claim the
+    /// countdown held goes with it.
     private func watchOutcome(of sendID: String, draft: ComposeDraft) {
         watchedSends[sendID] = draft
         outboxTick()
@@ -2124,8 +2136,10 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         outboxTick()
     }
 
-    /// A sent reply's row is gone (or marked sent); a failed one stays with its reason. The failure is kept
-    /// as a draft on this Mac before the toast offers to open it, so closing the toast loses nothing.
+    /// A sent reply's row is gone (or marked sent); a failed one stays with its reason until it is kept. The failure is
+    /// kept as a draft on this Mac, under the id the window would keep it under (`FailedSend.draftID`), queued before the
+    /// toast offers to open it, so closing the toast loses nothing; its row is cleared once that draft is on disk, so the
+    /// reply leaves the Outbox for Drafts (§5.53), and only then is the send let go.
     private func settleWatchedSends(_ sends: [PendingSendSummary]) {
         guard !watchedSends.isEmpty else { return }
         let byID = Dictionary(sends.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -2134,11 +2148,13 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             switch send?.status {
             case nil, .sent?:
                 watchedSends[id] = nil
+                SendOwnership.release(id)
             case .failed?:
                 watchedSends[id] = nil
                 var kept = draft
+                kept.id = FailedSend.draftID(sendID: id, writtenIn: nil)
                 kept.sendFailure = SendFailureWording.banner(lastError: send?.lastError, provider: draft.account.kind)
-                ComposeDraftStore.shared.save(kept)
+                SendOwnership.keepFailed(kept, sendID: id, store: client.store, releasing: true)
                 onAction?(.quickReplyFailed(kept))
             case .scheduled?, .sending?, .later?, .missed?:
                 // A quick reply sent now is never `later` or `missed`; those are Send Later's, which `SendLaterOutbox` follows.
@@ -2182,6 +2198,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         quickSend = nil
         onQuickSendChange?()
         let cancelled = (try? client.cancelSend(id: send.sendID)) ?? false
+        // Taken back, or too late: either way the bar stops watching it, so a failure from now on is the window's.
+        SendOwnership.release(send.sendID)
         outboxTick()
         guard cancelled else {
             quickReply.showStrip(.alreadySent)

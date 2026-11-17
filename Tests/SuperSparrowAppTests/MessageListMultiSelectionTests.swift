@@ -109,8 +109,10 @@ final class MessageListMultiSelectionTests: XCTestCase {
 /// ⇧J / ⇧K and ⇧↓ / ⇧↑ extend the selection (spec §6).
 @MainActor
 final class KeyboardRouterExtendTests: XCTestCase {
+    /// A key with the list's table holding the keyboard.
     private func command(_ characters: String, keyCode: UInt16 = 0, _ modifiers: NSEvent.ModifierFlags) -> KeyCommand? {
-        KeyboardRouter.command(characters: characters, keyCode: keyCode, modifiers: modifiers, pendingG: false, readerFocused: false).command
+        KeyboardRouter.command(characters: characters, keyCode: keyCode, modifiers: modifiers, pendingG: false, readerFocused: false,
+                               listFocused: true).command
     }
 
     func testShiftJAndShiftKExtend() {
@@ -148,5 +150,31 @@ final class KeyboardRouterExtendTests: XCTestCase {
         XCTAssertNil(command("\r", keyCode: 36, .shift), "⇧↩ is no shortcut")
         XCTAssertNil(KeyboardRouter.command(characters: "\r", keyCode: 36, modifiers: .command, pendingG: false,
                                             readerFocused: false).command, "⌘↩ is the quick reply's send")
+    }
+
+    /// §5.49: ↩ opens a window only from the list. With Full Keyboard Access a focused button outside the reader that does
+    /// not claim the key (compose, Add Account, a toast's button), or the window itself, keeps ↩: it is no shortcut there,
+    /// and the reader's Open stays the reader's wherever the list is.
+    func testReturnOpensAWindowOnlyFromTheList() {
+        func elsewhere(_ keyCode: UInt16, _ characters: String) -> KeyCommand? {
+            KeyboardRouter.command(characters: characters, keyCode: keyCode, modifiers: [], pendingG: false, readerFocused: false,
+                                   listFocused: false).command
+        }
+        XCTAssertNil(elsewhere(36, "\r"), "↩ on a focused control outside the list and the reader")
+        XCTAssertNil(elsewhere(76, "\u{3}"), "keypad Enter there")
+        XCTAssertEqual(command("\r", keyCode: 36, []), .openInWindow, "the list's table opens a window")
+        XCTAssertEqual(KeyboardRouter.command(characters: "\r", keyCode: 36, modifiers: [], pendingG: false, readerFocused: true,
+                                              listFocused: false).command, .open, "in the reader ↩ stays Open")
+        XCTAssertEqual(elsewhere(124, ""), .open, "→ and the list's other keys are unchanged")
+        XCTAssertEqual(elsewhere(38, "j"), .next)
+    }
+
+    /// §6.1: Esc's key repeat is a command of its own, so a reader window can tell a held Esc from a fresh press.
+    func testEscapesRepeatIsToldApart() {
+        XCTAssertEqual(command("\u{1B}", keyCode: 53, []), .clearSearch)
+        XCTAssertEqual(KeyboardRouter.command(characters: "\u{1B}", keyCode: 53, modifiers: [], pendingG: false, readerFocused: true,
+                                              isRepeat: true).command, .escapeRepeat)
+        XCTAssertEqual(KeyboardRouter.command(characters: "j", keyCode: 38, modifiers: [], pendingG: false, readerFocused: false,
+                                              isRepeat: true).command, .next, "other keys repeat as they always have")
     }
 }

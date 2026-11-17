@@ -41,8 +41,9 @@ enum ConversationAction {
     /// “Open draft” reopens `draft`, which is already kept on this Mac.
     case quickReplyFailed(ComposeDraft)
     /// Esc in the quick reply: its window applies §6.1 (a toast first, then back to the list; a reader window closes over an
-    /// empty bar, and gives the page the keyboard over one holding the user's work).
-    case escapeQuickReply
+    /// empty bar, and gives the page the keyboard over one holding the user's work). `repeated` for the key's repeat while
+    /// Esc is held down, which never closes a reader window.
+    case escapeQuickReply(repeated: Bool)
     /// Unsubscribe, from the link beside a sender or the message's More menu (spec §5.14): the request `message`'s
     /// list headers describe, and the conversation archived.
     case unsubscribe(MessageID)

@@ -475,6 +475,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // An engine assumes it starts frontmost; one launched in the background, or swapped in, learns otherwise
         // here, and activation reports every change after.
         environment.engine.setAppActive(NSApp.isActive)
+        // The window going keeps no more failed sends as drafts from here: through its cross-fade the draft store is
+        // already the new mailbox's, where its mailbox's drafts would be lost (the demo's wiped, the user's out of sight),
+        // and the next launch of its mailbox keeps them instead (§5.53).
+        old?.sendLaterOutbox.stop()
         // Drafts kept on this Mac follow the mailbox on screen, so a cancelled “Replace the demo” sign-in, which
         // built a real environment beside the demo, never sends the demo's drafts to the real folder.
         ComposeDraftStore.shared.useDemoDirectory(environment.isDemo)

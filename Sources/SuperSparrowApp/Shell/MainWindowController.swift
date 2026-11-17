@@ -250,7 +250,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             MainActor.assumeIsolated { self?.snoozesChanged(snoozes) }
         }
         sendLaterOutbox.onMissed = { [weak self] sends in self?.askAboutMissedSends(sends) }
-        sendLaterOutbox.onFailed = { [weak self] draft in self?.sendLaterFailed(draft) }
+        sendLaterOutbox.onFailed = { [weak self] draft, lastError in self?.sendFailed(draft, lastError: lastError) }
         sendLaterOutbox.start()
         let router = KeyboardRouter(target: self)
         router.install()
@@ -1144,6 +1144,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         return responder.isDescendant(of: conversationPane.view)
     }
 
+    /// The list's table itself has the keyboard, not a control inside a row (the tail's Retry, the server search's link) or
+    /// anywhere else in the window: only then does ↩ open the selection in a reader window (§5.49, §6).
+    var isListFocused: Bool {
+        window?.firstResponder === list.tableView
+    }
+
     func perform(_ command: KeyCommand) -> Bool {
         // The router sees every key first; ↑/↓ and ↩ on a focused rail tile, sync line or menu button are that
         // control's own (§5.2, §5.11), so they go on to it instead of moving or opening the list.
@@ -1217,7 +1223,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         case .search:
             listPane.focusSearch()
             return true
-        case .clearSearch:
+        case .clearSearch, .escapeRepeat:
+            // The main window never closes on Esc, so its repeat does what a press does (§6.1).
             return escape()
         case .back:
             // On a chip or its Download button ← moves along the files in the page (§5.17), in an open list of recipients
@@ -1249,8 +1256,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         switch command {
         case .archive, .toggleStar, .toggleRead, .trash, .markSpam, .moveToInbox, .later, .toggleMute, .reply, .replyAll, .forward:
             return true
-        case .next, .previous, .extendNext, .extendPrevious, .open, .openInWindow, .compose, .search, .clearSearch, .back, .undo,
-             .goTo:
+        case .next, .previous, .extendNext, .extendPrevious, .open, .openInWindow, .compose, .search, .clearSearch, .escapeRepeat, .back,
+             .undo, .goTo:
             return false
         }
     }
@@ -2773,12 +2780,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         }
     }
 
-    /// A Send Later message failed when its time came: its draft is kept with the reason (the composer opens with the
-    /// banner), and the toast offers it, as a quick reply's failure does (§5.18).
-    private func sendLaterFailed(_ draft: ComposeDraft) {
+    /// A send nobody else answered for failed (a Send Later message when its time came, one whose panel or quick reply had
+    /// gone, one the app quit while handing over): its draft is kept with the reason (the composer opens with the banner)
+    /// and its row has left the Outbox, and the toast offers it once, as a quick reply's failure does (§5.18, §5.53). One
+    /// that may have gone says so instead of “Couldn't send” (`SendFailureWording.notice`).
+    private func sendFailed(_ draft: ComposeDraft, lastError: String?) {
         let engine = environment.engine
-        let subject = draft.subject.trimmingCharacters(in: .whitespaces)
-        let words = subject.isEmpty ? "Couldn\u{2019}t send your message" : "Couldn\u{2019}t send \u{201c}\(subject)\u{201d}"
+        let words = SendFailureWording.notice(subject: draft.subject, lastError: lastError)
         toasts.show(words, kind: .error, symbol: Quire.Icon.error, actionTitle: "Open draft") { [weak self] in
             guard let self else { return }
             ComposeWindowController.present(client: engine, accounts: self.accounts, draft: draft)

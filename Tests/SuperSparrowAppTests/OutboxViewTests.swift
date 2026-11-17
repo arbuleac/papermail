@@ -130,6 +130,10 @@ final class OutboxViewTests: XCTestCase {
         harness.spin { harness.list.conversations.first?.outbox == .retrying(lastError: "throttled (retry after 30 s)", isSendLater: false) }
         XCTAssertEqual(try cell(forConversation: 0, harness).content?.time.string, "Retrying shortly")
 
+        // A live undo-send panel answers for it (§5.31), so it stays listed as failed until that panel has kept its draft;
+        // one nobody answers for leaves for Drafts at once (`FailedSendAppTests`).
+        SendOwnership.claim(sendID)
+        defer { SendOwnership.release(sendID) }
         try update(sendID, harness) {
             $0.status = .failed
             $0.lastError = "HTTP 400"
