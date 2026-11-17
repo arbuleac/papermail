@@ -11,7 +11,8 @@ import WebKit
 /// from (Later and Unsubscribe included). The undo history and the toast are the app's (`MailUndoCenter`): a step taken
 /// here toasts here and is undone here, and a step that takes the conversation off the desk (E, #, !, L, Unsubscribe, M
 /// where it archives, a confirmed Discard Draft…) closes the window, its toast in the main window and its undo opening the
-/// window again; so does Send and Archive from its quick reply, its countdown going to an undo-send panel.
+/// window again while Z still reaches the step (a deeper ⌘Z brings the conversation back in the main window instead); so
+/// does Send and Archive from its quick reply, its countdown going to an undo-send panel.
 @MainActor
 final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenuItemValidation, KeyboardRouterTarget {
     private static let sizeDefaultsKey = "ReaderWindowSize"

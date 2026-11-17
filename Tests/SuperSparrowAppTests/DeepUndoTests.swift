@@ -195,6 +195,33 @@ final class DeepUndoTests: XCTestCase {
         XCTAssertEqual(editUndo(harness).title, "Can't Undo")
     }
 
+    /// A step that is not a mail action (a snooze) whose conversation was deleted since: ⌘Z drops it without confirming
+    /// anything or selecting a conversation that is gone, and the next ⌘Z reaches the step behind it.
+    func testASnoozeWhoseConversationIsGoneGivesWayToTheStepBehind() throws {
+        let clock = Clock()
+        let harness = try harness(clock)
+        defer { harness.close() }
+        let ids = harness.list.conversations.prefix(3).map(\.id)
+        let (starred, snoozed) = (ids[1], ids[2])
+        XCTAssertFalse(try isStarred(starred, harness))
+        harness.controller.handle(.star(starred, true))
+        clock.now += 60
+        harness.controller.snooze([snoozed], until: Date().addingTimeInterval(86_400))
+        XCTAssertEqual(harness.controller.undoCenter.history.groups.count, 2)
+        harness.toasts.dismiss()
+        try store(harness).deleteMessages(try store(harness).messages(in: snoozed).map(\.id))
+        clock.now += 3_600
+
+        XCTAssertEqual(editUndo(harness).title, "Undo Snooze")
+        harness.controller.performEditUndo()
+        XCTAssertFalse(harness.toasts.isVisible, "nothing was put back, so nothing is confirmed")
+        XCTAssertNotEqual(harness.list.selectedConversationID, snoozed, "and no emptied conversation is selected")
+        XCTAssertEqual(editUndo(harness).title, "Undo Star")
+        harness.controller.performEditUndo()
+        XCTAssertFalse(try isStarred(starred, harness))
+        XCTAssertEqual(harness.toastMessage, "Undid Star")
+    }
+
     // MARK: Reader windows
 
     /// A step that closed its window, reached by ⌘Z long after: the conversation comes back selected in the main window,

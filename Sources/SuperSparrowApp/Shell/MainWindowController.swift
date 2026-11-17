@@ -1292,8 +1292,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     }
 
     /// A change to `ids`, some messages of one conversation rather than all of it (a sheet's star, More › Star Message, Mark
-    /// as Unread from Here, §5.14): applied and recorded as a mail action on that conversation, so it gets the toast the
-    /// row would give it (none for a star, which the sheet and the row show) and ⌘Z reaches it however long after (§6.1).
+    /// as Unread from Here, §5.14): applied and recorded as a mail action on that conversation, so it gets the toast S or U
+    /// would give in the view (none where the row shows the change, as for a star outside Starred) and ⌘Z reaches it
+    /// however long after (§6.1).
     @discardableResult
     private func messageAction(_ change: MetadataChange, on ids: [MessageID]) -> Bool {
         let store = environment.store
@@ -1706,6 +1707,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         let engine = environment.engine
         recordExternalUndo(command: MailActionCopy.snoozeCommand, accounts: Set(ids.map(\.accountID)), toast: toast,
                            symbol: Quire.Icon.later) { [weak self] in
+            let back = self?.stillHeld(ids) ?? ids
+            guard !back.isEmpty else {
+                // Every conversation was deleted since (a deeper ⌘Z, §6.1): nothing to put back, so nothing to confirm.
+                NSSound.beep()
+                return
+            }
             do {
                 try engine.setSnoozes(restore, performing: self?.restorable(inverse) ?? inverse)
             } catch {
@@ -1714,7 +1721,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
                 return
             }
             self?.confirmUndo(of: MailActionCopy.snoozeCommand)
-            self?.reselect(ids, inLater: fromLater)
+            self?.reselect(back, inLater: fromLater)
         }
     }
 
@@ -1766,6 +1773,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
                                     confirmation: String = MailActionCopy.undoConfirmation(for: .archive)) -> () -> Void {
         let engine = environment.engine
         return { [weak self] in
+            let ids = restore.map(\.conversationID)
+            let back = self?.stillHeld(ids) ?? ids
+            guard !back.isEmpty else {
+                // Deleted since (a deeper ⌘Z, §6.1): no snooze to put back, so nothing to confirm.
+                NSSound.beep()
+                return
+            }
             do {
                 try engine.setSnoozes(restore, performing: [])
             } catch {
@@ -1774,7 +1788,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
                 return
             }
             self?.confirmUndo(confirmation)
-            self?.reselect(restore.map(\.conversationID), inLater: inLater)
+            self?.reselect(back, inLater: inLater)
         }
     }
 
@@ -1861,8 +1875,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         }
         let fromLater = actionView == .later
         let revert: () -> Void = { [weak self] in
+            let back = self?.stillHeld(changing) ?? changing
+            guard !back.isEmpty else {
+                // Deleted since (a deeper ⌘Z, §6.1): the mute went with its conversation, so nothing to confirm.
+                NSSound.beep()
+                return
+            }
             do {
-                try engine.setMuted(!muting, conversations: changing, performing: self?.restorable(inverse) ?? inverse,
+                try engine.setMuted(!muting, conversations: back, performing: self?.restorable(inverse) ?? inverse,
                                     returnMarks: returnMarks)
             } catch {
                 Self.log.error("undoing a mute failed: \(String(describing: error), privacy: .public)")
@@ -1870,7 +1890,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
                 return
             }
             self?.confirmUndo(of: command)
-            if !archived.isEmpty { self?.reselect(changing, inLater: fromLater) }
+            if !archived.isEmpty { self?.reselect(back, inLater: fromLater) }
         }
         // The list's own query: while searching, its view is the one the search looks through. In a reader window the
         // conversation is the row: a mute that closes the window says so, and one that leaves it open as the list would.
@@ -1951,7 +1971,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
                 return
             }
             self?.confirmUndo(of: command)
-            if record != nil { self?.reselect([conversationID], inLater: fromLater) }
+            // The rule comes back whatever became of the mail; the conversation is selected only while it is still there.
+            if record != nil, self?.stillHeld([conversationID]).isEmpty == false { self?.reselect([conversationID], inLater: fromLater) }
         }
         return true
     }
@@ -2093,6 +2114,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             let held = Set(((try? store.messages(in: conversation)) ?? []).map(\.id))
             return record.keeping(held.contains)
         }
+    }
+
+    /// The conversations of `ids` the store still holds mail in, for accounts still here: an external step's revert (a
+    /// snooze, Later's archive, a mute, a sender rule) can come as late as a mail action's (§6.1), and one with none left has
+    /// nothing to put back, to confirm or to select, which would only open an emptied reader.
+    private func stillHeld(_ ids: [ConversationID]) -> [ConversationID] {
+        let store = environment.store
+        return ids.filter { accountsByID[$0.accountID] != nil && !((try? store.messages(in: $0)) ?? []).isEmpty }
     }
 
     /// The part of `steps` on messages the store still holds, for accounts still here: an external step's revert (a
