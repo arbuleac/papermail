@@ -81,7 +81,7 @@ Not yet checked on macOS 15 or 26.
 
 ## A conversation in its own window
 
-Press `⌘O` (**File → Open in New Window**), or hold `⌘` and double-click a conversation in the list, to open it in a window of its own, to read beside a reply you are writing. The window is the reader alone: the same keys and **Message** menu act on its conversation (`e`, `l`, `#`, `!`, `m`, `s`, `u`, `r`, `z` and the rest), and so do **Print**, **Find in Conversation**, **Download Attachments** and `⌘+` / `⌘−`. Archiving, snoozing, moving it to the Trash, marking it as spam, muting it from the Inbox, discarding its draft or unsubscribing closes the window, and the main window comes forward with **Undo**, which brings the conversation back and opens its window again where it was. A reply sent with **Send and Archive** from the window closes it too, its **Undo send** in a panel on the main window. Text you typed in the window's reply field is kept when it closes: it is there again when the window reopens, or in the main window when you open the conversation there. Undo works across windows: `z` in any window undoes the last action, wherever it was taken, and its confirmation shows there. Opening a conversation that is already open brings its window forward. Each window keeps a web view of its own, about 25 MB.
+Press `Return` (or `⌘O`, **File → Open in New Window**), or double-click a conversation in the list, to open it in a window of its own, to read beside a reply you are writing; `→` opens it in the main window's reader instead. `Esc` closes the window while you haven't typed in its reply field. The window is the reader alone: the same keys and **Message** menu act on its conversation (`e`, `l`, `#`, `!`, `m`, `s`, `u`, `r`, `z` and the rest), and so do **Print**, **Find in Conversation**, **Download Attachments** and `⌘+` / `⌘−`. Archiving, snoozing, moving it to the Trash, marking it as spam, muting it from the Inbox, discarding its draft or unsubscribing closes the window, and the main window comes forward with **Undo**, which brings the conversation back and opens its window again where it was. A reply sent with **Send and Archive** from the window closes it too, its **Undo send** in a panel on the main window. Text you typed in the window's reply field is kept when it closes: it is there again when the window reopens, or in the main window when you open the conversation there. Undo works across windows: `z` in any window undoes the last action, wherever it was taken, and its confirmation shows there. Opening a conversation that is already open brings its window forward. Each window keeps a web view of its own, about 25 MB.
 
 ## Send and Archive
 
@@ -155,8 +155,8 @@ Operators combine (`from:ben is:unread after:2026-01-01 -invoice`), ignore case,
 | Key | Action |
 |---|---|
 | `j` / `k`, `↓` / `↑` | Next / previous conversation |
-| `Return` | Open the conversation in the reader |
-| `⌘O`, `⌘`-double-click | Open the conversation in a window of its own |
+| `Return`, `⌘O`, double-click | Open the conversation in a window of its own (in Drafts, continue editing) |
+| `→` | Open the conversation in the reader |
 | `e` | Archive |
 | `l` | Later: snooze until a time |
 | `m` | Mute / unmute: new mail in the conversation skips the Inbox |
@@ -175,6 +175,7 @@ Operators combine (`from:ben is:unread after:2026-01-01 -invoice`), ignore case,
 | `⇧⌘L` | Send later: Tomorrow, Monday or a time you pick |
 | `⌥⌘I` | Insert a picture into the message you are writing |
 | `esc` in a composer | Closes it while you haven't written anything; a composer with your words stays open |
+| `esc` in a conversation's window | Closes it while its reply field is empty; with your words there it stays open |
 | `c`, `⌘N` | New message |
 | `/`, `⌘F` | Search (`Esc` clears, in the search field or the list) |
 | `↩` in the search field | Search the mail server for more, then move to the results |

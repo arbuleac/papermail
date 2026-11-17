@@ -68,7 +68,9 @@ public struct QuickReplyDrafts: Hashable, Sendable {
         return false
     }
 
-    private static func isBlank(_ text: String) -> Bool {
+    /// Whitespace-only text is no draft: nothing is parked for it, and a box holding it holds none of the user's words
+    /// (Esc closes a reader window over it, spec §6.1).
+    public static func isBlank(_ text: String) -> Bool {
         text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }

@@ -208,7 +208,7 @@ final class SendLaterAppTests: XCTestCase {
         let sendID = try schedule(draft, at: Date().addingTimeInterval(86_400), harness)
         showDrafts(listing: row(sendID), harness)
         select(row(sendID), in: harness)
-        XCTAssertTrue(harness.controller.perform(.open))
+        XCTAssertTrue(harness.controller.perform(.openInWindow), "↩")
         XCTAssertTrue(sends(harness).isEmpty, "opening it cancels the schedule")
         let composer = try XCTUnwrap(ComposeWindowRegistry.shared.openControllers.first)
         XCTAssertEqual(composer.draftID, draft.id)

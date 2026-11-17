@@ -121,7 +121,7 @@ final class OverlayAndPanelTests: XCTestCase {
     }
 
     /// Every row fits its column whole (§5.32): its keycaps in the 96 pt key column, its label in the 144 pt after it,
-    /// never tail-truncated. Rows that share keys (J K, ↩ esc, E ⇧I, # !) are how the sheet keeps every key on it and
+    /// never tail-truncated. Rows that share keys (J K, → esc, E ⇧I, # !) are how the sheet keeps every key on it and
     /// still fits the default window.
     func testEveryCheatSheetRowFitsItsColumn() {
         let c = Quire.Layout.CheatSheet.self
@@ -145,13 +145,14 @@ final class OverlayAndPanelTests: XCTestCase {
         }
     }
 
-    /// The keys this release added each have a row (§5.32, §6): ! and M in Act with Print, ⌘O and ⇧⌘D in Move, ⇧⌘L in
-    /// Write, ⌥⌘I in Format, and Find, its next and previous, and the reader's size in View.
+    /// The keys this release added each have a row (§5.32, §6): ! and M in Act with Print, → and ⇧⌘D in Move (→ opens in
+    /// the reader now that ↩ opens a window of its own, §5.49, and ⌘O is ↩'s menu alternate), ⇧⌘L in Write, ⌥⌘I in Format,
+    /// and Find, its next and previous, and the reader's size in View.
     func testTheReleasesNewKeysAreOnTheSheet() {
         let keycaps = Dictionary(grouping: Quire.cheatSheet.flatMap { section in
             section.rows.flatMap { row in row.parts.filter(\.isKeycap).map { ($0.text, section.title) } }
         }, by: \.0).mapValues { $0.map(\.1) }
-        let expected = ["!": "Act", "M": "Act", "⌘P": "Act", "⌘O": "Move", "⇧⌘D": "Move", "⇧⌘L": "Write", "⌥⌘I": "Format",
+        let expected = ["!": "Act", "M": "Act", "⌘P": "Act", "→": "Move", "⇧⌘D": "Move", "⇧⌘L": "Write", "⌥⌘I": "Format",
                         "⌥⌘F": "View", "⌘G": "View", "⇧⌘G": "View", "⌘+": "View", "⌘−": "View"]
         for (key, section) in expected {
             XCTAssertEqual(keycaps[key], [section], "\(key) has one row, in \(section)")

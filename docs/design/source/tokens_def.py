@@ -397,11 +397,12 @@ CHEAT_SHEET_SEARCH = ("Search", ["from:", "to:", "subject:", "is:unread", "is:re
 # Keyboard cheat sheet content (§5.32), band by band, left to right; keys separated by spaces, "then" and "…" are words.
 CHEAT_SHEET = [
  # Every key has its row, and the sheet still fits the default window whole (§5.32): band 1 holds nine rows a section and
- # band 2 eight. Keys that undo or mirror each other share a row, as J K and N P do: Open and back (↩ esc), Archive and
+ # band 2 eight. Keys that undo or mirror each other share a row, as J K and N P do: Open and back (→ esc), Archive and
  # its inverse (E ⇧I), the two ways out to a provider folder (# !), Load images and Original colors, the two window
- # layout toggles; Print sits in Act, beside the other things done to the open conversation.
- ("Move", [("J K", "Next · previous"), ("⇧J ⇧K", "Extend the selection"), ("↩ esc", "Open · back to the list"),
-           ("⌘O", "Open in a new window"), ("N P", "Next · previous message"), ("space", "Quick Look attachments"),
+ # layout toggles; Print sits in Act, beside the other things done to the open conversation. ↩ opens in a window of its
+ # own (§5.49), so it has the row ⌘O had, and ⌘O, its menu alternate, is left out as ⌘F is for /.
+ ("Move", [("J K", "Next · previous"), ("⇧J ⇧K", "Extend the selection"), ("→ esc", "Open · back to the list"),
+           ("↩", "Open in a new window"), ("N P", "Next · previous message"), ("space", "Quick Look attachments"),
            ("⇧⌘D", "Download attachments"), ("/", "Search"), ("↩", "In search: ask the server")]),
  ("Act", [("E ⇧I", "Archive · move to Inbox"), ("L", "Snooze until later"), ("# !", "Move to Trash · spam"), ("S", "Star · unstar"),
           ("U", "Mark as unread · read"), ("M", "Mute · unmute"), ("⇧⌘U", "Unsubscribe"), ("⌘P", "Print the conversation"),

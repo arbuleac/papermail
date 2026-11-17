@@ -1769,6 +1769,14 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     /// The bar itself, for the app's tests.
     var quickReplyBar: QuickReplyView { quickReply }
 
+    /// The quick reply holds the user's work: words typed in it, or a reply counting down in its strip. Esc closes a reader
+    /// window only without it (spec §6.1), as it closes a composer only while it holds nothing worth keeping (§5.20). Its
+    /// files are never here: Attach takes the reply to a composer. Words in a bar that has hidden (its conversation emptied
+    /// or gone to the Trash meanwhile) are out of sight and parked as the window closes, so they keep nothing open.
+    var quickReplyHoldsWork: Bool {
+        quickSend != nil || (!quickReply.isHidden && !QuickReplyDrafts.isBlank(quickReply.text))
+    }
+
     /// Makes `id` the target message, as a click on it in the shell does (the shell's `select`, and tests).
     func setTarget(_ id: MessageID) {
         guard currentMessages.contains(where: { $0.id == id }) else { return }
@@ -1822,8 +1830,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         return true
     }
 
-    /// Esc in the quick reply: the main window decides (§6.1 rows 7 and 9). Without one the field lets go and the
-    /// web view takes focus.
+    /// Esc in the quick reply: the window decides (§6.1 rows 7, 10 and 11). Without one the field lets go and the web view
+    /// takes focus.
     private func quickReplyEscape() {
         if let onAction {
             onAction(.escapeQuickReply)

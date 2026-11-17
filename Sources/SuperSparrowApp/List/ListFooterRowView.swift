@@ -143,7 +143,7 @@ final class ListFooterRowView: NSTableRowView {
     /// accent label must keep 4.5:1; hover and press show as the underline, which is there at rest too wherever colour
     /// alone does not mark a link (under Graphite, and in a theme whose ink sits near its text ink). The hit area is
     /// 24 pt tall, and the pointing hand covers it (§4.17).
-    private final class RetryButton: NSControl, QuirePointerTarget {
+    private final class RetryButton: NSControl, QuirePointerTarget, ShellKeyHandling {
         var onPress: (() -> Void)?
         private var isHovered = false { didSet { needsDisplay = true } }
         private var isPressedDown = false { didSet { needsDisplay = true } }
@@ -216,12 +216,16 @@ final class ListFooterRowView: NSTableRowView {
         }
 
         override func keyDown(with event: NSEvent) {
-            if event.charactersIgnoringModifiers == " " || event.keyCode == 36 {
+            if event.charactersIgnoringModifiers == " " || event.keyCode == 36 || event.isPlainReturn {
                 onPress?()
             } else {
                 super.keyDown(with: event)
             }
         }
+
+        /// ↩ on the focused link retries; otherwise the router, which sees the key first, would open the selected
+        /// conversation in a window of its own from behind it (§5.49), as it would from behind the masthead.
+        func handlesKey(_ event: NSEvent) -> Bool { event.isPlainReturn }
 
         override func becomeFirstResponder() -> Bool {
             needsDisplay = true

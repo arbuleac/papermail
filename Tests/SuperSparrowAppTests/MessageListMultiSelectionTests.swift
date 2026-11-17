@@ -133,4 +133,20 @@ final class KeyboardRouterExtendTests: XCTestCase {
         XCTAssertEqual(reader(123), .back, "← in the reader goes back to the list, along Esc's path")
         XCTAssertNil(command("", keyCode: 124, .shift))
     }
+
+    /// § 6, §5.49: ↩ and keypad Enter open the selection in a window of its own from the list, where → opens it in the
+    /// main window's reader; in the reader ↩ stays Open, which gives way to what has focus in the page.
+    func testReturnOpensInAWindowFromTheListAndIsOpenInTheReader() {
+        func reader(_ keyCode: UInt16) -> KeyCommand? {
+            KeyboardRouter.command(characters: "\r", keyCode: keyCode, modifiers: [], pendingG: false, readerFocused: true).command
+        }
+        XCTAssertEqual(command("\r", keyCode: 36, []), .openInWindow)
+        XCTAssertEqual(command("\u{3}", keyCode: 76, []), .openInWindow, "keypad Enter")
+        XCTAssertEqual(command("", keyCode: 124, []), .open, "→ stays in the main window")
+        XCTAssertEqual(reader(36), .open)
+        XCTAssertEqual(reader(76), .open)
+        XCTAssertNil(command("\r", keyCode: 36, .shift), "⇧↩ is no shortcut")
+        XCTAssertNil(KeyboardRouter.command(characters: "\r", keyCode: 36, modifiers: .command, pendingG: false,
+                                            readerFocused: false).command, "⌘↩ is the quick reply's send")
+    }
 }
