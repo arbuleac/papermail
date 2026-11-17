@@ -147,6 +147,17 @@ final class MessageListBehaviourTests: XCTestCase {
         window.displayIfNeeded()
         let retry = try XCTUnwrap(footer()?.subviews.first { $0.accessibilityRole() == .button })
         XCTAssertFalse(retry.isHidden)
+        // ↩ and keypad Enter on the focused link are its own: the router, which sees them first, must not open the
+        // selected conversation in a window of its own from behind it (§5.49).
+        func key(_ keyCode: UInt16, _ characters: String) -> NSEvent? {
+            NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
+                             context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false,
+                             keyCode: keyCode)
+        }
+        let control = try XCTUnwrap(retry as? ShellKeyHandling, "Retry answers the shell's keys itself")
+        XCTAssertTrue(control.handlesKey(try XCTUnwrap(key(36, "\r"))), "↩")
+        XCTAssertTrue(control.handlesKey(try XCTUnwrap(key(76, "\u{3}"))), "keypad Enter")
+        XCTAssertFalse(control.handlesKey(try XCTUnwrap(key(38, "j"))), "j still moves the list")
         let point = retry.convert(NSPoint(x: retry.bounds.midX, y: retry.bounds.midY), to: nil)
         func mouse(_ type: NSEvent.EventType) -> NSEvent? {
             NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
