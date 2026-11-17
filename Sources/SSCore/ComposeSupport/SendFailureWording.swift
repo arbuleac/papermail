@@ -12,6 +12,11 @@ public enum SendFailureWording {
     public static func reason(lastError: String?, provider: ProviderKind) -> String {
         let name = providerName(provider)
         let error = (lastError ?? "").lowercased()
+        // `SendRunner` marks a send it was handing over when the app quit “interrupted while sending”: the provider may
+        // have it, so saying it refused the message would invite a second copy (spec §5.53).
+        if error.contains("interrupted") {
+            return "SuperSparrow quit while sending it, so it may have gone. Check Sent before sending it again."
+        }
         if error.contains("413") || error.contains("too large") || error.contains("size") || error.contains("exceed") {
             return "\(name) rejected the attachment size."
         }

@@ -127,7 +127,7 @@ final class OutboxViewTests: XCTestCase {
             $0.attempts = 1
             $0.lastError = "throttled (retry after 30 s)"
         }
-        harness.spin { harness.list.conversations.first?.outbox == .retrying(lastError: "throttled (retry after 30 s)") }
+        harness.spin { harness.list.conversations.first?.outbox == .retrying(lastError: "throttled (retry after 30 s)", isSendLater: false) }
         XCTAssertEqual(try cell(forConversation: 0, harness).content?.time.string, "Retrying shortly")
 
         try update(sendID, harness) {
@@ -302,6 +302,30 @@ final class OutboxViewTests: XCTestCase {
         XCTAssertTrue(try harness.environment.store.pendingSendSummaries().isEmpty, "the schedule is cancelled first")
         harness.spin { harness.list.conversations.isEmpty }
         XCTAssertTrue(harness.list.conversations.isEmpty, "it leaves the Outbox")
+    }
+
+    /// A Send Later message a throttle or a lost connection put back reads “Retrying shortly”, and ↩ takes it back and opens
+    /// its draft, as ↩ on its Drafts row does: it is not on its way until the runner claims it again.
+    func testASendLaterMessageWaitingToRetryContinuesAsFromDrafts() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let (sendID, draft) = try schedule("Lisbon", at: Date().addingTimeInterval(86_400), harness)
+        try update(sendID, harness) {
+            $0.status = .scheduled
+            $0.attempts = 1
+            $0.sendAfter = Date().addingTimeInterval(30)
+            $0.lastError = "network: The Internet connection appears to be offline."
+        }
+        let id = row(sendID)
+        showOutbox(listing: [id], harness)
+        XCTAssertEqual(try cell(forConversation: 0, harness).content?.time.string, "Retrying shortly")
+        select(id, in: harness)
+        XCTAssertEqual(harness.reader.header.content.actions, ReaderActionSet(primary: [.continueEditing], replies: []))
+
+        XCTAssertTrue(harness.controller.perform(.open))
+        harness.spin { !ComposeWindowRegistry.shared.openControllers.isEmpty }
+        XCTAssertEqual(ComposeWindowRegistry.shared.openControllers.map(\.draftID), [draft.id])
+        XCTAssertTrue(try harness.environment.store.pendingSendSummaries().isEmpty, "the retry is cancelled first")
     }
 
     /// Cancel beside its time takes the schedule back and leaves the draft, which is in Drafts, not here.

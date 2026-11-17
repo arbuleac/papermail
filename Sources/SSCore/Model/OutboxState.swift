@@ -16,8 +16,9 @@ public enum OutboxState: Hashable, Sendable {
     /// A Send Later message whose time passed while SuperSparrow was closed, waiting for the user: “Not sent”.
     case missed(Date)
     /// Put back to go again after a throttle, or after a failure before anything left this Mac (no connection, no token):
-    /// “Retrying shortly”. `lastError` is the outbox's technical description of what stopped it.
-    case retrying(lastError: String?)
+    /// “Retrying shortly”. `lastError` is the outbox's technical description of what stopped it; `isSendLater` when it is
+    /// a Send Later message (it keeps its draft id while it goes), which Continue Editing can still take back.
+    case retrying(lastError: String?, isSendLater: Bool)
     /// Failed after the request may have reached the provider, so it is never tried again: “Couldn't send”, in `danger`.
     case failed(lastError: String?)
 
@@ -29,19 +30,23 @@ public enum OutboxState: Hashable, Sendable {
         switch send.status {
         case .later: self = .waiting(until: send.sendAfter)
         case .missed: self = .missed(send.sendAfter)
-        case .scheduled: self = send.lastError == nil ? .sending : .retrying(lastError: send.lastError)
+        case .scheduled:
+            self = send.lastError == nil ? .sending : .retrying(lastError: send.lastError, isSendLater: send.draftID != nil)
         case .sending: self = .sending
         case .failed: self = .failed(lastError: send.lastError)
         case .sent: return nil
         }
     }
 
-    /// Still held for the user to change: a Send Later message waiting or missed, whose draft Continue Editing opens, its
-    /// schedule cancelled first, as from Drafts (`SendLaterState.isHeld`). An undo-send is taken back by its own Undo.
+    /// Still held for the user to change: a Send Later message waiting, missed, or put back to go again, whose draft
+    /// Continue Editing opens, its schedule cancelled first, as from Drafts, where ↩ on that row takes it back too
+    /// (`MailClient.cancelSend` takes a `scheduled` send). An undo-send is taken back by its own Undo: its panel or reply
+    /// bar still watches it after its window, and would read it gone as sent.
     public var isHeld: Bool {
         switch self {
         case .waiting, .missed: return true
-        case .sending, .retrying, .failed: return false
+        case .retrying(_, let isSendLater): return isSendLater
+        case .sending, .failed: return false
         }
     }
 

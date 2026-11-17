@@ -47,19 +47,21 @@ final class OutboxTests: XCTestCase {
         XCTAssertEqual(OutboxState(send(status: .later, at: monday, draft: UUID())), .waiting(until: monday))
         XCTAssertEqual(OutboxState(send(status: .missed, at: monday, draft: UUID())), .missed(monday))
         XCTAssertEqual(OutboxState(send(status: .scheduled, lastError: "throttled (retry after 30 s)")),
-                       .retrying(lastError: "throttled (retry after 30 s)"), "put back by a throttle: the runner wrote why")
-        XCTAssertEqual(OutboxState(send(status: .scheduled, lastError: "network", draft: UUID())), .retrying(lastError: "network"),
-                       "a Send Later message waiting out a retry reads as one too")
+                       .retrying(lastError: "throttled (retry after 30 s)", isSendLater: false), "put back by a throttle: the runner wrote why")
+        XCTAssertEqual(OutboxState(send(status: .scheduled, lastError: "network", draft: UUID())),
+                       .retrying(lastError: "network", isSendLater: true), "a Send Later message waiting out a retry reads as one too")
         XCTAssertEqual(OutboxState(send(status: .failed, lastError: "HTTP 400")), .failed(lastError: "HTTP 400"))
         XCTAssertNil(OutboxState(send(status: .sent, draft: UUID())), "taken: it leaves the Outbox at once")
 
         XCTAssertTrue(OutboxState.waiting(until: monday).isHeld)
         XCTAssertTrue(OutboxState.missed(monday).isHeld)
-        for state in [OutboxState.sending, .retrying(lastError: nil), .failed(lastError: nil)] {
+        XCTAssertTrue(OutboxState.retrying(lastError: nil, isSendLater: true).isHeld,
+                      "a Send Later message waiting out a retry is still the outbox's to give back, as ↩ does in Drafts")
+        for state in [OutboxState.sending, .retrying(lastError: nil, isSendLater: false), .failed(lastError: nil)] {
             XCTAssertFalse(state.isHeld, "\(state): only a Send Later message is the user's to change from here")
         }
-        XCTAssertEqual([OutboxState.sending, .waiting(until: monday), .retrying(lastError: nil), .missed(monday), .failed(lastError: nil)]
-            .map(\.goesByItself), [true, true, true, false, false])
+        XCTAssertEqual([OutboxState.sending, .waiting(until: monday), .retrying(lastError: nil, isSendLater: false), .missed(monday),
+                        .failed(lastError: nil)].map(\.goesByItself), [true, true, true, false, false])
     }
 
     /// Those that go by themselves soonest first, then those waiting for the user, newest first; a sent one not at all.
@@ -179,7 +181,14 @@ final class OutboxTests: XCTestCase {
         XCTAssertEqual(sending.dateDisplay, "Sending\u{2026}")
         XCTAssertFalse(sending.cancelsSendLater)
         XCTAssertEqual(sending.outbox, RenderPayload.OutboxSheet(continues: false, failed: false), "it only shows")
-        XCTAssertEqual(try card(send(status: .scheduled, lastError: "network")).dateDisplay, "Retrying shortly")
+        let retrying = try card(send(status: .scheduled, lastError: "network"))
+        XCTAssertEqual(retrying.dateDisplay, "Retrying shortly")
+        XCTAssertEqual(retrying.outbox, RenderPayload.OutboxSheet(continues: false, failed: false), "an undo-send's own Undo takes it")
+        let laterRetrying = try card(send(status: .scheduled, lastError: "network", draft: UUID()))
+        XCTAssertEqual(laterRetrying.dateDisplay, "Retrying shortly")
+        XCTAssertFalse(laterRetrying.cancelsSendLater, "Cancel is for a message waiting for its time, as in Drafts")
+        XCTAssertEqual(laterRetrying.outbox, RenderPayload.OutboxSheet(continues: true, failed: false),
+                       "a Send Later message waiting out a retry continues, as from Drafts")
         let failed = try card(send(status: .failed, lastError: "HTTP 400"))
         XCTAssertEqual(failed.dateDisplay, "Couldn't send: Gmail didn't accept the message.", "the banner's reason")
         XCTAssertEqual(failed.outbox, RenderPayload.OutboxSheet(continues: false, failed: true))
