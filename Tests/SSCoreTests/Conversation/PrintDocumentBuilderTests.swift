@@ -216,7 +216,7 @@ final class PrintDocumentBuilderTests: XCTestCase {
     }
 
     func testACancelledCardIsMarkedAndAnsweredWithNothing() {
-        var invitation = RenderPayload.Invitation(title: "", when: "Tue 11 Mar · 15:00 – 16:00", organizer: "Ada Lovelace", isCancelled: true,
+        var invitation = RenderPayload.Invitation(title: "", when: "Tue 11 Mar · 15:00 - 16:00", organizer: "Ada Lovelace", isCancelled: true,
                                                   response: .declined)
         let html = PrintDocumentBuilder.invitationCard(invitation)
         XCTAssertTrue(html.hasPrefix("<section class=\"ss-pinvite ss-pind ss-cancelled\"><div class=\"ss-pikick\">Cancelled</div>"))

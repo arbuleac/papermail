@@ -290,7 +290,7 @@ def cheat_sheet():
     def sec(title, rows):
         r = ''.join('<div style="display:grid;grid-template-columns:%dpx 1fr;align-items:center;height:%dpx"><span style="display:flex;gap:%dpx;align-items:center">%s</span><span style="font:var(--q-font-snippet);color:var(--q-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">%s</span></div>'
                     % (L['keyColumn'], L['row'], L['keycapGap'], _caps(k), html.escape(lbl)) for k, lbl in rows)
-        return ('<div><div style="height:%dpx;display:flex;align-items:flex-end;font:var(--q-font-runningHead);letter-spacing:var(--q-track-runningHead);text-transform:uppercase;color:var(--q-ink3)">%s</div>%s</div>' % (L['sectionTitle'], title, r))
+        return ('<div><div style="height:%dpx;display:flex;align-items:flex-end;font:var(--q-font-runningHead);letter-spacing:var(--q-track-runningHead);color:var(--q-ink3)">%s</div>%s</div>' % (L['sectionTitle'], title, r))
     bands = []
     n = L['columns']
     for i in range(0, len(sections), n):
@@ -298,7 +298,7 @@ def cheat_sheet():
     # The search operators' line: its title in the key column, the terms after it, one row under the bands.
     title, terms = T.CHEAT_SHEET_SEARCH
     bands.append('<div style="display:grid;grid-template-columns:%dpx 1fr;align-items:center;height:%dpx">'
-                 '<span style="font:var(--q-font-runningHead);letter-spacing:var(--q-track-runningHead);text-transform:uppercase;color:var(--q-ink3)">%s</span>'
+                 '<span style="font:var(--q-font-runningHead);letter-spacing:var(--q-track-runningHead);color:var(--q-ink3)">%s</span>'
                  '<span style="display:flex;gap:%dpx;font:var(--q-font-snippet);color:var(--q-ink);white-space:nowrap;overflow:hidden">%s</span></div>'
                  % (L['keyColumn'], L['row'], title, L['searchTermGap'], ''.join('<span>%s</span>' % html.escape(t) for t in terms)))
     return ('<div style="position:relative;width:%dpx;padding:%dpx;border-radius:%dpx;background:var(--q-raised);box-shadow:var(--q-e3);color:var(--q-ink)">'

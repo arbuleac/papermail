@@ -107,7 +107,7 @@ enum DemoCatalog {
             "Reservation done for 7:30, under my name. Cake is on me.",
         ], alexStarts: true),
         Script(subject: "Quick favour", people: [maya], lines: [
-            "Any chance you could water my plants while I'm away the 10th–14th? The fiddle leaf is dramatic, it needs exactly one cup on Mondays.",
+            "Any chance you could water my plants while I'm away the 10th to the 14th? The fiddle leaf is dramatic, it needs exactly one cup on Mondays.",
             "Sure thing. Leave the key with the front desk. Should I talk to the fiddle leaf too?",
             "Yes. Compliments only.",
         ]),
@@ -214,7 +214,7 @@ enum DemoCatalog {
         ], starred: true),
         Script(subject: "Contoso rollout: go-live checklist", people: [ben, tom], lines: [
             "Hi Alex, attaching our go-live checklist for the 14th. Can your team confirm items 4 through 9 by Friday? Our store managers start training Monday.",
-            "Thanks Ben. Items 4–7 are done; 8 and 9 depend on your SSO configuration. Could your IT team share the metadata URL?",
+            "Thanks Ben. Items 4 to 7 are done; 8 and 9 depend on your SSO configuration. Could your IT team share the metadata URL?",
             "Forwarded to IT, they'll send it today. Really appreciate the quick turnaround.",
             "Got the metadata. SSO is configured on staging, can someone on your side test a login?",
             "Tested with three accounts, all good. We're green for the 14th!",
@@ -305,7 +305,7 @@ enum DemoCatalog {
         Notification(
             sender: Person(name: "Northwind IT", address: "it-helpdesk@northwind-labs.test"),
             subjects: ["Ticket #%d resolved: VPN access", "Scheduled maintenance this Saturday", "Your laptop is due for an OS update"],
-            lines: ["If the issue persists, reply to this email to reopen the ticket.", "Maintenance window: Saturday 22:00–02:00 PT."],
+            lines: ["If the issue persists, reply to this email to reopen the ticket.", "Maintenance window: Saturday 22:00 to 02:00 PT."],
             accent: "#374151", button: "Open the portal"
         ),
     ]

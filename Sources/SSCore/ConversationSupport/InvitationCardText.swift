@@ -109,12 +109,12 @@ struct InvitationCardText {
             // The end is exclusive: an event on the 10th ends at the start of the 11th.
             let lastDay = max(invitation.start, invitation.end.addingTimeInterval(-86_400))
             if calendar.isDate(lastDay, inSameDayAs: invitation.start) { return day(invitation.start) + " · All day" }
-            return day(invitation.start) + " – " + day(lastDay) + " · All day"
+            return day(invitation.start) + " - " + day(lastDay) + " · All day"
         }
         if invitation.end <= invitation.start { return day(invitation.start) + " · " + time(invitation.start) }
         if calendar.isDate(invitation.end, inSameDayAs: invitation.start) {
-            return day(invitation.start) + " · " + time(invitation.start) + " – " + time(invitation.end)
+            return day(invitation.start) + " · " + time(invitation.start) + " - " + time(invitation.end)
         }
-        return day(invitation.start) + ", " + time(invitation.start) + " – " + day(invitation.end) + ", " + time(invitation.end)
+        return day(invitation.start) + ", " + time(invitation.start) + " - " + day(invitation.end) + ", " + time(invitation.end)
     }
 }

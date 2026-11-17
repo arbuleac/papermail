@@ -135,7 +135,7 @@ final class ConversationRowContent {
             attributes[.font] = QuireFont.font(.snippet, textSize: textSize)
             attributes[.foregroundColor] = NSColor.qInk2
             attributes[.kern] = nil
-            return NSAttributedString(string: " — " + snippet, attributes: attributes)
+            return NSAttributedString(string: " - " + snippet, attributes: attributes)
         }
     }
 }

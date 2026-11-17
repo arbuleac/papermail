@@ -230,7 +230,7 @@ final class QuireCSSTests: XCTestCase {
 
     func testHeadCoversEveryVariableFamily() {
         let head = QuireCSS.head
-        for needle in ["--q-paper:", "--q-acct-1:", "--q-av-clay-face:", "--q-e1:", "--q-font-subject:", "--q-track-runningHead:0.6px",
+        for needle in ["--q-paper:", "--q-acct-1:", "--q-av-clay-face:", "--q-e1:", "--q-font-subject:", "--q-track-runningHead:0px",
                        "--q-s1:2px", "--q-r-lg:8px", "--q-dur-standard:180ms", "--q-ease-settle:cubic-bezier(0.2,0.8,0.2,1)",
                        "@media (prefers-contrast:more)", "html.ss-ic{", "html.ss-graphite{", "html.ss-ic.ss-graphite{"] {
             XCTAssertTrue(head.contains(needle), needle)

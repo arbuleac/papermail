@@ -431,7 +431,7 @@ public enum ConversationShellAssets {
     .ss-card.ss-mfolded .ss-qrow { display: none; }
     .ss-ikick {
       display: flex; align-items: center; gap: 6px; font: var(--q-font-runningHead); letter-spacing: var(--q-track-runningHead);
-      text-transform: uppercase; color: var(--q-ink3);
+      color: var(--q-ink3);
     }
     .ss-ikick > .ss-sym { font-size: 14px; width: 14px; height: 14px; }
     .ss-invite.ss-cancelled .ss-ikick { color: var(--q-danger); }

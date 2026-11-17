@@ -198,7 +198,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
         let window = MainWindow(contentRect: NSRect(origin: .zero, size: QuireWindowChrome.defaultSize),
                                 styleMask: QuireWindowChrome.mainStyleMask, backing: .buffered, defer: false)
-        QuireWindowChrome.configureMainWindow(window, title: environment.isDemo ? "SuperSparrow — Demo" : "SuperSparrow")
+        QuireWindowChrome.configureMainWindow(window, title: environment.isDemo ? "SuperSparrow Demo" : "SuperSparrow")
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
         window.collectionBehavior.insert(.fullScreenPrimary)

@@ -2,7 +2,7 @@
 and the rendered DESIGN-LANGUAGE.md. Colour order: light, dark, lightHC, darkHC."""
 
 NAME = "Quire"
-VERSION = "1.8.6"
+VERSION = "1.8.7"
 
 # The brand palette (docs/brand, spec §5.42), written once: `layout.brand` and the app icon's colours (`layout.appIcon`)
 # read it from here. The mark is black and white only: `paper` is the plane on the icon's tile and the one-colour mark on
@@ -133,7 +133,7 @@ TYPE = [
  ("label",          "sf",      12, 500, 16,  0.0, {"use": "Buttons, chips, quick-reply modes, field labels"}),
  ("snippet",        "sf",      12, 400, 15,  0.0, {"use": "List snippet, recipients, banners, collapsed snippet"}),
  ("meta",           "sf",      11, 400, 14,  0.0, {"numeric": "tabular", "use": "Times, sizes, sync line, captions"}),
- ("runningHead",    "sf",      11, 600, 14,  0.6, {"case": "upper", "use": "Date dividers, reader kicker, section overlines"}),
+ ("runningHead",    "sf",      11, 600, 14,  0,   {"use": "Date dividers, reader kicker, section overlines"}),
  ("tag",            "sf",      11, 500, 14,  0.0, {"use": "Tags: Gmail, Microsoft 365, Demo"}),
  ("badge",          "rounded", 11, 600, 14,  0.0, {"numeric": "tabular", "use": "Count badges"}),
  ("kbd",            "sf",      11, 500, 14,  0.0, {"use": "Keycaps; SF Pro carries the modifier glyphs"}),
