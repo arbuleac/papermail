@@ -2288,8 +2288,8 @@ The second key, any other key, Esc or the end of the 2000 ms window dismisses it
 |---|---|---|---|---|---|
 | 1 | 1 | Move | 1 | J  K | Next · previous |
 | 1 | 1 | Move | 2 | ⇧J  ⇧K | Extend the selection |
-| 1 | 1 | Move | 3 | ↩  esc | Open · back to the list |
-| 1 | 1 | Move | 4 | ⌘O | Open in a new window |
+| 1 | 1 | Move | 3 | →  esc | Open · back to the list |
+| 1 | 1 | Move | 4 | ↩ | Open in a new window |
 | 1 | 1 | Move | 5 | N  P | Next · previous message |
 | 1 | 1 | Move | 6 | space | Quick Look attachments |
 | 1 | 1 | Move | 7 | ⇧⌘D | Download attachments |
@@ -2337,7 +2337,7 @@ The second key, any other key, Esc or the end of the 2000 ms window dismisses it
 | 2 | 3 | View | 7 | ⇧⌘N | Check for new mail |
 | 2 | 3 | View | 8 | ? | This sheet |
 
-Alternates that duplicate a single key (⌘F for /, ⌘N for C, ⌘Z for Z, → and ← for ↩ and esc, ⌘/ for ?, ⌘= for ⌘+) are left out to keep one key per action; menus and tooltips name them. Keys that undo or mirror each other share a row, as J K and N P do: ↩ esc, E ⇧I (Archive and its inverse), # ! (the two ways out to a provider's folder), ⇧⌘I ⇧⌘O and ⌥⌘C ⌃⌘S. That keeps band 1 at nine rows and band 2 at eight with every key on the sheet, so it still fits the default window whole; every label fits its 144 pt.
+Alternates that duplicate a single key (⌘F for /, ⌘N for C, ⌘O for ↩, ⌘Z for Z, ← for esc, ⌘/ for ?, ⌘= for ⌘+) are left out to keep one key per action; menus and tooltips name them. → is no alternate: it opens the conversation in the main window's reader, where ↩ opens it in a window of its own (§5.49). Keys that undo or mirror each other share a row, as J K and N P do: → esc, E ⇧I (Archive and its inverse), # ! (the two ways out to a provider's folder), ⇧⌘I ⇧⌘O and ⌥⌘C ⌃⌘S. That keeps band 1 at nine rows and band 2 at eight with every key on the sheet, so it still fits the default window whole; every label fits its 144 pt.
 
 **Search line**, under the bands (`cheatSheetSearch` in `tokens.json`): the operators §5.6 describes. `in:inbox`, `in:drafts` and `in:all` work too and are left off the line, which they would push past the panel; §5.6 lists them.
 
@@ -2863,7 +2863,7 @@ A printout is one page flow with one Content-Security-Policy, while the reader g
 
 ### 5.49 Reader window (Q3.5)
 
-A conversation in a window of its own, for reading beside a composer or another conversation. ⌘O (File › Open in New Window) opens the selected conversation; ⌘-double-click on a row opens that row's. One window per conversation: opening one that is already open brings its window forward. Nothing opens with several conversations selected (the key is spent, as ↩ is, §5.19), from Drafts (a draft opens in its composer), or from the welcome screen.
+A conversation in a window of its own, for reading beside a composer or another conversation. ↩ (or keypad Enter) on the list opens the selected conversation, and so does ⌘O (File › Open in New Window); a double-click on a row opens that row's, ⌘ held or not. → stays in the main window: its reader shows the conversation and takes the keyboard (§6). One window per conversation: opening one that is already open brings its window forward. Nothing opens with several conversations selected (↩ is spent and ⌘O disabled), from Drafts (↩ and a double-click continue editing the draft in its composer, §5.19; ⌘O is disabled), from the welcome screen, or from a row that is not a conversation (a running head, the list's tail, the server search's offer). ↩ with the keyboard in the main window's reader opens nothing new: it presses what has focus in the page, as before. Esc closes the window as ⌘W does, once nothing else in it takes the key, while its quick reply holds nothing typed and no reply counting down; with the user's work there it stays (§6.1).
 
 `layout.readerWindow`
 
@@ -2878,7 +2878,7 @@ A conversation in a window of its own, for reading beside a composer or another 
 | Web view | one web view of its own, outside the main window's pool, so each window is one more WebContent process (about 25 MB, which the roadmap's baseline allows for); nothing is pre-rendered |
 | Toast | bottom centre of the reader, 16 pt above the quick reply (above the window's bottom edge while the bar is hidden), at most the window's width less 16 pt a side (§5.30) |
 
-**Keys and menus.** The reader's keys and the Message menu act on the window's conversation, as they do on the selection in the main window (§6): E, L, #, !, ⇧I, S, U, M, Z, R, A, F, N, P, ., Space, ⇧⌘U, ⇧⌘I, ⇧⌘O, and the sender rules (§5.52). The reader's own commands work there too: Download Attachments ⇧⌘D (§5.17), Print… ⌘P (§5.48), Find in Conversation… ⌥⌘F with ⌘G and ⇧⌘G (§5.50, its bar in the window; Esc closes it after the window's toast), and the quick reply's Send Later ⇧⌘L (§5.46), whose “Sends Tue 09:00” toast and undo are the window's. C and ⌘N start a new message. / and ⌘F, the G-sequences and ? act in the main window, which comes forward. J, K and ↩ have no list to move in, and pass to the page. ⌘W closes the window.
+**Keys and menus.** The reader's keys and the Message menu act on the window's conversation, as they do on the selection in the main window (§6): E, L, #, !, ⇧I, S, U, M, Z, R, A, F, N, P, ., Space, ⇧⌘U, ⇧⌘I, ⇧⌘O, and the sender rules (§5.52). The reader's own commands work there too: Download Attachments ⇧⌘D (§5.17), Print… ⌘P (§5.48), Find in Conversation… ⌥⌘F with ⌘G and ⇧⌘G (§5.50, its bar in the window; Esc closes it after the window's toast), and the quick reply's Send Later ⇧⌘L (§5.46), whose “Sends Tue 09:00” toast and undo are the window's. C and ⌘N start a new message. / and ⌘F, the G-sequences and ? act in the main window, which comes forward. J, K, ↩ and → have no list to move in or open from, and pass to the page. ⌘W closes the window, and so does Esc while the quick reply holds nothing (§6.1).
 
 **Leaving the window.** Archive, Later, Move to Trash, Mark as Spam, Unsubscribe and a Mute that archives (from the Inbox) take the conversation off the desk, so the window closes as the step is taken: the main window comes forward with the step's toast (“Archived · Undo Z”), and its Undo (Z, ⌘Z, the button) brings the conversation back and opens its window again where it was. A step that leaves the conversation in the window (Move to Inbox, Star, Mark as Unread, a Mute that moves nothing, a sender rule) keeps it open, and the toast it gets shows in the window. ! where it does not apply (the Trash, Drafts) beeps, as in the main window. Discard Draft… on a draft in the window asks on the window, and the confirmed discard, which moves the conversation to the Trash, closes it as Move to Trash does. A reply sent from the window's quick reply with Send and Archive takes the conversation off the desk too: the window closes as the reply is queued, its countdown moving to an undo-send panel on the main window (§5.31) whose Undo brings back both the reply, in a composer, and the conversation (§5.23); Send alone keeps the window, its strip counting down in it. A conversation emptied elsewhere shows the reader's emptied state (§5.19), and the window stays until it is closed.
 
@@ -2930,7 +2930,7 @@ VoiceOver names the window by its subject; inside it everything reads as the rea
 
 **What a step opens.** Only what hides the current match, and only when the current match lands in it: a collapsed message expands (its own folded run opens with it, and no other), the message under an invitation card unfolds, and folded quoted text unfolds, its elision mark then reading “Hide quoted text” (§5.15). A step (↩, ⌘G and their Shift twins) opens at once; typing opens only once it rests for 300 ms, and then for the match current by then, so the prefixes typed on the way to the words wanted (“o”, “of” for “offsite”) open nothing, while a match already in sight is scrolled to at once. Nothing animates, so the page does not move under the match, and the message holding it becomes the target (§5.14). What opened stays open when the find ends: refolding as the matches pass would make the page jump under the reader, and “.” folds it again. Other matches are counted, never opened.
 
-**Keys.** ↩ in the field is Next, ⇧↩ Previous, Esc closes. ⌘G and ⇧⌘G (Edit › Find Next, Find Previous) step from anywhere in the main window while one conversation shows; with the bar closed they open it with the session's last query. ⌥⌘F with the bar open gives the field the keyboard again with its query selected. Esc from the page closes the bar first and the second Esc returns to the list (§6.1).
+**Keys.** ↩ in the field is Next, ⇧↩ Previous, Esc closes. ⌘G and ⇧⌘G (Edit › Find Next, Find Previous) step from anywhere in the main window while one conversation shows; with the bar closed they open it with the session's last query. ⌥⌘F with the bar open gives the field the keyboard again with its query selected. Esc from the page closes the bar first and the second Esc returns to the list, or in a reader window closes the window while its quick reply holds nothing (§6.1).
 
 **Lifetime.** The bar belongs to the conversation it searched: showing another conversation, several or none, or the conversation emptying, closes it. Opened while the selected conversation is still on its way (⌘G pressed before its page lands), it searches nothing until that page is on screen, never the conversation being left. A store change to the open conversation (a reply arriving, a body downloading) finds again in place: the count follows, the current match stays, the page does not scroll.
 
@@ -2986,13 +2986,14 @@ All single keys are inactive while a text field has focus. Every key press first
 | J / K | next / previous conversation | E | archive |
 | ⇧J / ⇧K | extend the selection | # | move to Trash (nothing in Trash, §5.12) |
 | ! | mark as spam (§5.47; nothing in Trash or Drafts) | M | mute: archived now, new mail archived as it arrives; M again unmutes (§5.51) |
-| ↩ / → | open (focus the reader); ↩ on a focused elision mark, Download button or Download all in the reader presses it (§5.15, §5.17); ↩ on the focused recipients toggle opens or folds it; on a focused address in a sheet header (§5.14) it copies the address | S | star |
-| Esc / ← | back to the list; ← and → move along the recipients of an open list while one has focus (§5.14) | U | mark unread |
+| ↩ | open the conversation in a reader window of its own (§5.49; in Drafts, continue editing, §5.19); in the reader ↩ opens nothing new: on a focused elision mark, Download button or Download all it presses it (§5.15, §5.17), on the focused recipients toggle it opens or folds it, and on a focused address in a sheet header (§5.14) it copies the address | S | star |
+| → | open the conversation in the main window's reader, which takes the keyboard (in Drafts, continue editing, §5.19) | U | mark unread |
+| Esc / ← | back to the list; in a reader window, Esc closes the window while its quick reply holds nothing (§6.1); ← and → move along the recipients of an open list while one has focus (§5.14) | | |
 | N / P | next / previous message in the reader | Z or ⌘Z | undo |
 | . | show / hide quoted text; on a message under an invitation card, the message (§5.14) | C or ⌘N | new message |
 | R / A / F | reply / reply all / forward | / or ⌘F | search |
 | ↩ (search field) | search the server for more while the list ends with its offer (§5.6, §5.10), then the list; ↓ only the list | | |
-| ⌘O, ⌘-double-click on a row | open the conversation in a reader window (§5.49) | ⌘W | close the window |
+| ⌘O, a double-click on a row (⌘ held or not) | open the conversation in a reader window, as ↩ does (§5.49) | ⌘W | close the window |
 | G I, G S, G T, G D, G #, G A | Inbox, Starred, Sent, Drafts, Trash, All Mail (HUD after 500 ms) | ⌘0 / ⌘1…⌘9 | All Inboxes / account |
 | L | snooze: the Later menu (§5.45; nothing in Trash or Drafts) | G L | Later, while its tile shows (§5.2) |
 | ⇧⌘R | open the quick reply in the composer | ⌘↩ | send: what Send does, Send and Archive unless the drop-down chose Send (§5.23) |
@@ -3025,10 +3026,11 @@ Several surfaces answer the same key. The first row that applies wins and consum
 | 7 | A toast is visible in this window | dismisses the toast (its undo keeps working for the grace period) |
 | 8 | The find bar is open and focus is in the page or on a reader button (not the quick reply, which keeps its text) | closes the find bar; focus stays in the reader |
 | 9 | Focus is on a recipient, or on “and 24 more”, in a sheet's open list of recipients (§5.14) | folds the list; focus goes to its toggle |
-| 10 | Focus is in the reader or the quick reply (main window) | returns focus to the list; the quick reply keeps its text. In a reader window, focus in the quick reply returns to the page |
-| 11 | Focus is on the list | nothing (no beep) |
+| 10 | Focus is in a reader window (§5.49) whose quick reply holds none of the user's work: no text typed (blank text counts as none, and so does text in a bar hidden since, its conversation emptied or gone to the Trash, which is kept with the conversation) and no reply counting down | closes the window, as ⌘W and the close button do; the next window opens at its size |
+| 11 | Focus is in the reader or the quick reply (main window) | returns focus to the list; the quick reply keeps its text. In a reader window whose quick reply holds the user's work, focus in the quick reply returns to the page, and on the page Esc does nothing (no beep), the window staying |
+| 12 | Focus is on the list | nothing (no beep); the main window never closes on Esc |
 
-So in the reader with a toast up, the first Esc dismisses the toast and the second returns to the list; with the find bar open as well, the second closes the bar and the third returns to the list; with focus in an open list of recipients, the first Esc folds it and the next returns to the list. In a composer window Esc does rows 1–2; with no popover left to close, it closes a composer that holds nothing worth keeping (nothing typed, chosen or attached beyond the prefilled reply, its folded original and the signature, §5.20), keeping no draft, and does nothing in one that holds the user's work.
+So in the reader with a toast up, the first Esc dismisses the toast and the second returns to the list; with the find bar open as well, the second closes the bar and the third returns to the list; with focus in an open list of recipients, the first Esc folds it and the next returns to the list. In a reader window the same Esc that would return to the list closes the window instead, unless its quick reply holds the user's work: with a toast up in it, the first Esc dismisses the toast and the second closes the window. In a composer window Esc does rows 1–2; with no popover left to close, it closes a composer that holds nothing worth keeping (nothing typed, chosen or attached beyond the prefilled reply, its folded original and the signature, §5.20), keeping no draft, and does nothing in one that holds the user's work.
 
 **⌘Z** (Edit › Undo, titled by its target)
 

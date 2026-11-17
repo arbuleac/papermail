@@ -9,7 +9,13 @@ enum KeyCommand: Equatable {
     /// ⇧J / ⇧K (and ⇧↓ / ⇧↑): grow or shrink the selection (spec §6, §5.19).
     case extendNext
     case extendPrevious
+    /// → from the list, and ↩ while the reader has the keyboard: the selected conversation in the main window's reader,
+    /// which takes the keyboard (spec §6). In the reader it gives way to a focused elision mark, Download button or
+    /// address, which ↩ presses there.
     case open
+    /// ↩ and keypad Enter from the list: the selected conversation in a reader window of its own, as ⌘O opens it, or its
+    /// window brought forward (spec §5.49). In Drafts it is Continue Editing (§5.19).
+    case openInWindow
     case archive
     case toggleStar
     case toggleRead
@@ -213,8 +219,10 @@ final class KeyboardRouter {
         case 53: return (modifiers.isEmpty ? .clearSearch : nil, false) // Esc
         case 125: return (readerFocused ? nil : modifiers.contains(.shift) ? .extendNext : .next, false) // ↓
         case 126: return (readerFocused ? nil : modifiers.contains(.shift) ? .extendPrevious : .previous, false) // ↑
-        case 36, 76: return (modifiers.isEmpty ? .open : nil, false) // Return, keypad Enter
-        // → opens like ↩ from the list (§6); in the reader it is the web view's (horizontal scroll).
+        // Return and keypad Enter: from the list a window of its own (§5.49); in the reader Open's, so they still press
+        // what has focus in the page and open nothing new.
+        case 36, 76: return (modifiers.isEmpty ? (readerFocused ? .open : .openInWindow) : nil, false)
+        // → opens in the main window's reader from the list (§6); in the reader it is the web view's (horizontal scroll).
         case 124: return (!readerFocused && modifiers.isEmpty ? .open : nil, false)
         // ← goes back to the list from the reader along Esc's path, so a visible toast still goes first (§6.1).
         case 123: return (readerFocused && modifiers.isEmpty ? .back : nil, false)

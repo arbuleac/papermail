@@ -462,16 +462,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         list.onRowAction = { [weak self] change, id in self?.rowAction(change, on: id) }
         conversation.messageMenu = { [weak self] in self?.selectionContextMenu() }
         list.onOpen = { [weak self] id in
-            guard let self else { return }
-            // In Drafts, ↩ and a double-click are Continue Editing (§5.19).
-            if self.listView == .drafts {
-                if let draft = self.draftMessageID(in: id) { self.continueDraft(draft) }
-                return
-            }
+            guard let self, !self.continuesEditingInDrafts(id) else { return }
             if self.conversation.currentConversationID != id { self.conversation.show(id) }
             self.focusReader()
         }
-        list.onOpenInWindow = { [weak self] id in self?.openInNewWindow(id) }
+        list.onOpenInWindow = { [weak self] id in
+            guard let self, !self.continuesEditingInDrafts(id) else { return }
+            self.openInNewWindow(id)
+        }
         list.onRowsChange = { [weak self] in self?.listPane.listRowsDidChange() }
         // The UI never calls a provider: the engine searches, writes what it finds, and the list reads the store.
         let engine = environment.engine
@@ -1155,6 +1153,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             guard !isSeveralSelected else { return true }
             guard let id = list.selectedConversationID else { return false }
             list.onOpen?(id)
+            return true
+        case .openInWindow:
+            // As for Open: several selected have nothing single to open, and the key is spent all the same (§5.49).
+            guard !isSeveralSelected else { return true }
+            guard let id = list.selectedConversationID else { return false }
+            list.onOpenInWindow?(id)
             return true
         case .archive:
             return archive()
@@ -2239,8 +2243,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         openInNewWindow(id)
     }
 
-    /// Opens `id` in a reader window, or brings forward the one already showing it (⌘O, ⌘-double-click on a row). The
-    /// window treats the conversation as a row of the list's view, as the keys here do.
+    /// Opens `id` in a reader window, or brings forward the one already showing it (⌘O; ↩ on the list and a double-click on
+    /// a row, outside Drafts). The window treats the conversation as a row of the list's view, as the keys here do.
     @discardableResult
     func openInNewWindow(_ id: ConversationID) -> ReaderWindowController? {
         guard !showingWelcome, accountsByID[id.accountID] != nil, !LocalDraftConversation.isLocal(id), listView != .drafts else {
@@ -2412,6 +2416,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         list.localDrafts = localDrafts.summaries
         let store = environment.store
         list.hiddenDrafts = Set(localDrafts.continuedDrafts.compactMap { try? store.message($0)?.conversationID })
+    }
+
+    /// In Drafts, ↩, → and a double-click on a row are Continue Editing (§5.19): the draft opens in its composer, never in
+    /// the reader or a reader window. False outside Drafts, where they open the conversation.
+    private func continuesEditingInDrafts(_ id: ConversationID) -> Bool {
+        guard listView == .drafts else { return false }
+        if let draft = draftMessageID(in: id) { continueDraft(draft) }
+        return true
     }
 
     /// The draft a Drafts row stands for: a kept draft's own message, or the conversation's newest draft.

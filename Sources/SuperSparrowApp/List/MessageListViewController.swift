@@ -41,8 +41,10 @@ final class MessageListViewController: NSViewController {
     }
 
     var onSelectionChange: ((ConversationID?) -> Void)?
+    /// → on the list: the conversation in the main window's reader (spec §6). The host performs it from its router.
     var onOpen: ((ConversationID) -> Void)?
-    /// ⌘-double-click on a row: that row's conversation in a reader window of its own (spec §5.49).
+    /// ↩ on the list and a double-click on a row, ⌘ held or not: that conversation in a reader window of its own (spec
+    /// §5.49). The host makes it Continue Editing in Drafts (§5.19).
     var onOpenInWindow: ((ConversationID) -> Void)?
     /// A dragged row's conversation, JSON-encoded, for drops inside the app.
     static let conversationPasteboardType = NSPasteboard.PasteboardType("io.supersparrow.mac.conversation")
@@ -237,7 +239,7 @@ final class MessageListViewController: NSViewController {
         tableView.delegate = self
         tableView.target = self
         tableView.doubleAction = #selector(didDoubleClick(_:))
-        tableView.onReturn = { [weak self] in self?.openSelection() }
+        tableView.onReturn = { [weak self] in self?.openSelectionInWindow() }
         tableView.menuForRow = { [weak self] row in self?.contextMenu(forRow: row) }
         tableView.setDraggingSourceOperationMask(.copy, forLocal: false)
         tableView.setDraggingSourceOperationMask([.copy, .move], forLocal: true)
@@ -487,25 +489,23 @@ final class MessageListViewController: NSViewController {
         }
     }
 
-    private func openSelection() {
-        guard let id = selectedID else { return }
-        onOpen?(id)
+    /// ↩ that no window's router took: the selection in a window of its own, as the router's ↩ opens it. With several
+    /// selected there is no single conversation to open, and the key is spent.
+    private func openSelectionInWindow() {
+        guard let id = selectedID, selectedIDs.count <= 1 else { return }
+        onOpenInWindow?(id)
     }
 
     @objc private func didDoubleClick(_ sender: Any?) {
-        rowDoubleClicked(tableView.clickedRow, modifiers: NSApp.currentEvent?.modifierFlags ?? [])
+        rowDoubleClicked(tableView.clickedRow)
     }
 
-    /// A double-click opens the row's conversation; with ⌘ held it opens it in a window of its own, the row's, whatever
-    /// the ⌘-clicks did to the selection. Internal so the app's tests can double-click without events.
-    func rowDoubleClicked(_ row: Int, modifiers: NSEvent.ModifierFlags) {
+    /// A double-click opens the row's conversation in a window of its own (spec §5.49), ⌘ held or not: the row's, whatever
+    /// a ⌘- or ⇧-click did to the selection. Heads, the list's tail and the server search's offer open nothing. Internal so
+    /// the app's tests can double-click without events.
+    func rowDoubleClicked(_ row: Int) {
         guard let index = layout.conversationIndex(atRow: row) else { return }
-        let id = conversations[index].id
-        if modifiers.contains(.command) {
-            onOpenInWindow?(id)
-        } else {
-            onOpen?(id)
-        }
+        onOpenInWindow?(conversations[index].id)
     }
 
     // MARK: Selection

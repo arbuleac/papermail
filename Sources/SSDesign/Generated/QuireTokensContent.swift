@@ -209,8 +209,8 @@ extension Quire {
         QuireCheatSheetSection(title: "Move", rows: [
             QuireCheatSheetRow(keys: "J K", label: "Next · previous"),
             QuireCheatSheetRow(keys: "⇧J ⇧K", label: "Extend the selection"),
-            QuireCheatSheetRow(keys: "↩ esc", label: "Open · back to the list"),
-            QuireCheatSheetRow(keys: "⌘O", label: "Open in a new window"),
+            QuireCheatSheetRow(keys: "→ esc", label: "Open · back to the list"),
+            QuireCheatSheetRow(keys: "↩", label: "Open in a new window"),
             QuireCheatSheetRow(keys: "N P", label: "Next · previous message"),
             QuireCheatSheetRow(keys: "space", label: "Quick Look attachments"),
             QuireCheatSheetRow(keys: "⇧⌘D", label: "Download attachments"),
