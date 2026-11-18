@@ -180,6 +180,12 @@ final class RailLayoutTests: XCTestCase {
         }
         XCTAssertTrue(withBoth(600, 1).scrolls, "at the minimum height even one account scrolls")
         XCTAssertEqual(withBoth(600, 3).unifiedTop, 440, "two pitches lower: 20 pt under All Mail at 382 + 38")
+        // At the minimum height the clip has no room left (it never turns inside out over Add); one account fits from 656 pt.
+        let squeezed = withBoth(600, 1)
+        XCTAssertEqual(squeezed.clipBottom - squeezed.clipTop, 0)
+        XCTAssertLessThanOrEqual(squeezed.clipBottom, 600 - Quire.Layout.Rail.addTopFromBottom, "the clip ends above Add")
+        XCTAssertFalse(withBoth(656, 1).scrolls, "one account at 656 pt")
+        XCTAssertTrue(withBoth(655, 1).scrolls)
         let r = Quire.Layout.Rail.self
         let floor = r.allMailTop + r.tile + r.groupGap
         XCTAssertEqual(floor, 352)

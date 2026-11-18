@@ -749,6 +749,30 @@ final class OutboxViewTests: XCTestCase {
         XCTAssertEqual(harness.list.query.view, .outbox)
     }
 
+    /// At launch the window may read the outbox before its accounts: a send already waiting shows the Outbox once the window
+    /// knows its account, not before, since the Outbox lists only the sends of accounts it knows (§5.53).
+    func testASendWaitingAtLaunchShowsTheOutboxOnceTheAccountsAreRead() throws {
+        let harness = try MainWindowHarness(accounts: false)
+        defer { harness.close() }
+        // In the store, not yet read by the window.
+        try harness.environment.store.upsertAccount(ListTestSupport.accountA)
+        XCTAssertTrue(harness.controller.accounts.isEmpty)
+        let sendID = try harness.environment.engine.scheduleSend(message(), at: Date().addingTimeInterval(86_400), draftID: nil)
+        harness.controller.sendLaterOutbox.refresh()
+        XCTAssertEqual(harness.controller.localDrafts.outboxSends.map(\.id), [sendID], "the window has the send")
+        XCTAssertFalse(harness.controller.showsOutbox, "but not its account yet")
+        XCTAssertFalse(harness.controller.strip.showsOutbox)
+
+        harness.controller.refreshAccounts()
+        XCTAssertTrue(harness.controller.showsOutbox)
+        XCTAssertTrue(harness.controller.strip.showsOutbox)
+        harness.controller.strip.view.layoutSubtreeIfNeeded()
+        XCTAssertFalse(outboxTile(harness).isHidden)
+        XCTAssertTrue(harness.controller.perform(.goTo(.outbox)))
+        harness.spin { harness.list.conversations.map(\.id) == [self.row(sendID)] }
+        XCTAssertEqual(harness.list.query.view, .outbox)
+    }
+
     // MARK: Drafts
 
     /// Drafts lists its Send Later messages exactly as before, and never an undo-send; the Outbox lists both.

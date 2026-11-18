@@ -89,8 +89,7 @@ extension KeyboardRouterTarget {
 /// Every key press first finishes running animations (`Quire.Motion.finishAll()`, spec §4.10), so held keys
 /// never queue motion. G arms a sequence for 2000 ms (§5.32): I, S, T, D, # or A completes it, L while Later shows and O
 /// while the Outbox does; any other key (Esc included) disarms it and is consumed, and the HUD shows from 500 ms until the
-/// sequence ends. ? opens
-/// the keyboard cheat sheet; while it is open every key goes to it.
+/// sequence ends. ? opens the keyboard cheat sheet; while it is open every key goes to it.
 ///
 /// ⌘-shortcuts are left to the main menu (which disables mail actions while typing), except ⌘⌫ and ⌘Z, which
 /// mean "delete to line start" and text undo inside text and must not be claimed by menu items there.

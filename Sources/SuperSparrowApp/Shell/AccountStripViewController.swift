@@ -156,8 +156,8 @@ final class AccountStripViewController: NSViewController {
         return r.folderTop + CGFloat(position) * r.folderPitch
     }
 
-    /// How far the hairline and All Mail (and each folder below a conditional tile) move down: one pitch for every
-    /// conditional tile shown, so with Later and the Outbox both there they sit two pitches lower.
+    /// How far the hairline and All Mail move down: one pitch for every conditional tile shown, since both tiles sit above
+    /// them, so with Later and the Outbox both there they sit two pitches lower. The folders' own places are `folderTop`'s.
     static func folderShift(_ shown: ConditionalFolders) -> CGFloat {
         CGFloat([shown.later, shown.outbox].filter { $0 }.count) * Quire.Layout.Rail.folderPitch
     }
