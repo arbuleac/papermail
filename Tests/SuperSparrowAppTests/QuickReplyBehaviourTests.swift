@@ -152,9 +152,9 @@ final class QuickReplyBehaviourTests: XCTestCase {
         harness.toasts.show("Archived", kind: .confirmation)
         XCTAssertTrue(harness.toasts.isVisible)
 
-        harness.controller.handle(.escapeQuickReply)
+        harness.controller.handle(.escapeQuickReply(repeated: false))
         XCTAssertFalse(harness.toasts.isVisible, "the first Esc dismisses the toast")
-        harness.controller.handle(.escapeQuickReply)
+        harness.controller.handle(.escapeQuickReply(repeated: false))
         XCTAssertTrue(harness.controller.window?.firstResponder is NSTableView, "the second returns focus to the list")
         XCTAssertEqual(bar.text, "Half a thought", "the bar keeps its text")
     }

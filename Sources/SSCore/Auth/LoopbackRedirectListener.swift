@@ -332,7 +332,7 @@ final class LoopbackRedirectListener: @unchecked Sendable {
         """
         <!doctype html>
         <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-        <title>\(title) – SuperSparrow</title>
+        <title>\(title) - SuperSparrow</title>
         <style>
         body{font:16px/1.5 -apple-system,system-ui,sans-serif;color:#1d1d1f;background:#f5f5f7;margin:0;display:flex;min-height:100vh;align-items:center;justify-content:center}
         main{background:#fff;border-radius:14px;padding:32px 40px;box-shadow:0 1px 3px rgba(0,0,0,.08);max-width:28rem;text-align:center}

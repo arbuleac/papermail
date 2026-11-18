@@ -980,7 +980,7 @@ final class ConversationShellWebViewTests: XCTestCase {
         XCTAssertGreaterThan(teamsLink[1], 0, "cut with an ellipsis")
         XCTAssertEqual(teamsLink[2], Double(teams.count), "the whole address is its tooltip")
         let when = try await evaluate("document.querySelector('.ss-invite .ss-iwhen').textContent", in: webView) as? String
-        XCTAssertEqual(when, "Tue 11 Mar · 15:00 – 16:00")
+        XCTAssertEqual(when, "Tue 11 Mar · 15:00 - 16:00")
 
         _ = try await evaluate("document.querySelector('.ss-ans[data-response=\"declined\"]').click()", in: webView)
         let chosen = try await evaluate("document.querySelector('.ss-ans.ss-chosen').dataset.response", in: webView) as? String

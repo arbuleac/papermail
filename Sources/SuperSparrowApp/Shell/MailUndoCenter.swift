@@ -4,13 +4,16 @@ import SSDesign
 
 /// The app's undo history and its one toast (spec §5.49, §5.30, §6.1). The main window and every reader window it opened
 /// record their steps here, so Z and ⌘Z reach the latest step from any of them, one toast shows at a time across them,
-/// and each step remembers the window it was taken in, so its toast and its undo land there. How a step is put back is
-/// the main window's (`revertGroup`): it takes every mail action, a reader window's included, and knows Later, the snoozes
-/// and the return marks. One per mailbox on screen: the demo's and the user's never share a history, since a step's
-/// revert writes through the engine it was taken with.
+/// and each step remembers the window it was taken in, so its toast and its undo land there. ⌘Z walks back through the
+/// last 50 steps however old they are; Z reaches only the latest toast's step, and only for its grace. How a step is put
+/// back is the main window's (`revertGroup`): it takes every mail action, a reader window's included, and knows Later,
+/// the snoozes and the return marks. One per mailbox on screen: the demo's and the user's never share a history, since a
+/// step's revert writes through the engine it was taken with. Views, scopes and searches never clear it.
 @MainActor
 final class MailUndoCenter: UndoKeyArbiter {
     var history = MailActionUndoHistory(grace: Quire.Motion.undoKeyGrace, coalesceWindow: Quire.Motion.toastCoalesce)
+    /// The clock every step and toast is timed by, and Z's grace measured on; the app's tests move it past the grace.
+    var now: () -> Date = { Date() }
     /// The one toast, shown in whichever window's host a step names.
     let toasts: ToastPresenter
     /// Every reader whose quick reply may hold a send ⌘Z can still cancel: the main window's and each reader window's.
@@ -23,10 +26,11 @@ final class MailUndoCenter: UndoKeyArbiter {
 
     init(toasts: ToastPresenter) {
         self.toasts = toasts
-        // A toast stopped being visible: Z and ⌘Z reach its action for the grace period more (§6.1), and an undo-send
-        // panel it outranked takes ⌘Z back.
+        // A toast stopped being visible: Z reaches its action for the grace period more, ⌘Z as long as the history holds it
+        // (§6.1), and an undo-send panel it outranked takes ⌘Z back.
         toasts.onEnd = { [weak self] id, _ in
-            self?.history.toastEnded(id, at: Date())
+            guard let self else { return }
+            self.history.toastEnded(id, at: self.now())
             UndoSendPanel.refreshUndoKeyOwner()
         }
     }
@@ -35,9 +39,24 @@ final class MailUndoCenter: UndoKeyArbiter {
 
     /// Records that group `id` was taken in `place`, and forgets the places of groups that fell out of the history.
     func remember(_ place: UndoPlace, for id: Int) {
+        forgetPlacesOfGroupsGone()
+        if case .reader = place { places[id] = place }
+    }
+
+    /// Lets go of the reader places no group in the history names any more, so a closed window's place goes with its
+    /// last step.
+    func forgetPlacesOfGroupsGone() {
         let live = Set(history.groups.map(\.id))
         places = places.filter { live.contains($0.key) }
-        if case .reader = place { places[id] = place }
+    }
+
+    /// An account was removed (or several): its steps leave the history, since their reverts would write to mail and
+    /// settings that are gone, and a toast still offering one of them goes too. The other accounts' steps stay reachable.
+    func removeAccounts(_ removed: Set<AccountID>) {
+        let visible = history.toastGroup(visibleToastID: toasts.visibleID)?.id
+        let gone = history.removeAccounts(removed)
+        forgetPlacesOfGroupsGone()
+        if let visible, gone.contains(visible) { toasts.dismiss() }
     }
 
     func place(of id: Int) -> UndoPlace {
@@ -63,15 +82,16 @@ final class MailUndoCenter: UndoKeyArbiter {
         UndoSendPanel.liveSends + readers().compactMap(\.liveQuickSend)
     }
 
-    /// ⌘Z and Edit › Undo: typing, then the newest live send or toast, then a toast's action in its grace.
+    /// ⌘Z and Edit › Undo: typing, then the newest live send or toast, then the latest step still in the history, however
+    /// old, so each press walks one step further back.
     func commandZTarget(textCanUndo: Bool) -> UndoPrecedence.Target {
         UndoPrecedence.commandZ(textCanUndo: textCanUndo, sends: liveSends, toast: visibleToastGroup,
-                                graceGroup: history.graceGroup(at: Date())?.id)
+                                latestGroup: history.latest?.id)
     }
 
-    /// Z and Message › Undo: only ever the latest toast's action.
+    /// Z and Message › Undo: only ever the latest toast's action, while it shows and for its grace.
     var zTarget: UndoPrecedence.Target {
-        UndoPrecedence.z(toast: visibleToastGroup, graceGroup: history.graceGroup(at: Date())?.id)
+        UndoPrecedence.z(toast: visibleToastGroup, graceGroup: history.graceGroup(at: now())?.id)
     }
 
     func sendOwningCommandZ() -> String? {
@@ -79,8 +99,8 @@ final class MailUndoCenter: UndoKeyArbiter {
     }
 
     /// Edit › Undo's title for `target`: “Undo Typing” (from `typing`, the key window's own undo manager), “Undo Send”
-    /// (“Undo Send and Archive” when the send archived its conversation, which the undo brings back too), “Undo Archive”,
-    /// “Can't Undo”.
+    /// (“Undo Send and Archive” when the send archived its conversation, which the undo brings back too), the step's own
+    /// command (“Undo Archive”, “Undo Star”, “Undo Move to Trash”), “Can't Undo”.
     func undoMenuTitle(for target: UndoPrecedence.Target, typing: UndoManager?) -> String {
         switch target {
         case .typing: return typing?.undoMenuItemTitle ?? "Undo"
@@ -139,7 +159,9 @@ enum UndoPlace: Equatable {
 }
 
 /// A reader window as its steps remember it (spec §5.49). It outlives the window: a step that closed the window (E, #, L,
-/// Unsubscribe) keeps it in the undo history, and the step's undo opens the window again from it, where it was.
+/// Unsubscribe) keeps it in the undo history, and the step's undo opens the window again from it, where it was, while Z
+/// still reaches the step. A deeper ⌘Z leaves it closed and brings the conversation back in the main window. Nothing here
+/// holds the window itself past its closing.
 @MainActor
 final class ReaderWindowPlace {
     let conversation: ConversationID

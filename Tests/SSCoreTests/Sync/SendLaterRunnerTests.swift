@@ -119,6 +119,29 @@ final class SendLaterRunnerTests: XCTestCase {
         await harness.shutdown()
     }
 
+    /// A send the previous run was handing over when it quit may have gone: the next launch marks it failed, never sends it
+    /// again, and its reason reads as one that may have gone, which is what the app keeps its draft with (§5.53).
+    func testASendInterruptedByAQuitIsFailedAtLaunchAsOneThatMayHaveGone() async throws {
+        let clock = HandClock()
+        let harness = try harness(clock, start: false)
+        let interrupted = PendingSend(message: Fixtures.outgoing(), createdAt: clock.now.addingTimeInterval(-60),
+                                      sendAfter: clock.now.addingTimeInterval(-55), status: .sending, attempts: 1)
+        try harness.store.enqueueSend(interrupted)
+        harness.engine.start()
+        try await waitUntil("marked failed") { try harness.store.pendingSends().first { $0.id == interrupted.id }?.status == .failed }
+        let failed = try XCTUnwrap(try harness.store.pendingSendSummaries().first { $0.id == interrupted.id })
+        XCTAssertTrue(SendFailureWording.isInterrupted(lastError: failed.lastError), failed.lastError ?? "no reason")
+        XCTAssertEqual(SendFailureWording.notice(subject: failed.subject, lastError: failed.lastError),
+                       "\u{201c}\(failed.subject)\u{201d} may have gone. Check Sent.")
+        XCTAssertEqual(FailedSend.settledByTheApp([failed], owned: { _ in false }, accounts: [failed.accountID]).map(\.id), [interrupted.id],
+                       "nobody at launch answers for it: the app keeps its draft")
+        _ = try await sleep(0, of: clock)
+        XCTAssertEqual(clock.advance(fallback), 1)
+        _ = try await sleep(1, of: clock)
+        XCTAssertTrue(harness.provider.sendCalls.isEmpty, "never sent a second time")
+        await harness.shutdown()
+    }
+
     /// Keep in Drafts: a missed message is taken back like any held one.
     func testAMissedOrWaitingMessageCanBeCancelledButNotOnceItIsGoing() async throws {
         let clock = HandClock()

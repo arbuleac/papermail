@@ -84,12 +84,16 @@ final class OverlayAndPanelTests: XCTestCase {
 
     func testHUDRowsComeFromTheCheatSheet() {
         let rows = QuireSequenceHUDView.sequenceRows()
-        XCTAssertEqual(rows.map(\.keys), ["I", "L", "S", "T", "D", "#", "A"])
-        XCTAssertEqual(rows.map(\.label), ["Inbox", "Later", "Starred", "Sent", "Drafts", "Trash", "All Mail"])
+        XCTAssertEqual(rows.map(\.keys), ["I", "L", "S", "T", "D", "O", "#", "A"])
+        XCTAssertEqual(rows.map(\.label), ["Inbox", "Later", "Starred", "Sent", "Drafts", "Outbox", "Trash", "All Mail"])
         let hud = QuireSequenceHUDView()
-        XCTAssertEqual(hud.frame.size, NSSize(width: 220, height: 212), "12 + 28 + 6 + 7 × 22 + 12, Later's row included")
-        // The shell leaves Later's row out while nothing is snoozed (§5.32): the six views, 190 pt.
-        let six = QuireSequenceHUDView(rows: rows.filter { $0.keys != "L" })
+        XCTAssertEqual(hud.frame.size, NSSize(width: 220, height: 234), "12 + 28 + 6 + 8 × 22 + 12, Later's row included")
+        // The shell leaves Later's row out while nothing is snoozed and the Outbox's while nothing waits to go (§5.32): seven
+        // rows with one of them, 212 pt, and the six views alone, 190 pt.
+        let seven = QuireSequenceHUDView(rows: rows.filter { $0.keys != "L" })
+        XCTAssertEqual(seven.frame.size, NSSize(width: 220, height: 212), "12 + 28 + 6 + 7 × 22 + 12")
+        let six = QuireSequenceHUDView(rows: rows.filter { $0.keys != "L" && $0.keys != "O" })
+        XCTAssertEqual(six.rows.map(\.keys), ["I", "S", "T", "D", "#", "A"])
         XCTAssertEqual(six.frame.size, NSSize(width: 220, height: 190), "12 + 28 + 6 + 6 × 22 + 12")
         XCTAssertFalse(hud.acceptsFirstResponder, "not focusable")
         XCTAssertEqual(hud.accessibilityLabel()?.hasPrefix("Go to…"), true)
@@ -121,7 +125,7 @@ final class OverlayAndPanelTests: XCTestCase {
     }
 
     /// Every row fits its column whole (§5.32): its keycaps in the 96 pt key column, its label in the 144 pt after it,
-    /// never tail-truncated. Rows that share keys (J K, ↩ esc, E ⇧I, # !) are how the sheet keeps every key on it and
+    /// never tail-truncated. Rows that share keys (J K, → esc, E ⇧I, # !) are how the sheet keeps every key on it and
     /// still fits the default window.
     func testEveryCheatSheetRowFitsItsColumn() {
         let c = Quire.Layout.CheatSheet.self
@@ -145,13 +149,14 @@ final class OverlayAndPanelTests: XCTestCase {
         }
     }
 
-    /// The keys this release added each have a row (§5.32, §6): ! and M in Act with Print, ⌘O and ⇧⌘D in Move, ⇧⌘L in
-    /// Write, ⌥⌘I in Format, and Find, its next and previous, and the reader's size in View.
+    /// The keys this release added each have a row (§5.32, §6): ! and M in Act with Print, → and ⇧⌘D in Move (→ opens in
+    /// the reader now that ↩ opens a window of its own, §5.49, and ⌘O is ↩'s menu alternate), ⇧⌘L in Write, ⌥⌘I in Format,
+    /// and Find, its next and previous, and the reader's size in View.
     func testTheReleasesNewKeysAreOnTheSheet() {
         let keycaps = Dictionary(grouping: Quire.cheatSheet.flatMap { section in
             section.rows.flatMap { row in row.parts.filter(\.isKeycap).map { ($0.text, section.title) } }
         }, by: \.0).mapValues { $0.map(\.1) }
-        let expected = ["!": "Act", "M": "Act", "⌘P": "Act", "⌘O": "Move", "⇧⌘D": "Move", "⇧⌘L": "Write", "⌥⌘I": "Format",
+        let expected = ["!": "Act", "M": "Act", "⌘P": "Act", "→": "Move", "⇧⌘D": "Move", "⇧⌘L": "Write", "⌥⌘I": "Format",
                         "⌥⌘F": "View", "⌘G": "View", "⇧⌘G": "View", "⌘+": "View", "⌘−": "View"]
         for (key, section) in expected {
             XCTAssertEqual(keycaps[key], [section], "\(key) has one row, in \(section)")

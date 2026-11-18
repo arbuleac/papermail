@@ -50,7 +50,7 @@ final class InvitationCardPayloadTests: XCTestCase {
     func testAnOpenInvitation() throws {
         let open = try card(invitation())
         XCTAssertEqual(open.title, "Design review")
-        XCTAssertEqual(open.when, "Tue 11 Mar · 15:00 – 16:00")
+        XCTAssertEqual(open.when, "Tue 11 Mar · 15:00 - 16:00")
         XCTAssertNil(open.whenElsewhere, "the event's zone is not named when it is this Mac's")
         XCTAssertEqual(open.repeats, "Every week on Tuesday")
         XCTAssertEqual(open.location, "Room 4")
@@ -150,8 +150,8 @@ final class InvitationCardPayloadTests: XCTestCase {
     func testAnEventInAnotherZoneIsShownInBoth() throws {
         // 15:00 UTC is 10:00 in New York (EST) on 11 March 2025, after the US switch to daylight time: 11:00 EDT.
         let newYork = try card(invitation(timeZoneID: "America/New_York"))
-        XCTAssertEqual(newYork.when, "Tue 11 Mar · 15:00 – 16:00")
-        XCTAssertEqual(newYork.whenElsewhere, "Tue 11 Mar · 11:00 – 12:00 Eastern Time")
+        XCTAssertEqual(newYork.when, "Tue 11 Mar · 15:00 - 16:00")
+        XCTAssertEqual(newYork.whenElsewhere, "Tue 11 Mar · 11:00 - 12:00 Eastern Time")
         let berlin = try card(invitation(timeZoneID: "Europe/Berlin"),
                               builder: RenderPayloadBuilder(calendar: Calendar(identifier: .gregorian), locale: Locale(identifier: "en_GB"),
                                                             timeZone: TimeZone(identifier: "Europe/Paris")!))
@@ -161,9 +161,9 @@ final class InvitationCardPayloadTests: XCTestCase {
     func testAllDayAndLongEvents() throws {
         XCTAssertEqual(try card(invitation(start: F.utc(2025, 3, 12), end: F.utc(2025, 3, 13), isAllDay: true)).when, "Wed 12 Mar · All day")
         XCTAssertEqual(try card(invitation(start: F.utc(2025, 3, 12), end: F.utc(2025, 3, 15), isAllDay: true)).when,
-                       "Wed 12 Mar – Fri 14 Mar · All day", "the end is exclusive")
+                       "Wed 12 Mar - Fri 14 Mar · All day", "the end is exclusive")
         XCTAssertEqual(try card(invitation(start: F.utc(2025, 3, 11, 22), end: F.utc(2025, 3, 12, 2))).when,
-                       "Tue 11 Mar, 22:00 – Wed 12 Mar, 02:00")
+                       "Tue 11 Mar, 22:00 - Wed 12 Mar, 02:00")
         XCTAssertEqual(try card(invitation(start: F.utc(2026, 1, 6, 9), end: F.utc(2026, 1, 6, 9))).when,
                        "Tue, 6 Jan 2026 · 09:00", "another year is named, as the locale writes it; an instant has no end")
         // All-day dates read the same in any zone: shown as written, not shifted into this Mac's.

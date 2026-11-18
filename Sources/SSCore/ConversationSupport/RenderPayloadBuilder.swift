@@ -32,6 +32,9 @@ public struct RenderPayloadBuilder: Sendable {
     ///     (`AccountSyncStatus.permissionsNeeded`): their cards ask to reconnect.
     ///   - sendLater: drafts that are Send Later messages (`SendLaterConversation`): their date line says when they send
     ///     instead of when they were edited, and one still waiting offers Cancel.
+    ///   - outbox: drafts shown in the Outbox (`SendLaterConversation.outboxSummary`, spec §5.53): their date line says
+    ///     where the send is, a failed one's reason in `danger`, one still waiting for its Send Later time offers Cancel,
+    ///     and their footer offers only Continue editing, and that only while the message is held. Ahead of `sendLater`.
     public func build(
         messages: [MessageMetadata],
         bodies: [MessageID: StoredBody],
@@ -46,11 +49,12 @@ public struct RenderPayloadBuilder: Sendable {
         pending: Set<MessageID> = [],
         invitationPermissionNeeded: Set<AccountID> = [],
         sendLater: [MessageID: SendLaterState] = [:],
+        outbox: [MessageID: OutboxState] = [:],
         now: Date = Date()
     ) -> RenderPayload {
         let visible = Self.visibleMessages(messages)
         let formatters = makeFormatters()
-        let dueTimes = sendLater.isEmpty ? nil : DateFormatting(locale: locale, calendar: calendar, timeZone: timeZone)
+        let dueTimes = sendLater.isEmpty && outbox.isEmpty ? nil : DateFormatting(locale: locale, calendar: calendar, timeZone: timeZone)
         let ownAddresses = Set(accounts.values.map { $0.email.lowercased() })
         let cards = InvitationCardText(calendar: calendar, locale: locale, timeZone: timeZone)
         // Every revision of an invitation the conversation shows, so an earlier one offers no answer.
@@ -64,9 +68,13 @@ public struct RenderPayloadBuilder: Sendable {
             let isFromMe = message.from.map { ownAddresses.contains($0.address.lowercased()) } ?? false
             let isDraft = message.roles.contains(.drafts)
             let isPending = pending.contains(message.id)
-            let later = isDraft ? sendLater[message.id] : nil
+            let sending = isDraft ? outbox[message.id] : nil
+            let later = isDraft && sending == nil ? sendLater[message.id] : nil
             let date: String
-            if let later, let dueTimes {
+            if let sending, let dueTimes {
+                date = OutboxCopy.sheetStatus(sending, provider: accounts[message.id.accountID]?.kind, formatter: dueTimes,
+                                              reference: dueTimes.reference(now: now))
+            } else if let later, let dueTimes {
                 date = SendLaterCopy.status(later, formatter: dueTimes, reference: dueTimes.reference(now: now))
             } else if isDraft {
                 date = draftDateDisplay(for: message.date, now: now, formatters: formatters)
@@ -117,7 +125,16 @@ public struct RenderPayloadBuilder: Sendable {
                                needsPermission: invitationPermissionNeeded.contains(message.id.accountID),
                                superseded: revisions.contains { $0.supersedes(invitation) }, now: now)
                 },
-                cancelsSendLater: { if case .waiting? = later { return true } else { return false } }(),
+                cancelsSendLater: {
+                    if case .waiting? = later { return true }
+                    if case .waiting? = sending { return true }
+                    return false
+                }(),
+                outbox: sending.map { state in
+                    let failed: Bool
+                    if case .failed = state { failed = true } else { failed = false }
+                    return RenderPayload.OutboxSheet(continues: state.isHeld, failed: failed)
+                },
                 // The body knows what the reader will show; before it arrives, the flag the list row draws from.
                 // Gmail's flag is a guess from the content type (multipart/mixed), so the body corrects it.
                 hasAttachments: body != nil ? !attachments.isEmpty : message.hasAttachments

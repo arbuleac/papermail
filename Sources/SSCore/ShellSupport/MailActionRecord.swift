@@ -127,6 +127,27 @@ public struct MailActionRecord: Sendable {
         return MailActionRecord(title: title, change: change, targets: ids, inverse: inverse, conversation: conversation)
     }
 
+    /// The account the action's mail belongs to: a record is one conversation, which never spans accounts.
+    public var accountID: AccountID? {
+        targets.first?.accountID ?? conversation?.accountID
+    }
+
+    /// The record cut down to the messages `isPresent` still finds, for an undo that comes long after the action (⌘Z
+    /// walks back through the whole history, §6.1): a message deleted since, or whose account was removed, has nothing to
+    /// put back, and an operation on it would only fail at the provider. Mail that arrived since is in no step, so it
+    /// stays where it is. Nil when no step has anything left to put back.
+    public func keeping(_ isPresent: (MessageID) -> Bool) -> MailActionRecord? {
+        let steps = inverse.compactMap { step -> Step? in
+            let kept = step.targets.filter(isPresent)
+            return kept.isEmpty ? nil : Step(change: step.change, targets: kept)
+        }
+        guard !steps.isEmpty else { return nil }
+        var record = self
+        record.targets = targets.filter(isPresent)
+        record.inverse = steps
+        return record
+    }
+
     /// The user's own sent message or draft in Sent Items or Drafts, which Microsoft's trash and move-to-inbox leave
     /// there, and Mark as Spam leaves on both providers; not one the Inbox holds too, which they take with the rest. A
     /// snooze and its return count it out too (`Snooze.canHold`, `SnoozeTable`, `returnTargets`).

@@ -218,12 +218,14 @@ enum MainMenu {
             (.inbox, "Inbox", "G I", Quire.Icon.viewInbox), (.later, "Later", "G L", Quire.Icon.viewLater),
             (.starred, "Starred", "G S", Quire.Icon.viewStarred),
             (.sent, "Sent", "G T", Quire.Icon.viewSent), (.drafts, "Drafts", "G D", Quire.Icon.viewDrafts),
+            (.outbox, OutboxCopy.title, "G O", Quire.Icon.viewOutbox),
             (.trash, "Trash", "G #", Quire.Icon.viewTrash), (.all, "All Mail", "G A", Quire.Icon.viewAllMail),
         ]
         for (view, title, keys, symbol) in views {
             let item = sequenceItem(title, keys: keys, symbol: symbol, tag: MailboxView.allCases.firstIndex(of: view) ?? 0)
-            // Listed only while something in the main window's scope is snoozed (MainMenuController), as the rail's tile.
-            item.isHidden = view == .later
+            // Later only while something in the main window's scope is snoozed, the Outbox only while a send in it waits to
+            // go (MainMenuController), as the rail's tiles.
+            item.isHidden = view == .later || view == .outbox
             menu.addItem(item)
         }
         menu.addItem(.separator())
@@ -420,8 +422,8 @@ final class MainMenuBar: NSMenu {
 }
 
 /// Keeps the menus in step with the key window and the accounts: the Message menu's composer items and the
-/// Format menu show only while a composer is key, View's ⌘1…⌘9 items carry the accounts' names, and View's Later
-/// shows while the rail's Later tile does.
+/// Format menu show only while a composer is key, View's ⌘1…⌘9 items carry the accounts' names, and View's Later and
+/// Outbox show while the rail's Later and Outbox tiles do.
 @MainActor
 final class MainMenuController: NSObject, NSMenuDelegate {
     static var shared: MainMenuController?
@@ -456,15 +458,25 @@ final class MainMenuController: NSObject, NSMenuDelegate {
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
-        let laterTag = MailboxView.allCases.firstIndex(of: .later)
-        for item in menu.items where item.action == #selector(MainWindowController.goToMailboxView(_:)) && item.tag == laterTag {
-            item.isHidden = !(appDelegate?.menuShowsLater ?? false)
-        }
+        Self.showConditionalViews(in: menu, later: appDelegate?.menuShowsLater ?? false, outbox: appDelegate?.menuShowsOutbox ?? false)
         let accounts = appDelegate?.menuAccounts ?? []
         for item in menu.items where item.action == #selector(MainWindowController.selectAccountShortcut(_:)) && item.tag > 0 {
             let index = item.tag - 1
             item.isHidden = index >= accounts.count
             if index < accounts.count { item.title = AccountLabels.name(for: accounts[index]) + " · " + accounts[index].email }
+        }
+    }
+
+    /// Lists View's Later and Outbox items only while the main window's rail shows their tiles (§5.2, §5.53); hidden, the
+    /// main window refuses them too, as it refuses G L and G O.
+    static func showConditionalViews(in menu: NSMenu, later: Bool, outbox: Bool) {
+        let tags = MailboxView.allCases.indices
+        for item in menu.items where item.action == #selector(MainWindowController.goToMailboxView(_:)) && tags.contains(item.tag) {
+            switch MailboxView.allCases[item.tag] {
+            case .later: item.isHidden = !later
+            case .outbox: item.isHidden = !outbox
+            default: break
+            }
         }
     }
 }

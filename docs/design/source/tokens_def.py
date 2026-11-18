@@ -2,7 +2,7 @@
 and the rendered DESIGN-LANGUAGE.md. Colour order: light, dark, lightHC, darkHC."""
 
 NAME = "Quire"
-VERSION = "1.8.6"
+VERSION = "1.8.8"
 
 # The brand palette (docs/brand, spec §5.42), written once: `layout.brand` and the app icon's colours (`layout.appIcon`)
 # read it from here. The mark is black and white only: `paper` is the plane on the icon's tile and the one-colour mark on
@@ -133,7 +133,7 @@ TYPE = [
  ("label",          "sf",      12, 500, 16,  0.0, {"use": "Buttons, chips, quick-reply modes, field labels"}),
  ("snippet",        "sf",      12, 400, 15,  0.0, {"use": "List snippet, recipients, banners, collapsed snippet"}),
  ("meta",           "sf",      11, 400, 14,  0.0, {"numeric": "tabular", "use": "Times, sizes, sync line, captions"}),
- ("runningHead",    "sf",      11, 600, 14,  0.6, {"case": "upper", "use": "Date dividers, reader kicker, section overlines"}),
+ ("runningHead",    "sf",      11, 600, 14,  0,   {"use": "Date dividers, reader kicker, section overlines"}),
  ("tag",            "sf",      11, 500, 14,  0.0, {"use": "Tags: Gmail, Microsoft 365, Demo"}),
  ("badge",          "rounded", 11, 600, 14,  0.0, {"numeric": "tabular", "use": "Count badges"}),
  ("kbd",            "sf",      11, 500, 14,  0.0, {"use": "Keycaps; SF Pro carries the modifier glyphs"}),
@@ -340,7 +340,7 @@ ICON = {
  "file": "doc", "fileText": "doc.richtext", "fileImage": "photo", "fileSheet": "tablecells", "fileArchive": "doc.zipper", "fileVideo": "film",
  "more": "ellipsis", "accountsTab": "person.crop.circle", "oauthTab": "key", "generalTab": "gearshape", "appearanceTab": "paintpalette",
  "viewInbox": "tray", "viewStarred": "star", "viewSent": "paperplane", "viewDrafts": "doc", "viewTrash": "trash", "viewAllMail": "archivebox",
- "viewLater": "clock", "later": "clock", "spam": "xmark.bin",
+ "viewLater": "clock", "viewOutbox": "tray.and.arrow.up", "later": "clock", "spam": "xmark.bin",
  "moveToInbox": "tray.and.arrow.down", "privacy": "lock", "success": "checkmark.circle.fill", "info": "info.circle", "warning": "exclamationmark.triangle.fill",
  "brand": "ss.paperPlane", "keyboard": "keyboard", "dismiss": "xmark",
  "removeAccount": "minus", "bold": "bold", "italic": "italic", "underline": "underline", "bulletedList": "list.bullet", "numberedList": "list.number",
@@ -397,17 +397,20 @@ CHEAT_SHEET_SEARCH = ("Search", ["from:", "to:", "subject:", "is:unread", "is:re
 # Keyboard cheat sheet content (§5.32), band by band, left to right; keys separated by spaces, "then" and "…" are words.
 CHEAT_SHEET = [
  # Every key has its row, and the sheet still fits the default window whole (§5.32): band 1 holds nine rows a section and
- # band 2 eight. Keys that undo or mirror each other share a row, as J K and N P do: Open and back (↩ esc), Archive and
+ # band 2 eight. Keys that undo or mirror each other share a row, as J K and N P do: Open and back (→ esc), Archive and
  # its inverse (E ⇧I), the two ways out to a provider folder (# !), Load images and Original colors, the two window
- # layout toggles; Print sits in Act, beside the other things done to the open conversation.
- ("Move", [("J K", "Next · previous"), ("⇧J ⇧K", "Extend the selection"), ("↩ esc", "Open · back to the list"),
-           ("⌘O", "Open in a new window"), ("N P", "Next · previous message"), ("space", "Quick Look attachments"),
+ # layout toggles; Print sits in Act, beside the other things done to the open conversation. ↩ opens in a window of its
+ # own (§5.49), so it has the row ⌘O had, and ⌘O, its menu alternate, is left out as ⌘F is for /.
+ ("Move", [("J K", "Next · previous"), ("⇧J ⇧K", "Extend the selection"), ("→ esc", "Open · back to the list"),
+           ("↩", "Open in a new window"), ("N P", "Next · previous message"), ("space", "Quick Look attachments"),
            ("⇧⌘D", "Download attachments"), ("/", "Search"), ("↩", "In search: ask the server")]),
  ("Act", [("E ⇧I", "Archive · move to Inbox"), ("L", "Snooze until later"), ("# !", "Move to Trash · spam"), ("S", "Star · unstar"),
           ("U", "Mark as unread · read"), ("M", "Mute · unmute"), ("⇧⌘U", "Unsubscribe"), ("⌘P", "Print the conversation"),
           ("Z", "Undo")]),
+ # The Outbox's G O joins Go, so ⌘0 and ⌘1 … ⌘9 share one row, as the keys that mirror each other do, and Go keeps its nine
+ # rows (§5.32, §5.53).
  ("Go", [("G then I", "Inbox"), ("G then L", "Later"), ("G then S", "Starred"), ("G then T", "Sent"), ("G then D", "Drafts"),
-         ("G then #", "Trash"), ("G then A", "All Mail"), ("⌘0", "All Inboxes"), ("⌘1 … ⌘9", "One account")]),
+         ("G then O", "Outbox"), ("G then #", "Trash"), ("G then A", "All Mail"), ("⌘0 … ⌘9", "All Inboxes · one account")]),
  # R and A share a row, as J K and N P do, so Send later fits the band without making the sheet taller (§5.32).
  ("Write", [("C", "New message"), ("R A", "Reply · reply all"), ("F", "Forward"), ("⇧⌘R", "Open in composer"), ("⌘↩", "Send"),
            ("⇧⌘↩", "Send and archive"), ("⇧⌘L", "Send later"), ("⇧⌘A", "Attach files")]),

@@ -2,7 +2,7 @@ import AppKit
 import SSDesign
 
 /// A running head (spec §5.8): a plain group row, never sticky, never selectable. The label is `runningHead`
-/// (SF Pro 11 Semibold, uppercase, 0.6 pt tracking) in `ink3`; a hairline runs from 10 pt after it to 16 pt
+/// (SF Pro 11 Semibold, sentence case, the system's tracking) in `ink3`; a hairline runs from 10 pt after it to 16 pt
 /// before the trailing edge, on the label's centre line.
 final class RunningHeadRowView: NSTableRowView {
     static let identifier = NSUserInterfaceItemIdentifier("RunningHeadRow")
@@ -41,7 +41,7 @@ final class RunningHeadRowView: NSTableRowView {
         nil
     }
 
-    /// The uppercased label in its role at `textSize`, built once per title change.
+    /// The label in its role at `textSize`, built once per title change.
     static func title(_ text: String, textSize: QuireFont.TextSize = .default) -> NSAttributedString {
         QuireFont.attributedString(text, role: .runningHead, color: .qInk3, textSize: textSize)
     }

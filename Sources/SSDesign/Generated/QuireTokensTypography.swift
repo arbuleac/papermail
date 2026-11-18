@@ -120,8 +120,8 @@ extension QuireFont.Role {
                                   twin: nil, twinOf: nil, variantOf: nil, sizeRatio: nil, minSize: nil,
                                   use: "Times, sizes, sync line, captions")
         case .runningHead:
-            return QuireFont.Spec(family: .sf, size: 11, weight: 600, lineHeight: 14, tracking: 0.6,
-                                  italic: false, tabular: false, uppercase: true, unreadWeight: nil,
+            return QuireFont.Spec(family: .sf, size: 11, weight: 600, lineHeight: 14, tracking: 0,
+                                  italic: false, tabular: false, uppercase: false, unreadWeight: nil,
                                   twin: nil, twinOf: nil, variantOf: nil, sizeRatio: nil, minSize: nil,
                                   use: "Date dividers, reader kicker, section overlines")
         case .tag:

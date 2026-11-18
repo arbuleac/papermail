@@ -74,7 +74,7 @@ enum PrintDocumentAssets {
 
     /* The invitation card (spec §5.14, layout.invitation) without its buttons: the answer is written in its list. */
     .ss-pinvite { margin-top: 18px; max-width: 576px; padding: 12px 16px; border: 1px solid var(--q-rule); border-radius: var(--q-r-lg); break-inside: avoid; }
-    .ss-pikick { font: var(--q-font-runningHead); letter-spacing: var(--q-track-runningHead); text-transform: uppercase; color: var(--q-ink3); }
+    .ss-pikick { font: var(--q-font-runningHead); letter-spacing: var(--q-track-runningHead); color: var(--q-ink3); }
     .ss-pinvite.ss-cancelled .ss-pikick { color: var(--q-danger); }
     .ss-pititle { margin-top: 6px; font: var(--q-font-title); letter-spacing: var(--q-track-title); color: var(--q-ink); overflow-wrap: anywhere; }
     .ss-pinvite.ss-cancelled .ss-pititle { color: var(--q-ink2); text-decoration: line-through; text-decoration-thickness: 1px; }

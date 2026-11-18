@@ -128,7 +128,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     private var quickSend: QuickSend?
     private var quickSendTimer: Timer?
     /// Quick replies whose undo window has ended, watched until they leave: a failure then becomes the error
-    /// toast of §5.18 (“Couldn't send your reply · Open draft”). Keyed by send id.
+    /// toast of §5.18 (“Couldn't send your reply · Open draft”), the reply kept as a draft and its row cleared (§5.53).
+    /// Keyed by send id; each holds its send's claim (`SendOwnership`), as `quickSend` does through the undo window.
     private var watchedSends: [String: ComposeDraft] = [:]
     /// Replies on their way out (scheduled or sending, not forwards): the open conversation shows the ones that
     /// answer it as pending sheets (spec §5.14). Read on events and as the outbox changes, never per selection.
@@ -144,7 +145,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     /// Called each time a show's render has landed and its web view is on screen.
     private var showLandedWaiters: [(WKWebView?) -> Void] = []
 
-    /// A quick reply inside its undo window.
+    /// A quick reply inside its undo window. The bar claims its send as it is queued (`SendOwnership`), and the claim
+    /// moves with it: to `watchedSends` when the window ends, to an undo-send panel when the bar hides.
     private struct QuickSend {
         let sendID: String
         let text: String
@@ -298,7 +300,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         quickReply.onChooseSendAction = { SendActionPreference.choose($0) }
         quickReply.onSendLater = { [weak self] text, mode, date in self?.sendQuickReplyLater(text, mode: mode, at: date) }
         quickReply.sendAction = SendActionPreference.current
-        quickReply.onEscape = { [weak self] in self?.quickReplyEscape() }
+        quickReply.onEscape = { [weak self] repeated in self?.quickReplyEscape(repeated: repeated) }
         quickReply.onHeightChange = { [weak self] _ in self?.applyBottomInset() }
         quickReply.onOpenInComposer = { [weak self] text, mode in self?.openQuickReplyInComposer(text: text, mode: mode, attach: false) }
         quickReply.onAttach = { [weak self] text, mode in self?.openQuickReplyInComposer(text: text, mode: mode, attach: true) }
@@ -623,7 +625,11 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             showsReply = false
         case .several(let ids):
             emptyState.sentence = Self.severalSentence(ids.count)
-            if mailboxView == .trash {
+            if mailboxView == .outbox {
+                // Nothing applies to messages on their way, one or several (§5.53).
+                emptyState.sentence = Self.severalMessagesSentence(ids.count)
+                emptyState.hint = [.text("Select one to see it.")]
+            } else if mailboxView == .trash {
                 emptyState.hint = [.keys(["\u{21e7}I"]), .text("moves them to Inbox \u{00b7}"), .keys(["S"]), .text("stars them")]
             } else if mailboxView == .drafts {
                 // The header offers only Discard Draft here (§5.19), so the hint names only that.
@@ -638,7 +644,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             emptyState.sentence = "No messages to show"
             emptyState.hint = [.text("They were deleted or moved on another device.")]
             showsWeb = !emptied
-            showsReply = !emptied && !inTrash && mailboxView != .trash && mailboxView != .drafts
+            showsReply = !emptied && !inTrash && mailboxView != .trash && mailboxView != .drafts && mailboxView != .outbox
         }
         emptyState.isHidden = showsWeb
         webContainer.isHidden = !showsWeb
@@ -657,7 +663,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
 
     /// The bar hides mid-countdown (Trash, Drafts, nothing or several selected): the countdown moves to an
     /// undo-send panel for its remaining seconds, so Undo is never lost (§5.18). The panel's Undo reopens the
-    /// reply in a composer, as a composer send's does (§5.31).
+    /// reply in a composer, as a composer send's does (§5.31). The panel claims the send before the bar lets go of it, so
+    /// the window never sees a moment with nobody answering for it; a countdown already over is watched here instead.
     private func moveQuickSendToPanel(_ send: QuickSend) {
         quickSendTimer?.invalidate()
         quickSendTimer = nil
@@ -669,6 +676,9 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             let accounts = accountsByID.values.sorted { $0.addedAt < $1.addedAt }
             UndoSendPanel.show(client: client, accounts: accounts, sendID: send.sendID, draft: send.draft, undoWindow: Self.undoWindow,
                                remaining: remaining, startedAt: send.startedAt, archive: send.archive)
+            SendOwnership.release(send.sendID)
+        } else {
+            watchOutcome(of: send.sendID, draft: send.draft)
         }
         onQuickSendChange?()
     }
@@ -678,9 +688,11 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         case .nothing:
             return .init(kicker: nil, headline: nil, placeholder: "No subject", actions: .make(.nothing))
         case .several(let ids):
-            let allStarred = ids.allSatisfy(isStarred)
+            // The Outbox's rows are messages, which no star marks (§5.53).
+            let outbox = mailboxView == .outbox
+            let allStarred = !outbox && ids.allSatisfy(isStarred)
             return .init(kicker: .init(inkSlot: nil, lead: "Selection", accountName: nil, trail: nil),
-                         headline: "\(ids.count) conversations selected", placeholder: "No subject",
+                         headline: outbox ? "\(ids.count) messages selected" : "\(ids.count) conversations selected", placeholder: "No subject",
                          actions: .make(.several(count: ids.count, view: mailboxView, allStarred: allStarred)))
         case let .one(id, inTrash, emptied):
             let account = accountsByID[id.accountID]
@@ -688,16 +700,27 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             let name = multipleAccounts ? account.map(AccountLabels.name(for:)) : nil
             let slot = multipleAccounts ? account?.inkSlot : nil
             let drafts = mailboxView == .drafts
+            let outbox = mailboxView == .outbox
             let count = messages.count == 1 ? "1 message" : "\(messages.count) messages"
-            let kicker = drafts
-                ? ReaderHeaderView.Kicker(inkSlot: slot, lead: "Draft", accountName: name, trail: nil)
-                : ReaderHeaderView.Kicker(inkSlot: slot, lead: nil, accountName: name, trail: emptied ? nil : count)
+            let kicker: ReaderHeaderView.Kicker
+            if drafts || outbox {
+                kicker = ReaderHeaderView.Kicker(inkSlot: slot, lead: outbox ? OutboxCopy.title : "Draft", accountName: name, trail: nil)
+            } else {
+                kicker = ReaderHeaderView.Kicker(inkSlot: slot, lead: nil, accountName: name, trail: emptied ? nil : count)
+            }
             let target = replyTarget(in: messages)
             let replyAll = target.map { QuickReplyComposer.replyAllAvailable(for: $0, accounts: accountsByID) } ?? false
-            let actions = ReaderActionSet.make(.one(view: mailboxView, inTrash: inTrash, emptied: emptied,
-                                                    starred: messages.contains(where: \.isStarred), replyAllAvailable: replyAll))
+            let actions: ReaderActionSet
+            if outbox {
+                // Continue Editing while it is a Send Later message still held, as from Drafts; nothing else (§5.53).
+                let held = !emptied && localDrafts?.outboxSend(for: id).flatMap(OutboxState.init)?.isHeld == true
+                actions = .make(.outbox(continues: held))
+            } else {
+                actions = .make(.one(view: mailboxView, inTrash: inTrash, emptied: emptied, starred: messages.contains(where: \.isStarred),
+                                     replyAllAvailable: replyAll))
+            }
             let subject = emptied ? (header.content.headline ?? "") : RenderPayloadBuilder.subject(of: messages)
-            return .init(kicker: kicker, headline: subject, placeholder: drafts ? "New Message" : "No subject", actions: actions)
+            return .init(kicker: kicker, headline: subject, placeholder: drafts || outbox ? "New Message" : "No subject", actions: actions)
         }
     }
 
@@ -709,10 +732,19 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
 
     /// "Three conversations, one keystroke." (spec §5.19), the count spelled out in the locale.
     static func severalSentence(_ count: Int) -> String {
+        spelledOut(count) + " conversations, one keystroke."
+    }
+
+    /// "Three messages selected": several Outbox rows, to which nothing applies together (spec §5.53).
+    static func severalMessagesSentence(_ count: Int) -> String {
+        spelledOut(count) + " messages selected"
+    }
+
+    private static func spelledOut(_ count: Int) -> String {
         let formatter = NumberFormatter()
         formatter.numberStyle = .spellOut
         let words = formatter.string(from: NSNumber(value: count)) ?? String(count)
-        return words.prefix(1).uppercased() + words.dropFirst() + " conversations, one keystroke."
+        return words.prefix(1).uppercased() + words.dropFirst()
     }
 
     /// The message R, A and the quick reply answer: the target (spec §5.14), else the latest.
@@ -797,18 +829,20 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         for sheet in sheets { bodies[sheet.metadata.id] = sheet.body }
         let all = messages + sheets.map(\.metadata)
         let settings = AppSettings.shared
-        // A Send Later message's sheet says when it sends (§5.19); only the drafts on screen are passed, so the inputs of
-        // every other conversation stay as they were.
-        let laterStates = localDrafts?.sendLaterStates.filter { state in messages.contains { $0.id == state.key } } ?? [:]
+        // A Send Later message's sheet says when it sends (§5.19), and in the Outbox every sheet says where its send is
+        // (§5.53); only the drafts on screen are passed, so the inputs of every other conversation stay as they were.
+        let inOutbox = mailboxView == .outbox
+        let laterStates = inOutbox ? [:] : localDrafts?.sendLaterStates.filter { state in messages.contains { $0.id == state.key } } ?? [:]
+        let outboxStates = inOutbox ? localDrafts?.outboxStates.filter { state in messages.contains { $0.id == state.key } } ?? [:] : [:]
         let payload = builder.build(
             messages: all, bodies: bodies, accounts: accountsByID, bodyStates: states,
             loadRemoteImages: Self.loadRemoteImages, readingSans: QuireEnvironment.typeface == .sfPro,
             textSize: appSettings.readerSize.rawValue,
             colorsNoticeDismissed: settings.originalColorsNoticeDismissed, adaptsColours: appSettings.adaptsMailColours,
             pending: Set(sheets.map(\.metadata.id)),
-            invitationPermissionNeeded: invitationPermissionNeeded, sendLater: laterStates
+            invitationPermissionNeeded: invitationPermissionNeeded, sendLater: laterStates, outbox: outboxStates
         )
-        return (payload, RenderInputs(messages: all, sendLater: laterStates) { bodies[$0] != nil })
+        return (payload, RenderInputs(messages: all, sendLater: laterStates, outbox: outboxStates) { bodies[$0] != nil })
     }
 
     private func applyMessages(_ messages: [MessageMetadata], for id: ConversationID) {
@@ -1235,18 +1269,15 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     /// The accounts whose answered invitations wait for permission to update the calendar, as the cards show them.
     private var invitationPermissionNeeded: Set<AccountID> = []
 
+    /// A change to one message (its sheet's star, More › Star Message), taken by the window as a mail action so it joins
+    /// the undo history (§6.1).
     private func performOnMessage(_ change: MetadataChange, _ id: MessageID) {
         // A kept draft lives only on this Mac: there is nothing to star or mark on a provider.
         guard !LocalDraftConversation.isLocal(id) else {
             NSSound.beep()
             return
         }
-        do {
-            try client.perform(change, on: [id])
-        } catch {
-            ConversationSignposts.log.error("message action failed: \(String(describing: error), privacy: .public)")
-            NSSound.beep()
-        }
+        onAction?(.changeMessages(change, [id]))
     }
 
     // MARK: More menu
@@ -1287,11 +1318,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             guard let index = currentMessages.firstIndex(where: { $0.id == id }) else { return }
             markReadTimer?.invalidate()
             markReadTimer = nil
-            do {
-                try client.perform(.setRead(false), on: currentMessages[index...].map(\.id))
-            } catch {
-                ConversationSignposts.log.error("mark unread failed: \(String(describing: error), privacy: .public)")
-            }
+            // The window's own mail action, so ⌘Z reaches it as it reaches U (§6.1).
+            onAction?(.changeMessages(.setRead(false), currentMessages[index...].map(\.id)))
         case .loadImages:
             evaluate("window.ss.loadImages(null)", in: current)
         case .toggleOriginal:
@@ -1775,6 +1803,14 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     /// The bar itself, for the app's tests.
     var quickReplyBar: QuickReplyView { quickReply }
 
+    /// The quick reply holds the user's work: words typed in it, or a reply counting down in its strip. Esc closes a reader
+    /// window only without it (spec §6.1), as it closes a composer only while it holds nothing worth keeping (§5.20). Its
+    /// files are never here: Attach takes the reply to a composer. Words in a bar that has hidden (its conversation emptied
+    /// or gone to the Trash meanwhile) are out of sight and parked as the window closes, so they keep nothing open.
+    var quickReplyHoldsWork: Bool {
+        quickSend != nil || (!quickReply.isHidden && !QuickReplyDrafts.isBlank(quickReply.text))
+    }
+
     /// Makes `id` the target message, as a click on it in the shell does (the shell's `select`, and tests).
     func setTarget(_ id: MessageID) {
         guard currentMessages.contains(where: { $0.id == id }) else { return }
@@ -1828,11 +1864,11 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         return true
     }
 
-    /// Esc in the quick reply: the main window decides (§6.1 rows 7 and 9). Without one the field lets go and the
-    /// web view takes focus.
-    private func quickReplyEscape() {
+    /// Esc in the quick reply: the window decides (§6.1 rows 7, 10 and 11). Without one the field lets go and the web view
+    /// takes focus.
+    private func quickReplyEscape(repeated: Bool) {
         if let onAction {
-            onAction(.escapeQuickReply)
+            onAction(.escapeQuickReply(repeated: repeated))
         } else {
             leaveQuickReply()
         }
@@ -1852,15 +1888,18 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     }
 
     /// The reader is going away (its reader window closing): the replies past their undo window whose outcome it was
-    /// watching, which `watch(_:)` on a reader that stays takes over, so a failure still says so (§5.18).
+    /// watching, which `watch(_:)` on a reader that stays takes over, so a failure still says so (§5.18). Their claims go
+    /// with them (`SendOwnership`): the caller hands them to `watch(_:)` or lets go of them.
     func handOffWatchedSends() -> [String: ComposeDraft] {
         defer { watchedSends = [:] }
         return watchedSends
     }
 
-    /// Watches sends another reader handed over (`handOffWatchedSends`), as if this reader had sent them.
+    /// Watches sends another reader handed over (`handOffWatchedSends`), as if this reader had sent them, with their claims;
+    /// one this reader watches already keeps the claim it has.
     func watch(_ sends: [String: ComposeDraft]) {
         guard !sends.isEmpty else { return }
+        for id in sends.keys where watchedSends[id] != nil { SendOwnership.release(id) }
         watchedSends.merge(sends) { mine, _ in mine }
         outboxTick()
     }
@@ -1917,6 +1956,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
                                  attachments: [], quoted: nil, threading: ReplyThreading(original: latest, isReply: true))
         do {
             let sendID = try client.send(message, undoWindow: Self.undoWindow)
+            // The bar answers for the reply from now on, before the outbox's observation can say anything about it (§5.53).
+            SendOwnership.claim(sendID)
             let startedAt = Date()
             let endsAt = startedAt.addingTimeInterval(Self.undoWindow)
             let names = (message.to + message.cc).map(\.shortDisplay)
@@ -1981,7 +2022,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             SendLaterScheduled(sendID: sendID, date: date) { [weak self] in
                 guard (try? client.cancelSend(id: sendID)) == true else {
                     NSSound.beep()
-                    return
+                    return false
                 }
                 ComposeDraftStore.shared.remove(id: draft.id)
                 if let self, self.currentConversationID != nil {
@@ -1992,6 +2033,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
                     // showing that conversation (`MainWindowController.sendLaterScheduled`).
                     _ = shelf.drafts.restoreUnsent(text, under: conversation, shown: nil)
                 }
+                return true
             }.post(from: self)
         } catch {
             ConversationSignposts.log.error("quick reply schedule failed: \(String(describing: error), privacy: .public)")
@@ -2048,7 +2090,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         watchOutcome(of: send.sendID, draft: send.draft)
     }
 
-    /// Watches a send past its undo window until it leaves, as the undo-send panel does for a composer's.
+    /// Watches a send past its undo window until it leaves, as the undo-send panel does for a composer's; the claim the
+    /// countdown held goes with it.
     private func watchOutcome(of sendID: String, draft: ComposeDraft) {
         watchedSends[sendID] = draft
         outboxTick()
@@ -2093,8 +2136,10 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         outboxTick()
     }
 
-    /// A sent reply's row is gone (or marked sent); a failed one stays with its reason. The failure is kept
-    /// as a draft on this Mac before the toast offers to open it, so closing the toast loses nothing.
+    /// A sent reply's row is gone (or marked sent); a failed one stays with its reason until it is kept. The failure is
+    /// kept as a draft on this Mac, under the id the window would keep it under (`FailedSend.draftID`), queued before the
+    /// toast offers to open it, so closing the toast loses nothing; its row is cleared once that draft is on disk, so the
+    /// reply leaves the Outbox for Drafts (§5.53), and only then is the send let go.
     private func settleWatchedSends(_ sends: [PendingSendSummary]) {
         guard !watchedSends.isEmpty else { return }
         let byID = Dictionary(sends.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -2103,11 +2148,13 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             switch send?.status {
             case nil, .sent?:
                 watchedSends[id] = nil
+                SendOwnership.release(id)
             case .failed?:
                 watchedSends[id] = nil
                 var kept = draft
+                kept.id = FailedSend.draftID(sendID: id, writtenIn: nil)
                 kept.sendFailure = SendFailureWording.banner(lastError: send?.lastError, provider: draft.account.kind)
-                ComposeDraftStore.shared.save(kept)
+                SendOwnership.keepFailed(kept, sendID: id, store: client.store, releasing: true)
                 onAction?(.quickReplyFailed(kept))
             case .scheduled?, .sending?, .later?, .missed?:
                 // A quick reply sent now is never `later` or `missed`; those are Send Later's, which `SendLaterOutbox` follows.
@@ -2151,6 +2198,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         quickSend = nil
         onQuickSendChange?()
         let cancelled = (try? client.cancelSend(id: send.sendID)) ?? false
+        // Taken back, or too late: either way the bar stops watching it, so a failure from now on is the window's.
+        SendOwnership.release(send.sendID)
         outboxTick()
         guard cancelled else {
             quickReply.showStrip(.alreadySent)

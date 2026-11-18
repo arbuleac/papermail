@@ -116,10 +116,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// The groups recorded in Later, which an undo returns to when Later emptied meanwhile and the view went back to
     /// the Inbox: the restored rows are in Later, and the undo selects them there.
     private var groupsFromLater: Set<Int> = []
-    /// The window left Later for the Inbox because Later emptied, and the user has not picked a view or a scope since:
-    /// only then does an undo of a step taken in Later bring Later back (§5.45). Anywhere the user went themselves, an
-    /// undo leaves them there, as every other undo does.
-    private var leftLaterAsItEmptied = false
+    /// The conditional view (Later or the Outbox) the window left for the Inbox because it emptied, while the user has not
+    /// picked a view or a scope since: only then does an undo of a step taken there bring it back (§5.45, §5.53). Anywhere
+    /// the user went themselves, an undo leaves them there, as every other undo does.
+    private var viewLeftAsItEmptied: MailboxView?
     /// What an unsubscribe's Undo confirms itself with, by group id: the request it leaves sent (§5.30).
     private var unsubscribeUndoConfirmations: [Int: String] = [:]
     /// The latest unsubscribe's request and the toast reporting it. While that toast is up, the same request asked
@@ -198,7 +198,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
         let window = MainWindow(contentRect: NSRect(origin: .zero, size: QuireWindowChrome.defaultSize),
                                 styleMask: QuireWindowChrome.mainStyleMask, backing: .buffered, defer: false)
-        QuireWindowChrome.configureMainWindow(window, title: environment.isDemo ? "SuperSparrow — Demo" : "SuperSparrow")
+        QuireWindowChrome.configureMainWindow(window, title: environment.isDemo ? "SuperSparrow Demo" : "SuperSparrow")
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
         window.collectionBehavior.insert(.fullScreenPrimary)
@@ -250,7 +250,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             MainActor.assumeIsolated { self?.snoozesChanged(snoozes) }
         }
         sendLaterOutbox.onMissed = { [weak self] sends in self?.askAboutMissedSends(sends) }
-        sendLaterOutbox.onFailed = { [weak self] draft in self?.sendLaterFailed(draft) }
+        sendLaterOutbox.onFailed = { [weak self] draft, lastError in self?.sendFailed(draft, lastError: lastError) }
         sendLaterOutbox.start()
         let router = KeyboardRouter(target: self)
         router.install()
@@ -287,7 +287,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// reopens the composer with the draft.
     @objc private func composeDraftDiscarded(_ note: Notification) {
         guard let undo = note.userInfo?[ComposeWindowController.draftUndoKey] as? ComposeDraftUndo else { return }
-        recordExternalUndo(command: "Discard Draft", toast: "Draft discarded", symbol: Quire.Icon.trash) { undo.undo() }
+        recordExternalUndo(command: "Discard Draft", accounts: undo.accountID.map { [$0] } ?? [], toast: "Draft discarded",
+                           symbol: Quire.Icon.trash) { undo.undo() }
     }
 
     /// A composer or the quick reply scheduled a message (§5.23): “Sends Tue 09:00 · Undo”, joining the window's undo
@@ -295,7 +296,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// message to where it was written. Only the window of the engine that holds the send answers.
     @objc private func sendLaterScheduled(_ note: Notification) {
         guard let scheduled = note.userInfo?[SendLaterScheduled.userInfoKey] as? SendLaterScheduled,
-              (try? environment.store.pendingSendSummaries().contains { $0.id == scheduled.sendID }) == true else { return }
+              let send = (try? environment.store.pendingSendSummaries())?.first(where: { $0.id == scheduled.sendID }) else { return }
         let time = laterFormatter.dueTime(for: scheduled.date, reference: laterFormatter.reference(now: laterNow()))
         let fromWindow = (note.object as? ConversationViewController).flatMap { source in
             readerWindows.first { $0.conversation === source }
@@ -304,8 +305,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         weak let windowReader = fromWindow?.conversation
         weak let controller = self
         let record = {
-            self.recordExternalUndo(command: SendLaterCopy.command, toast: SendLaterCopy.sends(time), symbol: Quire.Icon.later) {
-                scheduled.undo()
+            self.recordExternalUndo(command: SendLaterCopy.command, accounts: [send.accountID], toast: SendLaterCopy.sends(time),
+                                    symbol: Quire.Icon.later) {
+                // Gone already (a deeper ⌘Z after its time): nothing was taken back, so no reply comes back either.
+                guard scheduled.undo() else { return }
                 // Its window has closed since (⌘W keeps no frame for an undo to open it again at): the reply's text is
                 // parked under its conversation, so a reader showing that conversation takes it, or the main window's
                 // says it was not sent; otherwise nothing on screen would show the undo.
@@ -462,16 +465,19 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         list.onRowAction = { [weak self] change, id in self?.rowAction(change, on: id) }
         conversation.messageMenu = { [weak self] in self?.selectionContextMenu() }
         list.onOpen = { [weak self] id in
-            guard let self else { return }
-            // In Drafts, ↩ and a double-click are Continue Editing (§5.19).
-            if self.listView == .drafts {
-                if let draft = self.draftMessageID(in: id) { self.continueDraft(draft) }
-                return
-            }
-            if self.conversation.currentConversationID != id { self.conversation.show(id) }
-            self.focusReader()
+            guard let self, !self.continuesEditing(id) else { return }
+            self.showInReader(id)
         }
-        list.onOpenInWindow = { [weak self] id in self?.openInNewWindow(id) }
+        list.onOpenInWindow = { [weak self] id in
+            guard let self, !self.continuesEditing(id) else { return }
+            // A message on its way is not a conversation a reader window could hold: ↩ and a double-click on an Outbox
+            // row only show it, in the main window's reader, as → does (§5.53).
+            if self.listView == .outbox {
+                self.showInReader(id)
+            } else {
+                self.openInNewWindow(id)
+            }
+        }
         list.onRowsChange = { [weak self] in self?.listPane.listRowsDidChange() }
         // The UI never calls a provider: the engine searches, writes what it finds, and the list reads the store.
         let engine = environment.engine
@@ -484,6 +490,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         list.localMessages = { [weak self] id in self?.localDrafts.messages(in: id) }
         localDrafts.onChange = { [weak self] in
             self?.showLocalDrafts()
+            // Once per word of the outbox, after both views' sends are taken from it: a send leaving and another arriving
+            // in one word never hide and show the Outbox's tile (§5.53).
+            self?.applyOutboxAvailability()
             self?.conversation.draftsDidChange()
         }
 
@@ -528,8 +537,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             strip.setAccounts(fresh)
             list.accountsByID = byID
             conversation.accountsByID = byID
-            // A removed account takes its conversations' windows with it.
+            // A removed account takes its conversations' windows with it, and its steps leave the undo history: ⌘Z reaches
+            // every step the history holds, however old, and a removed account's would write to mail that is gone (§6.1).
             for reader in readerWindows where byID[reader.conversationID.accountID] == nil { reader.close() }
+            let removed = previous.subtracting(byID.keys)
+            if !removed.isEmpty {
+                undoCenter.removeAccounts(removed)
+                forgetGroupsGone()
+                UndoSendPanel.refreshUndoKeyOwner()
+            }
             for reader in readerWindows { reader.conversation.accountsByID = byID }
             localDrafts.accounts = fresh
             sendLaterOutbox.refresh()
@@ -826,8 +842,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         scopeBaselinePending = false
         rememberScope()
         updateScopeDetails()
-        // The user chose this scope; an undo leaves them in it, even when the scope took Later away.
-        leftLaterAsItEmptied = false
+        // The user chose this scope; an undo leaves them in it, even when the scope took Later or the Outbox away.
+        viewLeftAsItEmptied = nil
         applyQuery()
     }
 
@@ -841,6 +857,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         strip.setInboxUnread(inboxUnread)
         updateNewMailDot()
         applyLaterAvailability()
+        applyOutboxAvailability()
     }
 
     private func countsChanged(unified: Int, perAccount: [AccountID: Int]) {
@@ -877,16 +894,17 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         return TitleMenu.Model(
             view: mailboxView, inboxUnread: inboxUnread, scope: scope, showsAccounts: isMinimal, unifiedUnread: unifiedUnread,
             accounts: accounts.map { TitleMenu.AccountEntry(account: $0, monogram: monograms[$0.id] ?? "?", unread: unreadByAccount[$0.id] ?? 0) },
-            showsLater: showsLater
+            showsLater: showsLater, showsOutbox: showsOutbox
         )
     }
 
     /// Picking a mailbox means "show me that mailbox", so it also ends a search that would otherwise keep
-    /// overriding the view. Later only while it shows: G L and the View menu's Later do nothing otherwise.
+    /// overriding the view. Later and the Outbox only while they show: G L, G O and the View menu's Later and Outbox do
+    /// nothing otherwise (§5.2).
     private func setView(_ view: MailboxView) {
-        guard view != .later || showsLater else { return }
+        guard view != .later || showsLater, view != .outbox || showsOutbox else { return }
         mailboxView = view
-        leftLaterAsItEmptied = false
+        viewLeftAsItEmptied = nil
         endSearch()
         applyQuery()
     }
@@ -1048,7 +1066,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         rememberScope()
         updateScopeDetails()
         mailboxView = .inbox
-        leftLaterAsItEmptied = false
+        viewLeftAsItEmptied = nil
         applyQuery()
         list.selectedConversationID = id
         present(selection: [id])
@@ -1131,10 +1149,20 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         return responder.isDescendant(of: conversationPane.view)
     }
 
+    /// The list's table itself has the keyboard, not a control inside a row (the tail's Retry, the server search's link) or
+    /// anywhere else in the window: only then does ↩ open the selection in a reader window (§5.49, §6).
+    var isListFocused: Bool {
+        window?.firstResponder === list.tableView
+    }
+
     func perform(_ command: KeyCommand) -> Bool {
         // The router sees every key first; ↑/↓ and ↩ on a focused rail tile, sync line or menu button are that
         // control's own (§5.2, §5.11), so they go on to it instead of moving or opening the list.
         if focusedControlTakesCurrentKey { return false }
+        if refusesInOutbox(command) {
+            NSSound.beep()
+            return true
+        }
         switch command {
         case .next:
             list.selectNext()
@@ -1155,6 +1183,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             guard !isSeveralSelected else { return true }
             guard let id = list.selectedConversationID else { return false }
             list.onOpen?(id)
+            return true
+        case .openInWindow:
+            // As for Open: several selected have nothing single to open, and the key is spent all the same (§5.49).
+            guard !isSeveralSelected else { return true }
+            guard let id = list.selectedConversationID else { return false }
+            list.onOpenInWindow?(id)
             return true
         case .archive:
             return archive()
@@ -1194,7 +1228,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         case .search:
             listPane.focusSearch()
             return true
-        case .clearSearch:
+        case .clearSearch, .escapeRepeat:
+            // The main window never closes on Esc, so its repeat does what a press does (§6.1).
             return escape()
         case .back:
             // On a chip or its Download button ← moves along the files in the page (§5.17), in an open list of recipients
@@ -1215,6 +1250,20 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         case .goTo(let view):
             setView(view)
             return true
+        }
+    }
+
+    /// A mail key on an Outbox row: a message on its way is not mail in the store, so E, S, U, #, !, L, M, ⇧I, R, A and F
+    /// change nothing there and beep, as E does where it changes nothing (§5.53). With nothing selected they pass on, as
+    /// anywhere; the keys that move, open, search, write and go are the list's own.
+    private func refusesInOutbox(_ command: KeyCommand) -> Bool {
+        guard listView == .outbox, list.selectedConversationID != nil else { return false }
+        switch command {
+        case .archive, .toggleStar, .toggleRead, .trash, .markSpam, .moveToInbox, .later, .toggleMute, .reply, .replyAll, .forward:
+            return true
+        case .next, .previous, .extendNext, .extendPrevious, .open, .openInWindow, .compose, .search, .clearSearch, .escapeRepeat, .back,
+             .undo, .goTo:
+            return false
         }
     }
 
@@ -1281,6 +1330,31 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         return true
     }
 
+    /// A change to `ids`, some messages of one conversation rather than all of it (a sheet's star, More › Star Message, Mark
+    /// as Unread from Here, §5.14): applied and recorded as a mail action on that conversation, so it gets the toast S or U
+    /// would give in the view (none where the row shows the change, as for a star outside Starred) and ⌘Z reaches it
+    /// however long after (§6.1).
+    @discardableResult
+    private func messageAction(_ change: MetadataChange, on ids: [MessageID]) -> Bool {
+        let store = environment.store
+        let messages = ids.compactMap { try? store.message($0) }
+        guard let conversation = messages.first?.conversationID, accountsByID[conversation.accountID] != nil,
+              let record = MailActionRecord.make(change, on: messages.filter { $0.conversationID == conversation },
+                                                 conversation: conversation) else {
+            NSSound.beep()
+            return false
+        }
+        do {
+            try environment.engine.perform(change, on: record.targets)
+        } catch {
+            Self.log.error("message action failed: \(String(describing: error), privacy: .public)")
+            NSSound.beep()
+            return false
+        }
+        recordUndo([record], change: change)
+        return true
+    }
+
     /// What `change` does to each of `ids`, read from the store: one record per conversation it changes, so a
     /// conversation that is gone, or that the change would leave as it is, has none.
     private func actionRecords(_ change: MetadataChange, on ids: [ConversationID]) -> [MailActionRecord] {
@@ -1328,7 +1402,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// A toast's Undo reverts the group that toast offers, whatever happened since; Z and ⌘Z follow
     /// `UndoPrecedence`.
     private func recordUndo(_ records: [MailActionRecord], change: MetadataChange) {
-        let now = Date()
+        let now = undoCenter.now()
         defer { UndoSendPanel.refreshUndoKeyOwner() }
         actingReader?.tookStep = true
         if let group = undoHistory.coalesce(records, at: now, visibleToastID: undoCenter.coalescingToastID(in: actingPlace)) {
@@ -1338,9 +1412,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
                         updating: group.toastID, in: stepToastHost) { [weak self] in self?.undo(groupID: id) }
             return
         }
-        // No toast for a change the row itself shows; Z still reaches it for the grace period. The list's own query: while
-        // searching, its view is the one the search looks through. In a reader window the conversation is the row: a step
-        // that closes the window always says so, and one that leaves it open as the list would for its view.
+        // No toast for a change the row itself shows; Z still reaches it for the grace period, ⌘Z for as long as the history
+        // holds it. The list's own query: while searching, its view is the one the search looks through. In a reader window
+        // the conversation is the row: a step that closes the window always says so, and one that leaves it open as the list
+        // would for its view.
         let toasted: Bool
         if let reader = actingReader {
             toasted = reader.isClosing || MailActionCopy.wantsToast(for: change, in: reader.view, count: records.count)
@@ -1406,18 +1481,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         actingReader?.tookStep = true
         if let snoozedAt {
             // Named Archive, as E in Later is, so Edit › Undo reads “Undo Archive” either way.
-            id = undoHistory.addExternal(command: MailActionCopy.commandName(for: .archive), at: Date(), toasted: true, coalesces: false)
+            id = undoHistory.addExternal(command: MailActionCopy.commandName(for: .archive), accounts: [messageID.accountID],
+                                         at: undoCenter.now(), toasted: true, coalesces: false)
             externalUndos[id] = laterArchiveRevert([Snooze.Change(conversationID: conversationID, until: snoozedAt)],
                                                    inLater: actionView == .later, confirmation: confirmation)
         } else {
-            id = undoHistory.add(records, at: Date(), toasted: true, coalesces: false)
+            id = undoHistory.add(records, at: undoCenter.now(), toasted: true, coalesces: false)
             unsubscribeUndoConfirmations[id] = confirmation
         }
         rememberPlace(of: id)
-        let live = Set(undoHistory.groups.map(\.id))
-        externalUndos = externalUndos.filter { live.contains($0.key) }
-        laterArchiveRestores = laterArchiveRestores.filter { live.contains($0.key) }
-        unsubscribeUndoConfirmations = unsubscribeUndoConfirmations.filter { live.contains($0.key) }
         let toastID = toasts.show(words, kind: .undoable, symbol: symbol(for: .archive), actionTitle: "Undo", keycap: "Z",
                                   in: stepToastHost) { [weak self] in
             self?.undo(groupID: id)
@@ -1436,10 +1508,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         unsubscribe(from: target)
     }
 
-    /// A step that is not a mail action, offered by its own toast and reverted by `revert` (§5.20).
+    /// A step that is not a mail action, offered by its own toast and reverted by `revert` (§5.20). `accounts` are those
+    /// the revert writes to: a removed one takes the step out of the history (`MailUndoCenter.removeAccounts`).
     @discardableResult
-    private func recordExternalUndo(command: String, toast message: String, symbol: String, revert: @escaping () -> Void) -> Int {
-        let id = undoHistory.addExternal(command: command, at: Date(), toasted: true)
+    private func recordExternalUndo(command: String, accounts: Set<AccountID>, toast message: String, symbol: String,
+                                    revert: @escaping () -> Void) -> Int {
+        let id = undoHistory.addExternal(command: command, accounts: accounts, at: undoCenter.now(), toasted: true)
         externalUndos[id] = revert
         actingReader?.tookStep = true
         rememberPlace(of: id)
@@ -1447,10 +1521,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             self?.undo(groupID: id)
         }
         undoHistory.bindToast(toastID, to: id)
-        // Groups that fell out of the history no longer need their reverts.
-        let live = Set(undoHistory.groups.map(\.id))
-        externalUndos = externalUndos.filter { live.contains($0.key) }
-        laterArchiveRestores = laterArchiveRestores.filter { live.contains($0.key) }
         UndoSendPanel.refreshUndoKeyOwner()
         return id
     }
@@ -1459,15 +1529,25 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// search, forgetting the groups that fell out of the history.
     private func rememberPlace(of id: Int) {
         undoCenter.remember(actingPlace, for: id)
-        let live = Set(undoHistory.groups.map(\.id))
-        groupsFromLater = groupsFromLater.filter { live.contains($0) }
+        forgetGroupsGone()
         if actingReader == nil, listView == .later { groupsFromLater.insert(id) }
+    }
+
+    /// Lets go of what this window keeps beside the history (external reverts, Later's snoozes, unsubscribe confirmations,
+    /// the steps taken in Later) for the groups no longer in it: the oldest, dropped by the 51st step, and a removed
+    /// account's.
+    private func forgetGroupsGone() {
+        let live = Set(undoHistory.groups.map(\.id))
+        externalUndos = externalUndos.filter { live.contains($0.key) }
+        laterArchiveRestores = laterArchiveRestores.filter { live.contains($0.key) }
+        unsubscribeUndoConfirmations = unsubscribeUndoConfirmations.filter { live.contains($0.key) }
+        groupsFromLater = groupsFromLater.filter { live.contains($0) }
     }
 
     // MARK: Undo order (§6.1)
 
-    /// ⌘Z and Edit › Undo: typing, then the newest live send or toast, then a toast's action in its grace. The order is
-    /// the app's (`MailUndoCenter`), the same from a reader window.
+    /// ⌘Z and Edit › Undo: typing, then the newest live send or toast, then the latest step in the history, however old.
+    /// The order is the app's (`MailUndoCenter`), the same from a reader window.
     func commandZTarget(textCanUndo: Bool) -> UndoPrecedence.Target {
         undoCenter.commandZTarget(textCanUndo: textCanUndo)
     }
@@ -1512,7 +1592,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// Nothing is marked as spam from the Trash, where the mail is on its way out already and Mark as Spam leaves what is
     /// there (`MailActionRecord.targets`), or from Drafts, which holds the user's own mail; nor from `in:trash` or
     /// `in:drafts` results. A search typed there lists All Mail (`listView`), whose rows it takes.
-    private var marksSpamInView: Bool { listView != .trash && listView != .drafts }
+    private var marksSpamInView: Bool { listView != .trash && listView != .drafts && listView != .outbox }
 
     /// ! and Mark as Spam: the selection leaves every view, as there is none for spam, with the toast, coalescing and
     /// undo of #. A snoozed conversation's snooze ends (the store's rule), and the undo puts it back. Where it does not
@@ -1557,7 +1637,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         // lands in the Inbox.
         if mailboxView == .later, !shows {
             mailboxView = .inbox
-            leftLaterAsItEmptied = true
+            viewLeftAsItEmptied = .later
             applyQuery()
         }
     }
@@ -1570,7 +1650,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// Nothing is snoozed from the Trash (a trashed conversation ends its snooze) or from Drafts, nor from `in:trash` or
     /// `in:drafts` results; a search typed there lists All Mail (`listView`), whose rows L takes.
     private var canSnoozeSelection: Bool {
-        !showingWelcome && listView != .trash && listView != .drafts && !snoozableSelection.isEmpty
+        !showingWelcome && listView != .trash && listView != .drafts && listView != .outbox && !snoozableSelection.isEmpty
     }
 
     /// The conversations of `ids` a snooze would hold, judged as snoozing leaves them (archived) by the store's own rule
@@ -1664,16 +1744,23 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         let toast = MailActionCopy.snoozed(until: time) { toasts.fits($0, symbol: Quire.Icon.later, actionTitle: "Undo", keycap: "Z", in: host) }
         let fromLater = actionView == .later
         let engine = environment.engine
-        recordExternalUndo(command: MailActionCopy.snoozeCommand, toast: toast, symbol: Quire.Icon.later) { [weak self] in
+        recordExternalUndo(command: MailActionCopy.snoozeCommand, accounts: Set(ids.map(\.accountID)), toast: toast,
+                           symbol: Quire.Icon.later) { [weak self] in
+            let back = self?.stillHeld(ids) ?? ids
+            guard !back.isEmpty else {
+                // Every conversation was deleted since (a deeper ⌘Z, §6.1): nothing to put back, so nothing to confirm.
+                NSSound.beep()
+                return
+            }
             do {
-                try engine.setSnoozes(restore, performing: inverse)
+                try engine.setSnoozes(restore, performing: self?.restorable(inverse) ?? inverse)
             } catch {
                 Self.log.error("undoing a snooze failed: \(String(describing: error), privacy: .public)")
                 NSSound.beep()
                 return
             }
             self?.confirmUndo(of: MailActionCopy.snoozeCommand)
-            self?.reselect(ids, inLater: fromLater)
+            self?.reselect(back, inLater: fromLater)
         }
     }
 
@@ -1701,9 +1788,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     private func recordLaterArchive(_ restore: [Snooze.Change]) {
         let command = MailActionCopy.commandName(for: .archive)
         actingReader?.tookStep = true
-        guard let group = undoHistory.coalesceExternal(command: command, at: Date(),
+        let accounts = Set(restore.map(\.conversationID.accountID))
+        guard let group = undoHistory.coalesceExternal(command: command, accounts: accounts, at: undoCenter.now(),
                                                        visibleToastID: undoCenter.coalescingToastID(in: actingPlace)) else {
-            let id = recordExternalUndo(command: command, toast: MailActionCopy.toast(for: .archive, count: restore.count),
+            let id = recordExternalUndo(command: command, accounts: accounts,
+                                        toast: MailActionCopy.toast(for: .archive, count: restore.count),
                                         symbol: Quire.Icon.archive, revert: laterArchiveRevert(restore))
             laterArchiveRestores[id] = restore
             return
@@ -1723,6 +1812,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
                                     confirmation: String = MailActionCopy.undoConfirmation(for: .archive)) -> () -> Void {
         let engine = environment.engine
         return { [weak self] in
+            let ids = restore.map(\.conversationID)
+            let back = self?.stillHeld(ids) ?? ids
+            guard !back.isEmpty else {
+                // Deleted since (a deeper ⌘Z, §6.1): no snooze to put back, so nothing to confirm.
+                NSSound.beep()
+                return
+            }
             do {
                 try engine.setSnoozes(restore, performing: [])
             } catch {
@@ -1731,7 +1827,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
                 return
             }
             self?.confirmUndo(confirmation)
-            self?.reselect(restore.map(\.conversationID), inLater: inLater)
+            self?.reselect(back, inLater: inLater)
         }
     }
 
@@ -1818,15 +1914,22 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         }
         let fromLater = actionView == .later
         let revert: () -> Void = { [weak self] in
+            let back = self?.stillHeld(changing) ?? changing
+            guard !back.isEmpty else {
+                // Deleted since (a deeper ⌘Z, §6.1): the mute went with its conversation, so nothing to confirm.
+                NSSound.beep()
+                return
+            }
             do {
-                try engine.setMuted(!muting, conversations: changing, performing: inverse, returnMarks: returnMarks)
+                try engine.setMuted(!muting, conversations: back, performing: self?.restorable(inverse) ?? inverse,
+                                    returnMarks: returnMarks)
             } catch {
                 Self.log.error("undoing a mute failed: \(String(describing: error), privacy: .public)")
                 NSSound.beep()
                 return
             }
             self?.confirmUndo(of: command)
-            if !archived.isEmpty { self?.reselect(changing, inLater: fromLater) }
+            if !archived.isEmpty { self?.reselect(back, inLater: fromLater) }
         }
         // The list's own query: while searching, its view is the one the search looks through. In a reader window the
         // conversation is the row: a mute that closes the window says so, and one that leaves it open as the list would.
@@ -1837,23 +1940,22 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             leaves = !archived.isEmpty && MailActionCopy.wantsToast(for: .archive, in: list.query.view, search: list.query.search)
         }
         if leaves || changing.count > 1 {
-            recordExternalUndo(command: command, toast: MailActionCopy.muted(muting, count: changing.count),
+            recordExternalUndo(command: command, accounts: Set(changing.map(\.accountID)),
+                               toast: MailActionCopy.muted(muting, count: changing.count),
                                symbol: muting ? Quire.Icon.mute : Quire.Icon.unmute, revert: revert)
         } else {
-            recordQuietExternalUndo(command: command, revert: revert)
+            recordQuietExternalUndo(command: command, accounts: Set(changing.map(\.accountID)), revert: revert)
         }
         return true
     }
 
     /// A step the row itself shows (one mute on a row that stays): no toast, and Z reaches it for the grace period, as
-    /// a star's undo does.
-    private func recordQuietExternalUndo(command: String, revert: @escaping () -> Void) {
-        let id = undoHistory.addExternal(command: command, at: Date(), toasted: false)
+    /// a star's undo does; ⌘Z reaches it as long as it is in the history.
+    private func recordQuietExternalUndo(command: String, accounts: Set<AccountID>, revert: @escaping () -> Void) {
+        let id = undoHistory.addExternal(command: command, accounts: accounts, at: undoCenter.now(), toasted: false)
         externalUndos[id] = revert
         actingReader?.tookStep = true
         rememberPlace(of: id)
-        let live = Set(undoHistory.groups.map(\.id))
-        externalUndos = externalUndos.filter { live.contains($0.key) }
         UndoSendPanel.refreshUndoKeyOwner()
     }
 
@@ -1898,17 +2000,18 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         let inverse = record?.inverse ?? []
         let conversationID = message.conversationID
         let fromLater = actionView == .later
-        recordExternalUndo(command: command, toast: MailActionCopy.senderRuleSet(action, address: sender),
+        recordExternalUndo(command: command, accounts: [accountID], toast: MailActionCopy.senderRuleSet(action, address: sender),
                            symbol: action == .trash ? Quire.Icon.blockSender : Quire.Icon.alwaysArchiveSender) { [weak self] in
             do {
-                try engine.setSenderRule(previous, for: address, accountID: accountID, performing: inverse)
+                try engine.setSenderRule(previous, for: address, accountID: accountID, performing: self?.restorable(inverse) ?? inverse)
             } catch {
                 Self.log.error("undoing a sender rule failed: \(String(describing: error), privacy: .public)")
                 NSSound.beep()
                 return
             }
             self?.confirmUndo(of: command)
-            if record != nil { self?.reselect([conversationID], inLater: fromLater) }
+            // The rule comes back whatever became of the mail; the conversation is selected only while it is still there.
+            if record != nil, self?.stillHeld([conversationID]).isEmpty == false { self?.reselect([conversationID], inLater: fromLater) }
         }
         return true
     }
@@ -1968,16 +2071,40 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// that closed its window opens it again where it was, so the conversation comes back where the user left it. A mail
     /// action's window opens once its revert has brought the mail back, so the window never shows (or is named after) a
     /// conversation still in Spam or the archive; any other step's opens first, for that step's undo to act in.
+    ///
+    /// A deeper ⌘Z (§6.1), once the step's toast and grace are over, opens no window again: the step may be minutes old,
+    /// and a window springing up where the user left it then would come as a surprise, in the middle of a run of ⌘Z. A
+    /// reader window's step whose window has gone is then undone as the main window's own: the conversation comes back
+    /// selected in the list, with the confirmation there. A step whose window is still open is undone in it, however old.
+    /// What can no longer be put back (mail deleted since) is left out; a step with nothing left goes with a beep, and the
+    /// next ⌘Z reaches the step before it.
     @discardableResult
     private func undo(groupID: Int) -> Bool {
-        let place = undoCenter.place(of: groupID).reader
+        let recent = undoHistory.isRecent(groupID, at: undoCenter.now())
+        let taken = undoCenter.place(of: groupID).reader
         guard let group = undoHistory.remove(groupID) else {
             NSSound.beep()
             return true
         }
-        defer { UndoSendPanel.refreshUndoKeyOwner() }
+        defer {
+            forgetGroupsGone()
+            undoCenter.forgetPlacesOfGroupsGone()
+            UndoSendPanel.refreshUndoKeyOwner()
+        }
+        // Where the undo lands: the step's window while Z still reaches the step, as ever; for a deeper ⌘Z only a window
+        // still open (the place holds it weakly), else the main window.
+        let place = recent ? taken : taken.flatMap { $0.window != nil ? $0 : nil }
         let reopenIfClosed = { [weak self] in
             if let place, place.window == nil, let frame = place.closedFrame { self?.reopen(place, at: frame) }
+        }
+        let records = restorable(group.records)
+        if group.change != nil, records.isEmpty {
+            // Every message it changed is gone (deleted, or its account removed): nothing to put back, and no window to open.
+            Self.log.info("undo: nothing left of the step to put back")
+            unsubscribeUndoConfirmations.removeValue(forKey: groupID)
+            taken?.viewsBeforeMove.removeValue(forKey: groupID)
+            NSSound.beep()
+            return true
         }
         if group.change == nil { reopenIfClosed() }
         let previous = actingReader
@@ -1985,8 +2112,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         defer { actingReader = previous }
         // A Move to Inbox taken in a reader window made it treat its conversation as an Inbox row; the undo puts the view it
         // was opened from back, so its keys, menus and header agree with where the conversation is again.
-        if let place, let view = place.viewsBeforeMove.removeValue(forKey: groupID) {
-            if let window = place.window { window.conversationMoved(to: view) } else { place.view = view }
+        if let taken, let view = taken.viewsBeforeMove.removeValue(forKey: groupID) {
+            if let window = taken.window { window.conversationMoved(to: view) } else { taken.view = view }
         }
         guard let change = group.change else {
             groupsFromLater.remove(groupID)
@@ -1995,7 +2122,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         }
         let fromLater = groupsFromLater.remove(groupID) != nil
         do {
-            try revert(group.records)
+            try revert(records)
         } catch {
             Self.log.error("undo failed: \(String(describing: error), privacy: .public)")
             NSSound.beep()
@@ -2005,12 +2132,45 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         reopenIfClosed()
         let words = unsubscribeUndoConfirmations.removeValue(forKey: groupID) ?? MailActionCopy.undoConfirmation(for: change)
         confirmUndo(words)
-        let restored = group.records.compactMap(\.conversation)
+        let restored = records.compactMap(\.conversation)
         if !restored.isEmpty, [.archive, .trash, .markSpam, .moveToInbox, .restoreFromTrash].contains(change) {
             // The rows come back; put the selection on them so the user sees what was restored.
             reselect(restored, inLater: fromLater)
         }
         return true
+    }
+
+    /// What of `records` can still be put back, read from the store now: ⌘Z can come long after the step (§6.1), when a
+    /// message may have been deleted or its account removed. Mail that arrived since is in no step and stays where it is.
+    /// One read per conversation.
+    private func restorable(_ records: [MailActionRecord]) -> [MailActionRecord] {
+        let store = environment.store
+        return records.compactMap { record in
+            guard let account = record.accountID, accountsByID[account] != nil else { return nil }
+            guard let conversation = record.conversation else {
+                return record.keeping { (try? store.message($0)) != nil }
+            }
+            let held = Set(((try? store.messages(in: conversation)) ?? []).map(\.id))
+            return record.keeping(held.contains)
+        }
+    }
+
+    /// The conversations of `ids` the store still holds mail in, for accounts still here: an external step's revert (a
+    /// snooze, Later's archive, a mute, a sender rule) can come as late as a mail action's (§6.1), and one with none left has
+    /// nothing to put back, to confirm or to select, which would only open an emptied reader.
+    private func stillHeld(_ ids: [ConversationID]) -> [ConversationID] {
+        let store = environment.store
+        return ids.filter { accountsByID[$0.accountID] != nil && !((try? store.messages(in: $0)) ?? []).isEmpty }
+    }
+
+    /// The part of `steps` on messages the store still holds, for accounts still here: an external step's revert (a
+    /// snooze, a mute, a sender rule, discarded drafts) can come as late as a mail action's.
+    private func restorable(_ steps: [MailActionRecord.Step]) -> [MailActionRecord.Step] {
+        let store = environment.store
+        return steps.compactMap { step in
+            let kept = step.targets.filter { accountsByID[$0.accountID] != nil && (try? store.message($0)) != nil }
+            return kept.isEmpty ? nil : MailActionRecord.Step(change: step.change, targets: kept)
+        }
     }
 
     /// Applies the inverse of `records`, newest first. A Move to Inbox, Move to Trash or Mark as Spam that ended a snooze puts
@@ -2100,7 +2260,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         // A step taken in a reader window is undone there: its window shows the conversation, and the list is left as the
         // user has it.
         guard !restored.isEmpty, actingReader == nil else { return }
-        if inLater, leftLaterAsItEmptied, mailboxView != .later, searchText.isEmpty {
+        if inLater, viewLeftAsItEmptied == .later, mailboxView != .later, searchText.isEmpty {
             // Read now rather than on the observation's next delivery, so the tile and the view agree at once.
             if let current = try? environment.store.snoozes() { snoozesChanged(current) }
             setView(.later)
@@ -2143,6 +2303,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             archive([id])
         case .star(let id, let starred):
             mailAction(.setStarred(starred), on: [id])
+        case .changeMessages(let change, let ids):
+            messageAction(change, on: ids)
         case .trash(let id):
             mailAction(.trash, on: [id])
         case .moveToInbox(let id):
@@ -2222,15 +2384,16 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         return reader.window?.toastView
     }
 
-    /// The conversation ⌘O opens: the one selected, outside Drafts (a draft opens in its composer) and the welcome screen.
+    /// The conversation ⌘O opens: the one selected, outside Drafts (a draft opens in its composer), the Outbox (a message on
+    /// its way is no conversation, §5.53) and the welcome screen.
     private var conversationToOpenInWindow: ConversationID? {
-        guard !showingWelcome, !isSeveralSelected, listView != .drafts, let id = list.selectedConversationID,
-              !LocalDraftConversation.isLocal(id) else { return nil }
+        guard !showingWelcome, !isSeveralSelected, listView != .drafts, listView != .outbox,
+              let id = list.selectedConversationID, !LocalDraftConversation.isLocal(id) else { return nil }
         return id
     }
 
-    /// File › Open in New Window (⌘O): the selected conversation in a reader window. With several selected, in Drafts or
-    /// with nothing selected it beeps.
+    /// File › Open in New Window (⌘O): the selected conversation in a reader window. With several selected, in Drafts, in
+    /// the Outbox or with nothing selected it beeps.
     @objc func openSelectionInNewWindow(_ sender: Any?) {
         guard let id = conversationToOpenInWindow else {
             NSSound.beep()
@@ -2239,11 +2402,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         openInNewWindow(id)
     }
 
-    /// Opens `id` in a reader window, or brings forward the one already showing it (⌘O, ⌘-double-click on a row). The
-    /// window treats the conversation as a row of the list's view, as the keys here do.
+    /// Opens `id` in a reader window, or brings forward the one already showing it (⌘O; ↩ on the list and a double-click on
+    /// a row, outside Drafts and the Outbox). The window treats the conversation as a row of the list's view, as the keys
+    /// here do.
     @discardableResult
     func openInNewWindow(_ id: ConversationID) -> ReaderWindowController? {
-        guard !showingWelcome, accountsByID[id.accountID] != nil, !LocalDraftConversation.isLocal(id), listView != .drafts else {
+        guard !showingWelcome, accountsByID[id.accountID] != nil, !LocalDraftConversation.isLocal(id), listView != .drafts,
+              listView != .outbox else {
             NSSound.beep()
             return nil
         }
@@ -2410,8 +2575,54 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// gives way to it.
     private func showLocalDrafts() {
         list.localDrafts = localDrafts.summaries
+        list.outboxRows = localDrafts.outboxSummaries
         let store = environment.store
         list.hiddenDrafts = Set(localDrafts.continuedDrafts.compactMap { try? store.message($0)?.conversationID })
+    }
+
+    // MARK: Outbox (§5.53)
+
+    /// A send in the scope (all accounts, or the narrowed one) waits to go: one of the sends the Outbox lists, of the
+    /// accounts this window knows. The Outbox shows in the rail, the title menu and the View menu, and G O opens it, only
+    /// while this holds (§5.2, §5.53).
+    var showsOutbox: Bool { localDrafts.listsOutboxSends(of: scope.accountIDs) }
+
+    /// Shows or hides the Outbox's tile, from each word of the outbox and each change of scope or accounts. The last send in
+    /// view went (taken by the provider, kept in Drafts as failed, cancelled, taken back) while the Outbox was shown, or the
+    /// scope moved to an account with none: nothing is left to show there, so the window goes back to the Inbox, as from
+    /// Later. A search the user typed stays: it shows All Mail or its `in:` view whatever the rail's, so its results,
+    /// selection and reader stay too, and clearing it lands in the Inbox.
+    private func applyOutboxAvailability() {
+        let shows = showsOutbox
+        strip.setShowsOutbox(shows)
+        if mailboxView == .outbox, !shows {
+            mailboxView = .inbox
+            viewLeftAsItEmptied = .outbox
+            applyQuery()
+        }
+    }
+
+    /// In Drafts, ↩, → and a double-click on a row are Continue Editing (§5.19): the draft opens in its composer, never in
+    /// the reader or a reader window. In the Outbox they are too on a Send Later message still held (§5.53), which is the
+    /// same row as in Drafts; a message on its way only shows. False elsewhere, where they open the conversation.
+    private func continuesEditing(_ id: ConversationID) -> Bool {
+        switch listView {
+        case .drafts:
+            break
+        case .outbox:
+            guard localDrafts.outboxSend(for: id).flatMap(OutboxState.init)?.isHeld == true else { return false }
+        default:
+            return false
+        }
+        if let draft = draftMessageID(in: id) { continueDraft(draft) }
+        return true
+    }
+
+    /// ↩ and → outside Drafts, and anything that opens an Outbox row: the conversation in the main window's reader, which
+    /// takes the keyboard.
+    private func showInReader(_ id: ConversationID) {
+        if conversation.currentConversationID != id { conversation.show(id) }
+        focusReader()
     }
 
     /// The draft a Drafts row stands for: a kept draft's own message, or the conversation's newest draft.
@@ -2509,15 +2720,16 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         let engine = environment.engine
         let now = laterNow
         let outbox = sendLaterOutbox
-        recordExternalUndo(command: "Discard Draft", toast: count == 1 ? "Draft discarded" : "Discarded \(count) drafts",
-                           symbol: Quire.Icon.trash) {
+        recordExternalUndo(command: "Discard Draft", accounts: Set(ids.map(\.accountID)),
+                           toast: count == 1 ? "Draft discarded" : "Discarded \(count) drafts", symbol: Quire.Icon.trash) { [weak self] in
             for draft in kept { ComposeDraftStore.shared.saveNow(draft) }
             // A time that passed meanwhile is not sent on an Undo: the message comes back as a draft to send by hand.
             for item in rescheduled where item.date > now() {
                 outbox.schedule(item.draft, at: item.date) { if $0 == nil { NSSound.beep() } }
             }
             do {
-                for record in records.reversed() {
+                // Only what is still there: a deeper ⌘Z can come after a draft was deleted for good.
+                for record in self?.restorable(records).reversed() ?? [] {
                     for step in record.inverse { try engine.perform(step.change, on: step.targets) }
                 }
             } catch {
@@ -2540,13 +2752,17 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             NSSound.beep()
             return
         }
+        // Read before the rows change: cancelling the last send in view takes the window out of the Outbox.
+        let inOutbox = listView == .outbox
         // The rows change now rather than at the observation, so the draft can take the selection.
         sendLaterOutbox.refresh()
         let row = LocalDraftConversation.conversationID(draftID: draft.id, account: draft.account.id)
-        if list.selectedConversationID == id { list.selectConversations([row], lead: row) }
+        // In Drafts the draft takes the row's place and the selection; in the Outbox the row just leaves (§5.53).
+        if listView == .drafts, list.selectedConversationID == id { list.selectConversations([row], lead: row) }
         let now = laterNow
         let date = send.sendAfter
-        recordExternalUndo(command: SendLaterCopy.command, toast: SendLaterCopy.command + " cancelled", symbol: Quire.Icon.later) { [weak self] in
+        recordExternalUndo(command: SendLaterCopy.command, accounts: [id.accountID], toast: SendLaterCopy.command + " cancelled",
+                           symbol: Quire.Icon.later) { [weak self] in
             guard let self, date > now(),
                   !ComposeWindowRegistry.shared.openControllers.contains(where: { $0.draftID == draft.id }),
                   let current = ComposeDraftStore.shared.draft(id: draft.id, accounts: self.accounts) else {
@@ -2560,7 +2776,16 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
                 }
                 self.sendLaterOutbox.refresh()
                 let restored = SendLaterConversation.conversationID(sendID: sendID, account: current.account.id)
-                if self.list.selectedConversationID == row { self.list.selectConversations([restored], lead: restored) }
+                if inOutbox, self.viewLeftAsItEmptied == .outbox, self.mailboxView != .outbox, self.searchText.isEmpty {
+                    // Cancelled from the Outbox, which emptied and sent the window to the Inbox, and the user has gone
+                    // nowhere since: the message waits again, so the Outbox shows and the window goes back to it, on the
+                    // row, as an undo of a step in Later brings Later back (§5.45, §5.53).
+                    self.setView(.outbox)
+                    self.list.selectConversations([restored], lead: restored)
+                    self.present(selection: [restored])
+                } else if self.list.selectedConversationID == row {
+                    self.list.selectConversations([restored], lead: restored)
+                }
                 self.confirmUndo(of: SendLaterCopy.command)
             }
         }
@@ -2593,12 +2818,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         }
     }
 
-    /// A Send Later message failed when its time came: its draft is kept with the reason (the composer opens with the
-    /// banner), and the toast offers it, as a quick reply's failure does (§5.18).
-    private func sendLaterFailed(_ draft: ComposeDraft) {
+    /// A send nobody else answered for failed (a Send Later message when its time came, one whose panel or quick reply had
+    /// gone, one the app quit while handing over): its draft is kept with the reason (the composer opens with the banner)
+    /// and its row has left the Outbox, and the toast offers it once, as a quick reply's failure does (§5.18, §5.53). One
+    /// that may have gone says so instead of “Couldn't send” (`SendFailureWording.notice`).
+    private func sendFailed(_ draft: ComposeDraft, lastError: String?) {
         let engine = environment.engine
-        let subject = draft.subject.trimmingCharacters(in: .whitespaces)
-        let words = subject.isEmpty ? "Couldn\u{2019}t send your message" : "Couldn\u{2019}t send \u{201c}\(subject)\u{201d}"
+        let words = SendFailureWording.notice(subject: draft.subject, lastError: lastError)
         toasts.show(words, kind: .error, symbol: Quire.Icon.error, actionTitle: "Open draft") { [weak self] in
             guard let self else { return }
             ComposeWindowController.present(client: engine, accounts: self.accounts, draft: draft)
@@ -2804,6 +3030,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         #selector(findPreviousMatch(_:)),
     ]
 
+    /// The Message menu's and the context menu's mail items: what the keys `refusesInOutbox` names do from a menu.
+    private static let mailCommands: Set<Selector> = [
+        #selector(archiveSelection(_:)), #selector(laterSelection(_:)), #selector(snoozeSelectionUntil(_:)), #selector(pickSnoozeDate(_:)),
+        #selector(toggleStarSelection(_:)), #selector(trashSelection(_:)), #selector(markSelectionSpam(_:)),
+        #selector(moveSelectionToInbox(_:)), #selector(markSelectionUnread(_:)), #selector(replyToSelection(_:)),
+        #selector(replyAllToSelection(_:)), #selector(forwardSelection(_:)), #selector(toggleMuteSelection(_:)),
+        #selector(unsubscribeFromConversation(_:)), #selector(alwaysArchiveSender(_:)), #selector(blockSender(_:)),
+    ]
+
     /// The toast after a save to Downloads (spec §5.17, §5.30): what was saved, with Show in Finder, which selects the
     /// copies. It is bound to no undo group, so Z still reaches the last undoable action in its grace (§6.1). A save
     /// that wrote nothing says so; a file that could not be fetched is told by its chip, not here.
@@ -2855,6 +3090,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         if let action = menuItem.action, Self.readerCommands.contains(action) {
             return !showingWelcome && conversation.validateMenuItem(menuItem)
         }
+        // A message on its way in the Outbox is not mail in the store: the mail items are disabled there (§5.53).
+        if listView == .outbox, let action = menuItem.action, Self.mailCommands.contains(action) { return false }
         switch menuItem.action {
         case #selector(archiveSelection(_:)):
             // Plain-letter and ⌘⌫ equivalents must not fire while the user is typing.
@@ -2889,8 +3126,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         case #selector(selectAccountShortcut(_:)):
             return !showingWelcome && (menuItem.tag == 0 || menuItem.tag <= accounts.count)
         case #selector(goToMailboxView(_:)):
-            menuItem.state = MailboxView.allCases.indices.contains(menuItem.tag) && MailboxView.allCases[menuItem.tag] == mailboxView ? .on : .off
-            if MailboxView.allCases.indices.contains(menuItem.tag), MailboxView.allCases[menuItem.tag] == .later { return !showingWelcome && showsLater }
+            let view = MailboxView.allCases.indices.contains(menuItem.tag) ? MailboxView.allCases[menuItem.tag] : nil
+            menuItem.state = view == mailboxView ? .on : .off
+            // Later and the Outbox only while their rail tiles show, as G L and G O (§5.2).
+            if view == .later { return !showingWelcome && showsLater }
+            if view == .outbox { return !showingWelcome && showsOutbox }
             return !showingWelcome
         case #selector(toggleAccountStrip(_:)):
             menuItem.title = stripItem.isCollapsed ? "Show Account Rail" : "Hide Account Rail"
@@ -2922,7 +3162,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             menuItem.state = current == action ? .on : .off
             return current != action
         case #selector(openSelectionInNewWindow(_:)):
-            // One conversation, outside Drafts (§5.49).
+            // One conversation, outside Drafts and the Outbox (§5.49, §5.53).
             return conversationToOpenInWindow != nil
         default:
             return true

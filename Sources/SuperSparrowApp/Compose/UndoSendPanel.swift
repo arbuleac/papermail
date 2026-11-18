@@ -9,8 +9,11 @@ import SSDesign
 /// reply when it shows; the screen's visible frame when the main window is hidden), several panels 8 pt apart.
 ///
 /// Counting (“Sending in 4 s”, the outlined Undo with “⌘Z”, the contrail draining) → Sending → Sent for 1500 ms,
-/// or Failed with “Open draft”. Undo closes the panel at once and reopens the composer; an Undo that comes
-/// after the message left shows “Already sent” for 3000 ms. A Send and Archive's panel says “Archived” first on its
+/// or Failed with “Open draft”, the message kept as a draft with its reason and its outbox row cleared once that draft is
+/// on disk, so it leaves the Outbox for Drafts (§5.53). The panel answers for its send from the moment it shows until the
+/// outcome is settled (`SendOwnership`), so the main window never keeps a second draft of it; dismissed before then
+/// (“Already sent”), it lets go and the window settles a later failure. Undo closes the panel at once and reopens the
+/// composer; an Undo that comes after the message left shows “Already sent” for 3000 ms. A Send and Archive's panel says “Archived” first on its
 /// second line, and its Undo also brings the conversation back to the Inbox (§5.23). Hover never pauses the countdown: the send time
 /// is a promise. ⌘Z cancels the newest counting panel unless a text view can undo typing or, in the main
 /// window, a newer toast or quick-reply countdown holds ⌘Z (§6.1, `UndoPrecedence`).
@@ -33,6 +36,11 @@ final class UndoSendPanel: NSPanel {
     private var pollTimer: Timer?
     private var isFinished = false
     private var failureReason: String?
+    /// What a failure kept: the draft under its kept id (`FailedSend.draftID`), which Open draft opens, so the composer
+    /// continues the draft listed in Drafts rather than starting a second.
+    private var keptDraft: ComposeDraft?
+    /// The panel holds its send's claim (`SendOwnership`), from `show` until the outcome is settled or the panel goes.
+    private var ownsSend = false
 
     // MARK: Showing
 
@@ -48,6 +56,9 @@ final class UndoSendPanel: NSPanel {
         panel.archive = archive
         panel.onUndone = onUndone
         panel.onSent = onSent
+        // In the turn that queued the send, before the outbox's observation can say anything about it.
+        SendOwnership.claim(sendID)
+        panel.ownsSend = true
         ComposeWindowRegistry.shared.register(panel)
         panel.slip.startCountdown(left)
         panel.presentRising()
@@ -188,7 +199,8 @@ final class UndoSendPanel: NSPanel {
         pollOutcome()
     }
 
-    /// The outbox is in the store: a sent message's row is removed, a failed one stays with its reason.
+    /// The outbox is in the store: a sent message's row is removed, a failed one stays with its reason until this panel
+    /// has kept its draft.
     private func pollOutcome() {
         guard let sends = try? client.store.pendingSendSummaries() else { return }
         let send = sends.first { $0.id == sendID }
@@ -214,15 +226,21 @@ final class UndoSendPanel: NSPanel {
         finish(after: Quire.Motion.sentConfirm)
     }
 
+    /// “Your draft is kept on this Mac”: it is, from now on, under the id the window would keep it under too, and the row
+    /// leaves the Outbox once it is on disk. The claim goes with the save, so a panel closed by Open draft before the write
+    /// lands never lets the window keep a second draft beside it.
     private func showFailed(reason: String?) {
         let wording = SendFailureWording.banner(lastError: reason, provider: draft.account.kind)
         failureReason = wording
         slip.state = .failed
         Self.updateUndoKeyOwner()
-        // “Your draft is kept on this Mac”: it is, from now on.
         var kept = draft
+        kept.id = FailedSend.draftID(sendID: sendID, writtenIn: nil)
         kept.sendFailure = wording
-        ComposeDraftStore.shared.save(kept)
+        keptDraft = kept
+        let releasing = ownsSend
+        ownsSend = false
+        SendOwnership.keepFailed(kept, sendID: sendID, store: client.store, releasing: releasing)
     }
 
     private func actionClicked(in state: QuireUndoPanelView.State) {
@@ -255,7 +273,7 @@ final class UndoSendPanel: NSPanel {
     }
 
     private func openDraft() {
-        var reopened = draft
+        var reopened = keptDraft ?? draft
         reopened.sendFailure = failureReason
         dismissNow()
         ComposeWindowController.present(client: client, accounts: accounts, draft: reopened)
@@ -280,6 +298,11 @@ final class UndoSendPanel: NSPanel {
         isFinished = true
         pollTimer?.invalidate()
         pollTimer = nil
+        // Gone before its outcome (Undo, “Already sent” while it still goes, sent): a failure from now on is the window's.
+        if ownsSend {
+            ownsSend = false
+            SendOwnership.release(sendID)
+        }
         // An ordered-out panel sends its action no exit event, so a pointer resting on Undo or Open draft would keep the
         // hand the action set over whatever lies under it; hidden, the action takes it back first (§4.17).
         slip.isHidden = true

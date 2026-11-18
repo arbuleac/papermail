@@ -81,7 +81,7 @@ Not yet checked on macOS 15 or 26.
 
 ## A conversation in its own window
 
-Press `⌘O` (**File → Open in New Window**), or hold `⌘` and double-click a conversation in the list, to open it in a window of its own, to read beside a reply you are writing. The window is the reader alone: the same keys and **Message** menu act on its conversation (`e`, `l`, `#`, `!`, `m`, `s`, `u`, `r`, `z` and the rest), and so do **Print**, **Find in Conversation**, **Download Attachments** and `⌘+` / `⌘−`. Archiving, snoozing, moving it to the Trash, marking it as spam, muting it from the Inbox, discarding its draft or unsubscribing closes the window, and the main window comes forward with **Undo**, which brings the conversation back and opens its window again where it was. A reply sent with **Send and Archive** from the window closes it too, its **Undo send** in a panel on the main window. Text you typed in the window's reply field is kept when it closes: it is there again when the window reopens, or in the main window when you open the conversation there. Undo works across windows: `z` in any window undoes the last action, wherever it was taken, and its confirmation shows there. Opening a conversation that is already open brings its window forward. Each window keeps a web view of its own, about 25 MB.
+Press `Return` (or `⌘O`, **File → Open in New Window**), or double-click a conversation in the list, to open it in a window of its own, to read beside a reply you are writing; `→` opens it in the main window's reader instead. `Esc` closes the window while you haven't typed in its reply field; holding it down closes only that one. `Return` opens a window from the list only: on a button you reached with the keyboard, it is that button's. The window is the reader alone: the same keys and **Message** menu act on its conversation (`e`, `l`, `#`, `!`, `m`, `s`, `u`, `r`, `z` and the rest), and so do **Print**, **Find in Conversation**, **Download Attachments** and `⌘+` / `⌘−`. Archiving, snoozing, moving it to the Trash, marking it as spam, muting it from the Inbox, discarding its draft or unsubscribing closes the window, and the main window comes forward with **Undo**, which brings the conversation back and opens its window again where it was. A reply sent with **Send and Archive** from the window closes it too, its **Undo send** in a panel on the main window. Text you typed in the window's reply field is kept when it closes: it is there again when the window reopens, or in the main window when you open the conversation there. Undo works across windows: `z` in any window undoes the last action, wherever it was taken, and its confirmation shows there. Opening a conversation that is already open brings its window forward. Each window keeps a web view of its own, about 25 MB.
 
 ## Send and Archive
 
@@ -90,6 +90,12 @@ Replying usually finishes a conversation, so **Send** sends and archives the con
 ## Send Later
 
 The arrow beside **Send** (in a composer and in the reply field) also offers **Send Later**: **Tomorrow** or **Monday** at 09:00, or **Pick a Time…**; `⇧⌘L` (**Message → Send Later…**) shows the same choices. The message waits on this Mac and goes at that time **while SuperSparrow is open**; nothing is archived: Send Later only sends. Until it goes it is listed in **Drafts** as "Sends Mon 09:00", with **Cancel** beside the time in the reader; opening it cancels the schedule so you can change it. If SuperSparrow was closed when the time came, it is not sent on its own when it opens: it asks whether to send it now or keep it in Drafts. Gmail's and Outlook's own scheduled send cannot be reached through their APIs, so a message scheduled there is not listed here.
+
+## Outbox
+
+While a message is on its way, an **Outbox** tile shows in the rail after **Drafts** (the tray with an arrow), and **View → Outbox** and `g` then `o` open it, as **Later** shows only while something is snoozed. It lists every message you sent that Gmail or Microsoft has not taken yet, from the moment you press **Send**: one still counting down its undo, one waiting for its Send Later time, one going now, and one waiting to try again (no connection yet, or the provider asked to wait). A message leaves the Outbox as soon as the provider has it, and shows up in **Sent** at the next check, as before. Once the last one has gone the tile goes too, and if you were looking at the Outbox you are back in the Inbox (a search you typed stays). Narrowed to one account, the Outbox counts only that account's messages. Click one to read it as it will be sent. A Send Later message works there as in Drafts: `↩`, a double-click or **Continue Editing** cancels its schedule and opens it, and **Cancel** beside its time keeps it as a draft. Any other message only shows, in the main window's reader, never in a window of its own. Nothing else applies to a message on its way: `e`, `#`, `s` and the other mail keys do nothing there, and undoing a send is still the undo panel's (or `⌘Z`).
+
+A message that could not be sent leaves the Outbox for **Drafts**: it is kept there once, as a draft that opens with the reason, and the undo panel, the quick reply or a toast says so with **Open draft** (it may show in red, "Couldn't send", for the moment that takes). If SuperSparrow quit while it was handing a message over, the next launch keeps that one in Drafts too and says it may have gone: check **Sent** before sending it again.
 
 ## Later
 
@@ -155,8 +161,8 @@ Operators combine (`from:ben is:unread after:2026-01-01 -invoice`), ignore case,
 | Key | Action |
 |---|---|
 | `j` / `k`, `↓` / `↑` | Next / previous conversation |
-| `Return` | Open the conversation in the reader |
-| `⌘O`, `⌘`-double-click | Open the conversation in a window of its own |
+| `Return` (on the list), `⌘O`, double-click | Open the conversation in a window of its own (in Drafts, continue editing; in the Outbox, see above) |
+| `→` | Open the conversation in the reader |
 | `e` | Archive |
 | `l` | Later: snooze until a time |
 | `m` | Mute / unmute: new mail in the conversation skips the Inbox |
@@ -175,12 +181,14 @@ Operators combine (`from:ben is:unread after:2026-01-01 -invoice`), ignore case,
 | `⇧⌘L` | Send later: Tomorrow, Monday or a time you pick |
 | `⌥⌘I` | Insert a picture into the message you are writing |
 | `esc` in a composer | Closes it while you haven't written anything; a composer with your words stays open |
+| `esc` in a conversation's window | Closes it while its reply field is empty; with your words there it stays open |
 | `c`, `⌘N` | New message |
 | `/`, `⌘F` | Search (`Esc` clears, in the search field or the list) |
 | `↩` in the search field | Search the mail server for more, then move to the results |
 | `⌥⌘F` | Find in the open conversation (`⌘G` / `⇧⌘G` next / previous match) |
 | `g` then `i` / `s` / `t` / `a` | Go to Inbox / Starred / Sent / All Mail |
 | `g` then `l` | Go to Later, while something is snoozed |
+| `g` then `o` | Go to the Outbox, while a message is on its way |
 | `⌘0` | All inboxes |
 | `⌘1` … `⌘9` | One account |
 | `⌃⌘S` | Hide / show the account strip |

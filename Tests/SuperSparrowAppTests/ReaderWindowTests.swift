@@ -4,10 +4,11 @@ import SSDesign
 import XCTest
 @testable import SuperSparrowApp
 
-/// A conversation in its own window (spec §5.49) through the app harness: ⌘O and ⌘-double-click, the window's chrome
-/// and web view, its keys and menus acting on its conversation, steps that close it with their toast in the main window
-/// and an undo that opens it again, steps that keep it with their toast in it, one undo history across windows, and its
-/// quick reply's text, countdown and sends outliving it. Drafts go to a temporary folder.
+/// A conversation in its own window (spec §5.49) through the app harness: ↩, a double-click and ⌘O, the window's chrome
+/// and web view, its keys and menus acting on its conversation, Esc closing it while its quick reply holds nothing, steps
+/// that close it with their toast in the main window and an undo that opens it again, steps that keep it with their toast
+/// in it, one undo history across windows, and its quick reply's text, countdown and sends outliving it. Drafts go to a
+/// temporary folder.
 @MainActor
 final class ReaderWindowTests: XCTestCase {
     private static let sizeKey = "ReaderWindowSize"
@@ -86,15 +87,18 @@ final class ReaderWindowTests: XCTestCase {
     }
 
     /// A key as `window` delivers it: through the app, whose local monitors (each window's router) see it first. A test's
-    /// window is seldom key, and the routers act only in the key window, so they are told which one is (`key`).
-    private func press(_ characters: String, keyCode: UInt16, in window: NSWindow, key: NSWindow? = nil) throws {
+    /// window is seldom key, and the routers act only in the key window, so they are told which one is (`key`). `repeated`
+    /// is the key's repeat while it is held down.
+    private func press(_ characters: String, keyCode: UInt16, in window: NSWindow, key: NSWindow? = nil, repeated: Bool = false) throws {
         KeyboardRouter.keyWindowForTests = key ?? window
         defer { KeyboardRouter.keyWindowForTests = nil }
-        let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
-                                                   timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
-                                                   context: nil, characters: characters, charactersIgnoringModifiers: characters,
-                                                   isARepeat: false, keyCode: keyCode))
-        NSApp.sendEvent(event)
+        NSApp.sendEvent(try keyEvent(characters, keyCode: keyCode, in: window, repeated: repeated))
+    }
+
+    private func keyEvent(_ characters: String, keyCode: UInt16, in window: NSWindow, repeated: Bool = false) throws -> NSEvent {
+        try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                       windowNumber: window.windowNumber, context: nil, characters: characters,
+                                       charactersIgnoringModifiers: characters, isARepeat: repeated, keyCode: keyCode))
     }
 
     private func pendingSend(_ harness: MainWindowHarness) throws -> PendingSend? {
@@ -162,28 +166,115 @@ final class ReaderWindowTests: XCTestCase {
         harness.close()
     }
 
-    func testCommandDoubleClickOpensTheClickedRowInAWindow() throws {
+    /// A double-click on a row opens that row's conversation in a window of its own, ⌘ held or not (the ⌘-double-click
+    /// that used to be the only way still is one), whatever the clicks did to the selection; again, it brings the same
+    /// window forward.
+    func testADoubleClickOpensTheClickedRowInAWindow() throws {
         let harness = try MainWindowHarness()
+        var brought: [NSWindowController] = []
+        harness.controller.bringForward = { brought.append($0) }
         select(0, harness)
         let selected = harness.list.conversations[0].id
         let clicked = harness.list.conversations[2].id
         let row = try XCTUnwrap(harness.list.layout.row(ofConversation: 2))
-        harness.list.rowDoubleClicked(row, modifiers: .command)
+        harness.list.rowDoubleClicked(row)
         XCTAssertEqual(harness.controller.readerWindows.map(\.conversationID), [clicked])
+        let reader = try XCTUnwrap(harness.controller.readerWindows.first)
+        XCTAssertTrue(brought.last === reader, "the window comes forward")
         XCTAssertEqual(harness.list.selectedConversationID, selected, "opening the window selects nothing itself")
-        // Without ⌘ a double-click opens in the reader, as before.
-        harness.list.rowDoubleClicked(row, modifiers: [])
-        XCTAssertEqual(harness.controller.readerWindows.count, 1)
+        XCTAssertEqual(harness.reader.currentConversationID, selected, "and the main window's reader stays where it was")
+        brought = []
+        harness.list.rowDoubleClicked(row)
+        XCTAssertEqual(harness.controller.readerWindows.count, 1, "one window per conversation")
+        XCTAssertTrue(brought.last === reader, "the open one comes forward again")
         harness.close()
     }
 
+    /// ↩ on the list opens the selected conversation in a window of its own, as ⌘O does, through the main window's router
+    /// as the app delivers the key; ↩ (here keypad Enter) again, with the main window key once more, brings that window
+    /// forward rather than opening a second.
+    func testReturnOnTheListOpensTheSelectedConversationInAWindow() throws {
+        let harness = try MainWindowHarness()
+        var brought: [NSWindowController] = []
+        harness.controller.bringForward = { brought.append($0) }
+        select(1, harness)
+        let id = harness.list.conversations[1].id
+        let mainWindow = try XCTUnwrap(harness.controller.window)
+        XCTAssertTrue(mainWindow.makeFirstResponder(harness.list.tableView))
+        XCTAssertFalse(harness.controller.isReaderFocused)
+        try press("\r", keyCode: 36, in: mainWindow)
+        XCTAssertEqual(harness.controller.readerWindows.map(\.conversationID), [id])
+        let reader = try XCTUnwrap(harness.controller.readerWindows.first)
+        XCTAssertTrue(brought.last === reader, "the window comes forward")
+        XCTAssertEqual(harness.list.selectedConversationID, id, "the selection stays")
+        brought = []
+        try press("\u{3}", keyCode: 76, in: mainWindow)
+        XCTAssertEqual(harness.controller.readerWindows.count, 1, "one window per conversation")
+        XCTAssertTrue(brought.last === reader, "the open one comes forward again")
+        harness.close()
+    }
+
+    /// ↩ opens a window only from the list (§5.49): with Full Keyboard Access on a button outside the reader that does not
+    /// claim the key (here compose), or with nothing focused, ↩ goes on to the control or the window, and the selected
+    /// conversation stays where it is; back on the list's table, ↩ opens it.
+    func testReturnOpensAWindowOnlyFromTheList() throws {
+        let harness = try MainWindowHarness()
+        select(1, harness)
+        let id = harness.list.conversations[1].id
+        let mainWindow = try XCTUnwrap(harness.controller.window)
+        let compose = harness.controller.listPane.header.compose
+        XCTAssertTrue(mainWindow.makeFirstResponder(compose))
+        XCTAssertFalse(harness.controller.isListFocused)
+        XCTAssertFalse(harness.controller.isReaderFocused)
+        try press("\r", keyCode: 36, in: mainWindow)
+        try press("\u{3}", keyCode: 76, in: mainWindow)
+        XCTAssertTrue(harness.controller.readerWindows.isEmpty, "↩ on compose opens no window")
+        XCTAssertTrue(mainWindow.makeFirstResponder(nil))
+        try press("\r", keyCode: 36, in: mainWindow)
+        XCTAssertTrue(harness.controller.readerWindows.isEmpty, "nor with nothing focused")
+
+        XCTAssertTrue(mainWindow.makeFirstResponder(harness.list.tableView))
+        XCTAssertTrue(harness.controller.isListFocused)
+        try press("\r", keyCode: 36, in: mainWindow)
+        XCTAssertEqual(harness.controller.readerWindows.map(\.conversationID), [id], "the list's ↩ opens it")
+        harness.close()
+    }
+
+    /// → keeps the conversation in the main window: its reader shows it and takes the keyboard, and no window opens (§6).
+    /// ↩ with the reader focused then opens nothing new either: it stays the page's Open (§5.15).
+    func testRightOpensInTheMainWindowsReaderAndOpensNoWindow() throws {
+        let harness = try MainWindowHarness()
+        select(2, harness)
+        let id = harness.list.conversations[2].id
+        harness.spin { harness.reader.pool.current?.renderedID == id }
+        let mainWindow = try XCTUnwrap(harness.controller.window)
+        XCTAssertTrue(mainWindow.makeFirstResponder(harness.list.tableView))
+        try press("\u{F703}", keyCode: 124, in: mainWindow)
+        XCTAssertTrue(harness.controller.isReaderFocused, "the reader takes the keyboard")
+        XCTAssertEqual(harness.reader.currentConversationID, id)
+        XCTAssertTrue(harness.controller.readerWindows.isEmpty, "no window opens")
+        try press("\r", keyCode: 36, in: mainWindow)
+        XCTAssertTrue(harness.controller.readerWindows.isEmpty, "↩ in the reader opens no window")
+        XCTAssertTrue(harness.controller.isReaderFocused)
+        harness.close()
+    }
+
+    /// Nothing opens with several selected (↩ is spent, ⌘O disabled), with nothing selected, from a row that is not a
+    /// conversation's, or in Drafts by ⌘O (↩ and a double-click continue editing there, `DraftsViewTests`).
     func testNothingOpensWithSeveralSelectedNothingSelectedOrInDrafts() throws {
         let harness = try MainWindowHarness()
         XCTAssertFalse(harness.controller.validateMenuItem(openItem()), "nothing selected")
+        XCTAssertFalse(harness.controller.perform(.openInWindow), "↩ with nothing selected goes on")
         harness.selectFirst(2)
         XCTAssertFalse(harness.controller.validateMenuItem(openItem()), "a window holds one conversation")
         harness.controller.openSelectionInNewWindow(nil)
+        XCTAssertTrue(harness.controller.perform(.openInWindow), "↩ with several selected is spent")
         XCTAssertTrue(harness.controller.readerWindows.isEmpty)
+        // A running head (the list opens on “Today”) has no conversation to open.
+        let table = harness.list.tableView
+        let head = try XCTUnwrap((0..<table.numberOfRows).first { harness.list.layout.conversationIndex(atRow: $0) == nil })
+        harness.list.rowDoubleClicked(head)
+        XCTAssertTrue(harness.controller.readerWindows.isEmpty, "a double-click on a head opens nothing")
         _ = harness.controller.perform(.goTo(.drafts))
         XCTAssertFalse(harness.controller.validateMenuItem(openItem()), "a draft opens in its composer")
         harness.close()
@@ -338,7 +429,10 @@ final class ReaderWindowTests: XCTestCase {
         let date = Date().addingTimeInterval(86_400)
         let sendID = try harness.environment.engine.scheduleSend(message, at: date, draftID: nil)
         var undone = false
-        SendLaterScheduled(sendID: sendID, date: date) { undone = true }.post(from: reader.conversation)
+        SendLaterScheduled(sendID: sendID, date: date) {
+            undone = true
+            return true
+        }.post(from: reader.conversation)
         XCTAssertTrue(self.message(in: reader)?.hasPrefix("Sends") == true, "the window's step: \(String(describing: self.message(in: reader)))")
         XCTAssertFalse(harness.toasts.isVisible(in: harness.controller.listPane.toastView))
         XCTAssertTrue(reader.perform(.undo))
@@ -563,6 +657,7 @@ final class ReaderWindowTests: XCTestCase {
         XCTAssertTrue(harness.controller.perform(.archive))
         XCTAssertTrue(reader.perform(.clearSearch))
         XCTAssertTrue(harness.toasts.isVisible, "the main window's toast is the main window's to dismiss")
+        XCTAssertTrue(harness.controller.readerWindows.isEmpty, "with nothing of its own to close, Esc closes the window")
         XCTAssertTrue(harness.controller.perform(.clearSearch))
         XCTAssertFalse(harness.toasts.isVisible)
         harness.close()
@@ -584,10 +679,173 @@ final class ReaderWindowTests: XCTestCase {
         XCTAssertTrue(reader.perform(.moveToInbox))
         let bar = reader.conversation.quickReplyBar
         bar.text = "Half a thought"
-        reader.conversation.onAction?(.escapeQuickReply)
+        reader.conversation.onAction?(.escapeQuickReply(repeated: false))
         XCTAssertNil(message(in: reader))
-        reader.conversation.onAction?(.escapeQuickReply)
+        reader.conversation.onAction?(.escapeQuickReply(repeated: false))
         XCTAssertEqual(bar.text, "Half a thought")
+        harness.close()
+    }
+
+    // MARK: Esc closes the window
+
+    /// Esc with nothing else in the window for it to close, and nothing typed in its quick reply, closes the window as ⌘W
+    /// does (§6.1): the key as the app delivers it, through the window's router, with the page focused. Its size is kept
+    /// for the next window and the main window forgets it; the main window itself never closes on Esc.
+    func testEscClosesAWindowWhoseQuickReplyHoldsNothing() throws {
+        let harness = try MainWindowHarness()
+        let (_, reader) = try open(0, harness)
+        let window = try XCTUnwrap(reader.window)
+        XCTAssertTrue(window.makeFirstResponder(reader.conversation.pool.current?.webView))
+        reader.conversation.quickReplyBar.text = "  \n "
+        XCTAssertFalse(reader.conversation.quickReplyHoldsWork, "blank text is no draft")
+        try press("\u{1B}", keyCode: 53, in: window)
+        XCTAssertTrue(harness.controller.readerWindows.isEmpty, "Esc closes it")
+        XCTAssertNil(reader.place.window)
+        XCTAssertFalse(window.isVisible)
+        XCTAssertNotNil(UserDefaults.standard.string(forKey: Self.sizeKey), "its size is kept, as on ⌘W")
+
+        let mainWindow = try XCTUnwrap(harness.controller.window)
+        let mainCloses = XCTNSNotificationExpectation(name: NSWindow.willCloseNotification, object: mainWindow)
+        mainCloses.isInverted = true
+        XCTAssertTrue(mainWindow.makeFirstResponder(harness.list.tableView))
+        try press("\u{1B}", keyCode: 53, in: mainWindow)
+        XCTAssertTrue(harness.controller.perform(.clearSearch))
+        wait(for: [mainCloses], timeout: 0.1)
+        harness.close()
+    }
+
+    /// Esc in an empty quick reply closes the window too, once the field has done with the key.
+    func testEscInAnEmptyQuickReplyClosesTheWindow() throws {
+        let harness = try MainWindowHarness()
+        let (_, reader) = try open(0, harness)
+        let window = try XCTUnwrap(reader.window)
+        XCTAssertTrue(reader.conversation.focusQuickReply(all: false))
+        XCTAssertTrue(KeyboardRouter.isTextInput(window.firstResponder))
+        window.firstResponder?.doCommand(by: #selector(NSResponder.cancelOperation(_:)))
+        harness.spin { harness.controller.readerWindows.isEmpty }
+        XCTAssertTrue(harness.controller.readerWindows.isEmpty, "Esc in the empty field closes the window")
+        XCTAssertNil(reader.place.window)
+        harness.close()
+    }
+
+    /// Words in the quick reply keep the window: Esc in the field gives the page the keyboard, the words kept, and Esc on
+    /// the page then does nothing, without a beep. A reply counting down keeps it too.
+    func testEscKeepsAWindowWhoseQuickReplyHoldsTheUsersWork() throws {
+        let harness = try MainWindowHarness()
+        let (_, reader) = try open(0, harness)
+        let window = try XCTUnwrap(reader.window)
+        let bar = reader.conversation.quickReplyBar
+        XCTAssertTrue(reader.conversation.focusQuickReply(all: false))
+        bar.text = "Half a thought"
+        window.firstResponder?.doCommand(by: #selector(NSResponder.cancelOperation(_:)))
+        ListTestSupport.spin(for: 0.05)
+        XCTAssertTrue(reader.place.window === reader, "the window stays")
+        XCTAssertFalse(KeyboardRouter.isTextInput(window.firstResponder), "the page takes the keyboard")
+        XCTAssertEqual(bar.text, "Half a thought", "the words stay")
+        try press("\u{1B}", keyCode: 53, in: window)
+        XCTAssertTrue(reader.perform(.clearSearch), "Esc on the page is taken, so it does not beep")
+        ListTestSupport.spin(for: 0.05)
+        XCTAssertTrue(reader.place.window === reader, "and closes nothing")
+        XCTAssertEqual(bar.text, "Half a thought")
+
+        // A reply counting down is the user's work as well, whatever the box holds since.
+        let (_, sending) = try open(1, harness)
+        sending.conversation.sendQuickReply("Sounds good", mode: .reply, action: .send)
+        XCTAssertNotNil(sending.conversation.liveQuickSend)
+        XCTAssertTrue(sending.conversation.quickReplyBar.text.isEmpty)
+        XCTAssertTrue(sending.perform(.clearSearch))
+        sending.conversation.onAction?(.escapeQuickReply(repeated: false))
+        ListTestSupport.spin(for: 0.05)
+        XCTAssertTrue(sending.place.window === sending, "Esc never closes a window over its countdown")
+        harness.close()
+    }
+
+    /// Words in a bar that has hidden, its conversation gone to the Trash from the main window, are out of sight: Esc
+    /// closes the window, and the words are parked with the conversation, as on ⌘W.
+    func testEscClosesAWindowWhoseBarHidWithWordsInIt() throws {
+        let harness = try MainWindowHarness()
+        let (id, reader) = try open(0, harness)
+        let bar = reader.conversation.quickReplyBar
+        bar.text = "Typed before it went"
+        XCTAssertTrue(reader.conversation.quickReplyHoldsWork)
+        XCTAssertTrue(harness.controller.perform(.trash), "the main window trashes the same conversation")
+        harness.spin { bar.isHidden }
+        XCTAssertTrue(bar.isHidden, "a Trash row has no quick reply")
+        XCTAssertFalse(reader.conversation.quickReplyHoldsWork)
+        XCTAssertTrue(reader.perform(.clearSearch))
+        XCTAssertTrue(harness.controller.readerWindows.isEmpty, "Esc closes the window")
+        XCTAssertEqual(harness.controller.quickReplyDrafts.drafts.draft(under: id), "Typed before it went", "the words are kept")
+        harness.close()
+    }
+
+    /// A toast in the window takes the first Esc and the window the second (§6.1 rows 7 and 10).
+    func testEscDismissesTheWindowsToastFirstAndThenClosesIt() throws {
+        let harness = try MainWindowHarness()
+        let (id, reader) = try openFromTrash(0, harness)
+        let window = try XCTUnwrap(reader.window)
+        XCTAssertTrue(window.makeFirstResponder(reader.conversation.pool.current?.webView))
+        XCTAssertTrue(reader.perform(.moveToInbox))
+        XCTAssertEqual(message(in: reader), "Moved to Inbox")
+        try press("\u{1B}", keyCode: 53, in: window)
+        XCTAssertNil(message(in: reader), "the first Esc dismisses the toast")
+        XCTAssertTrue(reader.place.window === reader, "and leaves the window")
+        try press("\u{1B}", keyCode: 53, in: window)
+        XCTAssertTrue(harness.controller.readerWindows.isEmpty, "the second closes it")
+        XCTAssertTrue(try inInbox(id, harness), "closing it undoes nothing")
+        harness.close()
+    }
+
+    /// Holding Esc down never closes a window (§6.1 row 10): the key's repeat still dismisses the window's toast, as every
+    /// Esc does, but closes nothing after it; only a fresh press closes the window.
+    func testHeldEscNeverClosesTheWindow() throws {
+        let harness = try MainWindowHarness()
+        let (_, reader) = try openFromTrash(0, harness)
+        let window = try XCTUnwrap(reader.window)
+        XCTAssertTrue(window.makeFirstResponder(reader.conversation.pool.current?.webView))
+        XCTAssertTrue(reader.perform(.moveToInbox))
+        XCTAssertNotNil(message(in: reader))
+        try press("\u{1B}", keyCode: 53, in: window, repeated: true)
+        XCTAssertNil(message(in: reader), "a repeat still dismisses the toast")
+        for _ in 0..<5 { try press("\u{1B}", keyCode: 53, in: window, repeated: true) }
+        ListTestSupport.spin(for: 0.05)
+        XCTAssertTrue(reader.place.window === reader, "the repeats close nothing")
+        XCTAssertTrue(reader.perform(.escapeRepeat), "a repeat is spent quietly, without a beep")
+        try press("\u{1B}", keyCode: 53, in: window)
+        XCTAssertTrue(harness.controller.readerWindows.isEmpty, "a fresh press closes it")
+        harness.close()
+    }
+
+    /// Two windows, Esc held in the front one: the press closes it, and the repeats that follow, reaching the window
+    /// behind as it becomes key, leave that one open.
+    func testHeldEscClosesOneWindowNotTheNext() throws {
+        let harness = try MainWindowHarness()
+        let (_, first) = try open(1, harness)
+        let (_, second) = try open(2, harness)
+        let front = try XCTUnwrap(second.window)
+        XCTAssertTrue(front.makeFirstResponder(second.conversation.pool.current?.webView))
+        try press("\u{1B}", keyCode: 53, in: front)
+        XCTAssertEqual(harness.controller.readerWindows.map(\.conversationID), [first.conversationID])
+        let back = try XCTUnwrap(first.window)
+        XCTAssertTrue(back.makeFirstResponder(first.conversation.pool.current?.webView))
+        for _ in 0..<3 { try press("\u{1B}", keyCode: 53, in: back, repeated: true) }
+        XCTAssertTrue(first.place.window === first, "the repeat reaching the next window leaves it open")
+        harness.close()
+    }
+
+    /// The same in the quick reply: the repeat of an Esc held in an empty bar closes nothing, a fresh press closes the window.
+    func testHeldEscInAnEmptyQuickReplyNeverClosesTheWindow() throws {
+        let harness = try MainWindowHarness()
+        let (_, reader) = try open(0, harness)
+        let window = try XCTUnwrap(reader.window)
+        XCTAssertTrue(reader.conversation.focusQuickReply(all: false))
+        let field = try XCTUnwrap(window.firstResponder)
+        XCTAssertTrue(KeyboardRouter.isTextInput(field))
+        for _ in 0..<3 { field.keyDown(with: try keyEvent("\u{1B}", keyCode: 53, in: window, repeated: true)) }
+        ListTestSupport.spin(for: 0.05)
+        XCTAssertTrue(reader.place.window === reader, "held: the window stays")
+        field.keyDown(with: try keyEvent("\u{1B}", keyCode: 53, in: window))
+        harness.spin { harness.controller.readerWindows.isEmpty }
+        XCTAssertTrue(harness.controller.readerWindows.isEmpty, "a fresh press closes it")
         harness.close()
     }
 
@@ -769,7 +1027,8 @@ final class ReaderWindowTests: XCTestCase {
                        ["Reply", "Reply All", "Forward", "—", "Archive", "Later", "Star", "Mark as Unread", "Mute", "Move to Inbox", "—",
                         "Move to Trash", "Mark as Spam", "—", "Always Archive Mail from This Sender", "Block Sender"])
         XCTAssertTrue(menu.items.filter { !$0.isSeparatorItem && $0.title != "Later" }.allSatisfy { $0.target === reader })
-        XCTAssertTrue(Quire.cheatSheet.flatMap(\.rows).contains { $0.keys == "⌘O" }, "the cheat sheet lists ⌘O")
+        XCTAssertTrue(Quire.cheatSheet.flatMap(\.rows).contains { $0.keys == "↩" && $0.label == "Open in a new window" },
+                      "the cheat sheet lists ↩, the key ⌘O is the menu's alternate for")
         harness.close()
     }
 

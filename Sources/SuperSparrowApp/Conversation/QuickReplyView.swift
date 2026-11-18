@@ -34,7 +34,8 @@ final class QuickReplyView: NSView, QuirePointerTarget {
     var onChooseSendAction: ((SendAction) -> Void)?
     /// A Send Later time chosen from the drop-down or ⇧⌘L (§5.23), or nil for Pick a Time…, with the text and mode.
     var onSendLater: ((String, Mode, Date?) -> Void)?
-    var onEscape: (() -> Void)?
+    /// Esc in the field, `repeated` when it is the key's repeat (Esc held down), which never closes a reader window (§6.1).
+    var onEscape: ((_ repeated: Bool) -> Void)?
     var onFocusChange: ((Bool) -> Void)?
     /// The bar's height changed; the owner moves the web view's bottom inset, once per change.
     var onHeightChange: ((CGFloat) -> Void)?
@@ -207,7 +208,7 @@ final class QuickReplyView: NSView, QuirePointerTarget {
         textView.onAttach = { [weak self] in self?.attachPressed() }
         // The placeholder is a separate label that goes away while typing, so the field carries its own name.
         textView.setAccessibilityLabel("Reply")
-        textView.onEscape = { [weak self] in self?.escape() }
+        textView.onEscape = { [weak self] repeated in self?.escape(repeated: repeated) }
         textView.onFocusChange = { [weak self] focused in self?.focusDidChange(focused) }
 
         placeholder.lineBreakMode = .byTruncatingTail
@@ -767,8 +768,8 @@ final class QuickReplyView: NSView, QuirePointerTarget {
 
     /// The owner applies the window's Esc order (§6.1: a toast first, then back to the list); with no owner the
     /// field just lets go of focus. The text stays either way.
-    private func escape() {
-        if let onEscape { onEscape() } else { blur() }
+    private func escape(repeated: Bool) {
+        if let onEscape { onEscape(repeated) } else { blur() }
     }
 
     /// `writing` at the Text size, for what is typed from now on and for what is there already: the field is plain
@@ -900,8 +901,11 @@ private final class QuickReplyTextView: NSTextView {
     var onSendLater: (() -> Void)?
     var onOpenInComposer: (() -> Void)?
     var onAttach: (() -> Void)?
-    var onEscape: (() -> Void)?
+    var onEscape: ((_ repeated: Bool) -> Void)?
     var onFocusChange: ((Bool) -> Void)?
+    /// The key being handled is a repeat (the key held down): `cancelOperation`, which carries no event, tells the owner,
+    /// since Esc's repeat must not close a reader window (§6.1).
+    private var handlingRepeat = false
 
     /// ⌘↩, ⇧⌘↩ and ⇧⌘L are taken here, before the main menu sees them: a menu item carrying one (the composer's hidden
     /// Send, Send and Archive and Send Later…) claims the key even while it is hidden or disabled, so `keyDown` would
@@ -930,6 +934,8 @@ private final class QuickReplyTextView: NSTextView {
     }
 
     override func keyDown(with event: NSEvent) {
+        handlingRepeat = event.isARepeat
+        defer { handlingRepeat = false }
         if sendKey(event) { return }
         let chord = ReaderShortcuts.chord(event.modifierFlags.rawValue)
         if chord == ReaderShortcuts.shift | ReaderShortcuts.command, event.charactersIgnoringModifiers?.lowercased() == "r" {
@@ -944,7 +950,7 @@ private final class QuickReplyTextView: NSTextView {
     }
 
     override func cancelOperation(_ sender: Any?) {
-        onEscape?()
+        onEscape?(handlingRepeat)
     }
 
     override func becomeFirstResponder() -> Bool {

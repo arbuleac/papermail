@@ -9,7 +9,15 @@ enum KeyCommand: Equatable {
     /// ⇧J / ⇧K (and ⇧↓ / ⇧↑): grow or shrink the selection (spec §6, §5.19).
     case extendNext
     case extendPrevious
+    /// → from the list, and ↩ while the reader has the keyboard: the selected conversation in the main window's reader,
+    /// which takes the keyboard (spec §6). In the reader it gives way to a focused elision mark, Download button or
+    /// address, which ↩ presses there.
     case open
+    /// ↩ and keypad Enter while the list's table has the keyboard: the selected conversation in a reader window of its own,
+    /// as ⌘O opens it, or its window brought forward (spec §5.49). In Drafts it is Continue Editing (§5.19); in the Outbox
+    /// it continues a held Send Later message and only shows any other row, in the main window's reader (§5.53). Never from
+    /// a focused control elsewhere (compose, Add Account, a toast's button), whose key ↩ stays.
+    case openInWindow
     case archive
     case toggleStar
     case toggleRead
@@ -23,6 +31,10 @@ enum KeyCommand: Equatable {
     case search
     /// Esc outside the search field: drop the search and go back to the mailbox.
     case clearSearch
+    /// Esc's key repeat, while Esc is held down: the main window takes it as Esc; a reader window lets it do only what
+    /// comes before closing in §6.1 (its toast, its find bar, an open list of recipients), so holding Esc never closes one
+    /// reader window after another (§6.1 row 10).
+    case escapeRepeat
     /// ← in the reader: back to the list along Esc's path, so a visible toast still goes first (§6.1). Where nothing
     /// takes it (a focused attachment chip, a reader window with no toast or find bar), it is the page's.
     case back
@@ -41,6 +53,8 @@ protocol KeyboardRouterTarget: AnyObject {
     var keyboardWindow: NSWindow? { get }
     /// True while focus is inside the rendered conversation, where arrows scroll the message instead.
     var isReaderFocused: Bool { get }
+    /// True while the message list's table has the keyboard: the one place ↩ opens a reader window from (§5.49).
+    var isListFocused: Bool { get }
     /// Returns false when the command had nothing to act on, so the key goes on to the responder chain.
     func perform(_ command: KeyCommand) -> Bool
     /// The view whose bottom centre the g-sequence HUD sits at: the list pane, where the toast sits (§5.32).
@@ -52,15 +66,19 @@ protocol KeyboardRouterTarget: AnyObject {
     func sequenceHUDWillAppear()
     /// Later's tile is in the rail, so G L goes there and the HUD lists it (§5.2, §5.32).
     var showsLater: Bool { get }
+    /// The Outbox's tile is in the rail, so G O goes there and the HUD lists it (§5.2, §5.32, §5.53).
+    var showsOutbox: Bool { get }
     /// The window ? opens the cheat sheet over: the main window, which a reader window brings forward for it (§5.49).
     var cheatSheetWindow: NSWindow? { get }
 }
 
 extension KeyboardRouterTarget {
+    var isListFocused: Bool { false }
     var sequenceHUDHost: NSView? { keyboardWindow?.contentView }
     var sequenceHUDBottomInset: CGFloat { Quire.Layout.SyncLine.height + Quire.Layout.Toast.aboveSyncLine }
     func sequenceHUDWillAppear() {}
     var showsLater: Bool { false }
+    var showsOutbox: Bool { false }
     var cheatSheetWindow: NSWindow? { keyboardWindow }
 }
 
@@ -69,9 +87,9 @@ extension KeyboardRouterTarget {
 /// quick reply stays an `e`.
 ///
 /// Every key press first finishes running animations (`Quire.Motion.finishAll()`, spec §4.10), so held keys
-/// never queue motion. G arms a sequence for 2000 ms (§5.32): I, S, T, D, # or A completes it, and L while Later shows;
-/// any other key (Esc included) disarms it and is consumed, and the HUD shows from 500 ms until the sequence ends. ? opens
-/// the keyboard cheat sheet; while it is open every key goes to it.
+/// never queue motion. G arms a sequence for 2000 ms (§5.32): I, S, T, D, # or A completes it, L while Later shows and O
+/// while the Outbox does; any other key (Esc included) disarms it and is consumed, and the HUD shows from 500 ms until the
+/// sequence ends. ? opens the keyboard cheat sheet; while it is open every key goes to it.
 ///
 /// ⌘-shortcuts are left to the main menu (which disables mail actions while typing), except ⌘⌫ and ⌘Z, which
 /// mean "delete to line start" and text undo inside text and must not be claimed by menu items there.
@@ -154,7 +172,9 @@ final class KeyboardRouter {
             keyCode: event.keyCode,
             modifiers: modifiers,
             pendingG: false,
-            readerFocused: target.isReaderFocused
+            readerFocused: target.isReaderFocused,
+            listFocused: target.isListFocused,
+            isRepeat: event.isARepeat
         )
         if outcome.startsSequence {
             armSequence()
@@ -175,6 +195,7 @@ final class KeyboardRouter {
         case "s": return .starred
         case "t": return .sent
         case "d": return .drafts
+        case "o": return .outbox
         case "#": return .trash
         case "a": return .all
         default: return nil
@@ -186,13 +207,16 @@ final class KeyboardRouter {
         characters == "?" && modifiers.subtracting(.shift).isEmpty
     }
 
-    /// The pure key table. `startsSequence` means "g was pressed; wait for the second key".
+    /// The pure key table. `startsSequence` means "g was pressed; wait for the second key". `listFocused` says the message
+    /// list's table has the keyboard, the only place ↩ opens a reader window from; `isRepeat` that the key is held down.
     static func command(
         characters: String,
         keyCode: UInt16,
         modifiers: NSEvent.ModifierFlags,
         pendingG: Bool,
-        readerFocused: Bool
+        readerFocused: Bool,
+        listFocused: Bool = false,
+        isRepeat: Bool = false
     ) -> (command: KeyCommand?, startsSequence: Bool) {
         let key = characters.lowercased()
         if modifiers == .command {
@@ -210,11 +234,16 @@ final class KeyboardRouter {
         }
 
         switch keyCode {
-        case 53: return (modifiers.isEmpty ? .clearSearch : nil, false) // Esc
+        case 53: return (modifiers.isEmpty ? (isRepeat ? .escapeRepeat : .clearSearch) : nil, false) // Esc
         case 125: return (readerFocused ? nil : modifiers.contains(.shift) ? .extendNext : .next, false) // ↓
         case 126: return (readerFocused ? nil : modifiers.contains(.shift) ? .extendPrevious : .previous, false) // ↑
-        case 36, 76: return (modifiers.isEmpty ? .open : nil, false) // Return, keypad Enter
-        // → opens like ↩ from the list (§6); in the reader it is the web view's (horizontal scroll).
+        // Return and keypad Enter: from the list a window of its own (§5.49); in the reader Open's, so they still press
+        // what has focus in the page and open nothing new. Anywhere else (a button outside the reader under Full Keyboard
+        // Access, the window itself) they are no shortcut: the focused control or the window's default button has them.
+        case 36, 76:
+            guard modifiers.isEmpty else { return (nil, false) }
+            return (readerFocused ? .open : listFocused ? .openInWindow : nil, false)
+        // → opens in the main window's reader from the list (§6); in the reader it is the web view's (horizontal scroll).
         case 124: return (!readerFocused && modifiers.isEmpty ? .open : nil, false)
         // ← goes back to the list from the reader along Esc's path, so a visible toast still goes first (§6.1).
         case 123: return (readerFocused && modifiers.isEmpty ? .back : nil, false)
@@ -294,8 +323,11 @@ final class KeyboardRouter {
         hudTimer = nil
         guard sequenceArmed, hud == nil, let target, let host = target.sequenceHUDHost, force || host.window?.isKeyWindow == true else { return }
         target.sequenceHUDWillAppear()
-        // Later's row only while its tile is there: otherwise G L does nothing, like any key the HUD does not list.
-        let rows = QuireSequenceHUDView.sequenceRows().filter { target.showsLater || $0.keys != "L" }
+        // Later's and the Outbox's rows only while their tiles are there: otherwise G L and G O do nothing, like any key the
+        // HUD does not list.
+        let rows = QuireSequenceHUDView.sequenceRows().filter {
+            (target.showsLater || $0.keys != "L") && (target.showsOutbox || $0.keys != "O")
+        }
         let view = QuireSequenceHUDView(rows: rows)
         place(view, in: host, bottomInset: target.sequenceHUDBottomInset)
         host.addSubview(view, positioned: .above, relativeTo: nil)

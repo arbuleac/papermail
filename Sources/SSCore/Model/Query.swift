@@ -13,6 +13,10 @@ public enum MailboxView: String, Codable, Sendable, CaseIterable {
     /// Snoozed conversations (Later), soonest due first. Last, so the other views keep their `allCases` positions,
     /// which the menus use as tags.
     case later
+    /// The sends on this Mac the provider has not taken yet (spec §5.53): counting down their undo window, waiting for a
+    /// Send Later time, going now, waiting to retry, or failed. The store holds no conversations for it: its rows are built
+    /// from the outbox (`OutboxConversation`). Last, after Later, for the same reason.
+    case outbox
 }
 
 public struct ConversationQuery: Hashable, Sendable {
@@ -99,6 +103,9 @@ public struct ConversationSummary: Hashable, Sendable, Identifiable {
     /// Set only on a Drafts row that stands for a Send Later message (`SendLaterConversation`), whose time slot then
     /// reads “Sends Mon 09:00”.
     public var sendLater: SendLaterState?
+    /// Set only on an Outbox row (`SendLaterConversation.outboxSummary`), whose time slot then says where the send is:
+    /// “Sending…”, “Sends Mon 09:00”, “Couldn't send” (spec §5.53).
+    public var outbox: OutboxState?
 
     /// The date the Inbox sorts, pages and groups by, and its rows show: the latest message's, or the return's when
     /// that came later, so mail that comes back lands under Today rather than under the day it first arrived.
@@ -125,7 +132,8 @@ public struct ConversationSummary: Hashable, Sendable, Identifiable {
         returnedAt: Date? = nil,
         snoozedUntil: Date? = nil,
         isMuted: Bool = false,
-        sendLater: SendLaterState? = nil
+        sendLater: SendLaterState? = nil,
+        outbox: OutboxState? = nil
     ) {
         self.id = id
         self.subject = subject
@@ -145,5 +153,6 @@ public struct ConversationSummary: Hashable, Sendable, Identifiable {
         self.snoozedUntil = snoozedUntil
         self.isMuted = isMuted
         self.sendLater = sendLater
+        self.outbox = outbox
     }
 }

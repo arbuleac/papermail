@@ -81,12 +81,35 @@ final class DraftsViewTests: XCTestCase {
         select(id, in: harness)
         let message = LocalDraftConversation.messageID(draftID: draft.id, account: draft.account.id)
         XCTAssertFalse(harness.reader.isDraftInComposer(message))
-        XCTAssertTrue(harness.controller.perform(.open), "↩ is Continue Editing in Drafts")
+        XCTAssertTrue(harness.controller.perform(.openInWindow), "↩ is Continue Editing in Drafts")
         let composer = try XCTUnwrap(ComposeWindowRegistry.shared.controller(holdingDraft: message))
         XCTAssertEqual(composer.draftID, draft.id, "the kept draft itself, so sending it leaves nothing behind")
         XCTAssertTrue(harness.reader.isDraftInComposer(message), "the sheet reads “Open in a composer window”")
-        XCTAssertTrue(harness.controller.perform(.open))
+        XCTAssertTrue(harness.controller.perform(.open), "→ too")
         XCTAssertEqual(ComposeWindowRegistry.shared.openControllers.filter { $0.draftID == draft.id }.count, 1, "never a second composer")
+    }
+
+    /// In Drafts ↩ and a double-click on a row stay Continue Editing (§5.19), where everywhere else they open a reader
+    /// window (§5.49): the row's draft comes up in its composer, and no reader window opens.
+    func testReturnAndADoubleClickContinueEditingAndOpenNoReaderWindow() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let first = keep("Lisbon plans")
+        let second = keep("Porto plans")
+        XCTAssertTrue(harness.controller.perform(.goTo(.drafts)))
+        harness.spin { [first, second].allSatisfy { draft in harness.list.conversations.contains { $0.id == self.rowID(draft) } } }
+        func message(_ draft: ComposeDraft) -> MessageID {
+            LocalDraftConversation.messageID(draftID: draft.id, account: draft.account.id)
+        }
+
+        select(rowID(first), in: harness)
+        XCTAssertTrue(harness.controller.perform(.openInWindow), "↩")
+        XCTAssertNotNil(ComposeWindowRegistry.shared.controller(holdingDraft: message(first)), "↩ continues editing the draft")
+
+        let index = try XCTUnwrap(harness.list.conversations.firstIndex { $0.id == rowID(second) })
+        harness.list.rowDoubleClicked(try XCTUnwrap(harness.list.layout.row(ofConversation: index)))
+        XCTAssertNotNil(ComposeWindowRegistry.shared.controller(holdingDraft: message(second)), "so does a double-click, on its row's")
+        XCTAssertTrue(harness.controller.readerWindows.isEmpty, "no reader window opens from Drafts")
     }
 
     func testDiscardingAKeptDraftOffersUndo() throws {

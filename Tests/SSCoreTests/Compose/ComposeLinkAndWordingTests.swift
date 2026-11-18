@@ -33,6 +33,9 @@ final class ComposeLinkAndWordingTests: XCTestCase {
         XCTAssertEqual(SendFailureWording.reason(lastError: "HTTP 401 unauthorized", provider: .gmail),
                        "Gmail needs you to sign in again.")
         XCTAssertEqual(SendFailureWording.reason(lastError: nil, provider: .gmail), "Gmail didn't accept the message.")
+        // A send the app quit while handing over may have gone: never “didn't accept”, which invites a second copy.
+        XCTAssertEqual(SendFailureWording.banner(lastError: "interrupted while sending; check Sent before sending again", provider: .gmail),
+                       "Couldn't send: SuperSparrow quit while sending it, so it may have gone. Check Sent before sending it again.")
     }
 
     /// The folded original names what will be sent, with an absolute date (§5.15): never “wrote on Today”.

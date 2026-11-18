@@ -41,8 +41,11 @@ final class MessageListViewController: NSViewController {
     }
 
     var onSelectionChange: ((ConversationID?) -> Void)?
+    /// → on the list: the conversation in the main window's reader (spec §6). The host performs it from its router.
     var onOpen: ((ConversationID) -> Void)?
-    /// ⌘-double-click on a row: that row's conversation in a reader window of its own (spec §5.49).
+    /// ↩ on the list and a double-click on a row, ⌘ held or not: that conversation in a reader window of its own (spec
+    /// §5.49). The host makes it Continue Editing in Drafts (§5.19), and in the Outbox it continues a held Send Later
+    /// message and only shows any other row, in the main window's reader (§5.53).
     var onOpenInWindow: ((ConversationID) -> Void)?
     /// A dragged row's conversation, JSON-encoded, for drops inside the app.
     static let conversationPasteboardType = NSPasteboard.PasteboardType("io.supersparrow.mac.conversation")
@@ -102,6 +105,12 @@ final class MessageListViewController: NSViewController {
     /// Provider drafts that a kept draft continues: the kept one stands in for them in the Drafts view.
     var hiddenDrafts: Set<ConversationID> = [] {
         didSet { if oldValue != hiddenDrafts, showsLocalDrafts { apply(storeRows) } }
+    }
+
+    /// The Outbox's rows (spec §5.53), in the order they go, every account's: the Outbox lists these alone, since the
+    /// store holds no conversation for it. Ignored in every other view and while searching.
+    var outboxRows: [ConversationSummary] = [] {
+        didSet { if oldValue != outboxRows, showsOutbox { apply(storeRows) } }
     }
 
     /// The messages of a kept draft's row, which the store does not hold, for the row's “Draft to …”.
@@ -237,7 +246,7 @@ final class MessageListViewController: NSViewController {
         tableView.delegate = self
         tableView.target = self
         tableView.doubleAction = #selector(didDoubleClick(_:))
-        tableView.onReturn = { [weak self] in self?.openSelection() }
+        tableView.onReturn = { [weak self] in self?.openSelectionInWindow() }
         tableView.menuForRow = { [weak self] row in self?.contextMenu(forRow: row) }
         tableView.setDraggingSourceOperationMask(.copy, forLocal: false)
         tableView.setDraggingSourceOperationMask([.copy, .move], forLocal: true)
@@ -487,25 +496,23 @@ final class MessageListViewController: NSViewController {
         }
     }
 
-    private func openSelection() {
-        guard let id = selectedID else { return }
-        onOpen?(id)
+    /// ↩ that no window's router took: the selection in a window of its own, as the router's ↩ opens it. With several
+    /// selected there is no single conversation to open, and the key is spent.
+    private func openSelectionInWindow() {
+        guard let id = selectedID, selectedIDs.count <= 1 else { return }
+        onOpenInWindow?(id)
     }
 
     @objc private func didDoubleClick(_ sender: Any?) {
-        rowDoubleClicked(tableView.clickedRow, modifiers: NSApp.currentEvent?.modifierFlags ?? [])
+        rowDoubleClicked(tableView.clickedRow)
     }
 
-    /// A double-click opens the row's conversation; with ⌘ held it opens it in a window of its own, the row's, whatever
-    /// the ⌘-clicks did to the selection. Internal so the app's tests can double-click without events.
-    func rowDoubleClicked(_ row: Int, modifiers: NSEvent.ModifierFlags) {
+    /// A double-click opens the row's conversation in a window of its own (spec §5.49), ⌘ held or not: the row's, whatever
+    /// a ⌘- or ⇧-click did to the selection. Heads, the list's tail and the server search's offer open nothing. Internal so
+    /// the app's tests can double-click without events.
+    func rowDoubleClicked(_ row: Int) {
         guard let index = layout.conversationIndex(atRow: row) else { return }
-        let id = conversations[index].id
-        if modifiers.contains(.command) {
-            onOpenInWindow?(id)
-        } else {
-            onOpen?(id)
-        }
+        onOpenInWindow?(conversations[index].id)
     }
 
     // MARK: Selection
@@ -721,9 +728,18 @@ final class MessageListViewController: NSViewController {
         isViewLoaded && hasReceivedFirstPage && query.view == .drafts && (query.searchText?.isEmpty ?? true)
     }
 
-    /// The store's rows with the kept drafts of the accounts in scope merged in by date. Every other view gets
-    /// the store's rows untouched.
+    /// A search typed in the Outbox looks through All Mail (`ShellQuery`), so its query names another view.
+    private var showsOutbox: Bool {
+        isViewLoaded && hasReceivedFirstPage && query.view == .outbox
+    }
+
+    /// The store's rows with the kept drafts of the accounts in scope merged in by date; in the Outbox, its own rows of
+    /// the accounts in scope, as they go. Every other view gets the store's rows untouched.
     private func withLocalDrafts(_ rows: [ConversationSummary]) -> [ConversationSummary] {
+        if showsOutbox {
+            let scope = query.accountIDs.map(Set.init)
+            return outboxRows.filter { scope?.contains($0.id.accountID) ?? true }
+        }
         guard showsLocalDrafts, !localDrafts.isEmpty || !hiddenDrafts.isEmpty else { return rows }
         let scope = query.accountIDs.map(Set.init)
         let locals = localDrafts.filter { scope?.contains($0.id.accountID) ?? true }
@@ -787,8 +803,10 @@ final class MessageListViewController: NSViewController {
     private func makeLayout() -> ListLayout {
         return ListLayout.make(
             dates: conversations.map(listDate(of:)),
-            // Later's rows are times to come, which the past-day heads cannot describe; each row says its own.
-            showsHeads: query.view != .later && RunningHead.showsHeads(conversationCount: conversations.count, isSearch: isSearch),
+            // Later's rows are times to come, which the past-day heads cannot describe; each row says its own, as each of
+            // the Outbox's says where its send is.
+            showsHeads: query.view != .later && query.view != .outbox
+                && RunningHead.showsHeads(conversationCount: conversations.count, isSearch: isSearch),
             showsFooter: hasReceivedFirstPage && !reachedEnd && !conversations.isEmpty,
             showsServerSearch: ServerSearchRow.isShown(searchText: query.searchText, hasFirstPage: hasReceivedFirstPage,
                                                        reachedEnd: reachedEnd, hasRows: !conversations.isEmpty)
@@ -908,7 +926,8 @@ final class MessageListViewController: NSViewController {
 
     private var rowKind: ConversationRowText.Kind {
         switch query.view {
-        case .sent: return .sent
+        // The Outbox's are messages on their way, not drafts: “To Ben Carter”, as in Sent (§5.53).
+        case .sent, .outbox: return .sent
         case .drafts: return .draft
         case .inbox, .starred, .trash, .all, .later: return .received
         }
@@ -919,7 +938,8 @@ final class MessageListViewController: NSViewController {
         switch query.view {
         case .inbox: return .inbox
         case .later: return .snoozeEnd
-        case .starred, .sent, .drafts, .trash, .all: return .latestMessage
+        // An Outbox row's slot says where its send is (`ConversationSummary.outbox`), whatever this says.
+        case .starred, .sent, .drafts, .trash, .all, .outbox: return .latestMessage
         }
     }
 
@@ -1143,7 +1163,8 @@ final class MessageListViewController: NSViewController {
         let scope = Set(query.accountIDs ?? Array(accountsByID.keys))
         let scoped = syncStatuses.filter { scope.contains($0.accountID) }
         let firstSyncRunning = scoped.contains { $0.phase == .bootstrapping && $0.lastSuccessfulSyncAt == nil }
-        if isEmpty, firstSyncRunning, !isSearch {
+        // The Outbox is what this Mac sends, never waiting on a first sync.
+        if isEmpty, firstSyncRunning, !isSearch, query.view != .outbox {
             emptyView.isHidden = true
             skeletonView.density = density
             skeletonView.textSize = textSize

@@ -284,7 +284,7 @@ final class ReaderKickerView: NSView {
 
     private func string(_ text: String) -> NSAttributedString {
         let attributes = QuireFont.attributes(.runningHead, color: .qInk3)
-        return NSAttributedString(string: text.uppercased(with: .current), attributes: attributes)
+        return NSAttributedString(string: text, attributes: attributes)
     }
 
     private func width(_ text: String) -> CGFloat {

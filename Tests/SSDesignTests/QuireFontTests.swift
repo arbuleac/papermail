@@ -66,7 +66,7 @@ final class QuireFontTests: XCTestCase {
         XCTAssertEqual(style.alignment, .left)
 
         let a = QuireFont.attributes(.runningHead, color: .qInk3)
-        XCTAssertEqual(a[.kern] as? CGFloat, 0.6)
+        XCTAssertNil(a[.kern], "sentence case at the system's own tracking (1.8.7)")
         XCTAssertTrue(a[.font] as? NSFont === QuireFont.font(.runningHead))
         XCTAssertNotNil(a[.baselineOffset] as? CGFloat)
         // Zero tracking leaves kerning to the font: an explicit 0 would switch it off.
@@ -74,9 +74,12 @@ final class QuireFontTests: XCTestCase {
         XCTAssertEqual(QuireFont.attributes(.display, color: .qInk)[.kern] as? CGFloat, -0.6)
     }
 
-    func testAttributedStringUppercasesAndFallsBack() {
+    func testAttributedStringKeepsTheWordsAndFallsBack() {
+        // No role is uppercased (1.8.7): a running head reads as it is written.
         let head = QuireFont.attributedString("Yesterday", role: .runningHead, color: .qInk3, locale: Locale(identifier: "en_US"))
-        XCTAssertEqual(head.string, "YESTERDAY")
+        XCTAssertEqual(head.string, "Yesterday")
+        XCTAssertNil(head.attribute(.kern, at: 0, effectiveRange: nil), "the system's own tracking")
+        XCTAssertFalse(QuireFont.Role.allCases.contains(where: \.uppercase), "no role is set in capitals")
         let cjk = QuireFont.attributedString("来週の議題", role: .subject, color: .qInk)
         XCTAssertTrue((cjk.attribute(.font, at: 0, effectiveRange: nil) as? NSFont) === QuireFont.font(.subjectSans))
         let latin = QuireFont.attributedString("Agenda", role: .subject, color: .qInk, unread: true)

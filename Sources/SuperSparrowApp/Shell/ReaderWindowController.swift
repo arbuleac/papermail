@@ -11,7 +11,11 @@ import WebKit
 /// from (Later and Unsubscribe included). The undo history and the toast are the app's (`MailUndoCenter`): a step taken
 /// here toasts here and is undone here, and a step that takes the conversation off the desk (E, #, !, L, Unsubscribe, M
 /// where it archives, a confirmed Discard Draft…) closes the window, its toast in the main window and its undo opening the
-/// window again; so does Send and Archive from its quick reply, its countdown going to an undo-send panel.
+/// window again while Z still reaches the step (a deeper ⌘Z brings the conversation back in the main window instead); so
+/// does Send and Archive from its quick reply, its countdown going to an undo-send panel. Esc, once nothing else in the
+/// window takes it, closes the window as ⌘W does while its quick reply holds none of the user's work (§6.1), the way Esc
+/// closes an untouched composer; only a fresh press does, never the key's repeat, so holding Esc down cannot close one
+/// window after another.
 @MainActor
 final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenuItemValidation, KeyboardRouterTarget {
     private static let sizeDefaultsKey = "ReaderWindowSize"
@@ -176,10 +180,16 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
 
     private func handle(_ action: ConversationAction) {
         switch action {
-        case .escapeQuickReply:
-            // §6.1: this window's toast takes the first Esc; the next gives the page the keyboard, the bar keeping its text.
+        case .escapeQuickReply(let repeated):
+            // §6.1: this window's toast takes the first Esc (row 7), held down or not. The next closes the window over an
+            // empty bar (row 10), a fresh press only, and over one holding the user's work gives the page the keyboard, the
+            // bar keeping it (row 11); a repeat does neither.
             if undoCenter.toasts.isVisible(in: toastView) {
                 undoCenter.toasts.dismiss()
+            } else if repeated {
+                return
+            } else if !conversation.quickReplyHoldsWork {
+                closeAfterThisKey()
             } else {
                 conversation.leaveQuickReply()
             }
@@ -199,6 +209,7 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
     /// Everything here is the reader: arrows scroll the page, and ← is Esc only while there is something for it to close.
     var isReaderFocused: Bool { true }
     var showsLater: Bool { opener?.showsLater ?? false }
+    var showsOutbox: Bool { opener?.showsOutbox ?? false }
     /// The toast's overlay, between the header and the quick reply: the HUD takes the toast's place, 16 pt above the bar
     /// (§5.32, §5.49). The window has no sync line to clear, and its content view's bottom is under the quick reply.
     var sequenceHUDHost: NSView? { toastView }
@@ -210,7 +221,7 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
         guard let opener else { return false }
         let id = conversationID
         switch command {
-        case .next, .previous, .extendNext, .extendPrevious, .open:
+        case .next, .previous, .extendNext, .extendPrevious, .open, .openInWindow:
             // No list to move in or open from: the key goes on to the page (↩ presses a focused elision mark there).
             return false
         case .archive:
@@ -244,7 +255,13 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
             opener.focusSearchField(nil)
         case .clearSearch:
             // §6.1: this window's toast first, then an open find bar, then an open list of recipients with focus in it;
-            // nothing else here takes Esc.
+            // then the window closes, unless its quick reply holds the user's work, when Esc does nothing (no beep).
+            if !closeForEscape(foldingAddresses: true), !conversation.quickReplyHoldsWork {
+                window?.performClose(nil)
+            }
+        case .escapeRepeat:
+            // Esc held down: its repeats still take the rows before the window's (toast, find bar, recipients), as they
+            // always have, but never close the window (§6.1 row 10), and are spent quietly, without a beep.
             _ = closeForEscape(foldingAddresses: true)
         case .back:
             // There is no list to go back to: ← closes what Esc would, and otherwise is the page's (a chip's or a
@@ -258,6 +275,18 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
             opener.goTo(view)
         }
         return true
+    }
+
+    /// Esc in the quick reply over an empty bar (§6.1 row 10): the window closes as ⌘W and the close button close it, on
+    /// the next turn of the run loop, once the field the key was typed in, which goes with the window, has done with it
+    /// (as Send and Archive from the bar closes it, `MainWindowController.quickReplyArchived(in:)`).
+    private func closeAfterThisKey() {
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, !self.hasClosed, !self.conversation.quickReplyHoldsWork else { return }
+                self.window?.performClose(nil)
+            }
+        }
     }
 
     /// This window's toast, else an open find bar, else (for Esc, never ←, which moves along the recipients there) an open
@@ -495,7 +524,13 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
         router = nil
         conversation.show(nil)
         if place.window === self { place.window = nil }
-        opener?.readerWindowDidClose(self, watching: conversation.handOffWatchedSends())
+        let watched = conversation.handOffWatchedSends()
+        if let opener {
+            opener.readerWindowDidClose(self, watching: watched)
+        } else {
+            // No main window to watch them: their failures are the window's settler's, at the next launch if need be (§5.53).
+            for id in watched.keys { SendOwnership.release(id) }
+        }
     }
 }
 

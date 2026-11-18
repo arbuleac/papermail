@@ -87,6 +87,9 @@ public struct ConversationRowText: Hashable, Sendable {
     /// What the time says on hover, where the slot has no room for it: a waiting Send Later message's condition,
     /// “Sends Mon 09:00 while SuperSparrow is open” (spec §5.46). Nil for every other row.
     public let timeToolTip: String?
+    /// The time slot says a send failed (an Outbox row's “Couldn't send”, spec §5.53): it is set in `danger`, as a failed
+    /// row's triangle is.
+    public let isTimeFailure: Bool
     public let subjectText: String
     public let isSubjectPlaceholder: Bool
     public let snippetText: String
@@ -142,8 +145,11 @@ public struct ConversationRowText: Hashable, Sendable {
                 isSenderPlaceholder = false
             }
         }
-        // A Send Later row says when it sends, whatever view lists it (only Drafts does).
-        if let state = summary.sendLater {
+        // An Outbox row says where its send is (§5.53); a Send Later row in Drafts when it sends.
+        if let state = summary.outbox {
+            timeText = OutboxCopy.status(state, formatter: formatter, reference: reference)
+            timeToolTip = OutboxCopy.help(state, formatter: formatter, reference: reference)
+        } else if let state = summary.sendLater {
             timeText = SendLaterCopy.status(state, formatter: formatter, reference: reference)
             if case .waiting(let date) = state {
                 timeToolTip = SendLaterCopy.help(formatter.dueTime(for: date, reference: reference))
@@ -165,6 +171,7 @@ public struct ConversationRowText: Hashable, Sendable {
                 }
             }
         }
+        if case .failed? = summary.outbox { isTimeFailure = true } else { isTimeFailure = false }
         let subject = ConversationRowText.singleLine(summary.subject)
         isSubjectPlaceholder = subject.isEmpty
         subjectText = subject.isEmpty ? ConversationRowText.noSubject : subject
@@ -203,7 +210,11 @@ public struct ConversationRowText: Hashable, Sendable {
         }
         parts.append(subjectText)
         if !snippetText.isEmpty { parts.append(snippetText) }
-        parts.append(summary.sendLater.map { SendLaterCopy.spoken($0, formatter: formatter, reference: reference) } ?? timeText)
+        if let state = summary.outbox {
+            parts.append(OutboxCopy.spoken(state, formatter: formatter, reference: reference))
+        } else {
+            parts.append(summary.sendLater.map { SendLaterCopy.spoken($0, formatter: formatter, reference: reference) } ?? timeText)
+        }
         if let count = messageCount { parts.append("\(count) messages") }
         if hasAttachments { parts.append("Has attachments") }
         switch status {
@@ -385,6 +396,19 @@ public struct ConversationRowText: Hashable, Sendable {
             hasher.combine(2)
             hasher.combine(date)
         case .sending?: hasher.combine(3)
+        }
+        switch summary.outbox {
+        case nil: hasher.combine(0)
+        case .sending?: hasher.combine(1)
+        case .waiting(let date)?:
+            hasher.combine(2)
+            hasher.combine(date)
+        case .missed(let date)?:
+            hasher.combine(3)
+            hasher.combine(date)
+        // The words name no error: only the state draws.
+        case .retrying?: hasher.combine(4)
+        case .failed?: hasher.combine(5)
         }
         hasher.combine(summary.subject)
         hasher.combine(summary.snippet)

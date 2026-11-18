@@ -120,7 +120,8 @@ final class ListPaneViewController: NSViewController {
         let placeholder: String
         switch mailboxView {
         case .inbox: placeholder = isNarrowed ? "Search Inbox" : "Search"
-        default: placeholder = "Search " + TitleMenu.title(for: mailboxView)
+        // The view's name, the Outbox's too (§5.53), though a search typed in any view looks through All Mail (§5.6).
+        case .starred, .sent, .drafts, .trash, .all, .later, .outbox: placeholder = "Search " + TitleMenu.title(for: mailboxView)
         }
         header.searchPlaceholder = placeholder
     }

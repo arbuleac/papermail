@@ -3,7 +3,8 @@ import SSDesign
 
 /// The list's table: Return opens, the pointer's hover wash, the pointer itself, and the swipe on its rows.
 ///
-/// Return and keypad Enter open the selected conversation. Every other key falls through the responder chain
+/// Return and keypad Enter open the selected conversation in a window of its own (spec §5.49) when no window's router has
+/// taken them first. Every other key falls through the responder chain
 /// so the window controller can map j/k and friends; type-select is off so letters are not swallowed here.
 ///
 /// Hover is tracked by one tracking area on the table, not one per row, and it is suspended while the list
