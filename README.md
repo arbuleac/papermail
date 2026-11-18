@@ -93,7 +93,7 @@ The arrow beside **Send** (in a composer and in the reply field) also offers **S
 
 ## Outbox
 
-**View → Outbox** (`g` then `o`) lists every message you sent that Gmail or Microsoft has not taken yet, from the moment you press **Send**: one still counting down its undo, one waiting for its Send Later time, one going now, and one waiting to try again (no connection yet, or the provider asked to wait). A message leaves the Outbox as soon as the provider has it, and shows up in **Sent** at the next check, as before. Click one to read it as it will be sent. A Send Later message works there as in Drafts: `↩`, a double-click or **Continue Editing** cancels its schedule and opens it, and **Cancel** beside its time keeps it as a draft. Any other message only shows, in the main window's reader, never in a window of its own. Nothing else applies to a message on its way: `e`, `#`, `s` and the other mail keys do nothing there, and undoing a send is still the undo panel's (or `⌘Z`).
+While a message is on its way, an **Outbox** tile shows in the rail after **Drafts** (the tray with an arrow), and **View → Outbox** and `g` then `o` open it, as **Later** shows only while something is snoozed. It lists every message you sent that Gmail or Microsoft has not taken yet, from the moment you press **Send**: one still counting down its undo, one waiting for its Send Later time, one going now, and one waiting to try again (no connection yet, or the provider asked to wait). A message leaves the Outbox as soon as the provider has it, and shows up in **Sent** at the next check, as before. Once the last one has gone the tile goes too, and if you were looking at the Outbox you are back in the Inbox (a search you typed stays). Narrowed to one account, the Outbox counts only that account's messages. Click one to read it as it will be sent. A Send Later message works there as in Drafts: `↩`, a double-click or **Continue Editing** cancels its schedule and opens it, and **Cancel** beside its time keeps it as a draft. Any other message only shows, in the main window's reader, never in a window of its own. Nothing else applies to a message on its way: `e`, `#`, `s` and the other mail keys do nothing there, and undoing a send is still the undo panel's (or `⌘Z`).
 
 A message that could not be sent leaves the Outbox for **Drafts**: it is kept there once, as a draft that opens with the reason, and the undo panel, the quick reply or a toast says so with **Open draft** (it may show in red, "Couldn't send", for the moment that takes). If SuperSparrow quit while it was handing a message over, the next launch keeps that one in Drafts too and says it may have gone: check **Sent** before sending it again.
 
@@ -188,6 +188,7 @@ Operators combine (`from:ben is:unread after:2026-01-01 -invoice`), ignore case,
 | `⌥⌘F` | Find in the open conversation (`⌘G` / `⇧⌘G` next / previous match) |
 | `g` then `i` / `s` / `t` / `a` | Go to Inbox / Starred / Sent / All Mail |
 | `g` then `l` | Go to Later, while something is snoozed |
+| `g` then `o` | Go to the Outbox, while a message is on its way |
 | `⌘0` | All inboxes |
 | `⌘1` … `⌘9` | One account |
 | `⌃⌘S` | Hide / show the account strip |

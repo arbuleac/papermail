@@ -116,10 +116,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// The groups recorded in Later, which an undo returns to when Later emptied meanwhile and the view went back to
     /// the Inbox: the restored rows are in Later, and the undo selects them there.
     private var groupsFromLater: Set<Int> = []
-    /// The window left Later for the Inbox because Later emptied, and the user has not picked a view or a scope since:
-    /// only then does an undo of a step taken in Later bring Later back (§5.45). Anywhere the user went themselves, an
-    /// undo leaves them there, as every other undo does.
-    private var leftLaterAsItEmptied = false
+    /// The conditional view (Later or the Outbox) the window left for the Inbox because it emptied, while the user has not
+    /// picked a view or a scope since: only then does an undo of a step taken there bring it back (§5.45, §5.53). Anywhere
+    /// the user went themselves, an undo leaves them there, as every other undo does.
+    private var viewLeftAsItEmptied: MailboxView?
     /// What an unsubscribe's Undo confirms itself with, by group id: the request it leaves sent (§5.30).
     private var unsubscribeUndoConfirmations: [Int: String] = [:]
     /// The latest unsubscribe's request and the toast reporting it. While that toast is up, the same request asked
@@ -490,6 +490,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         list.localMessages = { [weak self] id in self?.localDrafts.messages(in: id) }
         localDrafts.onChange = { [weak self] in
             self?.showLocalDrafts()
+            // Once per word of the outbox, after both views' sends are taken from it: a send leaving and another arriving
+            // in one word never hide and show the Outbox's tile (§5.53).
+            self?.applyOutboxAvailability()
             self?.conversation.draftsDidChange()
         }
 
@@ -839,8 +842,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         scopeBaselinePending = false
         rememberScope()
         updateScopeDetails()
-        // The user chose this scope; an undo leaves them in it, even when the scope took Later away.
-        leftLaterAsItEmptied = false
+        // The user chose this scope; an undo leaves them in it, even when the scope took Later or the Outbox away.
+        viewLeftAsItEmptied = nil
         applyQuery()
     }
 
@@ -854,6 +857,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         strip.setInboxUnread(inboxUnread)
         updateNewMailDot()
         applyLaterAvailability()
+        applyOutboxAvailability()
     }
 
     private func countsChanged(unified: Int, perAccount: [AccountID: Int]) {
@@ -890,16 +894,17 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         return TitleMenu.Model(
             view: mailboxView, inboxUnread: inboxUnread, scope: scope, showsAccounts: isMinimal, unifiedUnread: unifiedUnread,
             accounts: accounts.map { TitleMenu.AccountEntry(account: $0, monogram: monograms[$0.id] ?? "?", unread: unreadByAccount[$0.id] ?? 0) },
-            showsLater: showsLater
+            showsLater: showsLater, showsOutbox: showsOutbox
         )
     }
 
     /// Picking a mailbox means "show me that mailbox", so it also ends a search that would otherwise keep
-    /// overriding the view. Later only while it shows: G L and the View menu's Later do nothing otherwise.
+    /// overriding the view. Later and the Outbox only while they show: G L, G O and the View menu's Later and Outbox do
+    /// nothing otherwise (§5.2).
     private func setView(_ view: MailboxView) {
-        guard view != .later || showsLater else { return }
+        guard view != .later || showsLater, view != .outbox || showsOutbox else { return }
         mailboxView = view
-        leftLaterAsItEmptied = false
+        viewLeftAsItEmptied = nil
         endSearch()
         applyQuery()
     }
@@ -1061,7 +1066,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         rememberScope()
         updateScopeDetails()
         mailboxView = .inbox
-        leftLaterAsItEmptied = false
+        viewLeftAsItEmptied = nil
         applyQuery()
         list.selectedConversationID = id
         present(selection: [id])
@@ -1632,7 +1637,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         // lands in the Inbox.
         if mailboxView == .later, !shows {
             mailboxView = .inbox
-            leftLaterAsItEmptied = true
+            viewLeftAsItEmptied = .later
             applyQuery()
         }
     }
@@ -2255,7 +2260,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         // A step taken in a reader window is undone there: its window shows the conversation, and the list is left as the
         // user has it.
         guard !restored.isEmpty, actingReader == nil else { return }
-        if inLater, leftLaterAsItEmptied, mailboxView != .later, searchText.isEmpty {
+        if inLater, viewLeftAsItEmptied == .later, mailboxView != .later, searchText.isEmpty {
             // Read now rather than on the observation's next delivery, so the tile and the view agree at once.
             if let current = try? environment.store.snoozes() { snoozesChanged(current) }
             setView(.later)
@@ -2575,6 +2580,28 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         list.hiddenDrafts = Set(localDrafts.continuedDrafts.compactMap { try? store.message($0)?.conversationID })
     }
 
+    // MARK: Outbox (§5.53)
+
+    /// A send in the scope (all accounts, or the narrowed one) waits to go: one of the sends the Outbox lists, of the
+    /// accounts this window knows. The Outbox shows in the rail, the title menu and the View menu, and G O opens it, only
+    /// while this holds (§5.2, §5.53).
+    var showsOutbox: Bool { localDrafts.listsOutboxSends(of: scope.accountIDs) }
+
+    /// Shows or hides the Outbox's tile, from each word of the outbox and each change of scope or accounts. The last send in
+    /// view went (taken by the provider, kept in Drafts as failed, cancelled, taken back) while the Outbox was shown, or the
+    /// scope moved to an account with none: nothing is left to show there, so the window goes back to the Inbox, as from
+    /// Later. A search the user typed stays: it shows All Mail or its `in:` view whatever the rail's, so its results,
+    /// selection and reader stay too, and clearing it lands in the Inbox.
+    private func applyOutboxAvailability() {
+        let shows = showsOutbox
+        strip.setShowsOutbox(shows)
+        if mailboxView == .outbox, !shows {
+            mailboxView = .inbox
+            viewLeftAsItEmptied = .outbox
+            applyQuery()
+        }
+    }
+
     /// In Drafts, ↩, → and a double-click on a row are Continue Editing (§5.19): the draft opens in its composer, never in
     /// the reader or a reader window. In the Outbox they are too on a Send Later message still held (§5.53), which is the
     /// same row as in Drafts; a message on its way only shows. False elsewhere, where they open the conversation.
@@ -2725,6 +2752,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             NSSound.beep()
             return
         }
+        // Read before the rows change: cancelling the last send in view takes the window out of the Outbox.
+        let inOutbox = listView == .outbox
         // The rows change now rather than at the observation, so the draft can take the selection.
         sendLaterOutbox.refresh()
         let row = LocalDraftConversation.conversationID(draftID: draft.id, account: draft.account.id)
@@ -2747,7 +2776,16 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
                 }
                 self.sendLaterOutbox.refresh()
                 let restored = SendLaterConversation.conversationID(sendID: sendID, account: current.account.id)
-                if self.list.selectedConversationID == row { self.list.selectConversations([restored], lead: restored) }
+                if inOutbox, self.viewLeftAsItEmptied == .outbox, self.mailboxView != .outbox, self.searchText.isEmpty {
+                    // Cancelled from the Outbox, which emptied and sent the window to the Inbox, and the user has gone
+                    // nowhere since: the message waits again, so the Outbox shows and the window goes back to it, on the
+                    // row, as an undo of a step in Later brings Later back (§5.45, §5.53).
+                    self.setView(.outbox)
+                    self.list.selectConversations([restored], lead: restored)
+                    self.present(selection: [restored])
+                } else if self.list.selectedConversationID == row {
+                    self.list.selectConversations([restored], lead: restored)
+                }
                 self.confirmUndo(of: SendLaterCopy.command)
             }
         }
@@ -3088,8 +3126,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         case #selector(selectAccountShortcut(_:)):
             return !showingWelcome && (menuItem.tag == 0 || menuItem.tag <= accounts.count)
         case #selector(goToMailboxView(_:)):
-            menuItem.state = MailboxView.allCases.indices.contains(menuItem.tag) && MailboxView.allCases[menuItem.tag] == mailboxView ? .on : .off
-            if MailboxView.allCases.indices.contains(menuItem.tag), MailboxView.allCases[menuItem.tag] == .later { return !showingWelcome && showsLater }
+            let view = MailboxView.allCases.indices.contains(menuItem.tag) ? MailboxView.allCases[menuItem.tag] : nil
+            menuItem.state = view == mailboxView ? .on : .off
+            // Later and the Outbox only while their rail tiles show, as G L and G O (§5.2).
+            if view == .later { return !showingWelcome && showsLater }
+            if view == .outbox { return !showingWelcome && showsOutbox }
             return !showingWelcome
         case #selector(toggleAccountStrip(_:)):
             menuItem.title = stripItem.isCollapsed ? "Show Account Rail" : "Hide Account Rail"

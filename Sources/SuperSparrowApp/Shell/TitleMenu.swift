@@ -2,11 +2,11 @@ import AppKit
 import SSCore
 import SSDesign
 
-/// The title menu popped from the masthead (spec §5.4): a system `NSMenu` with the six views, and Later below Inbox
-/// while something in scope is snoozed, each with its symbol and its G-sequence in a right-aligned `ink3` column (an
-/// attributed title, because `keyEquivalent` cannot express a sequence), a checkmark on the current view and the Inbox
-/// unread count as a system badge. In minimal mode it gains All Inboxes and the accounts, with their monograms,
-/// ⌘0…⌘9 and their counts.
+/// The title menu popped from the masthead (spec §5.4): a system `NSMenu` with the six views, Later below Inbox while
+/// something in scope is snoozed and the Outbox after Drafts while a send in scope waits to go (the rail's conditional
+/// tiles, §5.2), each with its symbol and its G-sequence in a right-aligned `ink3` column (an attributed title, because
+/// `keyEquivalent` cannot express a sequence), a checkmark on the current view and the Inbox unread count as a system
+/// badge. In minimal mode it gains All Inboxes and the accounts, with their monograms, ⌘0…⌘9 and their counts.
 @MainActor
 enum TitleMenu {
     struct AccountEntry {
@@ -26,6 +26,8 @@ enum TitleMenu {
         var accounts: [AccountEntry]
         /// Something in the scope is snoozed: Later is listed below Inbox, as its rail tile shows (§5.2).
         var showsLater = false
+        /// A send in the scope waits to go: the Outbox is listed after Drafts, as its rail tile shows (§5.2, §5.53).
+        var showsOutbox = false
     }
 
     static let entries: [(view: MailboxView, title: String, symbol: String, sequence: String)] = [
@@ -34,15 +36,16 @@ enum TitleMenu {
         (.starred, "Starred", Quire.Icon.viewStarred, "G S"),
         (.sent, "Sent", Quire.Icon.viewSent, "G T"),
         (.drafts, "Drafts", Quire.Icon.viewDrafts, "G D"),
+        (.outbox, OutboxCopy.title, Quire.Icon.viewOutbox, "G O"),
         (.trash, "Trash", Quire.Icon.viewTrash, "G #"),
         (.all, "All Mail", Quire.Icon.viewAllMail, "G A"),
     ]
 
-    /// The view's name for the masthead and the search placeholder. The Outbox is no entry: it has no rail tile for the
-    /// menu to stand in for (§5.4, §5.53), so View › Outbox and G O are its ways in, and the menu checks nothing there.
+    /// The view's name for the masthead and the search placeholder. Every view is an entry, the conditional ones too: the
+    /// Outbox is listed, as its rail tile shows, only while a send in scope waits to go (§5.4, §5.53), but its name is the
+    /// same whenever it is on screen.
     static func title(for view: MailboxView) -> String {
-        if view == .outbox { return OutboxCopy.title }
-        return entries.first { $0.view == view }?.title ?? "Inbox"
+        entries.first { $0.view == view }?.title ?? "Inbox"
     }
 
     /// Builds the menu. View items carry `MailboxView.allCases` indices as tags; account items carry the
@@ -60,6 +63,7 @@ enum TitleMenu {
 
         for (index, entry) in entries.enumerated() {
             if entry.view == .later, !model.showsLater { continue }
+            if entry.view == .outbox, !model.showsOutbox { continue }
             if entry.view == .all { menu.addItem(.separator()) }
             let item = NSMenuItem(title: entry.title, action: viewAction, keyEquivalent: "")
             item.target = target

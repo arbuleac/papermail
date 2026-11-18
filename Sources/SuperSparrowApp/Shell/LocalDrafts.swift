@@ -84,6 +84,13 @@ final class LocalDrafts {
         return outboxSends.filter { known.contains($0.accountID) }.compactMap(SendLaterConversation.outboxSummary(for:))
     }
 
+    /// Whether the Outbox lists a send of `accountIDs` (nil: every account), counted as `outboxSummaries` lists its rows:
+    /// while it does, the Outbox shows (§5.2, §5.53). Asked on every word of the outbox, so it builds no row.
+    func listsOutboxSends(of accountIDs: [AccountID]?) -> Bool {
+        let known = Set(accounts.map(\.id))
+        return outboxSends.contains { known.contains($0.accountID) && (accountIDs?.contains($0.accountID) ?? true) }
+    }
+
     /// The send behind an Outbox row, while the provider has not taken it.
     func outboxSend(for id: ConversationID) -> PendingSendSummary? {
         guard let sendID = SendLaterConversation.sendID(of: id) else { return nil }

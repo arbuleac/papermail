@@ -66,6 +66,8 @@ protocol KeyboardRouterTarget: AnyObject {
     func sequenceHUDWillAppear()
     /// Later's tile is in the rail, so G L goes there and the HUD lists it (§5.2, §5.32).
     var showsLater: Bool { get }
+    /// The Outbox's tile is in the rail, so G O goes there and the HUD lists it (§5.2, §5.32, §5.53).
+    var showsOutbox: Bool { get }
     /// The window ? opens the cheat sheet over: the main window, which a reader window brings forward for it (§5.49).
     var cheatSheetWindow: NSWindow? { get }
 }
@@ -76,6 +78,7 @@ extension KeyboardRouterTarget {
     var sequenceHUDBottomInset: CGFloat { Quire.Layout.SyncLine.height + Quire.Layout.Toast.aboveSyncLine }
     func sequenceHUDWillAppear() {}
     var showsLater: Bool { false }
+    var showsOutbox: Bool { false }
     var cheatSheetWindow: NSWindow? { keyboardWindow }
 }
 
@@ -84,8 +87,9 @@ extension KeyboardRouterTarget {
 /// quick reply stays an `e`.
 ///
 /// Every key press first finishes running animations (`Quire.Motion.finishAll()`, spec §4.10), so held keys
-/// never queue motion. G arms a sequence for 2000 ms (§5.32): I, S, T, D, # or A completes it, and L while Later shows;
-/// any other key (Esc included) disarms it and is consumed, and the HUD shows from 500 ms until the sequence ends. ? opens
+/// never queue motion. G arms a sequence for 2000 ms (§5.32): I, S, T, D, # or A completes it, L while Later shows and O
+/// while the Outbox does; any other key (Esc included) disarms it and is consumed, and the HUD shows from 500 ms until the
+/// sequence ends. ? opens
 /// the keyboard cheat sheet; while it is open every key goes to it.
 ///
 /// ⌘-shortcuts are left to the main menu (which disables mail actions while typing), except ⌘⌫ and ⌘Z, which
@@ -320,8 +324,11 @@ final class KeyboardRouter {
         hudTimer = nil
         guard sequenceArmed, hud == nil, let target, let host = target.sequenceHUDHost, force || host.window?.isKeyWindow == true else { return }
         target.sequenceHUDWillAppear()
-        // Later's row only while its tile is there: otherwise G L does nothing, like any key the HUD does not list.
-        let rows = QuireSequenceHUDView.sequenceRows().filter { target.showsLater || $0.keys != "L" }
+        // Later's and the Outbox's rows only while their tiles are there: otherwise G L and G O do nothing, like any key the
+        // HUD does not list.
+        let rows = QuireSequenceHUDView.sequenceRows().filter {
+            (target.showsLater || $0.keys != "L") && (target.showsOutbox || $0.keys != "O")
+        }
         let view = QuireSequenceHUDView(rows: rows)
         place(view, in: host, bottomInset: target.sequenceHUDBottomInset)
         host.addSubview(view, positioned: .above, relativeTo: nil)

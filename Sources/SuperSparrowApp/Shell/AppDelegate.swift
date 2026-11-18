@@ -643,6 +643,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         mainWindow?.showsLater ?? false
     }
 
+    /// Whether the View menu lists the Outbox: while the main window's rail shows its tile (§5.2, §5.53).
+    var menuShowsOutbox: Bool {
+        mainWindow?.showsOutbox ?? false
+    }
+
     private func originForMainWindow() -> Origin {
         welcome != nil ? .welcome : .main
     }

@@ -74,7 +74,9 @@ final class FailedSendAppTests: XCTestCase {
         harness.spin { harness.reader.currentMessages.count == 3 }
     }
 
+    /// G O once the window has heard of a send: the Outbox shows only while one waits (§5.2).
     private func showOutbox(_ harness: MainWindowHarness) {
+        harness.spin { harness.controller.showsOutbox }
         XCTAssertTrue(harness.controller.perform(.goTo(.outbox)))
         harness.spin { harness.list.query.view == .outbox }
     }
@@ -115,8 +117,9 @@ final class FailedSendAppTests: XCTestCase {
         XCTAssertEqual(draft.body.string, "See you there")
         XCTAssertFalse(SendOwnership.isOwned(sendID), "let go once settled")
         XCTAssertNil(harness.toastMessage, "the panel says it; the window adds no toast")
-        harness.spin { harness.list.conversations.isEmpty }
-        XCTAssertTrue(harness.list.conversations.isEmpty, "gone from the Outbox")
+        harness.spin { harness.list.query.view == .inbox }
+        XCTAssertFalse(harness.controller.showsOutbox, "gone from the Outbox, which goes with it")
+        XCTAssertEqual(harness.list.query.view, .inbox, "and the window is back in the Inbox")
         XCTAssertTrue(harness.controller.localDrafts.summaries.contains {
             $0.id == LocalDraftConversation.conversationID(draftID: draft.id, account: draft.account.id)
         }, "listed in Drafts")
@@ -270,7 +273,6 @@ final class FailedSendAppTests: XCTestCase {
     func testASendInterruptedAtLaunchBecomesOneDraftThatSaysToCheckSent() throws {
         let harness = try MainWindowHarness()
         defer { harness.close() }
-        showOutbox(harness)
         let send = PendingSend(message: message(), createdAt: Date().addingTimeInterval(-60), sendAfter: Date().addingTimeInterval(-55),
                                status: .failed, attempts: 1, lastError: interrupted)
         try harness.environment.store.enqueueSend(send)
@@ -285,8 +287,10 @@ final class FailedSendAppTests: XCTestCase {
         XCTAssertEqual(draft.subject, "Lisbon")
         XCTAssertEqual(draft.to.map(\.address), ["ben@example.com"])
         XCTAssertEqual(harness.toastMessage, "\u{201c}Lisbon\u{201d} may have gone. Check Sent.")
-        harness.spin { harness.list.conversations.isEmpty }
-        XCTAssertTrue(harness.list.conversations.isEmpty)
+        // Kept in Drafts: nothing waits to go, so no Outbox shows (it may have, for the moment before it was kept).
+        harness.spin { !harness.controller.showsOutbox }
+        XCTAssertFalse(harness.controller.showsOutbox)
+        XCTAssertTrue(harness.controller.strip.folderTiles[5].isHidden)
 
         harness.toasts.dismiss()
         harness.controller.sendLaterOutbox.refresh()

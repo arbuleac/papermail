@@ -88,9 +88,13 @@ final class OverlayAndPanelTests: XCTestCase {
         XCTAssertEqual(rows.map(\.label), ["Inbox", "Later", "Starred", "Sent", "Drafts", "Outbox", "Trash", "All Mail"])
         let hud = QuireSequenceHUDView()
         XCTAssertEqual(hud.frame.size, NSSize(width: 220, height: 234), "12 + 28 + 6 + 8 × 22 + 12, Later's row included")
-        // The shell leaves Later's row out while nothing is snoozed (§5.32): the seven views with the Outbox, 212 pt.
+        // The shell leaves Later's row out while nothing is snoozed and the Outbox's while nothing waits to go (§5.32): seven
+        // rows with one of them, 212 pt, and the six views alone, 190 pt.
         let seven = QuireSequenceHUDView(rows: rows.filter { $0.keys != "L" })
         XCTAssertEqual(seven.frame.size, NSSize(width: 220, height: 212), "12 + 28 + 6 + 7 × 22 + 12")
+        let six = QuireSequenceHUDView(rows: rows.filter { $0.keys != "L" && $0.keys != "O" })
+        XCTAssertEqual(six.rows.map(\.keys), ["I", "S", "T", "D", "#", "A"])
+        XCTAssertEqual(six.frame.size, NSSize(width: 220, height: 190), "12 + 28 + 6 + 6 × 22 + 12")
         XCTAssertFalse(hud.acceptsFirstResponder, "not focusable")
         XCTAssertEqual(hud.accessibilityLabel()?.hasPrefix("Go to…"), true)
     }

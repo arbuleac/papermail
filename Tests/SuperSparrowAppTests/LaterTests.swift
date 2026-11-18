@@ -422,7 +422,8 @@ final class LaterTests: XCTestCase {
         XCTAssertTrue(harness.controller.showsLater)
         strip.view.layoutSubtreeIfNeeded()
         XCTAssertFalse(later.isHidden)
-        let tops = strip.folderTiles.map { $0.convert($0.tileRect, to: strip.view).minY }
+        XCTAssertTrue(strip.folderTiles[5].isHidden, "nothing waits to go: no Outbox tile")
+        let tops = strip.folderTiles.filter { !$0.isHidden }.map { $0.convert($0.tileRect, to: strip.view).minY }
         XCTAssertEqual(tops, [62, 106, 150, 194, 238, 282, 338], "Later at 106; Starred to Trash and All Mail one pitch down")
         XCTAssertEqual(strip.folderDividerRect.minY, 329, "the hairline moves with them")
         XCTAssertEqual(later.toolTip, "Later  G L")

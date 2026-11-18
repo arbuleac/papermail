@@ -4,8 +4,9 @@ import SSDesign
 import XCTest
 @testable import SuperSparrowApp
 
-/// The rail (spec §5.2): the six views as folder tiles at the top, the account group anchored just above Add,
-/// and an account stack that scrolls in its own clip once folders and accounts no longer fit.
+/// The rail (spec §5.2): the six views as folder tiles at the top, with Later and the Outbox only while they hold
+/// something, the account group anchored just above Add, and an account stack that scrolls in its own clip once folders
+/// and accounts no longer fit.
 @MainActor
 final class RailLayoutTests: XCTestCase {
     private func layOut(_ harness: MainWindowHarness) -> AccountStripViewController {
@@ -32,13 +33,14 @@ final class RailLayoutTests: XCTestCase {
         defer { harness.close() }
         let strip = layOut(harness)
         XCTAssertEqual(strip.folderTiles.map(\.content), TitleMenu.entries.map { .folder(symbol: $0.symbol) })
-        XCTAssertEqual(TitleMenu.entries.map(\.symbol), ["tray", "clock", "star", "paperplane", "doc", "trash", "archivebox"])
-        XCTAssertEqual(strip.folderTiles.map(\.toolTip), ["Inbox  G I", "Later  G L", "Starred  G S", "Sent  G T", "Drafts  G D", "Trash  G #",
-                                                         "All Mail  G A"])
-        // Nothing is snoozed: Later is hidden and the six views keep their places. Inbox at 62, then a 44 pt pitch to
-        // Trash; All Mail below the folders' hairline at 294.
+        XCTAssertEqual(TitleMenu.entries.map(\.symbol), ["tray", "clock", "star", "paperplane", "doc", "tray.and.arrow.up", "trash", "archivebox"])
+        XCTAssertEqual(strip.folderTiles.map(\.toolTip), ["Inbox  G I", "Later  G L", "Starred  G S", "Sent  G T", "Drafts  G D", "Outbox  G O",
+                                                         "Trash  G #", "All Mail  G A"])
+        // Nothing is snoozed and nothing waits to go: Later and the Outbox are hidden and the six views keep their places.
+        // Inbox at 62, then a 44 pt pitch to Trash; All Mail below the folders' hairline at 294.
         let shown = strip.folderTiles.filter { !$0.isHidden }
         XCTAssertTrue(strip.folderTiles[1].isHidden)
+        XCTAssertTrue(strip.folderTiles[5].isHidden)
         XCTAssertEqual(shown.map { tileRect($0, in: strip).minY }, [62, 106, 150, 194, 238, 294])
         for tile in shown {
             let rect = tileRect(tile, in: strip)
@@ -51,7 +53,7 @@ final class RailLayoutTests: XCTestCase {
         let harness = try MainWindowHarness()
         defer { harness.close() }
         let strip = layOut(harness)
-        XCTAssertEqual(strip.folderTiles.map(\.isSelected), [true, false, false, false, false, false, false], "the Inbox to start")
+        XCTAssertEqual(strip.folderTiles.map(\.isSelected), [true, false, false, false, false, false, false, false], "the Inbox to start")
         harness.controller.listPane.header.search.query = "project"
         harness.controller.listPane.header.search.onQueryChange?("project")
 
@@ -59,7 +61,7 @@ final class RailLayoutTests: XCTestCase {
         XCTAssertEqual(harness.list.query.view, .sent)
         XCTAssertNil(harness.list.query.searchText, "picking a mailbox ends the search, as the title menu does")
         XCTAssertEqual(harness.controller.listPane.header.masthead.title, "Sent")
-        XCTAssertEqual(strip.folderTiles.map(\.isSelected), [false, false, false, true, false, false, false])
+        XCTAssertEqual(strip.folderTiles.map(\.isSelected), [false, false, false, true, false, false, false, false])
         // The search field follows the masthead's new width.
         let header = harness.controller.listPane.header
         header.layoutSubtreeIfNeeded()
@@ -70,7 +72,7 @@ final class RailLayoutTests: XCTestCase {
         // The G-sequences are unchanged and move the folder selection with them.
         XCTAssertTrue(harness.controller.perform(.goTo(.all)))
         XCTAssertEqual(harness.list.query.view, .all)
-        XCTAssertEqual(strip.folderTiles.map(\.isSelected), [false, false, false, false, false, false, true])
+        XCTAssertEqual(strip.folderTiles.map(\.isSelected), [false, false, false, false, false, false, false, true])
         strip.folderTiles[0].performClick(nil)
         XCTAssertEqual(harness.list.query.view, .inbox)
         XCTAssertEqual(harness.controller.listPane.header.masthead.title, "Inbox")
@@ -84,7 +86,8 @@ final class RailLayoutTests: XCTestCase {
         harness.spin { unified.unreadCount > 0 && strip.folderTiles[0].unreadCount == unified.unreadCount }
         XCTAssertGreaterThan(strip.folderTiles[0].unreadCount, 0)
         XCTAssertEqual(strip.folderTiles[0].unreadCount, unified.unreadCount, "all accounts: the unified Inbox count")
-        XCTAssertEqual(strip.folderTiles.dropFirst().map(\.unreadCount), [0, 0, 0, 0, 0, 0], "only Inbox carries a count; Later never does")
+        XCTAssertEqual(strip.folderTiles.dropFirst().map(\.unreadCount), [0, 0, 0, 0, 0, 0, 0],
+                       "only Inbox carries a count; Later and the Outbox never do")
 
         strip.selectShortcut(2)
         let account = try XCTUnwrap(strip.tile(for: .account(ListTestSupport.accountB.id)))
@@ -153,19 +156,30 @@ final class RailLayoutTests: XCTestCase {
     }
 
     /// Without scrolling: one account at the 600 pt minimum, five at the default 800 pt, seven at 900 pt; while the
-    /// Later tile shows, All Mail sits one pitch lower and each figure is one fewer.
+    /// Later tile or the Outbox tile shows, All Mail sits one pitch lower and each figure is one fewer, and while both do,
+    /// two pitches lower and two fewer.
     func testCapacityBeforeTheStackScrolls() {
+        typealias Shown = AccountStripViewController.ConditionalFolders
         let layout = { AccountStripViewController.accountGroupLayout(railHeight: $0, tileCount: $1) }
         for (height, fits) in [(CGFloat(600), 1), (800, 5), (900, 7)] {
             XCTAssertFalse(layout(height, fits).scrolls, "\(fits) at \(height)")
             XCTAssertTrue(layout(height, fits + 1).scrolls, "\(fits + 1) at \(height)")
         }
-        let withLater = { AccountStripViewController.accountGroupLayout(railHeight: $0, tileCount: $1, showsLater: true) }
-        for (height, fits) in [(CGFloat(600), 0), (800, 4), (900, 6)] {
-            XCTAssertFalse(withLater(height, fits).scrolls, "\(fits) at \(height) with Later")
-            XCTAssertTrue(withLater(height, fits + 1).scrolls, "\(fits + 1) at \(height) with Later")
+        for shown in [Shown(later: true), Shown(outbox: true)] {
+            let withOne = { AccountStripViewController.accountGroupLayout(railHeight: $0, tileCount: $1, showing: shown) }
+            for (height, fits) in [(CGFloat(600), 0), (800, 4), (900, 6)] {
+                XCTAssertFalse(withOne(height, fits).scrolls, "\(fits) at \(height) with \(shown)")
+                XCTAssertTrue(withOne(height, fits + 1).scrolls, "\(fits + 1) at \(height) with \(shown)")
+            }
+            XCTAssertEqual(withOne(600, 3).unifiedTop, 396, "All Inboxes stays 20 pt under All Mail's lower place (338 + 38)")
         }
-        XCTAssertEqual(withLater(600, 3).unifiedTop, 396, "All Inboxes stays 20 pt under All Mail's lower place (338 + 38)")
+        let withBoth = { AccountStripViewController.accountGroupLayout(railHeight: $0, tileCount: $1, showing: Shown(later: true, outbox: true)) }
+        for (height, fits) in [(CGFloat(800), 3), (900, 5)] {
+            XCTAssertFalse(withBoth(height, fits).scrolls, "\(fits) at \(height) with both")
+            XCTAssertTrue(withBoth(height, fits + 1).scrolls, "\(fits + 1) at \(height) with both")
+        }
+        XCTAssertTrue(withBoth(600, 1).scrolls, "at the minimum height even one account scrolls")
+        XCTAssertEqual(withBoth(600, 3).unifiedTop, 440, "two pitches lower: 20 pt under All Mail at 382 + 38")
         let r = Quire.Layout.Rail.self
         let floor = r.allMailTop + r.tile + r.groupGap
         XCTAssertEqual(floor, 352)
@@ -184,6 +198,40 @@ final class RailLayoutTests: XCTestCase {
         XCTAssertEqual(crowded.unifiedTop, floor)
         XCTAssertEqual(crowded.dividerY, floor + r.tile + r.dividerGap)
         XCTAssertEqual(crowded.clipTop, crowded.dividerY + r.accountGap - r.stackInset)
+    }
+
+    /// Where each folder sits with neither, either or both conditional tiles: the shown ones in the title menu's order at
+    /// the 44 pt pitch from Inbox at 62, Later directly below Inbox and the Outbox between Drafts and Trash, the hairline
+    /// and All Mail one pitch lower for each; no two folders ever share a place.
+    func testFolderPlacesWithTheConditionalTiles() {
+        typealias Strip = AccountStripViewController
+        typealias Shown = Strip.ConditionalFolders
+        let order: [MailboxView] = [.inbox, .later, .starred, .sent, .drafts, .outbox, .trash, .all]
+        XCTAssertEqual(TitleMenu.entries.map(\.view), order)
+        func tops(_ shown: Shown) -> [CGFloat] {
+            order.filter(shown.shows).map { Strip.folderTop(for: $0, showing: shown) }
+        }
+        XCTAssertEqual(tops(Shown()), [62, 106, 150, 194, 238, 294])
+        XCTAssertEqual(tops(Shown(later: true)), [62, 106, 150, 194, 238, 282, 338])
+        XCTAssertEqual(tops(Shown(outbox: true)), [62, 106, 150, 194, 238, 282, 338], "the Outbox at 238, Trash at 282")
+        XCTAssertEqual(Strip.folderTop(for: .outbox, showing: Shown(outbox: true)), 238)
+        XCTAssertEqual(tops(Shown(later: true, outbox: true)), [62, 106, 150, 194, 238, 282, 326, 382])
+        XCTAssertEqual(Strip.folderTop(for: .outbox, showing: Shown(later: true, outbox: true)), 282, "below Drafts, itself a pitch lower")
+        XCTAssertEqual(Strip.folderShift(Shown()), 0)
+        XCTAssertEqual(Strip.folderShift(Shown(later: true)), 44)
+        XCTAssertEqual(Strip.folderShift(Shown(outbox: true)), 44)
+        XCTAssertEqual(Strip.folderShift(Shown(later: true, outbox: true)), 88)
+        for shown in [Shown(), Shown(later: true), Shown(outbox: true), Shown(later: true, outbox: true)] {
+            let places = tops(shown)
+            XCTAssertEqual(Set(places).count, places.count, "\(shown): no two folders in one place")
+            for (upper, lower) in zip(places, places.dropFirst()) {
+                XCTAssertGreaterThanOrEqual(lower - upper, Quire.Layout.Rail.tileHit, "\(shown): the hit squares never overlap")
+            }
+            // The hairline sits between the last folder above it and All Mail.
+            let hairline = Quire.Layout.Rail.folderDividerY + Strip.folderShift(shown)
+            XCTAssertGreaterThan(hairline, places[places.count - 2] + Quire.Layout.Rail.tile, "\(shown)")
+            XCTAssertLessThan(hairline, places[places.count - 1], "\(shown)")
+        }
     }
 
     func testAStackThatDoesNotFitScrollsAndShowsTheChosenTile() throws {
