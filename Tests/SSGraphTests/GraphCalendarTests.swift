@@ -9,7 +9,7 @@ import XCTest
 final class GraphCalendarTests: GraphTestCase {
     private static let calendarScopes = "Mail.ReadWrite Mail.Send User.Read Calendars.ReadWrite profile openid"
     private let calendarViewPath = "/v1.0/me/calendarView"
-    private let nextLink = "https://graph.microsoft.com/v1.0/me/calendarView?startDateTime=2026-10-18T00%3A00%3A00Z&endDateTime=2026-12-27T00%3A00%3A00Z&%24select=id%2Csubject&%24top=200&%24skip=200"
+    private let nextLink = "https://graph.microsoft.com/v1.0/me/calendarView?startDateTime=2026-10-18T00%3A00%3A00Z&endDateTime=2026-12-27T00%3A00%3A00Z&%24select=id%2Csubject&%24top=999&%24skip=999"
 
     override func setUp() {
         super.setUp()
@@ -88,7 +88,7 @@ final class GraphCalendarTests: GraphTestCase {
     func testAReadAsksForTheWindowInUTCAndFollowsEveryPage() async throws {
         route { request in
             guard request.method == "GET", request.path == self.calendarViewPath else { return nil }
-            if request.query["$skip"] == "200" {
+            if request.query["$skip"] == "999" {
                 return .json(self.page([Self.event(id: "AAMkTWO", start: "2026-11-04T09:00:00.0000000", end: "2026-11-04T09:30:00.0000000")]))
             }
             return .json(self.page([Self.event(id: "AAMkONE")], nextLink: self.nextLink))
@@ -103,7 +103,7 @@ final class GraphCalendarTests: GraphTestCase {
         XCTAssertEqual(first.query["startDateTime"], "2026-10-18T00:00:00Z")
         XCTAssertEqual(first.query["endDateTime"], "2026-12-28T00:00:00Z")
         XCTAssertEqual(first.query["$select"], "id,subject,start,end,isAllDay,originalStartTimeZone,originalEndTimeZone,location,showAs,responseStatus,isCancelled,isOrganizer,onlineMeeting,onlineMeetingUrl,webLink,organizer,iCalUId,lastModifiedDateTime,type,transactionId")
-        XCTAssertEqual(first.query["$top"], "200")
+        XCTAssertEqual(first.query["$top"], "999", "Exchange's cap, as message lists ask: a busy window in one request")
         XCTAssertEqual(sent.last?.url.absoluteString, nextLink, "the second page is the nextLink as given")
         for request in sent {
             let prefer = request.header("Prefer") ?? ""

@@ -9,11 +9,12 @@ import os
 /// in requests rather than Gmail's units: the provider reports a read's requests (`CalendarListing.requestCount`) and
 /// charges nothing itself.
 extension GmailProvider: CalendarProvider {
-    /// Pages one read takes at most: 250 events a page, so 10,000 events in the window. A listing longer than that is
-    /// taken as one that never ends, and fails rather than reporting part of the window as all of it, which would
-    /// remove the rest from the store.
-    static let maxCalendarPages = 40
-    static let calendarPageSize = 250
+    /// Pages one read takes at most. A listing longer than that is taken as one that never ends, and fails rather than
+    /// reporting part of the window as all of it, which would remove the rest from the store. Generous beside the page
+    /// size, since Google may hand back a page shorter than asked for (even an empty one) with more to come.
+    static let maxCalendarPages = 20
+    /// The most `events.list` gives a page (its default is 250): a busy window is one request, not several in a row.
+    static let calendarPageSize = 2500
     /// Only the fields `GoogleCalendarMapper` reads: a page of full events carries descriptions and every attendee.
     static let calendarFields = "items(id,status,summary,location,start,end,transparency,attendees(self,responseStatus),"
         + "organizer(self,displayName,email),hangoutLink,conferenceData(entryPoints(entryPointType,uri)),htmlLink,iCalUID,"
@@ -42,6 +43,8 @@ extension GmailProvider: CalendarProvider {
             URLQueryItem(name: "showDeleted", value: "false"),
             URLQueryItem(name: "maxResults", value: String(Self.calendarPageSize)),
             URLQueryItem(name: "fields", value: Self.calendarFields),
+            // Google indents its JSON unless told not to: whitespace to download and parse every minute.
+            URLQueryItem(name: "prettyPrint", value: "false"),
         ]
         var events: [CalendarEvent] = []
         var pages = 0

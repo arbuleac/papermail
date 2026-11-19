@@ -8,12 +8,13 @@ extension GraphProvider: CalendarProvider {
     /// `onlineMeeting` whole: `$select` takes top-level properties only. `transactionId` reports a block's client key;
     /// the original zones place an all-day event's dates (`GraphEventTime.allDay`).
     static let calendarSelect = "id,subject,start,end,isAllDay,originalStartTimeZone,originalEndTimeZone,location,showAs,responseStatus,isCancelled,isOrganizer,onlineMeeting,onlineMeetingUrl,webLink,organizer,iCalUId,lastModifiedDateTime,type,transactionId"
-    /// Graph pages a `calendarView` ten events at a time unless asked; a window of a busy calendar then fits in a page
-    /// or two. On Outlook's resources `$top` sets the page size, and the nextLink carries the rest.
-    static let calendarPageSize = 200
+    /// Graph pages a `calendarView` ten events at a time unless asked. On Outlook's resources `$top` sets the page size,
+    /// up to Exchange's cap of a thousand (asking for more is a 400): 999, as message lists ask (`maxListPageSize`), so
+    /// a busy window is one request, and the nextLink still carries anything past it.
+    static let calendarPageSize = 999
     /// A listing that never ends (a nextLink that keeps coming back) fails rather than spend the mailbox's requests
-    /// for ever: 50 pages are 10,000 events, more than any ten weeks hold.
-    static let maxCalendarPages = 50
+    /// for ever: 20 pages are some 20,000 events, more than any ten weeks hold, and room for pages Exchange cuts short.
+    static let maxCalendarPages = 20
     /// Every event time in UTC: a timed event's `dateTime` is then the instant itself. An all-day event's midnights move
     /// with it, and the mapper reads its dates back in the zone it was made in.
     static let utcEventTimes = "outlook.timezone=\"UTC\""

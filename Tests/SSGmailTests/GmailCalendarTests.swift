@@ -94,7 +94,8 @@ final class GmailCalendarTests: XCTestCase {
             XCTAssertEqual(page.query["singleEvents"], ["true"], "Google expands repeats; the app never does")
             XCTAssertEqual(page.query["orderBy"], ["startTime"])
             XCTAssertEqual(page.query["showDeleted"], ["false"])
-            XCTAssertEqual(page.query["maxResults"], ["250"])
+            XCTAssertEqual(page.query["maxResults"], ["2500"], "the most Google gives a page: one request for a busy window")
+            XCTAssertEqual(page.query["prettyPrint"], ["false"], "no indentation to download and parse")
             XCTAssertEqual(page.query["fields"], [GmailProvider.calendarFields])
             XCTAssertEqual(page.header("Authorization"), "Bearer token-1")
         }
