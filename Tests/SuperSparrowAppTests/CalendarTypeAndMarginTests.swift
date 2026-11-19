@@ -4,8 +4,9 @@ import SSDesign
 import XCTest
 @testable import SuperSparrowApp
 
-/// The calendar's type and margins (spec §5.54, Quire 1.9.1): an event too narrow for its range shows its start alone,
-/// the hatch over an invitation's overlap never runs through its words, and a mark's chip never covers a fold's range.
+/// The calendar's type and margins (spec §5.54, Quire 1.9.1 and 1.9.2): an event too narrow for its range shows its start
+/// alone, the hatch over an invitation's overlap never runs through its words, a mark's chip never covers a fold's range,
+/// and an hour label gives way to the now time where it is drawn.
 @MainActor
 final class CalendarTypeAndMarginTests: XCTestCase {
     private typealias Support = CalendarTestSupport
@@ -27,6 +28,24 @@ final class CalendarTypeAndMarginTests: XCTestCase {
         XCTAssertEqual(narrow.string, "17:30", "never “17:30 -…”")
         XCTAssertEqual(CalendarEventPainter.timeLine(range: range, start: "17:30", color: .black, width: rangeWidth).string, range,
                        "the range while it fits exactly")
+    }
+
+    // MARK: The gutter
+
+    func testAnHourLabelHeldInsideTheTopGivesWayToANowJustPastIt() {
+        let lineHeight: CGFloat = 14
+        // 00:00 on the timeline's top edge is held at 0 to 14; now at 00:19 is 17 pt down, its label 10 to 24.
+        let top = CalendarTimelineView.hourLabelTop(lineY: 0, lineHeight: lineHeight, fitHeight: 500)
+        XCTAssertEqual(top, 0)
+        XCTAssertTrue(CalendarTimelineView.hourLabelGivesWay(labelTop: top, lineHeight: lineHeight, nowY: 17),
+                      "measured from the line it would have kept, 17 pt off, it overlapped the now label")
+        // An hour line clear of the edges, and a now 20 pt from it, keeps its label.
+        let middle = CalendarTimelineView.hourLabelTop(lineY: 200, lineHeight: lineHeight, fitHeight: 500)
+        XCTAssertEqual(middle, 193)
+        XCTAssertFalse(CalendarTimelineView.hourLabelGivesWay(labelTop: middle, lineHeight: lineHeight, nowY: 220))
+        XCTAssertTrue(CalendarTimelineView.hourLabelGivesWay(labelTop: middle, lineHeight: lineHeight, nowY: 210))
+        // At the bottom, held inside it too.
+        XCTAssertEqual(CalendarTimelineView.hourLabelTop(lineY: 500, lineHeight: lineHeight, fitHeight: 500), 486)
     }
 
     // MARK: The hatch

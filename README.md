@@ -129,7 +129,7 @@ In demo mode the newest mail in each mailbox is an invitation: one to answer, an
 
 ## Day and week
 
-Your day sits in a column to the right of the reader: every account's events in one day, each in its account's colour, with the hours folded so it never scrolls. It follows the conversation you select: an invitation turns it to the invitation's day and shades what it overlaps, and a mail that names a time ("Friday at 3pm") marks that time. Seven small day cells across its top show how full the week is; click one to see that day. `[` and `]` turn the day, `t` comes back to today, and `d` hides or shows the column. In a narrow window it folds to a thin strip; click the strip, or press `d`, to open it over the reader's edge.
+Your day sits in a column to the right of the reader: every account's events in one day, each in its account's colour, with the hours folded so it never scrolls. It follows the conversation you select: an invitation turns it to the invitation's day and shades what it overlaps, and a mail that names a time ("Friday at 3pm") marks that time. Seven small day cells across its top show how full the week is; click one to see that day. `[` and `]` turn the day, `t` comes back to today, and `d` or the calendar button at the top right hides or shows the column. Once one of your accounts has connected its calendar, that button always stays on the right: hiding the column folds it to a thin strip with the button on top. In a narrow window the column folds to the same strip; click the strip, or press `d`, to open it over the reader's edge.
 
 `w` shows the whole week in the reader's place, and `w` again brings the reader back. Click a day's heading to go back to the reader on that day.
 

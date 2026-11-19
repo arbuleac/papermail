@@ -445,7 +445,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// While the day column is on, the reader's item keeps room for its strip beside a 400 pt reader, and the list's
     /// maximum gives up the strip's 28 pt (§3.2), so even the folded column never takes the reader under 400.
     func applyColumnWidths() {
-        let strip = desk.isColumnOn ? Quire.Layout.CalendarPane.stripWidth : 0
+        // The strip may stand at the trailing edge: the column is on, or hidden with the calendar's toggle kept (§5.54).
+        let strip = desk.isColumnOn || desk.hasCalendarAccess ? Quire.Layout.CalendarPane.stripWidth : 0
         readerItem?.minimumThickness = ConversationPaneViewController.minimumWidth + strip
         listItem?.maximumThickness = ListPaneViewController.maximumWidth - strip
     }

@@ -54,6 +54,8 @@ final class AppSettings: ObservableObject {
         static let adaptsMailColours = "adaptsMailColours"
         /// The main window's day column (spec §5.54): on by default; D hides it.
         static let showsDayColumn = "showsDayColumn"
+        /// Some account had granted the calendar permission when the engine last said (spec §5.54, the calendar toggle).
+        static let hasCalendarAccess = "hasCalendarAccess"
     }
 
     /// Account ids are UUIDs, so this can never be one.
@@ -250,9 +252,16 @@ final class AppSettings: ObservableObject {
 
     /// The main window's day column is on (spec §5.54, D): kept here rather than in the split view's autosave, so the
     /// window opens with the column as it was left, as it does with a hidden rail, and tests keep theirs apart. Not a
-    /// setting in Settings: D, View › Hide Day and the reader header's Day button change it.
+    /// setting in Settings: D, View › Hide Day and the calendar toggle at the window's trailing edge change it.
     @Published var showsDayColumn: Bool {
         didSet { defaults.set(showsDayColumn, forKey: Key.showsDayColumn) }
+    }
+
+    /// Whether some account had granted the calendar permission when the engine last said. Not a setting: the main
+    /// window keeps it so the calendar toggle (and a hidden column's strip) is in place from a launch's first frame,
+    /// before the engine has looked at any account's permission.
+    @Published var hasCalendarAccess: Bool {
+        didSet { if oldValue != hasCalendarAccess { defaults.set(hasCalendarAccess, forKey: Key.hasCalendarAccess) } }
     }
 
     /// The account scope an earlier launch left the main window on, or nil when none is saved. Not a setting: the
@@ -320,6 +329,7 @@ final class AppSettings: ObservableObject {
         accountInitialsChosenByUser = defaults.bool(forKey: Key.accountInitialsChosenByUser)
         sevenAccountsNoticePending = defaults.bool(forKey: Key.sevenAccountsNoticePending)
         showsDayColumn = defaults.bool(forKey: Key.showsDayColumn)
+        hasCalendarAccess = defaults.bool(forKey: Key.hasCalendarAccess)
         applyUndoSendDelay()
         ConversationViewController.loadRemoteImages = loadRemoteImages
     }

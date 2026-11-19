@@ -3,7 +3,9 @@ import SSCore
 import SSDesign
 
 /// The main window's third split item (spec §5.1, §5.54): the reader with the day column at its trailing edge, the column
-/// folded to its 28 pt strip while the reader would fall under 400 pt beside it, or the week in the place of both.
+/// folded to its 28 pt strip while the reader would fall under 400 pt beside it, or the week in the place of both. Once
+/// some account has granted the calendar permission the calendar's toggle is always at the trailing edge: the column's
+/// header holds it, and a hidden column folds to its strip, whose glyph is the toggle, rather than going.
 ///
 /// The split keeps its three items, so its autosave, its dividers and the list's resizing are what they were: the column
 /// has one width and no divider to drag. The week hides the reader rather than taking it out of the window, so the pool's
@@ -15,11 +17,12 @@ final class ReaderAndCalendarViewController: NSViewController {
 
     /// What the trailing side of the window shows.
     enum Placement: Equatable {
-        /// The column is hidden (D); the reader takes its width.
+        /// The column is hidden (D) and no account has granted the calendar permission; the reader takes its width.
         case none
         /// The column in full beside the reader.
         case column
-        /// The column folded to its strip: the window is too narrow for it beside a 400 pt reader.
+        /// The column folded to its strip: the window is too narrow for it beside a 400 pt reader, or the column is hidden
+        /// while some account has granted the calendar permission.
         case strip
         /// The week, in the reader's place and the column's.
         case week
@@ -35,8 +38,10 @@ final class ReaderAndCalendarViewController: NSViewController {
     /// D's choice, kept in the app's settings: the column at the reader's edge, in full or as its strip.
     private(set) var isColumnOn: Bool
     private(set) var isWeekShown = false
-    /// The column opened over the reader's edge from its strip (only while folded).
+    /// The column opened over the reader's edge from its strip (only while the window is too narrow for it).
     private(set) var isOverlayOpen = false
+    /// Some account has granted the calendar permission: the calendar's toggle stays at the trailing edge.
+    private(set) var hasCalendarAccess = false
     private(set) var placement: Placement = .none
 
     /// After what shows changed: the reader header's Day button, the menus and the calendar's span follow it.
@@ -93,6 +98,12 @@ final class ReaderAndCalendarViewController: NSViewController {
         place()
     }
 
+    func setCalendarAccess(_ access: Bool) {
+        guard access != hasCalendarAccess else { return }
+        hasCalendarAccess = access
+        place()
+    }
+
     func setWeekShown(_ shown: Bool) {
         guard shown != isWeekShown else { return }
         isWeekShown = shown
@@ -100,9 +111,9 @@ final class ReaderAndCalendarViewController: NSViewController {
         place()
     }
 
-    /// Opens or closes the column over the reader's edge; only the strip opens it.
+    /// Opens or closes the column over the reader's edge; only the strip of a window too narrow for the column opens it.
     func setOverlayOpen(_ open: Bool) {
-        let open = open && placement == .strip
+        let open = open && placement == .strip && isNarrow
         guard open != isOverlayOpen else { return }
         isOverlayOpen = open
         place()
@@ -111,6 +122,9 @@ final class ReaderAndCalendarViewController: NSViewController {
     /// The day column shows: in full, or opened over the reader's edge. Not its strip alone, and not the week.
     var isDayShowing: Bool { placement == .column || (placement == .strip && isOverlayOpen) }
 
+    /// Too narrow for the column beside a 400 pt reader: the column shows only as its strip, or opened over the reader.
+    var isNarrow: Bool { view.bounds.width < Pane.columnWidth + Pane.readerMinWithColumn }
+
     /// The column or the week shows, so [ ] and T have something to turn.
     var isCalendarShowing: Bool { isDayShowing || placement == .week }
 
@@ -118,14 +132,16 @@ final class ReaderAndCalendarViewController: NSViewController {
 
     /// Places the reader, the column, the strip and the week for the width the split gave: the column folds to its strip
     /// while the reader would keep less than 400 pt beside it (`calendarPane.readerMinWithColumn`), and comes back in
-    /// place once the window is wide enough again, closing the column opened over the reader.
+    /// place once the window is wide enough again, closing the column opened over the reader. Hidden, it goes, or folds
+    /// to its strip once some account has granted the calendar permission, so its toggle stays at the trailing edge.
     private func place() {
         guard isViewLoaded else { return }
         let bounds = view.bounds
         let width = bounds.width
-        let folds = width < Pane.columnWidth + Pane.readerMinWithColumn
-        let next: Placement = isWeekShown ? .week : !isColumnOn ? .none : folds ? .strip : .column
-        if next != .strip { isOverlayOpen = false }
+        let folds = isNarrow
+        let next: Placement = isWeekShown ? .week : isColumnOn && !folds ? .column
+            : isColumnOn || hasCalendarAccess ? .strip : .none
+        if next != .strip || !folds { isOverlayOpen = false }
 
         let readerWidth: CGFloat
         switch next {
@@ -143,6 +159,8 @@ final class ReaderAndCalendarViewController: NSViewController {
         let columnX = next == .strip ? width - Pane.stripWidth - Pane.columnWidth : width - Pane.columnWidth
         column.frame = NSRect(x: columnX, y: 0, width: Pane.columnWidth, height: bounds.height)
         column.isHidden = !(next == .column || overlay)
+        // The column's own toggle while it stands in full; opened over the reader, the strip's glyph is the toggle.
+        column.header.showsDayToggle = hasCalendarAccess && next == .column
         strip.frame = NSRect(x: width - Pane.stripWidth, y: 0, width: Pane.stripWidth, height: bounds.height)
         strip.isHidden = next != .strip
         strip.isOpen = overlay

@@ -6,7 +6,7 @@ extension MainWindowController {
     /// `--snapshot-state=…` (debug builds), the calendar's states (spec §5.54), applied once the first selection is made:
     /// `invite` selects the demo's dinner invitation and `critique` the design critique's, so the column pencils them in;
     /// `today` selects a mail that names no time, so the column stays on today (turning it would lose to the newest
-    /// mail's invitation, whose context lands after); `day+N` turns the column N days on; `week` opens the week; `strip` narrows the window below 1,088 pt so the column
+    /// mail's invitation, whose context lands after); `day+N` turns the column N days on; `hidden` hides the column as its toggle does; `week` opens the week; `strip` narrows the window below 1,088 pt so the column
     /// folds to its strip, and `strip-open` opens the column over the reader's edge.
     func applyDebugCalendarStates() {
         guard let argument = CommandLine.arguments.first(where: { $0.hasPrefix("--snapshot-state=") }) else { return }
@@ -16,6 +16,7 @@ extension MainWindowController {
             case "invite": selectDebugConversation(subjectContaining: "Sam's birthday dinner")
             case "critique": selectDebugConversation(subjectContaining: "Design critique")
             case "today": selectDebugConversation(subjectContaining: "Photos from the offsite")
+            case "hidden": if desk.isColumnOn { toggleDay() }
             case "week": toggleWeekView()
             case "strip", "strip-open":
                 guard let window else { continue }

@@ -150,9 +150,7 @@ final class MainWindowCalendarTests: XCTestCase {
         XCTAssertEqual(desk.column.frame.width, Pane.columnWidth)
         XCTAssertEqual(desk.column.frame.maxX, desk.view.bounds.width, "at the reader's trailing edge")
         XCTAssertEqual(desk.conversationPane.view.frame.width, desk.view.bounds.width - Pane.columnWidth, accuracy: 0.5)
-        XCTAssertEqual(harness.reader.header.layoutToggles[.day]?.isOn, true, "the header's Day button is on")
-        XCTAssertEqual(harness.reader.header.layoutToggles[.day]?.toolTip, "Hide Day  D")
-        XCTAssertNil(harness.reader.header.layoutToggles[.week], "one calendar button: the week opens from the column")
+        XCTAssertFalse(desk.column.header.showsDayToggle, "no account has granted the calendar permission: no toggle")
         XCTAssertEqual(desk.column.header.weekButton.toolTip, "Show Week  W")
 
         XCTAssertTrue(harness.controller.perform(.toggleDayColumn))
@@ -161,18 +159,114 @@ final class MainWindowCalendarTests: XCTestCase {
         XCTAssertTrue(desk.strip.isHidden)
         XCTAssertEqual(desk.conversationPane.view.frame.width, desk.view.bounds.width, accuracy: 0.5, "the reader takes its 240 pt back")
         XCTAssertFalse(settings.showsDayColumn, "kept in the app's settings")
-        XCTAssertEqual(harness.reader.header.layoutToggles[.day]?.isOn, false)
-        XCTAssertEqual(harness.reader.header.layoutToggles[.day]?.toolTip, "Show Day  D")
 
         close(harness)
         harness = try self.harness(settings: settings)
         desk = harness.controller.desk
         XCTAssertEqual(desk.placement, .none, "a new window opens as the last was left")
-        // The header's Day button does what D does.
-        let day = try XCTUnwrap(harness.reader.header.layoutToggles[.day])
-        day.performClick(nil)
+        XCTAssertTrue(harness.controller.perform(.toggleDayColumn))
         XCTAssertEqual(desk.placement, .column)
         XCTAssertTrue(settings.showsDayColumn)
+    }
+
+    // MARK: The calendar toggle
+
+    /// Every account's calendar read, as the engine says once it has looked (`AccountSyncStatus.calendar`).
+    private func grantCalendarAccess(_ harness: MainWindowHarness, _ granted: Bool = true) {
+        harness.controller.calendarState.statusesChanged(harness.controller.accounts.map {
+            AccountSyncStatus(accountID: $0.id, phase: .idle, calendar: granted ? .current(Support.at(11)) : .notConnected)
+        })
+        layOut(harness)
+    }
+
+    func testTheReaderHeaderHoldsNoCalendarButton() throws {
+        let harness = try self.harness()
+        grantCalendarAccess(harness)
+        select(conversation(0, in: harness), in: harness)
+        layOut(harness)
+        let header = harness.reader.header
+        let calendarButtons = header.subviews.compactMap { $0 as? QuireIconButton }
+            .filter { ["Day", "Week"].contains($0.accessibilityLabel() ?? "") }
+        XCTAssertTrue(calendarButtons.isEmpty, "the message's actions only (§5.12)")
+    }
+
+    func testWithCalendarAccessTheToggleAlwaysStandsAtTheTrailingEdge() throws {
+        let settings = ListTestSupport.settings()
+        var harness = try self.harness(settings: settings)
+        var desk = harness.controller.desk
+        grantCalendarAccess(harness)
+        XCTAssertTrue(settings.hasCalendarAccess, "remembered for the next launch's first frame")
+
+        // Shown: the toggle ends the column's kicker line, on, after ‹ Today ›, above the week button.
+        let header = desk.column.header
+        XCTAssertEqual(desk.placement, .column)
+        XCTAssertTrue(header.showsDayToggle)
+        XCTAssertFalse(header.dayToggle.isHidden)
+        XCTAssertTrue(header.dayToggle.isOn)
+        XCTAssertEqual(header.dayToggle.toolTip, "Hide Day  D")
+        let toggle = header.dayToggle.alignmentRect(forFrame: header.dayToggle.frame)
+        let next = header.next.alignmentRect(forFrame: header.next.frame)
+        let week = header.weekButton.alignmentRect(forFrame: header.weekButton.frame)
+        XCTAssertEqual(toggle.maxX, header.bounds.width - Pane.navTrailing, accuracy: 0.5)
+        XCTAssertEqual(toggle.minX - next.maxX, Pane.dayToggleGap, accuracy: 0.5)
+        XCTAssertEqual(toggle.midX, week.midX, accuracy: 0.5, "the two calendar buttons on one vertical line")
+        XCTAssertTrue(header.keyViews.contains(header.dayToggle))
+
+        // Hidden: the column folds to its strip at the trailing edge, whose glyph is the same toggle.
+        header.dayToggle.performClick(nil)
+        layOut(harness)
+        XCTAssertEqual(desk.placement, .strip)
+        XCTAssertFalse(settings.showsDayColumn)
+        XCTAssertTrue(desk.column.isHidden)
+        XCTAssertFalse(desk.strip.isHidden)
+        XCTAssertEqual(desk.strip.frame.maxX, desk.view.bounds.width)
+        XCTAssertEqual(desk.conversationPane.view.frame.width, desk.view.bounds.width - Pane.stripWidth, accuracy: 0.5,
+                       "the reader takes all but the strip back")
+        XCTAssertFalse(desk.isOverlayOpen)
+
+        // In a window with room, a click on the strip puts the column back in place, not over the reader; D as well.
+        XCTAssertTrue(desk.strip.accessibilityPerformPress())
+        XCTAssertEqual(desk.placement, .column)
+        XCTAssertFalse(desk.isOverlayOpen)
+        XCTAssertTrue(settings.showsDayColumn)
+        XCTAssertTrue(harness.controller.perform(.toggleDayColumn))
+        XCTAssertEqual(desk.placement, .strip)
+        XCTAssertTrue(harness.controller.perform(.toggleDayColumn))
+        XCTAssertEqual(desk.placement, .column)
+
+        // A narrow window: the strip opens the column over the reader, whose header then has no toggle of its own.
+        resize(harness, width: 960)
+        XCTAssertEqual(desk.placement, .strip)
+        XCTAssertTrue(desk.strip.accessibilityPerformPress())
+        XCTAssertTrue(desk.isOverlayOpen)
+        XCTAssertFalse(header.showsDayToggle, "over the reader, the strip's glyph is the toggle")
+        XCTAssertTrue(harness.controller.perform(.clearSearch))
+        resize(harness, width: 1_304)
+
+        // The next window, hidden, has its strip from the first frame, before the engine has looked at any account.
+        XCTAssertTrue(harness.controller.perform(.toggleDayColumn))
+        close(harness)
+        harness = try self.harness(settings: settings)
+        desk = harness.controller.desk
+        XCTAssertEqual(desk.placement, .strip)
+        XCTAssertFalse(desk.strip.isHidden)
+    }
+
+    func testWithoutCalendarAccessThereIsNoToggleAndAHiddenColumnGoes() throws {
+        let settings = ListTestSupport.settings()
+        let harness = try self.harness(settings: settings)
+        let desk = harness.controller.desk
+        grantCalendarAccess(harness)
+        XCTAssertTrue(desk.column.header.showsDayToggle)
+        grantCalendarAccess(harness, false)
+        XCTAssertFalse(settings.hasCalendarAccess)
+        XCTAssertFalse(desk.column.header.showsDayToggle, "every account known to lack the permission")
+        XCTAssertTrue(desk.column.header.dayToggle.isHidden)
+        XCTAssertFalse(desk.column.header.keyViews.contains(desk.column.header.dayToggle))
+        XCTAssertTrue(harness.controller.perform(.toggleDayColumn))
+        XCTAssertEqual(desk.placement, .none)
+        XCTAssertTrue(desk.strip.isHidden)
+        XCTAssertEqual(desk.conversationPane.view.frame.width, desk.view.bounds.width, accuracy: 0.5)
     }
 
     func testANarrowWindowFoldsTheColumnToItsStripWhichOpensItOverTheReader() throws {
@@ -185,7 +279,6 @@ final class MainWindowCalendarTests: XCTestCase {
         XCTAssertEqual(desk.strip.frame.width, Pane.stripWidth)
         XCTAssertEqual(desk.strip.frame.maxX, desk.view.bounds.width)
         XCTAssertGreaterThanOrEqual(desk.conversationPane.view.frame.width, Quire.Layout.Window.readerMinWidth, "the reader keeps 400")
-        XCTAssertEqual(harness.reader.header.layoutToggles[.day]?.isOn, false, "Day is off while folded")
 
         // A click on the strip opens the column over the reader's edge, just before the strip.
         XCTAssertTrue(desk.strip.accessibilityPerformPress())
@@ -195,7 +288,6 @@ final class MainWindowCalendarTests: XCTestCase {
         XCTAssertEqual(desk.column.frame.maxX, desk.strip.frame.minX)
         XCTAssertTrue(desk.strip.isOpen)
         XCTAssertFalse(desk.readerCover.isHidden, "a click in the reader closes it")
-        XCTAssertEqual(harness.reader.header.layoutToggles[.day]?.isOn, true)
 
         // Esc closes it (row 11), D closes it, and a click in the reader closes it and does nothing else.
         XCTAssertTrue(harness.controller.perform(.clearSearch))

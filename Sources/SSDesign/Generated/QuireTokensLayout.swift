@@ -359,6 +359,7 @@ extension Quire {
             public static let kickerNavGap: CGFloat = 8
             public static let navTrailing: CGFloat = 8
             public static let navGap: CGFloat = 2
+            public static let dayToggleGap: CGFloat = 6
             public static let weekHeaderPadX: CGFloat = 24
             public static let bottomPad: CGFloat = 10
             public static let dayCellsHeight: CGFloat = 48

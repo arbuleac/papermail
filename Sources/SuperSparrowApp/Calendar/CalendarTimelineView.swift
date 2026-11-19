@@ -335,11 +335,10 @@ final class CalendarTimelineView: NSView, QuirePointerTarget {
                 let end = index == fit.days.count - 1 ? right : x + CGFloat(placedDay.width)
                 NSRect(x: x, y: y, width: max(0, end - x), height: hairline).fill()
             }
-            // The now label takes the gutter near it: hour labels within 14 pt give way.
-            if let nowY, abs(nowY - y) < Pane.hourLabelClearance { continue }
+            let top = Self.hourLabelTop(lineY: y, lineHeight: lineHeight, fitHeight: fitHeight)
+            if let nowY, Self.hourLabelGivesWay(labelTop: top, lineHeight: lineHeight, nowY: nowY) { continue }
             let label = QuireFont.attributedString(state.text.hourLabel(hour, on: day), role: .meta, color: .qInk3)
             let width = CalendarType.width(of: label)
-            let top = min(max(0, y - lineHeight / 2), fitHeight - lineHeight)
             label.draw(with: NSRect(x: style.gutter - Pane.hourLabelGap - width, y: top, width: width + 1, height: lineHeight),
                        options: QuireFont.drawingOptions, context: nil)
         }
@@ -349,6 +348,17 @@ final class CalendarTimelineView: NSView, QuirePointerTarget {
             CalendarMarkPainter.drawFold(rect, label: state.text.foldLabel(from: fold.from, to: fold.to, on: day),
                                          labelX: style.gutter + Pane.hourLabelGap)
         }
+    }
+
+    /// An hour label's top: centred on its hour's line, held inside the timeline at its top and bottom.
+    static func hourLabelTop(lineY: CGFloat, lineHeight: CGFloat, fitHeight: CGFloat) -> CGFloat {
+        min(max(0, lineY - lineHeight / 2), fitHeight - lineHeight)
+    }
+
+    /// The now label takes the gutter near it: an hour label within 14 pt of it gives way, measured where the label
+    /// lands, so 00:00 held inside the top never sits under 00:19.
+    static func hourLabelGivesWay(labelTop: CGFloat, lineHeight: CGFloat, nowY: CGFloat) -> Bool {
+        abs(nowY - (labelTop + lineHeight / 2)) < Pane.hourLabelClearance
     }
 
     func foldRect(_ fold: CalendarFit.Fold) -> NSRect {

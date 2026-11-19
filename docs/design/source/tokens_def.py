@@ -2,7 +2,7 @@
 and the rendered DESIGN-LANGUAGE.md. Colour order: light, dark, lightHC, darkHC."""
 
 NAME = "Quire"
-VERSION = "1.9.1"
+VERSION = "1.9.2"
 
 # The brand palette (docs/brand, spec §5.42), written once: `layout.brand` and the app icon's colours (`layout.appIcon`)
 # read it from here. The mark is black and white only: `paper` is the plane on the icon's tile and the one-colour mark on
@@ -251,7 +251,7 @@ LAYOUT = {
  # leading hairline, as the rail's and the list's widths include their trailing one (§3.2).
  "calendarPane": {"columnWidth": 240, "stripWidth": 28, "readerMinWithColumn": 400, "overlayShadow": "e2",
                   "headerHeight": 92, "headerPadX": 14, "headlineTop": 60, "kickerNavGap": 8,
-                  "navTrailing": 8, "navGap": 2, "weekHeaderPadX": 24, "bottomPad": 10,
+                  "navTrailing": 8, "navGap": 2, "dayToggleGap": 6, "weekHeaderPadX": 24, "bottomPad": 10,
                   "dayCellsHeight": 48, "dayCellsInsetX": 8, "dayCellTop": 4, "dayCellHeight": 40,
                   "dayCellRadius": 6, "weekHeadsHeight": 34, "weekHeadPadX": 8,
                   "weekHeadTextTop": 10, "todayUnderlineGap": 4, "hourGutterColumn": 44, "hourGutterWeek": 48,
