@@ -132,7 +132,9 @@ public protocol MailClient: AnyObject {
     func refreshCalendars(accountID: AccountID?)
     /// Reads the calendars of `accountID` (every account when nil) over `interval` as well as the kept window, once: the
     /// user turned the day column or the week to days outside `CalendarWindow.around(now)`. What it reads is written as
-    /// any read is (`replaceCalendarEvents` over that interval). Returns immediately.
+    /// any read is (`replaceCalendarEvents` over that interval); days more than 30 days behind the kept window are kept
+    /// until the next read of the kept window, so ask again when they are shown again. The kept window is read with it
+    /// only when its own read is due. Returns immediately.
     func refreshCalendars(accountID: AccountID?, covering interval: DateInterval)
     /// Signs `account` in again asking for the calendar scope too (Connect, from the calendar's foot); once granted,
     /// its calendar is read. Throws as `reconnect` does.

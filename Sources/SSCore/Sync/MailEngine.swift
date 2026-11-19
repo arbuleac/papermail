@@ -510,6 +510,26 @@ public final class MailEngine: MailClient, @unchecked Sendable {
         // The same answer again changes nothing and sends nothing.
         guard metadata.invitationReply != response else { return }
         try perform(.answerInvitation(answer), on: [message])
+        answerOnCalendar(response, to: invitation, message: message)
+    }
+
+    /// The calendar's copy of the invitation (Google and Exchange put invitations on the calendar themselves) shows the
+    /// answer at once rather than at the calendar's next read: a decline leaves the day column, an accept is drawn
+    /// solid. The account's calendar lane reads the provider's own word once the outbox has sent the answer
+    /// (`LiveLane`'s `invitationAnswered`), not before, when it would still say the old one. The answer is queued
+    /// whatever this meets: the calendar catches up at that read.
+    private func answerOnCalendar(_ response: InvitationResponse, to invitation: CalendarInvitation, message: MessageID) {
+        guard let answer = CalendarEvent.Response(rawValue: response.rawValue) else { return }
+        // An answer to one occurrence is that occurrence's alone; a floating time is read on the Mac's clock, as the
+        // calendar draws it.
+        let occurrence = invitation.recurrenceID == nil
+            ? nil
+            : CalendarFit.pencil(for: invitation, message: message, timeZone: .current)?.start
+        do {
+            try store.answerCalendarEvents(answer, invitationUID: invitation.uid, accountID: message.accountID, near: occurrence)
+        } catch {
+            SyncLog.logger.error("calendar: could not show an answer for \(message.accountID.rawValue, privacy: .public): \(SyncErrorDescription.describe(error), privacy: .private)")
+        }
     }
 
     public func send(_ message: OutgoingMessage, undoWindow: TimeInterval) throws -> String {
@@ -587,8 +607,10 @@ public final class MailEngine: MailClient, @unchecked Sendable {
         registry.context(for: event.accountID)?.syncer.sendCalendarWrites()
     }
 
-    /// A row the provider had becomes `deleting`, which the calendar lane deletes there. One it never had (`creating`,
-    /// `failed`) goes at once with nothing to send: a create already on its way finds its row gone and deletes the copy.
+    /// A row the provider had becomes `deleting`, which the calendar lane deletes there. A `failed` one goes at once.
+    /// One still `creating` leaves a hidden tombstone with nothing to send yet: a create already on its way settles its
+    /// copy into it and the lane deletes that copy at once; otherwise the lane's next read finds any copy a create made
+    /// under a lost reply, by its key, and deletes it then, or sweeps the tombstone.
     @discardableResult
     public func removeCalendarEvent(id: String) throws -> CalendarEvent? {
         let removed = try store.removeCalendarEvent(id: id)
@@ -598,8 +620,9 @@ public final class MailEngine: MailClient, @unchecked Sendable {
         return removed
     }
 
-    /// A row put back as `creating` is created again by the calendar lane. One that was waiting to be deleted is simply
-    /// `synced` again: should the delete have gone out meanwhile, the lane sets it aside anew.
+    /// A row put back as `creating` is created again by the calendar lane (a tombstone under its own key, so a copy a
+    /// first create made is found rather than made twice). One that was waiting to be deleted is simply `synced` again:
+    /// should the delete have gone out meanwhile, the lane sets it aside anew.
     @discardableResult
     public func restoreCalendarEvent(_ event: CalendarEvent) throws -> CalendarEvent {
         let restored = try store.restoreCalendarEvent(event)
@@ -621,6 +644,20 @@ public final class MailEngine: MailClient, @unchecked Sendable {
         }
         for context in targets {
             context.syncer.refreshCalendar()
+        }
+    }
+
+    /// Each calendar lane reads `interval` once at its next turn, besides its own window, which it reads then only if
+    /// that is due or was asked for: turning through weeks outside the window costs a read of each, never of the window.
+    public func refreshCalendars(accountID: AccountID?, covering interval: DateInterval) {
+        let targets: [AccountContext]
+        if let accountID {
+            targets = registry.context(for: accountID).map { [$0] } ?? []
+        } else {
+            targets = registry.all()
+        }
+        for context in targets {
+            context.syncer.refreshCalendar(covering: interval)
         }
     }
 

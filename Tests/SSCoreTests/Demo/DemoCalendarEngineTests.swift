@@ -24,6 +24,8 @@ final class DemoCalendarEngineTests: XCTestCase {
         tuning.pollInterval = 0.1
         tuning.backoffBase = 0.05
         tuning.backoffCap = 0.5
+        // Every read dated in the status, so the test can tell a refresh's read from the one before.
+        tuning.calendarStatusRefresh = 0
         let store = InMemoryMailStore()
         let engine = MailEngine(
             store: store,
