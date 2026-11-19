@@ -2,7 +2,7 @@
 and the rendered DESIGN-LANGUAGE.md. Colour order: light, dark, lightHC, darkHC."""
 
 NAME = "Quire"
-VERSION = "1.8.8"
+VERSION = "1.9.0"
 
 # The brand palette (docs/brand, spec §5.42), written once: `layout.brand` and the app icon's colours (`layout.appIcon`)
 # read it from here. The mark is black and white only: `paper` is the plane on the icon's tile and the one-colour mark on
@@ -173,14 +173,14 @@ BORDER = {
  "focusRing": {"width": 2, "widthHC": 3, "gap": 1, "gapAroundSheets": 2, "gapOnAccentFill": 2, "color": "focus", "onSlipColor": "onSlip"},
  "error": {"width": 1.5, "color": "danger"},
  "accountRing": {"width": 2, "gap": 2},
- "icOutline": {"width": 1, "color": "ruleStrong", "appliesTo": "sheets, stack, quick-reply field, autocomplete, link popover, find bar and cheat sheet in increased contrast (slips use slipEdge instead)"},
+ "icOutline": {"width": 1, "color": "ruleStrong", "appliesTo": "sheets, stack, quick-reply field, autocomplete, link popover, find bar, cheat sheet, the day column opened over the reader's edge, an event's details and the week's invitation card in increased contrast (slips use slipEdge instead)"},
 }
 ELEVATION = {
  "e0": {"light": [], "dark": [], "use": "List, rows, rail, stack, fields, chips (hairline only)"},
  "e1": {"light": [{"x": 0, "y": 1, "blur": 2, "spread": 0, "color": "#1D1B180F"}],
         "dark":  [{"x": 0, "y": 1, "blur": 2, "spread": 0, "color": "#00000059"}], "use": "Open message sheet, selected rail tile (folder or All Inboxes)"},
  "e2": {"light": [{"x": 0, "y": 6, "blur": 20, "spread": 0, "color": "#1D1B1824"}, {"x": 0, "y": 1, "blur": 3, "spread": 0, "color": "#1D1B181A"}],
-        "dark":  [{"x": 0, "y": 8, "blur": 24, "spread": 0, "color": "#00000080"}, {"x": 0, "y": 1, "blur": 3, "spread": 0, "color": "#00000059"}], "use": "Toast, g-sequence HUD, autocomplete, link popover, dragged chip, dragged rail tile"},
+        "dark":  [{"x": 0, "y": 8, "blur": 24, "spread": 0, "color": "#00000080"}, {"x": 0, "y": 1, "blur": 3, "spread": 0, "color": "#00000059"}], "use": "Toast, g-sequence HUD, autocomplete, link popover, dragged chip, dragged rail tile, the day column opened over the reader's edge, an event's details, the week's invitation card"},
  "e3": {"light": [{"x": 0, "y": 16, "blur": 40, "spread": 0, "color": "#1D1B182E"}, {"x": 0, "y": 2, "blur": 8, "spread": 0, "color": "#1D1B181A"}],
         "dark":  [{"x": 0, "y": 18, "blur": 48, "spread": 0, "color": "#00000099"}, {"x": 0, "y": 2, "blur": 8, "spread": 0, "color": "#00000066"}], "use": "Undo-send panel, cheat-sheet overlay"},
 }
@@ -189,11 +189,13 @@ MOTION = {
               "spinnerDelay": 150, "skeletonDelay": 300, "gHudDelay": 500, "gSequenceWindow": 2000,
               "toastLife": 5000, "undoSendChoices": [5000, 10000, 20000], "toastCoalesce": 1000, "undoKeyGrace": 10000, "undoSendDefault": 5000,
               "sentConfirm": 1500, "copiedConfirm": 1500, "toastConfirm": 2000, "stripNotice": 3000, "spinnerTurn": 900, "contrailSweep": 1200,
-              "printImageWait": 3000},
+              "printImageWait": 3000, "nowTick": 60000},
  "curve": {"settle": [0.2, 0.8, 0.2, 1.0], "leave": [0.4, 0.0, 1.0, 1.0], "glide": [0.4, 0.0, 0.2, 1.0], "linear": [0.0, 0.0, 1.0, 1.0]},
 }
 LAYOUT = {
- "window": {"dividerHit": 6, "defaultWidth": 1280, "defaultHeight": 800, "minWidth": 960, "minHeight": 600, "titlebarZone": 52, "composerTitlebar": 28, "composerTitlebar26": 32,
+ # defaultWidth = rail.width26 + list.defaultWidth + window.readerKeycapsMin + calendarPane.columnWidth (build.py checks it):
+ # a new window's reader keeps its keycaps beside the day column (spec §3.2, §5.1, §5.54).
+ "window": {"dividerHit": 6, "defaultWidth": 1304, "defaultHeight": 800, "minWidth": 960, "minHeight": 600, "titlebarZone": 52, "composerTitlebar": 28, "composerTitlebar26": 32,
             "readerMinWidth": 400, "readerNarrow": 560, "readerKeycapsMin": 616},
  "readerWindow": {"defaultWidth": 840, "defaultHeight": 800, "minWidth": 520, "minHeight": 420},
  "trafficLights": {"mechanism": "emptyUnifiedToolbar", "centerY": 26, "originX": 20, "size": 12, "gap": 8, "endX": 72,
@@ -242,6 +244,36 @@ LAYOUT = {
  "invitation": {"radius": 8, "padX": 16, "padTop": 12, "padBottom": 12, "kickerGlyph": 14, "kickerGap": 6, "titleTop": 6, "whenTop": 2,
                 "detailsTop": 8, "labelColumn": 72, "rowGap": 2, "actionsTop": 12, "actionsPad": 10, "answerGap": 4, "answerSize": "small",
                 "answerGlyph": 12, "attendeesMax": 4, "noticeTop": 10, "gapBelow": 16},
+ # Day and week (spec §5.54): the day column beside the reader, its folded strip, and the week in the reader's place.
+ # Points, except eventTintAlpha (the account ink's opacity over `sheet` in an event's face), coreStartHour and coreEndHour
+ # (the hours of the day always open), blockMinutes and snapMinutes (minutes), maxSideBySide and allDayRowsMax (counts)
+ # and overlayShadow (the elevation of the column opened over the reader's edge). columnWidth and stripWidth include their
+ # leading hairline, as the rail's and the list's widths include their trailing one (§3.2).
+ "calendarPane": {"columnWidth": 240, "stripWidth": 28, "readerMinWithColumn": 400, "overlayShadow": "e2",
+                  "headerHeight": 92, "headerPadX": 14, "headlineTop": 60, "kickerNavGap": 8,
+                  "navTrailing": 8, "navGap": 2, "weekHeaderPadX": 24, "bottomPad": 10,
+                  "dayCellsHeight": 48, "dayCellsInsetX": 8, "dayCellTop": 4, "dayCellHeight": 40,
+                  "dayCellRadius": 6, "dayCellTextTop": 3, "dayCellTrack": 5, "dayCellTrackInsetX": 4,
+                  "dayCellTrackBottom": 3, "dayCellAllDayLine": 2, "weekHeadsHeight": 34, "weekHeadPadX": 8,
+                  "weekHeadTextTop": 10, "todayUnderlineGap": 4, "hourGutterColumn": 36, "hourGutterWeek": 48,
+                  "hourLabelGap": 6, "hourLabelClearance": 14, "trailingPadColumn": 8, "trailingPadWeek": 12,
+                  "foldHeight": 14, "foldedDayWidth": 28, "hourMin": 16, "hourMax": 64,
+                  "coreStartHour": 9, "coreEndHour": 18, "eventMinHeight": 18, "eventEdge": 3,
+                  "eventTintAlpha": 0.13, "eventRadius": 5, "eventInsetX": 2, "eventInsetY": 1,
+                  "eventGap": 2, "eventPadLeading": 8, "eventPadTrailing": 5, "eventPadTop": 2,
+                  "eventOneLineBelow": 30, "eventPlaceLineMin": 46, "eventGlyph": 12, "eventGlyphGap": 4,
+                  "maxSideBySide": 3, "allDayRowHeight": 18, "allDayRowGap": 4, "allDayRowsMax": 2,
+                  "allDayPadTop": 4, "allDayPadBottom": 6, "nowLineWidth": 2, "nowDot": 8,
+                  "markLine": 1, "mentionLine": 2, "markDash": [3, 3], "markChipHeight": 18,
+                  "markChipInset": 3, "markChipPadLeading": 5, "markChipPadTrailing": 7, "markChipGap": 4,
+                  "pencilDash": [3, 2], "hatchLine": 1, "hatchPitch": 5, "joinMinWidth": 120,
+                  "joinMinHeight": 22, "joinLabelMinWidth": 150, "detailsWidth": 240, "detailsGap": 8,
+                  "detailsRadius": 8, "detailsPadTop": 12, "detailsPadX": 14, "detailsPadBottom": 14,
+                  "detailsTitleTop": 6, "detailsWhenTop": 2, "detailsPlaceTop": 4, "detailsActionsTop": 12,
+                  "detailsActionGap": 4, "ghostEdge": 2, "dropDash": [4, 3], "dropRing": 2,
+                  "stripGlyph": 15, "stripBarWidth": 8, "stripBarRadius": 3, "stripLineInset": 3,
+                  "footPadY": 10, "footGap": 6, "footLinesMax": 2, "blockMinutes": 30,
+                  "snapMinutes": 15},
  "print": {"pageMargin": 36, "messageGap": 24, "partsTop": 6, "noteTop": 12, "noteGlyph": 14, "noteGap": 6, "attachmentGap": 2,
            "imageWait": "motion.duration.printImageWait"},
  "attachmentChip": {"height": 44, "minWidth": 196, "maxWidth": 264, "radius": 8, "padLeft": 8, "padRight": 6, "gap": 10, "tile": 28, "tileRadius": 5,
@@ -351,6 +383,9 @@ ICON = {
  "loginApproval": "info.circle", "notificationsOff": "bell.slash",
  "mute": "bell.slash", "unmute": "bell", "blockSender": "hand.raised", "alwaysArchiveSender": "archivebox", "removeRule": "minus",
  "download": "arrow.down.circle",
+ # day and week (§5.54); `later` and `send` mark Later and Send Later times on it, `warning` an overlap
+ "dayColumn": "calendar", "week": "rectangle.split.3x1", "previousDay": "chevron.left", "nextDay": "chevron.right",
+ "blockTime": "calendar.badge.plus", "joinCall": "video", "eventPlace": "mappin.and.ellipse", "fromThisMail": "envelope",
 }
 GLYPHS = {
  "ss.quire": {"grid": 16, "stroke": 1.5, "paths": ["M2.75 6.25h10.5a1 1 0 0 1 1 1v5.5a1 1 0 0 1-1 1H2.75a1 1 0 0 1-1-1v-5.5a1 1 0 0 1 1-1z", "M2.1 7 8 10.6 13.9 7", "M3.5 3.75h9", "M5.25 1.5h5.5"], "fills": [], "meaning": "All Inboxes: a gathering of letters"},
@@ -396,21 +431,25 @@ CHEAT_SHEET_SEARCH = ("Search", ["from:", "to:", "subject:", "is:unread", "is:re
 
 # Keyboard cheat sheet content (§5.32), band by band, left to right; keys separated by spaces, "then" and "…" are words.
 CHEAT_SHEET = [
- # Every key has its row, and the sheet still fits the default window whole (§5.32): band 1 holds nine rows a section and
- # band 2 eight. Keys that undo or mirror each other share a row, as J K and N P do: Open and back (→ esc), Archive and
- # its inverse (E ⇧I), the two ways out to a provider folder (# !), Load images and Original colors, the two window
- # layout toggles; Print sits in Act, beside the other things done to the open conversation. ↩ opens in a window of its
- # own (§5.49), so it has the row ⌘O had, and ⌘O, its menu alternate, is left out as ⌘F is for /.
+ # Every key has its row (§5.32). Keys that undo or mirror each other share a row, as J K and N P do: Open and back
+ # (→ esc), Archive and its inverse (E ⇧I), the two ways out to a provider folder (# !), Load images and Original colors,
+ # the two window layout toggles; Print sits in Act, beside the other things done to the open conversation. ↩ opens in a
+ # window of its own (§5.49), so it has the row ⌘O had, and ⌘O, its menu alternate, is left out as ⌘F is for /. Day and
+ # week (1.9, §5.54) adds three rows, one to each band's longest section but no more: B in Act, beside the other things
+ # done to the selected conversation; [ ] T in Go, since they go to a day; D W in View. Band 1 holds ten rows and band 2
+ # nine, so the sheet no longer fits the default window whole and scrolls under its title row there, as it always did in
+ # shorter windows.
  ("Move", [("J K", "Next · previous"), ("⇧J ⇧K", "Extend the selection"), ("→ esc", "Open · back to the list"),
            ("↩", "Open in a new window"), ("N P", "Next · previous message"), ("space", "Quick Look attachments"),
            ("⇧⌘D", "Download attachments"), ("/", "Search"), ("↩", "In search: ask the server")]),
  ("Act", [("E ⇧I", "Archive · move to Inbox"), ("L", "Snooze until later"), ("# !", "Move to Trash · spam"), ("S", "Star · unstar"),
           ("U", "Mark as unread · read"), ("M", "Mute · unmute"), ("⇧⌘U", "Unsubscribe"), ("⌘P", "Print the conversation"),
-          ("Z", "Undo")]),
- # The Outbox's G O joins Go, so ⌘0 and ⌘1 … ⌘9 share one row, as the keys that mirror each other do, and Go keeps its nine
- # rows (§5.32, §5.53).
+          ("B", "Block time for this mail"), ("Z", "Undo")]),
+ # The Outbox's G O joins Go, so ⌘0 and ⌘1 … ⌘9 share one row, as the keys that mirror each other do (§5.32, §5.53); the
+ # day's [ ] T follow them (§5.54).
  ("Go", [("G then I", "Inbox"), ("G then L", "Later"), ("G then S", "Starred"), ("G then T", "Sent"), ("G then D", "Drafts"),
-         ("G then O", "Outbox"), ("G then #", "Trash"), ("G then A", "All Mail"), ("⌘0 … ⌘9", "All Inboxes · one account")]),
+         ("G then O", "Outbox"), ("G then #", "Trash"), ("G then A", "All Mail"), ("⌘0 … ⌘9", "All Inboxes · one account"),
+         ("[ ] T", "Day before · after · today")]),
  # R and A share a row, as J K and N P do, so Send later fits the band without making the sheet taller (§5.32).
  ("Write", [("C", "New message"), ("R A", "Reply · reply all"), ("F", "Forward"), ("⇧⌘R", "Open in composer"), ("⌘↩", "Send"),
            ("⇧⌘↩", "Send and archive"), ("⇧⌘L", "Send later"), ("⇧⌘A", "Attach files")]),
@@ -418,5 +457,5 @@ CHEAT_SHEET = [
              ("⌘K", "Add link"), ("⌥⌘I", "Insert picture"), ("⇧⌘C ⇧⌘B", "Cc · Bcc field")]),
  ("View", [("⇧⌘I ⇧⌘O", "Images · original colors"), (".", "Show · hide quoted text"), ("⌥⌘F", "Find in conversation"),
            ("⌘G ⇧⌘G", "Next · previous match"), ("⌘+ ⌘−", "Text bigger · smaller"), ("⌥⌘C ⌃⌘S", "Compact rows · the rail"),
-           ("⇧⌘N", "Check for new mail"), ("?", "This sheet")]),
+           ("D W", "Day column · week"), ("⇧⌘N", "Check for new mail"), ("?", "This sheet")]),
 ]

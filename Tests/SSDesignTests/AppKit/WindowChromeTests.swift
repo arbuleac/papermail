@@ -36,7 +36,7 @@ final class WindowChromeTests: XCTestCase {
     func testDefaultAndMinimumSizes() throws {
         let window = mainWindow()
         let content = try XCTUnwrap(window.contentView)
-        XCTAssertEqual(content.bounds.size, NSSize(width: 1280, height: 800))
+        XCTAssertEqual(content.bounds.size, NSSize(width: 1304, height: 800), "the reader keeps its keycaps beside the day column (§3.2)")
         XCTAssertEqual(window.contentMinSize, NSSize(width: 960, height: 600))
     }
 
