@@ -7,6 +7,7 @@ struct GmailRequest: Sendable {
         case get = "GET"
         case post = "POST"
         case patch = "PATCH"
+        case delete = "DELETE"
     }
 
     /// Which Gmail call this is. Throttle logs name it: each kind costs different quota units, so the kind
@@ -20,8 +21,8 @@ struct GmailRequest: Sendable {
         case attachment
         case send
         case batchModify
-        /// The Google Calendar API, which marks the user's own copy of an invitation they answered. Its quota is the
-        /// Calendar API's own, not Gmail's.
+        /// The Google Calendar API, which marks the user's own copy of an invitation they answered and reads and writes
+        /// the main calendar the day column shows. Its quota is the Calendar API's own, not Gmail's.
         case calendar
     }
 

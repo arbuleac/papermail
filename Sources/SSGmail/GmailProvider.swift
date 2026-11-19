@@ -8,7 +8,7 @@ public final class GmailProvider: MailProvider, Sendable {
     public let accountID: AccountID
     public let kind: ProviderKind = .gmail
 
-    private let http: GmailHTTPClient
+    let http: GmailHTTPClient
     private let throttleRetry: GmailThrottleRetry
     private let clock: @Sendable () -> Date
     private let log = Logger(subsystem: "io.supersparrow.mac", category: "gmail")
@@ -806,7 +806,7 @@ public final class GmailProvider: MailProvider, Sendable {
         min(max(limit, 1), maxListResults)
     }
 
-    private static func pathComponent(_ value: String) -> String {
+    static func pathComponent(_ value: String) -> String {
         value.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? value
     }
 }

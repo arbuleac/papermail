@@ -39,13 +39,23 @@ struct GmailHTTPClient: Sendable {
         }
     }
 
+    /// `send`, with `refusal` asked first about a reply outside 2xx. A call whose API words its own refusals (the
+    /// Calendar API's 403 for a missing scope or for the API turned off) reads them there, before the shared mapping
+    /// folds them into `.server`; whatever `refusal` passes over is mapped as for any call, a 401 included.
+    func send(_ request: GmailRequest, refusal: (_ status: Int, _ body: Data) -> Error?) async throws -> Response {
+        try await withAuthRetry { token in
+            try await sendOnce(request, token: token, refusal: refusal)
+        }
+    }
+
     func json<T: Decodable>(_ type: T.Type, for request: GmailRequest) async throws -> T {
         let response = try await send(request)
         return try Self.decode(type, from: response.data)
     }
 
     /// One attempt with a given token. Non-2xx statuses become errors here; the auth retry lives above.
-    func sendOnce(_ request: GmailRequest, token: String) async throws -> Response {
+    func sendOnce(_ request: GmailRequest, token: String,
+                  refusal: (_ status: Int, _ body: Data) -> Error? = { _, _ in nil }) async throws -> Response {
         let urlRequest = request.urlRequest(token: token)
         let probe = SentBytesProbe()
         let data: Data
@@ -58,6 +68,9 @@ struct GmailHTTPClient: Sendable {
         }
         guard let http = response as? HTTPURLResponse else {
             throw ProviderError.network("Response was not HTTP")
+        }
+        if !(200..<300).contains(http.statusCode), let refused = refusal(http.statusCode, data) {
+            throw refused
         }
         try Self.check(http, body: data, kind: request.kind)
         return Response(status: http.statusCode, data: data, http: http)
