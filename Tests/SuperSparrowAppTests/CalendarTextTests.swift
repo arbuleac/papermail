@@ -65,6 +65,18 @@ final class CalendarTextTests: XCTestCase {
         XCTAssertEqual(CalendarText.service(of: "https://example.com/call"), "Video call")
     }
 
+    /// A service is named only for its own domain or a subdomain of it, never for a look-alike that ends the same way.
+    func testAServiceIsNamedOnlyForItsOwnDomain() {
+        XCTAssertEqual(CalendarText.service(of: "https://us02web.zoom.us/j/1"), "Zoom")
+        XCTAssertEqual(CalendarText.service(of: "https://zoom.us/j/1"), "Zoom")
+        XCTAssertEqual(CalendarText.service(of: "https://acme.webex.com/meet/x"), "Webex")
+        XCTAssertEqual(CalendarText.service(of: "https://teams.live.com/meet/1"), "Teams")
+        for lookAlike in ["https://securezoom.us/j/1", "https://notzoom.com/j/1", "https://fakewebex.com/x",
+                          "https://evilmeet.google.com.example/x", "https://myteams.microsoft.com.example/x"] {
+            XCTAssertEqual(CalendarText.service(of: lookAlike), "Video call", lookAlike)
+        }
+    }
+
     // MARK: Setting time aside
 
     func testABlockIsThirtyMinutesTitledWithTheSubject() throws {

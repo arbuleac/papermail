@@ -215,14 +215,20 @@ struct CalendarText {
         weekday(start) + " " + range(start, end)
     }
 
-    /// The call's service, read from its join address: “Google Meet”, “Teams”, “Zoom”, else “Video call”.
+    /// The call's service, read from its join address: “Google Meet”, “Teams”, “Zoom”, “Webex”, else “Video call”.
     static func service(of joinURL: String) -> String {
         let host = URL(string: joinURL)?.host?.lowercased() ?? ""
-        if host.hasSuffix("meet.google.com") { return "Google Meet" }
-        if host.hasSuffix("teams.microsoft.com") || host.hasSuffix("teams.live.com") { return "Teams" }
-        if host.hasSuffix("zoom.us") || host.hasSuffix("zoom.com") { return "Zoom" }
-        if host.hasSuffix("webex.com") { return "Webex" }
+        if isDomain(host, "meet.google.com") { return "Google Meet" }
+        if isDomain(host, "teams.microsoft.com") || isDomain(host, "teams.live.com") { return "Teams" }
+        if isDomain(host, "zoom.us") || isDomain(host, "zoom.com") { return "Zoom" }
+        if isDomain(host, "webex.com") { return "Webex" }
         return "Video call"
+    }
+
+    /// `host` is `domain` or one of its subdomains: a bare suffix would name a look-alike (`securezoom.us`, a link from
+    /// a stranger's invitation) after the service it imitates.
+    private static func isDomain(_ host: String, _ domain: String) -> Bool {
+        host == domain || host.hasSuffix("." + domain)
     }
 
     /// The provider's web calendar, for Open in … and the failed line.
