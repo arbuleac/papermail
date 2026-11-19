@@ -41,6 +41,9 @@ final class ReaderAndCalendarViewController: NSViewController {
 
     /// After what shows changed: the reader header's Day button, the menus and the calendar's span follow it.
     var onPlacementChange: (() -> Void)?
+    /// A click in the reader while the column is open over it: the window closes the column (and takes focus that was
+    /// in it back to the list). Without one the column only closes.
+    var onCoverClick: (() -> Void)?
 
     init(conversationPane: ConversationPaneViewController, state: CalendarState, isColumnOn: Bool) {
         self.conversationPane = conversationPane
@@ -65,7 +68,10 @@ final class ReaderAndCalendarViewController: NSViewController {
         // Placed by hand beside the column; its own minimum stays, and the frame never goes under it.
         reader.translatesAutoresizingMaskIntoConstraints = true
         reader.autoresizingMask = []
-        readerCover.onClick = { [weak self] in self?.setOverlayOpen(false) }
+        readerCover.onClick = { [weak self] in
+            guard let self else { return }
+            if let onCoverClick = self.onCoverClick { onCoverClick() } else { self.setOverlayOpen(false) }
+        }
         // Back to front: the reader, the cover over it, the column (over the reader's edge when opened from the strip),
         // its strip, and the week, which takes the place of all of them.
         for subview in [reader, readerCover, column, strip, week] as [NSView] {

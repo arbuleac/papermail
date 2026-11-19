@@ -106,14 +106,23 @@ final class MainWindowCalendarTests: XCTestCase {
         NSMenuItem(title: "", action: action, keyEquivalent: "")
     }
 
-    private func press(_ characters: String, keyCode: UInt16, in window: NSWindow) throws {
+    /// `characters` as the key produces them; `ignoring` the key's own character, without the modifiers (⌥5 types [ on
+    /// a German layout, so it arrives as “[” ignoring “5”).
+    private func press(_ characters: String, ignoring: String? = nil, keyCode: UInt16, modifiers: NSEvent.ModifierFlags = [],
+                       in window: NSWindow) throws {
         KeyboardRouter.keyWindowForTests = window
         defer { KeyboardRouter.keyWindowForTests = nil }
-        let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+        let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers,
                                                    timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
-                                                   context: nil, characters: characters, charactersIgnoringModifiers: characters,
+                                                   context: nil, characters: characters, charactersIgnoringModifiers: ignoring ?? characters,
                                                    isARepeat: false, keyCode: keyCode))
         NSApp.sendEvent(event)
+    }
+
+    /// Waits `seconds` on the main run loop, for timers that must not fire.
+    private func wait(_ seconds: TimeInterval) {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
     }
 
     /// A drag of `id`'s row, written by the list itself.
@@ -677,6 +686,305 @@ final class MainWindowCalendarTests: XCTestCase {
         XCTAssertEqual(controller.calendarState.scope, .account(Support.accountB.id))
         controller.strip.selectShortcut(0)
         XCTAssertEqual(controller.calendarState.scope, .all)
+    }
+
+    // MARK: Now, for B
+
+    /// The clock moves only while a calendar is on screen; B reads now afresh, with the column hidden too.
+    func testBWithTheColumnHiddenSetsTimeAsideFromTheRealNow() throws {
+        let settings = ListTestSupport.settings()
+        settings.showsDayColumn = false
+        let clock = Support.Clock() // 11:40
+        let harness = try self.harness(settings: settings, clock: clock)
+        XCTAssertEqual(harness.controller.desk.placement, .none)
+        clock.now = Support.at(15, 10)
+        let id = conversation(0, in: harness)
+        select(id, in: harness)
+        XCTAssertTrue(harness.controller.perform(.blockTime))
+        let block = try XCTUnwrap(try events(harness).first)
+        XCTAssertEqual(block.start, Support.at(15, 15), "the first free half hour from 15:10, not from when the window opened")
+        XCTAssertEqual(harness.toastMessage, "Blocked 15:15 - 15:45")
+    }
+
+    /// B in a reader window while the main window's calendar shows nothing: a time the mail named that has passed is
+    /// never set aside.
+    func testBInAReaderWindowNeverSetsAsideATimeThatHasPassed() throws {
+        let settings = ListTestSupport.settings()
+        settings.showsDayColumn = false
+        let clock = Support.Clock()
+        let harness = try self.harness(settings: settings, clock: clock)
+        let id = conversation(1, in: harness)
+        try nameTime(id, in: harness, at: Support.at(13))
+        clock.now = Support.at(14)
+        let reader = try XCTUnwrap(harness.controller.openInNewWindow(id))
+        defer { reader.close() }
+        XCTAssertTrue(reader.perform(.blockTime))
+        let block = try XCTUnwrap(try events(harness).first)
+        XCTAssertEqual(block.start, Support.at(14), "the first free half hour from now, 13:00 being past")
+    }
+
+    // MARK: Where B looks
+
+    /// The week shows no one day: with Sunday-first weeks, B from next week passes over its Sunday.
+    func testBInTheWeekPassesOverItsFirstDayWhenItIsASunday() throws {
+        var sundayFirst = Support.calendar
+        sundayFirst.firstWeekday = 1
+        let clock = Support.Clock()
+        let harness = try MainWindowHarness(accounts: true, calendar: sundayFirst, now: { clock.now })
+        harnesses.append(harness)
+        layOut(harness)
+        let controller = harness.controller
+        XCTAssertTrue(controller.perform(.toggleWeek))
+        XCTAssertTrue(controller.perform(.nextDay))
+        XCTAssertEqual(controller.calendarState.shownWeekDays.first, Support.day(22), "Sun 22 - Sat 28 Nov")
+        selectAndWait(conversation(0, in: harness), in: harness)
+        XCTAssertTrue(controller.perform(.blockTime))
+        let block = try XCTUnwrap(try events(harness).first)
+        XCTAssertEqual(block.start, Support.at(9, on: Support.day(23)), "Monday 09:00, never Sunday's")
+    }
+
+    /// What is set aside already is read from the store: with the column back on today, a second B never sets the mail's
+    /// time, weeks away, aside again.
+    func testBTwiceNeverSetsTheSameMailTimeAsideTwice() throws {
+        let harness = try self.harness()
+        let controller = harness.controller
+        let id = conversation(2, in: harness)
+        let named = Support.at(15, on: Support.day(10, month: 12))
+        try nameTime(id, in: harness, at: named)
+        selectAndWait(id, in: harness)
+        XCTAssertTrue(controller.perform(.blockTime))
+        XCTAssertEqual(controller.calendarState.shownDay, Support.day(10, month: 12), "the column turned to it")
+        XCTAssertTrue(controller.perform(.today))
+        XCTAssertTrue(controller.perform(.blockTime))
+        let blocks = try events(harness).filter { $0.sourceMessage != nil }
+        XCTAssertEqual(blocks.count, 2)
+        XCTAssertEqual(blocks.filter { $0.start == named }.count, 1, "one block at the time the mail names, the next at a free half hour")
+    }
+
+    /// B looks only through days the store holds: near the end of the kept window it stops there rather than take a day
+    /// it knows nothing of for a free one.
+    func testBNeverLooksPastTheDaysTheStoreHolds() throws {
+        let harness = try self.harness()
+        let controller = harness.controller
+        let state = controller.calendarState
+        let window = state.keptWindow
+        let lastDay = try XCTUnwrap(Support.calendar.date(byAdding: .day, value: -1, to: window.end))
+        // Every working hour of the window's last week is taken.
+        var busy: [CalendarEvent] = []
+        for offset in 0..<7 {
+            let day = try XCTUnwrap(Support.calendar.date(byAdding: .day, value: -offset, to: lastDay))
+            busy.append(Support.event("busy-\(offset)", title: "Busy", start: Support.at(0, on: day), end: Support.at(23, 59, on: day)))
+        }
+        let read = DateInterval(start: Support.day(26, month: 10), end: window.end.addingTimeInterval(86_400 * 30))
+        try harness.environment.store.replaceCalendarEvents(busy, accountID: Support.accountA.id, window: read)
+        let firstBusy = try XCTUnwrap(Support.calendar.date(byAdding: .day, value: -6, to: lastDay))
+        controller.selectDay(firstBusy)
+        selectAndWait(conversation(0, in: harness), in: harness)
+        XCTAssertTrue(controller.perform(.blockTime))
+        XCTAssertTrue(try events(harness).filter { $0.sourceMessage != nil }.isEmpty, "nothing past the window's last day")
+    }
+
+    // MARK: The reader under the week
+
+    /// J and K while the week shows: the hidden reader marks nothing read; it does once it shows again.
+    func testMailSelectedUnderTheWeekStaysUnreadUntilTheReaderShows() throws {
+        let harness = try self.harness()
+        let controller = harness.controller
+        let store = harness.environment.store
+        XCTAssertTrue(controller.perform(.toggleWeek))
+        let unread = try XCTUnwrap(harness.list.conversations.first { row in
+            ((try? store.messages(in: row.id)) ?? []).contains { !$0.isRead }
+        }?.id)
+        select(unread, in: harness)
+        harness.spin { controller.conversation.currentConversationID == unread }
+        wait(1.2)
+        XCTAssertTrue(try store.messages(in: unread).contains { !$0.isRead }, "mail behind the week is not read")
+
+        XCTAssertTrue(controller.perform(.toggleWeek))
+        harness.spin { (try? store.messages(in: unread).allSatisfy(\.isRead)) == true }
+        XCTAssertTrue(try store.messages(in: unread).allSatisfy(\.isRead), "read once the reader shows it")
+    }
+
+    /// R while the week shows opens the composer (the quick reply is hidden with the reader), and what acts on the
+    /// reader's page waits for it.
+    func testReplyAndReaderCommandsWhileTheWeekShowsNeverReachTheHiddenReader() throws {
+        let harness = try self.harness()
+        let controller = harness.controller
+        defer { for composer in ComposeWindowRegistry.shared.openControllers { composer.closeWithoutSaving() } }
+        let id = conversation(0, in: harness)
+        selectAndWait(id, in: harness)
+        harness.spin { controller.conversation.currentConversationID == id }
+        let find = item(#selector(MainWindowController.findInConversation(_:)))
+        let before = controller.validateMenuItem(find)
+        XCTAssertTrue(controller.perform(.toggleWeek))
+        let composers = ComposeWindowRegistry.shared.openControllers.count
+        XCTAssertTrue(controller.perform(.reply))
+        let responder = controller.window?.firstResponder as? NSView
+        XCTAssertFalse(responder?.isHiddenOrHasHiddenAncestor ?? false, "focus never goes to a field no one can see")
+        XCTAssertFalse(KeyboardRouter.isTextInput(controller.window?.firstResponder))
+        XCTAssertEqual(ComposeWindowRegistry.shared.openControllers.count, composers + 1, "the reply opens in a composer")
+        XCTAssertFalse(controller.validateMenuItem(find), "Find in Conversation waits for the reader")
+        XCTAssertFalse(controller.validateMenuItem(item(#selector(MainWindowController.nextMessage(_:)))))
+        XCTAssertTrue(controller.perform(.toggleWeek))
+        XCTAssertEqual(controller.validateMenuItem(find), before)
+    }
+
+    // MARK: Midnight
+
+    /// Left open overnight, the column shows the new today, and J and K go back to it, not to yesterday.
+    func testTheColumnTurnsAtMidnightAndTheSelectionGoesBackToTheNewToday() throws {
+        let clock = Support.Clock()
+        let harness = try self.harness(clock: clock)
+        let controller = harness.controller
+        let state = controller.calendarState
+        let invited = conversation(1, in: harness)
+        _ = try invite(invited, in: harness, start: Support.at(10, on: Support.day(24)), end: Support.at(11, on: Support.day(24)))
+        selectAndWait(conversation(0, in: harness), in: harness)
+        XCTAssertEqual(state.shownDay, Support.day(19))
+
+        clock.now = Support.at(8, on: Support.day(20))
+        NotificationCenter.default.post(name: .NSCalendarDayChanged, object: nil)
+        XCTAssertEqual(state.shownDay, Support.day(20))
+        XCTAssertEqual(controller.desk.column.header.kicker, "Today")
+        selectAndWait(invited, in: harness)
+        XCTAssertEqual(state.shownDay, Support.day(24))
+        selectAndWait(conversation(2, in: harness), in: harness)
+        XCTAssertEqual(state.shownDay, Support.day(20), "back on the new today")
+
+        // A day the user turned to stays theirs.
+        XCTAssertTrue(controller.perform(.nextDay))
+        clock.now = Support.at(8, on: Support.day(21))
+        NotificationCenter.default.post(name: .NSCalendarDayChanged, object: nil)
+        XCTAssertEqual(state.shownDay, Support.day(21), "the 21st, chosen yesterday, is today now")
+        selectAndWait(invited, in: harness)
+        selectAndWait(conversation(0, in: harness), in: harness)
+        XCTAssertEqual(state.shownDay, Support.day(21))
+    }
+
+    // MARK: Days outside the kept window
+
+    /// Days turned to past the kept window show what the store holds and are read once; a hidden calendar asks nothing.
+    func testDaysOutsideTheKeptWindowAreReadOnce() throws {
+        let harness = try self.harness()
+        let controller = harness.controller
+        let state = controller.calendarState
+        var asked: [DateInterval?] = []
+        controller.readCalendars = { asked.append($0) }
+        func day(_ day: Int, month: Int) -> Date {
+            Support.calendar.date(from: DateComponents(year: 2027, month: month, day: day))!
+        }
+        // Monday 1 March 2027, past the eight weeks ahead the engine keeps.
+        controller.selectDay(day(1, month: 3))
+        XCTAssertEqual(asked, [state.shownRange], "the column's week")
+        XCTAssertEqual(state.shownRange.start, day(1, month: 3))
+        XCTAssertTrue(controller.perform(.nextDay))
+        XCTAssertTrue(controller.perform(.today))
+        controller.selectDay(day(1, month: 3))
+        XCTAssertEqual(asked.count, 1, "a week is asked for once")
+
+        XCTAssertTrue(controller.perform(.toggleWeek))
+        XCTAssertEqual(asked.count, 1, "the week of the column's day was asked for already")
+        XCTAssertTrue(controller.perform(.nextDay))
+        XCTAssertEqual(asked.count, 2, "the next week")
+        XCTAssertEqual(asked.last??.start, day(8, month: 3))
+
+        XCTAssertTrue(controller.perform(.toggleWeek))
+        XCTAssertTrue(controller.perform(.toggleDayColumn))
+        XCTAssertEqual(controller.desk.placement, .none)
+        controller.selectDay(day(1, month: 4))
+        XCTAssertEqual(asked.count, 2, "a hidden calendar asks for nothing")
+        XCTAssertTrue(controller.perform(.toggleDayColumn))
+        XCTAssertEqual(asked.count, 3, "until it shows, with the window")
+        XCTAssertEqual(asked.last??.start, day(29, month: 3))
+        XCTAssertTrue(controller.perform(.toggleDayColumn))
+        XCTAssertTrue(controller.perform(.toggleDayColumn))
+        XCTAssertEqual(asked.last ?? nil, nil, "inside what was asked, the window alone")
+    }
+
+    // MARK: The hidden column
+
+    /// With the column hidden J and K cost the calendar nothing; it reads the selection as it comes back, already on
+    /// its day.
+    func testAHiddenColumnFollowsNothingAndCatchesUpAsItShows() throws {
+        let settings = ListTestSupport.settings()
+        settings.showsDayColumn = false
+        let harness = try self.harness(settings: settings)
+        let controller = harness.controller
+        let state = controller.calendarState
+        let invited = conversation(1, in: harness)
+        _ = try invite(invited, in: harness, start: Support.at(10, on: Support.day(24)), end: Support.at(11, on: Support.day(24)))
+        select(conversation(0, in: harness), in: harness)
+        select(invited, in: harness)
+        wait(0.2)
+        XCTAssertNil(state.selectedConversation, "nothing is read for a calendar no one sees")
+        XCTAssertEqual(state.shownDay, Support.day(19))
+
+        XCTAssertTrue(controller.perform(.toggleDayColumn))
+        XCTAssertEqual(state.selection?.conversationID, invited, "read at once")
+        XCTAssertEqual(state.shownDay, Support.day(24), "the column comes on on the invitation's day")
+        XCTAssertTrue(controller.perform(.toggleDayColumn))
+        XCTAssertNil(state.selectedConversation)
+    }
+
+    // MARK: Undo and the overlay
+
+    /// A block already gone when its undo comes (removed in the provider's calendar, and dropped by a read) has nothing
+    /// to take back: no “Undid”, and the step leaves the history.
+    func testUndoingABlockThatIsGoneSaysNothingWorked() throws {
+        let harness = try self.harness()
+        let controller = harness.controller
+        let store = harness.environment.store
+        selectAndWait(conversation(0, in: harness), in: harness)
+        XCTAssertTrue(controller.perform(.blockTime))
+        let block = try XCTUnwrap(try events(harness).first)
+        var created = block
+        created.providerID = "provider-block"
+        created.sync = .synced
+        XCTAssertTrue(try store.settleCalendarEvent(id: block.id, created: created))
+        try store.replaceCalendarEvents([], accountID: block.accountID,
+                                        window: DateInterval(start: Support.day(1), end: Support.day(31, month: 12)))
+        XCTAssertTrue(try events(harness).isEmpty)
+        XCTAssertTrue(controller.perform(.undo))
+        XCTAssertNotEqual(harness.toastMessage, "Undid Block Time")
+        let undo = NSMenuItem(title: "", action: #selector(MainWindow.undo(_:)), keyEquivalent: "z")
+        _ = controller.validateEditUndo(undo)
+        XCTAssertNotEqual(undo.title, "Undo Block Time", "the step is gone")
+    }
+
+    /// A click in the reader closes the column opened over it, and focus that was in it goes back to the list, as with
+    /// Esc and D.
+    func testAClickInTheReaderClosingTheColumnGivesTheKeyboardBackToTheList() throws {
+        let harness = try self.harness()
+        let controller = harness.controller
+        let desk = controller.desk
+        resize(harness, width: 960)
+        desk.setOverlayOpen(true)
+        let window = try XCTUnwrap(controller.window)
+        XCTAssertTrue(window.makeFirstResponder(desk.column.cells))
+        let click = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                                     windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1,
+                                                     pressure: 1))
+        desk.readerCover.mouseDown(with: click)
+        XCTAssertFalse(desk.isOverlayOpen)
+        XCTAssertTrue(controller.isListFocused)
+    }
+
+    // MARK: Keys on other layouts
+
+    /// Where [ and ] take Option (German ⌥5 and ⌥6), they still turn the day.
+    func testBracketsTypedWithOptionTurnTheDay() throws {
+        let harness = try self.harness()
+        let window = try XCTUnwrap(harness.controller.window)
+        let state = harness.controller.calendarState
+        XCTAssertTrue(window.makeFirstResponder(harness.list.tableView))
+        try press("]", ignoring: "6", keyCode: 22, modifiers: .option, in: window)
+        XCTAssertEqual(state.shownDay, Support.day(20))
+        try press("[", ignoring: "5", keyCode: 23, modifiers: .option, in: window)
+        try press("[", ignoring: "5", keyCode: 23, modifiers: .option, in: window)
+        XCTAssertEqual(state.shownDay, Support.day(18))
+        XCTAssertNil(KeyboardRouter.optionBracket(produced: "“", modifiers: .option), "⌥[ on a US layout types a quote")
+        XCTAssertNil(KeyboardRouter.optionBracket(produced: "[", modifiers: [.option, .command]))
+        XCTAssertNil(KeyboardRouter.optionBracket(produced: "[", modifiers: []), "the key table's")
     }
 
     func testTheDemoWindowShowsBothCalendarsAndALaterSample() throws {

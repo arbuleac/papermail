@@ -102,6 +102,24 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     private var lastShowAt: TimeInterval = -.infinity
     private var markReadTimer: Timer?
     private var acknowledgeTimer: Timer?
+
+    /// False while something hides the reader in its window (the main window's week, §5.54): it keeps following the
+    /// selection, but mail no one can see is not marked read and its failed mark is not acknowledged; both start, as
+    /// for a new selection, once it shows again.
+    var isOnScreen = true {
+        didSet {
+            guard oldValue != isOnScreen else { return }
+            if isOnScreen, let id = currentConversationID {
+                scheduleMarkRead(for: id)
+                scheduleAcknowledge(for: id)
+            } else if !isOnScreen {
+                markReadTimer?.invalidate()
+                markReadTimer = nil
+                acknowledgeTimer?.invalidate()
+                acknowledgeTimer = nil
+            }
+        }
+    }
     private var bodyFetches: Set<MessageID> = []
     /// What stands in for a body the store does not have yet (spec §5.14): loading, offline or failed.
     private var bodyStates: [MessageID: RenderPayload.BodyState] = [:]
@@ -1038,7 +1056,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     private func scheduleMarkRead(for id: ConversationID) {
         markReadTimer?.invalidate()
         markReadTimer = nil
-        guard currentMessages.contains(where: { !$0.isRead }) else { return }
+        guard isOnScreen, currentMessages.contains(where: { !$0.isRead }) else { return }
         markReadTimer = Timer.scheduledTimer(withTimeInterval: Self.markReadDelay, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated { self?.markRead(id) }
         }
@@ -1046,7 +1064,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
 
     private func markRead(_ id: ConversationID) {
         markReadTimer = nil
-        guard currentConversationID == id, currentMessages.contains(where: { !$0.isRead }) else { return }
+        guard isOnScreen, currentConversationID == id, currentMessages.contains(where: { !$0.isRead }) else { return }
         do {
             try client.perform(.setRead(true), on: id)
         } catch {
@@ -1059,7 +1077,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     private func scheduleAcknowledge(for id: ConversationID) {
         acknowledgeTimer?.invalidate()
         acknowledgeTimer = nil
-        guard !LocalDraftConversation.isLocal(id) else { return }
+        guard isOnScreen, !LocalDraftConversation.isLocal(id) else { return }
         acknowledgeTimer = Timer.scheduledTimer(withTimeInterval: Self.acknowledgeDelay, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
@@ -1889,12 +1907,13 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     }
 
     /// R and A from the list or the reader focus the field in Reply or Reply all mode (spec §5.18). False when
-    /// the quick reply is hidden (Trash, Drafts, nothing or several selected), so the key opens the composer.
+    /// the quick reply is hidden, or the reader is (Trash, Drafts, nothing or several selected, the main window's
+    /// week), so the key opens the composer and never types into a field no one sees.
     /// While a composer holds this conversation's reply the bar is disabled and the key brings that window
     /// forward instead, so two replies never diverge.
     @discardableResult
     func focusQuickReply(all: Bool) -> Bool {
-        guard isViewLoaded, !quickReply.isHidden else { return false }
+        guard isViewLoaded, !quickReply.isHiddenOrHasHiddenAncestor else { return false }
         if bringReplyComposerForward() { return true }
         quickReply.focus(mode: all ? .replyAll : .reply)
         return true

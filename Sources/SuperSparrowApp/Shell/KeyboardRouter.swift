@@ -179,6 +179,12 @@ final class KeyboardRouter {
             return true
         }
 
+        // [ and ] where the layout types them with Option (German, Swiss, Nordic, French): the table reads the key
+        // without its modifiers and refuses Option chords, so the character it produces is read here.
+        if let command = Self.optionBracket(produced: event.characters ?? "", modifiers: modifiers) {
+            return target.perform(command)
+        }
+
         let outcome = Self.command(
             characters: characters,
             keyCode: event.keyCode,
@@ -197,6 +203,17 @@ final class KeyboardRouter {
         // they are performed from here, outside text fields; a disabled item lets the key go on.
         guard let command = outcome.command else { return MainMenuBar.performSingleKey(event) }
         return target.perform(command)
+    }
+
+    /// [ or ] typed with Option (and Shift): Previous Day and Next Day (spec §5.54). Nil for anything else, a plain [ or ]
+    /// among it, which the key table reads; on a US layout ⌥[ types “ and so stays nothing.
+    static func optionBracket(produced: String, modifiers: NSEvent.ModifierFlags) -> KeyCommand? {
+        guard modifiers.contains(.option), modifiers.isSubset(of: [.option, .shift]) else { return nil }
+        switch produced {
+        case "[": return .previousDay
+        case "]": return .nextDay
+        default: return nil
+        }
     }
 
     /// The second key of a G sequence and the view it opens.
