@@ -67,6 +67,10 @@ public struct CalendarEvent: Hashable, Codable, Sendable, Identifiable {
     /// back, so the store matches the provider's copy to the row that asked for it even when the reply to the create
     /// was lost. Nil for events made elsewhere.
     public var clientKey: String?
+    /// For time set aside for a mail: the provider's id of that mail's conversation (Gmail's thread id), which the
+    /// engine fills in from the store just before it asks the provider to create the event, so the provider can link
+    /// back to the mail without a request of its own. The store never keeps it: it lives only on the copy handed over.
+    public var sourceThreadID: String?
     public var sync: Sync
     /// When the provider last changed it, when the provider says.
     public var updatedAt: Date?
