@@ -56,6 +56,16 @@ struct SyncTuning: Sendable {
     var queuedLookupRetryDelay: TimeInterval = 60
     /// How long the backfill lane sleeps with nothing to do before looking again on its own.
     var backfillIdleInterval: TimeInterval = 300
+    /// How old the calendar's last read may grow while the app is frontmost, and while it is not, before a live cycle
+    /// that caught up has the calendar lane read the window again (docs/ARCHITECTURE.md, "Calendar"). The day column
+    /// shows events, which change far less often than mail arrives, so a minute in front costs one request where the
+    /// poll costs twelve.
+    var calendarActiveInterval: TimeInterval = 60
+    var calendarBackgroundInterval: TimeInterval = 300
+    /// The clocks the calendar lane reads by: the wall clock its window is worked out on and its reads are dated by
+    /// (`CalendarSyncState.current`), and the continuous clock its intervals and backoff run on, so setting the Mac's
+    /// clock never holds a read back. It never sleeps: the live lane's cycles wake it. Tests replace it to move time by hand.
+    var calendarClock = SendClock()
     var hydrationBatchSize: Int = 50
     var hydrationConcurrency: Int = 4
     /// A body whose fetch failed for a non-transient reason is left alone for this long.
