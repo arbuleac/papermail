@@ -18,8 +18,11 @@ public protocol CalendarProvider: Sendable {
     func calendarEvents(in window: DateInterval) async throws -> CalendarListing
 
     /// Creates `event` (time set aside for a mail: title, start, end, and a description that links back to the mail)
-    /// on the main calendar, shown as busy, with no attendees and no reminders. Returns it as the provider now has it:
-    /// its `providerID`, `webURL` and `updatedAt` filled in, its local `id` and `sourceMessage` kept, `sync == .synced`.
+    /// on the main calendar, shown as busy, with no attendees and no reminders. Idempotent through `event.clientKey`
+    /// (Google: the event's id plus a private extended property; Graph: `transactionId`): creating it again after a
+    /// lost reply returns the copy already made rather than a second one. Every read reports `clientKey` back for the
+    /// events made this way. Returns it as the provider now has it: its `providerID`, `webURL` and `updatedAt` filled
+    /// in, its local `id`, `clientKey` and `sourceMessage` kept, `sync == .synced`.
     func createCalendarEvent(_ event: CalendarEvent) async throws -> CalendarEvent
 
     /// Deletes the event. An event the provider no longer has counts as deleted (no throw).

@@ -23,6 +23,11 @@ public protocol CalendarStoring: AnyObject, Sendable {
     /// is not among them is deleted (the provider no longer has it). Events waiting for the provider are kept as they
     /// are: a `creating` one stays; a `deleting` one stays until the read no longer lists it, and then goes. An event
     /// read with the id of one being deleted keeps `deleting`.
+    ///
+    /// A read event whose `clientKey` matches a stored row of the account takes that row's local id and
+    /// `sourceMessage` (the provider's copy of time set aside on this Mac, created even if the reply to the create was
+    /// lost): a `creating` row becomes `synced`; a `deleting` row stays `deleting` with the provider id filled in, so
+    /// the engine can delete it.
     func replaceCalendarEvents(_ events: [CalendarEvent], accountID: AccountID, window: DateInterval) throws
 
     /// Time set aside on this Mac: inserts `event` (its `sync` is `.creating`, its `providerID` nil), which the engine
@@ -36,19 +41,22 @@ public protocol CalendarStoring: AnyObject, Sendable {
     func removeCalendarEvent(id: String) throws -> CalendarEvent?
 
     /// Puts back an event `removeCalendarEvent` returned (an undo): a `deleting` row goes back to `synced`; a row that
-    /// was deleted is inserted again as it was, `creating` when the provider never had it or has deleted it (it is then
-    /// created again, with a new provider id).
-    func restoreCalendarEvent(_ event: CalendarEvent) throws
+    /// was deleted is inserted again as `creating`, which the engine then creates: under its own id and client key when
+    /// the provider never had it, and under a new local id and a new client key when the provider had it (Google keeps
+    /// a deleted event's id reserved). Returns the row as it now stands.
+    @discardableResult
+    func restoreCalendarEvent(_ event: CalendarEvent) throws -> CalendarEvent
 
     /// The account's events waiting for the provider (`creating` or `deleting`), oldest first: what the engine
     /// replays before it reads the account's calendar.
     func pendingCalendarEvents(accountID: AccountID) throws -> [CalendarEvent]
 
     /// Records what the provider did with a pending event, in one transaction: `created` (the provider's copy, same
-    /// local id) replaces a `creating` row; nil removes a `deleting` row (the provider deleted it). Does nothing when
-    /// the row has gone or changed state meanwhile (removed while it was being created: the engine then deletes the
-    /// copy it made, as the row's `deleting` asks).
-    func settleCalendarEvent(id: String, created: CalendarEvent?) throws
+    /// local id) replaces a `creating` row; nil removes a `deleting` row (the provider deleted it). Returns false, and
+    /// changes nothing, when the row has gone or is no longer in the state the call settles (a block removed while it
+    /// was being created): the engine then deletes the copy it just created.
+    @discardableResult
+    func settleCalendarEvent(id: String, created: CalendarEvent?) throws -> Bool
 
     /// Marks a `creating` event the provider refused (`failed`); the UI shows it with the failed mark.
     func failCalendarEvent(id: String) throws
@@ -75,9 +83,11 @@ extension CalendarStoring {
     public func addCalendarEvent(_ event: CalendarEvent) throws {}
     @discardableResult
     public func removeCalendarEvent(id: String) throws -> CalendarEvent? { nil }
-    public func restoreCalendarEvent(_ event: CalendarEvent) throws {}
+    @discardableResult
+    public func restoreCalendarEvent(_ event: CalendarEvent) throws -> CalendarEvent { event }
     public func pendingCalendarEvents(accountID: AccountID) throws -> [CalendarEvent] { [] }
-    public func settleCalendarEvent(id: String, created: CalendarEvent?) throws {}
+    @discardableResult
+    public func settleCalendarEvent(id: String, created: CalendarEvent?) throws -> Bool { false }
     public func failCalendarEvent(id: String) throws {}
     public func saveMailTimes(_ times: [MailTime], for message: MessageID) throws {}
     public func mailTimes(in conversation: ConversationID) throws -> [MailTime] { [] }

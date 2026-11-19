@@ -62,6 +62,11 @@ public struct CalendarEvent: Hashable, Codable, Sendable, Identifiable {
     public var invitationUID: String?
     /// For time set aside for a mail: the message it was set aside for, which its details offer to show.
     public var sourceMessage: MessageID?
+    /// For time set aside on this Mac: the key this Mac chose for it (`CalendarEvent.newClientKey()`), which makes its
+    /// creation idempotent (Google takes it as the event's id, Graph as its `transactionId`) and which a read reports
+    /// back, so the store matches the provider's copy to the row that asked for it even when the reply to the create
+    /// was lost. Nil for events made elsewhere.
+    public var clientKey: String?
     public var sync: Sync
     /// When the provider last changed it, when the provider says.
     public var updatedAt: Date?
@@ -82,6 +87,7 @@ public struct CalendarEvent: Hashable, Codable, Sendable, Identifiable {
         organizer: String? = nil,
         invitationUID: String? = nil,
         sourceMessage: MessageID? = nil,
+        clientKey: String? = nil,
         sync: Sync = .synced,
         updatedAt: Date? = nil
     ) {
@@ -100,6 +106,7 @@ public struct CalendarEvent: Hashable, Codable, Sendable, Identifiable {
         self.organizer = organizer
         self.invitationUID = invitationUID
         self.sourceMessage = sourceMessage
+        self.clientKey = clientKey
         self.sync = sync
         self.updatedAt = updatedAt
     }
@@ -113,6 +120,12 @@ public struct CalendarEvent: Hashable, Codable, Sendable, Identifiable {
     /// A new local id for time set aside on this Mac.
     public static func newLocalID(accountID: AccountID) -> String {
         "\(accountID.rawValue)|local-\(UUID().uuidString)"
+    }
+
+    /// A new client key: 32 lowercase hexadecimal digits, which Google accepts as an event id (base32hex, 5 to 1,024
+    /// characters) and Graph as a `transactionId`. Never reused: Google keeps a deleted event's id reserved.
+    public static func newClientKey() -> String {
+        UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
     }
 
     /// Drawn on the calendar: not declined and not being deleted.

@@ -120,8 +120,10 @@ public protocol MailClient: AnyObject {
     /// deletes it on the provider. Returns the event as it was, for an undo.
     @discardableResult
     func removeCalendarEvent(id: String) throws -> CalendarEvent?
-    /// Puts back an event `removeCalendarEvent` returned (its undo); the engine creates it again if it must.
-    func restoreCalendarEvent(_ event: CalendarEvent) throws
+    /// Puts back an event `removeCalendarEvent` returned (its undo); the engine creates it again if it must. Returns
+    /// the row as it now stands (it may have a new id).
+    @discardableResult
+    func restoreCalendarEvent(_ event: CalendarEvent) throws -> CalendarEvent
     /// Reads the calendars of `accountID` (every account when nil) at the next turn of their live lanes instead of
     /// waiting for the calendar's own interval: the calendar was just opened, or a day outside the stored window was
     /// asked for. Returns immediately.
@@ -141,7 +143,8 @@ extension MailClient {
         try store.removeCalendarEvent(id: id)
     }
 
-    public func restoreCalendarEvent(_ event: CalendarEvent) throws {
+    @discardableResult
+    public func restoreCalendarEvent(_ event: CalendarEvent) throws -> CalendarEvent {
         try store.restoreCalendarEvent(event)
     }
 
