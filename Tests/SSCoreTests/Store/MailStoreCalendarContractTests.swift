@@ -192,6 +192,75 @@ extension MailStoreContractTests {
         XCTAssertNil(try calendarRow(block.id))
     }
 
+    /// A client key claims one row per read: the occurrences of a block someone made repeating elsewhere all carry its
+    /// key (Google copies the series' private properties to each), and each stays an event of its own.
+    func testAClientKeyClaimsOneRowPerRead() throws {
+        let block = calendarBlock("weekly")
+        try store.addCalendarEvent(block)
+        XCTAssertTrue(try store.settleCalendarEvent(id: block.id, created: calendarCopy(of: block, providerID: "evt-w1")))
+        let reads = [
+            calendarRead("evt-w1", title: "Lunch?", from: 3_600, to: 5_400, clientKey: block.clientKey),
+            calendarRead("evt-w2", title: "Lunch?", from: 3_600 + 86_400, to: 5_400 + 86_400, clientKey: block.clientKey),
+            calendarRead("evt-w3", title: "Lunch?", from: 3_600 + 2 * 86_400, to: 5_400 + 2 * 86_400, clientKey: block.clientKey),
+        ]
+        try store.replaceCalendarEvents(reads, accountID: accountA, window: calendarWeek)
+
+        let rows = try store.calendarEvents(in: calendarWeek, accountIDs: [accountA])
+        XCTAssertEqual(rows.compactMap(\.providerID), ["evt-w1", "evt-w2", "evt-w3"], "every occurrence, each its own row")
+        let first = try XCTUnwrap(calendarRow(block.id))
+        XCTAssertEqual(first.providerID, "evt-w1", "the block keeps its local id, its mail and its key on the first")
+        XCTAssertEqual(first.sourceMessage, block.sourceMessage)
+        XCTAssertEqual(first.clientKey, block.clientKey)
+        let others = rows.filter { $0.id != block.id }
+        XCTAssertEqual(others.map(\.id), ["evt-w2", "evt-w3"].map { CalendarEvent.localID(accountID: accountA, providerID: $0) })
+        XCTAssertTrue(others.allSatisfy { $0.clientKey == nil && $0.sourceMessage == nil && $0.sync == .synced })
+
+        try store.replaceCalendarEvents(reads, accountID: accountA, window: calendarWeek)
+        XCTAssertEqual(try store.calendarEvents(in: calendarWeek, accountIDs: [accountA]), rows, "the same read again changes nothing")
+    }
+
+    /// The history behind the window goes at each read: `synced` events that ended more than 30 days before the window
+    /// kept around now, or before the read's own window when that starts earlier. Rows waiting for the provider, or
+    /// marked failed, and other accounts' stay.
+    func testAReadDeletesTheAccountsHistoryLongBehindTheWindow() throws {
+        let kept = CalendarWindow.around(Date())
+        let day: TimeInterval = 86_400
+        let at = { (days: Double) in MailboxClock.aligned(kept.start.addingTimeInterval(days * day)) }
+        func read(_ id: String, account: AccountID? = nil, endingAt end: Date) -> CalendarEvent {
+            let accountID = account ?? accountA
+            return CalendarEvent(id: CalendarEvent.localID(accountID: accountID, providerID: id), accountID: accountID,
+                                 providerID: id, title: id, start: end.addingTimeInterval(-3_600), end: end)
+        }
+        // Around today, wherever the test runs: the line is measured from the window kept around now.
+        let row = { (id: String) in
+            try self.store.calendarEvents(in: DateInterval(start: at(-400), end: at(400)), accountIDs: nil).first { $0.id == id }
+        }
+        let past = DateInterval(start: at(-60), end: at(-1))
+        try store.replaceCalendarEvents([read("old", endingAt: at(-31)), read("recent", endingAt: at(-29)),
+                                         read("doomed", endingAt: at(-40))], accountID: accountA, window: past)
+        try store.replaceCalendarEvents([read("theirs", account: accountB, endingAt: at(-31))], accountID: accountB, window: past)
+        XCTAssertNotNil(try row(CalendarEvent.localID(accountID: accountA, providerID: "old")),
+                        "a read of days behind the window keeps what it read")
+        try store.removeCalendarEvent(id: CalendarEvent.localID(accountID: accountA, providerID: "doomed"))
+        var waiting = calendarBlock("waiting")
+        waiting.start = at(-40)
+        waiting.end = at(-40).addingTimeInterval(1_800)
+        try store.addCalendarEvent(waiting)
+
+        try store.replaceCalendarEvents([read("today", endingAt: at(14.5))], accountID: accountA, window: kept)
+        let names = try store.calendarEvents(in: DateInterval(start: at(-90), end: kept.end), accountIDs: nil).map(\.title)
+        XCTAssertEqual(Set(names), ["recent", "doomed", "Lunch?", "theirs", "today"],
+                       "only the account's synced history more than 30 days behind goes")
+        XCTAssertEqual(try row(waiting.id)?.sync, .creating)
+        XCTAssertEqual(try row(CalendarEvent.localID(accountID: accountA, providerID: "doomed"))?.sync, .deleting)
+
+        // A read of days after the window never takes the window's own events.
+        let later = DateInterval(start: kept.end.addingTimeInterval(30 * day), duration: 7 * day)
+        try store.replaceCalendarEvents([], accountID: accountA, window: later)
+        XCTAssertNotNil(try row(CalendarEvent.localID(accountID: accountA, providerID: "recent")))
+        XCTAssertNotNil(try row(CalendarEvent.localID(accountID: accountA, providerID: "today")))
+    }
+
     func testAReadForARemovedAccountWritesNothing() throws {
         try store.deleteAccount(accountA)
         try store.replaceCalendarEvents([calendarRead("late", from: 0, to: 60)], accountID: accountA, window: calendarWeek)
@@ -220,17 +289,48 @@ extension MailStoreContractTests {
         }
     }
 
-    func testRemovingABlockWhileItIsCreatedLeavesNothingToSettle() throws {
+    func testRemovingABlockWhileItIsCreatedLeavesAHiddenTombstoneUnderItsKey() throws {
         let block = calendarBlock("quick")
         try store.addCalendarEvent(block)
         XCTAssertEqual(try store.removeCalendarEvent(id: block.id), block, "the event as it was, for the undo")
-        XCTAssertNil(try calendarRow(block.id), "gone at once: the provider never had it")
-        XCTAssertEqual(try store.pendingCalendarEvents(accountID: accountA), [])
+        let tombstone = try XCTUnwrap(calendarRow(block.id), "its create may have reached the provider: only its key finds it")
+        XCTAssertEqual(tombstone.sync, .deleting)
+        XCTAssertFalse(tombstone.isShown, "gone from the calendar at once")
+        XCTAssertNil(tombstone.providerID)
+        XCTAssertEqual(tombstone.clientKey, block.clientKey)
+        XCTAssertEqual(try store.pendingCalendarEvents(accountID: accountA), [tombstone])
+        XCTAssertEqual(try store.removeCalendarEvent(id: block.id), tombstone, "removing it again changes nothing")
 
-        XCTAssertFalse(try store.settleCalendarEvent(id: block.id, created: calendarCopy(of: block, providerID: "evt-late")),
-                       "the create that was on its way is refused: the engine deletes the copy")
+        // The create that was on its way settles its copy into the tombstone, for the engine to delete.
+        XCTAssertTrue(try store.settleCalendarEvent(id: block.id, created: calendarCopy(of: block, providerID: "evt-late")))
+        let settled = try XCTUnwrap(calendarRow(block.id))
+        XCTAssertEqual(settled.sync, .deleting)
+        XCTAssertEqual(settled.providerID, "evt-late")
+        XCTAssertFalse(settled.isShown)
+        XCTAssertEqual(settled.sourceMessage, block.sourceMessage)
+        XCTAssertFalse(try store.settleCalendarEvent(id: block.id, created: calendarCopy(of: block, providerID: "evt-other")),
+                       "its copy is known now")
+        XCTAssertTrue(try store.settleCalendarEvent(id: block.id, created: nil), "the copy deleted")
         XCTAssertNil(try calendarRow(block.id), "and nothing comes back")
         XCTAssertNil(try store.removeCalendarEvent(id: block.id))
+    }
+
+    func testAReadFindsTheCopyOfARemovedBlockByItsKeyOrSweepsItsTombstone() throws {
+        let found = calendarBlock("found"), never = calendarBlock("never", from: 7_200, to: 9_000)
+        try store.addCalendarEvent(found)
+        try store.addCalendarEvent(never)
+        try store.removeCalendarEvent(id: found.id)
+        try store.removeCalendarEvent(id: never.id)
+
+        try store.replaceCalendarEvents([calendarRead("evt-8", title: "Lunch?", from: 3_600, to: 5_400, clientKey: found.clientKey)],
+                                        accountID: accountA, window: calendarWeek)
+        let adopted = try XCTUnwrap(calendarRow(found.id), "the copy a lost reply made is the tombstone's")
+        XCTAssertEqual(adopted.sync, .deleting)
+        XCTAssertEqual(adopted.providerID, "evt-8", "its id filled in, for the engine to delete")
+        XCTAssertFalse(adopted.isShown)
+        XCTAssertNil(try calendarRow(CalendarEvent.localID(accountID: accountA, providerID: "evt-8")), "never an event of its own")
+        XCTAssertNil(try calendarRow(never.id), "no copy listed: the provider never made it")
+        XCTAssertEqual(try store.pendingCalendarEvents(accountID: accountA).map(\.id), [found.id])
     }
 
     func testRemovingAnEventTheProviderHasWaitsForTheEngine() throws {
@@ -353,24 +453,95 @@ extension MailStoreContractTests {
         XCTAssertEqual(try store.pendingCalendarEvents(accountID: accountA), [restored])
     }
 
-    func testUndoingTheRemovalOfABlockStillBeingCreatedKeepsItsIdWithANewKey() throws {
+    func testUndoingTheRemovalOfABlockStillBeingCreatedKeepsItsIdAndKey() throws {
         let block = calendarBlock("early")
         try store.addCalendarEvent(block)
         let removed = try XCTUnwrap(try store.removeCalendarEvent(id: block.id))
         let restored = try store.restoreCalendarEvent(removed)
-        XCTAssertEqual(restored.id, block.id, "the provider never had it")
-        XCTAssertNotEqual(restored.clientKey, block.clientKey, "its create may have reached Google, which reserves the key")
-        XCTAssertEqual(restored.clientKey?.count, 32)
+        XCTAssertEqual(restored, block, "its own id and key: a create sent again finds any copy the first one made")
+        XCTAssertEqual(try calendarRow(block.id), block)
+        XCTAssertEqual(try store.pendingCalendarEvents(accountID: accountA), [block])
+        XCTAssertEqual(try store.restoreCalendarEvent(removed), block, "a second undo changes nothing")
+
+        // Once a read swept its tombstone (or the engine deleted its copy, whose id Google keeps reserved), it comes back
+        // under a new key.
+        try store.removeCalendarEvent(id: block.id)
+        try store.replaceCalendarEvents([], accountID: accountA, window: calendarWeek)
+        XCTAssertNil(try calendarRow(block.id))
+        let anew = try store.restoreCalendarEvent(removed)
+        XCTAssertEqual(anew.id, block.id, "the provider never had it")
+        XCTAssertNotEqual(anew.clientKey, block.clientKey)
+        XCTAssertEqual(anew.clientKey?.count, 32)
         var expected = block
-        expected.clientKey = restored.clientKey
-        XCTAssertEqual(restored, expected)
-        XCTAssertEqual(try store.pendingCalendarEvents(accountID: accountA), [restored])
+        expected.clientKey = anew.clientKey
+        XCTAssertEqual(anew, expected)
 
         try store.deleteAccount(accountA)
         XCTAssertThrowsError(try store.restoreCalendarEvent(removed), "its account is gone") { error in
             guard case StoreError.notFound = error else { return XCTFail("\(error)") }
         }
         XCTAssertNil(try calendarRow(block.id))
+    }
+
+    func testUndoingTheRemovalOfABlockWhoseCopyARemovedCreateMadeKeepsThatCopy() throws {
+        let block = calendarBlock("late")
+        try store.addCalendarEvent(block)
+        let removed = try XCTUnwrap(try store.removeCalendarEvent(id: block.id))
+        XCTAssertTrue(try store.settleCalendarEvent(id: block.id, created: calendarCopy(of: block, providerID: "evt-9")))
+
+        let restored = try store.restoreCalendarEvent(removed)
+        XCTAssertEqual(restored.id, block.id)
+        XCTAssertEqual(restored.sync, .synced, "the provider has it: it is simply back")
+        XCTAssertEqual(restored.providerID, "evt-9")
+        XCTAssertEqual(restored.sourceMessage, block.sourceMessage)
+        XCTAssertEqual(try store.pendingCalendarEvents(accountID: accountA), [])
+    }
+
+    // MARK: Answers
+
+    func testAnAnswerOnThisMacShowsOnTheInvitationsEventsAtOnce() throws {
+        func invited(_ id: String, uid: String?, account: AccountID? = nil, start: TimeInterval,
+                     response: CalendarEvent.Response = .needsAction) -> CalendarEvent {
+            var event = calendarRead(id, account: account, from: start, to: start + 1_800, response: response)
+            event.invitationUID = uid
+            return event
+        }
+        // Exchange gives each occurrence its own UID, the series' with its date written in.
+        let series = "040000008200E00074C5B7101A82E00800000000A0B1C2D3000000000000000010000000AABBCCDD"
+        let occurrence = { (date: String) in
+            String(series.prefix(32)) + date + String(series.dropFirst(40))
+        }
+        try store.replaceCalendarEvents([
+            invited("once", uid: "uid-1@google.com", start: 3_600),
+            invited("mine", uid: "uid-1@google.com", start: 3_600, response: .organizer),
+            invited("other", uid: "uid-2@google.com", start: 7_200),
+            invited("plain", uid: nil, start: 9_000),
+            invited("w1", uid: occurrence("07EA0105"), start: 86_400),
+            invited("w2", uid: occurrence("07EA0106"), start: 2 * 86_400),
+            invited("w3", uid: occurrence("07EA0107"), start: 3 * 86_400),
+        ], accountID: accountA, window: calendarWeek)
+        try store.replaceCalendarEvents([invited("theirs", uid: "uid-1@google.com", account: accountB, start: 3_600)],
+                                        accountID: accountB, window: calendarWeek)
+        let response = { (id: String, account: AccountID) in
+            try self.calendarRow(CalendarEvent.localID(accountID: account, providerID: id))?.response
+        }
+
+        try store.answerCalendarEvents(.declined, invitationUID: "uid-1@google.com", accountID: accountA, near: nil)
+        XCTAssertEqual(try response("once", accountA), .declined)
+        XCTAssertEqual(try response("mine", accountA), .organizer, "the user's own event is not an invitation to them")
+        XCTAssertEqual(try response("other", accountA), .needsAction)
+        XCTAssertEqual(try response("theirs", accountB), .needsAction, "another account's copy is its own")
+
+        // A series answered: every occurrence. One occurrence answered: the one nearest its start.
+        try store.answerCalendarEvents(.accepted, invitationUID: series, accountID: accountA, near: nil)
+        XCTAssertEqual(try ["w1", "w2", "w3"].map { try response($0, accountA) }, [.accepted, .accepted, .accepted])
+        try store.answerCalendarEvents(.tentative, invitationUID: series, accountID: accountA, near: date(2 * 86_400 + 600))
+        XCTAssertEqual(try ["w1", "w2", "w3"].map { try response($0, accountA) }, [.accepted, .tentative, .accepted])
+
+        // A row being deleted is left as it is.
+        try store.removeCalendarEvent(id: CalendarEvent.localID(accountID: accountA, providerID: "other"))
+        try store.answerCalendarEvents(.accepted, invitationUID: "uid-2@google.com", accountID: accountA, near: nil)
+        XCTAssertEqual(try response("other", accountA), .needsAction)
     }
 
     // MARK: Accounts and mail

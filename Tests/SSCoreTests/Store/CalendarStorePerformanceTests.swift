@@ -3,8 +3,9 @@ import SSCore
 
 /// The calendar's rows of the budgets in docs/ARCHITECTURE.md, in a real file holding five accounts' calendars for the
 /// whole window (CalendarWindow.around) and a year of history before it: a read of an account's calendar writes its 500
-/// events within 50 ms (the first time, again unchanged a minute later, and with a few changed), and the day column's or
-/// the week's read of seven days, about 250 events, takes under 5 ms. Only with `SS_PERF=1`:
+/// events within 50 ms (the first time, which also prunes the account's history to 30 days behind the window, again
+/// unchanged two minutes later, and with a few changed), and the day column's or the week's read of seven days, about 250
+/// events, takes under 5 ms. Only with `SS_PERF=1`:
 ///
 ///     SS_PERF=1 swift test --filter CalendarStorePerformanceTests
 final class CalendarStorePerformanceTests: XCTestCase {

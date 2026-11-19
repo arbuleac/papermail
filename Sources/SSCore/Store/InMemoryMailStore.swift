@@ -1232,7 +1232,7 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
             if let key = row.event.clientKey, keyed[key] == nil { keyed[key] = row }
         }
         var listed: Set<String> = []
-        for read in events {
+        for read in CalendarEventTable.claimingKeys(events) {
             let byKey = read.clientKey.flatMap { keyed[$0] }
             let id = byKey?.event.id ?? read.id
             listed.insert(id)
@@ -1240,9 +1240,12 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
             guard let merged = CalendarEventTable.merged(read, accountID: accountID, keyed: byKey,
                                                          sameID: byKey == nil ? current : nil) else { continue }
             calendarRows[id] = merged
-            if let key = merged.event.clientKey { keyed[key] = merged }
         }
-        calendarRows = calendarRows.filter { !CalendarEventTable.isSwept($0.value.event, accountID: accountID, window: window, listed: listed) }
+        let line = CalendarEventTable.pruneLine(window: window, now: Self.nowMS())
+        calendarRows = calendarRows.filter {
+            !CalendarEventTable.isSwept($0.value.event, accountID: accountID, window: window, listed: listed)
+                && !CalendarEventTable.isPruned($0.value.event, accountID: accountID, before: line)
+        }
         notifyCalendar()
     }
 
@@ -1297,6 +1300,18 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         }
         notifyCalendar()
         return true
+    }
+
+    public func answerCalendarEvents(_ response: CalendarEvent.Response, invitationUID uid: String, accountID: AccountID,
+                                     near occurrence: Date?) throws {
+        lock.lock(); defer { lock.unlock() }
+        let rows = calendarRows.values
+            .filter { $0.event.accountID == accountID && $0.event.invitationUID != nil }
+            .sorted { $0.event.id < $1.event.id }
+        let answered = CalendarEventTable.answering(rows, uid: uid, near: occurrence, response: response)
+        guard !answered.isEmpty else { return }
+        for row in answered { calendarRows[row.event.id] = row }
+        notifyCalendar()
     }
 
     public func failCalendarEvent(id: String) throws {

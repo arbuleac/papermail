@@ -551,6 +551,11 @@ public final class SQLiteMailStore: MailStoring, MailStoreMaintenance, Sendable 
         try write { try CalendarEventTable.settle(id: id, created: created, in: $0) }
     }
 
+    public func answerCalendarEvents(_ response: CalendarEvent.Response, invitationUID uid: String, accountID: AccountID,
+                                     near occurrence: Date?) throws {
+        try write { try CalendarEventTable.answer(response, invitationUID: uid, accountID: accountID, near: occurrence, in: $0) }
+    }
+
     public func failCalendarEvent(id: String) throws {
         try write { try CalendarEventTable.fail(id: id, in: $0) }
     }
