@@ -90,10 +90,13 @@ enum CalendarEventTable {
             : Stored(event: withSync(event, .synced), queuedAt: nil)
     }
 
-    /// Whether a replace of `window` deletes the row: one of the account the provider has had (not `creating`) that
-    /// overlaps the window and that the read did not list. A row outside the window is the read's business no more.
+    /// Whether a replace of `window` deletes the row: one of the account the provider has had (`synced` or
+    /// `deleting`) that overlaps the window and that the read did not list. A row outside the window is the read's
+    /// business no more. A `failed` row stays: the provider never had it, and its failed mark shows until the user
+    /// removes it.
     static func isSwept(_ row: CalendarEvent, accountID: AccountID, window: DateInterval, listed: Set<String>) -> Bool {
-        row.accountID == accountID && row.sync != .creating && overlaps(row, window) && !listed.contains(row.id)
+        row.accountID == accountID && (row.sync == .synced || row.sync == .deleting) && overlaps(row, window)
+            && !listed.contains(row.id)
     }
 
     /// What `removeCalendarEvent` leaves: nil when the row goes at once (the provider never had it), the row as
@@ -129,7 +132,10 @@ enum CalendarEventTable {
             event.joinURL = nil
             event.invitationUID = nil
             event.updatedAt = nil
-        } else if event.clientKey == nil {
+        } else {
+            // Removed while it was still `creating`: its create may have been on its way, and the engine deletes the
+            // copy such a create made, which reserves the key at Google. A new key keeps the new create from meeting
+            // that reserved id.
             event.clientKey = CalendarEvent.newClientKey()
         }
         return Stored(event: withSync(event, .creating), queuedAt: now)
@@ -312,7 +318,7 @@ enum CalendarEventTable {
         let start = MailStoreCodec.milliseconds(window.start)
         let candidates = try String.fetchAll(db.cachedStatement(sql: """
             SELECT id FROM calendar_events
-            WHERE account_id = ? AND sync IN ('synced', 'failed', 'deleting') AND \(overlapsWindow)
+            WHERE account_id = ? AND sync IN ('synced', 'deleting') AND \(overlapsWindow)
             """), arguments: [accountID.rawValue, MailStoreCodec.milliseconds(window.end), start, start])
         for id in candidates where !listed.contains(id) { try delete(id: id, in: db) }
     }

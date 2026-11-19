@@ -271,7 +271,7 @@ extension MailStoreContractTests {
         XCTAssertEqual(try store.pendingCalendarEvents(accountID: accountA), [])
     }
 
-    func testAFailedCreateIsMarkedUntilTheNextRead() throws {
+    func testAFailedCreateIsMarkedUntilTheUserRemovesIt() throws {
         let block = calendarBlock("refused")
         try store.addCalendarEvent(block)
         try store.failCalendarEvent(id: block.id)
@@ -280,7 +280,7 @@ extension MailStoreContractTests {
 
         let meeting = calendarRead("evt-4", from: 600, to: 1_200)
         try store.replaceCalendarEvents([meeting], accountID: accountA, window: calendarWeek)
-        XCTAssertNil(try calendarRow(block.id), "the provider never had it: the read takes it away")
+        XCTAssertEqual(try calendarRow(block.id)?.sync, .failed, "the provider never had it: a read leaves its mark")
         try store.failCalendarEvent(id: meeting.id)
         XCTAssertEqual(try calendarRow(meeting.id)?.sync, .synced, "only a create fails")
         try store.failCalendarEvent(id: "acct-a|nothing")
@@ -353,12 +353,18 @@ extension MailStoreContractTests {
         XCTAssertEqual(try store.pendingCalendarEvents(accountID: accountA), [restored])
     }
 
-    func testUndoingTheRemovalOfABlockStillBeingCreatedKeepsItsIdAndKey() throws {
+    func testUndoingTheRemovalOfABlockStillBeingCreatedKeepsItsIdWithANewKey() throws {
         let block = calendarBlock("early")
         try store.addCalendarEvent(block)
         let removed = try XCTUnwrap(try store.removeCalendarEvent(id: block.id))
-        XCTAssertEqual(try store.restoreCalendarEvent(removed), block)
-        XCTAssertEqual(try store.pendingCalendarEvents(accountID: accountA), [block])
+        let restored = try store.restoreCalendarEvent(removed)
+        XCTAssertEqual(restored.id, block.id, "the provider never had it")
+        XCTAssertNotEqual(restored.clientKey, block.clientKey, "its create may have reached Google, which reserves the key")
+        XCTAssertEqual(restored.clientKey?.count, 32)
+        var expected = block
+        expected.clientKey = restored.clientKey
+        XCTAssertEqual(restored, expected)
+        XCTAssertEqual(try store.pendingCalendarEvents(accountID: accountA), [restored])
 
         try store.deleteAccount(accountA)
         XCTAssertThrowsError(try store.restoreCalendarEvent(removed), "its account is gone") { error in

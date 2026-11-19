@@ -19,10 +19,11 @@ public protocol CalendarStoring: AnyObject, Sendable {
                                onChange: @escaping @Sendable ([CalendarEvent]) -> Void) -> StoreObservation
 
     /// Writes what one read of the account's calendar found for `window`, in one transaction: every event is
-    /// inserted or replaced by its id, and every `synced` or `failed` event of the account that overlaps `window` and
-    /// is not among them is deleted (the provider no longer has it). Events waiting for the provider are kept as they
-    /// are: a `creating` one stays; a `deleting` one stays until the read no longer lists it, and then goes. An event
-    /// read with the id of one being deleted keeps `deleting`.
+    /// inserted or replaced by its id, and every `synced` event of the account that overlaps `window` and is not among
+    /// them is deleted (the provider no longer has it). Events waiting for the provider are kept as they are: a
+    /// `creating` one stays; a `deleting` one stays until the read no longer lists it, and then goes. An event read
+    /// with the id of one being deleted keeps `deleting`. A `failed` one, which the provider never had, stays until the
+    /// user removes it.
     ///
     /// A read event whose `clientKey` matches a stored row of the account takes that row's local id and
     /// `sourceMessage` (the provider's copy of time set aside on this Mac, created even if the reply to the create was
@@ -41,9 +42,10 @@ public protocol CalendarStoring: AnyObject, Sendable {
     func removeCalendarEvent(id: String) throws -> CalendarEvent?
 
     /// Puts back an event `removeCalendarEvent` returned (an undo): a `deleting` row goes back to `synced`; a row that
-    /// was deleted is inserted again as `creating`, which the engine then creates: under its own id and client key when
-    /// the provider never had it, and under a new local id and a new client key when the provider had it (Google keeps
-    /// a deleted event's id reserved). Returns the row as it now stands.
+    /// was deleted is inserted again as `creating`, which the engine then creates, always under a new client key (a
+    /// create may have been on its way when it was removed, and Google keeps a deleted event's id reserved): under its
+    /// own local id when the provider never had it, and under a new local id when it did. Returns the row as it now
+    /// stands.
     @discardableResult
     func restoreCalendarEvent(_ event: CalendarEvent) throws -> CalendarEvent
 
