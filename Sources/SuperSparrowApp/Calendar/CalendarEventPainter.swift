@@ -159,7 +159,10 @@ enum CalendarEventPainter {
 
         NSGraphicsContext.saveGraphicsState()
         NSBezierPath(rect: face).addClip()
-        if look.slotHeight < Pane.eventOneLineBelow {
+        // Two lines need the time's line and one of the title's under the top padding, in the slot's gap: the token, or
+        // more where Text size makes the lines taller (§4.15). Below that the title would be clipped away entirely.
+        let twoLines = Pane.eventPadTop + QuireFont.Role.meta.lineHeight + QuireFont.Role.label.lineHeight + Pane.eventGap
+        if look.slotHeight < max(Pane.eventOneLineBelow, twoLines) {
             // One line: in the column the start time then the title; in the week the title alone.
             let lineRole = QuireFont.Role.metaMedium
             let lineHeight = lineRole.lineHeight

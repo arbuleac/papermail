@@ -261,7 +261,7 @@ LAYOUT = {
                   "coreStartHour": 9, "coreEndHour": 18, "eventMinHeight": 18, "eventEdge": 3,
                   "eventTintAlpha": 0.13, "eventRadius": 5, "eventInsetX": 2, "eventInsetY": 1,
                   "eventGap": 2, "eventPadLeading": 8, "eventPadTrailing": 5, "eventPadTop": 2,
-                  "eventOneLineBelow": 30, "eventPlaceLineMin": 46, "eventGlyph": 12, "eventGlyphGap": 4,
+                  "eventOneLineBelow": 34, "eventPlaceLineMin": 46, "eventGlyph": 12, "eventGlyphGap": 4,
                   "maxSideBySide": 3, "allDayRowHeight": 18, "allDayRowGap": 4, "allDayRowsMax": 2,
                   "allDayPadTop": 4, "allDayPadBottom": 6, "nowLineWidth": 2, "nowDot": 8,
                   "markLine": 1, "mentionLine": 2, "markDash": [3, 3], "markChipHeight": 18,

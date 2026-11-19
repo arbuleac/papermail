@@ -397,7 +397,7 @@ extension Quire {
             public static let eventPadLeading: CGFloat = 8
             public static let eventPadTrailing: CGFloat = 5
             public static let eventPadTop: CGFloat = 2
-            public static let eventOneLineBelow: CGFloat = 30
+            public static let eventOneLineBelow: CGFloat = 34
             public static let eventPlaceLineMin: CGFloat = 46
             public static let eventGlyph: CGFloat = 12
             public static let eventGlyphGap: CGFloat = 4
