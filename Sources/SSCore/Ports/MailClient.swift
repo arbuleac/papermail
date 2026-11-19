@@ -130,6 +130,10 @@ public protocol MailClient: AnyObject {
     /// waited out too). For when the calendar was just shown, or a day outside the stored window was asked for. Returns
     /// immediately.
     func refreshCalendars(accountID: AccountID?)
+    /// Reads the calendars of `accountID` (every account when nil) over `interval` as well as the kept window, once: the
+    /// user turned the day column or the week to days outside `CalendarWindow.around(now)`. What it reads is written as
+    /// any read is (`replaceCalendarEvents` over that interval). Returns immediately.
+    func refreshCalendars(accountID: AccountID?, covering interval: DateInterval)
     /// Signs `account` in again asking for the calendar scope too (Connect, from the calendar's foot); once granted,
     /// its calendar is read. Throws as `reconnect` does.
     func connectCalendar(_ account: Account) async throws -> Account
@@ -151,6 +155,10 @@ extension MailClient {
     }
 
     public func refreshCalendars(accountID: AccountID?) {}
+
+    public func refreshCalendars(accountID: AccountID?, covering interval: DateInterval) {
+        refreshCalendars(accountID: accountID)
+    }
 
     public func connectCalendar(_ account: Account) async throws -> Account {
         try await reconnect(account)
