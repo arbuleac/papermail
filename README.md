@@ -123,9 +123,19 @@ Every attachment in the reader has a download button at its right end: it saves 
 
 A message with a calendar invitation opens with a card above it: the event's title, when it is (in your time zone, and in the organizer's when that differs), how it repeats, where, who organized it and who else is invited. The message itself, usually the sender's own copy of the same invitation, starts folded under the card: **Show message** (or `.`) unfolds it as it was sent, and **Hide message** (or `.` again) folds it away; its attachments, and a note about images it keeps back or its own colours, stay in view either way. **Accept**, **Tentative** and **Decline** answer the organizer; your answer shows on the card at once and goes out in the background, and you can change it by choosing another (change it before it has gone out, and only your last answer is sent). On Gmail, SuperSparrow mails the organizer your answer and marks the event in your Google Calendar, so your phone agrees; on Microsoft 365 and Outlook.com it answers the event in your Outlook calendar. A cancelled event is marked **Cancelled**; an event you organized offers no answers, and neither does an invitation that does not name the account it came to (one forwarded to you, or sent to another of your addresses): answer it where it was sent. **Open in Calendar** hands the invitation to the Mac's Calendar app, which shows it and offers to add it; SuperSparrow never asks for access to your Mac's calendars.
 
-The first time you answer, the account needs permission to update your calendar, which it did not ask for when you signed in: the card says "Answer invitations: SuperSparrow needs permission to update your calendar." with **Reconnect**, and Settings → Accounts reads "Calendar permission needed". Reconnect signs you in again in your browser, asking for that permission too; your answer waits and goes out as soon as it is granted. Your OAuth clients need the Google Calendar API and the calendar scope, or the Microsoft permission `Calendars.ReadWrite` (see [docs/OAUTH-SETUP.md](docs/OAUTH-SETUP.md)).
+The first time you answer, the account needs permission to update your calendar, which it did not ask for when you signed in: the card says "Answer invitations: SuperSparrow needs permission to update your calendar." with **Reconnect**, and Settings → Accounts reads "Calendar permission needed". Reconnect signs you in again in your browser, asking for that permission too; your answer waits and goes out as soon as it is granted. Your OAuth clients need the Google Calendar API and the calendar scope, or the Microsoft permission `Calendars.ReadWrite` (see [docs/OAUTH-SETUP.md](docs/OAUTH-SETUP.md)). The same permission shows your events in the day column (see Day and week), and the card says when the invitation overlaps another event: "Overlaps 1:1 with Sam, 13:30 - 14:00".
 
 In demo mode the newest mail in each mailbox is an invitation: one to answer, an updated one you already accepted that repeats in another time zone, a cancelled one, and a weekly Teams meeting on the Outlook side.
+
+## Day and week
+
+Your day sits in a column to the right of the reader: every account's events in one day, each in its account's colour, with the hours folded so it never scrolls. It follows the conversation you select: an invitation turns it to the invitation's day and shades what it overlaps, and a mail that names a time ("Friday at 3pm") marks that time. Seven small day cells across its top show how full the week is; click one to see that day. `[` and `]` turn the day, `t` comes back to today, and `d` hides or shows the column. In a narrow window it folds to a thin strip; click the strip, or press `d`, to open it over the reader's edge.
+
+`w` shows the whole week in the reader's place, and `w` again brings the reader back. Click a day's heading to go back to the reader on that day.
+
+`b` sets aside 30 minutes for the selected mail on that account's calendar: at the time the mail names, otherwise the first free half hour of the day you are looking at. Dragging a conversation onto the column or the week sets aside 30 minutes where you drop it. The block is private, invites no one and sends no notification; `z` or `⌘Z` takes it back. Click an event for its details, Join for a call, and Open in Google Calendar or Outlook.
+
+The calendar needs the same permission answering an invitation does. Until an account has it, the foot of the column says "Show events from your calendars" with **Connect**, which signs you in again in your browser asking for it. Google accounts also need the Google Calendar API turned on for your OAuth client (see [docs/OAUTH-SETUP.md](docs/OAUTH-SETUP.md)).
 
 ## Print
 
@@ -171,7 +181,7 @@ Operators combine (`from:ben is:unread after:2026-01-01 -invoice`), ignore case,
 | `#`, `⌘⌫` | Move to Trash |
 | `!` | Mark as spam |
 | `⇧I` | Move to Inbox (restores from the Trash) |
-| `z`, `⌘Z` | Undo the last mail action (last 20 are kept) |
+| `z`, `⌘Z` | Undo the last action (`⌘Z` walks back the last 50) |
 | `⇧⌘U` | Unsubscribe from the open conversation's list, then archive it |
 | `⇧⌘D` | Save the open message's attachments to Downloads |
 | `⌘P` | Print the open conversation, or save it as a PDF |
@@ -191,6 +201,11 @@ Operators combine (`from:ben is:unread after:2026-01-01 -invoice`), ignore case,
 | `g` then `o` | Go to the Outbox, while a message is on its way |
 | `⌘0` | All inboxes |
 | `⌘1` … `⌘9` | One account |
+| `d` | Hide / show the day column |
+| `w` | Show / hide the week |
+| `[` / `]` | Previous / next day (week, while the week shows) |
+| `t` | Today |
+| `b` | Set aside 30 minutes for the selected mail |
 | `⌃⌘S` | Hide / show the account strip |
 | `⌘,` | Settings |
 
@@ -217,7 +232,7 @@ The spec is [docs/DESIGN-LANGUAGE.md](docs/DESIGN-LANGUAGE.md); [docs/design/spe
 - Sign-in tokens live in the login Keychain. SuperSparrow never sees your password.
 - Mail content goes only to Google, Microsoft and this machine. No analytics, no crash reporting, no third-party services.
 - Apart from remote images you choose to load, **Unsubscribe** is the only time SuperSparrow contacts anyone but Google, Microsoft and this Mac: it contacts the sender's server with the sender's own one-click request (the address the sender chose, which can identify you, and no cookies or credentials), or opens the sender's unsubscribe page in your browser. An unsubscribe email goes from your account through Google or Microsoft like any other mail. Nothing is sent unless you click Unsubscribe or press `⇧⌘U`.
-- Your calendar is reached only to answer an invitation, and the permission is asked for only then: the first answer asks you to reconnect, granting Google's `calendar.events` or Microsoft's `Calendars.ReadWrite`, which SuperSparrow uses to find that event and mark your answer on it. The answer reaches the organizer through Google or Microsoft. **Open in Calendar** hands the invitation to the Mac's Calendar app; SuperSparrow never reads or writes your Mac's calendars.
+- SuperSparrow reads each account's main calendar (two weeks back to eight weeks ahead) from Google or Microsoft about every two minutes while it is in front, and every ten minutes otherwise, for every account that has granted the calendar permission, and keeps it in mail.sqlite beside your mail. It writes to your calendar only your answers to invitations and the time you set aside with `b`. The permission (Google's `calendar.events`, Microsoft's `Calendars.ReadWrite`) is asked for at your first answer, or when you click **Connect** under the day column. **Open in Calendar** hands an invitation to the Mac's Calendar app; SuperSparrow never reads or writes your Mac's calendars.
 - Remote images are blocked by default (they can tell senders you opened a message). You can change that in Settings → General. Images you let load come as the sender serves them, encrypted or, from senders who still use plain `http`, not.
 - New-mail notifications show sender and subject by default; turn off **Show sender and subject** in Settings → General to keep notifications content-free.
 

@@ -79,6 +79,8 @@ final class SystemControlPointerTests: XCTestCase {
         XCTAssertGreaterThan(checked, 100)
     }
 
+    // The Design Gallery is debug-only, so its tests are too: a release build of the tests must compile.
+    #if DEBUG
     /// The gallery's bar is system popups and checkboxes: each takes the hand.
     func testTheGallerysBarTakesTheHand() throws {
         let bar = DesignGalleryControlsBar()
@@ -101,6 +103,7 @@ final class SystemControlPointerTests: XCTestCase {
         XCTAssertTrue(specimen.bounds.contains(specimen.convert(behind.hitRect, from: behind)), "it covers the button")
         XCTAssertEqual(scrim.frame, specimen.bounds)
     }
+    #endif
 
     // MARK: Helpers
 

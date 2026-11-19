@@ -192,7 +192,7 @@ The two sender rules (roadmap Q4.2, see "Arrival rules"): one row per account an
 | PRIMARY KEY (account_id, address) | | one rule per sender: setting the other replaces it. The upsert's lookup is a probe of this key. A rowid table, so the Senders sheet can observe it |
 
 ### calendar_events (v20)
-Each account's main calendar as the engine last read it for the window around today (`CalendarWindow`: 14 days back to 56 ahead), plus what it read of days outside it the app asked for, kept until it ends more than 30 days behind the window, and time set aside on this Mac on its way to the provider or back (see "Calendar events"). One row per event; a repeating event arrives expanded by the provider, each occurrence its own row. `MailStoring.observeCalendarEvents` observes it, and nothing else, for the day column and the week.
+Each account's main calendar as the engine last read it for the window around today (`CalendarWindow`: 14 days back to 56 ahead), plus what it read of days outside it the app asked for, kept until it ends more than 30 days behind the window, and time set aside on this Mac on its way to the provider or back (see "Calendar events"). One row per event; a repeating event arrives expanded by the provider, each occurrence its own row. `MailStoring.observeCalendarEvents` observes it, and nothing else, for the day column and the week. It is read for the day column, the week and the reader's overlap line.
 
 | column | type | notes |
 |---|---|---|
@@ -220,7 +220,7 @@ Each account's main calendar as the engine last read it for the window around to
 Indexes: `calendar_events_by_time (start_ms, end_ms, id)` for the range read, which visits only the entries that start before the interval ends, checks their end in the index and returns them in order; the read names it (`INDEXED BY`), since left to itself SQLite answers one account's read from the next index, visiting every row the account ever stored and then sorting them. `calendar_events_by_sync (account_id, sync)` for the engine's pending read, a refresh's sweep and an answer's look for the invitation's events; a refresh's pruning of the history goes through the time index, visiting only entries that start before its line. The partial `calendar_events_by_client_key (account_id, client_key) WHERE client_key IS NOT NULL`, holding only time set aside here, which a refresh reads once.
 
 ### mail_times (v20)
-The days and times of day a message's text names (`MailTime`: “Could we move our call to Friday at 3pm?”), found once on this Mac when its body is stored (docs/ARCHITECTURE.md, "Calendar"), so selecting the conversation never reads its text again (see "Mail times"). No observation reads it; the reader asks when a conversation is selected.
+The days and times of day a message's text names (`MailTime`: “Could we move our call to Friday at 3pm?”), found once on this Mac when its body is stored (docs/ARCHITECTURE.md, "Calendar"), so selecting the conversation never reads its text again (see "Mail times"). No observation reads it; the calendar asks when a conversation is selected (`CalendarSelection.read`).
 
 | column | type | notes |
 |---|---|---|
@@ -229,7 +229,7 @@ The days and times of day a message's text names (`MailTime`: “Could we move o
 | conversation_provider_id | TEXT NOT NULL | the message's conversation, copied from `messages.conversation_provider_id` when the times are saved and moved with it by the upsert when the provider reports the message in another conversation |
 | start_ms | INTEGER NOT NULL | the instant named, read in the Mac's zone when it was found |
 | duration_s | INTEGER NULL | the length the text names (“from 3 to 4pm”), whole seconds; NULL when it names none |
-| phrase | TEXT NOT NULL | the words it was found in, as they appear in the message's plain text, for the reader to underline. Message text: never logged |
+| phrase | TEXT NOT NULL | the words it was found in, as they appear in the message's plain text: the mark's title in the calendar. Message text: never logged |
 | PRIMARY KEY (account_id, provider_id, ord) | | a rowid table, like `bodies`. Its first two columns are what the cascade from `messages` looks up |
 
 Index: `mail_times_by_conversation (account_id, conversation_provider_id, start_ms, provider_id, ord)`: the reader's read is one range of it, in the order it returns.

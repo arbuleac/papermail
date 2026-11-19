@@ -127,8 +127,8 @@ public protocol MailClient: AnyObject {
     /// Reads the calendars of `accountID` (every account when nil) at their next chance instead of waiting for the
     /// calendar's own interval: at once when an account's calendar lane is idle, after the turn it is taking otherwise,
     /// and once the account may send again while it waits for sign-in or its first live cycle (a failure's backoff is
-    /// waited out too). For when the calendar was just shown, or a day outside the stored window was asked for. Returns
-    /// immediately.
+    /// waited out too). For when the calendar was just shown, or Connect was granted; a day outside the stored window
+    /// asks `refreshCalendars(accountID:covering:)` instead. Returns immediately.
     func refreshCalendars(accountID: AccountID?)
     /// Reads the calendars of `accountID` (every account when nil) over `interval` as well as the kept window, once: the
     /// user turned the day column or the week to days outside `CalendarWindow.around(now)`. What it reads is written as
