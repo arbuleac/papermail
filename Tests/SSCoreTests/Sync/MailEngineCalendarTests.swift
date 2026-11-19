@@ -456,6 +456,46 @@ final class MailEngineCalendarTests: XCTestCase {
         await harness.shutdown()
     }
 
+    /// The store refusing a calendar write loses nothing: a read's write is taken again after the backoff, and a create
+    /// that landed but could not be settled (as if the app had died between the two) is sent again under its key, which
+    /// finds the copy already made.
+    func testAStoreWriteThatFailsIsTakenAgainAndMakesNoSecondCopy() async throws {
+        let clock = HandClock()
+        let provider = ScriptedCalendarProvider(accountID: account)
+        provider.seedEvent("Standup", start: clock.now.addingTimeInterval(3_600))
+        let store = InMemoryMailStore()
+        let faulty = FaultyStore(base: store)
+        faulty.fail(.replaceCalendarEvents)
+        let recorder = PhaseRecorder()
+        provider.bootstrapRuns = [["": .success(Fixtures.page(1...3, next: nil, cursor: "c0"))]]
+        let harness = try EngineHarness(store: store, provider: provider, engineStore: faulty) { tuning in
+            tuning.calendarClock = clock.sendClock
+        }
+        let observation = harness.engine.observeStatus { recorder.record($0) }
+        defer { observation.cancel() }
+        harness.engine.start()
+
+        try await waitUntil("the read's write refused") { self.calendarState(recorder) == .failing(lastRead: nil) }
+        XCTAssertTrue(try stored(harness, clock).isEmpty)
+        clock.advance(1)
+        try await waitUntil("written on the next turn") { try self.stored(harness, clock).count == 1 }
+        try await waitUntil("current") { self.calendarState(recorder) == .current(clock.now) }
+
+        faulty.fail(.settleCalendarEvent)
+        let event = block(at: clock.now.addingTimeInterval(7_200))
+        try harness.engine.addCalendarEvent(event)
+        try await waitUntil("the settle refused") { faulty.fired.contains(.settleCalendarEvent) }
+        try await waitUntil("failing") { self.calendarState(recorder) == .failing(lastRead: clock.now) }
+        XCTAssertEqual(try row(event.id, harness, clock)?.sync, .creating)
+        clock.advance(1)
+        try await waitUntil("settled on the next turn") { try self.row(event.id, harness, clock)?.sync == .synced }
+        XCTAssertEqual(provider.createCalls.count, 2)
+        XCTAssertEqual(provider.calendar.count, 2, "the standup and one copy of the block")
+        try await waitUntil("read") { self.calendarState(recorder) == .current(clock.now) }
+        XCTAssertEqual(try stored(harness, clock).count, 2)
+        await harness.shutdown()
+    }
+
     // MARK: Connect and accounts
 
     func testConnectAsksForTheCalendarAndReadsOnceGranted() async throws {

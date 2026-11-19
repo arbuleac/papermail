@@ -107,7 +107,7 @@ actor CalendarLane {
 
     /// Whether a turn is due now: never inside a failure's backoff; at once when asked, when a write waits or a read
     /// failed; otherwise once the interval has passed since the last turn (or at the first look).
-    var isDue: Bool {
+    private var isDue: Bool {
         let now = clock.uptime()
         if let heldUntil, now < heldUntil { return false }
         if readAsked || writesWaiting || readFailed { return true }
@@ -115,7 +115,8 @@ actor CalendarLane {
         return now - lastTurn >= (isAppActive() ? tuning.calendarActiveInterval : tuning.calendarBackgroundInterval)
     }
 
-    /// One turn: the permission (no request), the writes waiting, then the read.
+    /// One turn: the permission (no request), the writes waiting, then the read. Internal so a test can take one without
+    /// the loop.
     func turn() async {
         lastTurn = clock.uptime()
         readAsked = false
