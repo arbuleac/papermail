@@ -2,10 +2,9 @@ import AppKit
 import SSCore
 import SSDesign
 
-/// The seven day cells under the column's header (spec §5.54, “Day cells”): the shown day's week, each cell its weekday,
-/// its date and one quiet line whose length is how much of the day is busy, so a full day shows without opening the
-/// week and without a mark per event. A click shows that day; a row dropped on a cell sets aside that day's first free
-/// half hour.
+/// The seven day cells under the column's header (spec §5.54, “Day cells”): the shown day's week, each cell its weekday
+/// over its date, the date in `ink` on a day with busy time and in `ink3` on a free one, so the week's shape shows with
+/// no mark at all. A click shows that day; a row dropped on a cell sets aside that day's first free half hour.
 @MainActor
 final class CalendarDayCellsView: NSView, QuirePointerTarget {
     typealias Pane = Quire.Layout.CalendarPane
@@ -98,8 +97,8 @@ final class CalendarDayCellsView: NSView, QuirePointerTarget {
                 QuireDraw.fill(rect, radius: Pane.dayCellRadius, .qHover)
             }
             let lit = isShown || hovered == index || pressed == index
-            drawWords(day, in: rect, lit: lit, isToday: state.calendar.isDate(day, inSameDayAs: today))
-            if cells.indices.contains(index) { drawLoad(cells[index], in: rect, lit: lit) }
+            let isBusy = cells.indices.contains(index) && Self.busyShare(cells[index]) > 0
+            drawWords(day, in: rect, lit: lit, isBusy: isBusy, isToday: state.calendar.isDate(day, inSameDayAs: today))
             if dropIndex == index {
                 let ring = rect.insetBy(dx: Pane.dropRing / 2, dy: Pane.dropRing / 2)
                 let path = QuireDraw.roundedRect(ring, radius: Pane.dayCellRadius - Pane.dropRing / 2)
@@ -131,7 +130,7 @@ final class CalendarDayCellsView: NSView, QuirePointerTarget {
     }
 
     /// The weekday over the date, centred; today's date strong and ruled under in `ink`.
-    private func drawWords(_ day: Date, in rect: NSRect, lit: Bool, isToday: Bool) {
+    private func drawWords(_ day: Date, in rect: NSRect, lit: Bool, isBusy: Bool, isToday: Bool) {
         let color: NSColor = lit ? .qInk : .qInk3
         let weekday = QuireFont.attributedString(state.text.weekday(day), role: .runningHead, color: color)
         let headHeight = QuireFont.Role.runningHead.lineHeight
@@ -140,7 +139,9 @@ final class CalendarDayCellsView: NSView, QuirePointerTarget {
         weekday.draw(with: NSRect(x: rect.midX - weekdayWidth / 2, y: top, width: weekdayWidth + 1, height: headHeight),
                      options: QuireFont.drawingOptions, context: nil)
         let dateRole: QuireFont.Role = isToday ? .metaStrong : .meta
-        let date = QuireFont.attributedString(state.text.dayNumber(day), role: dateRole, color: isToday ? .qInk : color)
+        // The date says whether the day holds anything: `ink` with busy time, `ink3` free. No dot, bar or ink per event.
+        let dateColor: NSColor = isToday || lit || isBusy ? .qInk : .qInk3
+        let date = QuireFont.attributedString(state.text.dayNumber(day), role: dateRole, color: dateColor)
         let dateWidth = CalendarType.width(of: date)
         let dateTop = top + headHeight
         date.draw(with: NSRect(x: rect.midX - dateWidth / 2, y: dateTop, width: dateWidth + 1, height: dateRole.lineHeight),
@@ -151,20 +152,6 @@ final class CalendarDayCellsView: NSView, QuirePointerTarget {
             let ruleTop = dateTop + dateRole.lineHeight - Pane.dayCellAllDayLine / 2
             NSRect(x: rect.midX - dateWidth / 2, y: ruleTop, width: dateWidth, height: Pane.dayCellAllDayLine).fill()
         }
-    }
-
-    /// How much of the day is busy, as one line under the date: its length the share of the week's open hours that the
-    /// day's busy events cover (overlaps counted once; unanswered invitations and all-day events left out), in `ruleStrong`,
-    /// `ink2` on the shown, hovered or pressed cell. An empty day draws nothing. One calm signal in place of a mark per
-    /// event in each account's ink, which read as noise at this size.
-    private func drawLoad(_ cell: CalendarFit.DayCell, in rect: NSRect, lit: Bool) {
-        let share = Self.busyShare(cell)
-        guard share > 0 else { return }
-        let height = Pane.dayCellAllDayLine
-        let full = rect.width - 2 * Pane.dayCellTrackInsetX
-        let width = max(height, (full * CGFloat(share)).rounded())
-        let bar = NSRect(x: rect.midX - width / 2, y: rect.maxY - Pane.dayCellTrackBottom - height, width: width, height: height)
-        QuireDraw.fill(bar, radius: height / 2, lit ? .qInk2 : .qRuleStrong)
     }
 
     /// The share of the track the day's answered busy segments cover, overlaps merged: 0 to 1.
