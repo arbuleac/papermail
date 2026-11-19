@@ -33,7 +33,7 @@ enum KeyCommand: Equatable {
     case clearSearch
     /// Esc's key repeat, while Esc is held down: the main window takes it as Esc; a reader window lets it do only what
     /// comes before closing in §6.1 (its toast, its find bar, an open list of recipients), so holding Esc never closes one
-    /// reader window after another (§6.1 row 10).
+    /// reader window after another (§6.1 row 13).
     case escapeRepeat
     /// ← in the reader: back to the list along Esc's path, so a visible toast still goes first (§6.1). Where nothing
     /// takes it (a focused attachment chip, a reader window with no toast or find bar), it is the page's.

@@ -1497,7 +1497,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         }
     }
 
-    /// Esc with keyboard focus in a sheet's open list of recipients (§6.1 row 9): the list folds and focus goes to its
+    /// Esc with keyboard focus in a sheet's open list of recipients (§6.1 row 10): the list folds and focus goes to its
     /// toggle. False when focus is elsewhere, so the next row of §6.1 takes the key.
     func foldAddressesForEscape() -> Bool {
         guard let current = pool.current, current.addressesFocused, pageHasFocus(current) else { return false }
@@ -1949,7 +1949,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         return true
     }
 
-    /// Esc in the quick reply: the window decides (§6.1 rows 7, 10 and 11). Without one the field lets go and the web view
+    /// Esc in the quick reply: the window decides (§6.1 rows 8, 13 and 14). Without one the field lets go and the web view
     /// takes focus.
     private func quickReplyEscape(repeated: Bool) {
         if let onAction {

@@ -778,7 +778,7 @@ final class ReaderWindowTests: XCTestCase {
         harness.close()
     }
 
-    /// A toast in the window takes the first Esc and the window the second (§6.1 rows 7 and 10).
+    /// A toast in the window takes the first Esc and the window the second (§6.1 rows 8 and 13).
     func testEscDismissesTheWindowsToastFirstAndThenClosesIt() throws {
         let harness = try MainWindowHarness()
         let (id, reader) = try openFromTrash(0, harness)
@@ -795,7 +795,7 @@ final class ReaderWindowTests: XCTestCase {
         harness.close()
     }
 
-    /// Holding Esc down never closes a window (§6.1 row 10): the key's repeat still dismisses the window's toast, as every
+    /// Holding Esc down never closes a window (§6.1 row 13): the key's repeat still dismisses the window's toast, as every
     /// Esc does, but closes nothing after it; only a fresh press closes the window.
     func testHeldEscNeverClosesTheWindow() throws {
         let harness = try MainWindowHarness()
