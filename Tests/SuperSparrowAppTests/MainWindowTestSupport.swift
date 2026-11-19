@@ -16,11 +16,16 @@ final class MainWindowHarness {
     /// With `accounts` false the store starts empty and the window shows the welcome screen. `settings` defaults
     /// to a throwaway domain of its own; `demo` builds the window as the demo's; `remembersScope` false is a
     /// snapshot's window. `calendar` and `now` fix the day column's and the week's (the Mac's and the clock's by default).
+    /// `perfMailbox` opens the window on the benchmarks' large mailbox (`PerfMailboxSupport`) instead of `threads`.
     init(threads: Int = 8, spacing: TimeInterval = 600, accounts: Bool = true, settings: AppSettings? = nil, demo: Bool = false,
-         remembersScope: Bool = true, calendar: Calendar? = nil, now: (() -> Date)? = nil) throws {
+         remembersScope: Bool = true, calendar: Calendar? = nil, now: (() -> Date)? = nil, perfMailbox: Bool = false) throws {
         directory = FileManager.default.temporaryDirectory.appendingPathComponent("SuperSparrowAppTests-\(UUID().uuidString)")
+        if perfMailbox {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try PerfMailboxSupport.install(at: directory.appendingPathComponent("scratch.sqlite").path)
+        }
         environment = try AppEnvironment.makeScratch(in: directory, mode: demo ? .demo : .real)
-        if accounts { try Self.seed(environment.store, threads: threads, spacing: spacing) }
+        if accounts, !perfMailbox { try Self.seed(environment.store, threads: threads, spacing: spacing) }
         let settings = settings ?? ListTestSupport.settings()
         self.settings = settings
         controller = MainWindowController(environment: environment, settings: settings, remembersScope: remembersScope,
@@ -29,7 +34,7 @@ final class MainWindowHarness {
         controller.window?.setFrameOrigin(NSPoint(x: -20_000, y: -20_000))
         // Showing a window moves it onto a screen: reader windows open, and this one comes forward, off screen and unshown.
         controller.bringForward = { _ in }
-        if accounts { ListTestSupport.spin(until: { !self.list.conversations.isEmpty }, timeout: 5) }
+        if accounts { ListTestSupport.spin(until: { !self.list.conversations.isEmpty }, timeout: perfMailbox ? 30 : 5) }
     }
 
     static func seed(_ store: MailStoring, threads: Int = 8, spacing: TimeInterval = 600) throws {

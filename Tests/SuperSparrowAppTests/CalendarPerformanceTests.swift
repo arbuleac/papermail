@@ -6,7 +6,7 @@ import XCTest
 
 /// The calendar's budgets (docs/ARCHITECTURE.md; spec §5.54): D or W to the calendar on screen in 50 ms (the store's
 /// read of the range and the fit of up to 300 events), and the column following J and K inside the list's 16 ms. On a
-/// real SQLite file with 300 events in the shown week and a year of history around it. Gated, as the list's benchmark
+/// real SQLite file holding the benchmarks' mailbox, with 300 events in the shown week and a year of history around it. Gated, as the list's benchmark
 /// is; the budgets are asserted in release builds, and every build prints what it measured:
 ///
 ///     SS_PERF=1 swift test -c release --filter CalendarPerformanceTests
@@ -22,9 +22,11 @@ final class CalendarPerformanceTests: XCTestCase {
             .appendingPathComponent("CalendarPerformanceTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let store = try SQLiteMailStore(path: directory.appendingPathComponent("mail.sqlite").path)
-        try store.upsertAccount(Support.accountA)
-        try store.upsertAccount(Support.accountB)
+        // The calendar beside the benchmarks' mailbox (`PerfMailboxSupport`, 300,000 messages), as it is stored.
+        let path = directory.appendingPathComponent("mail.sqlite").path
+        try PerfMailboxSupport.install(at: path)
+        let store = try SQLiteMailStore(path: path)
+        print("SS_PERF calendar mailbox: \(PerfMailboxSupport.label)")
 
         // 300 events in the week of the 19th, and about 4,000 more across the months around it.
         var events: [CalendarEvent] = []

@@ -6,7 +6,8 @@ import XCTest
 /// while another send is on its way (the undo-send panel, the reply field, the Drafts observation, the runner's look) and
 /// the local steps of scheduling and cancelling another message stay within 16 ms; reading or writing the large message
 /// itself happens only when it is scheduled, sent or made into a draft. In a real file, since what the reads skip is the
-/// message's overflow pages. Only with `SS_PERF=1`:
+/// message's overflow pages. The file holds the synthetic mailbox too (`PerfMailbox`, 300,000 messages), and everything is
+/// measured again after a sweep to Keep mail at 1 year. Only with `SS_PERF=1`:
 ///
 ///     SS_PERF=1 swift test --filter SendLaterOutboxPerformanceTests
 final class SendLaterOutboxPerformanceTests: XCTestCase {
@@ -20,9 +21,20 @@ final class SendLaterOutboxPerformanceTests: XCTestCase {
             .appendingPathComponent("SendLaterOutboxPerformanceTests-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = try SQLiteMailStore(path: directory.appendingPathComponent("mail.sqlite").path)
+        let mailbox = PerfMailbox.make()
+        _ = try PerfMailbox.load(mailbox, into: store)
         try store.upsertAccount(Fixtures.account(id: Fixtures.accountID))
         let harness = try EngineHarness(engineStore: store)
         let engine = harness.engine
+        try measureOutbox(store, engine: engine, retention: "Everything")
+        _ = try PerfMailbox.sweep(store, to: PerfMailbox.oneYearCutoff(mailbox))
+        try measureOutbox(store, engine: engine, retention: "1 year")
+        await harness.shutdown()
+        try store.close()
+    }
+
+    private func measureOutbox(_ store: SQLiteMailStore, engine: MailEngine, retention: String) throws {
+        func report(_ label: String, _ milliseconds: Double) { self.report("\(retention): \(label)", milliseconds) }
 
         var large = Fixtures.outgoing()
         large.attachments = [OutgoingAttachment(filename: "deck.pdf", mimeType: "application/pdf",
@@ -68,8 +80,6 @@ final class SendLaterOutboxPerformanceTests: XCTestCase {
         let cancelLarge = try measure { XCTAssertTrue(try engine.cancelSend(id: largeID)) }
         report("cancel the large message", cancelLarge)
         XCTAssertLessThan(cancelLarge, 16, "Send Later budget: cancel, open from Drafts")
-        await harness.shutdown()
-        try store.close()
     }
 
     // MARK: Timing
