@@ -51,8 +51,11 @@ final class CalendarTimelineView: NSView, QuirePointerTarget {
 
     private(set) var content = CalendarContent.empty
     private(set) var fit: CalendarFit?
+    /// What the fit was made from: a new version, other days (a turn within the observed range keeps the version) or a
+    /// new size refits.
     private var fitSize: NSSize = .zero
     private var fitVersion = -1
+    private var fitDays: [Date] = []
     private(set) var placed: [Placed] = []
     private(set) var placedMarks: [PlacedMark] = []
     /// The now line's y, nil when today is not shown.
@@ -154,9 +157,10 @@ final class CalendarTimelineView: NSView, QuirePointerTarget {
             needsDisplay = true
             return
         }
-        guard fitVersion != content.version || fitSize != size || fit?.days.count != content.days.count else { return }
+        guard fitVersion != content.version || fitSize != size || fitDays != content.days else { return }
         fitVersion = content.version
         fitSize = size
+        fitDays = content.days
         let signpost = CalendarSignposts.signposter.beginInterval("calendar.fit")
         fit = CalendarFit(days: content.days, events: content.events, marks: content.fitMarks, height: Double(size.height),
                           width: Double(size.width), calendar: state.calendar, metrics: CalendarMetrics.fit)

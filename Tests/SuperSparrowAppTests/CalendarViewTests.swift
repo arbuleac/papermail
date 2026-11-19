@@ -85,6 +85,26 @@ final class CalendarViewTests: XCTestCase {
         XCTAssertFalse(column.dismissDetails(), "nothing more to close")
     }
 
+    func testTurningTheDayWithinTheRangeShowsThatDay() throws {
+        let (column, state, _, window) = try column()
+        defer { window.close(); state.tearDown() }
+        let strip = DayStripView(state: state)
+        let stripWindow = Support.host(strip, size: NSSize(width: 28, height: 800))
+        defer { stripWindow.close() }
+        let range = state.observedRange
+        XCTAssertTrue(column.timeline.placed.contains { $0.event.title == "Roadmap review" })
+        let stripBars = strip.bars.count
+        state.shownDay = Support.day(20)
+        XCTAssertEqual(state.observedRange, range, "no read: the day is in the range")
+        XCTAssertEqual(column.header.headline, "Friday 20 Nov")
+        XCTAssertEqual(column.header.kicker, "Tomorrow")
+        XCTAssertTrue(column.header.today.isEnabled)
+        XCTAssertEqual(Set(column.timeline.placed.map(\.event.title)), ["Standup", "Birthday dinner"], "Friday's events")
+        XCTAssertNil(column.timeline.nowY, "the now line is on today only")
+        XCTAssertNotEqual(strip.bars.count, stripBars, "the strip follows the day too")
+        XCTAssertEqual(column.cells.days.first, Support.day(16), "the same week of cells")
+    }
+
     func testTimeSetAsideOffersRemoveAndShowTheMail() throws {
         let block = CalendarEvent(id: CalendarEvent.newLocalID(accountID: Support.accountA.id), accountID: Support.accountA.id,
                                   providerID: nil, title: "Lease renewal", start: Support.at(15), end: Support.at(15, 30),

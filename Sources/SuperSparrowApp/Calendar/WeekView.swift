@@ -127,7 +127,7 @@ final class WeekView: NSView, CalendarStateObserver {
         headings.gutter = timeline.style.gutter
         headings.days = timeline.fit?.days ?? []
         // The card goes beside its event, which has a place only once the timeline has a size.
-        updateInvitationCard()
+        if invitationCard == nil { updateInvitationCard() } else { placeInvitationCard() }
     }
 
     override func draw(_ dirtyRect: NSRect) {

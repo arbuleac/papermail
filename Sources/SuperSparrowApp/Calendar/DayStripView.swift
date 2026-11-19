@@ -33,7 +33,7 @@ final class DayStripView: NSView, CalendarStateObserver, QuirePointerTarget {
     private(set) var nowY: CGFloat?
     private(set) var mailTimeYs: [CGFloat] = []
     private var fit: CalendarFit?
-    private var fitKey: (version: Int, size: NSSize)?
+    private var fitKey: (version: Int, days: [Date], size: NSSize)?
     private var content = CalendarContent.empty
     private var isHovered = false
     private var isPressed = false
@@ -96,8 +96,8 @@ final class DayStripView: NSView, CalendarStateObserver, QuirePointerTarget {
         let footHeight = CalendarFootView.preferredHeight(for: state, width: Pane.columnWidth)
         let height = bounds.height - CalendarMetrics.columnTimelineTop - footHeight - Pane.bottomPad
         let size = NSSize(width: CalendarMetrics.columnFitWidth, height: max(0, height))
-        if let fitKey, fitKey.version == content.version, fitKey.size == size { placeNow(); return }
-        fitKey = (content.version, size)
+        if let fitKey, fitKey.version == content.version, fitKey.days == content.days, fitKey.size == size { placeNow(); return }
+        fitKey = (content.version, content.days, size)
         guard size.height > 0, !content.days.isEmpty else {
             fit = nil
             bars = []
