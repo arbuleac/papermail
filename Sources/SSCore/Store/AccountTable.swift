@@ -74,12 +74,16 @@ enum AccountTable {
         // The foreign keys would cascade on their own, but the FTS index needs the message rows while it is
         // being cleaned, so the wipe runs first.
         try wipe(id, in: db)
+        // The wipe keeps the calendar (it is not mail); the account's events go here.
+        try CalendarEventTable.removeAll(id, in: db)
         try db.execute(sql: "DELETE FROM accounts WHERE id = ?", arguments: [id.rawValue])
     }
 
     static func wipe(_ id: AccountID, in db: Database) throws {
         try FullTextIndex.removeAll(accountID: id, in: db)
         let accountID = id.rawValue
+        // Their mail times go with the messages (the foreign key). The calendar's events stay: they are not mail, and a
+        // reset of the mail cursor says nothing about the calendar.
         try db.execute(sql: "DELETE FROM messages WHERE account_id = ?", arguments: [accountID])
         try db.execute(sql: "DELETE FROM conversations WHERE account_id = ?", arguments: [accountID])
         // Operations and pending sends are kept: they are what the user asked for and the provider has not

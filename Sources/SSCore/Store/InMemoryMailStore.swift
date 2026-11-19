@@ -46,6 +46,13 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
     private var conversationObservers: [UUID: (ConversationQuery, ([ConversationSummary]) -> Void)] = [:]
     private var messageObservers: [UUID: (ConversationID, ([MessageMetadata]) -> Void)] = [:]
     private var sendObservers: [UUID: ([PendingSendSummary]) -> Void] = [:]
+    /// `calendar_events`, by id, each with when it last became pending (`queued_ms`). The rules are
+    /// `CalendarEventTable`'s, shared with the SQLite store; dates are held to the millisecond.
+    private var calendarRows: [String: CalendarEventTable.Stored] = [:]
+    private var calendarObservers: [UUID: CalendarObserver] = [:]
+    /// `mail_times`, by message, in the order saved. They go with their message (a delete, a wipe, the account's
+    /// removal), never with its body.
+    private var mailTimeRows: [MessageID: [MailTime]] = [:]
 
     public init() {}
 
@@ -76,8 +83,10 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         for operation in operations.values where operation.accountID == id { priors[operation.id] = nil }
         operations = operations.filter { $0.value.accountID != id }
         sends = sends.filter { $0.value.message.accountID != id }
+        calendarRows = calendarRows.filter { $0.value.event.accountID != id }
         notifyAll()
         notifySends()
+        notifyCalendar()
     }
 
     public func setInkSlot(_ slot: Int, for accountID: AccountID) throws {
@@ -133,6 +142,8 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
     private func wipeLocked(_ accountID: AccountID) {
         messagesByID = messagesByID.filter { $0.key.accountID != accountID }
         bodies = bodies.filter { $0.key.accountID != accountID }
+        // The mail times go with the mail; the calendar's events stay (`AccountTable.wipe`).
+        mailTimeRows = mailTimeRows.filter { $0.key.accountID != accountID }
         evicted = evicted.filter { $0.accountID != accountID }
         cursors[accountID] = nil
         bootstraps[accountID] = nil
@@ -260,6 +271,7 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
             messagesByID[id] = nil
             bodies[id] = nil
             evicted.remove(id)
+            mailTimeRows[id] = nil
         }
         dropOrphanedMarksLocked()
         applySnoozeRulesLocked(touched: touched)
@@ -1174,6 +1186,149 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         sends.values.sorted { $0.createdAt < $1.createdAt }
     }
 
+    // MARK: Calendar (the rules are written out on `CalendarEventTable`)
+
+    private struct CalendarObserver {
+        var interval: DateInterval
+        var last: [CalendarEvent]?
+        var callback: ([CalendarEvent]) -> Void
+    }
+
+    public func calendarEvents(in interval: DateInterval, accountIDs: [AccountID]?) throws -> [CalendarEvent] {
+        lock.lock(); defer { lock.unlock() }
+        return calendarEventsLocked(in: interval, accountIDs: accountIDs)
+    }
+
+    private func calendarEventsLocked(in interval: DateInterval, accountIDs: [AccountID]?) -> [CalendarEvent] {
+        let accounts = accountIDs.map(Set.init)
+        return calendarRows.values.lazy.map(\.event)
+            .filter { event in
+                (accounts.map { $0.contains(event.accountID) } ?? true) && CalendarEventTable.overlaps(event, interval)
+            }
+            .sorted(by: CalendarEventTable.precedes)
+    }
+
+    public func observeCalendarEvents(in interval: DateInterval,
+                                      onChange: @escaping @Sendable ([CalendarEvent]) -> Void) -> StoreObservation {
+        lock.lock(); defer { lock.unlock() }
+        let token = UUID()
+        let current = calendarEventsLocked(in: interval, accountIDs: nil)
+        calendarObservers[token] = CalendarObserver(interval: interval, last: current, callback: onChange)
+        deliver { onChange(current) }
+        return StoreObservation { [weak self] in
+            guard let self else { return }
+            self.lock.lock(); defer { self.lock.unlock() }
+            self.calendarObservers[token] = nil
+        }
+    }
+
+    public func replaceCalendarEvents(_ events: [CalendarEvent], accountID: AccountID, window: DateInterval) throws {
+        lock.lock(); defer { lock.unlock() }
+        guard accountRows[accountID] != nil else { return }
+        // By key, the lowest id first, as `CalendarEventTable.keyed` reads them.
+        var keyed: [String: CalendarEventTable.Stored] = [:]
+        for row in calendarRows.values.sorted(by: { $0.event.id < $1.event.id })
+        where row.event.accountID == accountID {
+            if let key = row.event.clientKey, keyed[key] == nil { keyed[key] = row }
+        }
+        var listed: Set<String> = []
+        for read in events {
+            let byKey = read.clientKey.flatMap { keyed[$0] }
+            let id = byKey?.event.id ?? read.id
+            listed.insert(id)
+            let current = byKey ?? calendarRows[id]
+            guard let merged = CalendarEventTable.merged(read, accountID: accountID, keyed: byKey,
+                                                         sameID: byKey == nil ? current : nil) else { continue }
+            calendarRows[id] = merged
+            if let key = merged.event.clientKey { keyed[key] = merged }
+        }
+        calendarRows = calendarRows.filter { !CalendarEventTable.isSwept($0.value.event, accountID: accountID, window: window, listed: listed) }
+        notifyCalendar()
+    }
+
+    public func addCalendarEvent(_ event: CalendarEvent) throws {
+        lock.lock(); defer { lock.unlock() }
+        guard accountRows[event.accountID] != nil else { throw StoreError.notFound }
+        guard calendarRows[event.id] == nil else { throw StoreError.conflict("a calendar event already has this id") }
+        calendarRows[event.id] = CalendarEventTable.adding(event, now: Self.nowMS())
+        notifyCalendar()
+    }
+
+    @discardableResult
+    public func removeCalendarEvent(id: String) throws -> CalendarEvent? {
+        lock.lock(); defer { lock.unlock() }
+        guard let current = calendarRows[id] else { return nil }
+        calendarRows[id] = CalendarEventTable.removing(current, now: Self.nowMS())
+        notifyCalendar()
+        return current.event
+    }
+
+    @discardableResult
+    public func restoreCalendarEvent(_ event: CalendarEvent) throws -> CalendarEvent {
+        lock.lock(); defer { lock.unlock() }
+        let current = calendarRows[event.id]
+        if current == nil, accountRows[event.accountID] == nil { throw StoreError.notFound }
+        let restored = CalendarEventTable.restoring(event, current: current, now: Self.nowMS())
+        calendarRows[restored.event.id] = restored
+        notifyCalendar()
+        return restored.event
+    }
+
+    public func pendingCalendarEvents(accountID: AccountID) throws -> [CalendarEvent] {
+        lock.lock(); defer { lock.unlock() }
+        return calendarRows.values
+            .filter { $0.event.accountID == accountID && ($0.event.sync == .creating || $0.event.sync == .deleting) }
+            .sorted(by: CalendarEventTable.queuedBefore)
+            .map(\.event)
+    }
+
+    @discardableResult
+    public func settleCalendarEvent(id: String, created: CalendarEvent?) throws -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        switch CalendarEventTable.settlement(of: calendarRows[id], created: created) {
+        case .refused:
+            return false
+        case .replace(let row):
+            calendarRows[id] = row
+        case .alreadySettled:
+            break
+        case .delete:
+            calendarRows[id] = nil
+        }
+        notifyCalendar()
+        return true
+    }
+
+    public func failCalendarEvent(id: String) throws {
+        lock.lock(); defer { lock.unlock() }
+        guard let current = calendarRows[id] else { return }
+        calendarRows[id] = CalendarEventTable.failing(current)
+        notifyCalendar()
+    }
+
+    public func saveMailTimes(_ times: [MailTime], for message: MessageID) throws {
+        lock.lock(); defer { lock.unlock() }
+        // Dropped for a message the store does not hold, as the SQLite store's insert takes its conversation from the row.
+        guard messagesByID[message] != nil, !times.isEmpty else {
+            mailTimeRows[message] = nil
+            return
+        }
+        mailTimeRows[message] = times.map { MailTimeTable.normalized($0, for: message) }
+    }
+
+    public func mailTimes(in conversation: ConversationID) throws -> [MailTime] {
+        lock.lock(); defer { lock.unlock() }
+        return messagesLocked(in: conversation)
+            .flatMap { message in (mailTimeRows[message.id] ?? []).enumerated().map { (time: $0.element, ord: $0.offset) } }
+            .sorted(by: MailTimeTable.precedes)
+            .map(\.time)
+    }
+
+    /// When a calendar row became pending, as the SQLite store records it.
+    private static func nowMS() -> Int64 {
+        MailStoreCodec.milliseconds(Date())
+    }
+
     // MARK: Contacts
 
     public func suggestAddresses(prefix: String, limit: Int) throws -> [EmailAddress] {
@@ -1251,6 +1406,23 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         let current = pendingSendsLocked().map(PendingSendSummary.init)
         deliver {
             for callback in callbacks { callback(current) }
+        }
+    }
+
+    /// Apart from `notifyAll`, as the SQLite store's calendar observation tracks `calendar_events` alone: mail wakes no
+    /// calendar, and a calendar write wakes no list. Each observer gets only a changed list.
+    private func notifyCalendar() {
+        guard !calendarObservers.isEmpty else { return }
+        var snapshot: [(([CalendarEvent]) -> Void, [CalendarEvent])] = []
+        for (token, observer) in calendarObservers {
+            let current = calendarEventsLocked(in: observer.interval, accountIDs: nil)
+            guard observer.last != current else { continue }
+            calendarObservers[token]?.last = current
+            snapshot.append((observer.callback, current))
+        }
+        guard !snapshot.isEmpty else { return }
+        deliver {
+            for (callback, value) in snapshot { callback(value) }
         }
     }
 

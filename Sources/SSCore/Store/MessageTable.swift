@@ -117,6 +117,7 @@ enum MessageTable {
                 }
                 if previousConversation != metadata.conversationID.providerID {
                     try ConversationTable.touch(accountID: incoming.id.accountID, providerID: previousConversation, in: db)
+                    try MailTimeTable.messageMoved(incoming.id, to: metadata.conversationID.providerID, in: db)
                 }
             }
             try upsert.execute(arguments: try arguments(for: metadata, indexed: indexed))
