@@ -590,6 +590,25 @@ final class SQLiteMailStoreTests: XCTestCase {
 
     // MARK: Query plans
 
+    /// The day column and the week read a range of the time index, in its order (docs/ARCHITECTURE.md budgets: D or W to
+    /// the calendar on screen); the reader reads a conversation's mail times as one range of theirs.
+    func testCalendarReadsStayOnTheirIndexes() throws {
+        let store = try store()
+        let week = DateInterval(start: base, duration: 7 * 86_400)
+        let plan = try store.calendarQueryPlan(in: week, accountIDs: nil)
+        XCTAssertEqual(plan.filter { $0.hasPrefix("SEARCH") || $0.hasPrefix("SCAN") }.count, 1, "one indexed select: \(plan)")
+        XCTAssertTrue(plan.contains { $0.contains("USING INDEX calendar_events_by_time") }, "\(plan)")
+        XCTAssertFalse(plan.contains { $0.contains("TEMP B-TREE") }, "in the index's order, no sort: \(plan)")
+
+        XCTAssertEqual(try store.calendarQueryPlan(in: week, accountIDs: [accountA, accountB]), plan,
+                       "the accounts' events through the time index too, not through every row they ever stored")
+        XCTAssertEqual(try store.calendarQueryPlan(in: week, accountIDs: []), [], "no account asked for: no read")
+
+        let times = try store.mailTimesQueryPlan(in: ConversationID(accountID: accountA, providerID: "c1"))
+        XCTAssertTrue(times.contains { $0.contains("USING INDEX mail_times_by_conversation") }, "\(times)")
+        XCTAssertFalse(times.contains { $0.contains("TEMP B-TREE") || $0.hasPrefix("SCAN") }, "\(times)")
+    }
+
     func testListQueriesStayOnTheirIndexes() throws {
         let store = try store()
         try store.upsertMessages([message("m1", in: "c")])
