@@ -81,7 +81,7 @@ final class DayStripView: NSView, CalendarStateObserver, QuirePointerTarget {
         needsReload = false
         content = state.content(for: [state.shownDay])
         refit()
-        let count = content.events.filter { !$0.isAllDay }.count + content.events.filter(\.isAllDay).count
+        let count = content.events.count
         setAccessibilityLabel("Day, " + state.text.longDay(state.shownDay) + ", " + (count == 1 ? "1 event" : "\(count) events"))
     }
 

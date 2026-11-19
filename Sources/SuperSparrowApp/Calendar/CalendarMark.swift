@@ -28,12 +28,4 @@ struct CalendarMark: Hashable, Sendable {
         if case .mailTime = kind { return true }
         return false
     }
-
-    var accountID: AccountID {
-        switch kind {
-        case .later(let conversation): return conversation.accountID
-        case .sendLater(_, let account): return account
-        case .mailTime(let conversation, _): return conversation.accountID
-        }
-    }
 }

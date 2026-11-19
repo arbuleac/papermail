@@ -31,7 +31,4 @@ struct CalendarContent: Sendable {
     func mark(withID id: String) -> CalendarMark? {
         marks.first { $0.id == id }
     }
-
-    /// Whether the selection's mail draws a pencil or carries a rule on these days.
-    var hasSelection: Bool { !selectedEventIDs.isEmpty || marks.contains(where: \.isMailTime) }
 }

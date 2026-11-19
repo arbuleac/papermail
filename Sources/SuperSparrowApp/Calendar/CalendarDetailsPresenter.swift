@@ -36,9 +36,6 @@ final class CalendarDetailsPresenter {
 
     var isShowing: Bool { card != nil }
 
-    /// The event the card is about, when it is about one.
-    var shownEventID: String? { card == nil ? nil : eventID }
-
     func show(_ event: CalendarEvent, anchor: NSRect, in timeline: CalendarTimelineView, fromKeyboard: Bool) {
         present(model: model(for: event), anchor: anchor, in: timeline, eventID: event.id, fromKeyboard: fromKeyboard)
     }
