@@ -15,15 +15,16 @@ final class MainWindowHarness {
 
     /// With `accounts` false the store starts empty and the window shows the welcome screen. `settings` defaults
     /// to a throwaway domain of its own; `demo` builds the window as the demo's; `remembersScope` false is a
-    /// snapshot's window.
+    /// snapshot's window. `calendar` and `now` fix the day column's and the week's (the Mac's and the clock's by default).
     init(threads: Int = 8, spacing: TimeInterval = 600, accounts: Bool = true, settings: AppSettings? = nil, demo: Bool = false,
-         remembersScope: Bool = true) throws {
+         remembersScope: Bool = true, calendar: Calendar? = nil, now: (() -> Date)? = nil) throws {
         directory = FileManager.default.temporaryDirectory.appendingPathComponent("SuperSparrowAppTests-\(UUID().uuidString)")
         environment = try AppEnvironment.makeScratch(in: directory, mode: demo ? .demo : .real)
         if accounts { try Self.seed(environment.store, threads: threads, spacing: spacing) }
         let settings = settings ?? ListTestSupport.settings()
         self.settings = settings
-        controller = MainWindowController(environment: environment, settings: settings, remembersScope: remembersScope)
+        controller = MainWindowController(environment: environment, settings: settings, remembersScope: remembersScope,
+                                          calendar: calendar ?? .autoupdatingCurrent, now: now ?? Date.init)
         controller.window?.setFrameAutosaveName("")
         controller.window?.setFrameOrigin(NSPoint(x: -20_000, y: -20_000))
         // Showing a window moves it onto a screen: reader windows open, and this one comes forward, off screen and unshown.

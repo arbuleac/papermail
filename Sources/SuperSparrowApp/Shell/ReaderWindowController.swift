@@ -273,6 +273,12 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
             undoCenter.perform(commandZ ? undoCenter.commandZTarget(textCanUndo: false) : undoCenter.zTarget, typing: window?.undoManager)
         case .goTo(let view):
             opener.goTo(view)
+        case .toggleDayColumn, .toggleWeek, .previousDay, .nextDay, .today:
+            // No day column or week here (§5.49): the keys pass to the page, as J and K do.
+            return false
+        case .blockTime:
+            // Time set aside for this window's conversation, from today; its toast and undo are this window's.
+            opener.blockTime(from: self)
         }
         return true
     }
@@ -343,6 +349,8 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
     }
     /// Message › Undo (Z): the latest toast's action, never a send (§6.1).
     @objc func undoMailAction(_ sender: Any?) { undoCenter.perform(undoCenter.zTarget, typing: nil) }
+    /// Message › Block Time (B): 30 minutes set aside for this window's conversation (§5.54).
+    @objc func blockTimeForSelection(_ sender: Any?) { _ = perform(.blockTime) }
     @objc func unsubscribeFromConversation(_ sender: Any?) {
         guard let target = conversation.unsubscribeTarget else {
             NSSound.beep()
@@ -445,6 +453,8 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
             menuItem.title = hasUnread ? "Mark as Read" : "Mark as Unread"
             return showsMessages
         case #selector(replyToSelection(_:)), #selector(replyAllToSelection(_:)), #selector(forwardSelection(_:)):
+            return showsMessages
+        case #selector(blockTimeForSelection(_:)):
             return showsMessages
         case #selector(undoMailAction(_:)):
             let target = undoCenter.zTarget

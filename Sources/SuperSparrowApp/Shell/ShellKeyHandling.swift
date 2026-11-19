@@ -26,3 +26,12 @@ extension QuireUnderlineTabs: ShellKeyHandling {
         return event.specialKey == .leftArrow || event.specialKey == .rightArrow
     }
 }
+
+extension CalendarDayCellsView: ShellKeyHandling {
+    /// ← → move the day column's shown day while its cells have the keyboard (§5.54); → would otherwise open the list's
+    /// selection in the reader.
+    func handlesKey(_ event: NSEvent) -> Bool {
+        guard event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty else { return false }
+        return event.specialKey == .leftArrow || event.specialKey == .rightArrow
+    }
+}

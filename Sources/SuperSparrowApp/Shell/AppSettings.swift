@@ -52,6 +52,8 @@ final class AppSettings: ObservableObject {
         static let theme = "theme"
         static let appearance = "appearance"
         static let adaptsMailColours = "adaptsMailColours"
+        /// The main window's day column (spec §5.54): on by default; D hides it.
+        static let showsDayColumn = "showsDayColumn"
     }
 
     /// Account ids are UUIDs, so this can never be one.
@@ -246,6 +248,13 @@ final class AppSettings: ObservableObject {
         showAccountInitials = true
     }
 
+    /// The main window's day column is on (spec §5.54, D): kept here rather than in the split view's autosave, so the
+    /// window opens with the column as it was left, as it does with a hidden rail, and tests keep theirs apart. Not a
+    /// setting in Settings: D, View › Hide Day and the reader header's Day button change it.
+    @Published var showsDayColumn: Bool {
+        didSet { defaults.set(showsDayColumn, forKey: Key.showsDayColumn) }
+    }
+
     /// The account scope an earlier launch left the main window on, or nil when none is saved. Not a setting: the
     /// window saves it whenever the scope changes and opens on it at the next launch. The demo's is kept apart,
     /// so trying the demo never changes the scope the user's own accounts open on.
@@ -284,6 +293,7 @@ final class AppSettings: ObservableObject {
             Key.theme: QuireTheme.study.rawValue,
             Key.appearance: AppAppearance.automatic.rawValue,
             Key.adaptsMailColours: true,
+            Key.showsDayColumn: true,
         ])
         notificationsEnabled = defaults.bool(forKey: Key.notifications)
         showPreviews = defaults.bool(forKey: Key.previews)
@@ -309,6 +319,7 @@ final class AppSettings: ObservableObject {
         accountInitialsTurnedOnAutomatically = defaults.bool(forKey: Key.accountInitialsTurnedOnAutomatically)
         accountInitialsChosenByUser = defaults.bool(forKey: Key.accountInitialsChosenByUser)
         sevenAccountsNoticePending = defaults.bool(forKey: Key.sevenAccountsNoticePending)
+        showsDayColumn = defaults.bool(forKey: Key.showsDayColumn)
         applyUndoSendDelay()
         ConversationViewController.loadRemoteImages = loadRemoteImages
     }

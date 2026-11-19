@@ -251,6 +251,13 @@ enum MainMenu {
                           symbol: Quire.Icon.originalColors))
         menu.addItem(item("Show Quoted Text", #selector(MainWindowController.toggleQuotedText(_:)), ".", [], symbol: Quire.Icon.quotedText))
         menu.addItem(.separator())
+        // The day column and the week (§5.54), retitled by what shows (Hide Day, Show Week, Previous Week…).
+        menu.addItem(item("Hide Day", #selector(MainWindowController.toggleDayColumn(_:)), "d", [], symbol: Quire.Icon.dayColumn))
+        menu.addItem(item("Show Week", #selector(MainWindowController.toggleWeek(_:)), "w", [], symbol: Quire.Icon.week))
+        menu.addItem(item("Previous Day", #selector(MainWindowController.previousCalendarDay(_:)), "[", [], symbol: Quire.Icon.previousDay))
+        menu.addItem(item("Next Day", #selector(MainWindowController.nextCalendarDay(_:)), "]", [], symbol: Quire.Icon.nextDay))
+        menu.addItem(item("Today", #selector(MainWindowController.calendarToday(_:)), "t", []))
+        menu.addItem(.separator())
         // The reader's own Text size (§4.15). No ⌘0 to reset it: that is All Inboxes; the other key comes back.
         menu.addItem(item("Make Text Bigger", #selector(MainWindowController.makeReaderTextBigger(_:)), "+"))
         // ⌘= is ⌘+ without the Shift most layouts need for +, and Safari takes it the same way.
@@ -281,6 +288,8 @@ enum MainMenu {
             item("Mark as Unread", #selector(MainWindowController.markSelectionUnread(_:)), "u", [], symbol: Quire.Icon.markUnread),
             // Titled Unmute when every selected conversation is muted, as Star reads Unstar.
             item("Mute", #selector(MainWindowController.toggleMuteSelection(_:)), "m", [], symbol: Quire.Icon.mute),
+            // 30 minutes set aside for the selected conversation (§5.54).
+            item("Block Time", #selector(MainWindowController.blockTimeForSelection(_:)), "b", [], symbol: Quire.Icon.blockTime),
             item("Undo", #selector(MainWindowController.undoMailAction(_:)), "z", [], symbol: Quire.Icon.undo),
             .separator(),
             item("Unsubscribe", #selector(MainWindowController.unsubscribeFromConversation(_:)), "u", [.command, .shift]),

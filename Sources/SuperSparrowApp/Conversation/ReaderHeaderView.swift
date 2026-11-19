@@ -31,6 +31,61 @@ final class ReaderHeaderView: NSView {
 
     var onAction: ((ReaderActionSet.Action) -> Void)?
 
+    /// The main window's Day and Week buttons (spec §5.12, §5.54): after every action set and a 14 pt gap, acting on the
+    /// window rather than the conversation, so they are enabled whatever is selected. Reader windows have none.
+    enum LayoutToggle: CaseIterable {
+        case day
+        case week
+    }
+
+    /// Whether the header ends with the Day and Week buttons: the main window's does, a reader window's never.
+    var showsLayoutToggles = false {
+        didSet {
+            guard oldValue != showsLayoutToggles else { return }
+            if showsLayoutToggles, layoutToggles.isEmpty { makeLayoutToggles() }
+            for button in layoutToggles.values { button.isHidden = !showsLayoutToggles }
+            needsLayout = true
+        }
+    }
+
+    /// A click on Day or Week: what D or W does.
+    var onLayoutToggle: ((LayoutToggle) -> Void)?
+
+    /// The Day and Week buttons, once shown.
+    private(set) var layoutToggles: [LayoutToggle: QuireIconButton] = [:]
+
+    /// Day is on while the column shows (in full or over the reader's edge), Week while the week shows (§5.12).
+    func setLayoutToggles(dayOn: Bool, weekOn: Bool) {
+        if let day = layoutToggles[.day] {
+            day.isOn = dayOn
+            day.toolTip = dayOn ? "Hide Day  D" : "Show Day  D"
+        }
+        if let week = layoutToggles[.week] {
+            week.isOn = weekOn
+            week.toolTip = weekOn ? "Hide Week  W" : "Show Week  W"
+        }
+    }
+
+    private func makeLayoutToggles() {
+        for toggle in LayoutToggle.allCases {
+            let button = QuireIconButton(symbolName: toggle == .day ? Quire.Icon.dayColumn : Quire.Icon.week, size: .large,
+                                         accessibilityLabel: toggle == .day ? "Day" : "Week", target: self,
+                                         action: #selector(layoutTogglePressed(_:)))
+            // Quiet toggles (VoiceOver: “Day, toggle button”); the window sets their state again after every click from
+            // what it then shows, since D in a narrow window opens the column over the reader rather than hiding it.
+            button.onStyle = .quiet
+            button.togglesOnClick = true
+            button.tag = toggle == .day ? 0 : 1
+            addSubview(button)
+            layoutToggles[toggle] = button
+        }
+        setLayoutToggles(dayOn: false, weekOn: false)
+    }
+
+    @objc private func layoutTogglePressed(_ sender: QuireIconButton) {
+        onLayoutToggle?(sender.tag == 0 ? .day : .week)
+    }
+
     /// Where the kicker may start at the earliest. 0 in the main window, where the list stands between the lights and the
     /// reader; in a reader window the lights are on the header's own line, and the kicker starts clear of them (§5.49).
     var kickerMinX: CGFloat = 0 {
@@ -201,14 +256,16 @@ final class ReaderHeaderView: NSView {
         super.layout()
         let metrics = Quire.Layout.ReaderHeader.self
         let column = ReaderColumn.frame(readerWidth: bounds.width)
-        // Actions from the trailing edge: the reply group, the 14 pt gap, then the first group.
+        // Groups from the trailing edge, 14 pt apart: in the main window Day and Week, then the reply group, then the first.
         var x = bounds.width - metrics.actionsTrailing
         var firstActionX = x
-        let groups = [content.actions.replies, content.actions.primary]
-        for (index, group) in groups.enumerated() where !group.isEmpty {
-            if index == 1, !content.actions.replies.isEmpty { x -= metrics.actionGroupGap - metrics.actionGap }
-            for action in group.reversed() {
-                guard let button = buttons[action] else { continue }
+        let toggles = showsLayoutToggles ? LayoutToggle.allCases.compactMap { layoutToggles[$0] } : []
+        let groups = [toggles, content.actions.replies.compactMap { buttons[$0] }, content.actions.primary.compactMap { buttons[$0] }]
+        var placedGroup = false
+        for group in groups where !group.isEmpty {
+            if placedGroup { x -= metrics.actionGroupGap - metrics.actionGap }
+            placedGroup = true
+            for button in group.reversed() {
                 x -= metrics.actionSize
                 button.frame = button.frame(forVisualRect: NSRect(x: x, y: metrics.actionsTop, width: metrics.actionSize, height: metrics.actionSize))
                 firstActionX = x

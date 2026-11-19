@@ -196,10 +196,24 @@ final class AppEnvironment {
         }
     }
 
-    /// The demo's mailboxes and, the first time they are added, its Send Later sample (§5.43), so Drafts shows one.
+    /// The demo's mailboxes and, the first time they are added, its Send Later and Later samples (§5.43), so Drafts, the
+    /// Outbox, the Later tile and the calendar's marks show from the start.
     private static func seedDemo(_ engine: MailEngine) async throws {
         let added = try await DemoSeeder.seedIfNeeded(engine)
-        if !added.isEmpty { try DemoSeeder.seedSendLater(engine, accounts: added) }
+        guard !added.isEmpty else { return }
+        try DemoSeeder.seedSendLater(engine, accounts: added)
+        // A snooze needs mail put away, which the accounts' first sync brings a moment after they are added. A store that
+        // fails (the demo left meanwhile) ends the wait.
+        Task.detached(priority: .utility) {
+            for _ in 0..<120 {
+                do {
+                    if try DemoSeeder.seedLater(engine, accounts: added) != nil { return }
+                } catch {
+                    return
+                }
+                try? await Task.sleep(nanoseconds: 500_000_000)
+            }
+        }
     }
 
     /// “Try the demo” (spec §5.39): starts the demo engine and returns once both made-up mailboxes exist, so
