@@ -60,7 +60,8 @@ extension CalendarFit {
             end: max(start, end),
             isAllDay: invitation.isAllDay,
             response: answer,
-            joinURL: invitation.conferenceURL,
+            // The card keeps any web meeting link; the calendar's Join opens only https, so it offers no other.
+            joinURL: invitation.conferenceURL.flatMap { CalendarInvitationReader.webAddress($0)?.scheme?.lowercased() == "https" ? $0 : nil },
             organizer: invitation.organizer?.displayName,
             invitationUID: invitation.uid
         )

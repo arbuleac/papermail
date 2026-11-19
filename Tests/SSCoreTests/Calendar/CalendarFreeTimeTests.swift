@@ -269,4 +269,15 @@ final class CalendarFreeTimeTests: XCTestCase {
         let cancelled = CalendarInvitation(method: .cancel, uid: "c", title: "Gone", start: wall, end: wall)
         XCTAssertNil(CalendarFit.pencil(for: cancelled, message: message, timeZone: sample.calendar.timeZone))
     }
+
+    /// The calendar's Join opens only https (the window refuses http), so a pencil drawn from an invitation whose
+    /// meeting link is http offers no Join that would do nothing; the reader's card keeps the link.
+    func testAPencilOffersOnlyAnHttpsJoin() throws {
+        let message = MessageID(accountID: CalendarFitSample.contoso, providerID: "m-43")
+        let start = sample.date(8, "13:00")
+        let http = CalendarInvitation(method: .request, uid: "h", title: "Call", start: start, end: start.addingTimeInterval(1_800),
+                                      conferenceURL: "http://meet.onprem.test/j/1")
+        XCTAssertNil(try XCTUnwrap(CalendarFit.pencil(for: http, message: message, timeZone: sample.calendar.timeZone)).joinURL)
+        XCTAssertEqual(http.conferenceURL, "http://meet.onprem.test/j/1")
+    }
 }

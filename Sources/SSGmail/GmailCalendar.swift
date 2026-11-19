@@ -101,7 +101,7 @@ extension GmailProvider: CalendarProvider {
         var created = event
         created.title = title
         created.providerID = resource.id
-        created.webURL = resource.htmlLink.flatMap { CalendarInvitationReader.webAddress($0) == nil ? nil : $0 } ?? event.webURL
+        created.webURL = GoogleCalendarMapper.secureWebAddress(resource.htmlLink) ?? event.webURL
         created.updatedAt = resource.updated.flatMap(GoogleCalendarMapper(accountID: accountID).instant(_:)) ?? event.updatedAt
         created.invitationUID = resource.iCalUID ?? event.invitationUID
         created.sync = .synced

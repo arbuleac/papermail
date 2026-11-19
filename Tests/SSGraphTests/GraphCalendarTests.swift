@@ -322,10 +322,18 @@ final class GraphCalendarTests: GraphTestCase {
                        onlineMeetingUrl: #""https://legacy.example.test/join/roadmap""#),
             Self.event(id: "AAMkLEGACY", onlineMeetingUrl: #""https://legacy.example.test/join/roadmap""#),
             Self.event(id: "AAMkNOTWEB", onlineMeeting: #"{"joinUrl": "tel:+15550100"}"#),
+            Self.event(id: "AAMkHTTP", onlineMeeting: #"{"joinUrl": "http://meet.onprem.test/j/roadmap"}"#,
+                       onlineMeetingUrl: #""http://legacy.example.test/join/roadmap""#),
         ])
         XCTAssertEqual(events.map(\.joinURL), [
-            "https://teams.microsoft.test/l/meetup-join/roadmap", "https://legacy.example.test/join/roadmap", nil,
-        ], "Join opens a web address only")
+            "https://teams.microsoft.test/l/meetup-join/roadmap", "https://legacy.example.test/join/roadmap", nil, nil,
+        ], "Join opens an https address only: the window refuses http, so it is never offered")
+    }
+
+    func testAnHttpWebLinkIsNotOffered() async throws {
+        let json = Self.event(id: "AAMkONE").replacingOccurrences(of: #""webLink": "https://"#, with: #""webLink": "http://"#)
+        let event = try await readOne(json)
+        XCTAssertNil(event.webURL, "Open in Outlook opens https only")
     }
 
     func testABlockReadBackCarriesItsClientKey() async throws {

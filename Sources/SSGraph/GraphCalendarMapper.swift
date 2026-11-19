@@ -66,9 +66,10 @@ struct GraphCalendarMapper {
         nonEmpty(address?.name) ?? nonEmpty(address?.address)
     }
 
-    /// Only a web address: Join and Open in Outlook hand it to the browser.
+    /// Only an https address: Join and Open in Outlook open nothing else (the window refuses any other scheme, http
+    /// included), so a link it would refuse is never offered as a button that does nothing.
     private static func webAddress(_ value: String?) -> String? {
-        nonEmpty(value).flatMap { CalendarInvitationReader.webAddress($0) == nil ? nil : $0 }
+        nonEmpty(value).flatMap { CalendarInvitationReader.webAddress($0)?.scheme?.lowercased() == "https" ? $0 : nil }
     }
 
     private static func nonEmpty(_ value: String?) -> String? {

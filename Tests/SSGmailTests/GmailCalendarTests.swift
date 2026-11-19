@@ -217,6 +217,27 @@ final class GmailCalendarTests: XCTestCase {
         XCTAssertNil(try event("declined0001", in: listing).joinURL)
     }
 
+    /// The window opens only https, so an http link (an on-premises call server, an older link) is never offered as a
+    /// Join or Open in that would do nothing.
+    func testOnlyHttpsLinksAreKept() async throws {
+        server.on("GET", eventsPath, .json(#"""
+        {"items": [
+          {"id": "plainhttp001", "status": "confirmed", "start": {"dateTime": "2026-11-19T09:00:00Z"},
+           "end": {"dateTime": "2026-11-19T09:30:00Z"}, "hangoutLink": "http://meet.example.test/abc",
+           "htmlLink": "http://www.google.com/calendar/event?eid=cGxhaW5odHRwMDAx"},
+          {"id": "httpthenvid1", "status": "confirmed", "start": {"dateTime": "2026-11-19T10:00:00Z"},
+           "end": {"dateTime": "2026-11-19T10:30:00Z"}, "hangoutLink": "http://meet.example.test/abc",
+           "conferenceData": {"entryPoints": [{"entryPointType": "video", "uri": "https://us02web.zoom.us/j/1"}]}}
+        ]}
+        """#))
+        let listing = try await provider().calendarEvents(in: window)
+
+        let plain = try event("plainhttp001", in: listing)
+        XCTAssertNil(plain.joinURL)
+        XCTAssertNil(plain.webURL)
+        XCTAssertEqual(try event("httpthenvid1", in: listing).joinURL, "https://us02web.zoom.us/j/1", "the next candidate that is https")
+    }
+
     func testTheEventKeepsItsLinkOrganizerUIDAndWhenItChanged() async throws {
         let listing = try await readAll()
 
