@@ -2,13 +2,21 @@ import Foundation
 import SSCore
 
 /// An in-memory store whose older pages (`query.before` set) fail while `failsPages` is on, for the list tail's
-/// failed state and its Retry. Every other call goes straight to the wrapped store.
+/// failed state and its Retry. Every other call goes straight to the wrapped store; whole-body reads and mail-time
+/// reads are counted, for the calendar's selection, which must never decompress a body nor read again for nothing.
 final class PageFailingStore: MailStoring, @unchecked Sendable {
     struct PageError: Error {}
 
     let base: InMemoryMailStore
     private let lock = NSLock()
     private var failing = true
+    private var bodies = 0
+    private var times = 0
+
+    /// How many times `body(for:)` was asked.
+    var bodyReads: Int { lock.withLock { bodies } }
+    /// How many times `mailTimes(in:)` was asked: once per read of the calendar's selection.
+    var mailTimeReads: Int { lock.withLock { times } }
 
     var failsPages: Bool {
         get { lock.withLock { failing } }
@@ -43,7 +51,16 @@ final class PageFailingStore: MailStoring, @unchecked Sendable {
     func saveBody(_ body: StoredBody, for id: MessageID, evictingIfReceivedBefore cutoff: Date) throws -> Bool {
         try base.saveBody(body, for: id, evictingIfReceivedBefore: cutoff)
     }
-    func body(for id: MessageID) throws -> StoredBody? { try base.body(for: id) }
+    func body(for id: MessageID) throws -> StoredBody? {
+        lock.withLock { bodies += 1 }
+        return try base.body(for: id)
+    }
+    func invitation(for id: MessageID) throws -> CalendarInvitation? { try base.invitation(for: id) }
+    func saveMailTimes(_ times: [MailTime], for message: MessageID) throws { try base.saveMailTimes(times, for: message) }
+    func mailTimes(in conversation: ConversationID) throws -> [MailTime] {
+        lock.withLock { times += 1 }
+        return try base.mailTimes(in: conversation)
+    }
     func attachments(of id: MessageID) throws -> [AttachmentInfo]? { try base.attachments(of: id) }
     func evictBodies(from start: Date?, limit: Int,
                      rules: () -> (cutoff: Date, excluding: Set<MessageID>)?) throws -> (evicted: Int, next: Date?) {

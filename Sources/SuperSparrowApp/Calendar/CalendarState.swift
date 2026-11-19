@@ -1,4 +1,5 @@
 import AppKit
+import os
 import SSCore
 import SSDesign
 
@@ -8,8 +9,9 @@ import SSDesign
 ///
 /// The shell sets the inputs (the shown day and week, the span, the scope, the accounts, the selection) and the views
 /// observe it. The only reads on the main thread are the store's events for the shown range, delivered by its
-/// observation; the selection's bodies and mail times, and Later's subjects, are read on a utility queue, so following
-/// J and K costs a refit at most (the 16 ms budget), and opening the column or the week a range read and a fit (50 ms).
+/// observation; the selection's invitations and mail times, and Later's subjects, are read on a utility queue, so
+/// following J and K costs a refit at most (the 16 ms budget), and opening the column or the week a range read and a fit
+/// (50 ms). While no calendar shows the shell selects nothing, so J and K cost the calendar nothing at all.
 @MainActor
 final class CalendarState {
     typealias StatusObserver = (@escaping @Sendable ([AccountSyncStatus]) -> Void) -> StoreObservation
@@ -106,6 +108,13 @@ final class CalendarState {
     private var cache: [[Date]: CalendarContent] = [:]
     private var systemObservers: [NSObjectProtocol] = []
     private let reader = DispatchQueue(label: "io.supersparrow.calendar.reads", qos: .userInitiated)
+    /// The selection read wanted last: a read queued behind it on `reader` is skipped, never run for nothing.
+    private let latestSelectionRead = OSAllocatedUnfairLock(initialState: 0)
+    /// What the selection's read used of its messages when it was last read: a write that changes none of it (a star,
+    /// a mark, any message of any other conversation) reads nothing again.
+    private var observedInputs: [SelectionInputs]?
+    /// Today as the shown days last knew it: at midnight, what showed it moves on to the new today.
+    private var lastToday: Date
 
     /// - Parameters:
     ///   - observeStatus: the engine's account statuses (`MailClient.observeStatus`), for the foot's Connect.
@@ -119,6 +128,7 @@ final class CalendarState {
         let today = calendar.startOfDay(for: clock.now)
         shownDay = today
         shownWeek = today
+        lastToday = today
         accounts = (try? store.accounts()) ?? []
         accountsByID = Dictionary(accounts.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         clock.onTick = { [weak self] dayChanged in self?.clockDidTick(dayChanged: dayChanged) }
@@ -209,18 +219,28 @@ final class CalendarState {
         notify(.shown)
     }
 
-    /// The days the span needs: the column's week (its day cells) or the week view's.
-    private var neededRange: DateInterval {
+    /// The days the span shows: the column's week (its day cells) or the week view's.
+    var shownRange: DateInterval {
         let days = span == .day ? shownDayWeek : shownWeekDays
         let start = days.first ?? today
         let end = calendar.date(byAdding: .day, value: 1, to: days.last ?? start) ?? start
         return DateInterval(start: start, end: end)
     }
 
+    /// The days the engine keeps every calendar read for (`CalendarWindow`): two weeks back to eight ahead of today.
+    var keptWindow: DateInterval { CalendarWindow.around(now, calendar: calendar) }
+
+    /// The shown days, when some lie outside `keptWindow`: what the shell asks the engine to read once
+    /// (`MailClient.refreshCalendars(accountID:covering:)`), the store's copies showing meanwhile.
+    var shownRangeOutsideWindow: DateInterval? {
+        let range = shownRange, window = keptWindow
+        return range.start < window.start || range.end > window.end ? range : nil
+    }
+
     /// Re-subscribes when the needed days leave what is observed, to their week with a week either side: [ and ] then
     /// turn within the range, and each turn costs no read. The store delivers the current value at once.
     private func observeRange() {
-        let needed = neededRange
+        let needed = shownRange
         if let observedRange, observedRange.start <= needed.start, observedRange.end >= needed.end { return }
         let start = calendar.date(byAdding: .day, value: -7, to: needed.start) ?? needed.start
         let end = calendar.date(byAdding: .day, value: 7, to: needed.end) ?? needed.end
@@ -289,10 +309,20 @@ final class CalendarState {
     // MARK: Statuses
 
     private func statusesChanged(_ statuses: [AccountSyncStatus]) {
-        let states = Dictionary(statuses.map { ($0.accountID, $0.calendar) }, uniquingKeysWith: { _, last in last })
+        let states = Dictionary(statuses.map { ($0.accountID, Self.withoutDates($0.calendar)) }, uniquingKeysWith: { _, last in last })
         guard states != calendarStates else { return }
         calendarStates = states
         notify(.statuses)
+    }
+
+    /// A state with its dates dropped: every read publishes `.current` at a new instant, once a minute per account,
+    /// and nothing drawn tells one instant from another, so no view relays out or refits for it.
+    private static func withoutDates(_ state: CalendarSyncState) -> CalendarSyncState {
+        switch state {
+        case .current: return .current(.distantPast)
+        case .failing: return .failing(lastRead: nil)
+        case .unknown, .notConnected, .apiDisabled: return state
+        }
     }
 
     /// The scope's accounts that have not granted the calendar permission: the foot offers Connect.
@@ -322,30 +352,56 @@ final class CalendarState {
     // MARK: Selection
 
     /// The list's selection moved (nil for none or several). What the calendar draws of it is read off the main thread;
-    /// until then nothing of the previous one stays drawn.
-    func select(_ conversation: ConversationID?) {
+    /// until then nothing of the previous one stays drawn. `readNow` reads it at once instead: a calendar coming on
+    /// screen, which then shows the selection's day in its first frame rather than turning a moment later.
+    func select(_ conversation: ConversationID?, readNow: Bool = false) {
         guard conversation != selectedConversation else { return }
         selectedConversation = conversation
         let previous = selection
         selection = nil
         conversationObservation?.cancel()
         conversationObservation = nil
-        if drawsSomething(previous) { contentDidChange(also: .selection) } else { notify(.selection) }
+        observedInputs = nil
+        // A read still on its way is for the previous selection.
+        selectionGeneration += 1
+        let generation = selectionGeneration
+        latestSelectionRead.withLock { $0 = generation }
+        if let conversation, readNow { selection = CalendarSelection.read(conversation, from: store) }
+        if drawsSomething(previous) || drawsSomething(selection) { contentDidChange(also: .selection) } else { notify(.selection) }
         guard let conversation else { return }
-        readSelection(conversation)
-        // An answer given in the reader, or a message arriving, changes what is drawn: read again. The first value,
-        // delivered while the observation starts, is the one just read.
-        isConversationObserved = false
-        conversationObservation = store.observeConversation(conversation) { [weak self] _ in
+        if !readNow { readSelection(conversation) }
+        // An answer given in the reader, or a message arriving, changes what is drawn: read again, but only when a
+        // message, its date, subject, draft role or answer changed. The store reports every write to the messages
+        // table, whichever account or conversation it touched; the first value, delivered as the observation starts,
+        // only says where it starts from.
+        conversationObservation = store.observeConversation(conversation) { [weak self] messages in
             MainActor.assumeIsolated {
-                guard let self, self.isConversationObserved, self.selectedConversation == conversation else { return }
+                guard let self, self.selectedConversation == conversation else { return }
+                let inputs = messages.map(SelectionInputs.init)
+                defer { self.observedInputs = inputs }
+                guard let previous = self.observedInputs, previous != inputs else { return }
                 self.readSelection(conversation)
             }
         }
-        isConversationObserved = true
     }
 
-    private var isConversationObserved = false
+    /// What `CalendarSelection.read` uses of a message: its invitation and mail times come with its body, which
+    /// `reloadSelection` follows.
+    private struct SelectionInputs: Equatable {
+        var id: MessageID
+        var date: Date
+        var subject: String
+        var isDraft: Bool
+        var invitationReply: InvitationResponse?
+
+        init(_ message: MessageMetadata) {
+            id = message.id
+            date = message.date
+            subject = message.subject
+            isDraft = message.roles.contains(.drafts)
+            invitationReply = message.invitationReply
+        }
+    }
 
     /// Reads the selection's context again: its mail times were saved after it was selected, say.
     func reloadSelection() {
@@ -356,8 +412,12 @@ final class CalendarState {
     private func readSelection(_ conversation: ConversationID) {
         selectionGeneration += 1
         let generation = selectionGeneration
+        let latest = latestSelectionRead
+        latest.withLock { $0 = generation }
         let store = self.store
         reader.async { [weak self] in
+            // J held down queues a read per row; only the last is wanted.
+            guard latest.withLock({ $0 }) == generation else { return }
             let read = CalendarSelection.read(conversation, from: store)
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
@@ -484,6 +544,7 @@ final class CalendarState {
 
     private func clockDidTick(dayChanged: Bool) {
         if dayChanged {
+            turnToToday()
             contentDidChange(also: .day)
             return
         }
@@ -493,6 +554,16 @@ final class CalendarState {
             return
         }
         notify(.now)
+    }
+
+    /// Midnight passed (spec §5.54, Now): a column that showed today shows the new today, and a week that showed this
+    /// week shows the new today's, as a page-a-day calendar turns; a day or a week the user turned to stays where it is.
+    private func turnToToday() {
+        let old = lastToday
+        lastToday = today
+        guard old != lastToday else { return }
+        if shownDay == old { shownDay = lastToday }
+        if text.week(containing: shownWeek) == text.week(containing: old) { shownWeek = lastToday }
     }
 
     private func systemCalendarDidChange() {

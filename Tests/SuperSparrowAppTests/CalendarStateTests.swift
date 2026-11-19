@@ -336,7 +336,97 @@ final class CalendarStateTests: XCTestCase {
         clock.now = Support.at(0, 1, on: Support.day(20))
         NotificationCenter.default.post(name: .NSCalendarDayChanged, object: nil)
         XCTAssertTrue(recorder.changes.last?.contains(.day) == true)
-        XCTAssertEqual(column.header.kicker, "Yesterday", "the column stays on its day, which is now yesterday")
-        XCTAssertNil(column.timeline.nowY, "the now line is on today only")
+        XCTAssertEqual(state.shownDay, Support.day(20), "a column that showed today turns to the new today")
+        XCTAssertEqual(state.shownWeek, Support.day(20), "and so does a week that showed this week")
+        XCTAssertEqual(column.header.kicker, "Today")
+        XCTAssertNotNil(column.timeline.nowY, "with its now line")
+
+        // A day the user turned to stays where it is.
+        state.shownDay = Support.day(24)
+        state.shownWeek = Support.day(30)
+        clock.now = Support.at(0, 1, on: Support.day(21))
+        NotificationCenter.default.post(name: .NSCalendarDayChanged, object: nil)
+        XCTAssertEqual(state.shownDay, Support.day(24))
+        XCTAssertEqual(state.shownWeek, Support.day(30))
+        XCTAssertEqual(column.header.kicker, "Next week")
+    }
+
+    // MARK: Speed
+
+    /// The calendar looks at a conversation's invitations on every J and K: it reads them alone, never a whole body.
+    func testTheSelectionDecompressesNoBody() throws {
+        let base = try Support.store()
+        try seedConversation(in: base, invitation: invitation())
+        let store = PageFailingStore(base: base)
+        let read = CalendarSelection.read(conversation, from: store)
+        XCTAssertEqual(read.invitation?.uid, "review-uid")
+        XCTAssertEqual(store.bodyReads, 0)
+    }
+
+    /// The store reports every write to the messages table, whichever conversation it touched: only a change to what the
+    /// selection's read uses reads it again.
+    func testOnlyAChangeToTheSelectedConversationReadsItAgain() throws {
+        let base = try Support.store()
+        try seedConversation(in: base, invitation: invitation())
+        let store = PageFailingStore(base: base)
+        let state = Support.state(store: store)
+        defer { state.tearDown() }
+        state.select(conversation)
+        XCTAssertTrue(Support.spin(until: { state.selection?.invitation != nil }))
+        XCTAssertEqual(store.mailTimeReads, 1)
+
+        let other = ConversationID(accountID: Support.accountB.id, providerID: "thread-other")
+        for index in 0..<20 {
+            try base.upsertMessages([MessageMetadata(
+                id: MessageID(accountID: Support.accountB.id, providerID: "other-\(index)"), conversationID: other,
+                subject: "Elsewhere", snippet: "", from: nil, date: Support.at(7), roles: [.inbox], isRead: false,
+                isStarred: false, hasAttachments: false)])
+        }
+        var starred = try XCTUnwrap(try base.message(message))
+        starred.isStarred = true
+        try base.upsertMessages([starred])
+        Support.spin(until: { false }, timeout: 0.3)
+        XCTAssertEqual(store.mailTimeReads, 1, "other conversations and a star change nothing the calendar draws")
+
+        let reply = MessageID(accountID: Support.accountA.id, providerID: "msg-reply")
+        try base.upsertMessages([MessageMetadata(
+            id: reply, conversationID: conversation, subject: "Re: Design review", snippet: "", from: nil, date: Support.at(9),
+            roles: [], isRead: true, isStarred: false, hasAttachments: false)])
+        XCTAssertTrue(Support.spin(until: { store.mailTimeReads == 2 }), "a new message in it is read")
+        XCTAssertTrue(Support.spin(until: { state.selection?.subject == "Re: Design review" }))
+    }
+
+    /// A calendar coming on screen reads the selection at once, so it shows its day in its first frame.
+    func testSelectingAtOnceReadsTheContextWithoutAWait() throws {
+        let store = try Support.store()
+        try seedConversation(in: store, invitation: invitation(start: Support.at(10, on: Support.day(24)), end: Support.at(11, on: Support.day(24))))
+        let state = Support.state(store: store)
+        defer { state.tearDown() }
+        state.select(conversation, readNow: true)
+        XCTAssertEqual(state.selection?.conversationID, conversation)
+        XCTAssertEqual(state.selectionDay, Support.day(24))
+    }
+
+    /// Every read republishes `.current` at a new instant: the views are told only when what they show changes.
+    func testANewReadTimeTellsTheViewsNothing() throws {
+        let store = try Support.store()
+        var publish: (@Sendable ([AccountSyncStatus]) -> Void)?
+        let statuses: CalendarState.StatusObserver = { onChange in
+            publish = onChange
+            onChange([AccountSyncStatus(accountID: Support.accountA.id, phase: .idle, calendar: .current(Support.at(11)))])
+            return StoreObservation {}
+        }
+        let state = Support.state(store: store, observeStatus: statuses)
+        defer { state.tearDown() }
+        let recorder = Recorder()
+        state.addObserver(recorder)
+        let send = try XCTUnwrap(publish)
+        send([AccountSyncStatus(accountID: Support.accountA.id, phase: .idle, calendar: .current(Support.at(11, 1)))])
+        send([AccountSyncStatus(accountID: Support.accountA.id, phase: .idle, calendar: .failing(lastRead: Support.at(11, 1)))])
+        send([AccountSyncStatus(accountID: Support.accountA.id, phase: .idle, calendar: .failing(lastRead: Support.at(11, 2)))])
+        XCTAssertEqual(recorder.changes.filter { $0.contains(.statuses) }.count, 1, "only the turn to failing")
+        send([AccountSyncStatus(accountID: Support.accountA.id, phase: .idle, calendar: .notConnected)])
+        XCTAssertEqual(recorder.changes.filter { $0.contains(.statuses) }.count, 2)
+        XCTAssertEqual(state.accountsToConnect, [Support.accountA.id])
     }
 }
