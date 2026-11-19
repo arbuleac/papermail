@@ -69,9 +69,12 @@ struct DemoMailboxBuilder {
                 addNewsletter(letter, issue: 120 + (8 - week), daysAgo: daysAgo)
             }
         }
+        // The mail naming a time comes last, so every message before it keeps the id it had before there was one.
+        let timeMails = DemoCalendar.timeMails(for: profile, reference: reference)
+        let filled = profile.messageCount - timeMails.count
         var toggle = false
-        while records.count < profile.messageCount {
-            let remaining = profile.messageCount - records.count
+        while records.count < filled {
+            let remaining = filled - records.count
             toggle.toggle()
             if toggle {
                 addNotificationThread(random.pick(families), maxLength: remaining)
@@ -79,6 +82,7 @@ struct DemoMailboxBuilder {
                 addShortThread(people: people, maxLength: remaining)
             }
         }
+        for mail in timeMails { addTimeMail(mail) }
         return records
     }
 
@@ -233,6 +237,18 @@ struct DemoMailboxBuilder {
             date: reference.addingTimeInterval(-invitation.minutesAgo * 60), inInbox: true, read: false, starred: false,
             section: .focused, bulk: false, previous: [], html: rendered.html, text: rendered.text, attachments: [],
             calendar: invitation.calendar
+        )
+    }
+
+    /// A recent mail whose words name a time, which the calendar marks once its body is stored (`MailTimeDetector`).
+    private mutating func addTimeMail(_ mail: DemoCalendar.TimeMail) {
+        let rendered = DemoHTML.personal(text: mail.text, style: isGmail ? .gmail : .outlook, quoted: nil, inlineImageCID: nil)
+        let (id, internetID) = nextIDs()
+        append(
+            id: id, internetID: internetID, conversation: nextConversation(), subject: mail.subject,
+            from: mail.from.email, to: [profile.me], date: reference.addingTimeInterval(-mail.hoursAgo * 3_600),
+            inInbox: true, read: false, starred: false, section: .focused, bulk: false, previous: [],
+            html: rendered.html, text: rendered.text, attachments: []
         )
     }
 
