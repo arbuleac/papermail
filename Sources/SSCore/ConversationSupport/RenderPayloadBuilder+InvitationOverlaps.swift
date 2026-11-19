@@ -42,4 +42,10 @@ extension RenderPayloadBuilder {
         }
         return lines
     }
+
+    /// One overlap's words as the reader's card writes them (“Overlaps an event with no title, Wed 12 Nov, 00:30 -
+    /// 01:00”), for the week's invitation card, which says the same (spec §5.54); `day` is the invitation's start.
+    public func overlapLine(_ overlap: CalendarFit.InvitationOverlap, startingOn day: Date, now: Date = Date()) -> String? {
+        InvitationCardText(calendar: calendar, locale: locale, timeZone: timeZone).overlapLine(overlap, startingOn: day, now: now)
+    }
 }

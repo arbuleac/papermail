@@ -62,6 +62,16 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     var onConnectCalendar: ((Account, @escaping @MainActor (Bool) -> Void) -> Void)?
     /// Opens a calendar link (Join, Open in Google Calendar, the setup guide). Tests replace it, so no test opens a browser.
     var openCalendarURL: (URL) -> Void = { NSWorkspace.shared.open($0) }
+    /// Asks the engine to read every account's calendar: the kept window (nil), or shown days outside it as well.
+    /// Tests replace it to see what was asked.
+    lazy var readCalendars: (DateInterval?) -> Void = { [weak self] range in
+        guard let engine = self?.environment.engine else { return }
+        if let range {
+            engine.refreshCalendars(accountID: nil, covering: range)
+        } else {
+            engine.refreshCalendars(accountID: nil)
+        }
+    }
     /// Some calendar (the column, its strip or the week) was on screen at the last change: one coming on screen asks the
     /// engine for a fresh read.
     var wasCalendarOnScreen = false
@@ -177,7 +187,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// Writes the Later menu's times and the snooze toast's, as the rows write times.
     private let laterFormatter = DateFormatting()
     /// What the reader was last asked to show, so the list's two selection callbacks show it once.
-    private var shownSelection: [ConversationID] = []
+    private(set) var shownSelection: [ConversationID] = []
 
     // Sign-in, checks
     private(set) var pendingSignIn: PendingSignIn?
@@ -997,8 +1007,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         acknowledgeTimer?.invalidate()
         acknowledgeTimer = nil
         // The calendar reads the conversation's invitation and times off the main thread, and the column follows once
-        // they land (§5.54, “It follows the mail”); several selected are about no one day.
-        calendarState.select(ids.count == 1 ? ids.first : nil)
+        // they land (§5.54, “It follows the mail”); several selected are about no one day, and a hidden calendar
+        // follows nothing.
+        selectInCalendar(ids)
         guard ids.count < 2 else {
             conversation.showSelection(ids)
             return
@@ -1009,7 +1020,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         var seen: Set<ConversationID> = [id]
         let wanted = [neighbors.next, neighbors.previous, neighbors.nextUnread].compactMap { $0 }.filter { seen.insert($0).inserted }
         conversation.prerender(wanted)
-        if list.conversations.first(where: { $0.id == id })?.failedOperation != nil {
+        // Under the week the reader is hidden: its failed mark is acknowledged once it shows (§5.54).
+        if !desk.isWeekShown, list.conversations.first(where: { $0.id == id })?.failedOperation != nil {
             // Opening the conversation for 150 ms acknowledges its failed mark (§5.7, §8.5).
             acknowledgeTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: false) { [weak self] _ in
                 MainActor.assumeIsolated {
@@ -3193,7 +3205,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         let typing = KeyboardRouter.isTextInput(window?.firstResponder)
         if let action = menuItem.action, Self.readerCommands.contains(action) {
-            return !showingWelcome && conversation.validateMenuItem(menuItem)
+            // The reader under the week is hidden: what acts on its page (find, next message, quoted text…) waits for it.
+            return !showingWelcome && desk.placement != .week && conversation.validateMenuItem(menuItem)
         }
         // A message on its way in the Outbox is not mail in the store: the mail items are disabled there (§5.53).
         if listView == .outbox, let action = menuItem.action, Self.mailCommands.contains(action) { return false }

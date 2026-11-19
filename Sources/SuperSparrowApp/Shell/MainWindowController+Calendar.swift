@@ -12,15 +12,20 @@ struct CalendarFollow {
     }
 
     /// The day the user last chose for the column ([ ], T, a day cell, a day's heading in the week): where the column
-    /// goes back to when the selection names no day.
+    /// goes back to when the selection names no day. Today until then, and it turns at midnight while it is today.
     var day: Date
     /// The same for the week.
     var week: Date
     var last: Followed?
+    /// Today as `day` and `week` last knew it.
+    var today: Date
+    /// The shown days outside the kept window the engine was asked to read: each once.
+    var rangesAsked: Set<DateInterval> = []
 
     init(day: Date) {
         self.day = day
         week = day
+        today = day
     }
 }
 
@@ -39,6 +44,8 @@ extension MainWindowController: CalendarViewDelegate, CalendarStateObserver {
         desk.column.details.hostView = desk.view
         desk.week.details.hostView = desk.view
         desk.onPlacementChange = { [weak self] in self?.calendarPlacementDidChange() }
+        // A click in the reader closes the column opened over it as Esc and D do, focus in it going back to the list.
+        desk.onCoverClick = { [weak self] in _ = self?.closeCalendarOverlay() }
         calendarState.addObserver(self, first: true)
         conversation.header.showsLayoutToggles = true
         conversation.header.onLayoutToggle = { [weak self] toggle in
@@ -97,6 +104,8 @@ extension MainWindowController: CalendarViewDelegate, CalendarStateObserver {
         // The reader is hidden, not removed: focus in it goes back to the list, which keeps the keyboard.
         let focusWasInReader = isReaderFocused || isFocused(in: desk.column)
         desk.setWeekShown(true)
+        // Mail no one can see is not read: the reader under the week marks nothing read until it shows again (§5.54).
+        conversation.isOnScreen = false
         if focusWasInReader { focusList() }
     }
 
@@ -112,6 +121,8 @@ extension MainWindowController: CalendarViewDelegate, CalendarStateObserver {
         if columnOn == true, !desk.isColumnOn { setColumnOn(true) }
         let focusWasInWeek = isFocused(in: desk.week)
         desk.setWeekShown(false)
+        // The conversation shows again: it is read, and its failed mark seen, as when it was selected (§5.7, §8.5).
+        conversation.isOnScreen = true
         if focusWasInWeek { focusList() }
     }
 
@@ -125,12 +136,20 @@ extension MainWindowController: CalendarViewDelegate, CalendarStateObserver {
         return true
     }
 
-    /// The header's Day and Week buttons follow what shows; a calendar coming on screen asks the engine for a fresh read.
+    /// The header's Day and Week buttons follow what shows. A calendar coming on screen reads the selection at once, so
+    /// it shows the selected mail's day in its first frame, and asks the engine for a fresh read; one going away lets
+    /// the selection go, so J and K cost the calendar nothing while it is hidden (§5.54).
     private func calendarPlacementDidChange() {
         syncLayoutToggles()
         let onScreen = desk.placement != .none
-        if onScreen, !wasCalendarOnScreen { environment.engine.refreshCalendars(accountID: nil) }
-        wasCalendarOnScreen = onScreen
+        if onScreen != wasCalendarOnScreen {
+            wasCalendarOnScreen = onScreen
+            selectInCalendar(shownSelection, readNow: onScreen)
+            // Nothing selected, or what was selected while it was hidden, is followed as J and K would have.
+            if onScreen { followSelection() }
+            // Shown days outside the kept window are read with it; otherwise the window alone.
+            if onScreen, !readShownDaysOutsideWindow() { readCalendars(nil) }
+        }
     }
 
     /// Day is on while the column shows, in full or over the reader's edge; Week while the week shows (§5.12).
@@ -158,7 +177,16 @@ extension MainWindowController: CalendarViewDelegate, CalendarStateObserver {
     // MARK: Following the selection
 
     func calendarState(_ state: CalendarState, didChange change: CalendarChange) {
+        if change.contains(.day) { followNewDay() }
         if change.contains(.selection) { followSelection() }
+        if change.contains(.shown) { readShownDaysOutsideWindow() }
+    }
+
+    /// The list's selection, for the calendar (one conversation, else none): only while a calendar shows. Hidden, the
+    /// column follows nothing and reads nothing, and it catches up as it comes back (`calendarPlacementDidChange`).
+    func selectInCalendar(_ ids: [ConversationID], readNow: Bool = false) {
+        let id = desk.placement == .none || ids.count != 1 ? nil : ids.first
+        calendarState.select(id, readNow: readNow)
     }
 
     /// J and K move the column (or the week) only when the selected conversation is about a time: to its invitation's
@@ -166,6 +194,7 @@ extension MainWindowController: CalendarViewDelegate, CalendarStateObserver {
     /// the conversation's context has been read, so the column turns once, not twice.
     private func followSelection() {
         let state = calendarState
+        guard desk.placement != .none else { return }
         if let selected = state.selectedConversation, state.selection?.conversationID != selected { return }
         let day = state.selectionDay
         let followed = CalendarFollow.Followed(conversation: state.selectedConversation, day: day)
@@ -173,6 +202,27 @@ extension MainWindowController: CalendarViewDelegate, CalendarStateObserver {
         calendarFollow.last = followed
         state.shownDay = day ?? calendarFollow.day
         if state.span == .week { state.shownWeek = day ?? calendarFollow.week }
+    }
+
+    /// Midnight passed: the day the column goes back to turns with it while it was today, as the shown day does
+    /// (`CalendarState`); a day the user chose stays.
+    private func followNewDay() {
+        let state = calendarState
+        let old = calendarFollow.today
+        guard old != state.today else { return }
+        calendarFollow.today = state.today
+        if calendarFollow.day == old { calendarFollow.day = state.today }
+        if state.text.week(containing: calendarFollow.week) == state.text.week(containing: old) { calendarFollow.week = state.today }
+    }
+
+    /// Days turned to outside the kept window (`CalendarWindow`) show what the store holds and are read once, for every
+    /// account, with the window (spec §5.54); a hidden calendar asks for nothing. Returns whether it asked.
+    @discardableResult
+    private func readShownDaysOutsideWindow() -> Bool {
+        guard desk.placement != .none, let range = calendarState.shownRangeOutsideWindow,
+              calendarFollow.rangesAsked.insert(range).inserted else { return false }
+        readCalendars(range)
+        return true
     }
 
     // MARK: Turning the page
@@ -232,6 +282,8 @@ extension MainWindowController: CalendarViewDelegate, CalendarStateObserver {
             NSSound.beep()
             return true
         }
+        // Now, read afresh: the clock moves only while a calendar is on screen, and B works without one.
+        calendarState.clock.tick()
         let context = calendarContext(of: id)
         if context.invitation != nil {
             calendarNotice(CalendarCopy.answerInvitation)
@@ -249,6 +301,7 @@ extension MainWindowController: CalendarViewDelegate, CalendarStateObserver {
     /// B in a reader window (§5.49): as with the day column hidden, from today; its toast and undo are that window's.
     func blockTime(from reader: ReaderWindowController) {
         act(in: reader, closing: false) {
+            calendarState.clock.tick()
             let id = reader.conversationID
             let context = calendarContext(of: id)
             if context.invitation != nil {
@@ -265,11 +318,11 @@ extension MainWindowController: CalendarViewDelegate, CalendarStateObserver {
 
     /// Where B looks for a free half hour: the day the column shows (in full, over the reader or as its strip), the week's
     /// first day while the week shows, today while the column is hidden (`CalendarState.blockStart` never starts before
-    /// today).
+    /// today). The week shows no one day, so its Saturday and Sunday are passed over as any other's.
     private var blockSearchStart: (day: Date, isShown: Bool) {
         let state = calendarState
         switch desk.placement {
-        case .week: return (state.shownWeekDays.first ?? state.today, true)
+        case .week: return (state.shownWeekDays.first ?? state.today, false)
         case .column, .strip: return (state.shownDay, true)
         case .none: return (state.today, false)
         }
@@ -287,6 +340,7 @@ extension MainWindowController: CalendarViewDelegate, CalendarStateObserver {
     }
 
     func blockTimeFirstFree(for conversation: ConversationID, on day: Date) {
+        calendarState.clock.tick()
         guard let start = calendarState.firstFreeHalfHour(on: day) else {
             calendarNotice(CalendarCopy.noFreeHalfHour(calendarState.text.shortDay(day, now: calendarState.now)))
             return
@@ -313,10 +367,19 @@ extension MainWindowController: CalendarViewDelegate, CalendarStateObserver {
         let words = CalendarCopy.blocked(calendarState.text.toastSpan(event.start, event.end, now: calendarState.now))
         recordExternalUndo(command: CalendarCopy.blockCommand, accounts: [id.accountID], toast: words,
                            symbol: Quire.Icon.blockTime) { [weak self] in
+            // A block already gone (removed in the provider's calendar, and dropped by a read) has nothing to take
+            // back: the step goes with a beep, and the next ⌘Z reaches the one before (§6.1).
+            let removed: CalendarEvent?
             do {
-                _ = try engine.removeCalendarEvent(id: event.id)
+                removed = try engine.removeCalendarEvent(id: event.id)
             } catch {
                 Self.log.error("undoing time set aside failed: \(String(describing: error), privacy: .public)")
+                NSSound.beep()
+                return
+            }
+            guard removed != nil else {
+                NSSound.beep()
+                return
             }
             self?.confirmUndo(of: CalendarCopy.blockCommand)
         }
@@ -344,6 +407,8 @@ extension MainWindowController: CalendarViewDelegate, CalendarStateObserver {
                 _ = try engine.restoreCalendarEvent(asWas)
             } catch {
                 Self.log.error("undoing a removal failed: \(String(describing: error), privacy: .public)")
+                NSSound.beep()
+                return
             }
             self?.confirmUndo(of: CalendarCopy.removeCommand)
         }
@@ -364,7 +429,10 @@ extension MainWindowController: CalendarViewDelegate, CalendarStateObserver {
             openCalendarURL(url)
             return
         }
-        guard url.scheme?.lowercased() == "https", let checked = CalendarInvitationReader.webAddress(url.absoluteString) else { return }
+        guard let checked = CalendarText.link(url.absoluteString) else {
+            NSSound.beep()
+            return
+        }
         openCalendarURL(checked)
     }
 

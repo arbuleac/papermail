@@ -200,6 +200,10 @@ public final class SQLiteMailStore: MailStoring, MailStoreMaintenance, Sendable 
         try read { try MessageTable.body(for: id, in: $0) }
     }
 
+    public func invitation(for id: MessageID) throws -> CalendarInvitation? {
+        try read { try MessageTable.invitation(for: id, in: $0) }
+    }
+
     public func messageIDsMissingBodies(accountID: AccountID, limit: Int) throws -> [MessageID] {
         try read { try MessageTable.missingBodies(accountID: accountID, limit: limit, in: $0) }
     }

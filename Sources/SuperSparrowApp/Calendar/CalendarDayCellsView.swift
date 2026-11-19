@@ -259,7 +259,10 @@ final class CalendarDayCellsView: NSView, QuirePointerTarget {
 
     // MARK: Keyboard
 
-    override var acceptsFirstResponder: Bool { !days.isEmpty }
+    /// From the keyboard only: a click shows its day and the list keeps the keyboard (§5.54).
+    override var acceptsFirstResponder: Bool {
+        !days.isEmpty && !CalendarMetrics.isMouseDown(NSApp.currentEvent)
+    }
     override var canBecomeKeyView: Bool { !days.isEmpty && !isHiddenOrHasHiddenAncestor }
 
     private var showsFocusRing: Bool {

@@ -45,9 +45,9 @@ struct CalendarSelection: Equatable, Sendable {
         }
     }
 
-    /// Reads a conversation's context from the store. Runs on any thread: bodies are read newest first and only until
-    /// an invitation turns up, since the newest revision is the one drawn, and a long thread's older bodies are never
-    /// read for nothing.
+    /// Reads a conversation's context from the store. Runs on any thread: invitations are read newest first and only
+    /// until one turns up, since the newest revision is the one drawn, and each alone (`MailStoring.invitation(for:)`),
+    /// never a whole body, so neither J and K nor a B pressed before the read landed decompress anything.
     static func read(_ id: ConversationID, from store: MailStoring) -> CalendarSelection {
         let messages = (try? store.messages(in: id)) ?? []
         let newestFirst = messages.sorted { $0.date > $1.date }
@@ -56,7 +56,7 @@ struct CalendarSelection: Equatable, Sendable {
         var revisions: [(invitation: CalendarInvitation, message: MessageMetadata)] = []
         // Drafts and replies on their way out are the user's own writing, never an invitation (as the reader reads it).
         for message in newestFirst.prefix(Self.bodiesRead) where !message.roles.contains(.drafts) {
-            guard let invitation = (try? store.body(for: message.id))?.invitation else { continue }
+            guard let invitation = (try? store.invitation(for: message.id)) ?? nil else { continue }
             revisions.append((invitation, message))
             if revisions.count == 2 { break }
         }
@@ -71,6 +71,6 @@ struct CalendarSelection: Equatable, Sendable {
         return selection
     }
 
-    /// The newest messages whose bodies are looked at for an invitation: a thread about one keeps it near the top.
+    /// The newest messages looked at for an invitation: a thread about one keeps it near the top.
     static let bodiesRead = 12
 }

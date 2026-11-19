@@ -30,7 +30,8 @@ enum WeekInvitationCard {
         if !place.isEmpty {
             lines.append(.init(glyph: nil, text: place.joined(separator: " · "), role: .snippet, color: .qInk2))
         }
-        if let overlapLine = overlapLine(overlap, state: state) {
+        let start = state.selectionPencil?.start ?? event?.start
+        if invitation.isAnswerable, chosen != .declined, let start, let overlapLine = overlapLine(overlap, startingOn: start, state: state) {
             lines.append(.init(glyph: (Quire.Icon.warning, .qWarning), text: overlapLine, role: .snippet, color: .qInk))
         }
         var actions: [CalendarCardModel.Action] = []
@@ -48,13 +49,14 @@ enum WeekInvitationCard {
                                  when: when, lines: lines, actions: actions, accessibilityName: "Invitation: " + title)
     }
 
-    /// “Overlaps 1:1 with Sam, 13:30 - 14:00”, “Overlaps Hiring sync, 11:00 - 11:30, and 2 more” (spec §5.14); none
-    /// once declined.
-    static func overlapLine(_ overlap: CalendarFit.InvitationOverlap?, state: CalendarState) -> String? {
-        guard let overlap, overlap.event.isShown, let first = overlap.overlaps.first else { return nil }
-        let title = first.event.title.isEmpty ? CalendarText.noTitle : first.event.title
-        var line = "Overlaps " + title + ", " + state.text.range(first.interval.start, first.interval.end)
-        if overlap.overlaps.count > 1 { line += ", and \(overlap.overlaps.count - 1) more" }
-        return line
+    /// “Overlaps 1:1 with Sam, 13:30 - 14:00”, “Overlaps Hiring sync, 11:00 - 11:30, and 2 more”, in the reader card's
+    /// words (spec §5.14): “an event with no title”, and the day when the two meet on another day than `start`, the
+    /// invitation's. The caller leaves it out once the user declines, as the reader's card does, even while the
+    /// calendar's copy still says not answered.
+    static func overlapLine(_ overlap: CalendarFit.InvitationOverlap?, startingOn start: Date, state: CalendarState) -> String? {
+        guard let overlap, overlap.event.isShown else { return nil }
+        let calendar = state.calendar
+        let builder = RenderPayloadBuilder(calendar: calendar, locale: calendar.locale ?? .autoupdatingCurrent, timeZone: calendar.timeZone)
+        return builder.overlapLine(overlap, startingOn: start, now: state.now)
     }
 }

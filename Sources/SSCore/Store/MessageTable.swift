@@ -316,6 +316,16 @@ enum MessageTable {
         )
     }
 
+    /// `body(for:in:)`'s invitation alone, as it reads it (nil for an evicted body, nothing for one that no longer
+    /// decodes): one short text column, none of the compressed ones.
+    static func invitation(for id: MessageID, in db: Database) throws -> CalendarInvitation? {
+        let statement = try db.cachedStatement(sql: """
+            SELECT invitation_json FROM bodies WHERE account_id = ? AND provider_id = ? AND evicted = 0
+            """)
+        guard let json = try String.fetchOne(statement, arguments: [id.accountID.rawValue, id.providerID]) else { return nil }
+        return try? MailStoreCodec.decode(CalendarInvitation.self, from: json)
+    }
+
     // MARK: Row mapping
 
     static func arguments(for m: MessageMetadata, indexed: IndexedFields) throws -> StatementArguments {

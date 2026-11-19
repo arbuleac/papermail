@@ -27,7 +27,7 @@ enum CalendarAccessibility {
         if let titles = content.overlapTitles[event.id], !titles.isEmpty {
             parts.append("overlaps " + titles.joined(separator: ", "))
         }
-        if event.joinURL != nil { parts.append("has a call") }
+        if CalendarText.link(event.joinURL) != nil { parts.append("has a call") }
         return parts.joined(separator: ", ")
     }
 

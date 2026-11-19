@@ -271,7 +271,7 @@ final class AddressCopyTests: XCTestCase {
 
     // MARK: Keys
 
-    /// With focus in the open list Esc folds it first (§6.1 row 9), the next returns to the list; ↩ and ← are the page's
+    /// With focus in the open list Esc folds it first (§6.1 row 10), the next returns to the list; ↩ and ← are the page's
     /// there, as Space is.
     func testEscFoldsTheListBeforeTheReaderLetsGo() throws {
         let controller = harness.controller

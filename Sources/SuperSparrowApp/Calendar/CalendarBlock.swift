@@ -42,14 +42,28 @@ extension CalendarState {
 
     /// As `blockStart(from:dayIsShown:)`, for a conversation's context read by the caller: B pressed before the
     /// selection's read landed, or in a reader window, whose conversation is not the list's.
+    ///
+    /// What is set aside already is read from the store, not from the days on screen: a mail's time weeks away is
+    /// never set aside twice because the column has turned back to today. The search for a free half hour stays inside
+    /// the days the store holds: the kept window, or the shown days when the user turned past it (the engine reads
+    /// those on request), so it never takes a day it knows nothing of for a free one.
     func blockStart(for selection: CalendarSelection, from day: Date, dayIsShown: Bool) -> Date? {
-        let setAside = Set(events.filter { $0.isShown && $0.sourceMessage.map(selection.messageIDs.contains) == true }.map(\.start))
-        if let time = selection.mailTimes.first(where: { $0.start > now && !setAside.contains($0.start) }) { return time.start }
+        let ahead = selection.mailTimes.filter { $0.start > now }
+        var setAside: Set<Date> = []
+        if let first = ahead.first?.start, let last = ahead.last?.start {
+            let interval = DateInterval(start: first, end: last.addingTimeInterval(Self.blockLength))
+            let rows = (try? store.calendarEvents(in: interval, accountIDs: [selection.conversationID.accountID])) ?? []
+            setAside = Set(rows.filter { $0.isShown && $0.sourceMessage.map(selection.messageIDs.contains) == true }.map(\.start))
+        }
+        if let time = ahead.first(where: { !setAside.contains($0.start) }) { return time.start }
         let first = max(calendar.startOfDay(for: day), today)
-        let end = calendar.date(byAdding: .day, value: Self.blockSearchDays + 1, to: first) ?? first
+        let window = keptWindow
+        let known = window.contains(first) ? window.end : max(first, shownRange.end)
+        let days = min(Self.blockSearchDays, calendar.dateComponents([.day], from: first, to: known).day ?? 0)
+        let end = calendar.date(byAdding: .day, value: days + 1, to: first) ?? first
         let events = (try? store.calendarEvents(in: DateInterval(start: first, end: end), accountIDs: nil)) ?? []
         return CalendarFit.firstFreeHalfHour(searchingFrom: day, dayIsShown: dayIsShown, events: events, now: now, calendar: calendar,
-                                             searchDays: Self.blockSearchDays)
+                                             searchDays: days)
     }
 
     /// Three weeks, as far as B looks for a free half hour.
