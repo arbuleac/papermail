@@ -10,8 +10,8 @@ final class MetricDriftTests: XCTestCase {
     private let file = DesignTokensFile.shared
 
     func testEveryMetricIsCovered() {
-        // tokens.json had 838 leaves under layout, border and platform when this file was generated.
-        XCTAssertEqual(file.leafCount(under: ["layout", "border", "platform"]), 838, "regenerate with swift scripts/tools/quire-tokens.swift")
+        // tokens.json had 839 leaves under layout, border and platform when this file was generated.
+        XCTAssertEqual(file.leafCount(under: ["layout", "border", "platform"]), 839, "regenerate with swift scripts/tools/quire-tokens.swift")
     }
 
     func testLayoutWindow() {
@@ -387,6 +387,7 @@ final class MetricDriftTests: XCTestCase {
         number(Quire.Layout.CalendarPane.kickerNavGap, "layout.calendarPane.kickerNavGap")
         number(Quire.Layout.CalendarPane.navTrailing, "layout.calendarPane.navTrailing")
         number(Quire.Layout.CalendarPane.navGap, "layout.calendarPane.navGap")
+        number(Quire.Layout.CalendarPane.dayToggleGap, "layout.calendarPane.dayToggleGap")
         number(Quire.Layout.CalendarPane.weekHeaderPadX, "layout.calendarPane.weekHeaderPadX")
         number(Quire.Layout.CalendarPane.bottomPad, "layout.calendarPane.bottomPad")
         number(Quire.Layout.CalendarPane.dayCellsHeight, "layout.calendarPane.dayCellsHeight")

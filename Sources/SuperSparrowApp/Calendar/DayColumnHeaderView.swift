@@ -3,7 +3,8 @@ import SSCore
 import SSDesign
 
 /// The column's 92 pt header, its bottom on the horizon the reader's shares (spec §5.54): the kicker (“Today”,
-/// “Tomorrow”, “In 3 weeks”) on the lights' line, ‹ Today › at the trailing side, and the day as the headline.
+/// “Tomorrow”, “In 3 weeks”) on the lights' line, ‹ Today › at the trailing side, then the calendar toggle once some
+/// account has granted the calendar permission, and the day as the headline with the week button.
 @MainActor
 final class DayColumnHeaderView: NSView {
     typealias Pane = Quire.Layout.CalendarPane
@@ -14,8 +15,21 @@ final class DayColumnHeaderView: NSView {
     let previous = QuireIconButton(symbolName: Quire.Icon.previousDay, size: .large, accessibilityLabel: "Previous Day")
     let today = QuireButton(title: "Today", variant: .secondary, size: .small)
     let next = QuireIconButton(symbolName: Quire.Icon.nextDay, size: .large, accessibilityLabel: "Next Day")
-    /// The week, opened from inside the calendar: the reader header keeps one calendar button (§5.12, §5.54).
+    /// The week, opened from inside the calendar (§5.54).
     let weekButton = QuireIconButton(symbolName: Quire.Icon.week, size: .large, accessibilityLabel: "Week")
+    /// The calendar's toggle, on: it hides the column, which folds to its strip at the window's trailing edge, where the
+    /// strip's glyph is the same toggle off (§5.54). Only once some account has granted the calendar permission.
+    let dayToggle = QuireIconButton(symbolName: Quire.Icon.dayColumn, size: .large, accessibilityLabel: "Day")
+
+    /// Whether the header ends its kicker line with the calendar toggle; the container sets it.
+    var showsDayToggle = false {
+        didSet {
+            guard oldValue != showsDayToggle else { return }
+            dayToggle.isHidden = !showsDayToggle
+            needsLayout = true
+            needsDisplay = true
+        }
+    }
 
     private(set) var kicker = ""
     private(set) var headline = ""
@@ -31,13 +45,21 @@ final class DayColumnHeaderView: NSView {
         weekButton.toolTip = "Show Week  W"
         weekButton.target = self
         weekButton.action = #selector(weekClicked(_:))
+        // On while it shows, as the week's calendar button is: a click hides the column, and this button with it.
+        dayToggle.onStyle = .quiet
+        dayToggle.togglesOnClick = false
+        dayToggle.isOn = true
+        dayToggle.toolTip = "Hide Day  D"
+        dayToggle.target = self
+        dayToggle.action = #selector(dayToggleClicked(_:))
+        dayToggle.isHidden = true
         previous.target = self
         previous.action = #selector(previousClicked(_:))
         today.target = self
         today.action = #selector(todayClicked(_:))
         next.target = self
         next.action = #selector(nextClicked(_:))
-        for button in [previous, today, next, weekButton] as [NSView] { addSubview(button) }
+        for button in [previous, today, next, weekButton, dayToggle] as [NSView] { addSubview(button) }
         update()
     }
 
@@ -69,6 +91,10 @@ final class DayColumnHeaderView: NSView {
         let icon = QuireIconButton.Size.large.side
         let small = Quire.Layout.Button.Small.height
         var x = bounds.width - Pane.navTrailing - icon
+        if showsDayToggle {
+            dayToggle.frame = dayToggle.frame(forVisualRect: NSRect(x: x, y: lineCentre - icon / 2, width: icon, height: icon))
+            x -= Pane.dayToggleGap + icon
+        }
         next.frame = next.frame(forVisualRect: NSRect(x: x, y: lineCentre - icon / 2, width: icon, height: icon))
         let todayWidth = today.intrinsicContentSize.width
         x -= Pane.navGap + todayWidth
@@ -112,8 +138,9 @@ final class DayColumnHeaderView: NSView {
     @objc private func todayClicked(_ sender: Any?) { delegate?.goToToday() }
     @objc private func nextClicked(_ sender: Any?) { delegate?.turnDay(by: 1) }
     @objc private func weekClicked(_ sender: Any?) { delegate?.toggleWeek() }
+    @objc private func dayToggleClicked(_ sender: Any?) { delegate?.toggleDayColumn() }
 
     override func isAccessibilityElement() -> Bool { false }
 
-    var keyViews: [NSView] { [previous, today, next, weekButton] }
+    var keyViews: [NSView] { [previous, today, next] + (showsDayToggle ? [dayToggle] : []) + [weekButton] }
 }

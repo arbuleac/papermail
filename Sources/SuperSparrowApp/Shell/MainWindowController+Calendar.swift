@@ -47,15 +47,8 @@ extension MainWindowController: CalendarViewDelegate, CalendarStateObserver {
         // A click in the reader closes the column opened over it as Esc and D do, focus in it going back to the list.
         desk.onCoverClick = { [weak self] in _ = self?.closeCalendarOverlay() }
         calendarState.addObserver(self, first: true)
-        conversation.header.showsLayoutToggles = true
-        conversation.header.onLayoutToggle = { [weak self] toggle in
-            guard let self else { return }
-            switch toggle {
-            case .day: self.toggleDay()
-            case .week: self.toggleWeekView()
-            }
-            self.syncLayoutToggles()
-        }
+        // The calendar's toggle stands at the trailing edge from the first frame when an earlier launch saw access.
+        calendarAccessMayHaveChanged()
         // A body the reader fetched may carry the invitation or the times the calendar marks (§5.54).
         conversation.onBodyArrived = { [weak self] id in
             guard let self, self.calendarState.selectedConversation == id else { return }
@@ -66,13 +59,13 @@ extension MainWindowController: CalendarViewDelegate, CalendarStateObserver {
 
     // MARK: What shows
 
-    /// D (spec §5.54): back to the reader and the day while the week shows; open or close the column over the reader's
-    /// edge while it is folded to its strip; otherwise show or hide the column, kept for the next launch.
+    /// D (spec §5.54): back to the reader and the day while the week shows; what a click on the strip does while the
+    /// column is folded to it; otherwise show or hide the column, kept for the next launch.
     func toggleDay() {
         if desk.isWeekShown {
             leaveWeek(on: nil, columnOn: true)
         } else if desk.placement == .strip {
-            if desk.isOverlayOpen { _ = closeCalendarOverlay() } else { desk.setOverlayOpen(true) }
+            openStrip()
         } else {
             setColumnOn(!desk.isColumnOn)
         }
@@ -136,11 +129,10 @@ extension MainWindowController: CalendarViewDelegate, CalendarStateObserver {
         return true
     }
 
-    /// The header's Day and Week buttons follow what shows. A calendar coming on screen reads the selection at once, so
-    /// it shows the selected mail's day in its first frame, and asks the engine for a fresh read; one going away lets
-    /// the selection go, so J and K cost the calendar nothing while it is hidden (§5.54).
+    /// A calendar coming on screen reads the selection at once, so it shows the selected mail's day in its first frame,
+    /// and asks the engine for a fresh read; one going away lets the selection go, so J and K cost the calendar nothing
+    /// while it is hidden (§5.54).
     private func calendarPlacementDidChange() {
-        syncLayoutToggles()
         let onScreen = desk.placement != .none
         if onScreen != wasCalendarOnScreen {
             wasCalendarOnScreen = onScreen
@@ -152,9 +144,16 @@ extension MainWindowController: CalendarViewDelegate, CalendarStateObserver {
         }
     }
 
-    /// Day is on while the column shows, in full or over the reader's edge; Week while the week shows (§5.12).
-    private func syncLayoutToggles() {
-        conversation.header.setLayoutToggles(dayOn: desk.isDayShowing, weekOn: desk.placement == .week)
+    /// The calendar's toggle stays at the trailing edge once some account has granted the calendar permission (§5.54).
+    /// The engine says so after its first look at each account; until then the window goes by what the last launch saw,
+    /// so a hidden column's strip is there from the first frame rather than pushing the reader over a moment later.
+    func calendarAccessMayHaveChanged() {
+        let known = calendarState.calendarAccess
+        if let known, !isSnapshot, settings.hasCalendarAccess != known { settings.hasCalendarAccess = known }
+        let access = known ?? (isSnapshot ? false : settings.hasCalendarAccess)
+        guard access != desk.hasCalendarAccess else { return }
+        desk.setCalendarAccess(access)
+        applyColumnWidths()
     }
 
     func isFocused(in view: NSView) -> Bool {
@@ -177,6 +176,7 @@ extension MainWindowController: CalendarViewDelegate, CalendarStateObserver {
     // MARK: Following the selection
 
     func calendarState(_ state: CalendarState, didChange change: CalendarChange) {
+        if change.contains(.statuses) { calendarAccessMayHaveChanged() }
         if change.contains(.day) { followNewDay() }
         if change.contains(.selection) { followSelection() }
         if change.contains(.shown) { readShownDaysOutsideWindow() }
@@ -258,8 +258,16 @@ extension MainWindowController: CalendarViewDelegate, CalendarStateObserver {
         leaveWeek(on: day, columnOn: true)
     }
 
+    /// The strip's glyph is the calendar's toggle: in a window wide enough for the column it shows the column in place
+    /// (the column was hidden), and in one too narrow it opens or closes the column over the reader's edge.
     func openStrip() {
-        if desk.isOverlayOpen { _ = closeCalendarOverlay() } else { desk.setOverlayOpen(true) }
+        if !desk.isNarrow, !desk.isColumnOn {
+            setColumnOn(true)
+        } else if desk.isOverlayOpen {
+            _ = closeCalendarOverlay()
+        } else {
+            desk.setOverlayOpen(true)
+        }
     }
 
     func toggleDayColumn() { toggleDay() }

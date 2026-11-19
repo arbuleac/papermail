@@ -308,7 +308,8 @@ final class CalendarState {
 
     // MARK: Statuses
 
-    private func statusesChanged(_ statuses: [AccountSyncStatus]) {
+    /// The engine's account statuses, as `observeStatus` delivers them; internal so a window's test can deliver some.
+    func statusesChanged(_ statuses: [AccountSyncStatus]) {
         let states = Dictionary(statuses.map { ($0.accountID, Self.withoutDates($0.calendar)) }, uniquingKeysWith: { _, last in last })
         guard states != calendarStates else { return }
         calendarStates = states
@@ -323,6 +324,22 @@ final class CalendarState {
         case .failing: return .failing(lastRead: nil)
         case .unknown, .notConnected, .apiDisabled: return state
         }
+    }
+
+    /// Whether some account has granted the calendar permission, which puts the calendar's toggle at the window's
+    /// trailing edge for good (spec §5.54): true once any account's calendar is read, failing or refused only because
+    /// Google's Calendar API is off; false once every account is known to lack it; nil while none has it and some
+    /// account is not read yet in this run.
+    var calendarAccess: Bool? {
+        var unread = accounts.isEmpty
+        for account in accounts {
+            switch calendarStates[account.id] ?? .unknown {
+            case .current, .failing, .apiDisabled: return true
+            case .unknown: unread = true
+            case .notConnected: break
+            }
+        }
+        return unread ? nil : false
     }
 
     /// The scope's accounts that have not granted the calendar permission: the foot offers Connect.
