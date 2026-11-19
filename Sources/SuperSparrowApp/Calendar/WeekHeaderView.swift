@@ -60,6 +60,11 @@ final class WeekHeaderView: NSView {
 
     override var isFlipped: Bool { true }
     override var isOpaque: Bool { true }
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    override func mouseDown(with event: NSEvent) {
+        if !CalendarTitleBarZone.handle(event, in: self) { super.mouseDown(with: event) }
+    }
 
     func update() {
         let days = state.shownWeekDays

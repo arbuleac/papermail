@@ -64,6 +64,7 @@ class CalendarCardView: NSView, QuirePointerCover {
     required init?(coder: NSCoder) { fatalError("built in code") }
 
     override var isFlipped: Bool { true }
+    override var mouseDownCanMoveWindow: Bool { false }
 
     func apply(_ model: CalendarCardModel) {
         self.model = model

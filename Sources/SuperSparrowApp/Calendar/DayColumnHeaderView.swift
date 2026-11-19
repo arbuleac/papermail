@@ -41,6 +41,11 @@ final class DayColumnHeaderView: NSView {
 
     override var isFlipped: Bool { true }
     override var isOpaque: Bool { true }
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    override func mouseDown(with event: NSEvent) {
+        if !CalendarTitleBarZone.handle(event, in: self) { super.mouseDown(with: event) }
+    }
 
     /// The shown day's words, and Today disabled while it is today.
     func update() {
