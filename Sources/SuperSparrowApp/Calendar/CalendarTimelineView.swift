@@ -236,12 +236,24 @@ final class CalendarTimelineView: NSView, QuirePointerTarget {
             let width = dayWidth(placedMark.dayIndex)
             let y = (hoursTop + CGFloat(placedMark.y)).rounded()
             let chipWidth = min(width - Pane.markChipInset, CalendarMarkPainter.chipWidth(for: mark, text: state.text))
-            let chip = NSRect(x: x + Pane.markChipInset, y: y - Pane.markChipHeight / 2, width: max(0, chipWidth),
+            let chip = NSRect(x: x + Pane.markChipInset, y: chipTop(centredOn: y), width: max(0, chipWidth),
                               height: Pane.markChipHeight)
             return PlacedMark(mark: mark, dayIndex: placedMark.dayIndex, lineY: y, lineX: x...(x + width), chip: chip)
         }
         placeNow()
         updateJoin()
+    }
+
+    /// A mark chip's top: centred on its line, but never over a fold, whose range it would hide (a 09:00 mark sits on the
+    /// edge of the night's fold), nor above the hours or below the fit. It moves to the open side of the fold.
+    private func chipTop(centredOn y: CGFloat) -> CGFloat {
+        var top = y - Pane.markChipHeight / 2
+        for fold in fit?.folds ?? [] {
+            let band = foldRect(fold)
+            guard top < band.maxY, top + Pane.markChipHeight > band.minY else { continue }
+            top = y >= band.midY ? band.maxY : band.minY - Pane.markChipHeight
+        }
+        return min(max(top, hoursTop), max(hoursTop, fitHeight - Pane.markChipHeight))
     }
 
     private func placeNow() {

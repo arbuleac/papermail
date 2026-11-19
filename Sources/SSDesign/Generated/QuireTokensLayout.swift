@@ -366,16 +366,11 @@ extension Quire {
             public static let dayCellTop: CGFloat = 4
             public static let dayCellHeight: CGFloat = 40
             public static let dayCellRadius: CGFloat = 6
-            public static let dayCellTextTop: CGFloat = 3
-            public static let dayCellTrack: CGFloat = 5
-            public static let dayCellTrackInsetX: CGFloat = 4
-            public static let dayCellTrackBottom: CGFloat = 3
-            public static let dayCellAllDayLine: CGFloat = 2
             public static let weekHeadsHeight: CGFloat = 34
             public static let weekHeadPadX: CGFloat = 8
             public static let weekHeadTextTop: CGFloat = 10
             public static let todayUnderlineGap: CGFloat = 4
-            public static let hourGutterColumn: CGFloat = 40
+            public static let hourGutterColumn: CGFloat = 44
             public static let hourGutterWeek: CGFloat = 48
             public static let hourLabelGap: CGFloat = 6
             public static let hourLabelClearance: CGFloat = 14

@@ -92,19 +92,11 @@ enum CalendarMarkPainter {
 
     // MARK: Folds
 
-    /// A run of closed hours: `canvas`, dashed `ruleStrong` edges top and bottom, its range in `meta` `ink3`.
+    /// A run of closed hours: a band of `canvas` and its range in `meta` `ink3`, no edges. The band alone says the hours
+    /// are folded; dashed edges doubled the hairline over the timeline's top and every hour line beside a fold.
     static func drawFold(_ rect: NSRect, label: String, labelX: CGFloat) {
         NSColor.qCanvas.setFill()
         rect.fill()
-        NSColor.qRuleStrong.setStroke()
-        for y in [rect.minY + 0.5, rect.maxY - 0.5] {
-            let edge = NSBezierPath()
-            edge.move(to: NSPoint(x: rect.minX, y: y))
-            edge.line(to: NSPoint(x: rect.maxX, y: y))
-            edge.lineWidth = 1
-            edge.setLineDash(Pane.pencilDash, count: Pane.pencilDash.count, phase: 0)
-            edge.stroke()
-        }
         let lineHeight = QuireFont.Role.meta.lineHeight
         QuireFont.attributedString(label, role: .meta, color: .qInk3)
             .draw(with: NSRect(x: labelX, y: rect.midY - lineHeight / 2, width: max(0, rect.maxX - labelX), height: lineHeight),

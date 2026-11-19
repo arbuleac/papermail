@@ -10,8 +10,8 @@ final class MetricDriftTests: XCTestCase {
     private let file = DesignTokensFile.shared
 
     func testEveryMetricIsCovered() {
-        // tokens.json had 843 leaves under layout, border and platform when this file was generated.
-        XCTAssertEqual(file.leafCount(under: ["layout", "border", "platform"]), 843, "regenerate with swift scripts/tools/quire-tokens.swift")
+        // tokens.json had 838 leaves under layout, border and platform when this file was generated.
+        XCTAssertEqual(file.leafCount(under: ["layout", "border", "platform"]), 838, "regenerate with swift scripts/tools/quire-tokens.swift")
     }
 
     func testLayoutWindow() {
@@ -394,11 +394,6 @@ final class MetricDriftTests: XCTestCase {
         number(Quire.Layout.CalendarPane.dayCellTop, "layout.calendarPane.dayCellTop")
         number(Quire.Layout.CalendarPane.dayCellHeight, "layout.calendarPane.dayCellHeight")
         number(Quire.Layout.CalendarPane.dayCellRadius, "layout.calendarPane.dayCellRadius")
-        number(Quire.Layout.CalendarPane.dayCellTextTop, "layout.calendarPane.dayCellTextTop")
-        number(Quire.Layout.CalendarPane.dayCellTrack, "layout.calendarPane.dayCellTrack")
-        number(Quire.Layout.CalendarPane.dayCellTrackInsetX, "layout.calendarPane.dayCellTrackInsetX")
-        number(Quire.Layout.CalendarPane.dayCellTrackBottom, "layout.calendarPane.dayCellTrackBottom")
-        number(Quire.Layout.CalendarPane.dayCellAllDayLine, "layout.calendarPane.dayCellAllDayLine")
         number(Quire.Layout.CalendarPane.weekHeadsHeight, "layout.calendarPane.weekHeadsHeight")
         number(Quire.Layout.CalendarPane.weekHeadPadX, "layout.calendarPane.weekHeadPadX")
         number(Quire.Layout.CalendarPane.weekHeadTextTop, "layout.calendarPane.weekHeadTextTop")
