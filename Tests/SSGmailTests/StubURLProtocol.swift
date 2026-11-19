@@ -290,11 +290,11 @@ enum TestSupport {
                                                  sleep: { _ in })
 
     static func makeProvider(tokens: FakeTokenProvider = FakeTokenProvider(), throttleRetry: GmailThrottleRetry = instantRetry,
-                             now: Date? = nil) -> GmailProvider {
+                             now: Date? = nil, accountEmail: String? = nil) -> GmailProvider {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [StubURLProtocol.self]
         let clock: @Sendable () -> Date = now.map { frozen in { frozen } } ?? { Date() }
-        return GmailProvider(accountID: accountID, tokens: tokens, session: URLSession(configuration: configuration),
+        return GmailProvider(accountID: accountID, accountEmail: accountEmail, tokens: tokens, session: URLSession(configuration: configuration),
                              throttleRetry: throttleRetry, clock: clock)
     }
 

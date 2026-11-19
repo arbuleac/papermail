@@ -7,6 +7,9 @@ import os
 public final class GmailProvider: MailProvider, Sendable {
     public let accountID: AccountID
     public let kind: ProviderKind = .gmail
+    /// The account's address, when the caller knows it (empty while signing in): a block's link back to its mail
+    /// names the account with it, so the browser opens this account's Gmail rather than the first one signed in.
+    let accountEmail: String?
 
     let http: GmailHTTPClient
     private let throttleRetry: GmailThrottleRetry
@@ -40,13 +43,15 @@ public final class GmailProvider: MailProvider, Sendable {
     /// `hasMore`, so tries counted per call could all fall within a second of one burst of failures.
     static let recheckSpacing: TimeInterval = 30
 
-    public convenience init(accountID: AccountID, tokens: AccessTokenProvider, session: URLSession = .shared) {
-        self.init(accountID: accountID, tokens: tokens, session: session, throttleRetry: .standard)
+    public convenience init(accountID: AccountID, accountEmail: String? = nil, tokens: AccessTokenProvider,
+                            session: URLSession = .shared) {
+        self.init(accountID: accountID, accountEmail: accountEmail, tokens: tokens, session: session, throttleRetry: .standard)
     }
 
-    init(accountID: AccountID, tokens: AccessTokenProvider, session: URLSession, throttleRetry: GmailThrottleRetry,
-         clock: @escaping @Sendable () -> Date = { Date() }) {
+    init(accountID: AccountID, accountEmail: String? = nil, tokens: AccessTokenProvider, session: URLSession,
+         throttleRetry: GmailThrottleRetry, clock: @escaping @Sendable () -> Date = { Date() }) {
         self.accountID = accountID
+        self.accountEmail = accountEmail
         self.http = GmailHTTPClient(accountID: accountID, tokens: tokens, session: session)
         self.throttleRetry = throttleRetry
         self.clock = clock

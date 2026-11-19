@@ -20,8 +20,8 @@ extension GmailProvider: CalendarProvider {
         + "updated,eventType,extendedProperties/private),nextPageToken"
     /// The line a block's description starts with, before the subject.
     static let setAsideLead = "Set aside in SuperSparrow for: "
-    /// Gmail's web address for a conversation, before its thread id.
-    static let webConversationPrefix = "https://mail.google.com/mail/#all/"
+    /// Gmail's web app, where a conversation's link starts.
+    static let gmailWebApp = "https://mail.google.com/mail/"
 
     private static let calendarLog = Logger(subsystem: "io.supersparrow.mac", category: "gmail")
 
@@ -68,7 +68,7 @@ extension GmailProvider: CalendarProvider {
     public func createCalendarEvent(_ event: CalendarEvent) async throws -> CalendarEvent {
         let id = event.clientKey.flatMap { Self.isGoogleEventID($0) ? $0 : nil }
         let title = Self.blockTitle(event.title)
-        let link = try await conversationLink(for: event.sourceMessage)
+        let link = try await conversationLink(for: event)
         let body = GoogleCalendarEventInsert(
             id: id,
             summary: title,
@@ -140,19 +140,22 @@ extension GmailProvider: CalendarProvider {
         return nil
     }
 
-    /// The link back to the mail: Gmail's web address of its conversation. The event names the message, not its thread,
-    /// so the thread id is asked of Gmail (one `messages.get` of two fields). Without it the description is the sentence
-    /// alone: the block matters more than its link, so Gmail's refusal here never fails the create; a token refused, or
-    /// one that cannot be had, fails it, as it would fail the create itself.
-    private func conversationLink(for message: MessageID?) async throws -> String? {
-        guard let message, message.accountID == accountID, !message.providerID.isEmpty else { return nil }
+    /// The link back to the mail: Gmail's web address of its conversation. The engine hands the thread id over
+    /// (`CalendarEvent.sourceThreadID`, from the store), so a create costs no request of its own. Only when it did not
+    /// (an older row) is the thread asked of Gmail, one `messages.get` of two fields. Without it the description is the
+    /// sentence alone: the block matters more than its link, so Gmail's refusal here never fails the create; a token
+    /// refused, or one that cannot be had, fails it, as it would fail the create itself.
+    private func conversationLink(for event: CalendarEvent) async throws -> String? {
+        if let thread = event.sourceThreadID, Self.isThreadID(thread) {
+            return Self.conversationLink(thread: thread, accountEmail: accountEmail)
+        }
+        guard let message = event.sourceMessage, message.accountID == accountID, !message.providerID.isEmpty else { return nil }
         let query = [URLQueryItem(name: "format", value: "minimal"), URLQueryItem(name: "fields", value: "id,threadId")]
         do {
             let request = try GmailRequest.get("messages/" + Self.pathComponent(message.providerID), query: query, kind: .message)
             let reference = try await http.json(GmailMessageRef.self, for: request)
-            guard let thread = reference.threadId, !thread.isEmpty,
-                  thread.unicodeScalars.allSatisfy({ $0.isASCII && CharacterSet.alphanumerics.contains($0) }) else { return nil }
-            return Self.webConversationPrefix + thread
+            guard let thread = reference.threadId, Self.isThreadID(thread) else { return nil }
+            return Self.conversationLink(thread: thread, accountEmail: accountEmail)
         } catch let error as ProviderError {
             switch error {
             case .unauthorized, .cancelled:
@@ -163,6 +166,27 @@ extension GmailProvider: CalendarProvider {
             }
         }
     }
+
+    /// Gmail's thread ids are hexadecimal; anything else is not one, and never goes into a link.
+    static func isThreadID(_ value: String) -> Bool {
+        !value.isEmpty && value.unicodeScalars.allSatisfy { $0.isASCII && CharacterSet.alphanumerics.contains($0) }
+    }
+
+    /// The conversation in Gmail's web app, in the block's own account: `authuser` names the account by its address,
+    /// so a browser signed in to several Google accounts opens this one rather than the first signed in (where the
+    /// thread is not found), and one not signed in to it is asked for that account. `authuser` rather than the path
+    /// form `/mail/u/<address>/`: it is the account selector every Google site reads, documented and taken before Gmail
+    /// loads, where the path form is Gmail's own; the fragment rides through Google's redirect to `/mail/u/<n>/`.
+    /// Without an address (a provider made only to sign in) the link opens the browser's first account.
+    static func conversationLink(thread: String, accountEmail: String?) -> String {
+        let account = accountEmail?.trimmingCharacters(in: .whitespacesAndNewlines)
+            .addingPercentEncoding(withAllowedCharacters: unreservedASCII) ?? ""
+        return gmailWebApp + (account.isEmpty ? "" : "?authuser=" + account) + "#all/" + thread
+    }
+
+    /// RFC 3986's unreserved characters, ASCII only: `@` and `+` of an address are escaped, and so is any letter
+    /// beyond ASCII, which `CharacterSet.alphanumerics` would let through.
+    private static let unreservedASCII = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
 
     /// The block's title: the conversation's subject on one line, "No subject" when it has none (the app names it so
     /// already; a blank title would leave Google's own "(No title)" on the user's calendar).

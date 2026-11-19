@@ -126,7 +126,7 @@ final class AppEnvironment {
             sanitizer: PreferenceSanitizer(),
             providerFactory: { account in
                 switch account.kind {
-                case .gmail: return GmailProvider(accountID: account.id, tokens: tokenManager)
+                case .gmail: return GmailProvider(accountID: account.id, accountEmail: account.email, tokens: tokenManager)
                 case .microsoft: return GraphProvider(accountID: account.id, tokens: tokenManager)
                 }
             },

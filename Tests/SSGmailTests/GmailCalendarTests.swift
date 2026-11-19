@@ -22,8 +22,11 @@ final class GmailCalendarTests: XCTestCase {
         super.tearDown()
     }
 
-    private func provider(tokens: FakeTokenProvider? = nil) -> GmailProvider {
-        TestSupport.makeProvider(tokens: tokens ?? FakeTokenProvider(scopes: granted))
+    /// An address with a `+`, which a link must escape.
+    private let address = "ada+work@example.com"
+
+    private func provider(tokens: FakeTokenProvider? = nil, accountEmail: String? = nil) -> GmailProvider {
+        TestSupport.makeProvider(tokens: tokens ?? FakeTokenProvider(scopes: granted), accountEmail: accountEmail)
     }
 
     private func date(_ text: String) -> Date {
@@ -254,24 +257,24 @@ final class GmailCalendarTests: XCTestCase {
 
     // MARK: Creating time set aside
 
-    private func block(clientKey: String? = "0123456789abcdef0123456789abcdef") -> CalendarEvent {
-        CalendarEvent(
+    /// A block as the engine hands it over: its thread id filled in from the store (`sourceThreadID`), unless `threadID`
+    /// is nil, as for a row that never had it.
+    private func block(clientKey: String? = "0123456789abcdef0123456789abcdef", threadID: String? = "18c2f0000aaa1111") -> CalendarEvent {
+        var event = CalendarEvent(
             id: "acct-test|local-1", accountID: account, providerID: nil, title: "Q3 budget",
             start: date("2026-11-19T13:00:00Z"), end: date("2026-11-19T13:30:00Z"),
             sourceMessage: MessageID(accountID: account, providerID: "18c2f3a4b5c6d7e8"), clientKey: clientKey, sync: .creating
         )
+        event.sourceThreadID = threadID
+        return event
     }
 
     func testABlockIsCreatedUnderItsKeyBusyWithNoRemindersNoAttendeesAndALinkToTheConversation() async throws {
-        server.on("GET", "/users/me/messages/18c2f3a4b5c6d7e8", .json(GoogleCalendarFixtures.messageThread))
         server.on("POST", eventsPath, .json(GoogleCalendarFixtures.inserted))
 
-        let created = try await provider().createCalendarEvent(block())
+        let created = try await provider(accountEmail: address).createCalendarEvent(block())
 
-        let lookup = try XCTUnwrap(server.requests(to: "/users/me/messages/18c2f3a4b5c6d7e8").first)
-        XCTAssertEqual(lookup.query["format"], ["minimal"])
-        XCTAssertEqual(lookup.query["fields"], ["id,threadId"])
-
+        XCTAssertEqual(server.requests.count, 1, "the thread id came with the block: Gmail is asked nothing")
         let insert = try XCTUnwrap(server.requests(to: eventsPath).first)
         XCTAssertEqual(insert.method, "POST")
         XCTAssertEqual(insert.url.host, "www.googleapis.com")
@@ -284,7 +287,8 @@ final class GmailCalendarTests: XCTestCase {
         XCTAssertEqual(body["id"] as? String, "0123456789abcdef0123456789abcdef")
         XCTAssertEqual(body["summary"] as? String, "Q3 budget")
         XCTAssertEqual(body["description"] as? String,
-                       "Set aside in SuperSparrow for: Q3 budget https://mail.google.com/mail/#all/18c2f0000aaa1111")
+                       "Set aside in SuperSparrow for: Q3 budget https://mail.google.com/mail/?authuser=ada%2Bwork%40example.com#all/18c2f0000aaa1111",
+                       "the link opens the block's own account, whichever the browser signed in first")
         XCTAssertEqual(body["start"] as? [String: String], ["dateTime": "2026-11-19T13:00:00Z"])
         XCTAssertEqual(body["end"] as? [String: String], ["dateTime": "2026-11-19T13:30:00Z"])
         XCTAssertEqual(body["transparency"] as? String, "opaque")
@@ -306,7 +310,6 @@ final class GmailCalendarTests: XCTestCase {
     }
 
     func testACreateWhoseEarlierAttemptLandedReturnsThatCopy() async throws {
-        server.on("GET", "/users/me/messages/18c2f3a4b5c6d7e8", .json(GoogleCalendarFixtures.messageThread))
         server.on("POST", eventsPath, .json(GoogleCalendarFixtures.duplicate, status: 409))
         server.on("GET", eventsPath + "/0123456789abcdef0123456789abcdef", .json(GoogleCalendarFixtures.inserted))
 
@@ -320,7 +323,6 @@ final class GmailCalendarTests: XCTestCase {
     }
 
     func testACopyDeletedSinceItsCreateIsRefusedNotMadeAgain() async {
-        server.on("GET", "/users/me/messages/18c2f3a4b5c6d7e8", .json(GoogleCalendarFixtures.messageThread))
         server.on("POST", eventsPath, .json(GoogleCalendarFixtures.duplicate, status: 409))
         server.on("GET", eventsPath + "/0123456789abcdef0123456789abcdef",
                   .json(#"{"id": "0123456789abcdef0123456789abcdef", "status": "cancelled"}"#))
@@ -330,11 +332,51 @@ final class GmailCalendarTests: XCTestCase {
         guard case .server(409, _)? = error as? ProviderError else { return XCTFail("\(String(describing: error))") }
     }
 
+    /// A block whose thread id was not handed over (a row from before the engine filled it in) asks Gmail for it.
+    func testWithoutTheThreadIDGmailIsAskedForIt() async throws {
+        server.on("GET", "/users/me/messages/18c2f3a4b5c6d7e8", .json(GoogleCalendarFixtures.messageThread))
+        server.on("POST", eventsPath, .json(GoogleCalendarFixtures.inserted))
+
+        _ = try await provider(accountEmail: address).createCalendarEvent(block(threadID: nil))
+
+        let lookup = try XCTUnwrap(server.requests(to: "/users/me/messages/18c2f3a4b5c6d7e8").first)
+        XCTAssertEqual(lookup.query["format"], ["minimal"])
+        XCTAssertEqual(lookup.query["fields"], ["id,threadId"])
+        let insert = try XCTUnwrap(server.requests(to: eventsPath).first)
+        XCTAssertEqual(insert.jsonBody["description"] as? String,
+                       "Set aside in SuperSparrow for: Q3 budget https://mail.google.com/mail/?authuser=ada%2Bwork%40example.com#all/18c2f0000aaa1111")
+    }
+
+    func testAThreadIDThatIsNoneIsNeverPutInALink() async throws {
+        server.on("GET", "/users/me/messages/18c2f3a4b5c6d7e8", .json(GoogleCalendarFixtures.messageThread))
+        server.on("POST", eventsPath, .json(GoogleCalendarFixtures.inserted))
+
+        _ = try await provider().createCalendarEvent(block(threadID: "../x?y#z"))
+
+        XCTAssertEqual(server.requests(to: "/users/me/messages/18c2f3a4b5c6d7e8").count, 1, "asked of Gmail instead")
+        let insert = try XCTUnwrap(server.requests(to: eventsPath).first)
+        XCTAssertEqual(insert.jsonBody["description"] as? String,
+                       "Set aside in SuperSparrow for: Q3 budget https://mail.google.com/mail/#all/18c2f0000aaa1111",
+                       "without the account's address the link is Gmail's plain one")
+    }
+
+    func testTheLinkNamesTheAccountByItsAddressEscaped() {
+        XCTAssertEqual(GmailProvider.conversationLink(thread: "18c2f0000aaa1111", accountEmail: "ada+work@example.com"),
+                       "https://mail.google.com/mail/?authuser=ada%2Bwork%40example.com#all/18c2f0000aaa1111")
+        XCTAssertEqual(GmailProvider.conversationLink(thread: "18c2f0000aaa1111", accountEmail: "Zoë.o'neil@exämple.de"),
+                       "https://mail.google.com/mail/?authuser=Zo%C3%AB.o%27neil%40ex%C3%A4mple.de#all/18c2f0000aaa1111",
+                       "nothing beyond ASCII's unreserved characters goes in unescaped")
+        XCTAssertEqual(GmailProvider.conversationLink(thread: "18c2f0000aaa1111", accountEmail: ""),
+                       "https://mail.google.com/mail/#all/18c2f0000aaa1111", "a provider made only to sign in has no address")
+        XCTAssertEqual(GmailProvider.conversationLink(thread: "18c2f0000aaa1111", accountEmail: nil),
+                       "https://mail.google.com/mail/#all/18c2f0000aaa1111")
+    }
+
     func testWithoutItsThreadTheDescriptionIsTheSentenceAlone() async throws {
         server.on("GET", "/users/me/messages/18c2f3a4b5c6d7e8", .json(GmailFixtures.notFoundError, status: 404))
         server.on("POST", eventsPath, .json(GoogleCalendarFixtures.inserted))
 
-        _ = try await provider().createCalendarEvent(block())
+        _ = try await provider().createCalendarEvent(block(threadID: nil))
 
         let insert = try XCTUnwrap(server.requests(to: eventsPath).first)
         XCTAssertEqual(insert.jsonBody["description"] as? String, "Set aside in SuperSparrow for: Q3 budget")
@@ -342,7 +384,7 @@ final class GmailCalendarTests: XCTestCase {
 
     func testABlockForNoMessageAsksGmailNothing() async throws {
         server.on("POST", eventsPath, .json(GoogleCalendarFixtures.inserted))
-        var event = block()
+        var event = block(threadID: nil)
         event.sourceMessage = nil
         event.title = "Line one\nline two"
 
@@ -357,7 +399,7 @@ final class GmailCalendarTests: XCTestCase {
 
     func testABlockWithoutASubjectIsNoSubject() async throws {
         server.on("POST", eventsPath, .json(GoogleCalendarFixtures.inserted))
-        var event = block()
+        var event = block(threadID: nil)
         event.sourceMessage = nil
         event.title = "  "
 
@@ -370,7 +412,6 @@ final class GmailCalendarTests: XCTestCase {
     }
 
     func testAKeyGoogleWouldRefuseAsAnIDStaysOnlyInTheProperty() async throws {
-        server.on("GET", "/users/me/messages/18c2f3a4b5c6d7e8", .json(GoogleCalendarFixtures.messageThread))
         server.on("POST", eventsPath, .json(GoogleCalendarFixtures.inserted))
 
         _ = try await provider().createCalendarEvent(block(clientKey: "Not-Base32hex"))
@@ -391,7 +432,6 @@ final class GmailCalendarTests: XCTestCase {
     }
 
     func testARefusedCreateIsTheCalendarsRefusal() async {
-        server.on("GET", "/users/me/messages/18c2f3a4b5c6d7e8", .json(GoogleCalendarFixtures.messageThread))
         server.on("POST", eventsPath, .json(GoogleCalendarFixtures.scopeInsufficient, status: 403))
 
         let error = await thrown { _ = try await self.provider().createCalendarEvent(self.block()) }
