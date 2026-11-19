@@ -110,6 +110,46 @@ public protocol MailClient: AnyObject {
 
     /// Current status per account, delivered on the main thread, first with the current value.
     func observeStatus(onChange: @escaping @Sendable ([AccountSyncStatus]) -> Void) -> StoreObservation
+
+    // MARK: Calendar (docs/ARCHITECTURE.md, "Calendar")
+
+    /// Sets time aside (B, a row dropped on the calendar): `event` is stored at once as `creating` and the engine
+    /// creates it on the provider of its account. Throws `StoreError.conflict` when its id is taken.
+    func addCalendarEvent(_ event: CalendarEvent) throws
+    /// Removes an event (Remove in its details, or the undo of a block): it leaves the calendar at once and the engine
+    /// deletes it on the provider. Returns the event as it was, for an undo.
+    @discardableResult
+    func removeCalendarEvent(id: String) throws -> CalendarEvent?
+    /// Puts back an event `removeCalendarEvent` returned (its undo); the engine creates it again if it must.
+    func restoreCalendarEvent(_ event: CalendarEvent) throws
+    /// Reads the calendars of `accountID` (every account when nil) at the next turn of their live lanes instead of
+    /// waiting for the calendar's own interval: the calendar was just opened, or a day outside the stored window was
+    /// asked for. Returns immediately.
+    func refreshCalendars(accountID: AccountID?)
+    /// Signs `account` in again asking for the calendar scope too (Connect, from the calendar's foot); once granted,
+    /// its calendar is read. Throws as `reconnect` does.
+    func connectCalendar(_ account: Account) async throws -> Account
+}
+
+extension MailClient {
+    public func addCalendarEvent(_ event: CalendarEvent) throws {
+        try store.addCalendarEvent(event)
+    }
+
+    @discardableResult
+    public func removeCalendarEvent(id: String) throws -> CalendarEvent? {
+        try store.removeCalendarEvent(id: id)
+    }
+
+    public func restoreCalendarEvent(_ event: CalendarEvent) throws {
+        try store.restoreCalendarEvent(event)
+    }
+
+    public func refreshCalendars(accountID: AccountID?) {}
+
+    public func connectCalendar(_ account: Account) async throws -> Account {
+        try await reconnect(account)
+    }
 }
 
 extension MailClient {

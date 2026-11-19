@@ -1,0 +1,84 @@
+import Foundation
+
+/// The calendar half of the local store (docs/DATA-MODEL.md, "Calendar events" and "Mail times"). `MailStoring`
+/// refines it, so the UI reads events from the same store it reads mail from, and never from the network.
+///
+/// Thread-safety and observation follow `MailStoring`: any thread, callbacks on the main thread, the current value
+/// first. The defaults below keep nothing; both real stores (`SQLiteMailStore`, `InMemoryMailStore`) implement every
+/// requirement, and the contract tests run against both.
+public protocol CalendarStoring: AnyObject, Sendable {
+    // MARK: Events
+
+    /// Events that overlap `interval`, of `accountIDs` (every account when nil), ordered by start then end then id.
+    /// Declined events and events being deleted are included: callers draw only `CalendarEvent.isShown`.
+    func calendarEvents(in interval: DateInterval, accountIDs: [AccountID]?) throws -> [CalendarEvent]
+
+    /// `calendarEvents(in:accountIDs:)` for every account, after every change to the events, delivered on the main
+    /// thread, the current value first.
+    func observeCalendarEvents(in interval: DateInterval,
+                               onChange: @escaping @Sendable ([CalendarEvent]) -> Void) -> StoreObservation
+
+    /// Writes what one read of the account's calendar found for `window`, in one transaction: every event is
+    /// inserted or replaced by its id, and every `synced` or `failed` event of the account that overlaps `window` and
+    /// is not among them is deleted (the provider no longer has it). Events waiting for the provider are kept as they
+    /// are: a `creating` one stays; a `deleting` one stays until the read no longer lists it, and then goes. An event
+    /// read with the id of one being deleted keeps `deleting`.
+    func replaceCalendarEvents(_ events: [CalendarEvent], accountID: AccountID, window: DateInterval) throws
+
+    /// Time set aside on this Mac: inserts `event` (its `sync` is `.creating`, its `providerID` nil), which the engine
+    /// then creates on the provider. Throws `StoreError.conflict` when the id is taken.
+    func addCalendarEvent(_ event: CalendarEvent) throws
+
+    /// Removes an event the user removed: one still `creating` (or `failed`) goes at once, since the provider never
+    /// had it; one the provider has becomes `deleting`, which the engine deletes on the provider. Returns the event as
+    /// it was, for an undo; nil when there was no such event.
+    @discardableResult
+    func removeCalendarEvent(id: String) throws -> CalendarEvent?
+
+    /// Puts back an event `removeCalendarEvent` returned (an undo): a `deleting` row goes back to `synced`; a row that
+    /// was deleted is inserted again as it was, `creating` when the provider never had it or has deleted it (it is then
+    /// created again, with a new provider id).
+    func restoreCalendarEvent(_ event: CalendarEvent) throws
+
+    /// The account's events waiting for the provider (`creating` or `deleting`), oldest first: what the engine
+    /// replays before it reads the account's calendar.
+    func pendingCalendarEvents(accountID: AccountID) throws -> [CalendarEvent]
+
+    /// Records what the provider did with a pending event, in one transaction: `created` (the provider's copy, same
+    /// local id) replaces a `creating` row; nil removes a `deleting` row (the provider deleted it). Does nothing when
+    /// the row has gone or changed state meanwhile (removed while it was being created: the engine then deletes the
+    /// copy it made, as the row's `deleting` asks).
+    func settleCalendarEvent(id: String, created: CalendarEvent?) throws
+
+    /// Marks a `creating` event the provider refused (`failed`); the UI shows it with the failed mark.
+    func failCalendarEvent(id: String) throws
+
+    // MARK: Mail times
+
+    /// Replaces the times found in one message's text, in one transaction (an empty list clears them).
+    func saveMailTimes(_ times: [MailTime], for message: MessageID) throws
+
+    /// The times found in the messages of `conversation`, ordered by start.
+    func mailTimes(in conversation: ConversationID) throws -> [MailTime]
+}
+
+extension CalendarStoring {
+    public func calendarEvents(in interval: DateInterval, accountIDs: [AccountID]?) throws -> [CalendarEvent] { [] }
+
+    public func observeCalendarEvents(in interval: DateInterval,
+                                      onChange: @escaping @Sendable ([CalendarEvent]) -> Void) -> StoreObservation {
+        DispatchQueue.main.async { onChange([]) }
+        return StoreObservation {}
+    }
+
+    public func replaceCalendarEvents(_ events: [CalendarEvent], accountID: AccountID, window: DateInterval) throws {}
+    public func addCalendarEvent(_ event: CalendarEvent) throws {}
+    @discardableResult
+    public func removeCalendarEvent(id: String) throws -> CalendarEvent? { nil }
+    public func restoreCalendarEvent(_ event: CalendarEvent) throws {}
+    public func pendingCalendarEvents(accountID: AccountID) throws -> [CalendarEvent] { [] }
+    public func settleCalendarEvent(id: String, created: CalendarEvent?) throws {}
+    public func failCalendarEvent(id: String) throws {}
+    public func saveMailTimes(_ times: [MailTime], for message: MessageID) throws {}
+    public func mailTimes(in conversation: ConversationID) throws -> [MailTime] { [] }
+}

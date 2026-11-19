@@ -19,7 +19,7 @@ public final class StoreObservation: @unchecked Sendable {
 ///
 /// Thread-safety: every method may be called from any thread. Observation callbacks are delivered on the
 /// main thread, first with the current value, then after every change to the underlying rows.
-public protocol MailStoring: AnyObject, Sendable {
+public protocol MailStoring: CalendarStoring, AnyObject, Sendable {
     // MARK: Accounts
     func accounts() throws -> [Account]
     func upsertAccount(_ account: Account) throws

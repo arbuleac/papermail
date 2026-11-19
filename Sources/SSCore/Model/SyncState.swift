@@ -65,10 +65,13 @@ public struct AccountSyncStatus: Hashable, Sendable {
     /// permission to update the calendar): the account asks to reconnect with them. Empty once the work can go out,
     /// as of the outbox's last look.
     public var permissionsNeeded: Set<AccountPermission>
+    /// Where the account's calendar stands (the day column's foot, Connect). Independent of `phase`: a calendar that
+    /// cannot be read never holds mail back.
+    public var calendar: CalendarSyncState
     public init(accountID: AccountID, phase: AccountSyncPhase, lastSuccessfulSyncAt: Date? = nil, bootstrapProgress: Int? = nil,
                 message: String? = nil, bootstrapTotal: Int? = nil, retryAt: Date? = nil, backfillProgress: Int? = nil,
                 backfillTotal: Int? = nil, backfillPausedUntil: Date? = nil, backfillDownloadingBodies: Bool = false,
-                permissionsNeeded: Set<AccountPermission> = []) {
+                permissionsNeeded: Set<AccountPermission> = [], calendar: CalendarSyncState = .unknown) {
         self.accountID = accountID
         self.phase = phase
         self.lastSuccessfulSyncAt = lastSuccessfulSyncAt
@@ -81,5 +84,6 @@ public struct AccountSyncStatus: Hashable, Sendable {
         self.backfillPausedUntil = backfillPausedUntil
         self.backfillDownloadingBodies = backfillDownloadingBodies
         self.permissionsNeeded = permissionsNeeded
+        self.calendar = calendar
     }
 }
