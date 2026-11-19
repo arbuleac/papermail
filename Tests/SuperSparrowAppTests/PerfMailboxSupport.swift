@@ -1,4 +1,5 @@
 import Foundation
+import SQLite3
 import SSCore
 
 /// The mailbox the app's `SS_PERF=1` benchmarks measure the budgets of docs/ARCHITECTURE.md on: `ListTestSupport`'s two
@@ -80,7 +81,23 @@ enum PerfMailboxSupport {
             print("SS_PERF mailbox: \(evicted) bodies evicted outside a year")
         }
         try store.close()
+        try checkpointAndClear(path)
         print("SS_PERF mailbox: \(label) built in \(String(format: "%.0f", Date().timeIntervalSince(started))) s")
+    }
+
+    /// Copies whatever the WAL still holds into the file and removes the WAL and shared-memory files, so the file alone
+    /// is the whole mailbox: macOS's SQLite can keep a WAL file after the last connection closes, and the cache moves and
+    /// copies the database file alone.
+    private static func checkpointAndClear(_ path: String) throws {
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(path, &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK else {
+            sqlite3_close(db)
+            throw CocoaError(.fileReadUnknown)
+        }
+        let checkpointed = sqlite3_wal_checkpoint_v2(db, nil, SQLITE_CHECKPOINT_TRUNCATE, nil, nil) == SQLITE_OK
+        sqlite3_close(db)
+        guard checkpointed else { throw CocoaError(.fileWriteUnknown) }
+        for suffix in ["-wal", "-shm"] { try? FileManager.default.removeItem(atPath: path + suffix) }
     }
 
     /// A short body of two paragraphs, render-ready, that names the message, as a reply in a thread reads.
