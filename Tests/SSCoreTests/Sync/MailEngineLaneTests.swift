@@ -1819,6 +1819,8 @@ final class MailEngineLaneTests: XCTestCase {
         XCTAssertEqual(tuning.liveHydrationConcurrency, 2)
         XCTAssertEqual(tuning.backfillMetadataChunk, 10)
         XCTAssertEqual(tuning.backfillIdleInterval, 300)
+        XCTAssertEqual(tuning.calendarActiveInterval, 60, "a calendar read a minute in front")
+        XCTAssertEqual(tuning.calendarBackgroundInterval, 300, "and five minutes behind")
         XCTAssertEqual(SyncTuning(pollInterval: 15).activePollInterval, 5)
         XCTAssertEqual(SyncTuning(pollInterval: 2).activePollInterval, 2, "never above the background interval")
         var custom = SyncTuning(pollInterval: 2)
