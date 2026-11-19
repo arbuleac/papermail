@@ -17,12 +17,16 @@ enum GraphInvitationMapper {
             return nil
         }
         guard let uid = event.iCalUId?.trimmingCharacters(in: .whitespaces), !uid.isEmpty,
-              let start = event.start.flatMap(GraphEventTime.read), var end = event.end.flatMap(GraphEventTime.read) else { return nil }
+              let startValue = event.start, let endValue = event.end,
+              let start = GraphEventTime.read(startValue), var end = GraphEventTime.read(endValue) else { return nil }
         let isAllDay = event.isAllDay ?? false
         var startDate = start.date
         if isAllDay {
-            // All-day events are dates: kept as the day written, at midnight read as UTC, wherever the Mac is.
-            guard let startDay = start.day, let endDay = end.day else { return nil }
+            // All-day events are dates: kept as their own days, at midnight read as UTC, wherever the Mac is. The UTC
+            // preference moves the creator's midnight, which `allDay` takes back to it in the zone it was made in.
+            guard let startDay = GraphEventTime.allDay(startValue, originalZone: event.originalStartTimeZone),
+                  let endDay = GraphEventTime.allDay(endValue, originalZone: event.originalEndTimeZone ?? event.originalStartTimeZone)
+            else { return nil }
             startDate = startDay
             end.date = endDay
         }

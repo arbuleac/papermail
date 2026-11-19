@@ -159,7 +159,10 @@ struct GraphEvent: Decodable, Sendable {
     var start: GraphDateTimeZone?
     var end: GraphDateTimeZone?
     var originalStart: String?
+    /// The zones the event was made in (Windows names, or IANA), whatever zone its times are read in: an all-day
+    /// event's dates are its midnights there.
     var originalStartTimeZone: String?
+    var originalEndTimeZone: String?
     var location: GraphLocation?
     var organizer: GraphRecipient?
     var attendees: [GraphAttendee]?

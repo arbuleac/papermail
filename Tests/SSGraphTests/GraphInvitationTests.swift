@@ -187,6 +187,17 @@ final class GraphInvitationTests: GraphTestCase {
         XCTAssertEqual(invitation.end, ISO8601DateFormatter().date(from: "2026-11-14T00:00:00Z"))
     }
 
+    /// Made in Berlin (the fixture's `originalStartTimeZone`), so the UTC preference moves its midnights to 23:00 the
+    /// day before: the card and the pencil still show 12 and 13 November.
+    func testAnAllDayEventMadeEastOfGreenwichKeepsItsOwnDays() async throws {
+        routeBody(event: .json(Self.eventMessage(isAllDay: true, start: "2026-11-11T23:00:00.0000000", end: "2026-11-13T23:00:00.0000000")))
+        let invitation = try await XCTUnwrapAsync(try await makeProvider().body(for: "M-EV").invitation)
+        XCTAssertTrue(invitation.isAllDay)
+        XCTAssertTrue(invitation.isFloating)
+        XCTAssertEqual(invitation.start, ISO8601DateFormatter().date(from: "2026-11-12T00:00:00Z"))
+        XCTAssertEqual(invitation.end, ISO8601DateFormatter().date(from: "2026-11-14T00:00:00Z"))
+    }
+
     func testAnEventThatCannotBeReadLeavesTheMessageWithoutACard() async throws {
         routeBody(event: .json(#"{"error": {"code": "ErrorInternalServerError", "message": "boom"}}"#, status: 500))
         let body = try await makeProvider().body(for: "M-EV")

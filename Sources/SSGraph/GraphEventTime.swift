@@ -8,9 +8,9 @@ import SSCore
 /// The digits are read by hand rather than through a DateFormatter, which costs some 45 µs a parse: a calendar read
 /// maps hundreds of events, two times each, and a window of 500 took 90 ms to map that way against 7 ms this way.
 enum GraphEventTime {
-    /// The instant `value` names, and the day it is written on, read as that date's UTC midnight: an all-day event's
-    /// date as written, never shifted through any zone, so it stays its date wherever the Mac is. Nil when the
-    /// `dateTime` is not a whole date and time to the second (fractional digits after it are dropped).
+    /// The instant `value` names, and the day it is written on, read as that date's UTC midnight (an all-day event's
+    /// day goes through `allDay(_:originalZone:)`, which starts from it). Nil when the `dateTime` is not a whole date
+    /// and time to the second (fractional digits after it are dropped).
     static func read(_ value: GraphDateTimeZone) -> (date: Date, day: Date?)? {
         guard let text = value.dateTime, let wall = wallClock(text) else { return nil }
         let zone = value.timeZone.flatMap(CalendarTimeZones.timeZone(named:)) ?? utc
@@ -21,6 +21,20 @@ enum GraphEventTime {
         let guess = asUTC.addingTimeInterval(-Double(zone.secondsFromGMT(for: asUTC)))
         let date = asUTC.addingTimeInterval(-Double(zone.secondsFromGMT(for: guess)))
         return (date, Date(timeIntervalSince1970: day))
+    }
+
+    /// An all-day event's day, as that date's UTC midnight (floating). Exchange keeps an all-day event as midnight to
+    /// midnight in the zone it was made in, and `Prefer: outlook.timezone="UTC"` moves that midnight with the rest:
+    /// a Berlin holiday on 19 November comes back as `2026-11-18T23:00:00` UTC. So a wall clock at midnight is the
+    /// date as written (a UTC calendar, or Graph keeping the date as it is), and any other is taken back to the
+    /// midnight nearest it in `originalZone` (`originalStartTimeZone`, `originalEndTimeZone`), else in UTC. Nearest,
+    /// not the day it falls on, so a zone whose rules moved by an hour since still lands on its own date.
+    static func allDay(_ value: GraphDateTimeZone, originalZone: String?) -> Date? {
+        guard let text = value.dateTime, let wall = wallClock(text), let parsed = Self.read(value) else { return nil }
+        if wall.hour == 0, wall.minute == 0, wall.second == 0 { return parsed.day }
+        let instant = parsed.date.timeIntervalSince1970
+        let offset = originalZone.flatMap(CalendarTimeZones.timeZone(named:)).map { Double($0.secondsFromGMT(for: parsed.date)) } ?? 0
+        return Date(timeIntervalSince1970: ((instant + offset + 43_200) / 86_400).rounded(.down) * 86_400)
     }
 
     /// `dateTime` for a request: the instant's UTC wall clock to the second, without a `Z`, for `timeZone: "UTC"`
