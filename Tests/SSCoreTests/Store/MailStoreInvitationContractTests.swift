@@ -43,6 +43,21 @@ extension MailStoreContractTests {
         XCTAssertNil(try store.message(invitationMessage)?.invitationReply, "nobody has answered yet")
     }
 
+    /// The calendar reads only the invitation, on every selection: the same one the body carries, none for a body
+    /// without one, a missing body or an evicted one.
+    func testTheInvitationReadsAloneAsTheBodyCarriesIt() throws {
+        XCTAssertNil(try store.invitation(for: invitationMessage), "no message, no body")
+        try seedInvitation()
+        XCTAssertEqual(try store.invitation(for: invitationMessage), storedInvitation())
+        try store.upsertMessages([message("plain", in: "c-plain")])
+        let plain = MessageID(accountID: accountA, providerID: "plain")
+        XCTAssertNil(try store.invitation(for: plain), "no body yet")
+        try store.saveBody(StoredBody(body: MessageBody(html: "<p>Hi</p>", text: nil), renderedHTML: "<p>Hi</p>", plainText: "Hi"), for: plain)
+        XCTAssertNil(try store.invitation(for: plain), "a body without one")
+        XCTAssertEqual(try store.evictBodies(receivedBefore: date(86_400 * 365), excluding: [], limit: 10), 2)
+        XCTAssertNil(try store.invitation(for: invitationMessage), "an evicted body keeps no calendar text, as body(for:) says")
+    }
+
     func testTheAnswerIsRecordedByItsOperationAndSurvivesProviderReports() throws {
         try seedInvitation()
         let operation = Operation(accountID: accountA, change: .answerInvitation(answer(.accepted)), targets: [invitationMessage])
