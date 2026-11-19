@@ -175,6 +175,75 @@ final class CalendarViewTests: XCTestCase {
         XCTAssertTrue(join.isHidden, "the call has ended and nothing else today has one")
     }
 
+    /// The shell opens https links only: an http meeting or web link offers no Join, no call line and no Open in.
+    func testOnlyLinksTheShellOpensAreOffered() throws {
+        let legacy = Support.event("legacy", title: "Legacy call", start: Support.at(12), end: Support.at(13),
+                                   joinURL: "http://meet.example.com/abc", webURL: "http://calendar.example.com/event")
+        let (column, state, _, window) = try column(events: [legacy], height: 900)
+        defer { window.close(); state.tearDown() }
+        let model = column.details.model(for: try XCTUnwrap(state.events.first))
+        XCTAssertTrue(model.actions.isEmpty, "no Join and no Open in Google Calendar that would do nothing")
+        XCTAssertFalse(model.lines.contains { $0.text == "Video call" })
+        let join = try XCTUnwrap(column.timeline.subviews.compactMap { $0 as? QuireButton }.first)
+        XCTAssertTrue(join.isHidden, "the event's own Join neither")
+        XCTAssertNotNil(CalendarText.link("https://meet.google.com/abc-defg-hij"))
+        XCTAssertNil(CalendarText.link("http://meet.example.com/abc"))
+        XCTAssertNil(CalendarText.link("javascript:alert(1)"))
+    }
+
+    /// A click opens an event's details or shows a day, and the list keeps the keyboard (§5.54): neither view takes
+    /// focus while AppKit handles a mouse-down; Tab still reaches both.
+    func testAClickNeverTakesTheKeyboardFromTheList() throws {
+        let (column, state, _, window) = try column()
+        defer { window.close(); state.tearDown() }
+        XCTAssertTrue(column.timeline.acceptsFirstResponder, "Tab reaches the events")
+        XCTAssertTrue(column.cells.acceptsFirstResponder)
+        try handling(.leftMouseDown, in: window) {
+            XCTAssertFalse(column.timeline.acceptsFirstResponder, "a click leaves the keyboard where it was")
+            XCTAssertFalse(column.cells.acceptsFirstResponder)
+        }
+        XCTAssertTrue(column.timeline.acceptsFirstResponder)
+    }
+
+    /// Runs `body` while `type` is the event AppKit is handling (`NSApp.currentEvent`), as during a click.
+    private func handling(_ type: NSEvent.EventType, in window: NSWindow, _ body: () throws -> Void) throws {
+        func take(_ event: NSEvent) {
+            NSApp.postEvent(event, atStart: true)
+            _ = NSApp.nextEvent(matching: .any, until: Date(), inMode: .default, dequeue: true)
+        }
+        let click = try XCTUnwrap(NSEvent.mouseEvent(with: type, location: .zero, modifierFlags: [], timestamp: 0,
+                                                     windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1,
+                                                     pressure: 1))
+        take(click)
+        XCTAssertEqual(NSApp.currentEvent?.type, type)
+        defer {
+            // Something no view reads, so no later test sees a click being handled.
+            if let quiet = NSEvent.otherEvent(with: .applicationDefined, location: .zero, modifierFlags: [], timestamp: 0,
+                                              windowNumber: 0, context: nil, subtype: 0, data1: 0, data2: 0) {
+                take(quiet)
+            }
+        }
+        try body()
+    }
+
+    /// Opened from the column over a narrow reader (a wide list in a small window), the details never hang past the
+    /// reader area's leading edge, where clicks go to the list.
+    func testDetailsOverANarrowReaderStayWhereClicksReachThem() {
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: Quire.Layout.Window.readerMinWidth + Quire.Layout.CalendarPane.stripWidth,
+                                        height: 600))
+        // The column over the reader's edge, just before the strip; its timeline after the hour gutter.
+        let columnX = host.bounds.width - Quire.Layout.CalendarPane.stripWidth - Quire.Layout.CalendarPane.columnWidth
+        let timeline = NSView(frame: NSRect(x: columnX + Quire.Layout.CalendarPane.hourGutterColumn, y: 0,
+                                            width: Quire.Layout.CalendarPane.columnWidth - Quire.Layout.CalendarPane.hourGutterColumn,
+                                            height: 600))
+        host.addSubview(timeline)
+        let frame = CalendarDetailsPresenter.frame(for: 160, anchor: NSRect(x: 0, y: 180, width: 180, height: 40), in: timeline,
+                                                   host: host, placement: .leadingOfColumn)
+        let inHost = host.convert(frame, from: timeline)
+        XCTAssertGreaterThanOrEqual(inHost.minX, Quire.Layout.CalendarPane.detailsGap, "inside the reader area")
+        XCTAssertEqual(inHost.width, Quire.Layout.CalendarPane.detailsWidth)
+    }
+
     func testDayCellsAndWeekHeadingsShowTheirDay() throws {
         let (column, state, delegate, window) = try column()
         defer { window.close(); state.tearDown() }
@@ -332,6 +401,33 @@ final class CalendarViewTests: XCTestCase {
         try click(week.timeline, at: centre(pencil.face))
         XCTAssertNotNil(week.invitationCard, "a click on its event brings it back")
         XCTAssertTrue(delegate.selectedConversations.isEmpty, "that click only brings the card back")
+    }
+
+    /// The week's card says what its invitation overlaps in the reader card's words (§5.14), and says nothing once the
+    /// user declines on this Mac, though the calendar's copy still says not answered until the next read.
+    func testTheWeeksCardSaysItsOverlapAsTheReadersCardDoes() throws {
+        let store = try Support.store()
+        let invitation = CalendarInvitation(method: .request, uid: "mail-uid", title: "Design review", start: Support.at(13, 30),
+                                            end: Support.at(14, 30), organizer: .init(name: "Rachel Kim", address: "rachel@contoso.test"),
+                                            userAddress: Support.accountA.email, userResponse: .needsAction)
+        try Support.write([
+            Support.event("untitled", title: "", start: Support.at(13), end: Support.at(14)),
+            Support.event("copy", title: "Design review", start: Support.at(13, 30), end: Support.at(14, 30), response: .needsAction,
+                          invitationUID: "mail-uid"),
+        ], to: store)
+        let state = Support.state(store: store)
+        defer { state.tearDown() }
+        func card(_ reply: InvitationResponse?) -> CalendarCardModel? {
+            let selection = CalendarSelection(conversationID: conversation, invitation: invitation, invitationMessage: message,
+                                              invitationReply: reply)
+            let pencil = CalendarFit.pencil(for: invitation, message: message, timeZone: state.calendar.timeZone, response: selection.response)
+            let overlap = CalendarFit.invitationOverlap(uid: invitation.uid, near: pencil?.start, in: state.events, pencil: pencil)
+            return WeekInvitationCard.model(for: selection, overlap: overlap, event: overlap?.event, state: state, answer: { _, _ in })
+        }
+        XCTAssertTrue(try XCTUnwrap(card(nil)).lines.contains { $0.text == "Overlaps an event with no title, 13:30 - 14:00" })
+        let declined = try XCTUnwrap(card(.declined))
+        XCTAssertEqual(declined.kicker, "Declined")
+        XCTAssertFalse(declined.lines.contains { $0.text.hasPrefix("Overlaps") }, "it goes the moment the user declines")
     }
 
     // MARK: Keyboard and VoiceOver

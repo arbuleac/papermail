@@ -215,6 +215,15 @@ struct CalendarText {
         weekday(start) + " " + range(start, end)
     }
 
+    /// An event's join or web address as the calendar offers it: https only, the one scheme the shell opens, so a Join,
+    /// a call's line or an Open in … never shows for a link a click would do nothing with.
+    static func link(_ address: String?) -> URL? {
+        guard let address, let url = CalendarInvitationReader.webAddress(address), url.scheme?.lowercased() == "https" else {
+            return nil
+        }
+        return url
+    }
+
     /// The call's service, read from its join address: “Google Meet”, “Teams”, “Zoom”, else “Video call”.
     static func service(of joinURL: String) -> String {
         let host = URL(string: joinURL)?.host?.lowercased() ?? ""

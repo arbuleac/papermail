@@ -22,6 +22,13 @@ enum CalendarMetrics {
         maxAllDayRows: Int(Pane.allDayRowsMax)
     )
 
+    /// The event being handled is a mouse-down: the window is asking whether a click may take focus, which a timeline
+    /// and the day cells refuse (§5.54, “The list keeps the keyboard”), as Quire's controls do.
+    static func isMouseDown(_ event: NSEvent?) -> Bool {
+        guard let event else { return false }
+        return [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(event.type)
+    }
+
     /// The top of the column's timeline: under the header and the day cells.
     static var columnTimelineTop: CGFloat { Pane.headerHeight + Pane.dayCellsHeight }
 

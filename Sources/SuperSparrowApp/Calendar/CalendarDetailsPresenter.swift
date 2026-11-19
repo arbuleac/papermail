@@ -97,7 +97,9 @@ final class CalendarDetailsPresenter {
         var y = anchor.minY
         switch placement {
         case .leadingOfColumn:
-            x = timeline.bounds.minX - gap - width
+            // Over the reader, but never past the host's leading edge: a narrow reader beside a wide list would leave
+            // the card's first buttons over the list, where no click reaches them. It may cover the column's edge then.
+            x = max(window.minX + gap, timeline.bounds.minX - gap - width)
         case .besideEvent:
             x = anchor.maxX + gap
             if x + width > timeline.bounds.maxX {
@@ -127,7 +129,7 @@ final class CalendarDetailsPresenter {
         if let location = event.location, !location.isEmpty {
             lines.append(.init(glyph: nil, text: location, role: .snippet, color: .qInk2))
         }
-        if let join = event.joinURL {
+        if let join = event.joinURL, CalendarText.link(join) != nil {
             lines.append(.init(glyph: nil, text: CalendarText.service(of: join), role: .snippet, color: .qInk2))
         }
         if event.sync == .failed {
@@ -136,7 +138,7 @@ final class CalendarDetailsPresenter {
                                role: .snippet, color: .qDanger))
         }
         var actions: [CalendarCardModel.Action] = []
-        if let join = event.joinURL, let url = URL(string: join) {
+        if let url = CalendarText.link(event.joinURL) {
             actions.append(.init(title: "Join", variant: .primary, symbol: Quire.Icon.joinCall) { [weak self] in
                 self?.delegate?.openURL(url)
             })
@@ -154,7 +156,7 @@ final class CalendarDetailsPresenter {
                 self?.delegate?.removeEvent(event)
             })
         }
-        if let web = event.webURL, let url = URL(string: web) {
+        if let url = CalendarText.link(event.webURL) {
             actions.append(.init(title: "Open in " + CalendarText.providerCalendarName(kind), variant: .link, symbol: nil) { [weak self] in
                 self?.delegate?.openURL(url)
             })

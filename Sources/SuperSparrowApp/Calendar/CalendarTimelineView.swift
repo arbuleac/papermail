@@ -343,7 +343,7 @@ final class CalendarTimelineView: NSView, QuirePointerTarget {
             }
         }
         var place: (glyph: String, text: String)?
-        if let join = event.joinURL {
+        if let join = event.joinURL, CalendarText.link(join) != nil {
             place = (Quire.Icon.joinCall, CalendarText.service(of: join))
         } else if let location = event.location, !location.isEmpty {
             place = (Quire.Icon.eventPlace, location)
@@ -435,13 +435,14 @@ final class CalendarTimelineView: NSView, QuirePointerTarget {
         guard let fit, let today = fit.locate(state.now)?.dayIndex else { return nil }
         let now = state.now
         return placed
-            .filter { $0.dayIndex == today && !$0.isAllDay && $0.event.joinURL != nil && $0.event.end > now && !isPencilled($0.event) }
+            .filter { $0.dayIndex == today && !$0.isAllDay && CalendarText.link($0.event.joinURL) != nil && $0.event.end > now
+                && !isPencilled($0.event) }
             .min { $0.event.start != $1.event.start ? $0.event.start < $1.event.start : $0.event.id < $1.event.id }
     }
 
     @objc private func joinClicked(_ sender: Any?) {
         guard let id = joinEventID, let event = placed.first(where: { $0.event.id == id })?.event,
-              let address = event.joinURL, let url = URL(string: address) else { return }
+              let url = CalendarText.link(event.joinURL) else { return }
         delegate?.openURL(url)
     }
 
@@ -641,7 +642,12 @@ final class CalendarTimelineView: NSView, QuirePointerTarget {
         return order.indices.contains(focusIndex) ? order[focusIndex] : nil
     }
 
-    override var acceptsFirstResponder: Bool { !placed.isEmpty }
+    /// From the keyboard only (Tab, VoiceOver, `focus(eventID:)`): a click opens an event's details and the list keeps
+    /// the keyboard (§5.54), as a click on a Quire button leaves focus where it was (the window asks during the
+    /// mouse-down).
+    override var acceptsFirstResponder: Bool {
+        !placed.isEmpty && !CalendarMetrics.isMouseDown(NSApp.currentEvent)
+    }
     override var canBecomeKeyView: Bool { !placed.isEmpty && !isHiddenOrHasHiddenAncestor }
 
     private var showsFocusRing: Bool { window?.firstResponder === self && isWindowKey }
