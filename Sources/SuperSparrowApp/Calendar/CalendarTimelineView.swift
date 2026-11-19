@@ -55,7 +55,8 @@ final class CalendarTimelineView: NSView, QuirePointerTarget {
     private var fitVersion = -1
     private(set) var placed: [Placed] = []
     private(set) var placedMarks: [PlacedMark] = []
-    private var nowY: CGFloat?
+    /// The now line's y, nil when today is not shown.
+    private(set) var nowY: CGFloat?
     private var nowDayIndex: Int?
 
     private var hovered: Target?
@@ -147,6 +148,7 @@ final class CalendarTimelineView: NSView, QuirePointerTarget {
         guard !content.days.isEmpty, size.width > 0, size.height > 0 else {
             fit = nil
             placed = []
+            focusOrder = []
             placedMarks = []
             nowY = nil
             needsDisplay = true
@@ -202,6 +204,8 @@ final class CalendarTimelineView: NSView, QuirePointerTarget {
         // The selected conversation's are drawn above their neighbours.
         let selected = content.selectedEventIDs
         self.placed = placed.filter { !selected.contains($0.event.id) } + placed.filter { selected.contains($0.event.id) }
+        focusOrder = Self.timeOrder(placed)
+        times.removeAll(keepingCapacity: true)
 
         placedMarks = fit.marks.compactMap { placedMark in
             guard let mark = content.mark(withID: placedMark.id), !fit.days[placedMark.dayIndex].isFolded else { return nil }
@@ -347,8 +351,18 @@ final class CalendarTimelineView: NSView, QuirePointerTarget {
             interaction: interaction, hatches: hatches, ink: state.ink(for: event.accountID),
             isAlone: (placed.item?.columnCount ?? 1) == 1, moreCount: placed.item?.moreCount ?? placed.overflow,
             joinWidth: joinEventID == id && !join.isHidden ? join.alignmentRect(forFrame: join.frame).width : 0,
-            style: placed.isAllDay ? .week : style, timeText: state.text.range(event.start, event.end),
-            startText: state.text.time(event.start), place: place)
+            style: placed.isAllDay ? .week : style, timeText: times(of: event).range, startText: times(of: event).start,
+            place: place)
+    }
+
+    /// The events' times as words, made once per fit: a formatter call is dear enough to count in a week of 300.
+    private var times: [String: (range: String, start: String)] = [:]
+
+    private func times(of event: CalendarEvent) -> (range: String, start: String) {
+        if let cached = times[event.id] { return cached }
+        let words = (state.text.range(event.start, event.end), state.text.time(event.start))
+        times[event.id] = words
+        return words
     }
 
     /// Not answered: drawn pencilled in.
@@ -604,8 +618,11 @@ final class CalendarTimelineView: NSView, QuirePointerTarget {
 
     // MARK: Keyboard
 
-    /// Each event in time order (in the week, day by day): what Tab steps through (spec §5.54, “Keyboard”).
-    var focusOrder: [Placed] {
+    /// Each event in time order (in the week, day by day): what Tab steps through (spec §5.54, “Keyboard”). Sorted
+    /// once per fit.
+    private(set) var focusOrder: [Placed] = []
+
+    private static func timeOrder(_ placed: [Placed]) -> [Placed] {
         placed.sorted { a, b in
             if a.dayIndex != b.dayIndex { return a.dayIndex < b.dayIndex }
             if a.isAllDay != b.isAllDay { return a.isAllDay }

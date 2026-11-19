@@ -472,7 +472,7 @@ final class CalendarState {
     }
 
     /// Time set aside is 30 minutes (`calendarPane.blockMinutes`).
-    static let blockLength = TimeInterval(Quire.Layout.CalendarPane.blockMinutes) * 60
+    nonisolated static let blockLength = TimeInterval(Quire.Layout.CalendarPane.blockMinutes) * 60
 
     // MARK: Now
 

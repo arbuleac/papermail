@@ -61,6 +61,7 @@ final class DayStripView: NSView, CalendarStateObserver, QuirePointerTarget {
     override var mouseDownCanMoveWindow: Bool { false }
 
     func calendarState(_ state: CalendarState, didChange change: CalendarChange) {
+        guard isShowing else { needsReload = true; return }
         if change.contains(.content) || change.contains(.shown) || change.contains(.day) || change.contains(.statuses) {
             reload()
         } else if change.contains(.now) {
@@ -70,7 +71,14 @@ final class DayStripView: NSView, CalendarStateObserver, QuirePointerTarget {
         }
     }
 
+    private var needsReload = false
+
+    /// In a window and not hidden: a strip no one sees reads nothing.
+    var isShowing: Bool { window != nil && !isHiddenOrHasHiddenAncestor }
+
     func reload() {
+        guard isShowing else { needsReload = true; return }
+        needsReload = false
         content = state.content(for: [state.shownDay])
         refit()
         let count = content.events.filter { !$0.isAllDay }.count + content.events.filter(\.isAllDay).count
@@ -222,6 +230,7 @@ final class DayStripView: NSView, CalendarStateObserver, QuirePointerTarget {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window == nil { state.clock.unregister(self) } else { state.clock.register(self) }
+        if window != nil, needsReload { reload() }
     }
 
     override func viewDidHide() {

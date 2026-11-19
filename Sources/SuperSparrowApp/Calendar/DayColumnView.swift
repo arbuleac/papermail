@@ -68,9 +68,16 @@ final class DayColumnView: NSView, CalendarStateObserver {
 
     func calendarState(_ state: CalendarState, didChange change: CalendarChange) {
         if change.contains(.shown) || change.contains(.selection) { details.dismiss() }
-        if change.contains(.content) || change.contains(.shown) || change.contains(.day) {
+        // Nothing is read or fitted for a column no one sees: it catches up when it shows again.
+        guard isShowing else { needsReload = true; return }
+        if change.contains(.shown) || change.contains(.day) {
             reload()
             return
+        }
+        if change.contains(.content) {
+            // The day is the same: its words stay, and only what is on it is read again.
+            cells.update()
+            timeline.setContent(state.content(for: [state.shownDay]))
         }
         if change.contains(.statuses) {
             foot.update()
@@ -80,8 +87,15 @@ final class DayColumnView: NSView, CalendarStateObserver {
         if change.contains(.windowKey) { timeline.redrawSelection() }
     }
 
+    private var needsReload = false
+
+    /// In a window and not hidden.
+    var isShowing: Bool { window != nil && !isHiddenOrHasHiddenAncestor }
+
     /// Everything the column shows, from the state: the header's words, the cells' week, the day's content.
     func reload() {
+        guard isShowing else { needsReload = true; return }
+        needsReload = false
         let signpost = CalendarSignposts.signposter.beginInterval("calendar.column")
         header.update()
         cells.update()
@@ -139,7 +153,7 @@ final class DayColumnView: NSView, CalendarStateObserver {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window == nil { state.clock.unregister(self) } else { state.clock.register(self) }
-        if window == nil { details.dismiss() }
+        if window == nil { details.dismiss() } else if needsReload { reload() }
     }
 
     override func viewDidHide() {
