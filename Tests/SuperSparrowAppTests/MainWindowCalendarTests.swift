@@ -214,6 +214,12 @@ final class MainWindowCalendarTests: XCTestCase {
 
     func testTheListMaximumGivesUpTheStripWhileTheColumnIsOn() throws {
         let harness = try self.harness()
+        // The split's autosave writes the test process's own defaults: a list dragged wide here would open every later
+        // window's list that wide. Forgetting it leaves them the first run's default placement, as before any test.
+        defer {
+            close(harness)
+            UserDefaults.standard.removeObject(forKey: "NSSplitView Subview Frames MainSplit")
+        }
         resize(harness, width: 1_440)
         let split = harness.controller.splitView
         let list = split.arrangedSubviews[1]
