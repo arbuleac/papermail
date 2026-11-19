@@ -17,12 +17,16 @@ enum GraphInvitationMapper {
             return nil
         }
         guard let uid = event.iCalUId?.trimmingCharacters(in: .whitespaces), !uid.isEmpty,
-              let start = event.start.flatMap(instant), var end = event.end.flatMap(instant) else { return nil }
+              let startValue = event.start, let endValue = event.end,
+              let start = GraphEventTime.read(startValue), var end = GraphEventTime.read(endValue) else { return nil }
         let isAllDay = event.isAllDay ?? false
         var startDate = start.date
         if isAllDay {
-            // All-day events are dates: kept as the day written, at midnight read as UTC, wherever the Mac is.
-            guard let startDay = start.day, let endDay = end.day else { return nil }
+            // All-day events are dates: kept as their own days, at midnight read as UTC, wherever the Mac is. The UTC
+            // preference moves the creator's midnight, which `allDay` takes back to it in the zone it was made in.
+            guard let startDay = GraphEventTime.allDay(startValue, originalZone: event.originalStartTimeZone),
+                  let endDay = GraphEventTime.allDay(endValue, originalZone: event.originalEndTimeZone ?? event.originalStartTimeZone)
+            else { return nil }
             startDate = startDay
             end.date = endDay
         }
@@ -78,23 +82,6 @@ enum GraphInvitationMapper {
         let name = address?.name?.trimmingCharacters(in: .whitespaces)
         let shown = (name?.isEmpty ?? true) || name?.caseInsensitiveCompare(email) == .orderedSame ? nil : name
         return CalendarInvitation.Person(name: shown, address: email, response: response)
-    }
-
-    /// The instant a Graph date-time names (`2026-11-10T15:00:00.0000000` in `UTC`, or in a Windows or IANA zone), and
-    /// the day it is written on, for all-day events.
-    private static func instant(_ value: GraphDateTimeZone) -> (date: Date, day: Date?)? {
-        guard let text = value.dateTime else { return nil }
-        let trimmed = text.split(separator: ".").first.map(String.init) ?? text
-        let zone = value.timeZone.flatMap(CalendarTimeZones.timeZone(named:)) ?? TimeZone(identifier: "UTC")!
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
-        formatter.timeZone = zone
-        guard let date = formatter.date(from: trimmed) else { return nil }
-        formatter.timeZone = TimeZone(identifier: "UTC")
-        formatter.dateFormat = "yyyy-MM-dd"
-        let day = formatter.date(from: String(trimmed.prefix(10)))
-        return (date, day)
     }
 
     /// Graph's recurrence pattern as an RRULE's parts; nil for a pattern it does not name.

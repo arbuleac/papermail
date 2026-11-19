@@ -30,6 +30,8 @@ public struct RenderPayloadBuilder: Sendable {
     ///   - pending: messages that are replies still in the outbox (`PendingSheet`), shown as sending.
     ///   - invitationPermissionNeeded: accounts whose answered invitations wait for permission to update the calendar
     ///     (`AccountSyncStatus.permissionsNeeded`): their cards ask to reconnect.
+    ///   - invitationOverlaps: each invitation card's overlap line (`overlapLines(for:events:now:)`), read from the
+    ///     calendar by the caller, so the build stays pure; a card that cannot say it (`overlapCards`) shows none.
     ///   - sendLater: drafts that are Send Later messages (`SendLaterConversation`): their date line says when they send
     ///     instead of when they were edited, and one still waiting offers Cancel.
     ///   - outbox: drafts shown in the Outbox (`SendLaterConversation.outboxSummary`, spec §5.53): their date line says
@@ -48,6 +50,7 @@ public struct RenderPayloadBuilder: Sendable {
         adaptsColours: Bool? = nil,
         pending: Set<MessageID> = [],
         invitationPermissionNeeded: Set<AccountID> = [],
+        invitationOverlaps: [MessageID: String] = [:],
         sendLater: [MessageID: SendLaterState] = [:],
         outbox: [MessageID: OutboxState] = [:],
         now: Date = Date()
@@ -123,7 +126,8 @@ public struct RenderPayloadBuilder: Sendable {
                     cards.card(for: invitation, reply: message.invitationReply,
                                ownAddresses: Set(accounts[message.id.accountID].map { [$0.email.lowercased()] } ?? []),
                                needsPermission: invitationPermissionNeeded.contains(message.id.accountID),
-                               superseded: revisions.contains { $0.supersedes(invitation) }, now: now)
+                               superseded: revisions.contains { $0.supersedes(invitation) },
+                               overlap: invitationOverlaps[message.id], now: now)
                 },
                 cancelsSendLater: {
                     if case .waiting? = later { return true }

@@ -5,7 +5,7 @@ import CoreGraphics
 
 extension Quire {
     public static let name = "Quire"
-    public static let version = "1.8.8"
+    public static let version = "1.9.0"
 
     /// Every symbol the app draws, by action (spec §4.11). `ss.` names are custom glyphs (`QuireGlyph`).
     public enum Icon {
@@ -103,6 +103,14 @@ extension Quire {
         public static let alwaysArchiveSender = "archivebox"
         public static let removeRule = "minus"
         public static let download = "arrow.down.circle"
+        public static let dayColumn = "calendar"
+        public static let week = "rectangle.split.3x1"
+        public static let previousDay = "chevron.left"
+        public static let nextDay = "chevron.right"
+        public static let blockTime = "calendar.badge.plus"
+        public static let joinCall = "video"
+        public static let eventPlace = "mappin.and.ellipse"
+        public static let fromThisMail = "envelope"
     }
 
     /// The custom glyphs (spec §4.11): SVG path data in grid units, y down.
@@ -227,6 +235,7 @@ extension Quire {
             QuireCheatSheetRow(keys: "M", label: "Mute · unmute"),
             QuireCheatSheetRow(keys: "⇧⌘U", label: "Unsubscribe"),
             QuireCheatSheetRow(keys: "⌘P", label: "Print the conversation"),
+            QuireCheatSheetRow(keys: "B", label: "Block time for this mail"),
             QuireCheatSheetRow(keys: "Z", label: "Undo"),
         ]),
         QuireCheatSheetSection(title: "Go", rows: [
@@ -239,6 +248,7 @@ extension Quire {
             QuireCheatSheetRow(keys: "G then #", label: "Trash"),
             QuireCheatSheetRow(keys: "G then A", label: "All Mail"),
             QuireCheatSheetRow(keys: "⌘0 … ⌘9", label: "All Inboxes · one account"),
+            QuireCheatSheetRow(keys: "[ ] T", label: "Day before · after · today"),
         ]),
         QuireCheatSheetSection(title: "Write", rows: [
             QuireCheatSheetRow(keys: "C", label: "New message"),
@@ -266,6 +276,7 @@ extension Quire {
             QuireCheatSheetRow(keys: "⌘G ⇧⌘G", label: "Next · previous match"),
             QuireCheatSheetRow(keys: "⌘+ ⌘−", label: "Text bigger · smaller"),
             QuireCheatSheetRow(keys: "⌥⌘C ⌃⌘S", label: "Compact rows · the rail"),
+            QuireCheatSheetRow(keys: "D W", label: "Day column · week"),
             QuireCheatSheetRow(keys: "⇧⌘N", label: "Check for new mail"),
             QuireCheatSheetRow(keys: "?", label: "This sheet"),
         ]),

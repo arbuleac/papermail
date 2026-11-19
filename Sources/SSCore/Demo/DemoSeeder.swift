@@ -24,6 +24,27 @@ public enum DemoSeeder {
     /// from it, so the demo's mailboxes are as they were.
     public static let blockedSender = "offers@deals.example"
 
+    /// The demo's Later sample (spec §5.43, §5.54): one of its archived conversations snoozed until tomorrow at 17:00, so
+    /// the Later tile shows and the day column and the week mark the time it comes back. Archived already, it needs no
+    /// archive step. The app calls it once, with the accounts the first seeding added, as their mail arrives; nil while
+    /// none of their conversations can hold a snooze yet (`Snooze.canHold`).
+    @discardableResult
+    public static func seedLater(_ client: MailClient, accounts: [Account], now: Date = Date(),
+                                 calendar: Calendar = .autoupdatingCurrent) throws -> ConversationID? {
+        guard !accounts.isEmpty, let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now)),
+              let due = calendar.date(bySettingHour: 17, minute: 0, second: 0, of: tomorrow) else { return nil }
+        // The Gmail mailbox's first: its ink is the calendar's other one, beside the Outlook Send Later sample.
+        let ordered = accounts.filter { $0.kind == .gmail } + accounts.filter { $0.kind != .gmail }
+        for account in ordered {
+            let rows = try client.store.conversations(ConversationQuery(accountIDs: [account.id], view: .all, limit: 100))
+            for row in rows where Snooze.canHold(try client.store.messages(in: row.id)) {
+                try client.setSnoozes([Snooze.Change(conversationID: row.id, until: due)], performing: [])
+                return row.id
+            }
+        }
+        return nil
+    }
+
     /// The demo's Send Later sample (spec §5.43, §5.23): a note to Ben Carter from the Outlook mailbox waiting in the
     /// outbox for Monday 09:00 (Tomorrow's 09:00 on a Sunday), so Drafts shows a row reading “Sends Mon 09:00” from the
     /// start. Built from the outbox row alone, with no kept draft: opening it makes one from the message. The app calls it

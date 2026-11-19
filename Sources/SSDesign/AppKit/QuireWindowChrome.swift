@@ -16,7 +16,7 @@ public enum QuireWindowChrome {
     /// The style the main window is created with.
     public nonisolated static let mainStyleMask: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
 
-    /// The default content size, 1280 × 800.
+    /// The default content size, 1304 × 800: room for the day column beside a reader that keeps its keycaps (§3.2).
     public nonisolated static let defaultSize = NSSize(width: Quire.Layout.Window.defaultWidth, height: Quire.Layout.Window.defaultHeight)
 
     /// The minimum content size, 960 × 600.

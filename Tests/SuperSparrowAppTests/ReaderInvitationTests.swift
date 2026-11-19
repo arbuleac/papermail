@@ -1,5 +1,6 @@
 import AppKit
 import SSCore
+import SSDesign
 import WebKit
 import XCTest
 @testable import SuperSparrowApp
@@ -520,6 +521,164 @@ final class ReaderInvitationTests: XCTestCase {
         for other in others { try open(other, in: reader) }
         try open(conversation, in: reader)
         XCTAssertEqual(evaluate(states, in: reader), "[[false,false,false],[true,false,false]]", "forgotten, like the quote")
+    }
+
+    // MARK: The overlap line (spec §5.14)
+
+    /// 10:00 two days ahead on this Mac's clock, so the times a line names are whole minutes on one day.
+    private lazy var meeting: Date = {
+        let day = Calendar.current.date(byAdding: .day, value: 2, to: Date()) ?? Date()
+        return Calendar.current.date(bySettingHour: 10, minute: 0, second: 0, of: day) ?? day
+    }()
+
+    /// The invitation from 10:00 to 11:00.
+    private func meetingInvitation() -> CalendarInvitation {
+        var invitation = invitation()
+        invitation.start = meeting
+        invitation.end = meeting.addingTimeInterval(3_600)
+        return invitation
+    }
+
+    /// An event of the account's calendar `minutes` long from `offset` minutes after the meeting starts.
+    private func calendarEvent(_ id: String, _ title: String, at offset: Double, minutes: Double, isFree: Bool = false,
+                               response: CalendarEvent.Response = .accepted, uid: String? = nil) -> CalendarEvent {
+        let start = meeting.addingTimeInterval(offset * 60)
+        return CalendarEvent(id: CalendarEvent.localID(accountID: account.id, providerID: id), accountID: account.id, providerID: id,
+                             title: title, start: start, end: start.addingTimeInterval(minutes * 60), response: response, isFree: isFree,
+                             invitationUID: uid)
+    }
+
+    /// The calendar's copy of the invitation, as Google adds it.
+    private func ownCopy(_ response: CalendarEvent.Response = .needsAction) -> CalendarEvent {
+        calendarEvent("own", "Design review", at: 0, minutes: 60, response: response, uid: "uid-1@google.com")
+    }
+
+    /// What a read of the account's calendar found, as the engine writes it.
+    private func read(_ events: [CalendarEvent], into store: InMemoryMailStore) throws {
+        try store.replaceCalendarEvents(events, accountID: account.id,
+                                        window: DateInterval(start: meeting.addingTimeInterval(-7 * 86_400), duration: 14 * 86_400))
+    }
+
+    /// “10:30” as the When line writes a time on this Mac: its zone, its locale's 12- or 24-hour clock.
+    private func clock(_ offset: Double) -> String {
+        let formatter = DateFormatter()
+        formatter.setLocalizedDateFormatFromTemplate("jmm")
+        return formatter.string(from: meeting.addingTimeInterval(offset * 60))
+    }
+
+    private let overlapLine = "document.querySelector('.ss-invite .ss-iover') ? document.querySelector('.ss-invite .ss-iover').textContent : ''"
+
+    func testTheCardSaysWhatItOverlapsAndFollowsTheCalendar() throws {
+        var store: InMemoryMailStore?
+        let sam = calendarEvent("sam", "1:1 with Sam", at: 30, minutes: 60)
+        let reader = try showInvitation(meetingInvitation(), provider: InvitationProvider(accountID: account.id)) { prepared in
+            store = prepared
+            try self.read([self.ownCopy(), sam], into: prepared)
+        }
+        let calendar = try XCTUnwrap(store)
+        XCTAssertEqual(evaluate(overlapLine, in: reader), "Overlaps 1:1 with Sam, \(clock(30)) - \(clock(60))",
+                       "the time the two share, never the invitation's own copy")
+        XCTAssertEqual(evaluate("document.querySelector('.ss-iover > .ss-sym').classList.contains('ss-sym-' + '\(Quire.Icon.warning)'.split('.').join('-'))",
+                                in: reader), "true", "the warning glyph")
+        let colours = """
+            (function () {
+              var probe = document.createElement('div'); document.body.appendChild(probe);
+              probe.style.color = 'var(--q-warning)'; var warning = getComputedStyle(probe).color;
+              probe.style.color = 'var(--q-ink)'; var ink = getComputedStyle(probe).color; probe.remove();
+              var line = document.querySelector('.ss-iover');
+              return [getComputedStyle(line.querySelector('.ss-sym')).backgroundColor === warning,
+                      getComputedStyle(line.querySelector('span')).color === ink].join();
+            })()
+            """
+        XCTAssertEqual(evaluate(colours, in: reader), "true,true", "the glyph in warning, the words in ink")
+        // Read right after When (the document's order, which VoiceOver follows), drawn under the details.
+        XCTAssertEqual(evaluate("document.querySelector('.ss-iover').previousElementSibling.className", in: reader), "ss-iwhen")
+        let edges = numbers("""
+            [document.querySelector('.ss-idet').getBoundingClientRect().bottom, document.querySelector('.ss-iover').getBoundingClientRect().top,
+             document.querySelector('.ss-iover').getBoundingClientRect().bottom, document.querySelector('.ss-iacts').getBoundingClientRect().top]
+            """, in: reader)
+        XCTAssertEqual(edges.count, 4)
+        if edges.count == 4 {
+            XCTAssertEqual(edges[1] - edges[0], Quire.Layout.Invitation.detailsTop, accuracy: 0.5, "detailsTop under the details")
+            XCTAssertGreaterThan(edges[3], edges[2], "the answers stay below it")
+        }
+
+        // Let anything the open set off land, then count renders.
+        ListTestSupport.spin(for: 0.5)
+        let slot = try XCTUnwrap(reader.pool.current)
+        let rendered = slot.tracker.generation
+
+        // Writes that leave the line's words as they are: a free event in the hour, the invitation's own copy answered,
+        // an event on another day (outside what the reader watches). None renders the conversation again.
+        let focus = calendarEvent("focus", "Focus time", at: 0, minutes: 60, isFree: true)
+        let tomorrow = calendarEvent("tomorrow", "Standup", at: 24 * 60, minutes: 15)
+        try read([ownCopy(.accepted), sam, focus, tomorrow], into: calendar)
+        ListTestSupport.spin(for: 0.5)
+        XCTAssertEqual(slot.tracker.generation, rendered, "an unrelated calendar write renders nothing")
+        XCTAssertEqual(evaluate(overlapLine, in: reader), "Overlaps 1:1 with Sam, \(clock(30)) - \(clock(60))")
+
+        // An overlapping event arrives: the line names the first by start and counts the rest, rendered once, in place.
+        let hiring = calendarEvent("hiring", "Hiring sync", at: -30, minutes: 45)
+        try read([ownCopy(.accepted), sam, focus, tomorrow, hiring], into: calendar)
+        XCTAssertTrue(waitFor(overlapLine, toBe: "Overlaps Hiring sync, \(clock(0)) - \(clock(15)), and 1 more", in: reader))
+        XCTAssertEqual(slot.tracker.generation, rendered + 1, "one render in place")
+        XCTAssertTrue(reader.pool.current === slot)
+
+        // Nothing overlaps any more: the line goes and the card stays.
+        try read([ownCopy(.accepted), focus, tomorrow], into: calendar)
+        XCTAssertTrue(waitFor(overlapLine, toBe: "", in: reader))
+        XCTAssertEqual(evaluate("document.querySelector('.ss-invite .ss-ititle').textContent", in: reader), "Design review")
+    }
+
+    func testDecliningTakesTheLineAwayAndAnsweringAgainBringsItBack() throws {
+        let sam = calendarEvent("sam", "1:1 with Sam", at: 30, minutes: 60)
+        let reader = try showInvitation(meetingInvitation(), provider: InvitationProvider(accountID: account.id)) { store in
+            try self.read([sam], into: store)
+        }
+        let line = "Overlaps 1:1 with Sam, \(clock(30)) - \(clock(60))"
+        XCTAssertEqual(evaluate(overlapLine, in: reader), line)
+        _ = evaluate("document.querySelector('.ss-ans[data-response=\"declined\"]').click()", in: reader)
+        XCTAssertTrue(waitFor(overlapLine, toBe: "", in: reader), "it goes the moment the user declines")
+        _ = evaluate("document.querySelector('.ss-ans[data-response=\"accepted\"]').click()", in: reader)
+        XCTAssertTrue(waitFor(overlapLine, toBe: line, in: reader), "and comes back when they answer again")
+    }
+
+    /// A conversation kept rendered off screen while the calendar changed is brought up to it as it comes back on screen.
+    func testAKeptRenderCatchesUpWithTheCalendarWhenShownAgain() throws {
+        let other = ConversationID(accountID: account.id, providerID: "thread-other")
+        var store: InMemoryMailStore?
+        let reader = try showInvitation(meetingInvitation(), provider: InvitationProvider(accountID: account.id)) { prepared in
+            store = prepared
+            let id = MessageID(accountID: self.account.id, providerID: "msg-other")
+            try prepared.upsertMessages([MessageMetadata(
+                id: id, conversationID: other, subject: "Other", snippet: "Other",
+                from: EmailAddress(name: "Ada Lovelace", address: "ada@contoso.test"), to: [EmailAddress(address: self.account.email)],
+                date: Date().addingTimeInterval(-7_200), roles: [.inbox], isRead: true, isStarred: false, hasAttachments: false
+            )])
+            try prepared.saveBody(StoredBody(body: MessageBody(html: "<p>Other</p>", text: nil), renderedHTML: "<p>Other</p>",
+                                             plainText: "Other"), for: id)
+        }
+        XCTAssertEqual(evaluate(overlapLine, in: reader), "", "nothing on the calendar yet")
+        let held = try XCTUnwrap(reader.pool.current)
+        try open(other, in: reader)
+        XCTAssertFalse(reader.pool.current === held)
+
+        try read([calendarEvent("sam", "1:1 with Sam", at: 30, minutes: 60)], into: try XCTUnwrap(store))
+        try open(conversation, in: reader)
+        XCTAssertTrue(reader.pool.current === held, "the kept render is shown again")
+        XCTAssertTrue(waitFor(overlapLine, toBe: "Overlaps 1:1 with Sam, \(clock(30)) - \(clock(60))", in: reader))
+    }
+
+    /// The shell's stylesheet lives in SSCore, which cannot read the tokens; this holds the overlap line's numbers to
+    /// `layout.invitation`, and its glyph to `icon.warning`.
+    func testTheOverlapLinesMetricsAreTheTokens() {
+        let invitation = Quire.Layout.Invitation.self
+        let css = ConversationShellAssets.css
+        func px(_ value: CGFloat) -> String { "\(Int(value))px" }
+        XCTAssertTrue(css.contains(".ss-iover { order: 1; margin-top: \(px(invitation.detailsTop)); display: flex; align-items: flex-start; gap: \(px(invitation.kickerGap));"))
+        XCTAssertTrue(css.contains(".ss-iover > .ss-sym { font-size: \(px(invitation.answerGlyph)); width: \(px(invitation.answerGlyph)); height: \(px(invitation.answerGlyph)); margin-top: calc((1lh - \(px(invitation.answerGlyph))) / 2); color: var(--q-warning); }"))
+        XCTAssertTrue(ConversationShellAssets.js.contains("sym('\(Quire.Icon.warning)')"))
+        XCTAssertTrue(ConversationShellAssets.symbols.contains(Quire.Icon.warning), "a glyph the reader rasterises")
     }
 
     func testFileNamesFromSubjects() {

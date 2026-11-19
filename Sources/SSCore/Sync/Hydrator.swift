@@ -313,6 +313,7 @@ actor Hydrator {
             } else {
                 try store.saveBody(stored, for: id)
             }
+            Self.saveMailTimes(in: sanitized.plainText, of: body, for: id, store: store)
             return stored
         }
         inFlight[id] = task
@@ -341,6 +342,26 @@ actor Hydrator {
         // own reading of the event says; the event message's calendar part (its event unread) is answered so too.
         if account?.kind == .microsoft { invitation?.answersAsAccount = true }
         return invitation
+    }
+
+    /// Finds the times of day the message's own words name (`MailTimeDetector`) and stores them beside the body, now, at
+    /// sync time, so selecting the conversation never reads its text. Only for mail received in the last few days (the
+    /// detector reads “tomorrow” against today) and never for bulk mail (a list's mail names times for everyone), which
+    /// leaves most bodies, the backfill's among them, with nothing to look at. Runs on the fetch's own detached task,
+    /// after the body is saved, so a failure costs the times and never the body.
+    static func saveMailTimes(in plainText: String, of body: MessageBody, for id: MessageID, store: MailStoring,
+                              now: Date = Date()) {
+        // Graph tells a list's mail by its body alone (`MessageBody.listUnsubscribe`); Gmail by its metadata.
+        guard body.listUnsubscribe == nil, let message = try? store.message(id), message.listUnsubscribe == nil else { return }
+        let times = MailTimeDetector.shared.times(in: plainText, messageID: id, received: message.date, now: now)
+        // A body is stored once, so there are no earlier times to clear, and most bodies would pay a write for nothing.
+        guard !times.isEmpty else { return }
+        do {
+            try store.saveMailTimes(times, for: id)
+            SyncLog.logger.debug("mail times: \(times.count, privacy: .public) found")
+        } catch {
+            SyncLog.logger.error("mail times: store write failed: \(String(describing: error), privacy: .private)")
+        }
     }
 
     private func finish(_ id: MessageID, task: Task<StoredBody, Error>) {

@@ -117,6 +117,7 @@ enum MessageTable {
                 }
                 if previousConversation != metadata.conversationID.providerID {
                     try ConversationTable.touch(accountID: incoming.id.accountID, providerID: previousConversation, in: db)
+                    try MailTimeTable.messageMoved(incoming.id, to: metadata.conversationID.providerID, in: db)
                 }
             }
             try upsert.execute(arguments: try arguments(for: metadata, indexed: indexed))
@@ -313,6 +314,16 @@ enum MessageTable {
             // the whole body.
             invitation: invitationJSON.flatMap { try? MailStoreCodec.decode(CalendarInvitation.self, from: $0) }
         )
+    }
+
+    /// `body(for:in:)`'s invitation alone, as it reads it (nil for an evicted body, nothing for one that no longer
+    /// decodes): one short text column, none of the compressed ones.
+    static func invitation(for id: MessageID, in db: Database) throws -> CalendarInvitation? {
+        let statement = try db.cachedStatement(sql: """
+            SELECT invitation_json FROM bodies WHERE account_id = ? AND provider_id = ? AND evicted = 0
+            """)
+        guard let json = try String.fetchOne(statement, arguments: [id.accountID.rawValue, id.providerID]) else { return nil }
+        return try? MailStoreCodec.decode(CalendarInvitation.self, from: json)
     }
 
     // MARK: Row mapping

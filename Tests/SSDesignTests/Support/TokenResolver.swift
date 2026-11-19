@@ -39,14 +39,19 @@ enum TokenResolver {
         rgba(color(token), mode)
     }
 
-    /// `resolve_stack()`: an `accountFace:` base is the ink at `layout.rail.faceAlpha` (quantised to a byte, as
-    /// the python writes it into a hex) over `sheet`; every later item is composited over the result.
+    /// `resolve_stack()`: an `accountFace:` base is the ink at `layout.rail.faceAlpha`, and an `eventFace:` base (an
+    /// event in the day column and the week, §5.54) the ink at `layout.calendarPane.eventTintAlpha`, each quantised to a
+    /// byte, as the python writes it into a hex, over `sheet`; every later item is composited over the result.
     static func resolveStack(_ stack: [String], _ mode: QuireMode) -> RGBA {
         let base = stack[0]
         var cur: RGBA
         if base.hasPrefix("accountFace:") {
             var ink = resolve("account:" + base.dropFirst(12), mode)
             ink.a = (Double(Quire.Layout.Rail.faceAlpha) * 255).rounded(.toNearestOrEven) / 255
+            cur = ColorLib.over(ink, resolve("sheet", mode))
+        } else if base.hasPrefix("eventFace:") {
+            var ink = resolve("account:" + base.dropFirst(10), mode)
+            ink.a = (Double(Quire.Layout.CalendarPane.eventTintAlpha) * 255).rounded(.toNearestOrEven) / 255
             cur = ColorLib.over(ink, resolve("sheet", mode))
         } else {
             cur = resolve(base, mode)

@@ -21,6 +21,9 @@ final class DemoMailbox: @unchecked Sendable {
     private var log: [String] = []
     private var lastLiveAt: Date
     private var liveCount = 0
+    /// The account's main calendar, by provider id: generated with the mailbox (`DemoCalendar`), then changed by the
+    /// time the user sets aside and removes, and by their answers to the invitations.
+    private var calendarEvents: [String: CalendarEvent] = [:]
 
     init(
         profile: DemoProfile,
@@ -49,6 +52,9 @@ final class DemoMailbox: @unchecked Sendable {
                 record.metadata = stored
             }
             archive[record.metadata.id.providerID] = record
+        }
+        for event in DemoCalendar.events(for: profile, accountID: accountID, reference: reference) {
+            if let providerID = event.providerID { calendarEvents[providerID] = event }
         }
     }
 
@@ -154,8 +160,12 @@ final class DemoMailbox: @unchecked Sendable {
     // MARK: Writes
 
     func apply(_ change: MetadataChange, to providerIDs: [String]) {
-        // An answer goes to the organizer, not into the message: the made-up mailbox has nobody to tell.
-        if case .answerInvitation = change { return }
+        // An answer goes to the organizer, not into the message: the made-up mailbox has nobody to tell. The account's
+        // calendar keeps it, as Google's and Exchange's do, so the event stops being pencilled in on the next read.
+        if case .answerInvitation(let answer) = change {
+            answerCalendarEvents(answer)
+            return
+        }
         lock.lock(); defer { lock.unlock() }
         for providerID in providerIDs {
             guard var record = recordLocked(providerID) else { continue }
@@ -219,6 +229,62 @@ final class DemoMailbox: @unchecked Sendable {
         records[providerID] = DemoRecord(metadata: metadata, body: MessageBody(html: message.html, text: message.text, attachments: attachments))
         log.append(providerID)
         return SendReceipt(providerMessageID: providerID, providerConversationID: conversation.providerID)
+    }
+
+    // MARK: Calendar
+
+    /// The events that overlap `window`, ordered as the store orders them.
+    func calendarEvents(in window: DateInterval) -> [CalendarEvent] {
+        lock.lock(); defer { lock.unlock() }
+        return calendarEvents.values.filter { $0.overlaps(window) }
+            .sorted { ($0.start, $0.end, $0.id) < ($1.start, $1.end, $1.id) }
+    }
+
+    /// Creates time set aside on this Mac, once per client key, as Google does under the key as the event's id and
+    /// Graph under it as the `transactionId`: a second create with the key returns the copy the first one made.
+    func createCalendarEvent(_ event: CalendarEvent) -> CalendarEvent {
+        lock.lock(); defer { lock.unlock() }
+        let existing = event.clientKey.flatMap { key in calendarEvents.values.first { $0.clientKey == key } }
+        let copy = existing ?? serverCopyLocked(of: event)
+        if existing == nil, let providerID = copy.providerID { calendarEvents[providerID] = copy }
+        // The caller's own id and mail stay with what it gets back; a read reports the client key instead.
+        var created = copy
+        created.id = event.id
+        created.sourceMessage = event.sourceMessage
+        return created
+    }
+
+    /// Removes the event; one the calendar no longer has is already gone.
+    func deleteCalendarEvent(providerID: String) {
+        lock.lock(); defer { lock.unlock() }
+        calendarEvents[providerID] = nil
+    }
+
+    private func serverCopyLocked(of event: CalendarEvent) -> CalendarEvent {
+        let providerID = profile.kind == .gmail
+            ? (event.clientKey ?? CalendarEvent.newClientKey())
+            : "AAMkADemoEvent-" + UUID().uuidString.lowercased()
+        var copy = event
+        copy.id = CalendarEvent.localID(accountID: accountID, providerID: providerID)
+        copy.providerID = providerID
+        copy.webURL = DemoCalendar.webURL(providerID: providerID, kind: profile.kind)
+        copy.response = .organizer
+        copy.isFree = false
+        copy.sourceMessage = nil
+        copy.sync = .synced
+        copy.updatedAt = now()
+        return copy
+    }
+
+    private func answerCalendarEvents(_ answer: InvitationAnswer) {
+        guard let response = CalendarEvent.Response(rawValue: answer.response.rawValue) else { return }
+        lock.lock(); defer { lock.unlock() }
+        for (providerID, event) in calendarEvents where event.invitationUID == answer.uid {
+            // An answer to one occurrence (its recurrence id) leaves the others as they were.
+            if let occurrence = answer.recurrenceID, event.start != occurrence { continue }
+            calendarEvents[providerID]?.response = response
+            calendarEvents[providerID]?.updatedAt = now()
+        }
     }
 
     // MARK: Live arrivals

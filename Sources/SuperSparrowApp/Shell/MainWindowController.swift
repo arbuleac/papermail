@@ -4,8 +4,8 @@ import SSDesign
 import WebKit
 import os
 
-/// The main window: account rail, message list and reader in a split view, or the welcome screen when there is
-/// nothing to show yet. It owns the selection (one conversation or several), routes reader actions and
+/// The main window: account rail, message list and reader in a split view (the reader's pane holding the day column, or
+/// the week in its place: `MainWindowController+Calendar`), or the welcome screen when there is nothing to show yet. It owns the selection (one conversation or several), routes reader actions and
 /// shortcuts, opens the reader windows (§5.49) and takes their mail actions too, keeps the app's undo history with
 /// them (`MailUndoCenter`, which ranks Z and ⌘Z across it, the quick replies' countdowns and the undo-send panels, §6.1),
 /// and reduces every account's status into the sync line.
@@ -14,10 +14,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
                                   SendArchiving {
     static let defaultSize = QuireWindowChrome.defaultSize
     static let minimumSize = QuireWindowChrome.minimumSize
-    private static let log = Logger(subsystem: "io.supersparrow.mac", category: "shell")
+    static let log = Logger(subsystem: "io.supersparrow.mac", category: "shell")
 
     let environment: AppEnvironment
-    private let settings: AppSettings
+    let settings: AppSettings
 
     /// Wired by the app delegate, which owns sign-in, settings and environment switching.
     var onAddAccount: ((ProviderKind?) -> Void)?
@@ -46,6 +46,35 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     private let welcome = WelcomeViewController()
     private var stripItem: NSSplitViewItem!
     private var listItem: NSSplitViewItem!
+    private var readerItem: NSSplitViewItem!
+
+    // The calendar (§5.54; MainWindowController+Calendar)
+    /// What the day column, its strip and the week draw, read from the store and kept current.
+    let calendarState: CalendarState
+    /// The third split item: the reader with the day column at its trailing edge, or the week in the place of both.
+    let desk: ReaderAndCalendarViewController
+    /// The days the user chose and the selection the column last followed (spec §5.54, “It follows the mail”).
+    var calendarFollow: CalendarFollow
+    /// The accounts Connect still has to ask for the calendar, one after another, and the one being asked.
+    var calendarConnectQueue: [Account] = []
+    /// Asks `account` for the calendar permission through the app's sign-in (`AppDelegate`), which calls back with
+    /// whether it was granted; wired by the app delegate.
+    var onConnectCalendar: ((Account, @escaping @MainActor (Bool) -> Void) -> Void)?
+    /// Opens a calendar link (Join, Open in Google Calendar, the setup guide). Tests replace it, so no test opens a browser.
+    var openCalendarURL: (URL) -> Void = { NSWorkspace.shared.open($0) }
+    /// Asks the engine to read every account's calendar: the kept window (nil), or shown days outside it as well.
+    /// Tests replace it to see what was asked.
+    lazy var readCalendars: (DateInterval?) -> Void = { [weak self] range in
+        guard let engine = self?.environment.engine else { return }
+        if let range {
+            engine.refreshCalendars(accountID: nil, covering: range)
+        } else {
+            engine.refreshCalendars(accountID: nil)
+        }
+    }
+    /// Some calendar (the column, its strip or the week) was on screen at the last change: one coming on screen asks the
+    /// engine for a fresh read.
+    var wasCalendarOnScreen = false
 
     private let inboxMonitor: InboxMonitor
     /// Internal so the app's tests can drive the network path without a real path monitor.
@@ -84,9 +113,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// The view the list's rows come from: the rail's view, or while searching the one the search looks through (All
     /// Mail, or the view an `in:` term picked), so keys, menus and the reader treat results as rows of that view:
     /// `in:trash` results restore with ⇧I and # leaves them be, as in the Trash.
-    private var listView: MailboxView { list.query.view }
+    var listView: MailboxView { list.query.view }
     private var searchText = ""
-    private var showingWelcome = false
+    private(set) var showingWelcome = false
     private var unifiedUnread = 0
     private var unreadByAccount: [AccountID: Int] = [:]
     /// Unread counts when the user last chose a scope; more than this in another account is new mail (§5.3).
@@ -107,7 +136,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         get { undoCenter.history }
         set { undoCenter.history = newValue }
     }
-    private var toasts: ToastPresenter { undoCenter.toasts }
+    var toasts: ToastPresenter { undoCenter.toasts }
     /// How the history's external steps are reverted (a discarded draft reopens its composer), by group id.
     private var externalUndos: [Int: () -> Void] = [:]
     /// The snoozes each E in Later ended, with their times, by group id: presses that coalesced share a group, and its
@@ -158,7 +187,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// Writes the Later menu's times and the snooze toast's, as the rows write times.
     private let laterFormatter = DateFormatting()
     /// What the reader was last asked to show, so the list's two selection callbacks show it once.
-    private var shownSelection: [ConversationID] = []
+    private(set) var shownSelection: [ConversationID] = []
 
     // Sign-in, checks
     private(set) var pendingSignIn: PendingSignIn?
@@ -177,9 +206,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     private var debugKeyStealer: NSWindow?
     #endif
 
-    /// `dockBadge` nil is the app's Dock tile; tests pass their own so no window of theirs badges a real icon.
+    /// `dockBadge` nil is the app's Dock tile; tests pass their own so no window of theirs badges a real icon. `calendar` and
+    /// `now` are the day column's and the week's; tests fix them.
     init(environment: AppEnvironment, settings: AppSettings, remembersScope: Bool = !LaunchOptions().isSnapshot,
-         dockBadge: DockBadge? = nil) {
+         dockBadge: DockBadge? = nil, calendar: Calendar = .autoupdatingCurrent, now: @escaping () -> Date = Date.init) {
         self.environment = environment
         self.settings = settings
         // Every Send button reads the user's choice from these settings (§5.23), the reader's built below among them.
@@ -191,6 +221,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         conversation = ConversationViewController(client: environment.engine, drafts: quickReplyDrafts, settings: settings,
                                                   findSession: findSession)
         conversationPane = ConversationPaneViewController(conversation: conversation)
+        let engine = environment.engine
+        calendarState = CalendarState(store: environment.store, calendar: calendar, now: now, observeStatus: { [weak engine] onChange in
+            engine?.observeStatus(onChange: onChange) ?? StoreObservation {}
+        })
+        calendarFollow = CalendarFollow(day: calendarState.shownDay)
+        // A snapshot always shows the column, whatever the Mac's own window was left with.
+        desk = ReaderAndCalendarViewController(conversationPane: conversationPane, state: calendarState,
+                                               isColumnOn: LaunchOptions().isWindowSnapshot || settings.showsDayColumn)
         undoCenter = MailUndoCenter(toasts: listPane.toasts)
         inboxMonitor = InboxMonitor(store: environment.store, dockBadge: dockBadge)
         activity = SyncActivityMonitor(store: environment.store)
@@ -230,6 +268,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         if !showingWelcome { placeDividersIfNeeded() }
         window.shellKeyViews = { [weak self] in self?.shellKeyViews ?? [] }
         window.readerRoot = conversationPane.view
+        window.calendarKeyViews = { [weak self] in self?.calendarKeyViews ?? [] }
         // Otherwise AppKit picks the first key view, the search field, and single-key shortcuts start as text.
         window.initialFirstResponder = Self.firstDescendant(of: list.view, as: NSTableView.self)
         // The split view's autosave can bring the rail back collapsed, and dragging the divider can collapse it
@@ -347,6 +386,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         statusObservation = nil
         snoozeObservation?.cancel()
         snoozeObservation = nil
+        calendarState.tearDown()
         sendLaterOutbox.stop()
         stripCollapseObservation?.invalidate()
         stripCollapseObservation = nil
@@ -381,12 +421,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         listItem.holdingPriority = .defaultLow + 10
         listItem.canCollapse = false
 
-        let readerItem = NSSplitViewItem(viewController: conversationPane)
-        readerItem.minimumThickness = ConversationPaneViewController.minimumWidth
+        // The reader's item holds the day column too (§5.1): the split keeps its three items and its autosave.
+        readerItem = NSSplitViewItem(viewController: desk)
         readerItem.holdingPriority = .defaultLow
         readerItem.canCollapse = false
 
         splitController.splitViewItems = [stripItem, listItem, readerItem]
+        applyColumnWidths()
         applyRailWidth()
         (splitController.splitView as? HairlineSplitView)?.onThicknessChange = { [weak self] in self?.applyRailWidth() }
     }
@@ -401,13 +442,21 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         stripItem?.maximumThickness = pane
     }
 
+    /// While the day column is on, the reader's item keeps room for its strip beside a 400 pt reader, and the list's
+    /// maximum gives up the strip's 28 pt (§3.2), so even the folded column never takes the reader under 400.
+    func applyColumnWidths() {
+        let strip = desk.isColumnOn ? Quire.Layout.CalendarPane.stripWidth : 0
+        readerItem?.minimumThickness = ConversationPaneViewController.minimumWidth + strip
+        listItem?.maximumThickness = ListPaneViewController.maximumWidth - strip
+    }
+
     /// A first run has no autosaved divider positions; the list then starts at its preferred width.
     private let isFirstSplitLayout = UserDefaults.standard.object(forKey: "NSSplitView Subview Frames MainSplit") == nil
 
     /// `--snapshot` and the other window snapshots (`LaunchOptions.isWindowSnapshot`): the window keeps the
     /// default size and divider positions and ignores the pointer, so it compares with the specimen and never
     /// rewrites the user's saved frame.
-    private let isSnapshot = LaunchOptions().isWindowSnapshot
+    let isSnapshot = LaunchOptions().isWindowSnapshot
 
     private var isMinimal: Bool { stripItem?.isCollapsed ?? false }
 
@@ -517,6 +566,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         activity.onChange = { [weak self] in self?.refreshSyncLine() }
         // Back online: check now rather than when the engine's backoff next allows.
         activity.onNetworkReturned = { [weak self] in self?.checkAllAccounts() }
+        wireCalendar()
     }
 
     // MARK: Accounts and status
@@ -547,6 +597,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
                 UndoSendPanel.refreshUndoKeyOwner()
             }
             for reader in readerWindows { reader.conversation.accountsByID = byID }
+            calendarState.accounts = fresh
             localDrafts.accounts = fresh
             sendLaterOutbox.refresh()
             showLocalDrafts()
@@ -901,7 +952,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// Picking a mailbox means "show me that mailbox", so it also ends a search that would otherwise keep
     /// overriding the view. Later and the Outbox only while they show: G L, G O and the View menu's Later and Outbox do
     /// nothing otherwise (§5.2).
-    private func setView(_ view: MailboxView) {
+    func setView(_ view: MailboxView) {
         guard view != .later || showsLater, view != .outbox || showsOutbox else { return }
         mailboxView = view
         viewLeftAsItEmptied = nil
@@ -915,9 +966,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         searchText = ""
     }
 
-    private func applyQuery() {
+    func applyQuery() {
         let query = ShellQuery.make(scope: scope.accountIDs, view: mailboxView, searchText: searchText)
         conversation.mailboxView = query.view
+        // The calendar is narrowed to the account the window is (⌘1…⌘9), as the list is (§5.54, “unified”).
+        switch scope {
+        case .unified: calendarState.scope = .all
+        case .account(let id): calendarState.scope = .account(id)
+        }
         if query != list.query {
             // A selection carried into another list would be handed to whatever row replaced it there, and the
             // reader would open (and mark read) a conversation the user never picked.
@@ -946,10 +1002,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     }
 
     /// Shows `ids` in the reader: nothing, one conversation (pre-rendering its neighbours), or several.
-    private func present(selection ids: [ConversationID]) {
+    func present(selection ids: [ConversationID]) {
         shownSelection = ids
         acknowledgeTimer?.invalidate()
         acknowledgeTimer = nil
+        // The calendar reads the conversation's invitation and times off the main thread, and the column follows once
+        // they land (§5.54, “It follows the mail”); several selected are about no one day, and a hidden calendar
+        // follows nothing.
+        selectInCalendar(ids)
         guard ids.count < 2 else {
             conversation.showSelection(ids)
             return
@@ -960,7 +1020,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         var seen: Set<ConversationID> = [id]
         let wanted = [neighbors.next, neighbors.previous, neighbors.nextUnread].compactMap { $0 }.filter { seen.insert($0).inserted }
         conversation.prerender(wanted)
-        if list.conversations.first(where: { $0.id == id })?.failedOperation != nil {
+        // Under the week the reader is hidden: its failed mark is acknowledged once it shows (§5.54).
+        if !desk.isWeekShown, list.conversations.first(where: { $0.id == id })?.failedOperation != nil {
             // Opening the conversation for 150 ms acknowledges its failed mark (§5.7, §8.5).
             acknowledgeTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: false) { [weak self] _ in
                 MainActor.assumeIsolated {
@@ -1072,13 +1133,35 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         present(selection: [id])
     }
 
+    /// Puts the list on `view`, out of any search, and on All Inboxes when `unifying` (for a conversation of an account
+    /// the window is not narrowed to), as a notification's click does; the calendar's Show the mail lands here.
+    func showView(_ view: MailboxView, unifying: Bool) {
+        if unifying {
+            strip.select(.unified, notify: false)
+            scope = .unified
+            rememberScope()
+            updateScopeDetails()
+        }
+        listPane.clearSearch(notify: false)
+        searchText = ""
+        mailboxView = view
+        viewLeftAsItEmptied = nil
+        applyQuery()
+    }
+
+    /// The window shows `account`'s mail: All Inboxes, or narrowed to it.
+    func scopeIncludes(_ account: AccountID) -> Bool {
+        if case .account(let id) = scope { return id == account }
+        return true
+    }
+
     private var selectedSummary: ConversationSummary? {
         guard let id = list.selectedConversationID else { return nil }
         return list.conversations.first { $0.id == id }
     }
 
     /// Every selected conversation in list order: what E, #, S, U, ⇧I and the Message menu act on.
-    private var selectedIDs: [ConversationID] { list.selectedConversationIDs }
+    var selectedIDs: [ConversationID] { list.selectedConversationIDs }
 
     private var selectedSummaries: [ConversationSummary] {
         let ids = Set(selectedIDs)
@@ -1087,7 +1170,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     }
 
     /// Two or more conversations are selected: replies have no single target (§5.12).
-    private var isSeveralSelected: Bool { selectedIDs.count > 1 }
+    var isSeveralSelected: Bool { selectedIDs.count > 1 }
 
     /// S on the selection: stars all unless every one is starred, then unstars all (§5.12's all-starred rule).
     private var starChangeForSelection: MetadataChange? {
@@ -1105,7 +1188,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
     // MARK: Focus
 
-    private func focusList() {
+    func focusList() {
         guard let table = Self.firstDescendant(of: list.view, as: NSTableView.self) else { return }
         window?.makeFirstResponder(table)
     }
@@ -1250,7 +1333,32 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         case .goTo(let view):
             setView(view)
             return true
+        case .toggleDayColumn:
+            // A held D or W would flip the column or the week on every repeat.
+            if !isKeyRepeat { toggleDay() }
+            return true
+        case .toggleWeek:
+            if !isKeyRepeat { toggleWeekView() }
+            return true
+        case .previousDay, .nextDay:
+            // Only while the column (in full or over the reader's edge) or the week shows: there is nothing to turn else.
+            guard desk.isCalendarShowing else { return false }
+            let step = calendarState.span == .week ? 7 : 1
+            turnDay(by: command == .nextDay ? step : -step)
+            return true
+        case .today:
+            guard desk.isCalendarShowing else { return false }
+            goToToday()
+            return true
+        case .blockTime:
+            return blockTimeForSelection()
         }
+    }
+
+    /// The key being handled is held down (only a key event can say; asking any other raises).
+    private var isKeyRepeat: Bool {
+        guard let event = NSApp.currentEvent, event.type == .keyDown else { return false }
+        return event.isARepeat
     }
 
     /// A mail key on an Outbox row: a message on its way is not mail in the store, so E, S, U, #, !, L, M, ⇧I, R, A and F
@@ -1259,10 +1367,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     private func refusesInOutbox(_ command: KeyCommand) -> Bool {
         guard listView == .outbox, list.selectedConversationID != nil else { return false }
         switch command {
-        case .archive, .toggleStar, .toggleRead, .trash, .markSpam, .moveToInbox, .later, .toggleMute, .reply, .replyAll, .forward:
+        case .archive, .toggleStar, .toggleRead, .trash, .markSpam, .moveToInbox, .later, .toggleMute, .reply, .replyAll, .forward,
+             .blockTime:
             return true
         case .next, .previous, .extendNext, .extendPrevious, .open, .openInWindow, .compose, .search, .clearSearch, .escapeRepeat, .back,
-             .undo, .goTo:
+             .undo, .goTo, .toggleDayColumn, .toggleWeek, .previousDay, .nextDay, .today:
             return false
         }
     }
@@ -1273,11 +1382,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         return control.handlesKey(event)
     }
 
-    /// Esc outside a text field, by the precedence of §6.1: a visible toast goes first (its undo keeps working
-    /// for the grace period), then an open find bar closes while the reader has the keyboard, then an open list of
-    /// recipients with focus in it folds, then focus in the reader returns to the list, then a kept search query clears.
-    /// On the list with nothing to undo Esc does nothing, without a beep.
+    /// Esc outside a text field, by the precedence of §6.1: an event's details in the calendar close first, then a visible
+    /// toast goes (its undo keeps working for the grace period), then an open find bar closes while the reader has the
+    /// keyboard, then an open list of recipients with focus in it folds, then the day column opened over the reader closes
+    /// and the week's invitation card hides, then focus in the reader or the calendar returns to the list, then a kept
+    /// search query clears. On the list with nothing to undo Esc does nothing, without a beep.
     private func escape() -> Bool {
+        // An event's details in the column or the week come before everything else here (§6.1 row 4).
+        if desk.column.dismissDetails() || desk.week.dismissDetails() { return true }
         // Only this window's toast: one in a reader window is that window's to dismiss.
         if toasts.isVisible(in: listPane.toastView) {
             toasts.dismiss()
@@ -1291,7 +1403,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         if isReaderFocused, conversation.foldAddressesForEscape() {
             return true
         }
-        if isReaderFocused {
+        // The column opened over the reader's edge closes back to its strip (row 11), then the week's invitation card
+        // hides until the selection changes (row 12); the week itself stays until W or D.
+        if closeCalendarOverlay() { return true }
+        if desk.placement == .week, desk.week.hideInvitationCard() { return true }
+        if isReaderFocused || isCalendarFocused {
             focusList()
             return true
         }
@@ -1511,8 +1627,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// A step that is not a mail action, offered by its own toast and reverted by `revert` (§5.20). `accounts` are those
     /// the revert writes to: a removed one takes the step out of the history (`MailUndoCenter.removeAccounts`).
     @discardableResult
-    private func recordExternalUndo(command: String, accounts: Set<AccountID>, toast message: String, symbol: String,
-                                    revert: @escaping () -> Void) -> Int {
+    func recordExternalUndo(command: String, accounts: Set<AccountID>, toast message: String, symbol: String,
+                            revert: @escaping () -> Void) -> Int {
         let id = undoHistory.addExternal(command: command, accounts: accounts, at: undoCenter.now(), toasted: true)
         externalUndos[id] = revert
         actingReader?.tookStep = true
@@ -1832,7 +1948,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     }
 
     /// “Undid Snooze”: the confirmation an undo of a Later step shows, as a mail action's does.
-    private func confirmUndo(of command: String) {
+    func confirmUndo(of command: String) {
         confirmUndo("Undid \(command)")
     }
 
@@ -2379,7 +2495,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
     /// Where the toast of the step being taken (or undone) shows: the reader window it was taken in while that stays open,
     /// else the main window's list (nil).
-    private var stepToastHost: ToastView? {
+    var stepToastHost: ToastView? {
         guard let reader = actingReader, !reader.isClosing else { return nil }
         return reader.window?.toastView
     }
@@ -2551,7 +2667,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// the undo history): the main window comes forward with its toast, and the window's frame is kept for the undo.
     /// Returns whether the step changed anything.
     @discardableResult
-    private func act(in reader: ReaderWindowController, closing: Bool, _ step: () -> Void) -> Bool {
+    func act(in reader: ReaderWindowController, closing: Bool, _ step: () -> Void) -> Bool {
         let place = reader.place
         let previous = actingReader
         actingReader = place
@@ -3037,6 +3153,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         #selector(moveSelectionToInbox(_:)), #selector(markSelectionUnread(_:)), #selector(replyToSelection(_:)),
         #selector(replyAllToSelection(_:)), #selector(forwardSelection(_:)), #selector(toggleMuteSelection(_:)),
         #selector(unsubscribeFromConversation(_:)), #selector(alwaysArchiveSender(_:)), #selector(blockSender(_:)),
+        #selector(blockTimeForSelection(_:)),
     ]
 
     /// The toast after a save to Downloads (spec §5.17, §5.30): what was saved, with Show in Finder, which selects the
@@ -3088,7 +3205,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         let typing = KeyboardRouter.isTextInput(window?.firstResponder)
         if let action = menuItem.action, Self.readerCommands.contains(action) {
-            return !showingWelcome && conversation.validateMenuItem(menuItem)
+            // The reader under the week is hidden: what acts on its page (find, next message, quoted text…) waits for it.
+            return !showingWelcome && desk.placement != .week && conversation.validateMenuItem(menuItem)
         }
         // A message on its way in the Outbox is not mail in the store: the mail items are disabled there (§5.53).
         if listView == .outbox, let action = menuItem.action, Self.mailCommands.contains(action) { return false }
@@ -3164,6 +3282,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         case #selector(openSelectionInNewWindow(_:)):
             // One conversation, outside Drafts and the Outbox (§5.49, §5.53).
             return conversationToOpenInWindow != nil
+        case #selector(toggleDayColumn(_:)), #selector(toggleWeek(_:)), #selector(previousCalendarDay(_:)),
+             #selector(nextCalendarDay(_:)), #selector(calendarToday(_:)), #selector(blockTimeForSelection(_:)):
+            return !showingWelcome && validateCalendarItem(menuItem)
         default:
             return true
         }

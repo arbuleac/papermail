@@ -1,8 +1,8 @@
 import Foundation
 
-/// The `MailClient` the app talks to: one `AccountSyncer` (a live lane and a backfill lane) and one
-/// `QuotaBudget` per account, a shared `SendRunner` and `SnoozeRunner`, the attachment cache, the storage sweeper and the status feed,
-/// wired over the ports. Every command writes the store first and only then nudges
+/// The `MailClient` the app talks to: one `AccountSyncer` (a live lane and a backfill lane, and a calendar lane for a
+/// provider with a calendar) and one `QuotaBudget` per account, a shared `SendRunner` and `SnoozeRunner`, the attachment
+/// cache, the storage sweeper and the status feed, wired over the ports. Every command writes the store first and only then nudges
 /// the network side, so the UI never waits on a provider.
 public final class MailEngine: MailClient, @unchecked Sendable {
     public let store: MailStoring
@@ -277,12 +277,20 @@ public final class MailEngine: MailClient, @unchecked Sendable {
     }
 
     public func reconnect(_ account: Account) async throws -> Account {
+        try await reconnect(account, adding: [])
+    }
+
+    /// Signs `account` in again asking, beyond mail, for `permissions` as well as what `reconnect(_:)` asks for (the
+    /// permissions queued work waits for and those already granted): the calendar's Connect adds `.calendar` with nothing
+    /// queued. Throws as `reconnect(_:)` does.
+    public func reconnect(_ account: Account, adding permissions: Set<AccountPermission>) async throws -> Account {
         // Removed meanwhile (Settings › Accounts takes Remove while a reconnect waits): its grant must not come back.
         guard try store.accounts().contains(where: { $0.id == account.id }) else { throw StoreError.notFound }
         // Through the tenant the account was added through, so a work account is never answered by a personal one.
         let tenant = (try? tokenStore.tokens(for: account.id))??.tenant
         let (tokens, id, profile) = try await signIn(kind: account.kind, loginHint: account.email,
-                                                     permissions: permissionsToAsk(for: account), tenant: tenant)
+                                                     permissions: permissionsToAsk(for: account).union(permissions),
+                                                     tenant: tenant)
         defer { try? tokenStore.delete(for: id) }
         guard profile.email.caseInsensitiveCompare(account.email) == .orderedSame else {
             throw AuthError.wrongAccount(expected: account.email, actual: profile.email)
@@ -502,6 +510,26 @@ public final class MailEngine: MailClient, @unchecked Sendable {
         // The same answer again changes nothing and sends nothing.
         guard metadata.invitationReply != response else { return }
         try perform(.answerInvitation(answer), on: [message])
+        answerOnCalendar(response, to: invitation, message: message)
+    }
+
+    /// The calendar's copy of the invitation (Google and Exchange put invitations on the calendar themselves) shows the
+    /// answer at once rather than at the calendar's next read: a decline leaves the day column, an accept is drawn
+    /// solid. The account's calendar lane reads the provider's own word once the outbox has sent the answer
+    /// (`LiveLane`'s `invitationAnswered`), not before, when it would still say the old one. The answer is queued
+    /// whatever this meets: the calendar catches up at that read.
+    private func answerOnCalendar(_ response: InvitationResponse, to invitation: CalendarInvitation, message: MessageID) {
+        guard let answer = CalendarEvent.Response(rawValue: response.rawValue) else { return }
+        // An answer to one occurrence is that occurrence's alone; a floating time is read on the Mac's clock, as the
+        // calendar draws it.
+        let occurrence = invitation.recurrenceID == nil
+            ? nil
+            : CalendarFit.pencil(for: invitation, message: message, timeZone: .current)?.start
+        do {
+            try store.answerCalendarEvents(answer, invitationUID: invitation.uid, accountID: message.accountID, near: occurrence)
+        } catch {
+            SyncLog.logger.error("calendar: could not show an answer for \(message.accountID.rawValue, privacy: .public): \(SyncErrorDescription.describe(error), privacy: .private)")
+        }
     }
 
     public func send(_ message: OutgoingMessage, undoWindow: TimeInterval) throws -> String {
@@ -568,6 +596,77 @@ public final class MailEngine: MailClient, @unchecked Sendable {
 
     public func observeStatus(onChange: @escaping @Sendable ([AccountSyncStatus]) -> Void) -> StoreObservation {
         statusCenter.observe(onChange: onChange)
+    }
+
+    // MARK: Calendar
+
+    /// Stored at once as `creating`; the account's calendar lane creates it on the provider (docs/ARCHITECTURE.md,
+    /// "Calendar").
+    public func addCalendarEvent(_ event: CalendarEvent) throws {
+        try store.addCalendarEvent(event)
+        registry.context(for: event.accountID)?.syncer.sendCalendarWrites()
+    }
+
+    /// A row the provider had becomes `deleting`, which the calendar lane deletes there. A `failed` one goes at once.
+    /// One still `creating` leaves a hidden tombstone with nothing to send yet: a create already on its way settles its
+    /// copy into it and the lane deletes that copy at once; otherwise the lane's next read finds any copy a create made
+    /// under a lost reply, by its key, and deletes it then, or sweeps the tombstone.
+    @discardableResult
+    public func removeCalendarEvent(id: String) throws -> CalendarEvent? {
+        let removed = try store.removeCalendarEvent(id: id)
+        if let removed, removed.sync == .synced || removed.sync == .deleting {
+            registry.context(for: removed.accountID)?.syncer.sendCalendarWrites()
+        }
+        return removed
+    }
+
+    /// A row put back as `creating` is created again by the calendar lane (a tombstone under its own key, so a copy a
+    /// first create made is found rather than made twice). One that was waiting to be deleted is simply `synced` again:
+    /// should the delete have gone out meanwhile, the lane sets it aside anew.
+    @discardableResult
+    public func restoreCalendarEvent(_ event: CalendarEvent) throws -> CalendarEvent {
+        let restored = try store.restoreCalendarEvent(event)
+        if restored.sync == .creating {
+            registry.context(for: restored.accountID)?.syncer.sendCalendarWrites()
+        }
+        return restored
+    }
+
+    /// Each calendar lane reads at its next chance: at once when idle, after its turn under way otherwise, and once the
+    /// account is free to send when it waits for sign-in or its first live cycle. A lane inside a failure's backoff reads
+    /// when the backoff ends.
+    public func refreshCalendars(accountID: AccountID?) {
+        let targets: [AccountContext]
+        if let accountID {
+            targets = registry.context(for: accountID).map { [$0] } ?? []
+        } else {
+            targets = registry.all()
+        }
+        for context in targets {
+            context.syncer.refreshCalendar()
+        }
+    }
+
+    /// Each calendar lane reads `interval` once at its next turn, besides its own window, which it reads then only if
+    /// that is due or was asked for: turning through weeks outside the window costs a read of each, never of the window.
+    public func refreshCalendars(accountID: AccountID?, covering interval: DateInterval) {
+        let targets: [AccountContext]
+        if let accountID {
+            targets = registry.context(for: accountID).map { [$0] } ?? []
+        } else {
+            targets = registry.all()
+        }
+        for context in targets {
+            context.syncer.refreshCalendar(covering: interval)
+        }
+    }
+
+    /// The reconnect asks for the calendar scope on top of what the account holds, and the calendar is read once the
+    /// new grant is stored, rather than at the next interval.
+    public func connectCalendar(_ account: Account) async throws -> Account {
+        let connected = try await reconnect(account, adding: [.calendar])
+        refreshCalendars(accountID: connected.id)
+        return connected
     }
 
     // MARK: Contexts

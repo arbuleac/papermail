@@ -24,13 +24,13 @@ enum DemoInvitations {
 
     private static func gmail(_ profile: DemoProfile, reference: Date) -> [Invitation] {
         let me = profile.email
-        let dinnerStart = wallClock(daysAfter: 4, hour: 19, minute: 30, from: reference)
+        let dinnerStart = Self.dinnerStart(reference: reference)
         let dinner = calendar(method: "REQUEST", prodID: "-//Google Inc//Google Calendar 70.9054//EN", event: [
             "DTSTART:" + utc(dinnerStart),
-            "DTEND:" + utc(dinnerStart.addingTimeInterval(2.5 * 3_600)),
+            "DTEND:" + utc(dinnerStart.addingTimeInterval(dinnerLength)),
             "DTSTAMP:" + utc(reference),
             "ORGANIZER;CN=Sam Okafor:mailto:\(DemoCatalog.sam.address)",
-            "UID:3k7d1demo0birthday0dinner@google.com",
+            "UID:" + dinnerUID,
             attendee(DemoCatalog.sam, partstat: "ACCEPTED"),
             attendee(nil, address: me, partstat: "NEEDS-ACTION", rsvp: true),
             attendee(DemoCatalog.priya, partstat: "ACCEPTED"),
@@ -45,15 +45,15 @@ enum DemoInvitations {
             "TRANSP:OPAQUE",
         ])
         // A repeat in Berlin time, which the Mac may well not be in: the card shows both.
-        let potteryStart = wallClock(daysAfter: 2, hour: 18, minute: 0, from: reference, zone: "Europe/Berlin")
-        let potteryUntil = wallClock(daysAfter: 2 + 7 * 9, hour: 18, minute: 0, from: reference, zone: "Europe/Berlin")
+        let potteryStart = Self.potteryStart(reference: reference)
+        let potteryUntil = wallClock(daysAfter: 2 + 7 * (potteryClasses - 1), hour: 18, minute: 0, from: reference, zone: "Europe/Berlin")
         let pottery = calendar(method: "REQUEST", prodID: "-//Google Inc//Google Calendar 70.9054//EN", timeZones: [berlinZone], event: [
             "DTSTART;TZID=Europe/Berlin:" + local(potteryStart, zone: "Europe/Berlin"),
-            "DTEND;TZID=Europe/Berlin:" + local(potteryStart.addingTimeInterval(2 * 3_600), zone: "Europe/Berlin"),
+            "DTEND;TZID=Europe/Berlin:" + local(potteryStart.addingTimeInterval(potteryLength), zone: "Europe/Berlin"),
             "RRULE:FREQ=WEEKLY;BYDAY=\(weekdayCode(potteryStart, zone: "Europe/Berlin"));UNTIL=\(utc(potteryUntil))",
             "DTSTAMP:" + utc(reference),
             "ORGANIZER;CN=Hannah Becker:mailto:\(DemoCatalog.hannah.address)",
-            "UID:7q2pdemo0pottery0class@google.com",
+            "UID:" + potteryUID,
             attendee(DemoCatalog.hannah, partstat: "ACCEPTED"),
             attendee(nil, address: me, partstat: "ACCEPTED"),
             attendee(DemoCatalog.theo, partstat: "ACCEPTED"),
@@ -94,7 +94,7 @@ enum DemoInvitations {
     // MARK: Exchange
 
     private static func outlook(_ profile: DemoProfile, reference: Date) -> [Invitation] {
-        let start = wallClock(daysAfter: 1, hour: 10, minute: 0, from: reference, zone: "America/Los_Angeles")
+        let start = critiqueStart(reference: reference)
         let zone = "Pacific Standard Time"
         let critique = calendar(method: "REQUEST", prodID: "Microsoft Exchange Server 2010", timeZones: [pacificZone], event: [
             "ORGANIZER;CN=Rachel Kim:mailto:\(DemoCatalog.rachel.address)",
@@ -103,11 +103,11 @@ enum DemoInvitations {
             "ATTENDEE;ROLE=OPT-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE;CN=Aisha Patel:mailto:\(DemoCatalog.aisha.address)",
             "ATTENDEE;CUTYPE=RESOURCE;ROLE=NON-PARTICIPANT;RSVP=TRUE;CN=Bay 4 Room:mailto:bay4@northwind-labs.test",
             "DESCRIPTION;LANGUAGE=en-US:Weekly look at the reader and composer work. Bring one thing you would change.\\n",
-            "UID:040000008200E00074C5B7101A82E0080000000050DEMO0000000000000000010000000DEMOCRITIQUE",
+            "UID:" + critiqueUID,
             "SUMMARY;LANGUAGE=en-US:Design critique",
             "DTSTART;TZID=\(zone):" + local(start, zone: "America/Los_Angeles"),
-            "DTEND;TZID=\(zone):" + local(start.addingTimeInterval(3_600), zone: "America/Los_Angeles"),
-            "RRULE:FREQ=WEEKLY;BYDAY=\(weekdayCode(start, zone: "America/Los_Angeles"));COUNT=12",
+            "DTEND;TZID=\(zone):" + local(start.addingTimeInterval(critiqueLength), zone: "America/Los_Angeles"),
+            "RRULE:FREQ=WEEKLY;BYDAY=\(weekdayCode(start, zone: "America/Los_Angeles"));COUNT=\(critiqueCount)",
             "CLASS:PUBLIC",
             "PRIORITY:5",
             "DTSTAMP:" + utc(reference),
@@ -125,6 +125,39 @@ enum DemoInvitations {
                        text: "Weekly look at the reader and composer work. Bring one thing you would change.",
                        calendar: critique, minutesAgo: 1.1),
         ]
+    }
+
+    // MARK: What the demo calendar shares
+
+    // The invitations' events as the demo's calendars hold them (`DemoCalendar`): Google and Exchange put an invitation
+    // on the calendar when it arrives, under the same UID, so the calendar draws it once.
+
+    static let dinnerUID = "3k7d1demo0birthday0dinner@google.com"
+    static let dinnerLength: TimeInterval = 2.5 * 3_600
+
+    /// Four days after the reference, 19:30 on the Mac's clock.
+    static func dinnerStart(reference: Date) -> Date {
+        wallClock(daysAfter: 4, hour: 19, minute: 30, from: reference)
+    }
+
+    static let potteryUID = "7q2pdemo0pottery0class@google.com"
+    static let potteryLength: TimeInterval = 2 * 3_600
+    /// Weekly, the first one included.
+    static let potteryClasses = 10
+
+    /// The first class: two days after the reference, 18:00 in Berlin.
+    static func potteryStart(reference: Date) -> Date {
+        wallClock(daysAfter: 2, hour: 18, minute: 0, from: reference, zone: "Europe/Berlin")
+    }
+
+    static let critiqueUID = "040000008200E00074C5B7101A82E0080000000050DEMO0000000000000000010000000DEMOCRITIQUE"
+    static let critiqueLength: TimeInterval = 3_600
+    /// Weekly, the first one included.
+    static let critiqueCount = 12
+
+    /// The first critique: the day after the reference, 10:00 Pacific.
+    static func critiqueStart(reference: Date) -> Date {
+        wallClock(daysAfter: 1, hour: 10, minute: 0, from: reference, zone: "America/Los_Angeles")
     }
 
     // MARK: Writing iCalendar

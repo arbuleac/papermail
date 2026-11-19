@@ -110,6 +110,61 @@ public protocol MailClient: AnyObject {
 
     /// Current status per account, delivered on the main thread, first with the current value.
     func observeStatus(onChange: @escaping @Sendable ([AccountSyncStatus]) -> Void) -> StoreObservation
+
+    // MARK: Calendar (docs/ARCHITECTURE.md, "Calendar")
+
+    /// Sets time aside (B, a row dropped on the calendar): `event` is stored at once as `creating` and the engine
+    /// creates it on the provider of its account. Throws `StoreError.conflict` when its id is taken.
+    func addCalendarEvent(_ event: CalendarEvent) throws
+    /// Removes an event (Remove in its details, or the undo of a block): it leaves the calendar at once and the engine
+    /// deletes it on the provider. Returns the event as it was, for an undo.
+    @discardableResult
+    func removeCalendarEvent(id: String) throws -> CalendarEvent?
+    /// Puts back an event `removeCalendarEvent` returned (its undo); the engine creates it again if it must. Returns
+    /// the row as it now stands (it may have a new id).
+    @discardableResult
+    func restoreCalendarEvent(_ event: CalendarEvent) throws -> CalendarEvent
+    /// Reads the calendars of `accountID` (every account when nil) at their next chance instead of waiting for the
+    /// calendar's own interval: at once when an account's calendar lane is idle, after the turn it is taking otherwise,
+    /// and once the account may send again while it waits for sign-in or its first live cycle (a failure's backoff is
+    /// waited out too). For when the calendar was just shown, or Connect was granted; a day outside the stored window
+    /// asks `refreshCalendars(accountID:covering:)` instead. Returns immediately.
+    func refreshCalendars(accountID: AccountID?)
+    /// Reads the calendars of `accountID` (every account when nil) over `interval` as well as the kept window, once: the
+    /// user turned the day column or the week to days outside `CalendarWindow.around(now)`. What it reads is written as
+    /// any read is (`replaceCalendarEvents` over that interval); days more than 30 days behind the kept window are kept
+    /// until the next read of the kept window, so ask again when they are shown again. The kept window is read with it
+    /// only when its own read is due. Returns immediately.
+    func refreshCalendars(accountID: AccountID?, covering interval: DateInterval)
+    /// Signs `account` in again asking for the calendar scope too (Connect, from the calendar's foot); once granted,
+    /// its calendar is read. Throws as `reconnect` does.
+    func connectCalendar(_ account: Account) async throws -> Account
+}
+
+extension MailClient {
+    public func addCalendarEvent(_ event: CalendarEvent) throws {
+        try store.addCalendarEvent(event)
+    }
+
+    @discardableResult
+    public func removeCalendarEvent(id: String) throws -> CalendarEvent? {
+        try store.removeCalendarEvent(id: id)
+    }
+
+    @discardableResult
+    public func restoreCalendarEvent(_ event: CalendarEvent) throws -> CalendarEvent {
+        try store.restoreCalendarEvent(event)
+    }
+
+    public func refreshCalendars(accountID: AccountID?) {}
+
+    public func refreshCalendars(accountID: AccountID?, covering interval: DateInterval) {
+        refreshCalendars(accountID: accountID)
+    }
+
+    public func connectCalendar(_ account: Account) async throws -> Account {
+        try await reconnect(account)
+    }
 }
 
 extension MailClient {

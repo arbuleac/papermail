@@ -181,9 +181,9 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
     private func handle(_ action: ConversationAction) {
         switch action {
         case .escapeQuickReply(let repeated):
-            // §6.1: this window's toast takes the first Esc (row 7), held down or not. The next closes the window over an
-            // empty bar (row 10), a fresh press only, and over one holding the user's work gives the page the keyboard, the
-            // bar keeping it (row 11); a repeat does neither.
+            // §6.1: this window's toast takes the first Esc (row 8), held down or not. The next closes the window over an
+            // empty bar (row 13), a fresh press only, and over one holding the user's work gives the page the keyboard, the
+            // bar keeping it (row 14); a repeat does neither.
             if undoCenter.toasts.isVisible(in: toastView) {
                 undoCenter.toasts.dismiss()
             } else if repeated {
@@ -261,7 +261,7 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
             }
         case .escapeRepeat:
             // Esc held down: its repeats still take the rows before the window's (toast, find bar, recipients), as they
-            // always have, but never close the window (§6.1 row 10), and are spent quietly, without a beep.
+            // always have, but never close the window (§6.1 row 13), and are spent quietly, without a beep.
             _ = closeForEscape(foldingAddresses: true)
         case .back:
             // There is no list to go back to: ← closes what Esc would, and otherwise is the page's (a chip's or a
@@ -273,11 +273,17 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
             undoCenter.perform(commandZ ? undoCenter.commandZTarget(textCanUndo: false) : undoCenter.zTarget, typing: window?.undoManager)
         case .goTo(let view):
             opener.goTo(view)
+        case .toggleDayColumn, .toggleWeek, .previousDay, .nextDay, .today:
+            // No day column or week here (§5.49): the keys pass to the page, as J and K do.
+            return false
+        case .blockTime:
+            // Time set aside for this window's conversation, from today; its toast and undo are this window's.
+            opener.blockTime(from: self)
         }
         return true
     }
 
-    /// Esc in the quick reply over an empty bar (§6.1 row 10): the window closes as ⌘W and the close button close it, on
+    /// Esc in the quick reply over an empty bar (§6.1 row 13): the window closes as ⌘W and the close button close it, on
     /// the next turn of the run loop, once the field the key was typed in, which goes with the window, has done with it
     /// (as Send and Archive from the bar closes it, `MainWindowController.quickReplyArchived(in:)`).
     private func closeAfterThisKey() {
@@ -343,6 +349,8 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
     }
     /// Message › Undo (Z): the latest toast's action, never a send (§6.1).
     @objc func undoMailAction(_ sender: Any?) { undoCenter.perform(undoCenter.zTarget, typing: nil) }
+    /// Message › Block Time (B): 30 minutes set aside for this window's conversation (§5.54).
+    @objc func blockTimeForSelection(_ sender: Any?) { _ = perform(.blockTime) }
     @objc func unsubscribeFromConversation(_ sender: Any?) {
         guard let target = conversation.unsubscribeTarget else {
             NSSound.beep()
@@ -445,6 +453,8 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
             menuItem.title = hasUnread ? "Mark as Read" : "Mark as Unread"
             return showsMessages
         case #selector(replyToSelection(_:)), #selector(replyAllToSelection(_:)), #selector(forwardSelection(_:)):
+            return showsMessages
+        case #selector(blockTimeForSelection(_:)):
             return showsMessages
         case #selector(undoMailAction(_:)):
             let target = undoCenter.zTarget

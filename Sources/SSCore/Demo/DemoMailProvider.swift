@@ -71,3 +71,22 @@ public final class DemoMailProvider: MailProvider, Sendable {
         mailbox.search(text, limit: limit)
     }
 }
+
+/// The demo account's main calendar (`DemoCalendar`), served from its mailbox: its events, and the time the user sets
+/// aside and removes, kept in memory for the run like the rest of the made-up server.
+extension DemoMailProvider: CalendarProvider {
+    /// The demo's token scope is "demo", which names no calendar scope, but its made-up calendar needs no Connect.
+    public func hasCalendarPermission() async -> Bool { true }
+
+    public func calendarEvents(in window: DateInterval) async throws -> CalendarListing {
+        CalendarListing(events: mailbox.calendarEvents(in: window), requestCount: 1)
+    }
+
+    public func createCalendarEvent(_ event: CalendarEvent) async throws -> CalendarEvent {
+        mailbox.createCalendarEvent(event)
+    }
+
+    public func deleteCalendarEvent(providerID: String) async throws {
+        mailbox.deleteCalendarEvent(providerID: providerID)
+    }
+}

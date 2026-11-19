@@ -195,8 +195,62 @@ enum MailSchema {
                 ) WITHOUT ROWID;
                 """)
         }
+        migrator.registerMigration("v20-calendar") { db in
+            try db.execute(sql: v20)
+        }
         return migrator
     }
+
+    /// The unified calendar (docs/DATA-MODEL.md, `calendar_events` and `mail_times`), both empty: the engine reads each
+    /// account's calendar at its next live cycle, and times are found only in bodies stored from now on.
+    ///
+    /// `calendar_events` is a rowid table, since the day column and the week observe it, keyed by the event's local id so a
+    /// refresh replaces a row rather than adding one. It references the account only: a wipe keeps it (the calendar is not
+    /// mail). The time index carries `id` last, so the range read returns rows in the order it promises without a sort.
+    ///
+    /// `mail_times` hangs off its message as `bodies` does, so deleting the message, wiping the account's mail or removing
+    /// the account takes them; an eviction keeps the message row and so keeps them. It carries the message's conversation,
+    /// kept in step by the upsert, so the reader's read is one range of an index, in the order it returns.
+    static let v20 = """
+    CREATE TABLE calendar_events (
+        id TEXT PRIMARY KEY NOT NULL,
+        account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        provider_id TEXT,
+        title TEXT NOT NULL,
+        location TEXT,
+        start_ms INTEGER NOT NULL,
+        end_ms INTEGER NOT NULL,
+        is_all_day INTEGER NOT NULL,
+        response TEXT NOT NULL,
+        is_free INTEGER NOT NULL,
+        join_url TEXT,
+        web_url TEXT,
+        organizer TEXT,
+        invitation_uid TEXT,
+        source_account_id TEXT,
+        source_provider_id TEXT,
+        client_key TEXT,
+        sync TEXT NOT NULL,
+        updated_ms INTEGER,
+        queued_ms INTEGER
+    );
+    CREATE INDEX calendar_events_by_time ON calendar_events(start_ms, end_ms, id);
+    CREATE INDEX calendar_events_by_sync ON calendar_events(account_id, sync);
+    CREATE INDEX calendar_events_by_client_key ON calendar_events(account_id, client_key) WHERE client_key IS NOT NULL;
+
+    CREATE TABLE mail_times (
+        account_id TEXT NOT NULL,
+        provider_id TEXT NOT NULL,
+        ord INTEGER NOT NULL,
+        conversation_provider_id TEXT NOT NULL,
+        start_ms INTEGER NOT NULL,
+        duration_s INTEGER,
+        phrase TEXT NOT NULL,
+        PRIMARY KEY (account_id, provider_id, ord),
+        FOREIGN KEY (account_id, provider_id) REFERENCES messages(account_id, provider_id) ON DELETE CASCADE
+    );
+    CREATE INDEX mail_times_by_conversation ON mail_times(account_id, conversation_provider_id, start_ms, provider_id, ord);
+    """
 
     /// Migrates the file at `path` up to and including the migration `identifier`, as the build that shipped it left
     /// the file; for the migration tests, which then open it with the current store.

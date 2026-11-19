@@ -147,7 +147,7 @@ struct GraphPatternedRecurrence: Decodable, Sendable {
     var range: GraphRecurrenceRange?
 }
 
-/// The calendar event an event message is about.
+/// A calendar event: the one an event message is about, or one of the calendar's own (`calendarView`, a created block).
 struct GraphEvent: Decodable, Sendable {
     var id: String?
     var iCalUId: String?
@@ -159,13 +159,24 @@ struct GraphEvent: Decodable, Sendable {
     var start: GraphDateTimeZone?
     var end: GraphDateTimeZone?
     var originalStart: String?
+    /// The zones the event was made in (Windows names, or IANA), whatever zone its times are read in: an all-day
+    /// event's dates are its midnights there.
     var originalStartTimeZone: String?
+    var originalEndTimeZone: String?
     var location: GraphLocation?
     var organizer: GraphRecipient?
     var attendees: [GraphAttendee]?
     var responseStatus: GraphResponseStatus?
     var recurrence: GraphPatternedRecurrence?
     var onlineMeeting: GraphOnlineMeeting?
+    /// The join address of a meeting made before `onlineMeeting` existed, which Graph still fills for some.
+    var onlineMeetingUrl: String?
+    /// free, tentative, busy, oof, workingElsewhere or unknown.
+    var showAs: String?
+    var webLink: String?
+    /// The key the app that created the event gave it (a block's `CalendarEvent.clientKey`); absent otherwise.
+    var transactionId: String?
+    var lastModifiedDateTime: String?
 }
 
 struct GraphFolder: Decodable, Sendable {

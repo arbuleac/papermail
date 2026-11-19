@@ -406,11 +406,14 @@ public enum ConversationShellAssets {
     .ss-banner.ss-wrap > .ss-link { align-self: flex-end; margin-bottom: 4px; }
 
     /* The invitation card (spec §5.14, layout.invitation): above the body at the indent, inside the measure; the
-       chosen answer is an accentWash button with a checkmark, the others small secondary buttons. */
+       chosen answer is an accentWash button with a checkmark, the others small secondary buttons. A column, so the
+       overlap line can follow the When line in the document, where VoiceOver reads it, and still be drawn under the
+       details (its `order`, below); its parts set only top margins, so they sit as they would in a block. */
     .ss-invite {
       margin: 18px 0 0 48px; max-width: 576px; padding: 12px 16px; border-radius: var(--q-r-lg); background: var(--q-sheet);
-      box-shadow: inset 0 0 0 var(--ss-hair) var(--q-rule);
+      box-shadow: inset 0 0 0 var(--ss-hair) var(--q-rule); display: flex; flex-direction: column;
     }
+    .ss-invite[hidden] { display: none; }
     html.ss-ic .ss-invite { box-shadow: inset 0 0 0 1px var(--q-ruleStrong); }
     @media (prefers-contrast: more) { .ss-invite { box-shadow: inset 0 0 0 1px var(--q-ruleStrong); } }
     /* The message under a card folds behind the elision mark (spec §5.14, §5.15): the mark stands where the body would
@@ -457,6 +460,13 @@ public enum ConversationShellAssets {
     .ss-idet .ss-ilink:active { text-decoration: underline; color: var(--q-ink2); }
     html.ss-links .ss-idet .ss-ilink { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; }
     .ss-idet .ss-ilink:focus-visible { box-shadow: 0 0 0 1px var(--q-sheet), 0 0 0 calc(1px + var(--ss-ring)) var(--q-focus); }
+    /* The overlap line: detailsTop under the details, the warning glyph (answerGlyph, kickerGap from the words) in
+       `warning`, centred on the first line at any text size, the words in `snippet` `ink`, wrapping. The glyph and the
+       words carry it, never the colour alone. */
+    .ss-iover { order: 1; margin-top: 8px; display: flex; align-items: flex-start; gap: 6px; font: var(--q-font-snippet); letter-spacing: var(--q-track-snippet); color: var(--q-ink); }
+    .ss-iover > .ss-sym { font-size: 12px; width: 12px; height: 12px; margin-top: calc((1lh - 12px) / 2); color: var(--q-warning); }
+    .ss-iover > span { min-width: 0; overflow-wrap: anywhere; }
+    .ss-invite > .ss-iacts, .ss-invite > .ss-banner { order: 2; }
     .ss-iacts {
       margin-top: 12px; padding-top: 10px; border-top: var(--ss-hair) solid var(--q-rule);
       display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
@@ -1436,6 +1446,14 @@ public enum ConversationShellAssets {
         parts.push(kicker);
         parts.push(el('div', 'ss-ititle' + (inv.title ? '' : ' ss-ph'), inv.title || 'No title'));
         parts.push(el('div', 'ss-iwhen', inv.when));
+        // What it overlaps (spec §5.14): next after When in the document, which VoiceOver reads in order; drawn under
+        // the details by its `order`.
+        if (inv.overlap) {
+          var overlap = el('div', 'ss-iover');
+          overlap.appendChild(sym('exclamationmark.triangle.fill'));
+          overlap.appendChild(el('span', null, inv.overlap));
+          parts.push(overlap);
+        }
         if (inv.whenElsewhere) { parts.push(el('div', 'ss-ielse', inv.whenElsewhere)); }
         if (inv.repeats) { parts.push(el('div', 'ss-irep', inv.repeats)); }
         var details = el('dl', 'ss-idet');

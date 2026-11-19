@@ -46,6 +46,9 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     }
     /// The conversation's messages were read again (a show, a store refresh): a reader window names itself after them.
     var onMessagesChange: (() -> Void)?
+    /// A body this reader asked for has arrived (with the times it names, found as it was stored): the day column reads
+    /// the conversation's invitation and times again (spec §5.54).
+    var onBodyArrived: ((ConversationID) -> Void)?
     /// The target message (spec §5.14): R, A, F and Space act on it. The last expanded message on open, then
     /// the one last clicked or reached with N, P or Tab. The quick reply answers it, so its placeholder and
     /// Reply all follow it.
@@ -99,6 +102,24 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     private var lastShowAt: TimeInterval = -.infinity
     private var markReadTimer: Timer?
     private var acknowledgeTimer: Timer?
+
+    /// False while something hides the reader in its window (the main window's week, §5.54): it keeps following the
+    /// selection, but mail no one can see is not marked read and its failed mark is not acknowledged; both start, as
+    /// for a new selection, once it shows again.
+    var isOnScreen = true {
+        didSet {
+            guard oldValue != isOnScreen else { return }
+            if isOnScreen, let id = currentConversationID {
+                scheduleMarkRead(for: id)
+                scheduleAcknowledge(for: id)
+            } else if !isOnScreen {
+                markReadTimer?.invalidate()
+                markReadTimer = nil
+                acknowledgeTimer?.invalidate()
+                acknowledgeTimer = nil
+            }
+        }
+    }
     private var bodyFetches: Set<MessageID> = []
     /// What stands in for a body the store does not have yet (spec §5.14): loading, offline or failed.
     private var bodyStates: [MessageID: RenderPayload.BodyState] = [:]
@@ -241,6 +262,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         guard let id = currentConversationID, let current = pool.current, current.renderedID == id else { return }
         let prepared = prepare(currentMessages)
         pool.render(prepared.payload, inputs: prepared.inputs, id: id, into: current)
+        followOverlaps()
     }
 
     required init?(coder: NSCoder) {
@@ -256,6 +278,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         acknowledgeTimer?.invalidate()
         quickSendTimer?.invalidate()
         outboxObservation?.cancel()
+        overlapObservation?.cancel()
         for token in notificationTokens { NotificationCenter.default.removeObserver(token) }
     }
 
@@ -526,6 +549,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             pool.park(current)
             pool.current = nil
         }
+        followOverlaps()
         refreshChrome()
     }
 
@@ -555,6 +579,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             showLandedWaiters = []
             for waiter in waiters { waiter(slot.webView) }
         }
+        // Last: a card whose overlap line went stale while the slot waited off screen renders again from here.
+        followOverlaps(fresh: true)
     }
 
     /// Debug aid for `--snapshot`: runs `completion` with the reader's web view once the shown
@@ -582,6 +608,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             // A new shell holds no search: an open find bar makes it again.
             if rendered, slot === self?.pool.current { self?.find.slotDidChange(restarted: true) }
         }
+        followOverlaps()
     }
 
     // MARK: Chrome: header, desk and quick reply
@@ -834,15 +861,29 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         let inOutbox = mailboxView == .outbox
         let laterStates = inOutbox ? [:] : localDrafts?.sendLaterStates.filter { state in messages.contains { $0.id == state.key } } ?? [:]
         let outboxStates = inOutbox ? localDrafts?.outboxStates.filter { state in messages.contains { $0.id == state.key } } ?? [:] : [:]
+        let pending = Set(sheets.map(\.metadata.id))
+        let overlaps = invitationOverlaps(of: all, bodies: bodies, pending: pending)
         let payload = builder.build(
             messages: all, bodies: bodies, accounts: accountsByID, bodyStates: states,
             loadRemoteImages: Self.loadRemoteImages, readingSans: QuireEnvironment.typeface == .sfPro,
             textSize: appSettings.readerSize.rawValue,
             colorsNoticeDismissed: settings.originalColorsNoticeDismissed, adaptsColours: appSettings.adaptsMailColours,
-            pending: Set(sheets.map(\.metadata.id)),
-            invitationPermissionNeeded: invitationPermissionNeeded, sendLater: laterStates, outbox: outboxStates
+            pending: pending, invitationPermissionNeeded: invitationPermissionNeeded, invitationOverlaps: overlaps.lines,
+            sendLater: laterStates, outbox: outboxStates
         )
-        return (payload, RenderInputs(messages: all, sendLater: laterStates, outbox: outboxStates) { bodies[$0] != nil })
+        return (payload, RenderInputs(messages: all, sendLater: laterStates, outbox: outboxStates, invitationOverlaps: overlaps) {
+            bodies[$0] != nil
+        })
+    }
+
+    /// What the invitation cards of `messages` say they overlap (spec §5.14): one indexed read of every account's
+    /// calendar over their times, and none at all for a conversation without a card that can say it, which is most.
+    private func invitationOverlaps(of messages: [MessageMetadata], bodies: [MessageID: StoredBody],
+                                    pending: Set<MessageID>) -> InvitationOverlaps {
+        let cards = builder.overlapCards(messages: messages, bodies: bodies, pending: pending)
+        guard let interval = InvitationOverlaps(cards: cards).interval else { return .none }
+        let events = (try? client.store.calendarEvents(in: interval, accountIDs: nil)) ?? []
+        return InvitationOverlaps(cards: cards, lines: builder.overlapLines(for: cards, events: events))
     }
 
     private func applyMessages(_ messages: [MessageMetadata], for id: ConversationID) {
@@ -914,6 +955,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         }
         let prepared = prepare(messages)
         pool.refresh(prepared.payload, inputs: prepared.inputs, id: id, into: slot)
+        if slot === pool.current { followOverlaps() }
     }
 
     // MARK: Bodies
@@ -944,6 +986,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             self.bodyFetches.remove(id)
             if outcome == .ready {
                 self.bodyStates[id] = nil
+                self.onBodyArrived?(conversation)
             } else {
                 if outcome == .offline { self.offlineAccounts.insert(id.accountID) }
                 self.setBodyState(outcome, for: id)
@@ -1013,7 +1056,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     private func scheduleMarkRead(for id: ConversationID) {
         markReadTimer?.invalidate()
         markReadTimer = nil
-        guard currentMessages.contains(where: { !$0.isRead }) else { return }
+        guard isOnScreen, currentMessages.contains(where: { !$0.isRead }) else { return }
         markReadTimer = Timer.scheduledTimer(withTimeInterval: Self.markReadDelay, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated { self?.markRead(id) }
         }
@@ -1021,7 +1064,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
 
     private func markRead(_ id: ConversationID) {
         markReadTimer = nil
-        guard currentConversationID == id, currentMessages.contains(where: { !$0.isRead }) else { return }
+        guard isOnScreen, currentConversationID == id, currentMessages.contains(where: { !$0.isRead }) else { return }
         do {
             try client.perform(.setRead(true), on: id)
         } catch {
@@ -1034,7 +1077,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     private func scheduleAcknowledge(for id: ConversationID) {
         acknowledgeTimer?.invalidate()
         acknowledgeTimer = nil
-        guard !LocalDraftConversation.isLocal(id) else { return }
+        guard isOnScreen, !LocalDraftConversation.isLocal(id) else { return }
         acknowledgeTimer = Timer.scheduledTimer(withTimeInterval: Self.acknowledgeDelay, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
@@ -1241,6 +1284,42 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         guard let id = currentConversationID, let current = pool.current, current.renderedID == id else { return }
         let prepared = prepare(currentMessages)
         pool.refresh(prepared.payload, inputs: prepared.inputs, id: id, into: current)
+        followOverlaps()
+    }
+
+    /// Watches the calendar over the times of the shown conversation's cards that can say what they overlap, so the line
+    /// follows the calendar; nothing is watched while no shown card can say it. Called whenever the slot on screen, or
+    /// what it rendered, changes. `fresh` reads the calendar again even over the same time: a slot just put on screen
+    /// may have been pre-rendered before the calendar's last change, and the first delivery checks it.
+    private func followOverlaps(fresh: Bool = false) {
+        let shown = pool.current.flatMap { $0.renderedID != nil && $0.renderedID == currentConversationID ? $0 : nil }
+        let interval = shown?.renderedInputs?.invitationOverlaps.interval
+        guard fresh || interval != overlapInterval else { return }
+        overlapObservation?.cancel()
+        overlapObservation = nil
+        overlapInterval = interval
+        guard let interval else { return }
+        // The store contract delivers on the main thread, the current events first; the dispatch branch only guards a
+        // store that does not.
+        overlapObservation = client.store.observeCalendarEvents(in: interval) { [weak self] events in
+            if Thread.isMainThread {
+                MainActor.assumeIsolated { self?.calendarDidChange(events, over: interval) }
+            } else {
+                DispatchQueue.main.async { MainActor.assumeIsolated { self?.calendarDidChange(events, over: interval) } }
+            }
+        }
+    }
+
+    /// The calendar changed over the shown cards' times. The conversation renders again, in place, only when a card's
+    /// overlap line changes its words: any other write to the calendar (an event elsewhere in the day, a free one, the
+    /// invitation's own copy) costs one comparison. Pre-rendered neighbours are kept; each is checked as it comes on
+    /// screen. `invitationsMayHaveChanged` would drop them, which a calendar read every minute must never do.
+    private func calendarDidChange(_ events: [CalendarEvent], over interval: DateInterval) {
+        guard interval == overlapInterval, let id = currentConversationID, let current = pool.current, current.renderedID == id,
+              let rendered = current.renderedInputs?.invitationOverlaps, rendered.interval == interval,
+              builder.overlapLines(for: rendered.cards, events: events) != rendered.lines else { return }
+        let prepared = prepare(currentMessages)
+        pool.refresh(prepared.payload, inputs: prepared.inputs, id: id, into: current)
     }
 
     /// Hands the invitation's calendar file to Calendar, which shows it and offers to add it: no EventKit, so no
@@ -1268,6 +1347,10 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
 
     /// The accounts whose answered invitations wait for permission to update the calendar, as the cards show them.
     private var invitationPermissionNeeded: Set<AccountID> = []
+
+    /// The calendar over the shown cards' times (`followOverlaps`), and that time.
+    private var overlapObservation: StoreObservation?
+    private var overlapInterval: DateInterval?
 
     /// A change to one message (its sheet's star, More › Star Message), taken by the window as a mail action so it joins
     /// the undo history (§6.1).
@@ -1414,7 +1497,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         }
     }
 
-    /// Esc with keyboard focus in a sheet's open list of recipients (§6.1 row 9): the list folds and focus goes to its
+    /// Esc with keyboard focus in a sheet's open list of recipients (§6.1 row 10): the list folds and focus goes to its
     /// toggle. False when focus is elsewhere, so the next row of §6.1 takes the key.
     func foldAddressesForEscape() -> Bool {
         guard let current = pool.current, current.addressesFocused, pageHasFocus(current) else { return false }
@@ -1512,6 +1595,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         let prepared = prepare(messages)
         guard prepared.inputs != current.renderedInputs else { return }
         pool.refresh(prepared.payload, inputs: prepared.inputs, id: id, into: current)
+        followOverlaps()
     }
 
     // MARK: Attachments and Quick Look
@@ -1823,12 +1907,13 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     }
 
     /// R and A from the list or the reader focus the field in Reply or Reply all mode (spec §5.18). False when
-    /// the quick reply is hidden (Trash, Drafts, nothing or several selected), so the key opens the composer.
+    /// the quick reply is hidden, or the reader is (Trash, Drafts, nothing or several selected, the main window's
+    /// week), so the key opens the composer and never types into a field no one sees.
     /// While a composer holds this conversation's reply the bar is disabled and the key brings that window
     /// forward instead, so two replies never diverge.
     @discardableResult
     func focusQuickReply(all: Bool) -> Bool {
-        guard isViewLoaded, !quickReply.isHidden else { return false }
+        guard isViewLoaded, !quickReply.isHiddenOrHasHiddenAncestor else { return false }
         if bringReplyComposerForward() { return true }
         quickReply.focus(mode: all ? .replyAll : .reply)
         return true
@@ -1864,7 +1949,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         return true
     }
 
-    /// Esc in the quick reply: the window decides (§6.1 rows 7, 10 and 11). Without one the field lets go and the web view
+    /// Esc in the quick reply: the window decides (§6.1 rows 8, 13 and 14). Without one the field lets go and the web view
     /// takes focus.
     private func quickReplyEscape(repeated: Bool) {
         if let onAction {

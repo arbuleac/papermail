@@ -33,7 +33,7 @@ enum KeyCommand: Equatable {
     case clearSearch
     /// Esc's key repeat, while Esc is held down: the main window takes it as Esc; a reader window lets it do only what
     /// comes before closing in §6.1 (its toast, its find bar, an open list of recipients), so holding Esc never closes one
-    /// reader window after another (§6.1 row 10).
+    /// reader window after another (§6.1 row 13).
     case escapeRepeat
     /// ← in the reader: back to the list along Esc's path, so a visible toast still goes first (§6.1). Where nothing
     /// takes it (a focused attachment chip, a reader window with no toast or find bar), it is the page's.
@@ -46,6 +46,18 @@ enum KeyCommand: Equatable {
     case toggleMute
     case undo
     case goTo(MailboxView)
+    /// D: the day column shown or hidden; in a window too narrow for it, opened or closed over the reader's edge; while
+    /// the week shows, back to the reader and the day (spec §5.54).
+    case toggleDayColumn
+    /// W: the week in the reader's place, or the reader and the day back.
+    case toggleWeek
+    /// [ and ]: the column's day back or forward, a week while the week shows; only while either shows.
+    case previousDay
+    case nextDay
+    /// T: today, or this week while the week shows; only while either shows.
+    case today
+    /// B: 30 minutes set aside for the selected conversation (spec §5.54, “Setting time aside”); reader windows too.
+    case blockTime
 }
 
 @MainActor
@@ -167,6 +179,12 @@ final class KeyboardRouter {
             return true
         }
 
+        // [ and ] where the layout types them with Option (German, Swiss, Nordic, French): the table reads the key
+        // without its modifiers and refuses Option chords, so the character it produces is read here.
+        if let command = Self.optionBracket(produced: event.characters ?? "", modifiers: modifiers) {
+            return target.perform(command)
+        }
+
         let outcome = Self.command(
             characters: characters,
             keyCode: event.keyCode,
@@ -185,6 +203,17 @@ final class KeyboardRouter {
         // they are performed from here, outside text fields; a disabled item lets the key go on.
         guard let command = outcome.command else { return MainMenuBar.performSingleKey(event) }
         return target.perform(command)
+    }
+
+    /// [ or ] typed with Option (and Shift): Previous Day and Next Day (spec §5.54). Nil for anything else, a plain [ or ]
+    /// among it, which the key table reads; on a US layout ⌥[ types “ and so stays nothing.
+    static func optionBracket(produced: String, modifiers: NSEvent.ModifierFlags) -> KeyCommand? {
+        guard modifiers.contains(.option), modifiers.isSubset(of: [.option, .shift]) else { return nil }
+        switch produced {
+        case "[": return .previousDay
+        case "]": return .nextDay
+        default: return nil
+        }
     }
 
     /// The second key of a G sequence and the view it opens.
@@ -276,6 +305,13 @@ final class KeyboardRouter {
         case "/": return (.search, false)
         case "z": return (.undo, false)
         case "g": return (nil, true)
+        // The calendar's keys (spec §5.54). An armed G keeps its own (G D is Drafts, G T is Sent), handled above.
+        case "d": return (.toggleDayColumn, false)
+        case "w": return (.toggleWeek, false)
+        case "[": return (.previousDay, false)
+        case "]": return (.nextDay, false)
+        case "t": return (.today, false)
+        case "b": return (.blockTime, false)
         default: return (nil, false)
         }
     }

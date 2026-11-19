@@ -70,6 +70,12 @@ actor LiveLane {
     /// until a check that began after its time has brought in what came meanwhile (`SnoozeRunner`).
     private let checkStarted: @Sendable () -> Void
     private let checkCaughtUp: @Sendable () -> Void
+    /// Told after a full cycle caught up, once the account is unparked: the calendar lane's moment to see whether a read
+    /// is due. Never awaited, so a slow calendar cannot hold back the next poll.
+    private let cycleCaughtUp: @Sendable () -> Void
+    /// Told when the outbox has sent an answer to an invitation: the calendar lane reads the calendar's copy of it now,
+    /// which says the answer from then on. Never awaited.
+    private let invitationAnswered: @Sendable () -> Void
     private var reportedFirstCycle = false
     private var phase: AccountSyncPhase = .idle
     /// Whether the park is a refused keychain rather than a refused token.
@@ -115,7 +121,9 @@ actor LiveLane {
         isAppActive: @escaping @Sendable () -> Bool,
         firstCycleEnded: @escaping @Sendable () -> Void = {},
         checkStarted: @escaping @Sendable () -> Void = {},
-        checkCaughtUp: @escaping @Sendable () -> Void = {}
+        checkCaughtUp: @escaping @Sendable () -> Void = {},
+        cycleCaughtUp: @escaping @Sendable () -> Void = {},
+        invitationAnswered: @escaping @Sendable () -> Void = {}
     ) {
         self.accountID = accountID
         self.store = store
@@ -131,6 +139,8 @@ actor LiveLane {
         self.firstCycleEnded = firstCycleEnded
         self.checkStarted = checkStarted
         self.checkCaughtUp = checkCaughtUp
+        self.cycleCaughtUp = cycleCaughtUp
+        self.invitationAnswered = invitationAnswered
     }
 
     // MARK: Loop
@@ -180,6 +190,9 @@ actor LiveLane {
                     nextPollAt = .now + .seconds(min(pollInterval, pollAfter ?? pollInterval))
                 }
                 link.unpark()
+                // After the unpark, so the calendar lane finds the account free to send. A poll held back for the live
+                // share has not caught up, and a Graph calendar would spend that same share.
+                if full && pollAfter == nil { cycleCaughtUp() }
                 var delay = nextPollAt.map(Self.seconds(until:)) ?? pollInterval
                 if let nextAttemptAt { delay = min(delay, Self.seconds(until: nextAttemptAt)) }
                 timeout = delay
@@ -418,6 +431,8 @@ actor LiveLane {
 
     private func drainOutbox() async throws -> Date? {
         let outcome = await runner.drain()
+        // Whatever stopped the drain after it: the answer is out.
+        if outcome.answeredInvitation { invitationAnswered() }
         // Recorded on every drain, so the ask goes away as soon as the work it waited for can go out.
         statusCenter.update(accountID) { $0.permissionsNeeded = outcome.permissionsNeeded }
         // Parked before the poll, which would ask the keychain again in the same cycle.

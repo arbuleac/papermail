@@ -200,6 +200,10 @@ public final class SQLiteMailStore: MailStoring, MailStoreMaintenance, Sendable 
         try read { try MessageTable.body(for: id, in: $0) }
     }
 
+    public func invitation(for id: MessageID) throws -> CalendarInvitation? {
+        try read { try MessageTable.invitation(for: id, in: $0) }
+    }
+
     public func messageIDsMissingBodies(accountID: AccountID, limit: Int) throws -> [MessageID] {
         try read { try MessageTable.missingBodies(accountID: accountID, limit: limit, in: $0) }
     }
@@ -506,6 +510,73 @@ public final class SQLiteMailStore: MailStoring, MailStoreMaintenance, Sendable 
         return StoreObservation { cancellable.cancel() }
     }
 
+    // MARK: Calendar (the rules are written out on `CalendarEventTable` and in docs/DATA-MODEL.md)
+
+    public func calendarEvents(in interval: DateInterval, accountIDs: [AccountID]?) throws -> [CalendarEvent] {
+        try read { try CalendarEventTable.events(in: interval, accountIDs: accountIDs, in: $0) }
+    }
+
+    public func observeCalendarEvents(in interval: DateInterval,
+                                      onChange: @escaping @Sendable ([CalendarEvent]) -> Void) -> StoreObservation {
+        // Tracks `calendar_events` alone, so mail arriving, a body saved or a time found in it never wakes the calendar,
+        // and a write outside the interval re-reads it but delivers nothing.
+        let observation = ValueObservation.tracking { db in
+            try CalendarEventTable.events(in: interval, accountIDs: nil, in: db)
+        }.removeDuplicates()
+        let cancellable = database.startObservation(observation, firstValueOnCallingThread: true, onError: Self.reportObservationFailure,
+                                                    onChange: onChange)
+        return StoreObservation { cancellable.cancel() }
+    }
+
+    public func replaceCalendarEvents(_ events: [CalendarEvent], accountID: AccountID, window: DateInterval) throws {
+        try write { try CalendarEventTable.replace(events, accountID: accountID, window: window, now: Self.nowMS(), in: $0) }
+    }
+
+    public func addCalendarEvent(_ event: CalendarEvent) throws {
+        try write { try CalendarEventTable.add(event, now: Self.nowMS(), in: $0) }
+    }
+
+    @discardableResult
+    public func removeCalendarEvent(id: String) throws -> CalendarEvent? {
+        try write { try CalendarEventTable.remove(id: id, now: Self.nowMS(), in: $0) }
+    }
+
+    @discardableResult
+    public func restoreCalendarEvent(_ event: CalendarEvent) throws -> CalendarEvent {
+        try write { try CalendarEventTable.restore(event, now: Self.nowMS(), in: $0) }
+    }
+
+    public func pendingCalendarEvents(accountID: AccountID) throws -> [CalendarEvent] {
+        try read { try CalendarEventTable.pending(accountID: accountID, in: $0) }
+    }
+
+    @discardableResult
+    public func settleCalendarEvent(id: String, created: CalendarEvent?) throws -> Bool {
+        try write { try CalendarEventTable.settle(id: id, created: created, in: $0) }
+    }
+
+    public func answerCalendarEvents(_ response: CalendarEvent.Response, invitationUID uid: String, accountID: AccountID,
+                                     near occurrence: Date?) throws {
+        try write { try CalendarEventTable.answer(response, invitationUID: uid, accountID: accountID, near: occurrence, in: $0) }
+    }
+
+    public func failCalendarEvent(id: String) throws {
+        try write { try CalendarEventTable.fail(id: id, in: $0) }
+    }
+
+    public func saveMailTimes(_ times: [MailTime], for message: MessageID) throws {
+        try write { try MailTimeTable.save(times, for: message, in: $0) }
+    }
+
+    public func mailTimes(in conversation: ConversationID) throws -> [MailTime] {
+        try read { try MailTimeTable.times(in: conversation, in: $0) }
+    }
+
+    /// When a calendar row became pending: wall-clock milliseconds, compared only with each other.
+    private static func nowMS() -> Int64 {
+        MailStoreCodec.milliseconds(Date())
+    }
+
     // MARK: Contacts
 
     public func suggestAddresses(prefix: String, limit: Int) throws -> [EmailAddress] {
@@ -593,5 +664,15 @@ public final class SQLiteMailStore: MailStoring, MailStoreMaintenance, Sendable 
     /// SQLite's plan for a list query, one line per step, so tests can pin the inbox to its index.
     func queryPlan(for query: ConversationQuery) throws -> [String] {
         try read { try ConversationTable.explain(query, in: $0) }
+    }
+
+    /// SQLite's plan for the calendar's range read, one line per step, so tests can pin it to the time index.
+    func calendarQueryPlan(in interval: DateInterval, accountIDs: [AccountID]?) throws -> [String] {
+        try read { try CalendarEventTable.explainEvents(in: interval, accountIDs: accountIDs, in: $0) }
+    }
+
+    /// SQLite's plan for the reader's read of a conversation's mail times.
+    func mailTimesQueryPlan(in conversation: ConversationID) throws -> [String] {
+        try read { try MailTimeTable.explainTimes(in: conversation, in: $0) }
     }
 }

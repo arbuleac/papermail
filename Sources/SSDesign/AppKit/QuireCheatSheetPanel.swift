@@ -10,8 +10,8 @@ import AppKit
 /// key column, then the operators as typed in `snippet` `ink`, 8 pt apart.
 ///
 /// The content is `Quire.cheatSheet` and `Quire.cheatSheetSearch`, generated from `cheatSheetContent` and
-/// `cheatSheetSearch`. At its natural height (680 pt) the panel shows everything; given less, the bands and the
-/// search line scroll under the fixed title row. `QuireCheatSheetOverlay`
+/// `cheatSheetSearch`. At its natural height (736 pt) the panel shows everything; given less, as in the default
+/// 800 pt window since the calendar's rows, the bands and the search line scroll under the fixed title row. `QuireCheatSheetOverlay`
 /// places it over the window with the scrim and runs its motion and keys.
 @MainActor
 public final class QuireCheatSheetPanel: NSView, QuirePointerTarget {
@@ -87,7 +87,7 @@ public final class QuireCheatSheetPanel: NSView, QuirePointerTarget {
         return all.map(bandHeight).reduce(0, +) + CGFloat(max(0, all.count - 1)) * c.sectionGap + line
     }
 
-    /// The panel's whole height: 24 + 28 + 16 + bands + search line + 24 (680 pt for the generated content).
+    /// The panel's whole height: 24 + 28 + 16 + bands + search line + 24 (736 pt for the generated content).
     public static func naturalHeight(for sections: [QuireCheatSheetSection] = Quire.cheatSheet,
                                      searchTerms: [String] = Quire.cheatSheetSearch) -> CGFloat {
         let c = Quire.Layout.CheatSheet.self

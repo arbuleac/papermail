@@ -233,7 +233,7 @@ final class OutboxViewTests: XCTestCase {
         XCTAssertEqual(harness.list.query.view, .outbox)
         let go = try XCTUnwrap(Quire.cheatSheet.first { $0.title == "Go" })
         XCTAssertEqual(go.rows.map(\.keys), ["G then I", "G then L", "G then S", "G then T", "G then D", "G then O", "G then #", "G then A",
-                                             "⌘0 … ⌘9"])
+                                             "⌘0 … ⌘9", "[ ] T"])
         XCTAssertEqual(go.rows.first { $0.keys == "G then O" }?.label, "Outbox")
         XCTAssertEqual(QuireSequenceHUDView.sequenceRows().map(\.keys), ["I", "L", "S", "T", "D", "O", "#", "A"])
     }

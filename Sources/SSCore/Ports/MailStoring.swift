@@ -19,7 +19,7 @@ public final class StoreObservation: @unchecked Sendable {
 ///
 /// Thread-safety: every method may be called from any thread. Observation callbacks are delivered on the
 /// main thread, first with the current value, then after every change to the underlying rows.
-public protocol MailStoring: AnyObject, Sendable {
+public protocol MailStoring: CalendarStoring, AnyObject, Sendable {
     // MARK: Accounts
     func accounts() throws -> [Account]
     func upsertAccount(_ account: Account) throws
@@ -67,6 +67,9 @@ public protocol MailStoring: AnyObject, Sendable {
     func saveBody(_ body: StoredBody, for id: MessageID, evictingIfReceivedBefore cutoff: Date) throws -> Bool
     /// The stored body; nil when there is none or it was evicted (`evictBodies`), which both mean "fetch it".
     func body(for id: MessageID) throws -> StoredBody?
+    /// The invitation the stored body carries (`StoredBody.invitation`), nil without one or when the body was evicted:
+    /// what the calendar looks for on every selection, read without decompressing the body (the default reads it whole).
+    func invitation(for id: MessageID) throws -> CalendarInvitation?
     /// The attachment list of the stored body, evicted or not (an eviction keeps it); nil when there is no body. What
     /// the reader's chips, Quick Look and scheme handlers read: a page renders from the body it read, so a body evicted
     /// in the instant it went on screen must still answer them.
@@ -273,6 +276,12 @@ extension MailStoring {
     public func returnDueSnoozes(at now: Date, limit: Int,
                                  operations: (ConversationID, [MessageMetadata]) -> [Operation]) throws -> [ConversationID] {
         try returnDueSnoozes(at: now, dueBy: [:], limit: limit, operations: operations)
+    }
+
+    /// The whole body's invitation, for a store that cannot read it alone (the test doubles that wrap a real store);
+    /// `SQLiteMailStore` overrides it with one column.
+    public func invitation(for id: MessageID) throws -> CalendarInvitation? {
+        try body(for: id)?.invitation
     }
 
     /// `setMuted(_:conversations:enqueueing:returnMarks:)` with no return mark to put back.
