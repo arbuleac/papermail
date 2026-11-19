@@ -31,8 +31,6 @@ struct CalendarFollow {
 /// The views (Calendar/) read only `CalendarState`; every change goes through `MailClient`, store first, as the mail
 /// actions do, and joins the undo history (§6.1) as an external step.
 extension MainWindowController: CalendarViewDelegate, CalendarStateObserver {
-    private typealias Pane = Quire.Layout.CalendarPane
-
     func wireCalendar() {
         desk.column.delegate = self
         desk.week.delegate = self
