@@ -10,7 +10,7 @@ import SSCore
 /// - `SS_PERF_RETENTION=1year` measures with Keep mail on this Mac at 1 year: the bodies of mail older than a year are
 ///   evicted by a sweep, as the launch sweep leaves them. Everything (no eviction) by default.
 /// - `SS_PERF_CACHE=1` keeps the built file in the temporary directory and copies it for each run, so a second run of
-///   any benchmark skips the minutes a 300,000-message mailbox takes to build. Delete
+///   any benchmark skips the minute a 300,000-message mailbox takes to build. Delete
 ///   `$TMPDIR/SuperSparrowPerfMailbox` after changing how the store writes rows without a migration.
 @MainActor
 enum PerfMailboxSupport {
