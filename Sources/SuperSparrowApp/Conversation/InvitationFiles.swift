@@ -3,7 +3,8 @@ import os
 
 /// The calendar file Open in Calendar hands over (spec §5.14): written to a folder of this run's own under the
 /// temporary directory, then opened with Calendar, which shows the event and offers to add it. SuperSparrow never
-/// reads or writes a calendar itself, so it needs no EventKit permission.
+/// reads or writes the Mac's calendars (the day column reads each account's own from its provider, spec §5.54), so it
+/// needs no EventKit permission.
 @MainActor
 enum InvitationFiles {
     static let calendarBundleID = "com.apple.iCal"

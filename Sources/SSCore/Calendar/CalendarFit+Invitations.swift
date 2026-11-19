@@ -85,15 +85,15 @@ extension CalendarFit {
     /// there is neither.
     ///
     /// An overlap is a busy event (`CalendarEvent.isBusy`: not declined, free or all-day) that meets the invitation's
-    /// event for some time, other than an occurrence of the invitation itself (same UID). Nothing overlaps an
-    /// invitation the user declined or an all-day one.
+    /// event for some time, other than an occurrence of the invitation itself (the same UID, as `InvitationUID` compares
+    /// them). Nothing overlaps an invitation the user declined or an all-day one.
     public static func invitationOverlap(
         uid: String,
         near start: Date? = nil,
         in events: [CalendarEvent],
         pencil: CalendarEvent? = nil
     ) -> InvitationOverlap? {
-        let own = events.filter { $0.invitationUID == uid && $0.sync != .deleting }
+        let own = events.filter { InvitationUID.matches($0.invitationUID, uid) && $0.sync != .deleting }
         let matched: CalendarEvent?
         if let start {
             matched = own.min { a, b in
@@ -106,7 +106,7 @@ extension CalendarFit {
         guard event.isShown, !event.isAllDay else { return InvitationOverlap(event: event, overlaps: []) }
 
         var overlaps: [InvitationOverlap.Overlap] = []
-        for other in events where other.isBusy && other.invitationUID != uid && other.id != event.id {
+        for other in events where other.isBusy && !InvitationUID.matches(other.invitationUID, uid) && other.id != event.id {
             let from = max(other.start, event.start)
             let to = min(other.end, event.end)
             guard from < to else { continue }

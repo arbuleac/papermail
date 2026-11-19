@@ -199,12 +199,13 @@ final class InvitationCardPayloadTests: XCTestCase {
         var body = F.body(html: "<p>Invitation</p>")
         body.invitation = invitation(timeZoneID: "America/New_York", conferenceURL: "https://teams.example.com/l/1")
         let payload = F.builder.build(messages: [message], bodies: [message.id: body], accounts: F.accounts,
-                                      invitationPermissionNeeded: [F.accountID], now: now)
+                                      invitationPermissionNeeded: [F.accountID],
+                                      invitationOverlaps: [message.id: "Overlaps 1:1 with Sam, 15:30 - 16:00"], now: now)
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(try payload.jsonString().utf8)) as? [String: Any])
         let card = try XCTUnwrap(((object["messages"] as? [[String: Any]])?.first)?["invitation"] as? [String: Any])
         XCTAssertEqual(card.keys.sorted(), [
-            "canAnswer", "canOpen", "conferenceURL", "guests", "isCancelled", "location", "needsPermission", "organizer", "repeats",
-            "response", "title", "when", "whenElsewhere",
+            "canAnswer", "canOpen", "conferenceURL", "guests", "isCancelled", "location", "needsPermission", "organizer", "overlap",
+            "repeats", "response", "title", "when", "whenElsewhere",
         ])
         XCTAssertEqual(card["response"] as? String, "tentative", "the answer travels by the name the shell compares")
         for key in card.keys {
