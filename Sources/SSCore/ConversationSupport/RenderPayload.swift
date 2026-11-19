@@ -100,11 +100,14 @@ public struct RenderPayload: Hashable, Codable, Sendable {
         public var needsPermission: Bool
         /// Open in Calendar is offered: the message has calendar text to hand over.
         public var canOpen: Bool
+        /// “Overlaps 1:1 with Sam, 13:30 - 14:00”: what the invitation overlaps on the user's calendars (spec §5.14). Nil,
+        /// and then absent from the JSON, when it overlaps nothing or the card cannot say so.
+        public var overlap: String?
 
         public init(title: String, when: String, whenElsewhere: String? = nil, repeats: String? = nil, location: String? = nil,
                     locationURL: String? = nil, conferenceURL: String? = nil, organizer: String? = nil, guests: String? = nil,
                     isCancelled: Bool = false, canAnswer: Bool = false, response: InvitationResponse? = nil,
-                    needsPermission: Bool = false, canOpen: Bool = false) {
+                    needsPermission: Bool = false, canOpen: Bool = false, overlap: String? = nil) {
             self.title = title
             self.when = when
             self.whenElsewhere = whenElsewhere
@@ -119,6 +122,7 @@ public struct RenderPayload: Hashable, Codable, Sendable {
             self.response = response
             self.needsPermission = needsPermission
             self.canOpen = canOpen
+            self.overlap = overlap
         }
     }
 

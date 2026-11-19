@@ -56,15 +56,20 @@ public struct RenderInputs: Hashable, Sendable {
     public private(set) var sendLater: [MessageID: SendLaterState] = [:]
     /// The Outbox states the builder was given (spec §5.53): the sheet's date line, its Cancel and its footer follow them.
     public private(set) var outbox: [MessageID: OutboxState] = [:]
+    /// The invitation cards that can say what they overlap and what they said (spec §5.14). The calendar is not a store
+    /// change this slot hears of, so the reader checks it against these: the words come from the calendar, the cards from
+    /// the bodies and metadata above.
+    public private(set) var invitationOverlaps: InvitationOverlaps = .none
 
     public static let empty = RenderInputs(messages: []) { _ in false }
 
     /// - Parameter hasBody: asked once per visible message, in order.
     public init(messages: [MessageMetadata], sendLater: [MessageID: SendLaterState] = [:], outbox: [MessageID: OutboxState] = [:],
-                hasBody: (MessageID) -> Bool) {
+                invitationOverlaps: InvitationOverlaps = .none, hasBody: (MessageID) -> Bool) {
         self.init(messages: messages, hasBody: hasBody)
         self.sendLater = sendLater
         self.outbox = outbox
+        self.invitationOverlaps = invitationOverlaps
     }
 
     /// - Parameter hasBody: asked once per visible message, in order.
@@ -86,16 +91,20 @@ public struct RenderInputs: Hashable, Sendable {
 
     /// Inputs for a refresh of the slot that rendered `self`. Bodies are written once at sync time and
     /// stay for the life of their message, so one this slot already rendered is taken as read; `probe`
-    /// runs only for messages that had none, which keeps the staleness check away from body bytes.
+    /// runs only for messages that had none, which keeps the staleness check away from body bytes. The overlap lines are
+    /// kept as rendered: they follow the calendar, which the reader watches apart, and a change to the cards they hang on
+    /// (an answer, a body) changes the messages or bodies compared here.
     public func refreshed(with messages: [MessageMetadata], probe: (MessageID) -> Bool) -> RenderInputs {
-        RenderInputs(messages: messages) { id in bodyIDs.contains(id) || probe(id) }
+        var fresh = RenderInputs(messages: messages) { id in bodyIDs.contains(id) || probe(id) }
+        fresh.invitationOverlaps = invitationOverlaps
+        return fresh
     }
 
     /// The patches that bring a slot rendered from `self` up to `fresh` when only read or star flags
     /// moved; nil when anything else changed and the slot needs a payload.
     public func flagPatches(to fresh: RenderInputs) -> [RenderPayload.FlagPatch]? {
         guard messages.count == fresh.messages.count, bodyIDs == fresh.bodyIDs, sendLater == fresh.sendLater,
-              outbox == fresh.outbox else { return nil }
+              outbox == fresh.outbox, invitationOverlaps == fresh.invitationOverlaps else { return nil }
         var patches: [RenderPayload.FlagPatch] = []
         for (old, new) in zip(messages, fresh.messages) {
             var comparable = new
