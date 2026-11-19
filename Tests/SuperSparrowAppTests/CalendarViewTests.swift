@@ -253,6 +253,18 @@ final class CalendarViewTests: XCTestCase {
         XCTAssertEqual(cells.cells[3].segments.count, 6, "Thursday's busy events, the unanswered one hollow")
         XCTAssertTrue(cells.cells[3].segments.contains { $0.isHollow })
         XCTAssertNotNil(cells.cells[3].allDay, "the go-live's line on top")
+        // One quiet load line per day: answered busy time, overlaps counted once, the unanswered invitation left out.
+        let share = CalendarDayCellsView.busyShare(cells.cells[3])
+        let answered = cells.cells[3].segments.filter { !$0.isHollow }
+        XCTAssertGreaterThan(share, 0)
+        XCTAssertLessThanOrEqual(share, answered.map(\.width).reduce(0, +) + 1e-9, "overlaps never counted twice")
+        let overlapping = CalendarFit.DayCell(day: Support.day(19), segments: [
+            .init(eventID: "a", accountID: AccountID("x"), start: 0.1, width: 0.2, isHollow: false),
+            .init(eventID: "b", accountID: AccountID("y"), start: 0.2, width: 0.2, isHollow: false),
+            .init(eventID: "c", accountID: AccountID("y"), start: 0.8, width: 0.1, isHollow: true),
+        ], allDay: nil)
+        XCTAssertEqual(CalendarDayCellsView.busyShare(overlapping), 0.3, accuracy: 1e-9)
+        XCTAssertEqual(CalendarDayCellsView.busyShare(CalendarFit.DayCell(day: Support.day(19), segments: [], allDay: nil)), 0)
         try click(cells, at: centre(cells.cellRect(4)))
         XCTAssertEqual(delegate.selectedDays, [Support.day(20)])
 
@@ -264,7 +276,8 @@ final class CalendarViewTests: XCTestCase {
         try click(week.headings, at: centre(week.headings.rect(1)))
         XCTAssertTrue(delegate.calls.contains("openWeekHeading"))
         week.header.next.performClick(nil)
-        week.header.week.performClick(nil)
+        // One calendar button in the week's header: it goes back to the day.
+        week.header.day.performClick(nil)
         XCTAssertEqual(Array(delegate.calls.suffix(2)), ["turnDay(7)", "toggleWeek"])
     }
 
@@ -452,7 +465,7 @@ final class CalendarViewTests: XCTestCase {
         XCTAssertNotNil(column.details.card)
         XCTAssertTrue(column.dismissDetails())
         XCTAssertTrue(window.firstResponder === timeline, "focus comes back to the event the keyboard opened")
-        XCTAssertEqual(column.keyViews.count, 4, "‹ › (Today is disabled on today), the cells, the events; no foot")
+        XCTAssertEqual(column.keyViews.count, 5, "‹ › and the week button (Today is disabled on today), the cells, the events; no foot")
     }
 
     func testVoiceOverReadsTheColumnAsAListOfEvents() throws {

@@ -67,7 +67,8 @@ final class ReaderHeaderView: NSView {
     }
 
     private func makeLayoutToggles() {
-        for toggle in LayoutToggle.allCases {
+        // One calendar button: the week is opened from inside the calendar (the column's header), not from here.
+        for toggle in [LayoutToggle.day] {
             let button = QuireIconButton(symbolName: toggle == .day ? Quire.Icon.dayColumn : Quire.Icon.week, size: .large,
                                          accessibilityLabel: toggle == .day ? "Day" : "Week", target: self,
                                          action: #selector(layoutTogglePressed(_:)))

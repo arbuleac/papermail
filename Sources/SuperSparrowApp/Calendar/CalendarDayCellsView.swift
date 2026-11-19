@@ -2,9 +2,10 @@ import AppKit
 import SSCore
 import SSDesign
 
-/// The seven day cells under the column's header (spec §5.54, “Day cells”): the shown day's week, each cell a small
-/// track of its busy time in account inks on one scale for the week, so a full day shows without opening the week. A
-/// click shows that day; a row dropped on a cell sets aside that day's first free half hour.
+/// The seven day cells under the column's header (spec §5.54, “Day cells”): the shown day's week, each cell its weekday,
+/// its date and one quiet line whose length is how much of the day is busy, so a full day shows without opening the
+/// week and without a mark per event. A click shows that day; a row dropped on a cell sets aside that day's first free
+/// half hour.
 @MainActor
 final class CalendarDayCellsView: NSView, QuirePointerTarget {
     typealias Pane = Quire.Layout.CalendarPane
@@ -98,7 +99,7 @@ final class CalendarDayCellsView: NSView, QuirePointerTarget {
             }
             let lit = isShown || hovered == index || pressed == index
             drawWords(day, in: rect, lit: lit, isToday: state.calendar.isDate(day, inSameDayAs: today))
-            if cells.indices.contains(index) { drawTrack(cells[index], in: rect) }
+            if cells.indices.contains(index) { drawLoad(cells[index], in: rect, lit: lit) }
             if dropIndex == index {
                 let ring = rect.insetBy(dx: Pane.dropRing / 2, dy: Pane.dropRing / 2)
                 let path = QuireDraw.roundedRect(ring, radius: Pane.dayCellRadius - Pane.dropRing / 2)
@@ -152,30 +153,35 @@ final class CalendarDayCellsView: NSView, QuirePointerTarget {
         }
     }
 
-    /// The day's busy time on a hairline across the week's open hours, and its first all-day event as a line on top.
-    private func drawTrack(_ cell: CalendarFit.DayCell, in rect: NSRect) {
-        let track = NSRect(x: rect.minX + Pane.dayCellTrackInsetX, y: rect.maxY - Pane.dayCellTrackBottom - Pane.dayCellTrack,
-                           width: rect.width - 2 * Pane.dayCellTrackInsetX, height: Pane.dayCellTrack)
-        let hairline = QuireHairline.width(for: self)
-        NSColor.qRule.setFill()
-        NSRect(x: track.minX, y: (track.midY - hairline / 2).rounded(), width: track.width, height: hairline).fill()
-        for segment in cell.segments {
-            let bar = NSRect(x: track.minX + CGFloat(segment.start) * track.width, y: track.minY,
-                             width: max(Pane.dayCellTrack, CGFloat(segment.width) * track.width), height: track.height)
-                .intersection(track)
-            if segment.isHollow {
-                NSColor.qPaper.setFill()
-                QuireDraw.roundedRect(bar, radius: bar.height / 2).fill()
-                QuireDraw.strokeInside(bar, radius: bar.height / 2, width: 1, .qRuleStrong)
+    /// How much of the day is busy, as one line under the date: its length the share of the week's open hours that the
+    /// day's busy events cover (overlaps counted once; unanswered invitations and all-day events left out), in `ruleStrong`,
+    /// `ink2` on the shown, hovered or pressed cell. An empty day draws nothing. One calm signal in place of a mark per
+    /// event in each account's ink, which read as noise at this size.
+    private func drawLoad(_ cell: CalendarFit.DayCell, in rect: NSRect, lit: Bool) {
+        let share = Self.busyShare(cell)
+        guard share > 0 else { return }
+        let height = Pane.dayCellAllDayLine
+        let full = rect.width - 2 * Pane.dayCellTrackInsetX
+        let width = max(height, (full * CGFloat(share)).rounded())
+        let bar = NSRect(x: rect.midX - width / 2, y: rect.maxY - Pane.dayCellTrackBottom - height, width: width, height: height)
+        QuireDraw.fill(bar, radius: height / 2, lit ? .qInk2 : .qRuleStrong)
+    }
+
+    /// The share of the track the day's answered busy segments cover, overlaps merged: 0 to 1.
+    static func busyShare(_ cell: CalendarFit.DayCell) -> Double {
+        let spans = cell.segments.filter { !$0.isHollow }.map { ($0.start, min(1, $0.start + $0.width)) }.sorted { $0.0 < $1.0 }
+        var covered = 0.0
+        var current: (Double, Double)?
+        for span in spans {
+            if let open = current, span.0 <= open.1 {
+                current = (open.0, max(open.1, span.1))
             } else {
-                QuireDraw.fill(bar, radius: bar.height / 2, state.ink(for: segment.accountID))
+                if let open = current { covered += open.1 - open.0 }
+                current = span
             }
         }
-        if let allDay = cell.allDay {
-            state.ink(for: allDay.accountID).setFill()
-            NSRect(x: rect.minX + Pane.dayCellRadius, y: rect.minY, width: rect.width - 2 * Pane.dayCellRadius,
-                   height: Pane.dayCellAllDayLine).fill()
-        }
+        if let open = current { covered += open.1 - open.0 }
+        return min(1, max(0, covered))
     }
 
     // MARK: Mouse

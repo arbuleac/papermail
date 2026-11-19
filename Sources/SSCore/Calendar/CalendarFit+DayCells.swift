@@ -16,6 +16,14 @@ extension CalendarFit {
             public var width: Double
             /// Not answered yet (an invitation): drawn as an outline, as the calendar pencils it.
             public var isHollow: Bool
+
+            public init(eventID: String, accountID: AccountID, start: Double, width: Double, isHollow: Bool) {
+                self.eventID = eventID
+                self.accountID = accountID
+                self.start = start
+                self.width = width
+                self.isHollow = isHollow
+            }
         }
 
         public var day: Date
@@ -23,6 +31,12 @@ extension CalendarFit {
         public var segments: [Segment]
         /// The day's first all-day event: the line drawn above the track in its account's ink. Nil without one.
         public var allDay: CalendarEvent?
+
+        public init(day: Date, segments: [Segment], allDay: CalendarEvent?) {
+            self.day = day
+            self.segments = segments
+            self.allDay = allDay
+        }
     }
 
     /// The least share of a track a segment takes.

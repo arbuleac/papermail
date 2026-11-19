@@ -14,6 +14,8 @@ final class DayColumnHeaderView: NSView {
     let previous = QuireIconButton(symbolName: Quire.Icon.previousDay, size: .large, accessibilityLabel: "Previous Day")
     let today = QuireButton(title: "Today", variant: .secondary, size: .small)
     let next = QuireIconButton(symbolName: Quire.Icon.nextDay, size: .large, accessibilityLabel: "Next Day")
+    /// The week, opened from inside the calendar: the reader header keeps one calendar button (§5.12, §5.54).
+    let weekButton = QuireIconButton(symbolName: Quire.Icon.week, size: .large, accessibilityLabel: "Week")
 
     private(set) var kicker = ""
     private(set) var headline = ""
@@ -26,13 +28,16 @@ final class DayColumnHeaderView: NSView {
         previous.toolTip = "Previous Day  ["
         today.toolTip = "Today  T"
         next.toolTip = "Next Day  ]"
+        weekButton.toolTip = "Show Week  W"
+        weekButton.target = self
+        weekButton.action = #selector(weekClicked(_:))
         previous.target = self
         previous.action = #selector(previousClicked(_:))
         today.target = self
         today.action = #selector(todayClicked(_:))
         next.target = self
         next.action = #selector(nextClicked(_:))
-        for button in [previous, today, next] as [NSView] { addSubview(button) }
+        for button in [previous, today, next, weekButton] as [NSView] { addSubview(button) }
         update()
     }
 
@@ -70,6 +75,15 @@ final class DayColumnHeaderView: NSView {
         today.frame = today.frame(forVisualRect: NSRect(x: x, y: lineCentre - small / 2, width: todayWidth, height: small))
         x -= Pane.navGap + icon
         previous.frame = previous.frame(forVisualRect: NSRect(x: x, y: lineCentre - icon / 2, width: icon, height: icon))
+        // The week button on the headline's line, at the trailing side.
+        let headlineCentre = Pane.headlineTop + QuireFont.Role.masthead.lineHeight / 2
+        weekButton.frame = weekButton.frame(forVisualRect: NSRect(x: bounds.width - Pane.navTrailing - icon,
+                                                                  y: headlineCentre - icon / 2, width: icon, height: icon))
+    }
+
+    /// Where the headline must end: 4 pt before the week button.
+    private var headlineEnd: CGFloat {
+        weekButton.alignmentRect(forFrame: weekButton.frame).minX - Pane.kickerNavGap / 2
     }
 
     /// Where the kicker must end: 8 pt before ‹.
@@ -90,15 +104,16 @@ final class DayColumnHeaderView: NSView {
                   options: QuireFont.drawingOptions, context: nil)
         let headlineRole = QuireFont.Role.masthead
         QuireFont.attributedString(headline, role: headlineRole, color: .qInk)
-            .draw(with: NSRect(x: Pane.headerPadX, y: Pane.headlineTop, width: max(0, bounds.width - 2 * Pane.headerPadX),
+            .draw(with: NSRect(x: Pane.headerPadX, y: Pane.headlineTop, width: max(0, headlineEnd - Pane.headerPadX),
                                height: headlineRole.lineHeight), options: QuireFont.drawingOptions, context: nil)
     }
 
     @objc private func previousClicked(_ sender: Any?) { delegate?.turnDay(by: -1) }
     @objc private func todayClicked(_ sender: Any?) { delegate?.goToToday() }
     @objc private func nextClicked(_ sender: Any?) { delegate?.turnDay(by: 1) }
+    @objc private func weekClicked(_ sender: Any?) { delegate?.toggleWeek() }
 
     override func isAccessibilityElement() -> Bool { false }
 
-    var keyViews: [NSView] { [previous, today, next] }
+    var keyViews: [NSView] { [previous, today, next, weekButton] }
 }

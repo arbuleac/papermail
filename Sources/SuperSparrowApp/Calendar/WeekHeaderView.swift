@@ -32,15 +32,11 @@ final class WeekHeaderView: NSView {
         previous.toolTip = "Previous Week  ["
         today.toolTip = "This Week  T"
         next.toolTip = "Next Week  ]"
-        day.toolTip = "Show Day  D"
-        week.toolTip = "Hide Week  W"
-        // Quiet toggles that act on the window (§5.12): the week shows, so Week is on and Day is off.
-        for toggle in [day, week] {
-            toggle.onStyle = .quiet
-            toggle.togglesOnClick = false
-        }
-        week.isOn = true
-        day.isOn = false
+        day.toolTip = "Back to Day  W"
+        // One calendar button, on while the calendar shows (§5.12, §5.54): in the week it goes back to the day.
+        day.onStyle = .quiet
+        day.togglesOnClick = false
+        day.isOn = true
         previous.target = self
         previous.action = #selector(previousClicked(_:))
         today.target = self
@@ -49,9 +45,7 @@ final class WeekHeaderView: NSView {
         next.action = #selector(nextClicked(_:))
         day.target = self
         day.action = #selector(dayClicked(_:))
-        week.target = self
-        week.action = #selector(weekClicked(_:))
-        for button in [previous, today, next, day, week] as [NSView] { addSubview(button) }
+        for button in [previous, today, next, day] as [NSView] { addSubview(button) }
         update()
     }
 
@@ -89,7 +83,7 @@ final class WeekHeaderView: NSView {
         let small = Quire.Layout.Button.Small.height
         let centre = Header.actionsTop + icon / 2
         var x = bounds.width - Header.actionsTrailing
-        for button in [week, day] {
+        for button in [day] {
             x -= icon
             button.frame = button.frame(forVisualRect: NSRect(x: x, y: Header.actionsTop, width: icon, height: icon))
             x -= Header.actionGap
@@ -135,10 +129,9 @@ final class WeekHeaderView: NSView {
     @objc private func previousClicked(_ sender: Any?) { delegate?.turnDay(by: -7) }
     @objc private func todayClicked(_ sender: Any?) { delegate?.goToToday() }
     @objc private func nextClicked(_ sender: Any?) { delegate?.turnDay(by: 7) }
-    @objc private func dayClicked(_ sender: Any?) { delegate?.toggleDayColumn() }
-    @objc private func weekClicked(_ sender: Any?) { delegate?.toggleWeek() }
+    @objc private func dayClicked(_ sender: Any?) { delegate?.toggleWeek() }
 
     override func isAccessibilityElement() -> Bool { false }
 
-    var keyViews: [NSView] { [previous, today, next, day, week].filter { ($0 as NSControl).isEnabled } }
+    var keyViews: [NSView] { [previous, today, next, day].filter { ($0 as NSControl).isEnabled } }
 }

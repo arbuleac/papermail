@@ -152,7 +152,8 @@ final class MainWindowCalendarTests: XCTestCase {
         XCTAssertEqual(desk.conversationPane.view.frame.width, desk.view.bounds.width - Pane.columnWidth, accuracy: 0.5)
         XCTAssertEqual(harness.reader.header.layoutToggles[.day]?.isOn, true, "the header's Day button is on")
         XCTAssertEqual(harness.reader.header.layoutToggles[.day]?.toolTip, "Hide Day  D")
-        XCTAssertEqual(harness.reader.header.layoutToggles[.week]?.toolTip, "Show Week  W")
+        XCTAssertNil(harness.reader.header.layoutToggles[.week], "one calendar button: the week opens from the column")
+        XCTAssertEqual(desk.column.header.weekButton.toolTip, "Show Week  W")
 
         XCTAssertTrue(harness.controller.perform(.toggleDayColumn))
         XCTAssertEqual(desk.placement, .none)

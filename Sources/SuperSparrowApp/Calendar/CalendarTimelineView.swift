@@ -117,6 +117,12 @@ final class CalendarTimelineView: NSView, QuirePointerTarget {
 
     /// The minute moved: the now line's old and new bands, and the next call's Join.
     func nowDidChange() {
+        // The hour holding now stays open on today (§5.54, Fit), so a new hour may unfold: fit again, once an hour.
+        if nowHourStart() != fittedNowHour {
+            fitVersion = -1
+            refit()
+            return
+        }
         let previous = nowY
         placeNow()
         if previous != nowY {
@@ -146,6 +152,15 @@ final class CalendarTimelineView: NSView, QuirePointerTarget {
     /// The top of the hours, under the all-day band.
     var hoursTop: CGFloat { CGFloat(fit?.allDayHeight ?? 0) }
 
+    /// The start of now's hour when today is among the days shown; nil otherwise.
+    private func nowHourStart() -> Date? {
+        let calendar = state.calendar
+        guard content.days.contains(where: { calendar.isDate($0, inSameDayAs: state.now) }) else { return nil }
+        return calendar.dateInterval(of: .hour, for: state.now)?.start
+    }
+
+    private var fittedNowHour: Date?
+
     private func refit() {
         let size = NSSize(width: fitWidth, height: fitHeight)
         guard !content.days.isEmpty, size.width > 0, size.height > 0 else {
@@ -161,8 +176,12 @@ final class CalendarTimelineView: NSView, QuirePointerTarget {
         fitVersion = content.version
         fitSize = size
         fitDays = content.days
+        // Now opens its hour on today, as a mark would: at 19:57 the evening never folds the now line away.
+        fittedNowHour = nowHourStart()
+        var marks = content.fitMarks
+        if let hour = fittedNowHour { marks.append(CalendarFit.Mark(id: "now", start: hour, span: 3600)) }
         let signpost = CalendarSignposts.signposter.beginInterval("calendar.fit")
-        fit = CalendarFit(days: content.days, events: content.events, marks: content.fitMarks, height: Double(size.height),
+        fit = CalendarFit(days: content.days, events: content.events, marks: marks, height: Double(size.height),
                           width: Double(size.width), calendar: state.calendar, metrics: CalendarMetrics.fit)
         CalendarSignposts.signposter.endInterval("calendar.fit", signpost)
         place()
