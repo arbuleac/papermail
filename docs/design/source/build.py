@@ -33,6 +33,11 @@ _ts = T.TEXT_SIZE
 assert len(_ts['names']) == len(_ts['deltas']) == len(_ts['rowHeights']) == len(_ts['rowCompactHeights'])
 assert _ts['rowHeights'] == [T.LAYOUT['row']['height'] + 4 * d for d in _ts['deltas']], 'textSize.rowHeights'
 assert _ts['rowCompactHeights'] == [T.LAYOUT['rowCompact']['height'] + 4 * d for d in _ts['deltas']], 'textSize.rowCompactHeights'
+# the default window (§3.2, §5.54): the macOS 26 rail, the default list, the narrowest reader that keeps its keycaps and
+# the day column, so a new window's reader keeps its keycaps beside the column
+assert T.LAYOUT['window']['defaultWidth'] == (T.LAYOUT['rail']['width26'] + T.LAYOUT['list']['defaultWidth'] +
+                                              T.LAYOUT['window']['readerKeycapsMin'] + T.LAYOUT['calendarPane']['columnWidth']), 'window.defaultWidth'
+assert T.LAYOUT['calendarPane']['readerMinWithColumn'] == T.LAYOUT['window']['readerMinWidth'], 'calendarPane.readerMinWithColumn'
 # the swipe's Archive is accentFill by another name (§5.7): only its Graphite value sets it apart
 assert all(color['swipeArchive'][m] == color['accentFill'][m] for m in MODES), 'swipeArchive is accentFill by another name'
 tokens['contrastPairs'] = None  # filled after ALL_PAIRS is built
@@ -69,6 +74,11 @@ def resolve_stack(stack, mode, colors=None):
         acct = ACC[base[12:]][mode]
         a = int(round(T.LAYOUT['rail']['faceAlpha'] * 255))
         cur = c.over(H(acct + '%02X' % a), H(hexof('sheet', mode, colors)))
+    elif base.startswith('eventFace:'):
+        # an event's face in the day column and the week (§5.54): its account's ink at calendarPane.eventTintAlpha over sheet
+        acct = ACC[base[10:]][mode]
+        a = int(round(T.LAYOUT['calendarPane']['eventTintAlpha'] * 255))
+        cur = c.over(H(acct + '%02X' % a), H(hexof('sheet', mode, colors)))
     else:
         cur = H(hexof(base, mode, colors))
     for t in stack[1:]:
@@ -100,6 +110,28 @@ for a in T.ACCOUNTS:
     ALL_PAIRS.append(('Rail monogram on %s face, pressed (the press wash stays inside the face)' % n, 'ink', ['accountFace:' + n, 'pressed'], 4.5))
 for a in T.AVATARS:
     ALL_PAIRS.append(('Avatar initials, %s' % a['name'], 'avatarInk:' + a['name'], ['avatarFace:' + a['name']], 4.5))
+# Day and week (§5.54): an event's face is its account's ink at calendarPane.eventTintAlpha over `sheet`, so each ink has
+# its own pairs: the title and the time on the face at rest, the title and time on it hovered and pressed (the time and
+# glyphs turn `ink` there, §5), the account edge and a tentative event's dashed outline, the selected conversation's
+# margin rule in both key states, the overlap hatch and the failed glyph; then the ink itself on the surfaces only the
+# calendar puts it on: a pressed day cell, and the folded strip hovered, pressed or open.
+for a in T.ACCOUNTS:
+    n = a['name']
+    face = 'eventFace:' + n
+    ALL_PAIRS += [
+        ('Day and week: event title on its %s face' % n, 'ink', [face], 4.5),
+        ('Day and week: event time, place and queued glyph on its %s face' % n, 'ink2', [face], 4.5),
+        ('Day and week: event title and time on its %s face, hover' % n, 'ink', [face, 'hover'], 4.5),
+        ('Day and week: event title and time on its %s face, pressed' % n, 'ink', [face, 'pressed'], 4.5),
+        ('Account ink %s on its event face: the edge, a tentative event\'s dashed outline' % n, 'account:' + n, [face], 3.0, 3.5),
+        ('Day and week: the selected conversation\'s margin rule on a %s face' % n, 'selRule', [face], 3.0),
+        ('Day and week: the selected conversation\'s margin rule on a %s face, window not key' % n, 'selRuleIdle', [face], 3.0),
+        ('Day and week: the overlap hatch on a %s face' % n, 'warning', [face], 3.0),
+        ('Day and week: the failed glyph on a %s face' % n, 'danger', [face], 3.0),
+        ('Account ink %s on a pressed day cell' % n, 'account:' + n, ['paper', 'pressed'], 3.0, 3.5),
+        ('Account ink %s on the folded strip, hover' % n, 'account:' + n, ['canvas', 'hover'], 3.0, 3.5),
+        ('Account ink %s on the folded strip, pressed or open' % n, 'account:' + n, ['canvas', 'pressed'], 3.0, 3.5),
+    ]
 
 def pair_json(p):
     o = {'use': p[0], 'fg': p[1], 'bg': p[2], 'need': p[3]}

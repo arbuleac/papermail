@@ -76,7 +76,7 @@ extension Quire {
         public enum IcOutline {
             public static let width: CGFloat = 1
             public static let color: String = "ruleStrong"
-            public static let appliesTo: String = "sheets, stack, quick-reply field, autocomplete, link popover, find bar and cheat sheet in increased contrast (slips use slipEdge instead)"
+            public static let appliesTo: String = "sheets, stack, quick-reply field, autocomplete, link popover, find bar, cheat sheet, the day column opened over the reader's edge, an event's details and the week's invitation card in increased contrast (slips use slipEdge instead)"
         }
     }
 
@@ -89,7 +89,7 @@ extension Quire {
         /// Open message sheet, selected rail tile (folder or All Inboxes)
         public static let e1 = QuireElevationLevel(light: [QuireShadowLayer(x: 0, y: 1, blur: 2, spread: 0, rgba: 0x1D1B180F)],
                                                    dark: [QuireShadowLayer(x: 0, y: 1, blur: 2, spread: 0, rgba: 0x00000059)])
-        /// Toast, g-sequence HUD, autocomplete, link popover, dragged chip, dragged rail tile
+        /// Toast, g-sequence HUD, autocomplete, link popover, dragged chip, dragged rail tile, the day column opened over the reader's edge, an event's details, the week's invitation card
         public static let e2 = QuireElevationLevel(light: [QuireShadowLayer(x: 0, y: 6, blur: 20, spread: 0, rgba: 0x1D1B1824), QuireShadowLayer(x: 0, y: 1, blur: 3, spread: 0, rgba: 0x1D1B181A)],
                                                    dark: [QuireShadowLayer(x: 0, y: 8, blur: 24, spread: 0, rgba: 0x00000080), QuireShadowLayer(x: 0, y: 1, blur: 3, spread: 0, rgba: 0x00000059)])
         /// Undo-send panel, cheat-sheet overlay
@@ -120,6 +120,7 @@ extension Quire {
         public static let spinnerTurn: TimeInterval = 0.9
         public static let contrailSweep: TimeInterval = 1.2
         public static let printImageWait: TimeInterval = 3
+        public static let nowTick: TimeInterval = 60
 
         public enum Curve: String, CaseIterable, Sendable {
             case settle

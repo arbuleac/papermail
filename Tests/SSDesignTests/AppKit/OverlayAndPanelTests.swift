@@ -110,12 +110,12 @@ final class OverlayAndPanelTests: XCTestCase {
     // MARK: Cheat sheet
 
     func testCheatSheetPanelMetrics() {
-        XCTAssertEqual(QuireCheatSheetPanel.naturalHeight(), 680, "24 + 28 + 16 + (22 + 9 × 28) + 20 + (22 + 8 × 28) + 20 + 28 + 24")
-        XCTAssertEqual(QuireCheatSheetPanel.naturalHeight(searchTerms: []), 632, "no search line, no room for one")
+        XCTAssertEqual(QuireCheatSheetPanel.naturalHeight(), 736, "24 + 28 + 16 + (22 + 10 × 28) + 20 + (22 + 9 × 28) + 20 + 28 + 24")
+        XCTAssertEqual(QuireCheatSheetPanel.naturalHeight(searchTerms: []), 688, "no search line, no room for one")
         let bands = QuireCheatSheetPanel.bands(of: Quire.cheatSheet)
         XCTAssertEqual(bands.map { $0.map(\.title) }, [["Move", "Act", "Go"], ["Write", "Format", "View"]])
         let panel = QuireCheatSheetPanel()
-        XCTAssertEqual(panel.frame.size, NSSize(width: 816, height: 680))
+        XCTAssertEqual(panel.frame.size, NSSize(width: 816, height: 736))
         XCTAssertFalse(panel.scrolls)
         panel.layoutSubtreeIfNeeded()
         let close = panel.closeButton.alignmentRect(forFrame: panel.closeButton.frame)
@@ -125,8 +125,8 @@ final class OverlayAndPanelTests: XCTestCase {
     }
 
     /// Every row fits its column whole (§5.32): its keycaps in the 96 pt key column, its label in the 144 pt after it,
-    /// never tail-truncated. Rows that share keys (J K, → esc, E ⇧I, # !) are how the sheet keeps every key on it and
-    /// still fits the default window.
+    /// never tail-truncated. Rows that share keys (J K, → esc, E ⇧I, # !, [ ] T, D W) are how the sheet keeps every key
+    /// on it in two bands.
     func testEveryCheatSheetRowFitsItsColumn() {
         let c = Quire.Layout.CheatSheet.self
         for section in Quire.cheatSheet {
@@ -163,6 +163,19 @@ final class OverlayAndPanelTests: XCTestCase {
         }
     }
 
+    /// Day and week's keys (§5.54, §6) have three rows and no more: B with the other things done to the selected
+    /// conversation, [ ] T with the places Go goes to, D W in View beside the rail's toggle. Each section grows by one,
+    /// so band 1 holds ten rows and band 2 nine, and Undo stays Act's last row.
+    func testTheCalendarKeysAreOnTheSheet() {
+        let rows = Quire.cheatSheet.flatMap { section in section.rows.map { (section.title, $0.keys, $0.label) } }
+        XCTAssertTrue(rows.contains { $0 == ("Act", "B", "Block time for this mail") })
+        XCTAssertTrue(rows.contains { $0 == ("Go", "[ ] T", "Day before · after · today") })
+        XCTAssertTrue(rows.contains { $0 == ("View", "D W", "Day column · week") })
+        XCTAssertEqual(Quire.cheatSheet.first { $0.title == "Act" }?.rows.last?.keys, "Z")
+        let bands = QuireCheatSheetPanel.bands(of: Quire.cheatSheet)
+        XCTAssertEqual(bands.map { $0.map(\.rows.count).max() }, [10, 9])
+    }
+
     /// The search operators' line (§5.32, §5.6): every operator the field takes, as typed, on one line that fits
     /// after the key column without truncating.
     func testTheSearchLineListsTheOperatorsAndFits() {
@@ -177,7 +190,13 @@ final class OverlayAndPanelTests: XCTestCase {
 
     func testOverlayPlacesThePanelUnderTheHorizon() {
         let roomy = QuireCheatSheetOverlay.panelFrame(in: NSSize(width: 1280, height: 800))
-        XCTAssertEqual(roomy, NSRect(x: 232, y: 92, width: 816, height: 680), "centred, top at 92, whole: 92 + 680 + 24 = 796 ≤ 800")
+        XCTAssertEqual(roomy, NSRect(x: 232, y: 92, width: 816, height: 684),
+                       "centred, top at 92, 24 pt from the bottom: 92 + 736 + 24 = 852 > 800 since the calendar's rows, so it scrolls")
+        let tall = QuireCheatSheetOverlay.panelFrame(in: NSSize(width: 1304, height: 852))
+        XCTAssertEqual(tall, NSRect(x: 244, y: 92, width: 816, height: 736), "whole from 852 pt")
+        let roomyOverlay = QuireCheatSheetOverlay(frame: NSRect(x: 0, y: 0, width: 1304, height: 800))
+        roomyOverlay.layoutSubtreeIfNeeded()
+        XCTAssertTrue(roomyOverlay.panel.scrolls, "the default window scrolls the bands under the title row")
         let short = QuireCheatSheetOverlay.panelFrame(in: NSSize(width: 960, height: 600))
         XCTAssertEqual(short.minY, 92)
         XCTAssertEqual(short.height, 600 - 92 - 24, "at least 24 pt from the bottom; the bands scroll")

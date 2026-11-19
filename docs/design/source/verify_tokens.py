@@ -32,10 +32,15 @@ def checker(colors):
         return colors[tok][m]
 
     def bg(stack, m):
+        # an account ink's face over sheet: the rail's (accountFace) or an event's in the day column and the week (eventFace)
         if stack[0].startswith('accountFace:'):
             a = int(round(t['layout']['rail']['faceAlpha'] * 255))
-            return c.over(H(acc[stack[0][12:]][m] + '%02X' % a), H(colors['sheet'][m]))
-        cur = H(hexof(stack[0], m))
+            cur = c.over(H(acc[stack[0][12:]][m] + '%02X' % a), H(colors['sheet'][m]))
+        elif stack[0].startswith('eventFace:'):
+            a = int(round(t['layout']['calendarPane']['eventTintAlpha'] * 255))
+            cur = c.over(H(acc[stack[0][10:]][m] + '%02X' % a), H(colors['sheet'][m]))
+        else:
+            cur = H(hexof(stack[0], m))
         for s in stack[1:]: cur = c.over(H(hexof(s, m)), cur)
         return cur
 

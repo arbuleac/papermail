@@ -66,7 +66,7 @@ final class MarkAsSpamTests: XCTestCase {
         let act = try XCTUnwrap(Quire.cheatSheet.first { $0.title == "Act" }?.rows)
         let row = try XCTUnwrap(act.first { $0.keys == "# !" })
         XCTAssertEqual(row.label, "Move to Trash · spam")
-        XCTAssertEqual(act.count, 9, "the first band keeps its height, so the sheet still fits the default window whole")
+        XCTAssertEqual(act.count, 10, "nine rows, and B for the day column's time set aside (§5.54)")
         let view = try XCTUnwrap(Quire.cheatSheet.first { $0.title == "View" }?.rows)
         XCTAssertTrue(view.contains { $0.keys == "." && $0.label == "Show · hide quoted text" })
     }
