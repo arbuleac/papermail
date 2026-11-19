@@ -50,6 +50,9 @@ struct LaunchOptions: Equatable {
     var hudSnapshotPath: String?
     /// Debug aid: the app's alert inventory (spec §5.33) as the system draws it, then quit.
     var alertsSnapshotPath: String?
+    /// Debug aid: `--snapshot-scale=2` draws every snapshot at that many pixels a point, whatever the screen's
+    /// backing scale, so a render from a 1x display still shows Retina type.
+    var snapshotScale: CGFloat?
 
     init(arguments: [String] = CommandLine.arguments) {
         for argument in arguments.dropFirst() {
@@ -98,6 +101,8 @@ struct LaunchOptions: Equatable {
                 demo = true
             case let value where value.hasPrefix("--snapshot-alerts="):
                 alertsSnapshotPath = Self.value(of: value, after: "--snapshot-alerts=")
+            case let value where value.hasPrefix("--snapshot-scale="):
+                snapshotScale = Self.value(of: value, after: "--snapshot-scale=").flatMap(Double.init).map { CGFloat(min(4, max(1, $0))) }
             #endif
             default:
                 // LaunchServices adds -NSDocumentRevisionsDebugMode and friends; ignore anything unknown.

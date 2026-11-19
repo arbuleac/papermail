@@ -9,13 +9,26 @@ import SSDesign
 enum SnapshotRenderer {
     private static let log = Logger(subsystem: "io.supersparrow.mac", category: "shell")
 
+    /// `--snapshot-scale` (debug builds): pixels a point for every snapshot; nil draws at the window's backing scale.
+    static var scale: CGFloat?
+
     /// The view and everything under it, layer content included.
     static func render(_ view: NSView, rect: NSRect? = nil) -> NSBitmapImageRep? {
         let rect = rect ?? view.bounds
-        guard rect.width > 0, rect.height > 0, let bitmap = view.bitmapImageRepForCachingDisplay(in: rect) else { return nil }
+        guard rect.width > 0, rect.height > 0, let bitmap = bitmap(for: view, in: rect) else { return nil }
         view.effectiveAppearance.performAsCurrentDrawingAppearance {
             view.cacheDisplay(in: rect, to: bitmap)
         }
+        return bitmap
+    }
+
+    /// A bitmap to cache `view` into: at `scale` when set, otherwise as AppKit makes one for the window.
+    static func bitmap(for view: NSView, in rect: NSRect) -> NSBitmapImageRep? {
+        guard let scale else { return view.bitmapImageRepForCachingDisplay(in: rect) }
+        let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int((rect.width * scale).rounded(.up)),
+                                      pixelsHigh: Int((rect.height * scale).rounded(.up)), bitsPerSample: 8, samplesPerPixel: 4,
+                                      hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)
+        bitmap?.size = rect.size
         return bitmap
     }
 

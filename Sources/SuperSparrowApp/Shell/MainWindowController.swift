@@ -1065,8 +1065,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             // Find in conversation (§5.50): the bar over the demo's first conversation, its matches marked.
             conversation.whenShownRenderLands(timeout: 10) { [weak self] _ in self?.conversation.find.open(query: "the") }
         }
+        applyDebugCalendarStates()
         #endif
-        return first
+        return list.selectedConversationID ?? first
     }
 
     var hasConversations: Bool { !list.conversations.isEmpty }

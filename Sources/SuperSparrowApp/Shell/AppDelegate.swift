@@ -83,6 +83,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // And the theme (§4.16), so the first window draws in it. `--theme` (debug) wins, unsaved.
         QuireEnvironment.shared.setTheme(options.theme ?? settings.theme)
         NSApp.mainMenu = MainMenu.build(appDelegate: self)
+        #if DEBUG
+        SnapshotRenderer.scale = options.snapshotScale
+        #endif
         // Settings › Appearance › Appearance; `--appearance` (debug) wins for this process.
         switch options.appearance {
         case "light": NSApp.appearance = NSAppearance(named: .aqua)
@@ -189,7 +192,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     private func writeSnapshot(of window: NSWindow?, to path: String, reader: (image: NSImage, webView: WKWebView?)?) {
         guard let view = window?.contentView?.superview ?? window?.contentView,
-              let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+              let bitmap = SnapshotRenderer.bitmap(for: view, in: view.bounds) else { return }
         view.cacheDisplay(in: view.bounds, to: bitmap)
         if let reader, let webView = reader.webView, webView.window === view.window,
            let context = NSGraphicsContext(bitmapImageRep: bitmap) {

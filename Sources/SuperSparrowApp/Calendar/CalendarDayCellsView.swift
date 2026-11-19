@@ -129,28 +129,27 @@ final class CalendarDayCellsView: NSView, QuirePointerTarget {
                                isIC ? .qRuleStrong : .qRule)
     }
 
-    /// The weekday over the date, centred; today's date strong and ruled under in `ink`.
+    /// The weekday over the date, the two lines centred in the cell (at any Text size); the date is what reads first.
     private func drawWords(_ day: Date, in rect: NSRect, lit: Bool, isBusy: Bool, isToday: Bool) {
-        let color: NSColor = lit ? .qInk : .qInk3
-        let weekday = QuireFont.attributedString(state.text.weekday(day), role: .runningHead, color: color)
-        let headHeight = QuireFont.Role.runningHead.lineHeight
-        let top = rect.minY + Pane.dayCellTextTop
+        let weekdayRole = QuireFont.Role.meta
+        let dateRole: QuireFont.Role = isToday ? .bodyStrong : .body
+        let top = rect.minY + max(0, ((rect.height - weekdayRole.lineHeight - dateRole.lineHeight) / 2).rounded(.down))
+        let weekday = QuireFont.attributedString(state.text.weekday(day), role: weekdayRole, color: lit ? .qInk : .qInk3)
         let weekdayWidth = CalendarType.width(of: weekday)
-        weekday.draw(with: NSRect(x: rect.midX - weekdayWidth / 2, y: top, width: weekdayWidth + 1, height: headHeight),
+        weekday.draw(with: NSRect(x: rect.midX - weekdayWidth / 2, y: top, width: weekdayWidth + 1, height: weekdayRole.lineHeight),
                      options: QuireFont.drawingOptions, context: nil)
-        let dateRole: QuireFont.Role = isToday ? .metaStrong : .meta
         // The date says whether the day holds anything: `ink` with busy time, `ink3` free. No dot, bar or ink per event.
         let dateColor: NSColor = isToday || lit || isBusy ? .qInk : .qInk3
         let date = QuireFont.attributedString(state.text.dayNumber(day), role: dateRole, color: dateColor)
         let dateWidth = CalendarType.width(of: date)
-        let dateTop = top + headHeight
+        let dateTop = top + weekdayRole.lineHeight
         date.draw(with: NSRect(x: rect.midX - dateWidth / 2, y: dateTop, width: dateWidth + 1, height: dateRole.lineHeight),
                   options: QuireFont.drawingOptions, context: nil)
         if isToday {
-            // A 2 pt rule under today's date, under its baseline and clear of the track.
+            // The tab underline under today's date, across its line box's last points, below the baseline.
+            let rule = Quire.Border.TabUnderline.width
             NSColor.qInk.setFill()
-            let ruleTop = dateTop + dateRole.lineHeight - Pane.dayCellAllDayLine / 2
-            NSRect(x: rect.midX - dateWidth / 2, y: ruleTop, width: dateWidth, height: Pane.dayCellAllDayLine).fill()
+            NSRect(x: rect.midX - dateWidth / 2, y: dateTop + dateRole.lineHeight - rule, width: dateWidth, height: rule).fill()
         }
     }
 

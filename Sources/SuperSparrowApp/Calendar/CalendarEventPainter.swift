@@ -57,26 +57,7 @@ enum CalendarEventPainter {
         let shape = QuireDraw.roundedRect(face, radius: Pane.eventRadius)
         NSGraphicsContext.saveGraphicsState()
         shape.addClip()
-        // The face: the ink's tint over `sheet`, opaque; a pencilled one is `paper`. Hover and pressed washes go over it.
-        if look.isPencilled {
-            NSColor.qPaper.setFill()
-            face.fill()
-        } else {
-            NSColor.qSheet.setFill()
-            face.fill()
-            look.ink.withAlphaComponent(Pane.eventTintAlpha).setFill()
-            face.fill(using: .sourceOver)
-        }
-        switch look.interaction {
-        case .hover:
-            NSColor.qHover.setFill()
-            face.fill(using: .sourceOver)
-        case .pressed:
-            NSColor.qPressed.setFill()
-            face.fill(using: .sourceOver)
-        case .rest:
-            break
-        }
+        fillFace(face, look)
         drawHatch(look)
         // The edge down the leading side, inside the radius: the margin rule for the selected conversation's.
         let edge = NSRect(x: face.minX, y: face.minY, width: Pane.eventEdge, height: face.height)
@@ -96,6 +77,40 @@ enum CalendarEventPainter {
         }
         drawWords(look)
         if look.moreCount > 0 { drawMore(look.moreCount, in: face) }
+    }
+
+    /// The face: the ink's tint over `sheet`, opaque; a pencilled one is `paper`. Hover and pressed washes go over it.
+    private static func fillFace(_ rect: NSRect, _ look: CalendarEventLook) {
+        if look.isPencilled {
+            NSColor.qPaper.setFill()
+            rect.fill()
+        } else {
+            NSColor.qSheet.setFill()
+            rect.fill()
+            look.ink.withAlphaComponent(Pane.eventTintAlpha).setFill()
+            rect.fill(using: .sourceOver)
+        }
+        switch look.interaction {
+        case .hover:
+            NSColor.qHover.setFill()
+            rect.fill(using: .sourceOver)
+        case .pressed:
+            NSColor.qPressed.setFill()
+            rect.fill(using: .sourceOver)
+        case .rest:
+            break
+        }
+    }
+
+    /// The face again under a line of words where the hatch crosses it, 2 pt past its ends: the words keep their pair
+    /// on the face (§5.54), and the hatch still shows around and below them.
+    private static func clearHatch(under words: NSRect, _ look: CalendarEventLook) {
+        guard !look.hatches.isEmpty else { return }
+        let area = words.insetBy(dx: -Quire.Space.s1, dy: 0).intersection(look.face)
+        for band in look.hatches {
+            let cleared = area.intersection(NSRect(x: look.face.minX, y: band.y, width: look.face.width, height: band.height))
+            if !cleared.isEmpty { fillFace(cleared, look) }
+        }
     }
 
     /// Diagonal lines rising toward the trailing edge, 1 pt every 5 pt, over the time the invitation shares.
@@ -143,6 +158,12 @@ enum CalendarEventPainter {
         return event.isSetAside ? (Quire.Icon.fromThisMail, nil) : nil
     }
 
+    /// The time line's words: the range, or its start alone where the range would be cut (“17:30”, never “17:30 -…”).
+    static func timeLine(range: String, start: String, color: NSColor, width: CGFloat) -> NSAttributedString {
+        let words = QuireFont.attributedString(range, role: .meta, color: color)
+        return CalendarType.width(of: words) <= width ? words : QuireFont.attributedString(start, role: .meta, color: color)
+    }
+
     private static func drawWords(_ look: CalendarEventLook) {
         let face = look.face
         let lit = look.interaction != .rest
@@ -167,13 +188,17 @@ enum CalendarEventPainter {
             let lineRole = QuireFont.Role.metaMedium
             let lineHeight = lineRole.lineHeight
             let y = face.minY + max(0, ((face.height - lineHeight) / 2).rounded(.down))
+            let time = look.style == .column ? QuireFont.attributedString(look.startText, role: .meta, color: quiet) : nil
+            let text = CalendarType.line(title, role: lineRole, color: titleColor, italic: look.isPencilled)
+            var end = left + (time.map { CalendarType.width(of: $0) + Pane.eventGlyphGap } ?? 0)
+            if glyph != nil { end += glyphRoom }
+            clearHatch(under: NSRect(x: left, y: y, width: min(right, end + CalendarType.width(of: text)) - left, height: lineHeight),
+                       look)
             var x = left
-            if look.style == .column {
-                let time = QuireFont.attributedString(look.startText, role: .meta, color: quiet)
-                let timeWidth = CalendarType.width(of: time)
+            if let time {
                 time.draw(with: NSRect(x: x, y: y, width: max(0, right - x), height: lineHeight),
                           options: QuireFont.drawingOptions, context: nil)
-                x += timeWidth + Pane.eventGlyphGap
+                x += CalendarType.width(of: time) + Pane.eventGlyphGap
             }
             if let glyph, x + Pane.eventGlyph < right {
                 QuireSymbol.draw(glyph.name, size: .custom(Pane.eventGlyph), color: glyph.color ?? quiet,
@@ -181,7 +206,6 @@ enum CalendarEventPainter {
                 x += glyphRoom
             }
             if x < right {
-                let text = CalendarType.line(title, role: lineRole, color: titleColor, italic: look.isPencilled)
                 text.draw(with: NSRect(x: x, y: y, width: right - x, height: lineHeight), options: QuireFont.drawingOptions,
                           context: nil)
             }
@@ -192,7 +216,8 @@ enum CalendarEventPainter {
         // Several lines: the time, the title wrapping, and in the column a place line for an event alone with room.
         var y = face.minY + Pane.eventPadTop
         let timeRole = QuireFont.Role.meta
-        let time = QuireFont.attributedString(look.timeText, role: timeRole, color: quiet)
+        let time = timeLine(range: look.timeText, start: look.startText, color: quiet, width: width)
+        clearHatch(under: NSRect(x: left, y: y, width: min(width, CalendarType.width(of: time)), height: timeRole.lineHeight), look)
         time.draw(with: NSRect(x: left, y: y, width: width, height: timeRole.lineHeight), options: QuireFont.drawingOptions,
                   context: nil)
         y += timeRole.lineHeight
@@ -202,25 +227,28 @@ enum CalendarEventPainter {
         let lines = CalendarType.lines(of: titleRole, in: face.maxY - y - placeHeight)
         var titleBottom = y
         if lines > 0 {
+            let text = CalendarType.wrapping(title, role: titleRole, color: titleColor, italic: look.isPencilled,
+                                             firstLineIndent: glyphRoom)
+            let box = NSRect(x: left, y: y, width: width, height: CGFloat(lines) * titleRole.lineHeight)
+            let used = text.boundingRect(with: box.size, options: QuireFont.drawingOptions, context: nil)
+            titleBottom = y + min(box.height, ceil(used.height / titleRole.lineHeight) * titleRole.lineHeight)
+            clearHatch(under: NSRect(x: left, y: y, width: min(width, ceil(used.width)), height: titleBottom - y), look)
             if let glyph {
                 QuireSymbol.draw(glyph.name, size: .custom(Pane.eventGlyph), color: glyph.color ?? quiet,
                                  centredIn: NSRect(x: left, y: y, width: Pane.eventGlyph, height: titleRole.lineHeight))
             }
-            let text = CalendarType.wrapping(title, role: titleRole, color: titleColor, italic: look.isPencilled,
-                                             firstLineIndent: glyphRoom)
-            let box = NSRect(x: left, y: y, width: width, height: CGFloat(lines) * titleRole.lineHeight)
-            let used = text.boundingRect(with: box.size, options: QuireFont.drawingOptions, context: nil).height
             text.draw(with: box, options: QuireFont.drawingOptions, context: nil)
-            titleBottom = y + min(box.height, ceil(used / titleRole.lineHeight) * titleRole.lineHeight)
         }
         if showsPlace, let place = look.place, titleBottom + placeHeight <= face.maxY {
             let lineHeight = QuireFont.Role.meta.lineHeight
+            let x = left + Pane.eventGlyph + Pane.eventGlyphGap
+            let words = QuireFont.attributedString(place.text, role: .meta, color: quiet)
+            clearHatch(under: NSRect(x: left, y: titleBottom, width: min(right, x + CalendarType.width(of: words)) - left,
+                                     height: lineHeight), look)
             QuireSymbol.draw(place.glyph, size: .custom(Pane.eventGlyph), color: quiet,
                              centredIn: NSRect(x: left, y: titleBottom, width: Pane.eventGlyph, height: lineHeight))
-            let x = left + Pane.eventGlyph + Pane.eventGlyphGap
-            QuireFont.attributedString(place.text, role: .meta, color: quiet)
-                .draw(with: NSRect(x: x, y: titleBottom, width: max(0, right - x), height: lineHeight),
-                      options: QuireFont.drawingOptions, context: nil)
+            words.draw(with: NSRect(x: x, y: titleBottom, width: max(0, right - x), height: lineHeight),
+                       options: QuireFont.drawingOptions, context: nil)
         }
         NSGraphicsContext.restoreGraphicsState()
     }

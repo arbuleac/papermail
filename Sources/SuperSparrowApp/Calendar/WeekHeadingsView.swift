@@ -93,8 +93,8 @@ final class WeekHeadingsView: NSView, QuirePointerTarget {
                 // Today's heading ruled under: 2 pt of `ink`, 4 pt below its line.
                 NSColor.qInk.setFill()
                 let width = min(CalendarType.width(of: words), rect.maxX - x)
-                NSRect(x: x, y: Pane.weekHeadTextTop + role.lineHeight + Pane.todayUnderlineGap - Pane.dayCellAllDayLine,
-                       width: width, height: Pane.dayCellAllDayLine).fill()
+                let rule = Quire.Border.TabUnderline.width
+                NSRect(x: x, y: Pane.weekHeadTextTop + role.lineHeight + Pane.todayUnderlineGap - rule, width: width, height: rule).fill()
             }
         }
         NSColor.qRule.setFill()
