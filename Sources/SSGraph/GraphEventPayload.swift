@@ -1,8 +1,8 @@
 import Foundation
 import SSCore
 
-/// Body of `POST /me/events` for time set aside for a mail: busy, no attendees (none are named, so Exchange sends no
-/// invitation), no reminder, and one plain line saying what it is for.
+/// Body of `POST /me/events` for time set aside for a mail: busy and private, no attendees (none are named, so Exchange
+/// sends no invitation), no reminder, and one plain line saying what it is for.
 struct GraphEventPayload: Encodable, Sendable {
     struct DateTimeZone: Encodable, Sendable {
         var dateTime: String
@@ -13,6 +13,9 @@ struct GraphEventPayload: Encodable, Sendable {
     var start: DateTimeZone
     var end: DateTimeZone
     var showAs = "busy"
+    /// Private: the subject is a mail's, so delegates and colleagues who see the calendar see only that the time is
+    /// busy. The owner still sees it all.
+    var sensitivity = "private"
     var isReminderOn = false
     var body: GraphBodyPayload
     /// Graph's guard against a second copy when a create is sent again after a lost reply; reads report it back.

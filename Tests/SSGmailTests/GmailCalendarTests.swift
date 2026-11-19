@@ -278,7 +278,8 @@ final class GmailCalendarTests: XCTestCase {
         XCTAssertEqual(insert.query["sendUpdates"], ["none"])
         XCTAssertEqual(insert.header("Content-Type"), "application/json; charset=UTF-8")
         let body = insert.jsonBody
-        XCTAssertEqual(Set(body.keys), ["id", "summary", "description", "start", "end", "transparency", "reminders", "extendedProperties"],
+        XCTAssertEqual(Set(body.keys), ["id", "summary", "description", "start", "end", "transparency", "visibility", "reminders",
+                                        "extendedProperties"],
                        "no attendees, so Google mails nobody")
         XCTAssertEqual(body["id"] as? String, "0123456789abcdef0123456789abcdef")
         XCTAssertEqual(body["summary"] as? String, "Q3 budget")
@@ -287,6 +288,7 @@ final class GmailCalendarTests: XCTestCase {
         XCTAssertEqual(body["start"] as? [String: String], ["dateTime": "2026-11-19T13:00:00Z"])
         XCTAssertEqual(body["end"] as? [String: String], ["dateTime": "2026-11-19T13:30:00Z"])
         XCTAssertEqual(body["transparency"] as? String, "opaque")
+        XCTAssertEqual(body["visibility"] as? String, "private", "others who see the calendar see only that it is busy")
         XCTAssertEqual(body["reminders"] as? [String: Bool], ["useDefault": false])
         XCTAssertEqual((body["extendedProperties"] as? [String: Any])?["private"] as? [String: String],
                        ["supersparrowKey": "0123456789abcdef0123456789abcdef"])

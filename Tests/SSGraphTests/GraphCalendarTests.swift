@@ -379,12 +379,13 @@ final class GraphCalendarTests: GraphTestCase {
         XCTAssertEqual(post.header("Content-Type"), "application/json")
         XCTAssertTrue(post.header("Prefer")?.contains("outlook.timezone=\"UTC\"") ?? false)
         let json = post.json()
-        XCTAssertEqual(Set(json.keys), ["subject", "start", "end", "showAs", "isReminderOn", "body", "transactionId"],
+        XCTAssertEqual(Set(json.keys), ["subject", "start", "end", "showAs", "sensitivity", "isReminderOn", "body", "transactionId"],
                        "no attendees: Exchange sends nobody an invitation")
         XCTAssertEqual(json["subject"] as? String, "Quarterly numbers")
         XCTAssertEqual(json["start"] as? [String: String], ["dateTime": "2026-11-02T15:00:00", "timeZone": "UTC"])
         XCTAssertEqual(json["end"] as? [String: String], ["dateTime": "2026-11-02T15:30:00", "timeZone": "UTC"])
         XCTAssertEqual(json["showAs"] as? String, "busy")
+        XCTAssertEqual(json["sensitivity"] as? String, "private", "others who see the calendar see only that it is busy")
         XCTAssertEqual(json["isReminderOn"] as? Bool, false)
         XCTAssertEqual(json["body"] as? [String: String],
                        ["contentType": "text", "content": "Set aside in SuperSparrow for: Quarterly numbers"])
