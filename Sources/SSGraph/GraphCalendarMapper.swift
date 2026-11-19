@@ -3,22 +3,25 @@ import SSCore
 
 /// Reads Outlook's events (a `calendarView` page, a block Graph just created) into the store's `CalendarEvent`. Times
 /// come in UTC (`Prefer: outlook.timezone="UTC"`), so a timed event is the instant its `dateTime` names. An all-day event
-/// keeps the date written, held as that date's UTC midnight (floating), whatever zone Graph names beside it: Exchange
-/// writes all-day events at midnight of their own dates, and shifting them through a zone would move them a day.
+/// is held as its own dates' UTC midnights (floating): Exchange keeps it as midnight to midnight in the zone it was made
+/// in, which the UTC preference moves, so its dates are read back in that zone (`GraphEventTime.allDay`).
 struct GraphCalendarMapper {
     let accountID: AccountID
 
     /// Nil for an event the calendar leaves out (cancelled) or cannot place (no id, a start or end that does not read).
     func event(from graph: GraphEvent) -> CalendarEvent? {
         guard graph.isCancelled != true, let providerID = Self.nonEmpty(graph.id),
-              let start = graph.start.flatMap(GraphEventTime.read), let end = graph.end.flatMap(GraphEventTime.read) else {
+              let startValue = graph.start, let endValue = graph.end,
+              let start = GraphEventTime.read(startValue), let end = GraphEventTime.read(endValue) else {
             return nil
         }
         let isAllDay = graph.isAllDay ?? false
         var first = start.date
         var last = end.date
         if isAllDay {
-            guard let startDay = start.day, let endDay = end.day else { return nil }
+            guard let startDay = GraphEventTime.allDay(startValue, originalZone: graph.originalStartTimeZone),
+                  let endDay = GraphEventTime.allDay(endValue, originalZone: graph.originalEndTimeZone ?? graph.originalStartTimeZone)
+            else { return nil }
             first = startDay
             // The end is exclusive; one that names no later day still holds its own day rather than none.
             last = endDay > startDay ? endDay : startDay.addingTimeInterval(86_400)
@@ -63,9 +66,10 @@ struct GraphCalendarMapper {
         nonEmpty(address?.name) ?? nonEmpty(address?.address)
     }
 
-    /// Only a web address: Join and Open in Outlook hand it to the browser.
+    /// Only an https address: Join and Open in Outlook open nothing else (the window refuses any other scheme, http
+    /// included), so a link it would refuse is never offered as a button that does nothing.
     private static func webAddress(_ value: String?) -> String? {
-        nonEmpty(value).flatMap { CalendarInvitationReader.webAddress($0) == nil ? nil : $0 }
+        nonEmpty(value).flatMap { CalendarInvitationReader.webAddress($0)?.scheme?.lowercased() == "https" ? $0 : nil }
     }
 
     private static func nonEmpty(_ value: String?) -> String? {

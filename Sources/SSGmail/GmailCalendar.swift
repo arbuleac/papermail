@@ -9,19 +9,20 @@ import os
 /// in requests rather than Gmail's units: the provider reports a read's requests (`CalendarListing.requestCount`) and
 /// charges nothing itself.
 extension GmailProvider: CalendarProvider {
-    /// Pages one read takes at most: 250 events a page, so 10,000 events in the window. A listing longer than that is
-    /// taken as one that never ends, and fails rather than reporting part of the window as all of it, which would
-    /// remove the rest from the store.
-    static let maxCalendarPages = 40
-    static let calendarPageSize = 250
+    /// Pages one read takes at most. A listing longer than that is taken as one that never ends, and fails rather than
+    /// reporting part of the window as all of it, which would remove the rest from the store. Generous beside the page
+    /// size, since Google may hand back a page shorter than asked for (even an empty one) with more to come.
+    static let maxCalendarPages = 20
+    /// The most `events.list` gives a page (its default is 250): a busy window is one request, not several in a row.
+    static let calendarPageSize = 2500
     /// Only the fields `GoogleCalendarMapper` reads: a page of full events carries descriptions and every attendee.
     static let calendarFields = "items(id,status,summary,location,start,end,transparency,attendees(self,responseStatus),"
         + "organizer(self,displayName,email),hangoutLink,conferenceData(entryPoints(entryPointType,uri)),htmlLink,iCalUID,"
         + "updated,eventType,extendedProperties/private),nextPageToken"
     /// The line a block's description starts with, before the subject.
     static let setAsideLead = "Set aside in SuperSparrow for: "
-    /// Gmail's web address for a conversation, before its thread id.
-    static let webConversationPrefix = "https://mail.google.com/mail/#all/"
+    /// Gmail's web app, where a conversation's link starts.
+    static let gmailWebApp = "https://mail.google.com/mail/"
 
     private static let calendarLog = Logger(subsystem: "io.supersparrow.mac", category: "gmail")
 
@@ -42,6 +43,8 @@ extension GmailProvider: CalendarProvider {
             URLQueryItem(name: "showDeleted", value: "false"),
             URLQueryItem(name: "maxResults", value: String(Self.calendarPageSize)),
             URLQueryItem(name: "fields", value: Self.calendarFields),
+            // Google indents its JSON unless told not to: whitespace to download and parse every minute.
+            URLQueryItem(name: "prettyPrint", value: "false"),
         ]
         var events: [CalendarEvent] = []
         var pages = 0
@@ -68,7 +71,7 @@ extension GmailProvider: CalendarProvider {
     public func createCalendarEvent(_ event: CalendarEvent) async throws -> CalendarEvent {
         let id = event.clientKey.flatMap { Self.isGoogleEventID($0) ? $0 : nil }
         let title = Self.blockTitle(event.title)
-        let link = try await conversationLink(for: event.sourceMessage)
+        let link = try await conversationLink(for: event)
         let body = GoogleCalendarEventInsert(
             id: id,
             summary: title,
@@ -98,7 +101,7 @@ extension GmailProvider: CalendarProvider {
         var created = event
         created.title = title
         created.providerID = resource.id
-        created.webURL = resource.htmlLink.flatMap { CalendarInvitationReader.webAddress($0) == nil ? nil : $0 } ?? event.webURL
+        created.webURL = GoogleCalendarMapper.secureWebAddress(resource.htmlLink) ?? event.webURL
         created.updatedAt = resource.updated.flatMap(GoogleCalendarMapper(accountID: accountID).instant(_:)) ?? event.updatedAt
         created.invitationUID = resource.iCalUID ?? event.invitationUID
         created.sync = .synced
@@ -140,19 +143,22 @@ extension GmailProvider: CalendarProvider {
         return nil
     }
 
-    /// The link back to the mail: Gmail's web address of its conversation. The event names the message, not its thread,
-    /// so the thread id is asked of Gmail (one `messages.get` of two fields). Without it the description is the sentence
-    /// alone: the block matters more than its link, so Gmail's refusal here never fails the create; a token refused, or
-    /// one that cannot be had, fails it, as it would fail the create itself.
-    private func conversationLink(for message: MessageID?) async throws -> String? {
-        guard let message, message.accountID == accountID, !message.providerID.isEmpty else { return nil }
+    /// The link back to the mail: Gmail's web address of its conversation. The engine hands the thread id over
+    /// (`CalendarEvent.sourceThreadID`, from the store), so a create costs no request of its own. Only when it did not
+    /// (an older row) is the thread asked of Gmail, one `messages.get` of two fields. Without it the description is the
+    /// sentence alone: the block matters more than its link, so Gmail's refusal here never fails the create; a token
+    /// refused, or one that cannot be had, fails it, as it would fail the create itself.
+    private func conversationLink(for event: CalendarEvent) async throws -> String? {
+        if let thread = event.sourceThreadID, Self.isThreadID(thread) {
+            return Self.conversationLink(thread: thread, accountEmail: accountEmail)
+        }
+        guard let message = event.sourceMessage, message.accountID == accountID, !message.providerID.isEmpty else { return nil }
         let query = [URLQueryItem(name: "format", value: "minimal"), URLQueryItem(name: "fields", value: "id,threadId")]
         do {
             let request = try GmailRequest.get("messages/" + Self.pathComponent(message.providerID), query: query, kind: .message)
             let reference = try await http.json(GmailMessageRef.self, for: request)
-            guard let thread = reference.threadId, !thread.isEmpty,
-                  thread.unicodeScalars.allSatisfy({ $0.isASCII && CharacterSet.alphanumerics.contains($0) }) else { return nil }
-            return Self.webConversationPrefix + thread
+            guard let thread = reference.threadId, Self.isThreadID(thread) else { return nil }
+            return Self.conversationLink(thread: thread, accountEmail: accountEmail)
         } catch let error as ProviderError {
             switch error {
             case .unauthorized, .cancelled:
@@ -163,6 +169,27 @@ extension GmailProvider: CalendarProvider {
             }
         }
     }
+
+    /// Gmail's thread ids are hexadecimal; anything else is not one, and never goes into a link.
+    static func isThreadID(_ value: String) -> Bool {
+        !value.isEmpty && value.unicodeScalars.allSatisfy { $0.isASCII && CharacterSet.alphanumerics.contains($0) }
+    }
+
+    /// The conversation in Gmail's web app, in the block's own account: `authuser` names the account by its address,
+    /// so a browser signed in to several Google accounts opens this one rather than the first signed in (where the
+    /// thread is not found), and one not signed in to it is asked for that account. `authuser` rather than the path
+    /// form `/mail/u/<address>/`: it is the account selector every Google site reads, documented and taken before Gmail
+    /// loads, where the path form is Gmail's own; the fragment rides through Google's redirect to `/mail/u/<n>/`.
+    /// Without an address (a provider made only to sign in) the link opens the browser's first account.
+    static func conversationLink(thread: String, accountEmail: String?) -> String {
+        let account = accountEmail?.trimmingCharacters(in: .whitespacesAndNewlines)
+            .addingPercentEncoding(withAllowedCharacters: unreservedASCII) ?? ""
+        return gmailWebApp + (account.isEmpty ? "" : "?authuser=" + account) + "#all/" + thread
+    }
+
+    /// RFC 3986's unreserved characters, ASCII only: `@` and `+` of an address are escaped, and so is any letter
+    /// beyond ASCII, which `CharacterSet.alphanumerics` would let through.
+    private static let unreservedASCII = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
 
     /// The block's title: the conversation's subject on one line, "No subject" when it has none (the app names it so
     /// already; a blank title would leave Google's own "(No title)" on the user's calendar).

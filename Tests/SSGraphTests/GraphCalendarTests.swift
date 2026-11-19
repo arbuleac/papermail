@@ -9,7 +9,7 @@ import XCTest
 final class GraphCalendarTests: GraphTestCase {
     private static let calendarScopes = "Mail.ReadWrite Mail.Send User.Read Calendars.ReadWrite profile openid"
     private let calendarViewPath = "/v1.0/me/calendarView"
-    private let nextLink = "https://graph.microsoft.com/v1.0/me/calendarView?startDateTime=2026-10-18T00%3A00%3A00Z&endDateTime=2026-12-27T00%3A00%3A00Z&%24select=id%2Csubject&%24top=200&%24skip=200"
+    private let nextLink = "https://graph.microsoft.com/v1.0/me/calendarView?startDateTime=2026-10-18T00%3A00%3A00Z&endDateTime=2026-12-27T00%3A00%3A00Z&%24select=id%2Csubject&%24top=999&%24skip=999"
 
     override func setUp() {
         super.setUp()
@@ -36,8 +36,9 @@ final class GraphCalendarTests: GraphTestCase {
                       response: String = "accepted", isOrganizer: Bool = false, showAs: String = "busy",
                       isCancelled: Bool = false, type: String = "singleInstance",
                       onlineMeeting: String = "null", onlineMeetingUrl: String = "null",
-                      transactionId: String? = nil) -> String {
+                      transactionId: String? = nil, originalTimeZone: String? = nil) -> String {
         let transaction = transactionId.map { #", "transactionId": "\#($0)""# } ?? ""
+        let original = originalTimeZone.map { #", "originalStartTimeZone": "\#($0)", "originalEndTimeZone": "\#($0)""# } ?? ""
         return """
         {"@odata.etag": "W/\\"DwAAABYAAAA\\"", "id": "\(id)", "subject": "\(subject)", "isAllDay": \(isAllDay),
          "isCancelled": \(isCancelled), "isOrganizer": \(isOrganizer), "showAs": "\(showAs)", "type": "\(type)",
@@ -49,7 +50,7 @@ final class GraphCalendarTests: GraphTestCase {
          "start": {"dateTime": "\(start)", "timeZone": "\(timeZone)"},
          "end": {"dateTime": "\(end)", "timeZone": "\(timeZone)"},
          "location": {"displayName": "Bay 4", "locationType": "default", "uniqueIdType": "unknown"},
-         "organizer": {"emailAddress": {"name": "Rachel Kim", "address": "rachel.kim@northwind.test"}}\(transaction)}
+         "organizer": {"emailAddress": {"name": "Rachel Kim", "address": "rachel.kim@northwind.test"}}\(transaction)\(original)}
         """
     }
 
@@ -87,7 +88,7 @@ final class GraphCalendarTests: GraphTestCase {
     func testAReadAsksForTheWindowInUTCAndFollowsEveryPage() async throws {
         route { request in
             guard request.method == "GET", request.path == self.calendarViewPath else { return nil }
-            if request.query["$skip"] == "200" {
+            if request.query["$skip"] == "999" {
                 return .json(self.page([Self.event(id: "AAMkTWO", start: "2026-11-04T09:00:00.0000000", end: "2026-11-04T09:30:00.0000000")]))
             }
             return .json(self.page([Self.event(id: "AAMkONE")], nextLink: self.nextLink))
@@ -101,8 +102,8 @@ final class GraphCalendarTests: GraphTestCase {
         let first = try XCTUnwrap(sent.first)
         XCTAssertEqual(first.query["startDateTime"], "2026-10-18T00:00:00Z")
         XCTAssertEqual(first.query["endDateTime"], "2026-12-28T00:00:00Z")
-        XCTAssertEqual(first.query["$select"], "id,subject,start,end,isAllDay,location,showAs,responseStatus,isCancelled,isOrganizer,onlineMeeting,onlineMeetingUrl,webLink,organizer,iCalUId,lastModifiedDateTime,type,transactionId")
-        XCTAssertEqual(first.query["$top"], "200")
+        XCTAssertEqual(first.query["$select"], "id,subject,start,end,isAllDay,originalStartTimeZone,originalEndTimeZone,location,showAs,responseStatus,isCancelled,isOrganizer,onlineMeeting,onlineMeetingUrl,webLink,organizer,iCalUId,lastModifiedDateTime,type,transactionId")
+        XCTAssertEqual(first.query["$top"], "999", "Exchange's cap, as message lists ask: a busy window in one request")
         XCTAssertEqual(sent.last?.url.absoluteString, nextLink, "the second page is the nextLink as given")
         for request in sent {
             let prefer = request.header("Prefer") ?? ""
@@ -173,6 +174,65 @@ final class GraphCalendarTests: GraphTestCase {
                            "read as an instant here it would fall a day early, which is why the day is held floating")
             XCTAssertFalse(event.isBusy, "an all-day event marks the day, not its hours")
         }
+    }
+
+    /// Exchange keeps an all-day event as midnight to midnight in the zone it was made in, and the UTC preference moves
+    /// that midnight: east of Greenwich it comes back on the evening before. Each is read back on its own dates, in the
+    /// zone Graph says it was made in (`originalStartTimeZone`), whatever zone the Mac is in.
+    func testAnAllDayEventMadeInAnotherZoneIsOnItsOwnDates() async throws {
+        let events = try await read([
+            // Bucharest, +02:00 on 19 November.
+            Self.event(id: "AAMkPLUSTWO", start: "2026-11-18T22:00:00.0000000", end: "2026-11-19T22:00:00.0000000", isAllDay: true,
+                       originalTimeZone: "GTB Standard Time"),
+            // New York, -05:00 on 19 November.
+            Self.event(id: "AAMkMINUSFIVE", start: "2026-11-19T05:00:00.0000000", end: "2026-11-20T05:00:00.0000000", isAllDay: true,
+                       originalTimeZone: "Eastern Standard Time"),
+            // Berlin, +01:00.
+            Self.event(id: "AAMkBERLIN", start: "2026-11-18T23:00:00.0000000", end: "2026-11-19T23:00:00.0000000", isAllDay: true,
+                       originalTimeZone: "W. Europe Standard Time"),
+            // Los Angeles, -08:00.
+            Self.event(id: "AAMkPACIFIC", start: "2026-11-19T08:00:00.0000000", end: "2026-11-20T08:00:00.0000000", isAllDay: true,
+                       originalTimeZone: "Pacific Standard Time"),
+            // Graph kept the date as written: a midnight is never moved, whatever zone it was made in.
+            Self.event(id: "AAMkMIDNIGHT", start: "2026-11-19T00:00:00.0000000", end: "2026-11-20T00:00:00.0000000", isAllDay: true,
+                       originalTimeZone: "W. Europe Standard Time"),
+            // A zone the Mac cannot name (a legacy custom zone from desktop Outlook): the nearest midnight.
+            Self.event(id: "AAMkCUSTOM", start: "2026-11-18T22:00:00.0000000", end: "2026-11-19T22:00:00.0000000", isAllDay: true,
+                       originalTimeZone: "tzone://Microsoft/Custom"),
+            // No zone named at all: the nearest midnight too.
+            Self.event(id: "AAMkNOZONE", start: "2026-11-19T05:00:00.0000000", end: "2026-11-20T05:00:00.0000000", isAllDay: true),
+        ])
+        XCTAssertEqual(events.count, 7)
+        for event in events {
+            XCTAssertTrue(event.isAllDay, event.providerID ?? "")
+            XCTAssertEqual(event.start, date("2026-11-19T00:00:00Z"), "19 November: \(event.providerID ?? "")")
+            XCTAssertEqual(event.end, date("2026-11-20T00:00:00Z"), "19 November only: \(event.providerID ?? "")")
+        }
+
+        // Three days in Berlin over the night summer time ends: the start at +02:00, the end at +01:00.
+        let autumn = try await readOne(Self.event(id: "AAMkAUTUMN", start: "2026-10-23T22:00:00.0000000",
+                                                  end: "2026-10-26T23:00:00.0000000", isAllDay: true,
+                                                  originalTimeZone: "W. Europe Standard Time"))
+        XCTAssertEqual(autumn.start, date("2026-10-24T00:00:00Z"))
+        XCTAssertEqual(autumn.end, date("2026-10-27T00:00:00Z"))
+    }
+
+    func testAnAllDaysDateIsItsMidnightInTheZoneItWasMadeIn() {
+        func day(_ text: String, _ zone: String = "UTC", original: String?) -> Date? {
+            GraphEventTime.allDay(GraphDateTimeZone(dateTime: text, timeZone: zone), originalZone: original)
+        }
+        XCTAssertEqual(day("2026-11-18T22:00:00.0000000", original: "Europe/Bucharest"), date("2026-11-19T00:00:00Z"))
+        XCTAssertEqual(day("2026-11-19T05:00:00.0000000", original: "America/New_York"), date("2026-11-19T00:00:00Z"))
+        XCTAssertEqual(day("2026-11-19T00:00:00.0000000", original: "America/New_York"), date("2026-11-19T00:00:00Z"),
+                       "a midnight is the date as written")
+        XCTAssertEqual(day("2026-11-19T00:00:00.0000000", "W. Europe Standard Time", original: nil), date("2026-11-19T00:00:00Z"),
+                       "in whatever zone Graph wrote it")
+        XCTAssertEqual(day("2026-11-18T23:00:00.0000000", original: "Europe/Bucharest"), date("2026-11-19T00:00:00Z"),
+                       "a zone whose rules moved by an hour since still lands on its own date")
+        XCTAssertEqual(day("2026-11-18T10:00:00.0000000", original: "Pacific/Kiritimati"), date("2026-11-19T00:00:00Z"),
+                       "+14:00 when the zone is known")
+        XCTAssertEqual(day("2026-11-18T14:00:00.0000000", original: "Unknown"), date("2026-11-19T00:00:00Z"), "the nearest UTC midnight")
+        XCTAssertNil(day("2026-11-18", original: nil))
     }
 
     /// Graph's date-times are read by hand (a DateFormatter costs too much a parse for a whole window): every UTC wall
@@ -262,10 +322,18 @@ final class GraphCalendarTests: GraphTestCase {
                        onlineMeetingUrl: #""https://legacy.example.test/join/roadmap""#),
             Self.event(id: "AAMkLEGACY", onlineMeetingUrl: #""https://legacy.example.test/join/roadmap""#),
             Self.event(id: "AAMkNOTWEB", onlineMeeting: #"{"joinUrl": "tel:+15550100"}"#),
+            Self.event(id: "AAMkHTTP", onlineMeeting: #"{"joinUrl": "http://meet.onprem.test/j/roadmap"}"#,
+                       onlineMeetingUrl: #""http://legacy.example.test/join/roadmap""#),
         ])
         XCTAssertEqual(events.map(\.joinURL), [
-            "https://teams.microsoft.test/l/meetup-join/roadmap", "https://legacy.example.test/join/roadmap", nil,
-        ], "Join opens a web address only")
+            "https://teams.microsoft.test/l/meetup-join/roadmap", "https://legacy.example.test/join/roadmap", nil, nil,
+        ], "Join opens an https address only: the window refuses http, so it is never offered")
+    }
+
+    func testAnHttpWebLinkIsNotOffered() async throws {
+        let json = Self.event(id: "AAMkONE").replacingOccurrences(of: #""webLink": "https://"#, with: #""webLink": "http://"#)
+        let event = try await readOne(json)
+        XCTAssertNil(event.webURL, "Open in Outlook opens https only")
     }
 
     func testABlockReadBackCarriesItsClientKey() async throws {
@@ -319,12 +387,13 @@ final class GraphCalendarTests: GraphTestCase {
         XCTAssertEqual(post.header("Content-Type"), "application/json")
         XCTAssertTrue(post.header("Prefer")?.contains("outlook.timezone=\"UTC\"") ?? false)
         let json = post.json()
-        XCTAssertEqual(Set(json.keys), ["subject", "start", "end", "showAs", "isReminderOn", "body", "transactionId"],
+        XCTAssertEqual(Set(json.keys), ["subject", "start", "end", "showAs", "sensitivity", "isReminderOn", "body", "transactionId"],
                        "no attendees: Exchange sends nobody an invitation")
         XCTAssertEqual(json["subject"] as? String, "Quarterly numbers")
         XCTAssertEqual(json["start"] as? [String: String], ["dateTime": "2026-11-02T15:00:00", "timeZone": "UTC"])
         XCTAssertEqual(json["end"] as? [String: String], ["dateTime": "2026-11-02T15:30:00", "timeZone": "UTC"])
         XCTAssertEqual(json["showAs"] as? String, "busy")
+        XCTAssertEqual(json["sensitivity"] as? String, "private", "others who see the calendar see only that it is busy")
         XCTAssertEqual(json["isReminderOn"] as? Bool, false)
         XCTAssertEqual(json["body"] as? [String: String],
                        ["contentType": "text", "content": "Set aside in SuperSparrow for: Quarterly numbers"])

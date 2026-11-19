@@ -68,7 +68,8 @@ struct GoogleCalendarEvent: Decodable, Sendable {
     var extendedProperties: ExtendedProperties?
 }
 
-/// The body of `events.insert` for time set aside for a mail: no attendees, so Google mails nobody.
+/// The body of `events.insert` for time set aside for a mail: busy and private, with no attendees (so Google mails
+/// nobody) and no reminders.
 struct GoogleCalendarEventInsert: Encodable, Sendable {
     struct Reminders: Encodable, Sendable {
         var useDefault: Bool
@@ -90,6 +91,9 @@ struct GoogleCalendarEventInsert: Encodable, Sendable {
     var start: GoogleCalendarEvent.Time
     var end: GoogleCalendarEvent.Time
     var transparency: String
+    /// Private: the title is a mail's subject and the description links to the mail, so whoever else sees the
+    /// calendar (the domain, a delegate) sees only that the time is busy. The owner still sees it all.
+    var visibility = "private"
     var reminders: Reminders
     var extendedProperties: ExtendedProperties?
 }

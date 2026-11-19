@@ -45,7 +45,7 @@ struct GoogleCalendarMapper {
             response: Self.response(of: item),
             isFree: item.transparency == "transparent",
             joinURL: Self.joinURL(of: item),
-            webURL: Self.trimmed(item.htmlLink).flatMap { CalendarInvitationReader.webAddress($0) == nil ? nil : $0 },
+            webURL: Self.secureWebAddress(item.htmlLink),
             organizer: item.organizer?.isSelf == true ? nil : Self.trimmed(item.organizer?.displayName) ?? Self.trimmed(item.organizer?.email),
             invitationUID: Self.trimmed(item.iCalUID),
             clientKey: Self.trimmed(item.extendedProperties?.privateProperties?[Self.clientKeyProperty]),
@@ -99,13 +99,19 @@ struct GoogleCalendarMapper {
     }
 
     /// Meet's link, else the conference's video entry point (Zoom and others added through a Calendar add-on), when it
-    /// is a web address: a link the user clicks must never open another scheme.
+    /// is an https address.
     static func joinURL(of item: GoogleCalendarEvent) -> String? {
         let video = item.conferenceData?.entryPoints?.first { $0.entryPointType == "video" && trimmed($0.uri) != nil }?.uri
-        for candidate in [item.hangoutLink, video] {
-            if let value = trimmed(candidate), CalendarInvitationReader.webAddress(value) != nil { return value }
+        return [item.hangoutLink, video].lazy.compactMap(secureWebAddress).first
+    }
+
+    /// `value` when it is one https address: Join and Open in Google Calendar open nothing else (the window refuses any
+    /// other scheme, http included), so a link it would refuse is never offered as a button that does nothing.
+    static func secureWebAddress(_ value: String?) -> String? {
+        guard let value = trimmed(value), CalendarInvitationReader.webAddress(value)?.scheme?.lowercased() == "https" else {
+            return nil
         }
-        return nil
+        return value
     }
 
     private static func trimmed(_ value: String?) -> String? {
