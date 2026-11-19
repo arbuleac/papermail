@@ -202,10 +202,15 @@ final class AppEnvironment {
         let added = try await DemoSeeder.seedIfNeeded(engine)
         guard !added.isEmpty else { return }
         try DemoSeeder.seedSendLater(engine, accounts: added)
-        // A snooze needs mail put away, which the accounts' first sync brings a moment after they are added.
+        // A snooze needs mail put away, which the accounts' first sync brings a moment after they are added. A store that
+        // fails (the demo left meanwhile) ends the wait.
         Task.detached(priority: .utility) {
-            for _ in 0..<120 where !Task.isCancelled {
-                if (try? DemoSeeder.seedLater(engine, accounts: added)) != nil { return }
+            for _ in 0..<120 {
+                do {
+                    if try DemoSeeder.seedLater(engine, accounts: added) != nil { return }
+                } catch {
+                    return
+                }
                 try? await Task.sleep(nanoseconds: 500_000_000)
             }
         }
