@@ -26,6 +26,8 @@ final class WebViewPool: NSObject, WKScriptMessageHandler {
     var onCopyFocusedAddress: ((PooledConversationView) -> Void)?
     /// Called after a content-process crash replaced the slot's web view, so the owner can re-render.
     var onViewRecreated: ((PooledConversationView) -> Void)?
+    /// Called each time a render or an update lands in a slot's page, after its own completion.
+    var onRenderLanded: ((PooledConversationView) -> Void)?
 
     private let navigation = ConversationNavigationPolicy()
     private var tick: UInt64 = 0
@@ -362,12 +364,13 @@ final class WebViewPool: NSObject, WKScriptMessageHandler {
             return
         }
         let state = ConversationSignposts.begin(ConversationSignposts.render)
-        slot.webView.evaluateJavaScript("\(function)(\(json))") { _, error in
+        slot.webView.evaluateJavaScript("\(function)(\(json))") { [weak self] _, error in
             ConversationSignposts.end(ConversationSignposts.render, state)
             if let error {
                 ConversationSignposts.log.error("render failed: \(String(describing: error), privacy: .public)")
             }
             slot.renderDidFinish(generation: generation, succeeded: error == nil, completion: completion)
+            if error == nil { self?.onRenderLanded?(slot) }
         }
     }
 

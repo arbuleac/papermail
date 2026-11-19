@@ -121,6 +121,15 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         }
     }
     private var bodyFetches: Set<MessageID> = []
+    /// The priority each fetch in `bodyFetches` was last asked for at, so a body wanted sooner (its message turned to, its
+    /// pre-rendered conversation shown) is asked for again once at the higher one (`raiseBody`).
+    private var bodyFetchPriorities: [MessageID: BodyFetchPriority] = [:]
+    /// Bodies asked for in the same show as an opened one, held here until it lands so they never race it to the engine
+    /// (each request is a task of its own, and tasks reach the engine in no set order): the opened id to the rest, newest
+    /// first. Their ids are in `bodyFetches` already, so nothing asks for them twice.
+    private var bodiesAfter: [MessageID: [(id: MessageID, conversation: ConversationID, priority: BodyFetchPriority)]] = [:]
+    /// The `conversation.body` intervals of opened bodies still on their way to the screen, with their conversation.
+    private var bodySignposts: [MessageID: (signpost: OSSignpostID, state: OSSignpostIntervalState, conversation: ConversationID)] = [:]
     /// What stands in for a body the store does not have yet (spec §5.14): loading, offline or failed.
     private var bodyStates: [MessageID: RenderPayload.BodyState] = [:]
     private var offlineAccounts: Set<AccountID> = []
@@ -222,6 +231,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         pool.onMessage = { [weak self] slot, message in self?.handle(message, from: slot) }
         pool.onCopyFocusedAddress = { [weak self] slot in self?.copyFocusedAddress(in: slot) }
         pool.onViewRecreated = { [weak self] slot in self?.slotWasRecreated(slot) }
+        pool.onRenderLanded = { [weak self] slot in self?.renderLanded(in: slot) }
         let center = NotificationCenter.default
         // Block observers stay registered until removed, so their tokens are kept for deinit.
         notificationTokens.append(center.addObserver(forName: Self.remoteImagesPolicyChanged, object: nil, queue: .main) { [weak self] _ in
@@ -444,7 +454,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             pool.render(prepared.payload, inputs: prepared.inputs, id: id, into: slot) { _ in
                 ConversationSignposts.end(ConversationSignposts.prerender, state)
             }
-            requestMissingBodies(messages, rendered: prepared.inputs)
+            requestMissingBodies(messages, rendered: prepared.inputs, shown: false)
         }
     }
 
@@ -498,6 +508,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     /// otherwise a render into a free slot. Only a missing or stale slot pays for a payload.
     private func present(_ id: ConversationID, messages: [MessageMetadata]) {
         if let held = pool.slot(rendering: id) {
+            // The bodies it was rendered without go out before anything else the show does on this thread.
+            requestMissingBodies(messages, rendered: held.renderedInputs)
             guard held.renderInFlight else {
                 swap(in: held)
                 refreshIfStale(held, messages: messages, id: id)
@@ -520,6 +532,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
                 swap(in: slot)
             }
             let prepared = prepare(messages)
+            // Before the payload is encoded and handed to the page: the request is on its way while they run.
+            requestMissingBodies(messages, rendered: prepared.inputs)
             pool.render(prepared.payload, inputs: prepared.inputs, id: id, into: slot) { [weak self] rendered in
                 guard let self, rendered, self.currentConversationID == id else { return }
                 self.swap(in: slot)
@@ -780,11 +794,13 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         return messages.last
     }
 
-    /// N, P, a click or Tab moved the target: the header's Reply All and the quick reply's names follow it.
+    /// N, P, a click or Tab moved the target: the header's Reply All and the quick reply's names follow it, and a body
+    /// still on its way for it goes ahead of the conversation's others.
     private func targetDidChange() {
         guard isViewLoaded, case .one = selection else { return }
         header.apply(headerContent(readerState, messages: currentMessages))
         if !quickReply.isHidden { configureQuickReply(messages: currentMessages) }
+        if let target = selectedMessageID { raiseBody(target, to: .opened) }
     }
 
     private func configureQuickReply(messages: [MessageMetadata]) {
@@ -960,39 +976,127 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
 
     // MARK: Bodies
 
-    /// Fetches bodies the slot rendered without; `rendered` says which ones it had, so those are never looked up.
-    private func requestMissingBodies(_ messages: [MessageMetadata], rendered: RenderInputs?) {
-        for message in messages where bodyFetches.contains(message.id) == false {
+    /// Fetches bodies the slot rendered without, newest first; `rendered` says which ones it had, so those are never
+    /// looked up. In the conversation on screen the message the reader opens on (the target: the newest, or the one the
+    /// user picked) is asked for as `.opened` and goes at once, ahead of everything the engine does in the background;
+    /// the folded rest follow as `.conversation`, a few at a time, so the newest never queues behind its own thread at the
+    /// provider. A pre-rendered neighbour's (`shown` false) are `.prefetch` (docs/ARCHITECTURE.md, "Opening a message").
+    private func requestMissingBodies(_ messages: [MessageMetadata], rendered: RenderInputs?, shown: Bool = true) {
+        // The target of the conversation on screen, not of `messages`, which may be only the ones that just joined it.
+        let opened = shown ? (selectedMessageID ?? currentMessages.last?.id) : nil
+        var wanted: [(id: MessageID, conversation: ConversationID, priority: BodyFetchPriority)] = []
+        for message in messages.reversed() {
+            guard !bodyFetches.contains(message.id) else {
+                // Already asked for, as a neighbour's pre-render: shown now, it goes as this conversation's.
+                if shown { raiseBody(message.id, to: message.id == opened ? .opened : .conversation) }
+                continue
+            }
             if rendered?.hasBody(message.id) == true { continue }
             // A kept draft has no provider copy, and a draft open in a composer shows no body.
             if LocalDraftConversation.isLocal(message.id) || showsDraftInComposer(message) { continue }
             guard (try? client.store.body(for: message.id)) == nil else { continue }
-            fetchBody(message.id, conversation: message.conversationID)
+            let priority: BodyFetchPriority = !shown ? .prefetch : (message.id == opened ? .opened : .conversation)
+            wanted.append((message.id, message.conversationID, priority))
         }
+        guard let first = wanted.firstIndex(where: { $0.priority == .opened }) else {
+            for body in wanted { fetchBody(body.id, conversation: body.conversation, priority: body.priority) }
+            return
+        }
+        // The opened body alone, now; the rest wait for it here (`bodiesAfter`), so it has the provider to itself.
+        let lead = wanted.remove(at: first)
+        for body in wanted {
+            bodyFetches.insert(body.id)
+            bodyFetchPriorities[body.id] = body.priority
+            setBodyState(.loading, for: body.id)
+        }
+        if !wanted.isEmpty { bodiesAfter[lead.id, default: []].append(contentsOf: wanted) }
+        fetchBody(lead.id, conversation: lead.conversation, priority: lead.priority)
     }
 
-    private func fetchBody(_ id: MessageID, conversation: ConversationID) {
+    private func fetchBody(_ id: MessageID, conversation: ConversationID, priority: BodyFetchPriority = .opened) {
         bodyFetches.insert(id)
+        bodyFetchPriorities[id] = priority
         setBodyState(.loading, for: id)
+        startBodyFetch(id, conversation: conversation, priority: priority)
+    }
+
+    /// The request itself, for a body `bodyFetches` already holds; its outcome updates the state and the page.
+    private func startBodyFetch(_ id: MessageID, conversation: ConversationID, priority: BodyFetchPriority) {
+        if priority == .opened { beginBodySignpost(id, conversation: conversation) }
         let client = self.client
         Task { [weak self] in
             var outcome: RenderPayload.BodyState = .ready
             do {
-                _ = try await client.ensureBody(for: id)
+                _ = try await client.ensureBody(for: id, priority: priority)
             } catch {
                 outcome = Self.isOffline(error) ? .offline : .failed
             }
             guard let self else { return }
             self.bodyFetches.remove(id)
+            self.bodyFetchPriorities[id] = nil
             if outcome == .ready {
                 self.bodyStates[id] = nil
-                self.onBodyArrived?(conversation)
+                if let open = self.bodySignposts[id] { ConversationSignposts.signposter.emitEvent("stored", id: open.signpost) }
             } else {
                 if outcome == .offline { self.offlineAccounts.insert(id.accountID) }
                 self.setBodyState(outcome, for: id)
+                self.endBodySignpost(id)
             }
-            guard self.currentConversationID == conversation else { return }
-            self.refreshCurrentIfStale(self.currentMessages, id: conversation)
+            // The page first: the calendar's reload (`onBodyArrived`) reads the store off this thread anyway.
+            if self.currentConversationID == conversation {
+                self.refreshCurrentIfStale(self.currentMessages, id: conversation)
+            }
+            if outcome == .ready { self.onBodyArrived?(conversation) }
+            // Landed or failed, it no longer has the provider to itself to keep: the rest of its show go now.
+            for body in self.bodiesAfter.removeValue(forKey: id) ?? [] where self.bodyFetchPriorities[body.id] == body.priority {
+                self.startBodyFetch(body.id, conversation: body.conversation, priority: body.priority)
+            }
+        }
+    }
+
+    /// A body still to come at a lower priority is wanted sooner: the user turned to its message (`.opened`), or the
+    /// pre-rendered conversation it belongs to is shown (`.conversation`). One held back for its show's opened body goes
+    /// now as `.opened`; one already asked for is asked for again at the new priority, which the engine serves in its new
+    /// place and the first request shares, so its outcome still arrives through `startBodyFetch`.
+    private func raiseBody(_ id: MessageID, to priority: BodyFetchPriority) {
+        guard let current = bodyFetchPriorities[id], current < priority, let conversation = currentConversationID else { return }
+        if priority == .opened, let lead = bodiesAfter.first(where: { $0.value.contains { $0.id == id } })?.key {
+            bodiesAfter[lead]?.removeAll { $0.id == id }
+            bodyFetchPriorities[id] = priority
+            startBodyFetch(id, conversation: conversation, priority: priority)
+            return
+        }
+        // Held back behind an opened body already, as this conversation's: nothing to raise until it goes.
+        if bodiesAfter.values.contains(where: { $0.contains { $0.id == id } }) { return }
+        bodyFetchPriorities[id] = priority
+        if priority == .opened { beginBodySignpost(id, conversation: conversation) }
+        let client = self.client
+        Task { _ = try? await client.ensureBody(for: id, priority: priority) }
+    }
+
+    // MARK: Body signposts
+
+    /// `conversation.body`: from asking for a body the reader opens on to that body on screen, with a `stored` event when
+    /// the engine has it, so Instruments splits the open into the request, the provider and the render.
+    private func beginBodySignpost(_ id: MessageID, conversation: ConversationID) {
+        guard bodySignposts[id] == nil else { return }
+        let signposter = ConversationSignposts.signposter
+        let signpost = signposter.makeSignpostID()
+        bodySignposts[id] = (signpost, signposter.beginInterval(ConversationSignposts.body, id: signpost), conversation)
+    }
+
+    private func endBodySignpost(_ id: MessageID) {
+        guard let open = bodySignposts.removeValue(forKey: id) else { return }
+        ConversationSignposts.end(ConversationSignposts.body, open.state)
+    }
+
+    /// A render or update landed in `slot`: an opened body it shows is on screen. One whose conversation the reader has
+    /// left ends too, so no interval stays open behind a selection that moved on.
+    private func renderLanded(in slot: PooledConversationView) {
+        guard !bodySignposts.isEmpty, slot === pool.current else { return }
+        for (id, open) in bodySignposts {
+            let shown = slot.renderedID == open.conversation && slot.renderedInputs?.hasBody(id) == true
+            if shown || currentConversationID != open.conversation { endBodySignpost(id) }
         }
     }
 
@@ -1046,8 +1150,9 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         guard !back.isEmpty else { return }
         offlineAccounts = stillOffline
         let waiting = currentMessages.filter { bodyStates[$0.id] == .offline && back.contains($0.id.accountID) }
-        for message in waiting where !bodyFetches.contains(message.id) {
-            fetchBody(message.id, conversation: message.conversationID)
+        for message in waiting.reversed() where !bodyFetches.contains(message.id) {
+            fetchBody(message.id, conversation: message.conversationID,
+                      priority: message.id == (selectedMessageID ?? currentMessages.last?.id) ? .opened : .conversation)
         }
     }
 
