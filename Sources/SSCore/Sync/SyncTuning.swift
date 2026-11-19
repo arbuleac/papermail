@@ -70,6 +70,16 @@ struct SyncTuning: Sendable {
     /// (`CalendarSyncState.current`), and the continuous clock its intervals and backoff run on, so setting the Mac's
     /// clock never holds a read back. It never sleeps: the live lane's cycles wake it. Tests replace it to move time by hand.
     var calendarClock = SendClock()
+    /// The reader's body fetches below `.opened` (the folded messages of the open conversation, then its pre-rendered
+    /// neighbours) that go at once per account, once no opened body is on its way; the rest wait their turn, highest
+    /// priority first. An opened body never waits. Two, with a poll and an inline image beside them, keep the account
+    /// within Graph's four requests per mailbox at once while the background holds back (docs/ARCHITECTURE.md, "Opening
+    /// a message").
+    var foregroundBodyConcurrency: Int = 2
+    /// The longest the live lane's prefetch of new mail's bodies and the calendar's read wait for the reader's body
+    /// fetches to finish before going anyway, so a fetch that hangs until its timeout holds them no longer. The backfill
+    /// waits for as long as they take.
+    var backgroundYieldLimit: TimeInterval = 10
     var hydrationBatchSize: Int = 50
     var hydrationConcurrency: Int = 4
     /// A body whose fetch failed for a non-transient reason is left alone for this long.

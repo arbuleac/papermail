@@ -116,6 +116,11 @@ class ScriptedProvider: MailProvider, @unchecked Sendable {
     var sendCalls: [OutgoingMessage] { locked { recordedSendCalls } }
     var sendTimes: [Date] { locked { recordedSendTimes } }
     var bodyCalls: [String] { locked { recordedBodyCalls } }
+    /// Every body call's start ("start:<id>") and answer ("end:<id>", success or not), in the order they happened, so a
+    /// test can see what went out while another body was on its way.
+    var bodyEvents: [String] { locked { recordedBodyEvents } }
+    /// The transport priority the engine set around each body call, by id (`ProviderRequestPriority.current`).
+    var bodyPriorities: [String: ProviderRequestPriority] { locked { recordedBodyPriorities } }
     var attachmentCalls: [(message: String, attachment: String)] { locked { recordedAttachmentCalls } }
     /// The `expectedSize` each download was given.
     var attachmentExpectedSizes: [Int] { locked { recordedAttachmentExpectedSizes } }
@@ -130,6 +135,8 @@ class ScriptedProvider: MailProvider, @unchecked Sendable {
     private var recordedSendCalls: [OutgoingMessage] = []
     private var recordedSendTimes: [Date] = []
     private var recordedBodyCalls: [String] = []
+    private var recordedBodyEvents: [String] = []
+    private var recordedBodyPriorities: [String: ProviderRequestPriority] = [:]
     private var recordedAttachmentCalls: [(message: String, attachment: String)] = []
     private var recordedAttachmentExpectedSizes: [Int] = []
     private var recordedMaxConcurrentBodyCalls = 0
@@ -274,11 +281,18 @@ class ScriptedProvider: MailProvider, @unchecked Sendable {
     func body(for providerID: String) async throws -> MessageBody {
         let delay: TimeInterval = locked {
             recordedBodyCalls.append(providerID)
+            recordedBodyEvents.append("start:\(providerID)")
+            recordedBodyPriorities[providerID] = ProviderRequestPriority.current
             currentBodyCalls += 1
             recordedMaxConcurrentBodyCalls = max(recordedMaxConcurrentBodyCalls, currentBodyCalls)
             return bodyDelay
         }
-        defer { locked { currentBodyCalls -= 1 } }
+        defer {
+            locked {
+                currentBodyCalls -= 1
+                recordedBodyEvents.append("end:\(providerID)")
+            }
+        }
         while locked({ heldBodies.contains(providerID) }) {
             try await Task.sleep(for: .milliseconds(5))
         }

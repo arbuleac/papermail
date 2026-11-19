@@ -409,6 +409,20 @@ final class GmailProviderTests: XCTestCase {
         XCTAssertEqual(server.requests(to: "/users/me/messages/m1").first?.query["format"], ["full"])
     }
 
+    /// The engine asks for a body the reader waits for at `.foreground` and the backfill's at `.background`; the task the
+    /// request goes out on carries it, so the session sends the user's ahead of the rest.
+    func testABodyGoesOutAtThePriorityTheEngineAskedFor() async throws {
+        server.on("GET", "/users/me/messages/m1", .json(GmailFixtures.fullMessage))
+        let provider = TestSupport.makeProvider()
+
+        _ = try await ProviderRequestPriority.$current.withValue(.foreground) { try await provider.body(for: "m1") }
+        _ = try await ProviderRequestPriority.$current.withValue(.background) { try await provider.body(for: "m1") }
+        _ = try await provider.body(for: "m1")
+
+        XCTAssertEqual(server.requests(to: "/users/me/messages/m1").map(\.taskPriority),
+                       [URLSessionTask.highPriority, URLSessionTask.lowPriority, URLSessionTask.defaultPriority])
+    }
+
     func testAttachmentDecodesBase64URL() async throws {
         server.on("GET", "/users/me/messages/m1/attachments/ATT_PDF", .json(GmailFixtures.attachment))
         let provider = TestSupport.makeProvider()

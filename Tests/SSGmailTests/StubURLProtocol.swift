@@ -76,6 +76,8 @@ struct RecordedRequest {
     var query: [String: [String]]
     var headers: [String: String]
     var body: Data
+    /// The URLSession task's priority when it reached the stub (`ProviderRequestPriority`); nil outside a session task.
+    var taskPriority: Float?
 
     init(_ request: URLRequest) {
         method = request.httpMethod ?? "GET"
@@ -187,7 +189,8 @@ final class StubURLProtocol: URLProtocol {
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
-        let recorded = RecordedRequest(request)
+        var recorded = RecordedRequest(request)
+        recorded.taskPriority = task?.priority
         let response = StubServer.shared.respond(to: recorded)
         if let error = response.error {
             client?.urlProtocol(self, didFailWithError: error)

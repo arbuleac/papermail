@@ -93,8 +93,11 @@ public protocol MailClient: AnyObject {
     /// (throwing `CancellationError`) without changing what it already stored.
     func searchServer(for text: String, accountIDs: [AccountID]?) async throws -> ServerSearchResult
 
-    /// Returns the stored body, fetching and sanitizing it first when missing.
-    func ensureBody(for message: MessageID) async throws -> StoredBody
+    /// Returns the stored body, fetching and sanitizing it first when missing, ahead of the account's background work
+    /// (docs/ARCHITECTURE.md, "Opening a message"): while it waits or is on its way the backfill sends nothing. An
+    /// `.opened` body goes at once; lower ones take a few places in priority order, and one asked for again as `.opened`
+    /// goes at once. Callers asking for the same body share one fetch.
+    func ensureBody(for message: MessageID, priority: BodyFetchPriority) async throws -> StoredBody
     /// The reader is showing these messages, with a body or not: Keep mail on this Mac leaves their bodies whole until
     /// the app quits, so a conversation on screen keeps its body when a clean-up runs and a backfill fetching one stores
     /// it whole. Call it before reading the bodies: a clean-up batch reads the marks inside its write. Cheap and
@@ -181,6 +184,11 @@ extension MailClient {
     /// The attachment's bytes, for a caller that shows no progress.
     public func attachmentData(for message: MessageID, attachmentID: String) async throws -> Data {
         try await attachmentData(for: message, attachmentID: attachmentID, expectedSize: 0, progress: nil)
+    }
+
+    /// The body for someone waiting on it now (a reply's quote, a message shown open): `.opened`.
+    public func ensureBody(for message: MessageID) async throws -> StoredBody {
+        try await ensureBody(for: message, priority: .opened)
     }
 }
 
