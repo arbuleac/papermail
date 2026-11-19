@@ -1,7 +1,8 @@
 import AppKit
 
 /// The main window. Its behaviour of its own is the Tab order of spec §3.4: rail → list header controls →
-/// list → sync line (while it carries an action) → the reader, in that order, whatever the panes' geometry;
+/// list → sync line (while it carries an action) → the reader → the day column or the week (while one shows), in that
+/// order, whatever the panes' geometry;
 /// and Edit › Undo, which NSWindow would give to its undo manager alone, follows the window's undo order
 /// (§6.1: typing, then sends and toasts) through its controller.
 ///
@@ -14,6 +15,8 @@ final class MainWindow: NSWindow {
     var shellKeyViews: (() -> [NSView])?
     /// The reader's root view.
     weak var readerRoot: NSView?
+    /// The day column's or the week's stops in Tab order (§5.54), after the reader's; empty while neither shows.
+    var calendarKeyViews: (() -> [NSView])?
 
     /// Edit › Undo and ⌘Z inside text fields. NSWindow implements `undo:` for its undo manager only; here the
     /// controller ranks typing against the undo-send panels, the quick reply's countdown and the toasts.
@@ -63,7 +66,11 @@ final class MainWindow: NSWindow {
         let shell = (shellKeyViews?() ?? []).filter(isUsable)
         guard !shell.isEmpty else { return false }
         let reader = readerKeyViews()
+        let calendar = (calendarKeyViews?() ?? []).filter(isUsable)
         guard let view else { return focus(forward ? shell.first : shell.last) }
+        // Past the reader: the calendar's stops, then round to the shell; and back the other way.
+        let afterReader = calendar.first ?? shell.first
+        let beforeShell = calendar.last ?? reader.last ?? shell.last
 
         // The innermost stop holding the focus: the server row's link lives inside the table yet is a stop of its own
         // after it, so matching the table first would keep Tab on the link and send Shift-Tab past the list.
@@ -71,22 +78,28 @@ final class MainWindow: NSWindow {
         if let index = holders.first(where: { inner in holders.allSatisfy { shell[inner].isDescendant(of: shell[$0]) } }) {
             let next = index + (forward ? 1 : -1)
             if shell.indices.contains(next) { return focus(shell[next]) }
-            return focus(forward ? (reader.first ?? shell.first) : (reader.last ?? shell.last))
+            return focus(forward ? (reader.first ?? afterReader) : beforeShell)
+        }
+
+        if let index = calendar.firstIndex(where: { view === $0 || view.isDescendant(of: $0) }) {
+            let next = index + (forward ? 1 : -1)
+            if calendar.indices.contains(next) { return focus(calendar[next]) }
+            return focus(forward ? shell.first : (reader.last ?? shell.last))
         }
 
         guard let root = readerRoot, view.isDescendant(of: root) else { return false }
         if view.nextKeyView != nil || view.previousKeyView != nil {
             // The reader built its own chain: follow it while it stays in the reader and keeps moving the
-            // same way down the page; a wrap or an exit returns to the shell.
+            // same way down the page; a wrap or an exit returns to the shell (by way of the calendar, forward).
             let candidate = forward ? view.nextValidKeyView : view.previousValidKeyView
             if let candidate, candidate.isDescendant(of: root), comesAfter(candidate, view) == forward { return false }
-            return focus(forward ? shell.first : shell.last)
+            return focus(forward ? afterReader : shell.last)
         }
         guard let index = reader.firstIndex(where: { view === $0 || view.isDescendant(of: $0) }) else {
-            return focus(forward ? shell.first : shell.last)
+            return focus(forward ? afterReader : shell.last)
         }
         let next = index + (forward ? 1 : -1)
-        return focus(reader.indices.contains(next) ? reader[next] : (forward ? shell.first : shell.last))
+        return focus(reader.indices.contains(next) ? reader[next] : (forward ? afterReader : shell.last))
     }
 
     private func focus(_ view: NSView?) -> Bool {

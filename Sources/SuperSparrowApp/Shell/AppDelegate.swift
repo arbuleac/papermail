@@ -27,6 +27,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let task: Task<Void, Never>
         /// A real environment built to replace the demo, kept apart until the sign-in succeeds (§5.43).
         let replacement: AppEnvironment?
+        /// The day column's Connect (§5.54): told whether the account granted its calendar, or gave up.
+        var connected: (@MainActor (Bool) -> Void)?
     }
 
     private let options: LaunchOptions
@@ -493,6 +495,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let window = MainWindowController(environment: environment, settings: settings)
         window.onAddAccount = { [weak self] kind in self?.addAccount(kind, origin: self?.originForMainWindow() ?? .main) }
         window.onReconnect = { [weak self] account in self?.reconnect(account, origin: .main) }
+        window.onConnectCalendar = { [weak self] account, done in
+            guard let self else { return done(false) }
+            self.connectCalendar(account, origin: .main, done: done)
+        }
         window.onOpenSettings = { [weak self] in self?.openSettings() }
         window.onOpenAccountsSettings = { [weak self] in self?.openSettings(tab: .accounts) }
         window.onTryDemo = { [weak self] in self?.switchToDemo() }
@@ -698,6 +704,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         beginSignIn(kind: account.kind, reconnecting: account, origin: origin, in: environment, replacement: nil)
     }
 
+    /// The day column's Connect (§5.54): the reconnect's browser sign-in, asking for the calendar on top of what the
+    /// account holds (`MailClient.connectCalendar`), with its alerts. `done` hears whether it was granted.
+    func connectCalendar(_ account: Account, origin: Origin, done: @escaping @MainActor (Bool) -> Void) {
+        guard let environment, signIn == nil, !isPreparingDemo,
+              environment.isDemo || clientIsConfigured(account.kind, in: environment, origin: origin) else { return done(false) }
+        beginSignIn(kind: account.kind, reconnecting: account, origin: origin, in: environment, replacement: nil, calendar: true)
+        signIn?.connected = done
+    }
+
     /// No client: the welcome screen shows its info banner; elsewhere the alert offers Settings › OAuth with
     /// the incoming notice. An unreadable settings file is not an alert: Settings › OAuth opens with the danger
     /// banner (§5.33).
@@ -747,7 +762,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func beginSignIn(kind: ProviderKind, reconnecting: Account?, origin: Origin, in environment: AppEnvironment,
-                             replacement: AppEnvironment?, type: MicrosoftAccountType? = nil) {
+                             replacement: AppEnvironment?, type: MicrosoftAccountType? = nil, calendar: Bool = false) {
         let tenant = type.map { $0.tenant(configured: try? environment.clientConfigurations.configuration(for: kind).tenant) }
         signInGeneration += 1
         let generation = signInGeneration
@@ -755,7 +770,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let task = Task { [weak self] in
             do {
                 let account: Account
-                if let reconnecting {
+                if let reconnecting, calendar {
+                    account = try await environment.engine.connectCalendar(reconnecting)
+                } else if let reconnecting {
                     account = try await environment.engine.reconnect(reconnecting)
                 } else {
                     account = try await environment.engine.addAccount(kind: kind, tenant: tenant)
@@ -815,6 +832,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             mainWindow?.showWindow(nil)
             showAccount(account.id, origin: current.origin)
         }
+        current.connected?(true)
     }
 
     private func signInFailed(_ error: Error, generation: Int) async {
@@ -822,18 +840,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         signIn = nil
         await current.replacement?.shutdown()
         reflectSignIn()
-        if error is CancellationError { return }
+        if error is CancellationError {
+            current.connected?(false)
+            return
+        }
         Self.log.error("sign-in failed: \(String(describing: error), privacy: .public)")
         let reason = ErrorText.signIn(error, kind: current.kind)
+        // Try Again asks again as the sign-in did: the calendar's Connect keeps asking for the calendar, and hears the
+        // outcome; anything else ends its round.
+        let again = { [weak self] (account: Account) in
+            guard let self else { return }
+            if let connected = current.connected {
+                self.connectCalendar(account, origin: current.origin, done: connected)
+            } else {
+                self.reconnect(account, origin: current.origin)
+            }
+        }
         if case AuthError.wrongAccount(let expected, let actual) = error, let account = current.reconnecting {
-            AppAlert.wrongAccount(expected: expected, actual: actual).present(on: window(for: current.origin)) { [weak self] choice in
-                if choice == 0 { self?.reconnect(account, origin: current.origin) }
+            AppAlert.wrongAccount(expected: expected, actual: actual).present(on: window(for: current.origin)) { choice in
+                if choice == 0 { again(account) } else { current.connected?(false) }
             }
             return
         }
         if let account = current.reconnecting {
-            AppAlert.reconnectFailed(account, reason: reason).present(on: window(for: current.origin)) { [weak self] choice in
-                if choice == 0 { self?.reconnect(account, origin: current.origin) }
+            AppAlert.reconnectFailed(account, reason: reason).present(on: window(for: current.origin)) { choice in
+                if choice == 0 { again(account) } else { current.connected?(false) }
             }
             return
         }
@@ -856,6 +887,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         signIn = nil
         signInGeneration += 1
         current.task.cancel()
+        current.connected?(false)
         if let replacement = current.replacement { Task { await replacement.shutdown() } }
         reflectSignIn()
     }

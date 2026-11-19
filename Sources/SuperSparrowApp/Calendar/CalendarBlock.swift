@@ -37,6 +37,12 @@ extension CalendarState {
     /// there is none, or when nothing is selected.
     func blockStart(from day: Date, dayIsShown: Bool) -> Date? {
         guard let selection else { return nil }
+        return blockStart(for: selection, from: day, dayIsShown: dayIsShown)
+    }
+
+    /// As `blockStart(from:dayIsShown:)`, for a conversation's context read by the caller: B pressed before the
+    /// selection's read landed, or in a reader window, whose conversation is not the list's.
+    func blockStart(for selection: CalendarSelection, from day: Date, dayIsShown: Bool) -> Date? {
         let setAside = Set(events.filter { $0.isShown && $0.sourceMessage.map(selection.messageIDs.contains) == true }.map(\.start))
         if let time = selection.mailTimes.first(where: { $0.start > now && !setAside.contains($0.start) }) { return time.start }
         let first = max(calendar.startOfDay(for: day), today)

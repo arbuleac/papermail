@@ -19,6 +19,8 @@ struct CalendarText {
     private let shortDayYear: DateFormatter
     private let dayMonthLong: DateFormatter
     private let dayMonthLongYear: DateFormatter
+    private let dayMonth: DateFormatter
+    private let dayMonthYear: DateFormatter
     /// The system shows times with AM and PM.
     let usesTwelveHours: Bool
 
@@ -54,6 +56,8 @@ struct CalendarText {
         shortDayYear = make("EEEdMMMy")
         dayMonthLong = make("dMMMM")
         dayMonthLongYear = make("dMMMMy")
+        dayMonth = make("dMMM")
+        dayMonthYear = make("dMMMy")
     }
 
     // MARK: Times
@@ -193,6 +197,17 @@ struct CalendarText {
         }
         return shortDay(event.start, now: now) + ", " + time(event.start) + " - " + shortDay(event.end, now: now) + ", "
             + time(event.end)
+    }
+
+    /// A toast's span for time set aside or removed (spec §5.30), its day named as a row's time names it: “15:00 - 15:30”
+    /// today, “Fri 10:00 - 10:30” within six days of it, “26 Nov 13:30 - 14:00” further off (with the year outside this
+    /// one).
+    func toastSpan(_ start: Date, _ end: Date, now: Date) -> String {
+        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: now), to: calendar.startOfDay(for: start)).day ?? 0
+        if days == 0 { return range(start, end) }
+        if abs(days) <= 6 { return weekday(start) + " " + range(start, end) }
+        let day = isThisYear(start, now: now) ? dayMonth.string(from: start) : dayMonthYear.string(from: start)
+        return day + " " + range(start, end)
     }
 
     /// The ghost of a drop: “Thu 13:30 - 14:00”.

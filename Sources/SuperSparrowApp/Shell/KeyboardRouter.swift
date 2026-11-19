@@ -46,6 +46,18 @@ enum KeyCommand: Equatable {
     case toggleMute
     case undo
     case goTo(MailboxView)
+    /// D: the day column shown or hidden; in a window too narrow for it, opened or closed over the reader's edge; while
+    /// the week shows, back to the reader and the day (spec §5.54).
+    case toggleDayColumn
+    /// W: the week in the reader's place, or the reader and the day back.
+    case toggleWeek
+    /// [ and ]: the column's day back or forward, a week while the week shows; only while either shows.
+    case previousDay
+    case nextDay
+    /// T: today, or this week while the week shows; only while either shows.
+    case today
+    /// B: 30 minutes set aside for the selected conversation (spec §5.54, “Setting time aside”); reader windows too.
+    case blockTime
 }
 
 @MainActor
@@ -276,6 +288,13 @@ final class KeyboardRouter {
         case "/": return (.search, false)
         case "z": return (.undo, false)
         case "g": return (nil, true)
+        // The calendar's keys (spec §5.54). An armed G keeps its own (G D is Drafts, G T is Sent), handled above.
+        case "d": return (.toggleDayColumn, false)
+        case "w": return (.toggleWeek, false)
+        case "[": return (.previousDay, false)
+        case "]": return (.nextDay, false)
+        case "t": return (.today, false)
+        case "b": return (.blockTime, false)
         default: return (nil, false)
         }
     }

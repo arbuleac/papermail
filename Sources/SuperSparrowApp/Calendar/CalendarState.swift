@@ -167,9 +167,15 @@ final class CalendarState {
 
     // MARK: Observers
 
-    func addObserver(_ observer: CalendarStateObserver) {
+    /// `first` puts the observer ahead of the others: the window, which turns the shown day as a selection's context lands,
+    /// so the views refit once for the new day rather than first for the old one.
+    func addObserver(_ observer: CalendarStateObserver, first: Bool = false) {
         observers.removeAll { $0.value == nil || $0.value === observer }
-        observers.append(WeakObserver(value: observer))
+        if first {
+            observers.insert(WeakObserver(value: observer), at: 0)
+        } else {
+            observers.append(WeakObserver(value: observer))
+        }
     }
 
     func removeObserver(_ observer: CalendarStateObserver) {

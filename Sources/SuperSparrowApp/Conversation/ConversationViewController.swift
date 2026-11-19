@@ -46,6 +46,9 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     }
     /// The conversation's messages were read again (a show, a store refresh): a reader window names itself after them.
     var onMessagesChange: (() -> Void)?
+    /// A body this reader asked for has arrived (with the times it names, found as it was stored): the day column reads
+    /// the conversation's invitation and times again (spec §5.54).
+    var onBodyArrived: ((ConversationID) -> Void)?
     /// The target message (spec §5.14): R, A, F and Space act on it. The last expanded message on open, then
     /// the one last clicked or reached with N, P or Tab. The quick reply answers it, so its placeholder and
     /// Reply all follow it.
@@ -965,6 +968,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             self.bodyFetches.remove(id)
             if outcome == .ready {
                 self.bodyStates[id] = nil
+                self.onBodyArrived?(conversation)
             } else {
                 if outcome == .offline { self.offlineAccounts.insert(id.accountID) }
                 self.setBodyState(outcome, for: id)
