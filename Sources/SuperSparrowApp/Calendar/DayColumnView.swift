@@ -129,7 +129,9 @@ final class DayColumnView: NSView, CalendarStateObserver {
     /// Contrast).
     override func draw(_ dirtyRect: NSRect) {
         NSColor.qPaper.setFill()
-        dirtyRect.fill()
+        // The layer never masks to its bounds (the e2 shadow of the column opened over the reader falls outside them), and
+        // a view's dirty rect may reach past its bounds: unclipped, the fill would cover the reader beside the column.
+        dirtyRect.intersection(bounds).fill()
     }
 
     private func applyElevation() {

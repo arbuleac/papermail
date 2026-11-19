@@ -53,7 +53,7 @@ final class WeekHeadingsView: NSView, QuirePointerTarget {
 
     override func draw(_ dirtyRect: NSRect) {
         NSColor.qPaper.setFill()
-        dirtyRect.fill()
+        dirtyRect.intersection(bounds).fill()
         let hairline = QuireHairline.width(for: self)
         let today = state.today
         for (index, day) in days.enumerated() {

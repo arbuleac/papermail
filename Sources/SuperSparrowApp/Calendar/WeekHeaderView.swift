@@ -106,7 +106,7 @@ final class WeekHeaderView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         NSColor.qPaper.setFill()
-        dirtyRect.fill()
+        dirtyRect.intersection(bounds).fill()
         let hairline = QuireHairline.width(for: self)
         NSColor.qRule.setFill()
         NSRect(x: 0, y: bounds.height - hairline, width: bounds.width, height: hairline).fill()

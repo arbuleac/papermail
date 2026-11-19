@@ -139,13 +139,13 @@ final class DayStripView: NSView, CalendarStateObserver, QuirePointerTarget {
 
     override func draw(_ dirtyRect: NSRect) {
         NSColor.qCanvas.setFill()
-        dirtyRect.fill()
+        dirtyRect.intersection(bounds).fill()
         if isOpen || isPressed {
             NSColor.qPressed.setFill()
-            dirtyRect.fill(using: .sourceOver)
+            dirtyRect.intersection(bounds).fill(using: .sourceOver)
         } else if isHovered {
             NSColor.qHover.setFill()
-            dirtyRect.fill(using: .sourceOver)
+            dirtyRect.intersection(bounds).fill(using: .sourceOver)
         }
         NSColor.qRule.setFill()
         NSRect(x: 0, y: 0, width: QuireHairline.width(for: self), height: bounds.height).fill()

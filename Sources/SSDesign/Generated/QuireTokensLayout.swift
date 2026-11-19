@@ -375,7 +375,7 @@ extension Quire {
             public static let weekHeadPadX: CGFloat = 8
             public static let weekHeadTextTop: CGFloat = 10
             public static let todayUnderlineGap: CGFloat = 4
-            public static let hourGutterColumn: CGFloat = 36
+            public static let hourGutterColumn: CGFloat = 40
             public static let hourGutterWeek: CGFloat = 48
             public static let hourLabelGap: CGFloat = 6
             public static let hourLabelClearance: CGFloat = 14

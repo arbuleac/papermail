@@ -131,7 +131,7 @@ final class CalendarFootView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         NSColor.qPaper.setFill()
-        dirtyRect.fill()
+        dirtyRect.intersection(bounds).fill()
         NSColor.qRule.setFill()
         NSRect(x: 0, y: 0, width: bounds.width, height: QuireHairline.width(for: self)).fill()
         let inner = bounds.width - 2 * padX

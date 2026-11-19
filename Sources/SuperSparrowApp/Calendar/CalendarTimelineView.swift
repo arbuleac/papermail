@@ -239,7 +239,7 @@ final class CalendarTimelineView: NSView, QuirePointerTarget {
 
     override func draw(_ dirtyRect: NSRect) {
         NSColor.qPaper.setFill()
-        dirtyRect.fill()
+        dirtyRect.intersection(bounds).fill()
         guard let fit else { return }
         let hairline = QuireHairline.width(for: self)
         drawDays(fit, dirtyRect: dirtyRect, hairline: hairline)

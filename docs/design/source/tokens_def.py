@@ -255,7 +255,7 @@ LAYOUT = {
                   "dayCellsHeight": 48, "dayCellsInsetX": 8, "dayCellTop": 4, "dayCellHeight": 40,
                   "dayCellRadius": 6, "dayCellTextTop": 3, "dayCellTrack": 5, "dayCellTrackInsetX": 4,
                   "dayCellTrackBottom": 3, "dayCellAllDayLine": 2, "weekHeadsHeight": 34, "weekHeadPadX": 8,
-                  "weekHeadTextTop": 10, "todayUnderlineGap": 4, "hourGutterColumn": 36, "hourGutterWeek": 48,
+                  "weekHeadTextTop": 10, "todayUnderlineGap": 4, "hourGutterColumn": 40, "hourGutterWeek": 48,
                   "hourLabelGap": 6, "hourLabelClearance": 14, "trailingPadColumn": 8, "trailingPadWeek": 12,
                   "foldHeight": 14, "foldedDayWidth": 28, "hourMin": 16, "hourMax": 64,
                   "coreStartHour": 9, "coreEndHour": 18, "eventMinHeight": 18, "eventEdge": 3,

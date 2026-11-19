@@ -132,7 +132,7 @@ final class WeekView: NSView, CalendarStateObserver {
 
     override func draw(_ dirtyRect: NSRect) {
         NSColor.qPaper.setFill()
-        dirtyRect.fill()
+        dirtyRect.intersection(bounds).fill()
     }
 
     // MARK: The invitation card
