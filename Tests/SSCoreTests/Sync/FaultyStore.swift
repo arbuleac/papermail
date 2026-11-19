@@ -15,6 +15,9 @@ final class FaultyStore: MailStoring, @unchecked Sendable {
         case finishBackfill
         /// Either form of `enqueue`: one call, whether it carries one operation or several.
         case enqueue
+        /// A calendar read's write.
+        case replaceCalendarEvents
+        case settleCalendarEvent
     }
 
     let base: InMemoryMailStore
@@ -259,4 +262,29 @@ final class FaultyStore: MailStoring, @unchecked Sendable {
         base.observePendingSends(onChange: onChange)
     }
     func suggestAddresses(prefix: String, limit: Int) throws -> [EmailAddress] { try base.suggestAddresses(prefix: prefix, limit: limit) }
+
+    // MARK: Calendar
+
+    func calendarEvents(in interval: DateInterval, accountIDs: [AccountID]?) throws -> [CalendarEvent] {
+        try base.calendarEvents(in: interval, accountIDs: accountIDs)
+    }
+    func observeCalendarEvents(in interval: DateInterval,
+                               onChange: @escaping @Sendable ([CalendarEvent]) -> Void) -> StoreObservation {
+        base.observeCalendarEvents(in: interval, onChange: onChange)
+    }
+    func replaceCalendarEvents(_ events: [CalendarEvent], accountID: AccountID, window: DateInterval) throws {
+        try check(.replaceCalendarEvents)
+        try base.replaceCalendarEvents(events, accountID: accountID, window: window)
+    }
+    func addCalendarEvent(_ event: CalendarEvent) throws { try base.addCalendarEvent(event) }
+    func removeCalendarEvent(id: String) throws -> CalendarEvent? { try base.removeCalendarEvent(id: id) }
+    func restoreCalendarEvent(_ event: CalendarEvent) throws -> CalendarEvent { try base.restoreCalendarEvent(event) }
+    func pendingCalendarEvents(accountID: AccountID) throws -> [CalendarEvent] { try base.pendingCalendarEvents(accountID: accountID) }
+    func settleCalendarEvent(id: String, created: CalendarEvent?) throws -> Bool {
+        try check(.settleCalendarEvent)
+        return try base.settleCalendarEvent(id: id, created: created)
+    }
+    func failCalendarEvent(id: String) throws { try base.failCalendarEvent(id: id) }
+    func saveMailTimes(_ times: [MailTime], for message: MessageID) throws { try base.saveMailTimes(times, for: message) }
+    func mailTimes(in conversation: ConversationID) throws -> [MailTime] { try base.mailTimes(in: conversation) }
 }

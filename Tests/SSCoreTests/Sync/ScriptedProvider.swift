@@ -7,7 +7,9 @@ import Foundation
 /// Backfill listings read the same bootstrap runs. By default they go through `bootstrap` and carry metadata
 /// inline, as Graph's do; with `backfillIDsOnly` they return ids only, as Gmail's do, and the engine asks
 /// `metadata(for:)`, which serves the scripted pages' messages (or `metadataByID`).
-final class ScriptedProvider: MailProvider, @unchecked Sendable {
+///
+/// Not final: `ScriptedCalendarProvider` gives it a calendar.
+class ScriptedProvider: MailProvider, @unchecked Sendable {
     let accountID: AccountID
     let kind: ProviderKind
     private let lock = NSRecursiveLock()

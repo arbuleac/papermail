@@ -124,9 +124,11 @@ public protocol MailClient: AnyObject {
     /// the row as it now stands (it may have a new id).
     @discardableResult
     func restoreCalendarEvent(_ event: CalendarEvent) throws -> CalendarEvent
-    /// Reads the calendars of `accountID` (every account when nil) at the next turn of their live lanes instead of
-    /// waiting for the calendar's own interval: the calendar was just opened, or a day outside the stored window was
-    /// asked for. Returns immediately.
+    /// Reads the calendars of `accountID` (every account when nil) at their next chance instead of waiting for the
+    /// calendar's own interval: at once when an account's calendar lane is idle, after the turn it is taking otherwise,
+    /// and once the account may send again while it waits for sign-in or its first live cycle (a failure's backoff is
+    /// waited out too). For when the calendar was just shown, or a day outside the stored window was asked for. Returns
+    /// immediately.
     func refreshCalendars(accountID: AccountID?)
     /// Signs `account` in again asking for the calendar scope too (Connect, from the calendar's foot); once granted,
     /// its calendar is read. Throws as `reconnect` does.

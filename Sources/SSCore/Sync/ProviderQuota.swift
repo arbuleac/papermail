@@ -30,6 +30,11 @@ struct ProviderQuota: Sendable, Equatable {
     /// (Graph's, which also looks up the system folders and takes the first steps of its folder walk), and a changes
     /// page with `ChangesPage.requestCount` as `changesCost` per request.
     var inlineMetadata = false
+    /// What one request to the account's calendar costs on this quota (docs/ARCHITECTURE.md, "Calendar"): Graph's
+    /// calendar shares the mailbox's limit, so its reads, creates and deletes are live spend and a throttle on them pauses
+    /// the backfill. Nil where the calendar has a quota of its own (Google Calendar's, apart from Gmail's): nothing is
+    /// charged, and a throttle there holds back only the calendar.
+    var calendarRequestCost: Double?
 
     static func standard(for kind: ProviderKind) -> ProviderQuota {
         switch kind {
@@ -38,7 +43,7 @@ struct ProviderQuota: Sendable, Equatable {
             // per-method units (the Gmail API's "Usage limits" page): messages.list 5, messages.get 20 with
             // format=metadata and 60 with format=full, messages.attachments.get 5, history.list 2. Two requests in
             // flight, because a Gmail batch already carries several calls and more parallel batches only reach the
-            // limit sooner.
+            // limit sooner. Google Calendar is another API with a quota of its own, so its requests cost nothing here.
             return ProviderQuota(unitsPerMinute: 6_000, listCost: 5, metadataCostPerMessage: 20, bodyCost: 60,
                                  attachmentCost: 5, changesCost: 2, maxBackfillConcurrency: 2)
         case .microsoft:
@@ -47,9 +52,10 @@ struct ProviderQuota: Sendable, Equatable {
             // costs a request per message even twenty to a $batch; a listing page that returns metadata inline is
             // one request. A body takes the message and its attachment list; an attachment's bytes are one GET of
             // its `$value`. A mailbox allows 4 concurrent requests; the backfill takes 2 so the live lane always has
-            // the other 2.
+            // the other 2. The calendar is the same mailbox: a page of its events, a create or a delete is one request.
             return ProviderQuota(unitsPerMinute: 1_000, listCost: 1, metadataCostPerMessage: 1, bodyCost: 2,
-                                 attachmentCost: 1, changesCost: 1, maxBackfillConcurrency: 2, inlineMetadata: true)
+                                 attachmentCost: 1, changesCost: 1, maxBackfillConcurrency: 2, inlineMetadata: true,
+                                 calendarRequestCost: 1)
         }
     }
 
