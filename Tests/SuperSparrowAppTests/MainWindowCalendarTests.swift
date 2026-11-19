@@ -400,7 +400,7 @@ final class MainWindowCalendarTests: XCTestCase {
         XCTAssertEqual(undo.title, "Undo Block Time")
 
         XCTAssertTrue(controller.perform(.undo), "Z")
-        XCTAssertTrue(try events(harness).isEmpty, "a block the provider never had goes at once")
+        XCTAssertTrue(try events(harness).filter(\.isShown).isEmpty, "a block still being created leaves the calendar at once")
         XCTAssertEqual(harness.toastMessage, "Undid Block Time")
     }
 
@@ -416,12 +416,12 @@ final class MainWindowCalendarTests: XCTestCase {
         XCTAssertEqual(block.start, Support.at(12, 30), "the first free half hour, on the quarter hour, after now and what is busy")
         XCTAssertEqual(harness.toastMessage, "Blocked 12:30 - 13:00")
         controller.performUndo(controller.commandZTarget(textCanUndo: false))
-        XCTAssertFalse(try events(harness).contains { $0.id == block.id }, "⌘Z")
+        XCTAssertFalse(try events(harness).contains { $0.id == block.id && $0.isShown }, "⌘Z")
 
         // Nothing or several selected: B beeps and sets nothing aside.
         harness.selectFirst(2)
         XCTAssertTrue(controller.perform(.blockTime))
-        XCTAssertEqual(try events(harness).count, 1)
+        XCTAssertEqual(try events(harness).filter(\.isShown).count, 1)
     }
 
     func testBOnAnInvitationOnlyPointsToItsCard() throws {
