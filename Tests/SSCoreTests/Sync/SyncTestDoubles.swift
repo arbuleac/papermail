@@ -186,6 +186,7 @@ final class PhaseRecorder: @unchecked Sendable {
     private let lock = NSLock()
     private var latestStatuses: [AccountSyncStatus] = []
     private var phases: Set<AccountSyncPhase> = []
+    private var calendars: Set<CalendarSyncState> = []
     private var count = 0
     private var onMain = true
 
@@ -197,6 +198,12 @@ final class PhaseRecorder: @unchecked Sendable {
     var seen: Set<AccountSyncPhase> {
         lock.lock(); defer { lock.unlock() }
         return phases
+    }
+
+    /// Every calendar state any delivery carried, for any account.
+    var calendarsSeen: Set<CalendarSyncState> {
+        lock.lock(); defer { lock.unlock() }
+        return calendars
     }
 
     var deliveries: Int {
@@ -213,7 +220,10 @@ final class PhaseRecorder: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         latestStatuses = statuses
         count += 1
-        for status in statuses { phases.insert(status.phase) }
+        for status in statuses {
+            phases.insert(status.phase)
+            calendars.insert(status.calendar)
+        }
         if !Thread.isMainThread { onMain = false }
     }
 }

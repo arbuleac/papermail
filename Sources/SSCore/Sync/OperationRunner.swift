@@ -32,6 +32,8 @@ struct OperationRunner: Sendable {
         /// Permissions the account has not granted that due operations wait for: they stay pending, untried, and the
         /// account asks to reconnect with them. Complete for the operations read, whatever the drain met after.
         var permissionsNeeded: Set<AccountPermission> = []
+        /// An answer to an invitation went out: the calendar's copy of it says so from now on.
+        var answeredInvitation = false
     }
 
     private enum GroupResult {
@@ -126,6 +128,7 @@ struct OperationRunner: Sendable {
             switch await apply(group) {
             case .applied:
                 outcome.applied += group.count
+                if group.contains(where: { $0.change.kind == .answerInvitation }) { outcome.answeredInvitation = true }
             case .deferred(let until):
                 // The provider is unhappy; later operations would fail the same way and must keep their order.
                 outcome.nextAttemptAt = Self.earlier(outcome.nextAttemptAt, until)

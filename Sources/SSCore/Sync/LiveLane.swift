@@ -73,6 +73,9 @@ actor LiveLane {
     /// Told after a full cycle caught up, once the account is unparked: the calendar lane's moment to see whether a read
     /// is due. Never awaited, so a slow calendar cannot hold back the next poll.
     private let cycleCaughtUp: @Sendable () -> Void
+    /// Told when the outbox has sent an answer to an invitation: the calendar lane reads the calendar's copy of it now,
+    /// which says the answer from then on. Never awaited.
+    private let invitationAnswered: @Sendable () -> Void
     private var reportedFirstCycle = false
     private var phase: AccountSyncPhase = .idle
     /// Whether the park is a refused keychain rather than a refused token.
@@ -119,7 +122,8 @@ actor LiveLane {
         firstCycleEnded: @escaping @Sendable () -> Void = {},
         checkStarted: @escaping @Sendable () -> Void = {},
         checkCaughtUp: @escaping @Sendable () -> Void = {},
-        cycleCaughtUp: @escaping @Sendable () -> Void = {}
+        cycleCaughtUp: @escaping @Sendable () -> Void = {},
+        invitationAnswered: @escaping @Sendable () -> Void = {}
     ) {
         self.accountID = accountID
         self.store = store
@@ -136,6 +140,7 @@ actor LiveLane {
         self.checkStarted = checkStarted
         self.checkCaughtUp = checkCaughtUp
         self.cycleCaughtUp = cycleCaughtUp
+        self.invitationAnswered = invitationAnswered
     }
 
     // MARK: Loop
@@ -426,6 +431,8 @@ actor LiveLane {
 
     private func drainOutbox() async throws -> Date? {
         let outcome = await runner.drain()
+        // Whatever stopped the drain after it: the answer is out.
+        if outcome.answeredInvitation { invitationAnswered() }
         // Recorded on every drain, so the ask goes away as soon as the work it waited for can go out.
         statusCenter.update(accountID) { $0.permissionsNeeded = outcome.permissionsNeeded }
         // Parked before the poll, which would ask the keychain again in the same cycle.

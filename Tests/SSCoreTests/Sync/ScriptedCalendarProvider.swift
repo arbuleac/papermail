@@ -37,6 +37,12 @@ final class ScriptedCalendarProvider: ScriptedProvider, CalendarProvider, @unche
         get { locked { scriptedDeletes } }
         set { locked { scriptedDeletes = newValue } }
     }
+    /// Creates of these local ids always throw their error, before anything is made: one event the provider keeps
+    /// failing (a reply that never reads, a 5xx for that item), whatever the scripts say.
+    var stuckCreates: [String: Error] {
+        get { locked { scriptedStuck } }
+        set { locked { scriptedStuck = newValue } }
+    }
     /// The requests each read reports (`CalendarListing.requestCount`).
     var requestsPerRead: Int {
         get { locked { scriptedRequests } }
@@ -61,6 +67,7 @@ final class ScriptedCalendarProvider: ScriptedProvider, CalendarProvider, @unche
     private var scriptedGrant = true
     private var scriptedReads: [Error?] = []
     private var scriptedCreates: [CreateScript] = []
+    private var scriptedStuck: [String: Error] = [:]
     private var scriptedDeletes: [Error?] = []
     private var scriptedRequests = 1
     private var scriptedHoldReads = false
@@ -74,15 +81,25 @@ final class ScriptedCalendarProvider: ScriptedProvider, CalendarProvider, @unche
     private var held: [CalendarEvent] = []
     private var made = 0
 
-    /// Puts an event made elsewhere (on the web, a phone) on the calendar. Returns its provider id.
+    /// Puts an event made elsewhere (on the web, a phone, an invitation the provider added) on the calendar. Returns its
+    /// provider id.
     @discardableResult
-    func seedEvent(_ title: String, start: Date, minutes: Double = 30) -> String {
+    func seedEvent(_ title: String, start: Date, minutes: Double = 30, invitationUID: String? = nil,
+                   response: CalendarEvent.Response = .organizer, clientKey: String? = nil) -> String {
         locked {
             made += 1
             let providerID = "seed-\(made)"
             held.append(CalendarEvent(id: "", accountID: accountID, providerID: providerID, title: title, start: start,
-                                      end: start.addingTimeInterval(minutes * 60)))
+                                      end: start.addingTimeInterval(minutes * 60), response: response,
+                                      invitationUID: invitationUID, clientKey: clientKey))
             return providerID
+        }
+    }
+
+    /// The provider records an answer on its copy of an invitation, as Google and Exchange do once it has gone out.
+    func answer(_ providerID: String, _ response: CalendarEvent.Response) {
+        locked {
+            for index in held.indices where held[index].providerID == providerID { held[index].response = response }
         }
     }
 
@@ -131,6 +148,7 @@ final class ScriptedCalendarProvider: ScriptedProvider, CalendarProvider, @unche
         while locked({ scriptedHoldCreates }) {
             try await Task.sleep(for: .milliseconds(5))
         }
+        if let stuck = locked({ scriptedStuck[event.id] }) { throw stuck }
         let script: CreateScript = locked { scriptedCreates.isEmpty ? .make : scriptedCreates.removeFirst() }
         if case .fail(let error) = script { throw error }
         let copy: CalendarEvent = locked {

@@ -285,6 +285,10 @@ final class FaultyStore: MailStoring, @unchecked Sendable {
         return try base.settleCalendarEvent(id: id, created: created)
     }
     func failCalendarEvent(id: String) throws { try base.failCalendarEvent(id: id) }
+    func answerCalendarEvents(_ response: CalendarEvent.Response, invitationUID uid: String, accountID: AccountID,
+                              near occurrence: Date?) throws {
+        try base.answerCalendarEvents(response, invitationUID: uid, accountID: accountID, near: occurrence)
+    }
     func saveMailTimes(_ times: [MailTime], for message: MessageID) throws { try base.saveMailTimes(times, for: message) }
     func mailTimes(in conversation: ConversationID) throws -> [MailTime] { try base.mailTimes(in: conversation) }
 }

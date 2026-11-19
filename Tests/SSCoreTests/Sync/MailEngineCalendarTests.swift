@@ -3,8 +3,9 @@ import XCTest
 @testable import SSCore
 
 /// The calendar lane through the engine (docs/ARCHITECTURE.md, "Calendar"): when it reads (after a live cycle that caught
-/// up, once a minute in front and every five minutes behind, at once when asked or when a write waits), the time set
-/// aside and removed on this Mac sent oldest first and settled, every refusal kept away from the mail, and Connect.
+/// up, every two minutes in front and every ten behind, at once when asked, when a write waits or once an answer has gone
+/// out, and days outside the window once when asked), the time set aside and removed on this Mac sent oldest first and
+/// settled, a write that keeps failing never holding the rest back, every refusal kept away from the mail, and Connect.
 ///
 /// The calendar's clock is a `HandClock` that moves only when a test moves it, so a read that happens without it moving
 /// was asked for, and one that does not happen is not due.
@@ -50,7 +51,7 @@ final class MailEngineCalendarTests: XCTestCase {
 
     // MARK: When it reads
 
-    func testTheFirstReadRidesTheFirstLiveCycleAndTheNextWaitsAMinute() async throws {
+    func testTheFirstReadRidesTheFirstLiveCycleAndTheNextWaitsTwoMinutes() async throws {
         let clock = HandClock()
         let provider = ScriptedCalendarProvider(accountID: account)
         let standup = provider.seedEvent("Standup", start: clock.now.addingTimeInterval(3_600))
@@ -67,35 +68,71 @@ final class MailEngineCalendarTests: XCTestCase {
         // The polls go on every 0.15 s; the calendar is not read with each of them.
         try await waitForPolls(5, of: provider)
         XCTAssertEqual(provider.readWindows.count, 1)
-        clock.advance(59)
+        clock.advance(119)
         try await waitForPolls(3, of: provider)
-        XCTAssertEqual(provider.readWindows.count, 1, "not before a minute")
+        XCTAssertEqual(provider.readWindows.count, 1, "not before two minutes")
         clock.advance(1)
-        try await waitUntil("read again after a minute") { provider.readWindows.count == 2 }
-        try await waitUntil("dated by the new read") { self.calendarState(recorder) == .current(clock.now) }
+        try await waitUntil("read again after two minutes") { provider.readWindows.count == 2 }
         await harness.shutdown()
     }
 
-    func testInTheBackgroundTheCalendarIsReadEveryFiveMinutes() async throws {
+    /// Where the calendar stands is published when it changes, not with every read: the views that observe the statuses
+    /// lay out again on each, for a date nothing shows. A read five minutes newer than the one published says so.
+    func testTheStatusIsPublishedWhenItChangesNotWithEveryRead() async throws {
+        let clock = HandClock()
+        let provider = ScriptedCalendarProvider(accountID: account)
+        let recorder = PhaseRecorder()
+        let harness = try await started(provider, clock: clock)
+        let observation = harness.engine.observeStatus { recorder.record($0) }
+        defer { observation.cancel() }
+        let first = clock.now
+        try await waitUntil("current") { self.calendarState(recorder) == .current(first) }
+        for read in 2...3 {
+            clock.advance(120)
+            try await waitUntil("read \(read)") { provider.readWindows.count == read }
+        }
+        try await waitForPolls(3, of: provider)
+        XCTAssertEqual(calendarState(recorder), .current(first), "four minutes on, the same state: nothing published")
+        XCTAssertTrue(recorder.calendarsSeen.isSubset(of: [.unknown, .current(first)]), "no read dated anew: \(recorder.calendarsSeen)")
+
+        // A failure is a change; so is the read that ends it.
+        provider.readResults = [ProviderError.network("offline")]
+        harness.engine.refreshCalendars(accountID: account)
+        try await waitUntil("failing") { self.calendarState(recorder) == .failing(lastRead: clock.now) }
+        clock.advance(1)
+        try await waitUntil("current again") { self.calendarState(recorder) == .current(clock.now) }
+        let recovered = clock.now
+
+        // Five minutes newer than the one published, a read is published.
+        clock.advance(120)
+        try await waitUntil("read 6") { provider.readWindows.count == 6 }
+        try await waitForPolls(3, of: provider)
+        XCTAssertEqual(calendarState(recorder), .current(recovered))
+        clock.advance(181)
+        try await waitUntil("published again") { self.calendarState(recorder) == .current(clock.now) }
+        await harness.shutdown()
+    }
+
+    func testInTheBackgroundTheCalendarIsReadEveryTenMinutes() async throws {
         let clock = HandClock()
         let provider = ScriptedCalendarProvider(accountID: account)
         let harness = try await started(provider, clock: clock)
         try await waitUntil("the first read") { provider.readWindows.count == 1 }
         harness.engine.setAppActive(false)
 
-        clock.advance(60)
+        clock.advance(120)
         try await waitForPolls(3, of: provider)
-        XCTAssertEqual(provider.readWindows.count, 1, "a minute is the frontmost interval")
-        clock.advance(239)
+        XCTAssertEqual(provider.readWindows.count, 1, "two minutes is the frontmost interval")
+        clock.advance(479)
         try await waitForPolls(3, of: provider)
         XCTAssertEqual(provider.readWindows.count, 1)
         clock.advance(1)
-        try await waitUntil("read after five minutes") { provider.readWindows.count == 2 }
+        try await waitUntil("read after ten minutes") { provider.readWindows.count == 2 }
 
-        // Back in front, a minute again.
+        // Back in front, two minutes again.
         harness.engine.setAppActive(true)
-        clock.advance(60)
-        try await waitUntil("read after a minute in front") { provider.readWindows.count == 3 }
+        clock.advance(120)
+        try await waitUntil("read after two minutes in front") { provider.readWindows.count == 3 }
         await harness.shutdown()
     }
 
@@ -223,7 +260,7 @@ final class MailEngineCalendarTests: XCTestCase {
 
         let steps: [(advance: TimeInterval, state: CalendarSyncState)] = [
             (0, .failing(lastRead: nil)), (1, .failing(lastRead: nil)), (1, .failing(lastRead: nil)),
-            (1, .notConnected), (60, .apiDisabled), (60, .failing(lastRead: nil)), (1, .current(clock.now.addingTimeInterval(124))),
+            (1, .notConnected), (120, .apiDisabled), (120, .failing(lastRead: nil)), (1, .current(clock.now.addingTimeInterval(244))),
         ]
         for (index, step) in steps.enumerated() {
             clock.advance(step.advance)
@@ -259,7 +296,9 @@ final class MailEngineCalendarTests: XCTestCase {
         XCTAssertEqual(sent.id, event.id)
         XCTAssertNotNil(sent.clientKey, "the store gives every block its key")
         XCTAssertEqual(sent.sourceMessage, source)
+        XCTAssertEqual(sent.sourceThreadID, "t1", "the mail's conversation, for the link back, with no request of its own")
         try await waitUntil("settled") { try self.row(event.id, harness, clock)?.providerID == "evt-1" }
+        XCTAssertNil(try row(event.id, harness, clock)?.sourceThreadID, "the store never keeps it")
         try await waitUntil("read after the write") { provider.readWindows.count == 2 }
 
         let rows = try stored(harness, clock)
@@ -283,7 +322,7 @@ final class MailEngineCalendarTests: XCTestCase {
         try await waitUntil("create under way") { provider.createCalls.count == 1 }
         let removed = try harness.engine.removeCalendarEvent(id: event.id)
         XCTAssertEqual(removed?.sync, .creating)
-        XCTAssertNil(try row(event.id, harness, clock), "gone at once")
+        XCTAssertEqual(try row(event.id, harness, clock)?.isShown, false, "gone from the calendar at once")
         provider.holdCreates = false
 
         try await waitUntil("the copy deleted") { provider.deleteCalls == ["evt-1"] }
@@ -457,8 +496,8 @@ final class MailEngineCalendarTests: XCTestCase {
     }
 
     /// The store refusing a calendar write loses nothing: a read's write is taken again after the backoff, and a create
-    /// that landed but could not be settled (as if the app had died between the two) is sent again under its key, which
-    /// finds the copy already made.
+    /// that landed but could not be settled (as if the app had died between the two) is found by the turn's read under
+    /// its key, one row with its mail and no second copy.
     func testAStoreWriteThatFailsIsTakenAgainAndMakesNoSecondCopy() async throws {
         let clock = HandClock()
         let provider = ScriptedCalendarProvider(accountID: account)
@@ -483,16 +522,282 @@ final class MailEngineCalendarTests: XCTestCase {
 
         faulty.fail(.settleCalendarEvent)
         let event = block(at: clock.now.addingTimeInterval(7_200))
+        let reads = provider.readWindows.count
         try harness.engine.addCalendarEvent(event)
         try await waitUntil("the settle refused") { faulty.fired.contains(.settleCalendarEvent) }
-        try await waitUntil("failing") { self.calendarState(recorder) == .failing(lastRead: clock.now) }
-        XCTAssertEqual(try row(event.id, harness, clock)?.sync, .creating)
-        clock.advance(1)
-        try await waitUntil("settled on the next turn") { try self.row(event.id, harness, clock)?.sync == .synced }
-        XCTAssertEqual(provider.createCalls.count, 2)
+        try await waitUntil("the turn's read") { provider.readWindows.count > reads }
+        try await waitUntil("settled by the read") { try self.row(event.id, harness, clock)?.sync == .synced }
+        XCTAssertEqual(try row(event.id, harness, clock)?.sourceMessage, source)
+        XCTAssertEqual(provider.createCalls.count, 1)
         XCTAssertEqual(provider.calendar.count, 2, "the standup and one copy of the block")
-        try await waitUntil("read") { self.calendarState(recorder) == .current(clock.now) }
+        XCTAssertEqual(calendarState(recorder), .current(clock.now), "that one write's trouble is no failing calendar")
         XCTAssertEqual(try stored(harness, clock).count, 2)
+        await harness.shutdown()
+    }
+
+    // MARK: A block removed while its create was out
+
+    /// B, the create reaches the provider but its reply is lost, and the user removes the block: the hidden tombstone
+    /// keeps its key, the next read finds the copy by it, and the copy is deleted in that same turn, never brought back
+    /// as an event of its own.
+    func testRemovingABlockWhoseCreateReplyWasLostDeletesTheCopy() async throws {
+        let clock = HandClock()
+        let provider = ScriptedCalendarProvider(accountID: account)
+        provider.createScripts = [.loseReply(ProviderError.network("connection lost"))]
+        let recorder = PhaseRecorder()
+        let harness = try await started(provider, clock: clock)
+        let observation = harness.engine.observeStatus { recorder.record($0) }
+        defer { observation.cancel() }
+        try await waitUntil("the first read") { provider.readWindows.count == 1 }
+
+        let event = block(at: clock.now.addingTimeInterval(7_200))
+        try harness.engine.addCalendarEvent(event)
+        try await waitUntil("the reply lost") { self.calendarState(recorder) == .failing(lastRead: clock.now) }
+        XCTAssertEqual(provider.calendar.count, 1, "the provider made it")
+        XCTAssertEqual(try harness.engine.removeCalendarEvent(id: event.id)?.sync, .creating)
+        XCTAssertTrue(try stored(harness, clock).filter(\.isShown).isEmpty, "gone from the calendar at once")
+
+        clock.advance(1)
+        try await waitUntil("the copy deleted") { provider.deleteCalls == ["evt-1"] }
+        try await waitUntil("and nothing left here") { try self.stored(harness, clock).isEmpty }
+        XCTAssertTrue(provider.calendar.isEmpty)
+        XCTAssertEqual(provider.readWindows.count, 2, "one read found it and the same turn deleted it")
+        XCTAssertEqual(provider.createCalls.count, 1, "never created again")
+        await harness.shutdown()
+    }
+
+    /// B, then Z on its toast while the create is on its way, and that create's reply is lost.
+    func testUndoingABlockWhileItsCreateIsOutAndTheReplyIsLostDeletesTheCopy() async throws {
+        let clock = HandClock()
+        let provider = ScriptedCalendarProvider(accountID: account)
+        let harness = try await started(provider, clock: clock)
+        try await waitUntil("the first read") { provider.readWindows.count == 1 }
+        provider.createScripts = [.loseReply(ProviderError.network("timed out"))]
+        provider.holdCreates = true
+
+        let event = block(at: clock.now.addingTimeInterval(7_200))
+        try harness.engine.addCalendarEvent(event)
+        try await waitUntil("create under way") { provider.createCalls.count == 1 }
+        XCTAssertNotNil(try harness.engine.removeCalendarEvent(id: event.id), "Z on B's toast")
+        provider.holdCreates = false
+        try await waitUntil("the provider made it") { provider.calendar.count == 1 }
+
+        clock.advance(1)
+        try await waitUntil("the copy deleted") { provider.calendar.isEmpty }
+        try await waitUntil("and nothing left here") { try self.stored(harness, clock).isEmpty }
+        XCTAssertEqual(provider.deleteCalls, ["evt-1"])
+        XCTAssertTrue(try harness.store.pendingCalendarEvents(accountID: account).isEmpty)
+        await harness.shutdown()
+    }
+
+    /// A lost reply, Remove, then the undo of the Remove: the block comes back under its own id and key, so the create
+    /// sent again finds the copy the first one made. One copy on the calendar, one row with its mail.
+    func testRemovingThenRestoringABlockWhoseCreateReplyWasLostKeepsOneCopy() async throws {
+        let clock = HandClock()
+        let provider = ScriptedCalendarProvider(accountID: account)
+        provider.createScripts = [.loseReply(ProviderError.network("connection lost"))]
+        let recorder = PhaseRecorder()
+        let harness = try await started(provider, clock: clock)
+        let observation = harness.engine.observeStatus { recorder.record($0) }
+        defer { observation.cancel() }
+        try await waitUntil("the first read") { provider.readWindows.count == 1 }
+
+        let event = block(at: clock.now.addingTimeInterval(7_200))
+        try harness.engine.addCalendarEvent(event)
+        try await waitUntil("the reply lost") { self.calendarState(recorder) == .failing(lastRead: clock.now) }
+        let asWas = try XCTUnwrap(try harness.engine.removeCalendarEvent(id: event.id))
+        let restored = try harness.engine.restoreCalendarEvent(asWas)
+        XCTAssertEqual(restored.id, event.id)
+        XCTAssertEqual(restored.clientKey, asWas.clientKey, "the same key: the create sent again finds the copy")
+        XCTAssertEqual(restored.sync, .creating)
+
+        clock.advance(1)
+        try await waitUntil("settled") { try self.row(event.id, harness, clock)?.sync == .synced }
+        try await waitUntil("read") { provider.readWindows.count == 2 }
+        XCTAssertEqual(provider.calendar.count, 1, "one copy")
+        let rows = try stored(harness, clock)
+        XCTAssertEqual(rows.map(\.id), [event.id], "drawn once")
+        XCTAssertEqual(rows.first?.sourceMessage, source)
+        XCTAssertEqual(rows.first?.providerID, "evt-1")
+        XCTAssertTrue(provider.deleteCalls.isEmpty)
+        await harness.shutdown()
+    }
+
+    /// A create that never reached the provider, then Remove: the read lists no copy, so it sweeps the tombstone.
+    func testRemovingABlockThatWasNeverMadeLeavesNothing() async throws {
+        let clock = HandClock()
+        let provider = ScriptedCalendarProvider(accountID: account)
+        provider.createScripts = [.fail(ProviderError.network("offline"))]
+        let harness = try await started(provider, clock: clock)
+        try await waitUntil("the first read") { provider.readWindows.count == 1 }
+        let event = block(at: clock.now.addingTimeInterval(7_200))
+        try harness.engine.addCalendarEvent(event)
+        try await waitUntil("create failed") { provider.createCalls.count == 1 }
+        try await waitUntil("the turn ended") { try self.row(event.id, harness, clock)?.sync == .creating && provider.createCalls.count == 1 }
+        _ = try harness.engine.removeCalendarEvent(id: event.id)
+
+        clock.advance(1)
+        try await waitUntil("read") { provider.readWindows.count == 2 }
+        try await waitUntil("the tombstone swept") { try self.stored(harness, clock).isEmpty }
+        XCTAssertTrue(try harness.store.pendingCalendarEvents(accountID: account).isEmpty)
+        XCTAssertTrue(provider.deleteCalls.isEmpty)
+        XCTAssertEqual(provider.createCalls.count, 1)
+        await harness.shutdown()
+    }
+
+    /// Removed while its create was out, the block's copy is deleted at once; when that delete fails, the copy's id waits
+    /// in the store, not in memory, so a quit loses nothing and the next turn deletes it.
+    func testTheCopyOfABlockRemovedDuringItsCreateWaitsInTheStoreForItsDelete() async throws {
+        let clock = HandClock()
+        let provider = ScriptedCalendarProvider(accountID: account)
+        let harness = try await started(provider, clock: clock)
+        try await waitUntil("the first read") { provider.readWindows.count == 1 }
+        provider.holdCreates = true
+        provider.deleteResults = [ProviderError.network("offline")]
+
+        let event = block(at: clock.now.addingTimeInterval(7_200))
+        try harness.engine.addCalendarEvent(event)
+        try await waitUntil("create under way") { provider.createCalls.count == 1 }
+        _ = try harness.engine.removeCalendarEvent(id: event.id)
+        provider.holdCreates = false
+        try await waitUntil("its delete tried") { provider.deleteCalls == ["evt-1"] }
+        try await waitUntil("the copy's id kept") {
+            try harness.store.pendingCalendarEvents(accountID: self.account).map(\.providerID) == ["evt-1"]
+        }
+        XCTAssertEqual(try row(event.id, harness, clock)?.sync, .deleting)
+        XCTAssertEqual(try row(event.id, harness, clock)?.isShown, false)
+
+        clock.advance(1)
+        try await waitUntil("deleted on the next turn") { provider.calendar.isEmpty }
+        try await waitUntil("and here") { try self.stored(harness, clock).isEmpty }
+        XCTAssertEqual(provider.deleteCalls, ["evt-1", "evt-1"])
+        await harness.shutdown()
+    }
+
+    // MARK: A write that keeps failing
+
+    /// One block whose create keeps failing for a reason of its own (a reply that never reads, a 5xx for that one
+    /// event) holds nothing back: the read goes on, so a meeting added elsewhere shows, the next block is sent, and the
+    /// stuck one is tried again after its own backoff and given up after `failingPageTries` tries, with the failed mark.
+    func testOneWriteThatKeepsFailingNeverHoldsBackTheReadsOrTheOtherWrites() async throws {
+        let clock = HandClock()
+        let provider = ScriptedCalendarProvider(accountID: account)
+        let recorder = PhaseRecorder()
+        let harness = try await started(provider, clock: clock)
+        let observation = harness.engine.observeStatus { recorder.record($0) }
+        defer { observation.cancel() }
+        try await waitUntil("the first read") { provider.readWindows.count == 1 }
+
+        let stuck = block(at: clock.now.addingTimeInterval(7_200))
+        provider.stuckCreates = [stuck.id: ProviderError.decoding("unexpected reply")]
+        try harness.engine.addCalendarEvent(stuck)
+        try await waitUntil("its create failed") { provider.createCalls.count == 1 }
+        try await waitUntil("and the read went on") { provider.readWindows.count == 2 }
+
+        // A meeting is added on the phone, and the user sets time aside for another mail.
+        provider.seedEvent("Board meeting", start: clock.now.addingTimeInterval(3_600))
+        let later = block(at: clock.now.addingTimeInterval(10_800), title: "Later")
+        try harness.engine.addCalendarEvent(later)
+        try await waitUntil("the next block sent and settled") { try self.row(later.id, harness, clock)?.sync == .synced }
+        try await waitUntil("the meeting read") { try self.stored(harness, clock).contains { $0.title == "Board meeting" } }
+        XCTAssertEqual(provider.createCalls.filter { $0.id == stuck.id }.count, 1, "not tried again inside its backoff")
+        XCTAssertEqual(try row(stuck.id, harness, clock)?.sync, .creating)
+        XCTAssertEqual(calendarState(recorder), .current(clock.now), "that one write's trouble is no failing calendar")
+
+        // Tried again after its own backoff (the harness caps it at a second), and given up after five tries.
+        for tries in 2...5 {
+            clock.advance(1)
+            try await waitUntil("try \(tries)") { provider.createCalls.filter { $0.id == stuck.id }.count == tries }
+        }
+        try await waitUntil("given up") { try self.row(stuck.id, harness, clock)?.sync == .failed }
+        clock.advance(1)
+        harness.engine.refreshCalendars(accountID: account)
+        let reads = provider.readWindows.count
+        try await waitUntil("read again") { provider.readWindows.count > reads }
+        XCTAssertEqual(provider.createCalls.filter { $0.id == stuck.id }.count, 5, "never sent again")
+        await harness.shutdown()
+    }
+
+    // MARK: Days outside the window
+
+    /// Days the column or the week turned to outside the window are read once, at once, as the read of their own
+    /// interval, without reading the window again; days inside it are served by the window's read.
+    func testDaysOutsideTheWindowAreReadOnceWhenAsked() async throws {
+        let clock = HandClock()
+        let provider = ScriptedCalendarProvider(accountID: account)
+        provider.seedEvent("Standup", start: clock.now.addingTimeInterval(3_600))
+        let offsite = clock.now.addingTimeInterval(90 * 86_400)
+        provider.seedEvent("Offsite", start: offsite)
+        let harness = try await started(provider, clock: clock)
+        try await waitUntil("the first read") { provider.readWindows.count == 1 }
+        let window = CalendarWindow.around(clock.now)
+        XCTAssertFalse(window.contains(offsite))
+
+        let week = DateInterval(start: offsite.addingTimeInterval(-2 * 86_400), duration: 7 * 86_400)
+        harness.engine.refreshCalendars(accountID: nil, covering: week)
+        try await waitUntil("that week read") { provider.readWindows.count == 2 }
+        XCTAssertEqual(provider.readWindows, [window, week], "the week alone: the window is fresh")
+        try await waitUntil("its events stored") {
+            try harness.store.calendarEvents(in: week, accountIDs: [self.account]).map(\.title) == ["Offsite"]
+        }
+
+        // A day inside the window costs nothing; one asked again is read again.
+        harness.engine.refreshCalendars(accountID: account, covering: DateInterval(start: clock.now, duration: 86_400))
+        try await waitForPolls(3, of: provider)
+        XCTAssertEqual(provider.readWindows.count, 2)
+
+        // A read that fails is tried again after the backoff.
+        provider.readResults = [ProviderError.network("offline")]
+        harness.engine.refreshCalendars(accountID: account, covering: week)
+        try await waitUntil("tried") { provider.readWindows.count == 3 }
+        try await waitForPolls(3, of: provider)
+        XCTAssertEqual(provider.readWindows.count, 3, "inside its backoff")
+        clock.advance(1)
+        try await waitUntil("tried again") { provider.readWindows.count == 4 }
+        XCTAssertEqual(provider.readWindows.last, week)
+        await harness.shutdown()
+    }
+
+    // MARK: Answers
+
+    /// Google and Exchange put an invitation on the calendar themselves. Answered on this Mac, its event shows the
+    /// answer at once (a decline leaves the day column), and the calendar is read once the answer has gone out, not
+    /// before, when the provider would still say the old one.
+    func testAnAnswerShowsOnTheCalendarAtOnceAndIsReadOnceItHasGoneOut() async throws {
+        let clock = HandClock()
+        let provider = ScriptedCalendarProvider(accountID: account)
+        let start = clock.now.addingTimeInterval(86_400)
+        let review = provider.seedEvent("Design review", start: start, minutes: 60, invitationUID: "uid-1@google.com",
+                                        response: .needsAction)
+        let offsite = provider.seedEvent("Offsite", start: start.addingTimeInterval(7_200), invitationUID: "uid-2@google.com",
+                                         response: .needsAction)
+        let harness = try await started(provider, clock: clock)
+        try await waitUntil("the invitations read") { try self.stored(harness, clock).count == 2 }
+        let invitation = CalendarInvitation(
+            method: .request, uid: "uid-1@google.com", sequence: 1, title: "Design review", start: start,
+            end: start.addingTimeInterval(3_600), organizer: CalendarInvitation.Person(name: "Ben", address: "ben@example.com"),
+            attendees: [CalendarInvitation.Person(address: "me@example.com", response: .needsAction)],
+            userAddress: "me@example.com", userResponse: .needsAction
+        )
+        try harness.store.saveBody(StoredBody(body: MessageBody(html: "<p>Invite</p>", text: nil), renderedHTML: "<p>Invite</p>",
+                                              plainText: "Invite", invitation: invitation), for: source)
+        let response = { (providerID: String) in
+            try self.stored(harness, clock).first { $0.providerID == providerID }?.response
+        }
+
+        provider.holdApplies = true
+        try harness.engine.answerInvitation(.declined, to: source)
+        XCTAssertEqual(try response(review), .declined, "on the calendar before any request")
+        XCTAssertEqual(try stored(harness, clock).first { $0.providerID == review }?.isShown, false, "a decline is not drawn")
+        XCTAssertEqual(try response(offsite), .needsAction, "another invitation keeps its own")
+        try await waitUntil("the answer on its way") { harness.provider.applyCalls.contains { $0.change.kind == .answerInvitation } }
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(provider.readWindows.count, 1, "not read while the answer is out")
+
+        provider.answer(review, .declined)
+        provider.releaseHeldApplies()
+        try await waitUntil("read once it went out") { provider.readWindows.count == 2 }
+        XCTAssertEqual(try response(review), .declined)
         await harness.shutdown()
     }
 

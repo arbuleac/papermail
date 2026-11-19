@@ -13,7 +13,8 @@ import Foundation
 /// shares the link only to send nothing while the account is parked (docs/ARCHITECTURE.md, "Calendar").
 ///
 /// `wake(.poll)` and `wake(.operations)` reach the live lane; the backfill lane is the live lane's to wake.
-/// `refreshCalendar()` and `sendCalendarWrites()` reach the calendar lane.
+/// `refreshCalendar()`, `refreshCalendar(covering:)` and `sendCalendarWrites()` reach the calendar lane, and the live
+/// lane wakes it when the outbox has sent an answer to an invitation.
 final class AccountSyncer: Sendable {
     let accountID: AccountID
     private let live: LiveLane
@@ -61,7 +62,8 @@ final class AccountSyncer: Sendable {
             firstCycleEnded: firstLiveCycleEnded,
             checkStarted: liveCheckStarted,
             checkCaughtUp: liveCheckCaughtUp,
-            cycleCaughtUp: { [calendar] in calendar?.wake(.check) }
+            cycleCaughtUp: { [calendar] in calendar?.wake(.check) },
+            invitationAnswered: { [calendar] in calendar?.wake(.poll) }
         )
         backfill = BackfillLane(
             accountID: accountID,
@@ -107,6 +109,12 @@ final class AccountSyncer: Sendable {
     /// as soon as it is (`MailClient.refreshCalendars`).
     func refreshCalendar() {
         calendar?.wake(.poll)
+    }
+
+    /// Has the calendar lane read `interval` once at its next turn, besides its window (`MailClient.refreshCalendars(
+    /// accountID:covering:)`).
+    func refreshCalendar(covering interval: DateInterval) {
+        calendar?.read(covering: interval)
     }
 
     /// Time set aside or removed on this Mac waits for the provider: the calendar lane sends it at its next chance.

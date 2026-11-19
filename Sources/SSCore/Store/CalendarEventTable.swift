@@ -24,9 +24,11 @@ enum CalendarEventTable {
 
     // MARK: Rules (both stores)
 
-    /// An event as the store keeps it: its times to the millisecond, as SQLite reads them back.
+    /// An event as the store keeps it: its times to the millisecond, as SQLite reads them back, and no thread id (it
+    /// lives only on the copy handed to a create).
     static func normalized(_ event: CalendarEvent) -> CalendarEvent {
         var event = event
+        event.sourceThreadID = nil
         event.start = MailStoreCodec.date(MailStoreCodec.milliseconds(event.start))
         event.end = MailStoreCodec.date(MailStoreCodec.milliseconds(event.end))
         event.updatedAt = event.updatedAt.map { MailStoreCodec.date(MailStoreCodec.milliseconds($0)) }
@@ -90,6 +92,39 @@ enum CalendarEventTable {
             : Stored(event: withSync(event, .synced), queuedAt: nil)
     }
 
+    /// The read events as a replace merges them: a client key claims at most one stored row per read, so the first
+    /// event listed with a key keeps it, and any later one with that key (an occurrence of a block made repeating
+    /// elsewhere, a copy of it) loses it and is stored under its own provider id as any event is, never over the first.
+    static func claimingKeys(_ events: [CalendarEvent]) -> [CalendarEvent] {
+        var claimed: Set<String> = []
+        return events.map { read in
+            guard let key = read.clientKey, !claimed.insert(key).inserted else { return read }
+            var unkeyed = read
+            unkeyed.clientKey = nil
+            return unkeyed
+        }
+    }
+
+    /// How long a `synced` event that has ended stays behind the window a read keeps: a read deletes the account's ones
+    /// that ended earlier, so the table, the range reads and every refresh's sweep stay the size of the window rather
+    /// than of all the history ever read.
+    static let keptBehindWindow: TimeInterval = 30 * 86_400
+
+    /// The end before which a replace of `window` at `now` deletes the account's `synced` events: `keptBehindWindow`
+    /// before the start of the window kept around now, or of `window` when that starts earlier (days behind the kept
+    /// window the app asked to see, whose events stay until a read of the kept window).
+    static func pruneLine(window: DateInterval, now: Int64) -> Int64 {
+        let kept = CalendarWindow.around(MailStoreCodec.date(now))
+        return MailStoreCodec.milliseconds(min(window.start, kept.start).addingTimeInterval(-keptBehindWindow))
+    }
+
+    /// Whether a replace deletes the row as history (`pruneLine`): only a `synced` one, never one still waiting for the
+    /// provider (`creating`, `deleting`) or marked `failed`. Its start is checked too, as the time index answers it.
+    static func isPruned(_ row: CalendarEvent, accountID: AccountID, before line: Int64) -> Bool {
+        row.accountID == accountID && row.sync == .synced && MailStoreCodec.milliseconds(row.start) < line
+            && MailStoreCodec.milliseconds(row.end) < line
+    }
+
     /// Whether a replace of `window` deletes the row: one of the account the provider has had (`synced` or
     /// `deleting`) that overlaps the window and that the read did not list. A row outside the window is the read's
     /// business no more. A `failed` row stays: the provider never had it, and its failed mark shows until the user
@@ -101,9 +136,17 @@ enum CalendarEventTable {
 
     /// What `removeCalendarEvent` leaves: nil when the row goes at once (the provider never had it), the row as
     /// `deleting` when the engine must delete it there, the row unchanged when that is already so.
+    ///
+    /// A `creating` row is kept as a hidden `deleting` tombstone with no provider id, under the same id and client key:
+    /// its create may have reached the provider with its reply lost, and only the key finds that copy. A read that
+    /// lists the copy fills in its provider id (merged by key), so the engine deletes it; one that does not sweeps the
+    /// tombstone; a create on its way when it was removed settles its copy into it, which the engine then deletes.
     static func removing(_ row: Stored, now: Int64) -> Stored? {
         switch row.event.sync {
-        case .creating, .failed:
+        case .creating:
+            return Stored(event: withSync(row.event, .deleting), queuedAt: now)
+        case .failed:
+            // The provider refused the create: it made nothing.
             return nil
         case .synced:
             // A synced row always has the provider's id; one without could never be deleted there, so it just goes.
@@ -118,6 +161,9 @@ enum CalendarEventTable {
     static func restoring(_ event: CalendarEvent, current: Stored?, now: Int64) -> Stored {
         if let current {
             guard current.event.sync == .deleting else { return current }
+            // A tombstone of a block still being created: `creating` again under the same key, so a create sent again
+            // finds any copy the first one made rather than making a second.
+            if current.event.providerID == nil { return Stored(event: withSync(current.event, .creating), queuedAt: now) }
             return Stored(event: withSync(current.event, .synced), queuedAt: nil)
         }
         var event = normalized(event)
@@ -133,9 +179,9 @@ enum CalendarEventTable {
             event.invitationUID = nil
             event.updatedAt = nil
         } else {
-            // Removed while it was still `creating`: its create may have been on its way, and the engine deletes the
-            // copy such a create made, which reserves the key at Google. A new key keeps the new create from meeting
-            // that reserved id.
+            // Removed while it was still `creating`, and its tombstone gone since: the engine deleted the copy a create
+            // made, which reserves the key at Google, or the read found none. A new key keeps the new create from
+            // meeting that reserved id.
             event.clientKey = CalendarEvent.newClientKey()
         }
         return Stored(event: withSync(event, .creating), queuedAt: now)
@@ -145,7 +191,8 @@ enum CalendarEventTable {
     enum Settlement: Equatable {
         /// The row is gone or no longer waits for this: nothing changes, and the engine undoes what it just did.
         case refused
-        /// The provider's copy replaces the `creating` row.
+        /// The provider's copy replaces the `creating` row, or fills in the provider id of a tombstone (a block removed
+        /// while its create was on its way), which the engine then deletes.
         case replace(Stored)
         /// A read already put this very copy in the row (by its client key): nothing changes, and the copy stays.
         case alreadySettled
@@ -166,6 +213,12 @@ enum CalendarEventTable {
             return .replace(Stored(event: withSync(event, .synced), queuedAt: nil))
         case .synced where created.providerID != nil && row.event.providerID == created.providerID:
             return .alreadySettled
+        case .deleting where row.event.providerID == nil && created.providerID != nil:
+            // Removed while the create was on its way: the tombstone keeps the copy's id, so its delete survives a
+            // failure or a quit.
+            var event = row.event
+            event.providerID = created.providerID
+            return .replace(Stored(event: event, queuedAt: row.queuedAt))
         default:
             return .refused
         }
@@ -175,6 +228,26 @@ enum CalendarEventTable {
     static func failing(_ row: Stored) -> Stored {
         guard row.event.sync == .creating else { return row }
         return Stored(event: withSync(row.event, .failed), queuedAt: nil)
+    }
+
+    /// What `answerCalendarEvents` writes, given the account's rows that carry an invitation UID, ordered by id: each
+    /// `synced` occurrence of the invitation (`InvitationUID.matches`) that the user did not organize, or only the one
+    /// whose start is nearest `occurrence` when given, with `response`. Rows that already say so are left out.
+    static func answering(_ rows: [Stored], uid: String, near occurrence: Date?, response: CalendarEvent.Response) -> [Stored] {
+        let own = rows.filter {
+            $0.event.sync == .synced && $0.event.response != .organizer && InvitationUID.matches($0.event.invitationUID, uid)
+        }
+        var chosen = own
+        if let occurrence {
+            let distance = { (row: Stored) in abs(row.event.start.timeIntervalSince(occurrence)) }
+            chosen = own.min { distance($0) < distance($1) }.map { [$0] } ?? []
+        }
+        return chosen.compactMap { row in
+            guard row.event.response != response else { return nil }
+            var event = row.event
+            event.response = response
+            return Stored(event: event, queuedAt: row.queuedAt)
+        }
     }
 
     private static func withSync(_ event: CalendarEvent, _ sync: CalendarEvent.Sync) -> CalendarEvent {
@@ -303,17 +376,16 @@ enum CalendarEventTable {
                         in db: Database) throws {
         // The account was removed while its calendar was being read: there is nothing to write it into.
         guard try accountExists(accountID, in: db) else { return }
-        var keyed = try keyed(accountID: accountID, in: db)
+        let keyed = try keyed(accountID: accountID, in: db)
         var listed: Set<String> = []
-        for read in events {
+        for read in claimingKeys(events) {
             let byKey = read.clientKey.flatMap { keyed[$0] }
             let id = byKey?.event.id ?? read.id
             listed.insert(id)
             let current = try byKey ?? stored(id: id, in: db)
             guard let merged = merged(read, accountID: accountID, keyed: byKey, sameID: byKey == nil ? current : nil) else { continue }
-            // A refresh that changes nothing writes nothing: a read every minute would otherwise rewrite every row.
+            // A refresh that changes nothing writes nothing: a read every two minutes would otherwise rewrite every row.
             if merged != current { try save(merged, in: db) }
-            if let key = merged.event.clientKey { keyed[key] = merged }
         }
         let start = MailStoreCodec.milliseconds(window.start)
         let candidates = try String.fetchAll(db.cachedStatement(sql: """
@@ -321,6 +393,14 @@ enum CalendarEventTable {
             WHERE account_id = ? AND sync IN ('synced', 'deleting') AND \(overlapsWindow)
             """), arguments: [accountID.rawValue, MailStoreCodec.milliseconds(window.end), start, start])
         for id in candidates where !listed.contains(id) { try delete(id: id, in: db) }
+        // Through the time index: only the entries that start before the line are visited, and a read that finds no
+        // history deletes nothing.
+        let line = pruneLine(window: window, now: now)
+        try db.cachedStatement(sql: """
+            DELETE FROM calendar_events WHERE id IN (
+                SELECT id FROM calendar_events INDEXED BY calendar_events_by_time
+                WHERE start_ms < ? AND end_ms < ? AND account_id = ? AND sync = 'synced')
+            """).execute(arguments: [line, line, accountID.rawValue])
     }
 
     @discardableResult
@@ -354,6 +434,14 @@ enum CalendarEventTable {
             try delete(id: id, in: db)
         }
         return true
+    }
+
+    static func answer(_ response: CalendarEvent.Response, invitationUID uid: String, accountID: AccountID,
+                       near occurrence: Date?, in db: Database) throws {
+        let rows = try Row.fetchAll(db.cachedStatement(sql: """
+            SELECT \(columns) FROM calendar_events WHERE account_id = ? AND invitation_uid IS NOT NULL ORDER BY id
+            """), arguments: [accountID.rawValue]).compactMap(stored(from:))
+        for row in answering(rows, uid: uid, near: occurrence, response: response) { try save(row, in: db) }
     }
 
     static func fail(id: String, in db: Database) throws {
