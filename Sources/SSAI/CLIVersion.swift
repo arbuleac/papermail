@@ -145,7 +145,7 @@ extension CLIProcessRunner {
     /// Finds `tool`'s executable and checks its version, plus `verify` (Codex's feature names), once per executable
     /// file. Throws `notInstalled`, `unsupportedVersion(found:)`, `newerVersion(found:)` or `toolsStayOn(found:)`
     /// (remembered until the file changes), or what running `--version` threw (not remembered: it may pass next time).
-    func prepare(_ tool: CLITool, chosen: String?,
+    func prepare(_ tool: CLITool, chosen: String?, action: AIUserAction,
                  verify: (@Sendable (URL, CLIVersion) async throws -> Void)? = nil) async throws -> (URL, CLIVersion) {
         guard let executable = locate(tool.executableName, chosen: chosen) else { throw AIError.notInstalled }
         let identity = CLIToolCache.identity(of: executable)
@@ -155,7 +155,7 @@ extension CLIProcessRunner {
             case .refused(let error): throw error
             }
         }
-        let printed = try await capture(quick(executable, ["--version"], tool: tool))
+        let printed = try await capture(quick(executable, ["--version"], tool: tool, action: action))
         if printed.exit.timedOut { throw AIError.timedOut }
         guard printed.exit.succeeded, let version = CLIVersion(parsing: printed.text) else {
             throw AIError.badResponse(code: printed.exit.code)
@@ -182,8 +182,50 @@ extension AIError {
     }
 }
 
+extension CLIProcessRunner {
+    /// What this Mac shows of `tool` without running it (spec §3b): where it is, and its version when an earlier check
+    /// found it or the file's real path names it (~/.local/bin/claude leads to …/claude/versions/2.1.322, Homebrew's
+    /// codex to …/Caskroom/codex/0.163.0/bin/codex). Never starts a process: `--version` is a launch, and launches wait
+    /// for the user's Write or Check. Nil when the CLI is not found.
+    func localState(_ tool: CLITool, chosen: String?) -> (executable: URL, verdict: CLIToolCache.Verdict?)? {
+        guard let executable = locate(tool.executableName, chosen: chosen) else { return nil }
+        if let identity = CLIToolCache.identity(of: executable), let verdict = cache.verdict(for: identity) {
+            return (executable, verdict)
+        }
+        guard let version = Self.version(inPathOf: executable) else { return (executable, nil) }
+        if let refusal = tool.refusal(of: version) { return (executable, .refused(refusal)) }
+        return (executable, .supported(version))
+    }
+
+    /// The last folder or file name on the CLI's real path that is a version and nothing else (“2.1.322”).
+    static func version(inPathOf executable: URL) -> CLIVersion? {
+        for component in executable.resolvingSymlinksInPath().pathComponents.reversed() {
+            guard component.first?.isNumber == true, component.allSatisfy({ $0.isNumber || $0 == "." }),
+                  let version = CLIVersion(parsing: component), version.description == component else { continue }
+            return version
+        }
+        return nil
+    }
+}
+
 /// The shared parts of a CLI provider's status line.
 enum CLIHealthWords {
+    /// The status from this Mac alone (`CLIProcessRunner.localState`): not found, a version this build refuses, or found
+    /// (with its version when known). Whether it is signed in is learnt only by Check or Write.
+    static func local(_ tool: CLITool, chosen: String?, runner: CLIProcessRunner) -> AIHealth {
+        guard let state = runner.localState(tool, chosen: chosen) else {
+            return .needsSetup(reason: AIHealth.notFoundWords(for: tool.kind))
+        }
+        switch state.verdict {
+        case .refused(let error)?:
+            return health(for: error, tool: tool)
+        case .supported(let version)?:
+            return .ready(detail: "\(tool.kind.displayName) \(version) found")
+        case nil:
+            return .ready(detail: "\(tool.kind.displayName) found")
+        }
+    }
+
     /// What Settings › AI says when a check failed with `error`.
     static func health(for error: AIError, tool: CLITool) -> AIHealth {
         switch error {

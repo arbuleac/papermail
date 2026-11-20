@@ -5,6 +5,8 @@ import SSCore
 /// process on the Mac can read another's argv with `ps`.
 struct CLICommand: Sendable {
     var executable: URL
+    /// The user's action this run answers (spec §3b): no CLI starts without one, and each start is recorded against it.
+    var action: AIUserAction
     /// The arguments, given the run's private folder (Codex takes it for `-C` and `--output-last-message`).
     var arguments: @Sendable (_ folder: URL) -> [String]
     /// The CLI's own variables (cli.md), added to the runner's minimal environment. API-key variables are withheld

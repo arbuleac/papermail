@@ -71,12 +71,18 @@ public struct ClaudeCodeProvider: AIProvider {
         return arguments
     }
 
-    /// Found, a supported version, and signed in with claude.ai to Anthropic itself. Says how it is signed in, never
-    /// who: the email and organisation it prints are not read.
-    public func health() async -> AIHealth {
+    /// Found, at a version this build runs, from this Mac alone: nothing is started (spec §3b).
+    public func localHealth() -> AIHealth {
+        CLIHealthWords.local(Self.tool, chosen: executablePath, runner: runner)
+    }
+
+    /// The user's Check: found, a supported version, and signed in with claude.ai to Anthropic itself. Says how it is
+    /// signed in, never who: the email and organisation it prints are not read. `claude auth status` may refresh the
+    /// sign-in over the network, so it runs only here and right before a write.
+    public func check(_ action: AIUserAction) async -> AIHealth {
         do {
-            let (executable, version) = try await runner.prepare(Self.tool, chosen: executablePath)
-            let method = try await Self.signIn(executable, runner: runner)
+            let (executable, version) = try await runner.prepare(Self.tool, chosen: executablePath, action: action)
+            let method = try await Self.signIn(executable, runner: runner, action: action)
             return .ready(detail: "Claude Code \(version) · \(method)")
         } catch {
             return CLIHealthWords.health(for: AIError.from(error), tool: Self.tool)
@@ -87,8 +93,8 @@ public struct ClaudeCodeProvider: AIProvider {
     /// `otherSignIn` when it would send elsewhere than Anthropic's own API (`apiProvider` other than `firstParty`) or with
     /// something other than the user's claude.ai sign-in (an API key, a Console login), which the consent sheet did not
     /// name.
-    static func signIn(_ executable: URL, runner: CLIProcessRunner) async throws -> String {
-        let status = try await runner.capture(runner.quick(executable, isolation + ["auth", "status"], tool: tool))
+    static func signIn(_ executable: URL, runner: CLIProcessRunner, action: AIUserAction) async throws -> String {
+        let status = try await runner.capture(runner.quick(executable, isolation + ["auth", "status"], tool: tool, action: action))
         if status.exit.timedOut { throw AIError.timedOut }
         return try signIn(from: status)
     }
@@ -105,16 +111,16 @@ public struct ClaudeCodeProvider: AIProvider {
 
     /// The sign-in is checked right before every send: a Claude Code set to another service since the card opened
     /// sends nothing.
-    public func write(_ request: AIWriteRequest) -> AsyncThrowingStream<AIWriteEvent, Error> {
+    public func write(_ request: AIWriteRequest, action: AIUserAction) -> AsyncThrowingStream<AIWriteEvent, Error> {
         let runner = runner
         let chosen = executablePath
         let model = request.model ?? model
         return CLIReplyStream.make(ClaudeCodeStream()) {
-            let (executable, version) = try await runner.prepare(Self.tool, chosen: chosen)
-            _ = try await Self.signIn(executable, runner: runner)
+            let (executable, version) = try await runner.prepare(Self.tool, chosen: chosen, action: action)
+            _ = try await Self.signIn(executable, runner: runner, action: action)
             try Task.checkCancellation()
             let arguments = Self.arguments(model: model, instructions: request.instructions)
-            let command = CLICommand(executable: executable, arguments: { _ in arguments }, environment: Self.tool.environment,
+            let command = CLICommand(executable: executable, action: action, arguments: { _ in arguments }, environment: Self.tool.environment,
                                      input: Data(request.userTurn.utf8), keepFile: nil, idleTimeout: runner.limits.idle,
                                      totalTimeout: min(runner.limits.total, request.deadline))
             return (runner, command, version)

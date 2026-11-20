@@ -101,6 +101,8 @@ public struct CLIProcessRunner: Sendable {
                 continuation.finish(throwing: AIError.badResponse(code: 0))
                 return
             }
+            AIEgress.record(.launch(tool: command.executable.lastPathComponent, command: Self.subcommand(of: command.arguments(folder))),
+                            by: command.action)
             let process = CLIProcess(
                 command: command, limits: limits, folder: folder,
                 environment: environment(for: command.executable, folder: folder, adding: command.environment),
@@ -119,6 +121,14 @@ public struct CLIProcessRunner: Sendable {
                 continuation.finish(throwing: error)
             }
         }
+    }
+
+    /// What a run is, for the egress record: its first argument past the settings isolation (`--version`, `auth`, `-p`,
+    /// `exec`, `login`, `features`). Never the request, which goes to stdin.
+    static func subcommand(of arguments: [String]) -> String {
+        var rest = arguments[...]
+        while let first = rest.first, ["--restricted", "--setting-sources", ""].contains(first) { rest = rest.dropFirst() }
+        return rest.first ?? ""
     }
 
     /// Ends every run this runner started, at once, and returns once they are gone with their folders, or after
@@ -162,9 +172,9 @@ public struct CLIProcessRunner: Sendable {
         throw AIError.cancelled
     }
 
-    /// A short command for `tool`: no input, the quick limit for both timeouts.
-    func quick(_ executable: URL, _ arguments: [String], tool: CLITool) -> CLICommand {
-        CLICommand(executable: executable, arguments: { _ in arguments }, environment: tool.environment, input: nil,
+    /// A short command for `tool`, for the user's `action`: no input, the quick limit for both timeouts.
+    func quick(_ executable: URL, _ arguments: [String], tool: CLITool, action: AIUserAction) -> CLICommand {
+        CLICommand(executable: executable, action: action, arguments: { _ in arguments }, environment: tool.environment, input: nil,
                    keepFile: nil, idleTimeout: limits.quick, totalTimeout: limits.quick)
     }
 

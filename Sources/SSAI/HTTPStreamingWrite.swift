@@ -13,6 +13,8 @@ struct HTTPStreamingWrite<Decoder: HTTPStreamDecoding>: Sendable {
     let session: URLSession
     let request: URLRequest
     let kind: AIProviderKind
+    /// The user's action this write answers: every attempt is recorded against it (`AIEgress`).
+    let action: AIUserAction
     /// Maps an error reply to the error and whether it is worth retrying.
     let mapReply: @Sendable (HTTPErrorReply) -> (error: AIError, retryable: Bool)
     var pause: HTTPRetryPolicy.Pause = HTTPRetryPolicy.sleep
@@ -25,7 +27,7 @@ struct HTTPStreamingWrite<Decoder: HTTPStreamDecoding>: Sendable {
     /// An API provider's `write`: on the stream's first read, reads the key (no key, or a Keychain that will not give
     /// it, is `missingKey` before anything is sent), builds the request with it, and runs the write.
     static func stream(kind: AIProviderKind, keys: any AIKeyStoring, session: URLSession, pause: @escaping HTTPRetryPolicy.Pause,
-                       makeRequest: @escaping @Sendable (_ key: String) throws -> URLRequest,
+                       action: AIUserAction, makeRequest: @escaping @Sendable (_ key: String) throws -> URLRequest,
                        mapReply: @escaping @Sendable (HTTPErrorReply) -> (error: AIError, retryable: Bool))
         -> AsyncThrowingStream<AIWriteEvent, Error> {
         HTTPEventStream.make { continuation in
@@ -44,7 +46,7 @@ struct HTTPStreamingWrite<Decoder: HTTPStreamDecoding>: Sendable {
                 continuation.finish(throwing: AIError.badResponse(code: 0))
                 return
             }
-            await HTTPStreamingWrite(session: session, request: request, kind: kind, mapReply: mapReply, pause: pause)
+            await HTTPStreamingWrite(session: session, request: request, kind: kind, action: action, mapReply: mapReply, pause: pause)
                 .run(into: continuation)
         }
     }
@@ -88,6 +90,7 @@ struct HTTPStreamingWrite<Decoder: HTTPStreamDecoding>: Sendable {
 
     private func attempt(_ number: Int, shownText: inout Bool, into continuation: HTTPEventStream.Continuation) async -> AttemptEnd {
         do {
+            AIEgress.record(AIEgress.contact(for: request), by: action)
             let (bytes, response) = try await session.bytes(for: request)
             // Whatever ends this attempt (a refusal mid-stream, a failure step, the reader leaving) ends the transfer.
             defer { bytes.task.cancel() }

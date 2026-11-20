@@ -15,7 +15,7 @@ final class OpenAIResponsesProviderTests: HTTPProviderTestCase {
     }
 
     private func write(model: String? = nil, _ request: AIWriteRequest? = nil) async -> Outcome {
-        await collect(provider(model: model).write(request ?? writeRequest))
+        await collect(provider(model: model).write(request ?? writeRequest, action: pressedWrite))
     }
 
     private func errorReply(_ name: String, status: Int, headers: [String: String] = [:]) throws -> HTTPStubURLProtocol.Reply {
@@ -296,7 +296,7 @@ final class OpenAIResponsesProviderTests: HTTPProviderTestCase {
     // MARK: Keys, laziness, cancellation
 
     func testNoKeyFailsBeforeAnythingIsSent() async {
-        let outcome = await collect(provider(keys: InMemoryAIKeyStore([.claudeAPI: "sk-ant-other"])).write(writeRequest))
+        let outcome = await collect(provider(keys: InMemoryAIKeyStore([.claudeAPI: "sk-ant-other"])).write(writeRequest, action: pressedWrite))
         XCTAssertEqual(outcome.error, .missingKey)
         XCTAssertEqual(outcome.error?.message(for: .openAIAPI), "Add your OpenAI API key in Settings › AI")
         XCTAssertTrue(requests.isEmpty)
@@ -304,7 +304,7 @@ final class OpenAIResponsesProviderTests: HTTPProviderTestCase {
 
     func testNothingIsSentOrReadUntilTheStreamIsRead() async throws {
         HTTPStubURLProtocol.serve([.sse(try fixture("openai/stream-text-synthetic.sse"))])
-        let stream = provider().write(writeRequest)
+        let stream = provider().write(writeRequest, action: pressedWrite)
         try await Task.sleep(nanoseconds: 50_000_000)
         XCTAssertTrue(requests.isEmpty)
         XCTAssertEqual(keys.reads(of: .openAIAPI), 0)
@@ -317,7 +317,7 @@ final class OpenAIResponsesProviderTests: HTTPProviderTestCase {
         let text = try FixtureFiles.string("openai/stream-text-synthetic.sse")
         let open = String(text[..<text.range(of: ": Intermediate response events omitted.")!.lowerBound])
         HTTPStubURLProtocol.serve([.streamThenHang(body: Data(open.utf8))])
-        let stream = provider().write(writeRequest)
+        let stream = provider().write(writeRequest, action: pressedWrite)
         let firstText = expectation(description: "first text")
         let reader = Task {
             for try await event in stream {
@@ -333,13 +333,13 @@ final class OpenAIResponsesProviderTests: HTTPProviderTestCase {
     // MARK: Health and Check
 
     func testHealthReadsNoKeyAndSendsNothing() async {
-        let ready = await provider().health()
+        let ready = provider().localHealth()
         XCTAssertEqual(ready, .ready(detail: "Ready · GPT-6.1 Terra"))
-        let sol = await provider(model: "gpt-6.2-sol").health()
+        let sol = provider(model: "gpt-6.2-sol").localHealth()
         XCTAssertEqual(sol, .ready(detail: "Ready · GPT-6.2 Sol"))
-        let noKey = await provider(keys: InMemoryAIKeyStore()).health()
+        let noKey = provider(keys: InMemoryAIKeyStore()).localHealth()
         XCTAssertEqual(noKey, .needsSetup(reason: "Add your API key"))
-        let keychain = await provider(keys: HTTPThrowingKeyStore()).health()
+        let keychain = provider(keys: HTTPThrowingKeyStore()).localHealth()
         XCTAssertEqual(keychain, .unavailable(reason: "The Keychain couldn't be read"))
         XCTAssertEqual(keys.reads(of: .openAIAPI), 0)
         XCTAssertTrue(requests.isEmpty)
@@ -347,7 +347,7 @@ final class OpenAIResponsesProviderTests: HTTPProviderTestCase {
 
     func testCheckSendsOnlyTheKeyToTheModelsList() async throws {
         HTTPStubURLProtocol.serve([.json(try fixture("openai/models-synthetic.json"), status: 200)])
-        let health = await provider().check()
+        let health = await provider().check(pressedCheck)
         XCTAssertEqual(health, .ready(detail: "Ready · GPT-6.1 Terra"))
         let sent = try XCTUnwrap(requests.first)
         XCTAssertEqual(sent.method, "GET")
@@ -358,7 +358,7 @@ final class OpenAIResponsesProviderTests: HTTPProviderTestCase {
 
     func testCheckSaysWhenTheModelIsNotAvailableToTheKey() async throws {
         HTTPStubURLProtocol.serve([.json(try fixture("openai/models-synthetic.json"), status: 200)])
-        let health = await provider(model: "gpt-6.2-astra").check()
+        let health = await provider(model: "gpt-6.2-astra").check(pressedCheck)
         XCTAssertEqual(health, .needsSetup(reason: "GPT-6.2 Astra isn't available with this key. Choose another model."))
     }
 
@@ -366,7 +366,7 @@ final class OpenAIResponsesProviderTests: HTTPProviderTestCase {
         for path in ["401-invalid-key", "401-missing-key"] {
             HTTPStubURLProtocol.reset()
             HTTPStubURLProtocol.serve([try errorReply(path, status: 401)])
-            let health = await provider().check()
+            let health = await provider().check(pressedCheck)
             XCTAssertEqual(health, .needsSetup(reason: "The OpenAI API key was refused"), path)
         }
     }

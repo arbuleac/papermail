@@ -16,7 +16,7 @@ final class AnthropicMessagesProviderTests: HTTPProviderTestCase {
     }
 
     private func write(model: String? = nil, _ request: AIWriteRequest? = nil) async -> Outcome {
-        await collect(provider(model: model).write(request ?? writeRequest))
+        await collect(provider(model: model).write(request ?? writeRequest, action: pressedWrite))
     }
 
     private func errorReply(_ status: Int, headers: [String: String] = [:]) throws -> HTTPStubURLProtocol.Reply {
@@ -318,20 +318,20 @@ final class AnthropicMessagesProviderTests: HTTPProviderTestCase {
     // MARK: Keys, laziness, cancellation
 
     func testNoKeyFailsBeforeAnythingIsSent() async {
-        let outcome = await collect(provider(keys: InMemoryAIKeyStore()).write(writeRequest))
+        let outcome = await collect(provider(keys: InMemoryAIKeyStore()).write(writeRequest, action: pressedWrite))
         XCTAssertEqual(outcome.error, .missingKey)
         XCTAssertTrue(requests.isEmpty)
     }
 
     func testAnUnreadableKeychainFailsBeforeAnythingIsSent() async {
-        let outcome = await collect(provider(keys: HTTPThrowingKeyStore()).write(writeRequest))
+        let outcome = await collect(provider(keys: HTTPThrowingKeyStore()).write(writeRequest, action: pressedWrite))
         XCTAssertEqual(outcome.error, .missingKey)
         XCTAssertTrue(requests.isEmpty)
     }
 
     func testNothingIsSentOrReadUntilTheStreamIsRead() async throws {
         HTTPStubURLProtocol.serve([.sse(try fixture("anthropic/stream-text-synthetic.sse"))])
-        let stream = provider().write(writeRequest)
+        let stream = provider().write(writeRequest, action: pressedWrite)
         try await Task.sleep(nanoseconds: 50_000_000)
         XCTAssertTrue(requests.isEmpty)
         XCTAssertEqual(keys.reads(of: .claudeAPI), 0)
@@ -346,7 +346,7 @@ final class AnthropicMessagesProviderTests: HTTPProviderTestCase {
         let text = try FixtureFiles.string("anthropic/stream-text-synthetic.sse")
         let open = String(text[..<text.range(of: "event: ping\ndata: {\"type\":\"ping\"}\n\nevent: content_block_delta")!.lowerBound])
         HTTPStubURLProtocol.serve([.streamThenHang(body: Data(open.utf8))])
-        let stream = provider().write(writeRequest)
+        let stream = provider().write(writeRequest, action: pressedWrite)
         let firstText = expectation(description: "first text")
         let reader = Task {
             for try await event in stream {
@@ -363,11 +363,11 @@ final class AnthropicMessagesProviderTests: HTTPProviderTestCase {
     // MARK: Health and Check
 
     func testHealthReadsNoKeyAndSendsNothing() async {
-        let ready = await provider(model: "claude-haiku-5-5").health()
+        let ready = provider(model: "claude-haiku-5-5").localHealth()
         XCTAssertEqual(ready, .ready(detail: "Ready · Claude Haiku 5.5"))
-        let byDefault = await provider().health()
+        let byDefault = provider().localHealth()
         XCTAssertEqual(byDefault, .ready(detail: "Ready · Claude Opus 5.5"))
-        let noKey = await provider(keys: InMemoryAIKeyStore()).health()
+        let noKey = provider(keys: InMemoryAIKeyStore()).localHealth()
         XCTAssertEqual(noKey, .needsSetup(reason: "Add your API key"))
         XCTAssertEqual(keys.reads(of: .claudeAPI), 0, "health asks only whether a key is stored: no Keychain prompt")
         XCTAssertTrue(requests.isEmpty)
@@ -375,7 +375,7 @@ final class AnthropicMessagesProviderTests: HTTPProviderTestCase {
 
     func testCheckSendsOnlyTheKeyToTheModelsList() async throws {
         HTTPStubURLProtocol.serve([.json(try fixture("anthropic/models-synthetic.json"), status: 200)])
-        let health = await provider(model: "claude-sonnet-5-5").check()
+        let health = await provider(model: "claude-sonnet-5-5").check(pressedCheck)
         XCTAssertEqual(health, .ready(detail: "Ready · Claude Sonnet 5.5"))
         let sent = try XCTUnwrap(requests.first)
         XCTAssertEqual(requests.count, 1)
@@ -389,31 +389,31 @@ final class AnthropicMessagesProviderTests: HTTPProviderTestCase {
 
     func testCheckSaysWhenTheKeyIsRefused() async throws {
         HTTPStubURLProtocol.serve([try errorReply(401)])
-        let health = await provider().check()
+        let health = await provider().check(pressedCheck)
         XCTAssertEqual(health, .needsSetup(reason: "The Anthropic API key was refused"))
     }
 
     func testCheckSaysWhenTheModelIsNotListed() async throws {
         let list = #"{"data":[{"type":"model","id":"claude-haiku-5-5"}],"has_more":false}"#
         HTTPStubURLProtocol.serve([.json(Data(list.utf8), status: 200)])
-        let health = await provider(model: "claude-opus-5-5").check()
+        let health = await provider(model: "claude-opus-5-5").check(pressedCheck)
         XCTAssertEqual(health, .needsSetup(reason: "Claude Opus 5.5 isn't available with this key. Choose another model."))
     }
 
     func testCheckTrustsAListWithMorePages() async throws {
         let list = #"{"data":[{"type":"model","id":"claude-haiku-5-5"}],"has_more":true}"#
         HTTPStubURLProtocol.serve([.json(Data(list.utf8), status: 200)])
-        let health = await provider(model: "claude-opus-5-5").check()
+        let health = await provider(model: "claude-opus-5-5").check(pressedCheck)
         XCTAssertEqual(health, .ready(detail: "Ready · Claude Opus 5.5"))
     }
 
     func testCheckWithoutAKeyOrNetwork() async {
-        let noKey = await provider(keys: InMemoryAIKeyStore()).check()
+        let noKey = await provider(keys: InMemoryAIKeyStore()).check(pressedCheck)
         XCTAssertEqual(noKey, .needsSetup(reason: "Add your API key"))
         XCTAssertTrue(requests.isEmpty)
 
         HTTPStubURLProtocol.serve([.failure(.notConnectedToInternet)])
-        let offline = await provider().check()
+        let offline = await provider().check(pressedCheck)
         XCTAssertEqual(offline, .unavailable(reason: "No connection"))
     }
 

@@ -33,7 +33,7 @@ final class ClaudeCodeProviderTests: XCTestCase {
     }
 
     private func write(_ provider: ClaudeCodeProvider, _ request: AIWriteRequest? = nil) async -> ([AIWriteEvent], AIError?) {
-        let (events, error) = await collectCLIWrite(provider.write(request ?? self.request))
+        let (events, error) = await collectCLIWrite(provider.write(request ?? self.request, action: pressedWrite))
         return (events, error.map { $0 as? AIError ?? .badResponse(code: -1) })
     }
 
@@ -95,7 +95,7 @@ final class ClaudeCodeProviderTests: XCTestCase {
     func testAStreamLetGoUnreadNeverStarts() async throws {
         try install(main: try fake.replayIsolated("cli/claude-stream.jsonl"))
         do {
-            _ = provider().write(request)
+            _ = provider().write(request, action: pressedWrite)
         }
         try await Task.sleep(for: .milliseconds(300))
         XCTAssertEqual(fake.calls(), [], "no --version, no auth status, no run: nothing starts before the first read")
@@ -168,7 +168,7 @@ final class ClaudeCodeProviderTests: XCTestCase {
             XCTAssertEqual(events, [], status)
             XCTAssertEqual(fake.calls(), ["--version", "auth status"], "\(status): never run with the request")
             XCTAssertNil(fake.recorded("stdin"), status)
-            let health = await provider().health()
+            let health = await provider().check(pressedCheck)
             XCTAssertEqual(health, .needsSetup(reason: "Claude Code isn't using your claude.ai sign-in"), status)
         }
     }
@@ -284,7 +284,7 @@ final class ClaudeCodeProviderTests: XCTestCase {
         let writer = AIWriter(resolve: { _ in provider }, hasConsent: { _ in true })
         let field = AIFieldID(name: "quick reply")
         var events: [AIWriteEvent] = []
-        for try await event in writer.write(request, using: AIProviderConfiguration(kind: .claudeCode, model: "haiku"), in: field) {
+        for try await event in writer.write(request, using: AIProviderConfiguration(kind: .claudeCode, model: "haiku"), in: field, action: pressedWrite) {
             events.append(event)
             if event == .text("Thurs") { writer.stop(field) }
         }
@@ -299,7 +299,7 @@ final class ClaudeCodeProviderTests: XCTestCase {
     func testNotInstalled() async throws {
         let (_, error) = await write(provider())
         XCTAssertEqual(error, .notInstalled)
-        let health = await provider().health()
+        let health = await provider().check(pressedCheck)
         XCTAssertEqual(health, .needsSetup(reason: AIHealth.notFoundWords(for: .claudeCode)))
         XCTAssertEqual(health.words.replacingOccurrences(of: "\u{2060}", with: ""),
                        "Claude Code not found in ~/.local/bin, /opt/homebrew/bin or /usr/local/bin")
@@ -311,7 +311,7 @@ final class ClaudeCodeProviderTests: XCTestCase {
         let (_, error) = await write(provider)
         XCTAssertEqual(error, .unsupportedVersion(found: "2.0.76"))
         XCTAssertEqual(fake.calls(), ["--version"])
-        let health = await provider.health()
+        let health = await provider.check(pressedCheck)
         XCTAssertEqual(health, .needsSetup(reason: AIError.unsupportedVersion(found: "2.0.76").message(for: .claudeCode)))
         XCTAssertEqual(fake.calls(), ["--version"], "remembered until the file changes")
     }
@@ -341,9 +341,45 @@ final class ClaudeCodeProviderTests: XCTestCase {
 
     func testHealthSaysVersionAndHowItIsSignedIn() async throws {
         try install(main: "exit 0")
-        let health = await provider().health()
+        let health = await provider().check(pressedCheck)
         XCTAssertEqual(health, .ready(detail: "Claude Code 2.1.322 · signed in with claude.ai"))
         XCTAssertEqual(fake.calls(), ["--version", "auth status"], "health sends nothing to a model")
+    }
+
+    // MARK: Local health (spec §3b): nothing is started
+
+    func testLocalHealthStartsNothingAndReadsTheVersionFromThePath() throws {
+        XCTAssertEqual(provider().localHealth(), .needsSetup(reason: AIHealth.notFoundWords(for: .claudeCode)))
+        try install(main: "exit 0")
+        XCTAssertEqual(provider().localHealth(), .ready(detail: "Claude Code found"), "the file, not its answer")
+        // ~/.local/bin/claude leads to …/claude/versions/2.1.322: the version is in the path.
+        let versions = fake.root.appendingPathComponent("share/claude/versions", isDirectory: true)
+        try FileManager.default.createDirectory(at: versions, withIntermediateDirectories: true)
+        let real = versions.appendingPathComponent("2.1.322")
+        try FileManager.default.moveItem(at: fake.bin.appendingPathComponent("claude"), to: real)
+        try FileManager.default.createSymbolicLink(at: fake.bin.appendingPathComponent("claude"), withDestinationURL: real)
+        XCTAssertEqual(provider().localHealth(), .ready(detail: "Claude Code 2.1.322 found"))
+        // An old one by its path: refused before anything runs.
+        let old = versions.appendingPathComponent("2.0.76")
+        try FileManager.default.copyItem(at: real, to: old)
+        try FileManager.default.removeItem(at: fake.bin.appendingPathComponent("claude"))
+        try FileManager.default.createSymbolicLink(at: fake.bin.appendingPathComponent("claude"), withDestinationURL: old)
+        XCTAssertEqual(provider().localHealth(),
+                       .needsSetup(reason: AIError.unsupportedVersion(found: "2.0.76").message(for: .claudeCode)))
+        XCTAssertEqual(fake.calls(), [], "local health started no process")
+    }
+
+    func testCheckRecordsItsLaunchesAgainstTheUsersCheck() async throws {
+        try install(main: "exit 0")
+        let contacts = ContactLog()
+        AIEgress.observe { contact, action in contacts.append("\(action.kind.rawValue): \(contact)") }
+        defer { AIEgress.observe(nil) }
+        let provider = provider()
+        _ = provider.localHealth()
+        XCTAssertEqual(contacts.all, [])
+        _ = await provider.check(pressedCheck)
+        XCTAssertEqual(contacts.all, ["check: claude --version", "check: claude auth"])
+        XCTAssertEqual(provider.localHealth(), .ready(detail: "Claude Code 2.1.322 found"), "the version a check found is remembered")
     }
 
     func testHealthNeverSaysWho() async throws {
@@ -351,7 +387,7 @@ final class ClaudeCodeProviderTests: XCTestCase {
         let status = #"{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty","email":"dana@contoso.example","orgName":"Contoso Ltd","orgId":"org-123"}"#
         behaviour.authStatus = "printf '%s\\n' \(CLIFakeTool.quoted(status)); exit 0"
         try fake.install("claude", behaviour)
-        let health = await provider().health()
+        let health = await provider().check(pressedCheck)
         XCTAssertEqual(health, .ready(detail: "Claude Code 2.1.322 · signed in with claude.ai"))
         for secret in ["dana", "contoso", "Contoso", "org-123"] {
             XCTAssertFalse(health.words.contains(secret), secret)
@@ -362,7 +398,7 @@ final class ClaudeCodeProviderTests: XCTestCase {
         var behaviour = CLIFakeTool.Behaviour()
         behaviour.authStatus = CLIFakeTool.replay("cli/claude-auth-status-signed-out.json", status: 1)
         try fake.install("claude", behaviour)
-        let health = await provider().health()
+        let health = await provider().check(pressedCheck)
         XCTAssertEqual(health, .needsSetup(reason: "Claude Code is signed out. Run claude in Terminal."))
     }
 
@@ -372,7 +408,7 @@ final class ClaudeCodeProviderTests: XCTestCase {
         try fake.install("claude", behaviour)
         var limits = CLIFakeTool.fastLimits
         limits.quick = .seconds(1)
-        let health = await provider(limits: limits).health()
+        let health = await provider(limits: limits).check(pressedCheck)
         XCTAssertEqual(health, .unavailable(reason: AIError.timedOut.message(for: .claudeCode)))
     }
 }

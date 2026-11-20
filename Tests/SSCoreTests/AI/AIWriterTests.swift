@@ -31,11 +31,19 @@ final class AIWriterTests: XCTestCase {
         var cancellations: Int { lock.lock(); defer { lock.unlock() }; return cancelled }
         var writesOnMainThread: [Bool] { lock.lock(); defer { lock.unlock() }; return calledOnMain }
 
-        func health() async -> AIHealth { healthAnswer }
-        func check() async -> AIHealth { .needsSetup(reason: "Checked") }
+        /// The user actions each call came with.
+        var actions: [AIUserAction.Kind] { lock.lock(); defer { lock.unlock() }; return recordedActions }
+        private var recordedActions: [AIUserAction.Kind] = []
 
-        func write(_ request: AIWriteRequest) -> AsyncThrowingStream<AIWriteEvent, Error> {
+        func localHealth() -> AIHealth { healthAnswer }
+        func check(_ action: AIUserAction) async -> AIHealth {
+            lock.lock(); recordedActions.append(action.kind); lock.unlock()
+            return .needsSetup(reason: "Checked")
+        }
+
+        func write(_ request: AIWriteRequest, action: AIUserAction) -> AsyncThrowingStream<AIWriteEvent, Error> {
             lock.lock()
+            recordedActions.append(action.kind)
             recorded.append(request)
             calledOnMain.append(Thread.isMainThread)
             lock.unlock()
@@ -104,7 +112,7 @@ final class AIWriterTests: XCTestCase {
             .event(.usage(AIUsage(inputTokens: 700, outputTokens: 13))), .event(.finished(.done)),
         ])
         let writer = makeWriter(provider)
-        let stream = writer.write(request, using: configuration, in: field)
+        let stream = writer.write(request, using: configuration, in: field, action: pressedWrite)
         XCTAssertTrue(writer.isWriting(in: field))
         XCTAssertTrue(writer.isWriting)
         let (events, error) = await collect(stream)
@@ -120,32 +128,32 @@ final class AIWriterTests: XCTestCase {
 
     func testReplaceAllIsPassedOnAndCounts() async {
         let provider = ScriptedProvider(kind: .codex, script: [.event(.replaceAll("Thanks, Thursday works.")), .event(.finished(.done))])
-        let (events, error) = await collect(makeWriter(provider).write(request, using: AIProviderConfiguration(kind: .codex), in: field))
+        let (events, error) = await collect(makeWriter(provider).write(request, using: AIProviderConfiguration(kind: .codex), in: field, action: pressedWrite))
         XCTAssertNil(error)
         XCTAssertEqual(events, [.replaceAll("Thanks, Thursday works."), .finished(.done)])
     }
 
     func testAStreamThatEndsWithoutSayingSoEndedNormally() async {
-        let (events, error) = await collect(makeWriter(ScriptedProvider(script: [.event(.text("Hi"))])).write(request, using: configuration, in: field))
+        let (events, error) = await collect(makeWriter(ScriptedProvider(script: [.event(.text("Hi"))])).write(request, using: configuration, in: field, action: pressedWrite))
         XCTAssertNil(error)
         XCTAssertEqual(events, [.text("Hi"), .finished(.done)])
     }
 
     func testNothingFollowsTheEnd() async {
         let provider = ScriptedProvider(script: [.event(.text("a")), .event(.finished(.done)), .event(.text("b"))])
-        let (events, _) = await collect(makeWriter(provider).write(request, using: configuration, in: field))
+        let (events, _) = await collect(makeWriter(provider).write(request, using: configuration, in: field, action: pressedWrite))
         XCTAssertEqual(events, [.text("a"), .finished(.done)])
     }
 
     func testEmptyDeltasAreDropped() async {
         let provider = ScriptedProvider(script: [.event(.text("")), .event(.text("x")), .event(.finished(.done))])
-        let (events, _) = await collect(makeWriter(provider).write(request, using: configuration, in: field))
+        let (events, _) = await collect(makeWriter(provider).write(request, using: configuration, in: field, action: pressedWrite))
         XCTAssertEqual(events, [.text("x"), .finished(.done)])
     }
 
     func testACutReplyKeepsItsText() async {
         let provider = ScriptedProvider(script: [.event(.text("Hi")), .event(.finished(.maxTokens))])
-        let (events, error) = await collect(makeWriter(provider).write(request, using: configuration, in: field))
+        let (events, error) = await collect(makeWriter(provider).write(request, using: configuration, in: field, action: pressedWrite))
         XCTAssertNil(error)
         XCTAssertEqual(events, [.text("Hi"), .finished(.maxTokens)])
     }
@@ -154,7 +162,7 @@ final class AIWriterTests: XCTestCase {
 
     func testARefusalIsAnError() async {
         let provider = ScriptedProvider(script: [.event(.text("I")), .event(.finished(.refused))])
-        let (events, error) = await collect(makeWriter(provider).write(request, using: configuration, in: field))
+        let (events, error) = await collect(makeWriter(provider).write(request, using: configuration, in: field, action: pressedWrite))
         XCTAssertEqual(events, [.text("I")])
         XCTAssertEqual(error, .refused)
         await eventually("milestones") { milestones.count == 2 }
@@ -168,7 +176,7 @@ final class AIWriterTests: XCTestCase {
             [.event(.usage(AIUsage(outputTokens: 4_000))), .event(.finished(.maxTokens))],
             [.event(.replaceAll("Hi")), .event(.replaceAll(" ")), .event(.finished(.done))],
         ] {
-            let (_, error) = await collect(makeWriter(ScriptedProvider(script: script)).write(request, using: configuration, in: field))
+            let (_, error) = await collect(makeWriter(ScriptedProvider(script: script)).write(request, using: configuration, in: field, action: pressedWrite))
             XCTAssertEqual(error, .emptyReply, "\(script)")
         }
     }
@@ -182,13 +190,13 @@ final class AIWriterTests: XCTestCase {
         ]
         for (failure, expected) in cases {
             let provider = ScriptedProvider(script: [.event(.text("partial")), .fail(failure)])
-            let (events, error) = await collect(makeWriter(provider).write(request, using: configuration, in: field))
+            let (events, error) = await collect(makeWriter(provider).write(request, using: configuration, in: field, action: pressedWrite))
             XCTAssertEqual(events, [.text("partial")])
             XCTAssertEqual(error, expected)
             XCTAssertFalse(String(describing: error).contains("mail"))
         }
         let selfCancelled = ScriptedProvider(script: [.event(.text("x")), .event(.finished(.cancelled))])
-        let (_, error) = await collect(makeWriter(selfCancelled).write(request, using: configuration, in: field))
+        let (_, error) = await collect(makeWriter(selfCancelled).write(request, using: configuration, in: field, action: pressedWrite))
         XCTAssertEqual(error, .cancelled, "a provider that stops on its own was not stopped by the user")
     }
 
@@ -197,7 +205,7 @@ final class AIWriterTests: XCTestCase {
         var short = request
         short.deadline = .milliseconds(100)
         let writer = makeWriter(provider)
-        let (events, error) = await collect(writer.write(short, using: configuration, in: field))
+        let (events, error) = await collect(writer.write(short, using: configuration, in: field, action: pressedWrite))
         XCTAssertEqual(events, [.text("Hel")])
         XCTAssertEqual(error, .timedOut)
         await eventually("the provider to be cancelled") { provider.cancellations == 1 }
@@ -211,7 +219,7 @@ final class AIWriterTests: XCTestCase {
         let provider = ScriptedProvider(script: [.event(.text("x"))])
         let resolved = Counter()
         let writer = AIWriter(resolve: { _ in resolved.increment(); return provider }, hasConsent: { _ in false })
-        let (events, error) = await collect(writer.write(request, using: configuration, in: field))
+        let (events, error) = await collect(writer.write(request, using: configuration, in: field, action: pressedWrite))
         XCTAssertEqual(events, [])
         XCTAssertEqual(error, .consentRequired)
         XCTAssertEqual(resolved.value, 0, "no provider is even built")
@@ -221,7 +229,7 @@ final class AIWriterTests: XCTestCase {
 
     func testConsentIsPerProvider() async {
         let provider = ScriptedProvider(kind: .openAIAPI, script: [.event(.text("x"))])
-        let (_, error) = await collect(makeWriter(provider).write(request, using: AIProviderConfiguration(kind: .openAIAPI), in: field))
+        let (_, error) = await collect(makeWriter(provider).write(request, using: AIProviderConfiguration(kind: .openAIAPI), in: field, action: pressedWrite))
         XCTAssertEqual(error, .consentRequired)
         XCTAssertEqual(provider.requests, [])
     }
@@ -229,28 +237,28 @@ final class AIWriterTests: XCTestCase {
     func testTheDemoWriterNeedsNoConsent() async {
         consented = []
         let provider = ScriptedProvider(kind: .demo, script: [.event(.text("x")), .event(.finished(.done))])
-        let (_, error) = await collect(makeWriter(provider).write(request, using: AIProviderConfiguration(kind: .demo), in: field))
+        let (_, error) = await collect(makeWriter(provider).write(request, using: AIProviderConfiguration(kind: .demo), in: field, action: pressedWrite))
         XCTAssertNil(error)
     }
 
     func testNoProviderMeansUnavailable() async {
         let writer = makeWriter(nil)
-        let (_, error) = await collect(writer.write(request, using: configuration, in: field))
+        let (_, error) = await collect(writer.write(request, using: configuration, in: field, action: pressedWrite))
         XCTAssertEqual(error, .unavailable)
         XCTAssertEqual(milestones, [])
-        let health = await writer.health(of: configuration)
+        let health = await writer.localHealth(of: configuration)
         XCTAssertEqual(health, .unavailable(reason: "Claude isn't available right now"))
     }
 
     func testOneWriteAtATimePerField() async {
         let hanging = ScriptedProvider(script: [.hang])
         let writer = makeWriter(hanging)
-        let first = writer.write(request, using: configuration, in: field)
-        let (_, busy) = await collect(writer.write(request, using: configuration, in: field))
+        let first = writer.write(request, using: configuration, in: field, action: pressedWrite)
+        let (_, busy) = await collect(writer.write(request, using: configuration, in: field, action: pressedWrite))
         XCTAssertEqual(busy, .busy)
         XCTAssertTrue(writer.isWriting(in: field), "the refused second write leaves the first alone")
         XCTAssertFalse(writer.isWriting(in: AIFieldID(name: "composer")))
-        let other = writer.write(request, using: configuration, in: AIFieldID(name: "composer"))
+        let other = writer.write(request, using: configuration, in: AIFieldID(name: "composer"), action: pressedWrite)
         XCTAssertTrue(writer.isWriting(in: AIFieldID(name: "composer")), "another field writes at the same time")
         writer.stopAll()
         XCTAssertFalse(writer.isWriting)
@@ -265,7 +273,7 @@ final class AIWriterTests: XCTestCase {
     func testStopEndsTheStreamCleanlyAndFreesTheField() async {
         let provider = ScriptedProvider(script: [.event(.text("Hel")), .hang])
         let writer = makeWriter(provider)
-        let stream = writer.write(request, using: configuration, in: field)
+        let stream = writer.write(request, using: configuration, in: field, action: pressedWrite)
         var iterator = stream.makeAsyncIterator()
         let first = try? await iterator.next()
         XCTAssertEqual(first, .text("Hel"))
@@ -279,7 +287,7 @@ final class AIWriterTests: XCTestCase {
         XCTAssertEqual(milestones, ["write started claudeAPI", "write stopped claudeAPI"])
 
         let again = ScriptedProvider(script: [.event(.text("x")), .event(.finished(.done))])
-        let (events, error) = await collect(self.makeWriter(again).write(request, using: configuration, in: field))
+        let (events, error) = await collect(self.makeWriter(again).write(request, using: configuration, in: field, action: pressedWrite))
         XCTAssertNil(error)
         XCTAssertEqual(events.last, .finished(.done))
         writer.stop(field)  // nothing running: nothing happens
@@ -295,12 +303,12 @@ final class AIWriterTests: XCTestCase {
             resolved.increment()
             return resolved.value == 1 ? running : later
         }, hasConsent: { _ in true })
-        let first = writer.write(request, using: configuration, in: field)
+        let first = writer.write(request, using: configuration, in: field, action: pressedWrite)
         writer.shutDown()
         XCTAssertTrue(writer.isShutDown)
         let (firstEvents, _) = await collect(first)
         XCTAssertEqual(firstEvents.last, .finished(.cancelled), "the running write stops")
-        let (events, error) = await collect(writer.write(request, using: configuration, in: AIFieldID(name: "composer")))
+        let (events, error) = await collect(writer.write(request, using: configuration, in: AIFieldID(name: "composer"), action: pressedWrite))
         XCTAssertNil(error)
         XCTAssertEqual(events, [.finished(.cancelled)])
         XCTAssertEqual(resolved.value, 1, "no provider is built for a write after the shut-down")
@@ -311,7 +319,7 @@ final class AIWriterTests: XCTestCase {
     func testCancellingTheReaderCancelsTheProvider() async {
         let provider = ScriptedProvider(script: [.event(.text("Hel")), .hang])
         let writer = makeWriter(provider)
-        let stream = writer.write(request, using: configuration, in: field)
+        let stream = writer.write(request, using: configuration, in: field, action: pressedWrite)
         let reader = Task { await self.collect(stream) }
         await eventually("the request to start") { provider.requests.count == 1 }
         reader.cancel()
@@ -324,21 +332,28 @@ final class AIWriterTests: XCTestCase {
 
     // MARK: Health
 
-    func testHealthAndCheckAskTheProvider() async {
-        let writer = makeWriter(ScriptedProvider(script: [], health: .ready(detail: "Ready · Claude Opus 5.5")))
-        let health = await writer.health(of: configuration)
-        let check = await writer.check(configuration)
+    func testHealthIsLocalAndCheckCarriesTheUsersAction() async {
+        let provider = ScriptedProvider(script: [], health: .ready(detail: "Ready · Claude Opus 5.5"))
+        let writer = makeWriter(provider)
+        let health = writer.localHealth(of: configuration)
         XCTAssertEqual(health, .ready(detail: "Ready · Claude Opus 5.5"))
+        XCTAssertEqual(provider.actions, [], "local health asks for no action and makes no contact")
+        let check = await writer.check(configuration, action: pressedCheck)
         XCTAssertEqual(check, .needsSetup(reason: "Checked"))
+        XCTAssertEqual(provider.actions, [.check])
+        _ = await collect(writer.write(request, using: configuration, in: field, action: pressedWrite))
+        XCTAssertEqual(provider.actions, [.check, .write], "the write carries the Write that asked for it")
     }
 
-    func testCheckDefaultsToHealth() async {
+    func testCheckDefaultsToLocalHealth() async {
         struct Plain: AIProvider {
             let kind = AIProviderKind.claudeCode
-            func health() async -> AIHealth { .needsSetup(reason: "Claude Code is signed out. Run claude in Terminal.") }
-            func write(_ request: AIWriteRequest) -> AsyncThrowingStream<AIWriteEvent, Error> { AsyncThrowingStream { $0.finish() } }
+            func localHealth() -> AIHealth { .needsSetup(reason: "Claude Code is signed out. Run claude in Terminal.") }
+            func write(_ request: AIWriteRequest, action: AIUserAction) -> AsyncThrowingStream<AIWriteEvent, Error> {
+                AsyncThrowingStream { $0.finish() }
+            }
         }
-        let check = await Plain().check()
+        let check = await Plain().check(pressedCheck)
         XCTAssertEqual(check, .needsSetup(reason: "Claude Code is signed out. Run claude in Terminal."))
         XCTAssertEqual(Plain().destination, .anthropic)
     }

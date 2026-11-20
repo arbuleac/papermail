@@ -2,8 +2,11 @@ import Foundation
 import os
 
 /// The service the UI calls for Help Me Write; the UI never calls a provider. Owned by `AppEnvironment`, one per window
-/// graph. It resolves the configured provider, refuses without consent, runs one write per field, enforces the
-/// deadline, turns Stop into a clean end, and maps every failure to an `AIError`.
+/// graph. It resolves the configured provider, refuses without the permission given in Settings › AI, runs one write
+/// per field, enforces the deadline, turns Stop into a clean end, and maps every failure to an `AIError`.
+///
+/// It reaches beyond this Mac only for an `AIUserAction` (spec §3b): `write` and `check` take one, `localHealth` needs
+/// none because it looks at this Mac alone.
 ///
 /// Reading the stream: zero or more `.text` / `.replaceAll` / `.usage`, then exactly one `.finished(.done | .maxTokens |
 /// .cancelled)`, or one thrown `AIError` (refusals, empty replies and timeouts included). `.finished(.cancelled)` comes
@@ -60,11 +63,11 @@ public final class AIWriter {
     /// Whether any write is running.
     public var isWriting: Bool { !runs.isEmpty }
 
-    /// Starts a write into `field`. Errors arrive through the stream, never thrown here: `busy` when the field is
-    /// already writing, `consentRequired` before the user allowed `configuration.kind`, `unavailable` when no provider
-    /// can be built.
-    public func write(_ request: AIWriteRequest, using configuration: AIProviderConfiguration,
-                      in field: AIFieldID) -> AsyncThrowingStream<AIWriteEvent, Error> {
+    /// Starts a write into `field` for the user's `action`. Errors arrive through the stream, never thrown here: `busy`
+    /// when the field is already writing, `consentRequired` before the user turned `configuration.kind` on in Settings ›
+    /// AI, `unavailable` when no provider can be built.
+    public func write(_ request: AIWriteRequest, using configuration: AIProviderConfiguration, in field: AIFieldID,
+                      action: AIUserAction) -> AsyncThrowingStream<AIWriteEvent, Error> {
         let (stream, continuation) = AsyncThrowingStream.makeStream(of: AIWriteEvent.self, throwing: Error.self)
         let gate = AIStreamGate(continuation)
         let kind = configuration.kind
@@ -100,7 +103,7 @@ public final class AIWriter {
         // The task keeps the writer until the write's bookkeeping is done (at most the deadline), so a writer the
         // caller let go of still reports how its last write ended.
         run.task = Task.detached(priority: .userInitiated) {
-            let ending = await Self.relay(provider.write(request), deadline: request.deadline, into: gate)
+            let ending = await Self.relay(provider.write(request, action: action), deadline: request.deadline, into: gate)
             let closedHere = gate.close(ending)
             await self.complete(run, field: field, ending: ending, closedHere: closedHere)
         }
@@ -129,20 +132,22 @@ public final class AIWriter {
         stopAll()
     }
 
-    /// The provider's health, for Settings › AI's status line and the card's “needs setup” state.
-    public func health(of configuration: AIProviderConfiguration) async -> AIHealth {
+    /// The provider's health from this Mac alone (no network, no process): Settings › AI's status line as it opens and
+    /// the Write control's ready or dimmed state.
+    public func localHealth(of configuration: AIProviderConfiguration) -> AIHealth {
         guard let provider = resolve(configuration) else {
             return .unavailable(reason: AIError.unavailable.message(for: configuration.kind))
         }
-        return await provider.health()
+        return provider.localHealth()
     }
 
-    /// Settings' Check button: the provider's deeper check (an API key's authenticated GET).
-    public func check(_ configuration: AIProviderConfiguration) async -> AIHealth {
+    /// Settings' Check button, or a key just saved: the provider's deeper check (an API key's authenticated GET, a CLI's
+    /// version and sign-in), for the user's `action`.
+    public func check(_ configuration: AIProviderConfiguration, action: AIUserAction) async -> AIHealth {
         guard let provider = resolve(configuration) else {
             return .unavailable(reason: AIError.unavailable.message(for: configuration.kind))
         }
-        return await provider.check()
+        return await provider.check(action)
     }
 
     // MARK: Running

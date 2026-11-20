@@ -113,31 +113,37 @@ public struct CodexProvider: AIProvider {
         return quoted + "\""
     }
 
-    /// Found, a supported version whose features list names every disabled feature, and signed in.
-    public func health() async -> AIHealth {
+    /// Found, at a version this build runs, from this Mac alone: nothing is started (spec §3b). 0.163.0 keeps its tools
+    /// on, which its path says, so it reads as needing setup before any check.
+    public func localHealth() -> AIHealth {
+        CLIHealthWords.local(tool, chosen: executablePath, runner: runner)
+    }
+
+    /// The user's Check: found, a supported version whose features list names every disabled feature, and signed in.
+    public func check(_ action: AIUserAction) async -> AIHealth {
         do {
-            let (executable, version) = try await prepare(runner, chosen: executablePath)
-            let method = try await Self.signIn(executable, runner: runner, tool: tool)
+            let (executable, version) = try await prepare(runner, chosen: executablePath, action: action)
+            let method = try await Self.signIn(executable, runner: runner, tool: tool, action: action)
             return .ready(detail: "Codex \(version) · \(method)")
         } catch {
             return CLIHealthWords.health(for: AIError.from(error), tool: tool)
         }
     }
 
-    public func write(_ request: AIWriteRequest) -> AsyncThrowingStream<AIWriteEvent, Error> {
+    public func write(_ request: AIWriteRequest, action: AIUserAction) -> AsyncThrowingStream<AIWriteEvent, Error> {
         let runner = runner
         let chosen = executablePath
         let model = request.model ?? model
         let provider = self
         let tool = tool
         return CLIReplyStream.make(CodexStream()) {
-            let (executable, version) = try await provider.prepare(runner, chosen: chosen)
+            let (executable, version) = try await provider.prepare(runner, chosen: chosen, action: action)
             // Right before the send: signed out, nothing goes.
-            _ = try await Self.signIn(executable, runner: runner, tool: tool)
+            _ = try await Self.signIn(executable, runner: runner, tool: tool, action: action)
             try Task.checkCancellation()
             let instructions = request.instructions
             let command = CLICommand(
-                executable: executable,
+                executable: executable, action: action,
                 arguments: { folder in Self.arguments(model: model, instructions: instructions, folder: folder) },
                 environment: tool.environment, input: Data(request.userTurn.utf8), keepFile: Self.lastMessageFile,
                 idleTimeout: runner.limits.idle, totalTimeout: min(runner.limits.total, request.deadline))
@@ -145,16 +151,17 @@ public struct CodexProvider: AIProvider {
         }
     }
 
-    private func prepare(_ runner: CLIProcessRunner, chosen: String?) async throws -> (URL, CLIVersion) {
+    private func prepare(_ runner: CLIProcessRunner, chosen: String?, action: AIUserAction) async throws -> (URL, CLIVersion) {
         let tool = tool
-        return try await runner.prepare(tool, chosen: chosen) { executable, version in
-            try await Self.checkFeatures(executable, version: version, runner: runner, tool: tool)
+        return try await runner.prepare(tool, chosen: chosen, action: action) { executable, version in
+            try await Self.checkFeatures(executable, version: version, runner: runner, tool: tool, action: action)
         }
     }
 
     /// Every feature the recipe disables must still exist under that name in this version.
-    static func checkFeatures(_ executable: URL, version: CLIVersion, runner: CLIProcessRunner, tool: CLITool) async throws {
-        let listing = try await runner.capture(runner.quick(executable, ["features", "list"], tool: tool))
+    static func checkFeatures(_ executable: URL, version: CLIVersion, runner: CLIProcessRunner, tool: CLITool,
+                              action: AIUserAction) async throws {
+        let listing = try await runner.capture(runner.quick(executable, ["features", "list"], tool: tool, action: action))
         if listing.exit.timedOut { throw AIError.timedOut }
         guard listing.exit.succeeded, Set(disabledFeatures).isSubset(of: featureNames(in: listing.text)) else {
             // A feature renamed or gone is a newer Codex (the range starts at the version the names were read from).
@@ -171,8 +178,8 @@ public struct CodexProvider: AIProvider {
 
     /// `codex login status` exits 0 when signed in. Its words are read only to say whether that is with ChatGPT; with an
     /// API key it also prints part of the key, which goes nowhere.
-    static func signIn(_ executable: URL, runner: CLIProcessRunner, tool: CLITool) async throws -> String {
-        let status = try await runner.capture(runner.quick(executable, ["login", "status"], tool: tool))
+    static func signIn(_ executable: URL, runner: CLIProcessRunner, tool: CLITool, action: AIUserAction) async throws -> String {
+        let status = try await runner.capture(runner.quick(executable, ["login", "status"], tool: tool, action: action))
         if status.exit.timedOut { throw AIError.timedOut }
         guard status.exit.succeeded else { throw AIError.signedOut }
         let said = status.text + String(decoding: status.exit.stderr, as: UTF8.self)

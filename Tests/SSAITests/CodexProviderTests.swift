@@ -46,7 +46,7 @@ final class CodexProviderTests: XCTestCase {
     }
 
     private func write(_ provider: CodexProvider, _ request: AIWriteRequest? = nil) async -> ([AIWriteEvent], AIError?) {
-        let (events, error) = await collectCLIWrite(provider.write(request ?? self.request))
+        let (events, error) = await collectCLIWrite(provider.write(request ?? self.request, action: pressedWrite))
         return (events, error.map { $0 as? AIError ?? .badResponse(code: -1) })
     }
 
@@ -123,7 +123,7 @@ final class CodexProviderTests: XCTestCase {
         XCTAssertEqual(events, [])
         XCTAssertFalse(fake.calls().contains { $0.hasPrefix("exec") }, "exec would upload the prompt and retry for 17 s")
         XCTAssertNil(fake.recorded("stdin"))
-        let health = await provider().health()
+        let health = await provider().check(pressedCheck)
         XCTAssertEqual(health, .needsSetup(reason: "Codex is signed out. Run codex login in Terminal."))
     }
 
@@ -159,7 +159,7 @@ final class CodexProviderTests: XCTestCase {
         let (_, error) = await write(provider)
         XCTAssertEqual(error, .newerVersion(found: "0.170.0"))
         XCTAssertFalse(fake.calls().contains { $0.hasPrefix("exec") || $0 == "login status" })
-        let health = await provider.health()
+        let health = await provider.check(pressedCheck)
         XCTAssertEqual(health, .needsSetup(reason: "Codex 0.170.0 is newer than this SuperSparrow supports"))
         XCTAssertEqual(fake.calls().filter { $0 == "features list" }.count, 1, "remembered for that file")
     }
@@ -190,11 +190,26 @@ final class CodexProviderTests: XCTestCase {
             XCTAssertEqual(events, [], version)
             XCTAssertEqual(fake.calls(), ["--version"], "\(version): no features list, no login status, no exec")
             XCTAssertNil(fake.recorded("stdin"), "\(version): the request never reached the CLI")
-            let health = await real.health()
+            let health = await real.check(pressedCheck)
             XCTAssertEqual(health, .needsSetup(reason: "Codex \(found) can't turn its tools off, so Help Me Write doesn't use it"))
             XCTAssertEqual(fake.calls(), ["--version"], "\(version): the verdict is kept for that file")
         }
         XCTAssertTrue(AIError.toolsStayOn(found: "0.163.0").needsSettings, "Settings › AI is where another provider is chosen")
+    }
+
+    /// Homebrew's codex leads to …/Caskroom/codex/0.163.0/bin/codex: a version that keeps its tools on reads as needing
+    /// setup from the path alone, with nothing started (spec §3b).
+    func testLocalHealthReadsTheVersionFromThePathAndStartsNothing() throws {
+        let real = CodexProvider(model: nil, executablePath: nil, runner: fake.runner())
+        XCTAssertEqual(real.localHealth(), .needsSetup(reason: AIHealth.notFoundWords(for: .codex)))
+        let cask = fake.root.appendingPathComponent("Caskroom/codex/0.163.0/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: cask, withIntermediateDirectories: true)
+        let installed = try fake.install("codex", in: cask, behaviour(main: "exit 0"))
+        try FileManager.default.createSymbolicLink(at: fake.bin.appendingPathComponent("codex"), withDestinationURL: installed)
+        XCTAssertEqual(real.localHealth(),
+                       .needsSetup(reason: "Codex 0.163.0 can't turn its tools off, so Help Me Write doesn't use it"))
+        XCTAssertEqual(provider().localHealth(), .ready(detail: "Codex 0.163.0 found"), "a version without tools would be ready")
+        XCTAssertEqual(fake.calls(), [], "nothing was started")
     }
 
     func testFeatureNamesAreTheFirstColumn() throws {
@@ -248,7 +263,7 @@ final class CodexProviderTests: XCTestCase {
             + #"printf '%s\n' '{"type":"turn.started"}'; while :; do /bin/sleep 0.05; done"#)
         let provider = provider()
         let request = request
-        let consumer = Task { await collectCLIWrite(provider.write(request)) }
+        let consumer = Task { await collectCLIWrite(provider.write(request, action: pressedWrite)) }
         // Running, its trap set: the request was read in full.
         let started = await fake.wait { fake.recorded("ready") == "yes\n" }
         XCTAssertTrue(started)
@@ -262,7 +277,7 @@ final class CodexProviderTests: XCTestCase {
 
     func testHealthSaysVersionAndHowItIsSignedIn() async throws {
         try install(main: "exit 0")
-        let health = await provider().health()
+        let health = await provider().check(pressedCheck)
         XCTAssertEqual(health, .ready(detail: "Codex 0.163.0 · signed in with ChatGPT"))
         XCTAssertEqual(fake.calls(), ["--version", "features list", "login status"])
     }
@@ -271,12 +286,12 @@ final class CodexProviderTests: XCTestCase {
         var behaviour = behaviour(main: "exit 0")
         behaviour.loginStatus = "printf '%s\\n' 'Logged in using an API key - sk-proj-***ABCD' >&2; exit 0"
         try fake.install("codex", behaviour)
-        let health = await provider().health()
+        let health = await provider().check(pressedCheck)
         XCTAssertEqual(health, .ready(detail: "Codex 0.163.0 · signed in"))
     }
 
     func testHealthWhenNotFound() async {
-        let health = await provider().health()
+        let health = await provider().check(pressedCheck)
         XCTAssertEqual(health, .needsSetup(reason: AIHealth.notFoundWords(for: .codex)))
         XCTAssertFalse(health.words.contains("Choose"), "the row's Choose… and the card's Open Settings… are the actions")
     }

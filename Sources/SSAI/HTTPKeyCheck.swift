@@ -30,7 +30,7 @@ enum HTTPKeyCheck {
 
     /// Sends `request(key)` and reads the answer: ready when the key works and the model is listed (or the list is not
     /// known to be complete), needs setup when the key is refused or the model is not offered to it.
-    static func check(kind: AIProviderKind, model: String, keys: any AIKeyStoring, session: URLSession,
+    static func check(kind: AIProviderKind, model: String, keys: any AIKeyStoring, session: URLSession, action: AIUserAction,
                       request: (String) -> URLRequest,
                       mapReply: (HTTPErrorReply) -> (error: AIError, retryable: Bool)) async -> AIHealth {
         let key: String?
@@ -41,7 +41,9 @@ enum HTTPKeyCheck {
         }
         guard let key, !key.isEmpty else { return .needsSetup(reason: addKey) }
         do {
-            let (data, response) = try await session.data(for: request(key))
+            let urlRequest = request(key)
+            AIEgress.record(AIEgress.contact(for: urlRequest), by: action)
+            let (data, response) = try await session.data(for: urlRequest)
             guard let http = response as? HTTPURLResponse else {
                 return .unavailable(reason: AIError.badResponse(code: 0).message(for: kind))
             }

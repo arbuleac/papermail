@@ -20,7 +20,7 @@ final class CLIProcessRunnerTests: XCTestCase {
     private func command(_ executable: URL, arguments: [String] = ["-p", "--fixed"], input: String? = nil,
                          environment: [String: String] = [:], keepFile: String? = nil,
                          idle: Duration = .seconds(10), total: Duration = .seconds(20)) -> CLICommand {
-        CLICommand(executable: executable, arguments: { _ in arguments }, environment: environment,
+        CLICommand(executable: executable, action: pressedWrite, arguments: { _ in arguments }, environment: environment,
                    input: input.map { Data($0.utf8) }, keepFile: keepFile, idleTimeout: idle, totalTimeout: total)
     }
 

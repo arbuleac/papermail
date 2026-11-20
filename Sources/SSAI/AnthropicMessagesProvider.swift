@@ -38,19 +38,20 @@ public struct AnthropicMessagesProvider: AIProvider {
 
     var modelID: String { model ?? Self.defaultModel }
 
-    public func health() async -> AIHealth {
+    /// A key is stored (its attributes only: no Keychain prompt, no network).
+    public func localHealth() -> AIHealth {
         HTTPKeyCheck.health(kind: kind, model: modelID, keys: keys)
     }
 
-    public func check() async -> AIHealth {
-        await HTTPKeyCheck.check(kind: kind, model: modelID, keys: keys, session: session,
+    public func check(_ action: AIUserAction) async -> AIHealth {
+        await HTTPKeyCheck.check(kind: kind, model: modelID, keys: keys, session: session, action: action,
                                  request: { Self.modelsRequest(key: $0) }, mapReply: { AnthropicErrorMapping.map($0) })
     }
 
-    public func write(_ request: AIWriteRequest) -> AsyncThrowingStream<AIWriteEvent, Error> {
+    public func write(_ request: AIWriteRequest, action: AIUserAction) -> AsyncThrowingStream<AIWriteEvent, Error> {
         let provider = self
         return HTTPStreamingWrite<AnthropicStreamDecoder>.stream(
-            kind: kind, keys: keys, session: session, pause: pause,
+            kind: kind, keys: keys, session: session, pause: pause, action: action,
             makeRequest: { try provider.messagesRequest(for: request, key: $0) },
             mapReply: { AnthropicErrorMapping.map($0) })
     }
