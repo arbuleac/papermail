@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Run the whole test suite. Usage: scripts/test.sh [--filter Pattern]
+# `swift test` runs every test target, SSAITests included (its recorded fixtures are a resource folder, checked for
+# personal data by FixturePrivacyTests). No test reaches the network or a real CLI: stub URLProtocols, fake executables.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
