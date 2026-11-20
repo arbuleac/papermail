@@ -105,7 +105,7 @@ final class PaperFaceTests: XCTestCase {
         XCTAssertEqual(renderer.paperFaceRenderCount, 5)
         renderer.removeAll()
         _ = renderer.paperFace(.fox, diameter: 30, scale: 2, dark: false)
-        XCTAssertEqual(renderer.paperFaceRenderCount, 6, "a memory warning forgets them")
+        XCTAssertEqual(renderer.paperFaceRenderCount, 6, "removeAll forgets them")
     }
 
     /// A face fills its disc with its ground, the papers follow Light and Dark, and the corners stay clear for the

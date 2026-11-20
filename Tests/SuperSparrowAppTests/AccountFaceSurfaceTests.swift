@@ -34,8 +34,8 @@ final class AccountFaceSurfaceTests: XCTestCase {
 
     // MARK: The main window
 
-    /// The rail and the title menu wear the faces, change with the store at once, and name the account to VoiceOver.
-    func testTheRailAndTheTitleMenuWearTheFaceAndFollowTheStore() throws {
+    /// The rail wears the faces, changes with the store at once, and names the account to VoiceOver.
+    func testTheRailWearsTheFaceAndFollowsTheStore() throws {
         let harness = try MainWindowHarness()
         defer { harness.close() }
         let strip = harness.controller.strip
@@ -50,13 +50,68 @@ final class AccountFaceSurfaceTests: XCTestCase {
         harness.controller.refreshAccounts()
         let other = try XCTUnwrap(strip.tile(for: .account(b.id)))
         guard case .account(.monogram, _)? = Optional(other.content) else { return XCTFail("monogram: \(other.content)") }
+    }
 
-        // The title menu's account items: the account's name, a face image with no words of its own.
-        let image = TitleMenu.faceImage(.paper(.frog), slot: 0)
-        XCTAssertEqual(image.size, NSSize(width: 18, height: 18))
-        XCTAssertNil(image.accessibilityDescription)
-        let rep = try XCTUnwrap(image.cgImage(forProposedRect: nil, context: nil, hints: nil))
-        XCTAssertGreaterThan(rep.width, 0)
+    /// The title menu's account items, as the menu builds them: on a 2× screen a paper face is the rail's art at 12 pt and a
+    /// monogram its first letter; on a 1× screen, where 12 pixels of art are a blob, the paper face gives way to the
+    /// monogram's first letter too (§5.55). The item is named by the account; its image says nothing of its own.
+    func testTheTitleMenuDrawsTheFacesItsScreenCanShow() throws {
+        var monogramAccount = b
+        monogramAccount.face = .monogram
+        let model = TitleMenu.Model(view: .inbox, inboxUnread: 0, scope: .unified, showsAccounts: true, unifiedUnread: 0, accounts: [
+            TitleMenu.AccountEntry(account: a, face: .paper(.frog), monogram: "Co", unread: 0),
+            TitleMenu.AccountEntry(account: monogramAccount, face: .monogram("Fa"), monogram: "Fa", unread: 0),
+        ])
+        let menu = TitleMenu.build(model, target: self, viewAction: #selector(NSResponder.noResponder(for:)),
+                                   scopeAction: #selector(NSResponder.noResponder(for:)))
+        let paperItem = try XCTUnwrap(menu.items.first { $0.title.hasPrefix(AccountLabels.name(for: a)) })
+        let monogramItem = try XCTUnwrap(menu.items.first { $0.title.hasPrefix(AccountLabels.name(for: b)) })
+        let paperImage = try XCTUnwrap(paperItem.image)
+        let monogramImage = try XCTUnwrap(monogramItem.image)
+        XCTAssertEqual(paperImage.size, NSSize(width: 18, height: 18))
+        XCTAssertNil(paperImage.accessibilityDescription, "the item's title names the account; the face adds nothing")
+
+        func render(_ image: NSImage, scale: CGFloat) throws -> NSBitmapImageRep {
+            // Tagged sRGB, the faces' own space, so their pixels arrive unconverted.
+            let blank = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(18 * scale), pixelsHigh: Int(18 * scale),
+                                                       bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                                       colorSpaceName: .calibratedRGB, bytesPerRow: 0, bitsPerPixel: 0))
+            let rep = try XCTUnwrap(blank.retagging(with: .sRGB))
+            rep.size = NSSize(width: 18, height: 18)
+            let context = try XCTUnwrap(NSGraphicsContext(bitmapImageRep: rep))
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = context
+            NSAppearance(named: .aqua)!.performAsCurrentDrawingAppearance {
+                image.draw(in: NSRect(x: 0, y: 0, width: 18, height: 18))
+            }
+            NSGraphicsContext.restoreGraphicsState()
+            return rep
+        }
+        func centre(_ rep: NSBitmapImageRep) -> NSColor {
+            rep.colorAt(x: rep.pixelsWide / 2, y: rep.pixelsHigh / 2)!.usingColorSpace(.sRGB)!
+        }
+        func close(_ x: NSColor, _ y: NSColor) -> Bool {
+            abs(x.redComponent - y.redComponent) < 0.04 && abs(x.greenComponent - y.greenComponent) < 0.04
+                && abs(x.blueComponent - y.blueComponent) < 0.04
+        }
+        // The face sits inside the ring's 1.5 pt and a 1.25 pt gap, as drawn.
+        let diameter = 18 - 2 * (Quire.Border.AccountRing.width / 2 + 0.5 + 1.5)
+        let frog = NSBitmapImageRep(cgImage: try XCTUnwrap(QuireAvatarRenderer.shared.paperFace(.frog, diameter: diameter, scale: 2, dark: false)))
+        let frogCentre = try XCTUnwrap(frog.colorAt(x: frog.pixelsWide / 2, y: frog.pixelsHigh / 2)?.usingColorSpace(.sRGB))
+
+        // A fresh image per scale: an NSImage keeps what its handler drew for a resolution.
+        let paper2x = try render(TitleMenu.faceImage(.paper(.frog), monogram: "Co", slot: a.inkSlot), scale: 2)
+        XCTAssertTrue(close(centre(paper2x), frogCentre), "2×: the frog, \(centre(paper2x)) against \(frogCentre)")
+        let monogram2x = try render(monogramImage, scale: 2)
+        XCTAssertFalse(close(centre(monogram2x), frogCentre), "a monogram account keeps its letter")
+
+        let paper1x = try render(TitleMenu.faceImage(.paper(.frog), monogram: "Co", slot: a.inkSlot), scale: 1)
+        let letter1x = try render(TitleMenu.faceImage(.monogram("C"), monogram: "Co", slot: a.inkSlot), scale: 1)
+        XCTAssertEqual(paper1x.representation(using: .png, properties: [:]), letter1x.representation(using: .png, properties: [:]),
+                       "1×: the monogram's first letter in the frog's place")
+        let frog1x = NSBitmapImageRep(cgImage: try XCTUnwrap(QuireAvatarRenderer.shared.paperFace(.frog, diameter: diameter, scale: 1, dark: false)))
+        XCTAssertFalse(close(centre(paper1x), try XCTUnwrap(frog1x.colorAt(x: frog1x.pixelsWide / 2, y: frog1x.pixelsHigh / 2)?.usingColorSpace(.sRGB))),
+                       "not the frog")
     }
 
     /// The account ring and its gap are exactly as around a monogram: only the disc inside them changes.
@@ -196,6 +251,70 @@ final class AccountFaceSurfaceTests: XCTestCase {
         XCTAssertTrue(ListTestSupport.spin(until: { !model.showsFacePicker }, timeout: 2))
         XCTAssertEqual(try environment.store.accounts().first { $0.id == a.id }?.face, .paper("rabbit"))
         XCTAssertEqual(refreshes, 2)
+    }
+
+    /// The card belongs to the Accounts tab it opened over: another tab, or closing the window, closes it, so it is never
+    /// found open, without focus, on the way back (§5.55).
+    func testLeavingTheTabOrClosingTheWindowClosesThePicker() throws {
+        let (controller, _) = try settingsWindow()
+        defer { controller.tearDown() }
+        let window = try XCTUnwrap(controller.window)
+        let tab = try XCTUnwrap((window.contentViewController as? NSTabViewController)?.tabViewItems[0].viewController?.view)
+        let model = controller.model
+        model.selection = a.id.rawValue
+        ListTestSupport.spin(for: 0.2)
+        let button = try XCTUnwrap(faceButton(in: tab))
+        click(NSPoint(x: button.midX, y: button.midY), in: tab)
+        XCTAssertTrue(ListTestSupport.spin(until: { model.showsFacePicker }, timeout: 2))
+        model.tab = .general
+        XCTAssertFalse(model.showsFacePicker, "another tab closes it")
+        model.tab = .accounts
+        ListTestSupport.spin(for: 0.2)
+        XCTAssertFalse(model.showsFacePicker, "and it is not open on the way back")
+
+        click(NSPoint(x: button.midX, y: button.midY), in: tab)
+        XCTAssertTrue(ListTestSupport.spin(until: { model.showsFacePicker }, timeout: 2))
+        window.performClose(nil)
+        XCTAssertFalse(model.showsFacePicker, "closing the window closes it")
+        controller.show(tab: .accounts)
+        ListTestSupport.spin(for: 0.2)
+        XCTAssertFalse(model.showsFacePicker, "reopened, Settings shows no card")
+    }
+
+    /// Space and Return on the focused face button open the card, as a click does, and only open it: one press never opens
+    /// and closes it at once. Tab and Shift-Tab then stay in the card, where Esc still closes it.
+    func testTheFaceButtonOpensFromTheKeyboardAndTabStaysInTheCard() throws {
+        let (controller, _) = try settingsWindow()
+        defer { controller.tearDown() }
+        let window = try XCTUnwrap(controller.window)
+        let tab = try XCTUnwrap((window.contentViewController as? NSTabViewController)?.tabViewItems[0].viewController?.view)
+        let model = controller.model
+        model.selection = a.id.rawValue
+        ListTestSupport.spin(for: 0.2)
+        let button = try XCTUnwrap(faceButton(in: tab))
+        // The click focuses the button; Esc closes the card and gives focus back to it, as the user would get it there.
+        click(NSPoint(x: button.midX, y: button.midY), in: tab)
+        XCTAssertTrue(ListTestSupport.spin(until: { model.showsFacePicker }, timeout: 2))
+        ListTestSupport.spin(for: 0.2)
+        sendKey("\u{1b}", keyCode: 53, to: window)
+        XCTAssertTrue(ListTestSupport.spin(until: { !model.showsFacePicker }, timeout: 2))
+        ListTestSupport.spin(for: 0.2)
+
+        sendKey(" ", keyCode: 49, to: window)
+        XCTAssertTrue(ListTestSupport.spin(until: { model.showsFacePicker }, timeout: 2), "Space opens it")
+        ListTestSupport.spin(for: 0.3)
+        XCTAssertTrue(model.showsFacePicker, "and leaves it open")
+        sendKey("\t", keyCode: 48, to: window)
+        sendKey("\u{19}", keyCode: 48, modifiers: .shift, to: window)
+        XCTAssertTrue(model.showsFacePicker, "Tab and Shift-Tab stay in the card")
+        sendKey("\u{1b}", keyCode: 53, to: window)
+        XCTAssertTrue(ListTestSupport.spin(until: { !model.showsFacePicker }, timeout: 2), "Esc still reaches it")
+        ListTestSupport.spin(for: 0.2)
+
+        sendKey("\r", keyCode: 36, to: window)
+        XCTAssertTrue(ListTestSupport.spin(until: { model.showsFacePicker }, timeout: 2), "Return opens it")
+        ListTestSupport.spin(for: 0.3)
+        XCTAssertTrue(model.showsFacePicker, "and leaves it open")
     }
 
     /// Choosing Monogram brings the field beside the face; the store keeps the choice.

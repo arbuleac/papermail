@@ -33,7 +33,8 @@ final class ConversationCellView: NSView {
     private typealias Compact = Quire.Layout.RowCompact
 
     private(set) var content: ConversationRowContent?
-    private var mark = AccountMark.none
+    /// Internal so the list's tests can read what a row was given to draw.
+    private(set) var mark = AccountMark.none
     /// Where the lines and marks go: the density's frames at the list's Text size (spec §5.7, §4.15). Internal so the
     /// list's tests can read it.
     private(set) var metrics = QuireRowMetrics.standard(.default)
@@ -113,8 +114,9 @@ final class ConversationCellView: NSView {
         x = c.time.minX
         if mark.isUnified {
             if mark.showsFace {
-                // With faces on, the tile carries both the colour and the face (or letter); it replaces the square.
-                let size = Row.accountTile
+                // With faces on, the tile carries both the colour and the face (or letter); it replaces the square. A paper
+                // face keeps the tile's 16 pt and stands its edge off it, as every face stands off its ring (§5.55).
+                let size = mark.paperFace == nil ? Row.accountTile : ConversationCellView.paperTile
                 c.tile = NSRect(x: x - Row.tileGap - size, y: lineMid - size / 2, width: size, height: size)
                 x = c.tile!.minX
             } else if isCompact {
@@ -279,14 +281,19 @@ final class ConversationCellView: NSView {
         }
     }
 
-    /// The optional account tile (spec §4.2, §5.55). An account's paper face fills the 16 pt footprint, from the renderer's
-    /// cache like every face, inside the tile's 1.5 pt edge in the account ink, round here, so the tile still carries the
-    /// colour. An account that wears its monogram keeps the letter tile: no fill of its own, so the row's fill shows
-    /// through, the edge and the monogram's first letter in `tag` `ink2`.
+    /// A paper face's tile across: the face at `row.accountTile`, then the gap and the edge on each side.
+    static let paperTile = Row.accountTile + 2 * (Quire.Layout.PaperFaces.tileGap + Row.accountTileBorder)
+
+    /// The optional account tile (spec §4.2, §5.55). An account's paper face is drawn at 16 pt from the renderer's cache,
+    /// like every face, inside a gap of the row's own fill and the tile's 1.5 pt edge in the account ink, round here. The
+    /// gap is what keeps the colour: on the face itself an ink sinks into a ground of its own hue (Indigo into the
+    /// ultramarine behind the beard and glasses). An account that wears its monogram keeps the letter tile: no fill of its
+    /// own, so the row's fill shows through, the edge and the monogram's first letter in `tag` `ink2`.
     private func drawAccountTile(in rect: NSRect) {
         if let face = mark.paperFace {
-            QuireAvatarRenderer.drawPaperFace(face, in: rect)
             let edge = Row.accountTileBorder
+            let inset = edge + Quire.Layout.PaperFaces.tileGap
+            QuireAvatarRenderer.drawPaperFace(face, in: rect.insetBy(dx: inset, dy: inset))
             let ring = NSBezierPath(ovalIn: rect.insetBy(dx: edge / 2, dy: edge / 2))
             ring.lineWidth = edge
             NSColor.qAccount(mark.inkSlot).setStroke()

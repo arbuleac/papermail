@@ -883,8 +883,8 @@ extension Quire {
             public static let shadowReference: CGFloat = 30
             public static let shadowY: [CGFloat] = [0, 0.6, 1]
             public static let shadowBlur: [CGFloat] = [0, 1.2, 2]
-            public static let shadowAlphaLight: CGFloat = 0.25
-            public static let shadowAlphaDark: CGFloat = 0.45
+            public static let shadowLight: String = "#00000040"
+            public static let shadowDark: String = "#00000073"
             public static let pickerFace: CGFloat = 48
             public static let pickerCell: CGFloat = 62
             public static let pickerGap: CGFloat = 4
@@ -893,6 +893,7 @@ extension Quire {
             public static let pickerRadius: CGFloat = 8
             public static let pickerOffset: CGFloat = 6
             public static let pickerEdgeMin: CGFloat = 8
+            public static let tileGap: CGFloat = 1
         }
         public enum Menu {
             public static let titleMenuOffsetY: CGFloat = 4

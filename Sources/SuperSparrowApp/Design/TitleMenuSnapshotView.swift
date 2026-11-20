@@ -10,11 +10,22 @@ final class TitleMenuSnapshotView: NSView {
     private let items: [NSMenuItem]
     private static let rowHeight: CGFloat = 22
     private static let padding: CGFloat = 6
+    private static let titleX: CGFloat = 52
+    /// Past the longest title, as a menu leaves room after its items.
+    private static let trailing: CGFloat = 20
 
     init(menu: NSMenu, origin: NSPoint) {
         items = menu.items
         let height = items.reduce(Self.padding * 2) { $0 + ($1.isSeparatorItem ? 11 : Self.rowHeight) }
-        super.init(frame: NSRect(x: origin.x, y: origin.y, width: 300, height: height))
+        // As wide as the longest title: an account's name and address are as long as the user's, never a fixed card's.
+        let font = NSFont.menuFont(ofSize: 0)
+        let widest = items.map { ceil((Self.title(of: $0) as NSString).size(withAttributes: [.font: font]).width) }.max() ?? 0
+        super.init(frame: NSRect(x: origin.x, y: origin.y, width: Self.titleX + widest + Self.trailing, height: height))
+    }
+
+    /// The title as the menu shows it, without the G-sequence column after its tab.
+    private static func title(of item: NSMenuItem) -> String {
+        (item.attributedTitle?.string ?? item.title).components(separatedBy: "\t").first ?? ""
     }
 
     @available(*, unavailable)
@@ -41,9 +52,8 @@ final class TitleMenuSnapshotView: NSView {
                 image.draw(in: NSRect(x: 26, y: y + (Self.rowHeight - side) / 2, width: image.size.width, height: side),
                            from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
             }
-            let title = item.attributedTitle?.string ?? item.title
-            (title.components(separatedBy: "\t").first! as NSString).draw(at: NSPoint(x: 52, y: y + 3),
-                                                                           withAttributes: [.font: font, .foregroundColor: NSColor.qInk])
+            (Self.title(of: item) as NSString).draw(at: NSPoint(x: Self.titleX, y: y + 3),
+                                                     withAttributes: [.font: font, .foregroundColor: NSColor.qInk])
             y += Self.rowHeight
         }
     }

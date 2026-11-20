@@ -292,9 +292,13 @@ public final class QuireAvatarRenderer: @unchecked Sendable {
     /// The papers as Core Graphics colours, straight from their values: they follow Light and Dark only, never a theme,
     /// so there is nothing to resolve.
     private static func paperColor(_ paper: Quire.Paper, dark: Bool) -> CGColor {
-        let v = dark ? paper.values.dark : paper.values.light
-        return CGColor(srgbRed: CGFloat((v >> 24) & 0xFF) / 255, green: CGFloat((v >> 16) & 0xFF) / 255,
-                       blue: CGFloat((v >> 8) & 0xFF) / 255, alpha: CGFloat(v & 0xFF) / 255)
+        cgColor(rgba: dark ? paper.values.dark : paper.values.light)
+    }
+
+    /// 0xRRGGBBAA in sRGB.
+    private static func cgColor(rgba v: UInt32) -> CGColor {
+        CGColor(srgbRed: CGFloat((v >> 24) & 0xFF) / 255, green: CGFloat((v >> 16) & 0xFF) / 255,
+                blue: CGFloat((v >> 8) & 0xFF) / 255, alpha: CGFloat(v & 0xFF) / 255)
     }
 
     /// The disc filled with the ground, then each cut-out bottom first, clipped to the disc, with its lift's shadow. The
@@ -316,7 +320,7 @@ public final class QuireAvatarRenderer: @unchecked Sendable {
         context.setFillColor(paperColor(art.ground, dark: dark))
         context.fill(rect)
         let growth = diameter / p.shadowReference
-        let shadow = CGColor(srgbRed: 0, green: 0, blue: 0, alpha: dark ? p.shadowAlphaDark : p.shadowAlphaLight)
+        let shadow = QuireAvatarRenderer.cgColor(rgba: QuireDraw.rgba(hex: dark ? p.shadowDark : p.shadowLight))
         for layer in art.layers {
             context.saveGState()
             if layer.lift > 0, layer.lift < p.shadowY.count {
@@ -336,8 +340,9 @@ public final class QuireAvatarRenderer: @unchecked Sendable {
     }
 
     /// Pixels a point in `context`: its backing scale on screen, the bitmap's in a snapshot. Rounded to a half so a
-    /// rounding error in the transform never makes a new cache entry.
-    static func deviceScale(of context: CGContext) -> CGFloat {
+    /// rounding error in the transform never makes a new cache entry. Public for the surfaces whose face depends on it
+    /// (the title menu's, §5.55).
+    public static func deviceScale(of context: CGContext) -> CGFloat {
         let t = context.userSpaceToDeviceSpaceTransform
         let scale = (t.a * t.a + t.b * t.b).squareRoot()
         return min(4, max(1, (scale * 2).rounded() / 2))

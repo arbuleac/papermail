@@ -486,7 +486,8 @@ struct QuireGalleryGeneral: View {
                 .padding(.leading, Quire.Border.AccountRing.gap + Quire.Border.AccountRing.width)
             }
             QuireSettingsRow("Face") {
-                QuireFaceButton(face: .paper(.fox), ink: 7, accountName: "Gmail") {}
+                // The account above's ink (the Colour popup's Persimmon), as the picker under it rings the fox in it.
+                QuireFaceButton(face: .paper(.fox), ink: 0, accountName: "Contoso") {}
                     .padding(.leading, Quire.Border.AccountRing.gap + Quire.Border.AccountRing.width)
             }
             QuireFacePicker(monogram: "C", ink: 0, chosen: .paper(.fox), onPick: { _ in }, onClose: {})

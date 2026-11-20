@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// The face picker (spec §5.55): a card Quire draws itself (there is no popover in the app), opened from the account's
@@ -8,9 +9,10 @@ import SwiftUI
 /// The card is `raised` with `e2`, radius `pickerRadius`, and the 1 pt `ruleStrong` outline in Increase Contrast. The
 /// grid is one Tab stop and takes focus when the card opens, on the chosen tile: ← → step through the tiles, ↑ ↓ move a
 /// row, all clamped at the ends; Return or Space picks the focused tile, a click picks the clicked one, and Esc closes
-/// without a change. The focused tile shows the Quire focus ring outside any account ring. Under the pointer a face darkens
-/// (`hover`, then `pressed` while the mouse is down), never a wash around it. VoiceOver sees a radio group named `title`,
-/// each tile by its face's name (“Fox, 8 of 13”), the chosen one selected.
+/// without a change. Tab stays in the card, as in a popover's window, and focus leaving it any other way closes it. The
+/// focused tile shows the Quire focus ring outside any account ring. Under the pointer a face darkens (`hover`, then
+/// `pressed` while the mouse is down), never a wash around it. VoiceOver sees a radio group named `title`, each tile by
+/// its face's name (“Fox, 8 of 13”), the chosen one selected, and hears each arrow key's tile as focus reaches it.
 public struct QuireFacePicker: View {
     let monogram: String
     let ink: Int
@@ -18,11 +20,15 @@ public struct QuireFacePicker: View {
     let title: String
     let onPick: (QuireAccountFace) -> Void
     let onClose: () -> Void
+    let onLeave: (() -> Void)?
 
     @State private var focusIndex: Int
     @FocusState private var isFocused: Bool
+    /// Focus has reached the grid once: losing it before then is the card still opening, not the user leaving.
+    @State private var hasHadFocus = false
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.quireDrawingFlags) private var drawingFlags
     @Environment(\.controlActiveState) private var activeState
     @Environment(\.quireForcedStates) private var forced
 
@@ -32,14 +38,17 @@ public struct QuireFacePicker: View {
     ///   - chosen: the account's face now (an automatic one included), marked and focused first.
     ///   - onPick: a tile was picked; the caller stores it and closes the card. Picking the chosen tile changes nothing.
     ///   - onClose: Esc, or a click outside the card (the caller's).
+    ///   - onLeave: focus left the card some other way (VoiceOver, or a control outside it taking focus); the caller closes
+    ///     the card and leaves focus where it went. Nil: `onClose`.
     public init(monogram: String, ink: Int, chosen: QuireAccountFace, title: String = "Face",
-                onPick: @escaping (QuireAccountFace) -> Void, onClose: @escaping () -> Void) {
+                onPick: @escaping (QuireAccountFace) -> Void, onClose: @escaping () -> Void, onLeave: (() -> Void)? = nil) {
         self.monogram = monogram
         self.ink = ink
         self.chosen = chosen
         self.title = title
         self.onPick = onPick
         self.onClose = onClose
+        self.onLeave = onLeave
         let options = QuireFacePicker.options(monogram: monogram)
         _focusIndex = State(initialValue: QuireFacePicker.index(of: chosen, in: options) ?? 0)
     }
@@ -85,7 +94,8 @@ public struct QuireFacePicker: View {
         }
     }
 
-    /// The tile `offset` steps along, or a row up or down, clamped to the grid; nil when the move goes nowhere.
+    /// The tile a move lands on, clamped to the grid: the same index when the move goes nowhere, so a key at an edge
+    /// changes nothing and announces nothing.
     static func step(from index: Int, by move: MoveCommandDirection, count: Int, columns: Int) -> Int {
         switch move {
         case .left: return max(0, index - 1)
@@ -131,8 +141,22 @@ public struct QuireFacePicker: View {
             // Focus moves into the grid as the card opens, so the keys reach it at once.
             DispatchQueue.main.async { isFocused = true }
         }
+        .onChange(of: isFocused) { _, focused in
+            if focused {
+                hasHadFocus = true
+            } else if hasHadFocus {
+                // Left without Esc or a pick: closed, so nothing keeps focus under a card that covers it.
+                (onLeave ?? onClose)()
+            }
+        }
+        // The grid is the card's only stop, so Tab and Shift-Tab have nowhere to go: they stay, as in a popover.
+        .onKeyPress(.tab) { .handled }
         .onMoveCommand { move in
-            focusIndex = QuireFacePicker.step(from: focusIndex, by: move, count: options.count, columns: columns)
+            let next = QuireFacePicker.step(from: focusIndex, by: move, count: options.count, columns: columns)
+            guard next != focusIndex else { return }
+            focusIndex = next
+            // The radio group's value is the chosen tile, which a move does not change, so VoiceOver would hear nothing.
+            QuireFacePicker.announce(QuireFacePicker.radios(monogram: monogram, chosen: chosen)[next].spoken)
         }
         .onKeyPress(.return) {
             pick(options[focusIndex])
@@ -153,6 +177,12 @@ public struct QuireFacePicker: View {
         }
     }
 
+    /// Speaks a tile's name as focus reaches it; tests replace it to hear what VoiceOver would.
+    static var announce: (String) -> Void = { text in
+        NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
+                             userInfo: [.announcement: text, .priority: NSAccessibilityPriorityLevel.high.rawValue])
+    }
+
     private func pick(_ face: QuireAccountFace) {
         if QuireFacePicker.index(of: face, in: [chosen]) != nil {
             onClose()
@@ -167,7 +197,8 @@ public struct QuireFacePicker: View {
         let layers = Quire.Elevation.e2.layers(for: colorScheme == .dark ? .dark : .light)
         return shape.fill(.qRaised)
             .overlay {
-                if contrast == .increased {
+                // The override too, as every Quire control reads it, so an off-screen Increase Contrast render draws it.
+                if contrast == .increased || (drawingFlags?.increaseContrast ?? QuireEnvironment.increaseContrast) {
                     shape.strokeBorder(.qRuleStrong, lineWidth: Quire.Border.IcOutline.width)
                 }
             }

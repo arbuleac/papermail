@@ -13,6 +13,8 @@ enum TitleMenu {
         var account: Account
         /// The account's face (§5.55): a paper face, or its monogram, of which the menu draws the first letter.
         var face: QuireAccountFace
+        /// The account's monogram as the rail would show it: its first letter stands in for a paper face below 2× (§5.55).
+        var monogram: String
         var unread: Int
     }
 
@@ -100,7 +102,7 @@ enum TitleMenu {
             item.keyEquivalentModifierMask = .command
             item.target = target
             item.tag = index + 1
-            item.image = faceImage(entry.face, slot: entry.account.inkSlot)
+            item.image = faceImage(entry.face, monogram: entry.monogram, slot: entry.account.inkSlot)
             item.state = model.scope == .account(entry.account.id) ? .on : .off
             setUnread(entry.unread, on: item)
             menu.addItem(item)
@@ -122,17 +124,22 @@ enum TitleMenu {
         item.setAccessibilityHelp(words.isEmpty ? nil : words.joined(separator: ", "))
     }
 
-    /// A small account face with its ring, drawn when the menu shows so it follows the appearance. A paper face is the
-    /// rail's art at 12 pt, still the person or animal at that size (§5.55); a monogram keeps only its first letter.
-    static func faceImage(_ face: QuireAccountFace, slot: Int) -> NSImage {
+    /// A small account face with its ring, drawn when the menu shows, so it follows the appearance and the screen it is on.
+    /// A paper face is the rail's art at 12 pt, still the person or animal at that size on a 2× screen; on a 1× screen its
+    /// 12 pixels are a blob, so there it is `monogram`'s first letter, as for an account that wears its monogram (§5.55).
+    static func faceImage(_ face: QuireAccountFace, monogram: String, slot: Int) -> NSImage {
         let side: CGFloat = 18
         return NSImage(size: NSSize(width: side, height: side), flipped: true) { rect in
             // Menus draw their images on the main thread.
             MainActor.assumeIsolated {
                 let ring = Quire.Border.AccountRing.width / 2 + 0.5
                 let inner = rect.insetBy(dx: ring + 1.5, dy: ring + 1.5)
+                // Read from the destination, not the main screen: a menu opened on a 1× screen of a Mac that also has a 2× one.
+                let scale = NSGraphicsContext.current.map { QuireAvatarRenderer.deviceScale(of: $0.cgContext) } ?? 1
                 switch face {
-                case .monogram(let monogram):
+                case .monogram(let letters):
+                    QuireAvatarRenderer.drawAccountFace(monogram: String(letters.prefix(1)), slot: slot, in: inner)
+                case .paper where scale < 2:
                     QuireAvatarRenderer.drawAccountFace(monogram: String(monogram.prefix(1)), slot: slot, in: inner)
                 case .paper:
                     QuireAvatarRenderer.drawAccountFace(face, slot: slot, in: inner)

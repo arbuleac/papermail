@@ -30,6 +30,9 @@ final class SettingsModel: ObservableObject {
         didSet {
             // The incoming notice stays until Save succeeds or the tab is left.
             if oldValue == .oauth, tab != .oauth, case .needsClient = oauthNotice { oauthNotice = nil }
+            // The face picker is a card over Accounts: the tab's toolbar is outside its click-catching layer, so leaving
+            // the tab must close it, or it would be open again over Accounts on the way back (Quire §5.55).
+            if tab != oldValue { showsFacePicker = false }
         }
     }
 
@@ -43,13 +46,18 @@ final class SettingsModel: ObservableObject {
     /// The window is open; set by its controller. A closed window keeps its model (and the status observation
     /// feeding it), so without this the clock would tick for rows nobody sees.
     var isWindowOpen = false {
-        didSet { if isWindowOpen != oldValue { updateRetryClock() } }
+        didSet {
+            if isWindowOpen != oldValue { updateRetryClock() }
+            // The model outlives the window: a card left open would show again, without focus, when Settings next opens.
+            if !isWindowOpen { showsFacePicker = false }
+        }
     }
     /// The selected account's id (`AccountID.rawValue`). Another account's selection closes the face picker: it was this one's.
     @Published var selection: String? {
         didSet { if selection != oldValue { showsFacePicker = false } }
     }
-    /// The selected account's face picker is open over Accounts (Quire §5.55).
+    /// The selected account's face picker is open over Accounts (Quire §5.55). Selecting another account, leaving the
+    /// Accounts tab and closing the window all close it.
     @Published var showsFacePicker = false
     /// A sign-in adding an account is waiting for the browser (the pending row).
     @Published var pendingSignIn: ProviderKind?

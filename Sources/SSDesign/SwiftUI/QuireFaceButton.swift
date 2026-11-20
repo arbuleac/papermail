@@ -7,8 +7,8 @@ import SwiftUI
 /// Hover and pressed darken the face only (`hover`, `pressed` over the disc): a wash under the ring would drop Jade's
 /// ring below 3:1 on `sheet` in Dark IC, so the spec forbids one there as on the account rows. Focused, the Quire focus
 /// ring goes round the account ring. It is always a Tab stop; Space and Return open the picker, as a click does.
-/// VoiceOver reads it as a button named `title` whose value is the account, never the face's own name: only the picker
-/// names faces.
+/// VoiceOver reads it as a pop-up button reads its choice: a button named `title` whose value is the face (“Fox”,
+/// “Monogram”), its hint naming the account the face is for.
 public struct QuireFaceButton: View {
     let face: QuireAccountFace
     let ink: Int
@@ -22,7 +22,7 @@ public struct QuireFaceButton: View {
 
     /// - Parameters:
     ///   - title: the button's accessibility label, the Settings row's label (“Face”).
-    ///   - accountName: what VoiceOver reads as its value.
+    ///   - accountName: the account, for VoiceOver's hint (“Choose a face for Demo Gmail”).
     ///   - isOpen: the picker is showing; the face then draws pressed.
     ///   - focus: an external focus binding, so the form can give focus back when the picker closes.
     public init(face: QuireAccountFace, ink: Int, title: String = "Face", accountName: String, isOpen: Bool = false,
@@ -55,8 +55,14 @@ public struct QuireFaceButton: View {
         }
         .quirePointer()
         .accessibilityLabel(title)
-        .accessibilityValue(accountName)
-        .accessibilityHint("Choose the account's face")
+        .accessibilityValue(QuireFacePicker.name(of: face))
+        .accessibilityHint(QuireFaceButton.hint(accountName: accountName))
+    }
+}
+
+extension QuireFaceButton {
+    static func hint(accountName: String) -> String {
+        "Choose a face for \(accountName)"
     }
 }
 

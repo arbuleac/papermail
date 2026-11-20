@@ -10,8 +10,8 @@ final class MetricDriftTests: XCTestCase {
     private let file = DesignTokensFile.shared
 
     func testEveryMetricIsCovered() {
-        // tokens.json had 853 leaves under layout, border and platform when this file was generated.
-        XCTAssertEqual(file.leafCount(under: ["layout", "border", "platform"]), 853, "regenerate with swift scripts/tools/quire-tokens.swift")
+        // tokens.json had 854 leaves under layout, border and platform when this file was generated.
+        XCTAssertEqual(file.leafCount(under: ["layout", "border", "platform"]), 854, "regenerate with swift scripts/tools/quire-tokens.swift")
     }
 
     func testLayoutWindow() {
@@ -928,8 +928,8 @@ final class MetricDriftTests: XCTestCase {
         number(Quire.Layout.PaperFaces.shadowReference, "layout.paperFaces.shadowReference")
         numbers(Quire.Layout.PaperFaces.shadowY.map { Double($0) }, "layout.paperFaces.shadowY")
         numbers(Quire.Layout.PaperFaces.shadowBlur.map { Double($0) }, "layout.paperFaces.shadowBlur")
-        number(Quire.Layout.PaperFaces.shadowAlphaLight, "layout.paperFaces.shadowAlphaLight")
-        number(Quire.Layout.PaperFaces.shadowAlphaDark, "layout.paperFaces.shadowAlphaDark")
+        string(Quire.Layout.PaperFaces.shadowLight, "layout.paperFaces.shadowLight")
+        string(Quire.Layout.PaperFaces.shadowDark, "layout.paperFaces.shadowDark")
         number(Quire.Layout.PaperFaces.pickerFace, "layout.paperFaces.pickerFace")
         number(Quire.Layout.PaperFaces.pickerCell, "layout.paperFaces.pickerCell")
         number(Quire.Layout.PaperFaces.pickerGap, "layout.paperFaces.pickerGap")
@@ -938,6 +938,7 @@ final class MetricDriftTests: XCTestCase {
         number(Quire.Layout.PaperFaces.pickerRadius, "layout.paperFaces.pickerRadius")
         number(Quire.Layout.PaperFaces.pickerOffset, "layout.paperFaces.pickerOffset")
         number(Quire.Layout.PaperFaces.pickerEdgeMin, "layout.paperFaces.pickerEdgeMin")
+        number(Quire.Layout.PaperFaces.tileGap, "layout.paperFaces.tileGap")
     }
 
     func testLayoutMenu() {

@@ -38,6 +38,9 @@ struct AccountsSettingsView: View {
                     .padding(.top, s.detailTop)
             }
         }
+        // While the card is open VoiceOver reaches only the card, as it would a popover's own window: the clear layer
+        // stops clicks on what lies under it, not VoiceOver.
+        .accessibilityHidden(model.showsFacePicker)
         .settingsTabContent()
         .overlayPreferenceValue(FaceButtonAnchorKey.self) { anchor in
             if model.showsFacePicker, let anchor, let account = model.selectedAccount {
@@ -64,7 +67,9 @@ struct AccountsSettingsView: View {
                                 model.setFace(AccountFaces.choice(face), account)
                                 closeFacePicker(refocus: true)
                             },
-                            onClose: { closeFacePicker(refocus: true) })
+                            onClose: { closeFacePicker(refocus: true) },
+                            // Focus went elsewhere on its own (VoiceOver, a click on another control): it stays there.
+                            onLeave: { closeFacePicker(refocus: false) })
                 // A card per account: its focus starts on that account's face, never where another's was left.
                 .id(account.id)
                 .offset(x: frame.minX, y: frame.minY)
@@ -155,7 +160,10 @@ struct AccountDetailForm: View {
                     let current = model.face(for: account)
                     QuireFaceButton(face: current.face, ink: account.inkSlot, accountName: AccountLabels.name(for: account),
                                     isOpen: model.showsFacePicker, focus: faceButtonFocus) {
-                        model.showsFacePicker.toggle()
+                        // Opens only: should the button's own key handling and Space or Return both fire for one press, a
+                        // toggle would open and close the card at once. While it is open, the card's clear layer takes a
+                        // click on the button and closes it.
+                        model.showsFacePicker = true
                     }
                     .anchorPreference(key: FaceButtonAnchorKey.self, value: .bounds) { $0 }
                     if account.face == .monogram {

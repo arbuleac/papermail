@@ -54,6 +54,10 @@ final class MessageListPerformanceTests: XCTestCase {
         // j/k again with Show account faces on: every row draws its account's paper face (Quire §5.55), from the cache.
         settings.showAccountFaces = true
         window.displayIfNeeded()
+        // The rows on screen carry a paper face to draw, so the steps below are timed with faces, not without.
+        let cells = list.tableView.subviews.flatMap(\.subviews).compactMap { $0 as? ConversationCellView }.filter { !$0.isHidden }
+        XCTAssertFalse(cells.isEmpty)
+        XCTAssertTrue(cells.allSatisfy { $0.mark.showsFace && $0.mark.paperFace != nil }, "every visible row draws its account's paper face")
         // The faces are drawn the first time a row shows them, in the warm-up steps; from then on every step reuses them.
         var rendersAfterWarmUp = 0
         var faceSteps: [Double] = []

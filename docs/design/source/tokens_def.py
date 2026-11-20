@@ -356,13 +356,15 @@ LAYOUT = {
               "themeCaptionLines": 2, "themeTileSpine": 8, "themeTilePaper": 18, "themeTilePip": 4, "themeTileLine": 1.5, "themeTileInset": 4},
  # Paper faces (§5.55). The art is drawn in an `artBox`-unit square (paper_faces.json). Each layer casts a shadow by its lift
  # (0 none, 1 a sheet laid on, 2 one stood off on a foam dot): `shadowY` down and `shadowBlur`, indexed by lift and given at
- # `shadowReference` pt, scale with the diameter; the shadow is black at `shadowAlphaLight` / `shadowAlphaDark`. The picker
+ # `shadowReference` pt, scale with the diameter; the shadow is `shadowLight` / `shadowDark` (#RRGGBBAA, black). The picker
  # card is a 7-column grid of `pickerCell` cells (the face, the chosen face's account ring outside it, the focus ring outside
  # that), `pickerOffset` off the face button's ring, below it or, without room, above, and `pickerEdgeMin` inside the tab.
+# In the list's account tile a face stays `row.accountTile` across and its edge (`row.accountTileBorder`) stands `tileGap` off
+# it, a gap of the row's own fill, so an ink never meets a ground of its own hue.
  "paperFaces": {"artBox": 100, "shadowReference": 30, "shadowY": [0, 0.6, 1.0], "shadowBlur": [0, 1.2, 2.0],
-               "shadowAlphaLight": 0.25, "shadowAlphaDark": 0.45,
+               "shadowLight": "#00000040", "shadowDark": "#00000073",
                "pickerFace": 48, "pickerCell": 62, "pickerGap": 4, "pickerPad": 12, "pickerColumns": 7, "pickerRadius": 8,
-               "pickerOffset": 6, "pickerEdgeMin": 8},
+               "pickerOffset": 6, "pickerEdgeMin": 8, "tileGap": 1},
  "menu": {"titleMenuOffsetY": 4},
  "iconSize": {"window": 15, "inText": 14, "row": 12, "rail": 18},
  "notification": {"bodyMaxChars": 120, "summaryThreshold": 3, "summaryWindowSeconds": 30},

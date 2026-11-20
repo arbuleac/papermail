@@ -143,6 +143,122 @@ final class FacePickerTests: XCTestCase {
         XCTAssertColor(rep.srgb(at: CGPoint(x: 20 + 4, y: 20 + 4)), raised, "the card is raised")
     }
 
+    /// The card's Increase Contrast outline follows the Quire override, as every Quire control does, not only the system's
+    /// setting, so an off-screen render asked for in Increase Contrast draws it.
+    func testTheCardsOutlineFollowsTheIncreaseContrastOverride() {
+        func edge(increaseContrast: Bool) -> RGBA {
+            QuireEnvironment.shared.setOverrides(.init(isGraphite: false, increaseContrast: increaseContrast, reduceMotion: false,
+                                                       reduceTransparency: false, theme: .study))
+            let view = QuireFacePicker(monogram: "C", ink: 0, chosen: .paper(.fox), onPick: { _ in }, onClose: {})
+                .padding(20)
+                .background(.qCanvas)
+            let host = SwiftUIHost(view)
+            defer { host.close() }
+            // The outline is 1 pt inside the card's edge, at mid height, clear of the rounded corners.
+            return host.render().srgb(at: CGPoint(x: 20 + 0.5, y: 20 + QuireFacePicker.size.height / 2))
+        }
+        XCTAssertColor(edge(increaseContrast: true), TokenResolver.resolve("ruleStrong", .lightHC), "the IC outline")
+        XCTAssertColor(edge(increaseContrast: false), TokenResolver.resolve("raised", .light), "no outline otherwise")
+    }
+
+    /// An arrow key moves the focus ring, not the selection, so VoiceOver is told the tile it reaches, by name and place;
+    /// a key at the grid's edge moves nothing and says nothing.
+    func testAnArrowKeyAnnouncesTheTileItReaches() throws {
+        var heard: [String] = []
+        let speak = QuireFacePicker.announce
+        QuireFacePicker.announce = { heard.append($0) }
+        defer { QuireFacePicker.announce = speak }
+        var closes = 0
+        let host = SwiftUIHost(QuireFacePicker(monogram: "C", ink: 0, chosen: .paper(.fox), onPick: { _ in }, onClose: { closes += 1 }))
+        defer { host.close() }
+        host.window.makeKey()
+        host.settle(0.2)
+        func send(_ characters: String, keyCode: UInt16, modifiers: NSEvent.ModifierFlags = []) {
+            for type in [NSEvent.EventType.keyDown, .keyUp] {
+                let event = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: modifiers, timestamp: 0, windowNumber: host.window.windowNumber,
+                                             context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false,
+                                             keyCode: keyCode)!
+                host.window.sendEvent(event)
+            }
+            host.settle()
+        }
+        func arrow(_ scalar: Int, _ keyCode: UInt16) {
+            send(String(UnicodeScalar(scalar)!), keyCode: keyCode, modifiers: [.function, .numericPad])
+        }
+        let faces = Quire.PaperFace.allCases
+        let fox = try XCTUnwrap(faces.firstIndex(of: .fox))
+        arrow(NSRightArrowFunctionKey, 124)
+        XCTAssertEqual(heard, ["\(faces[fox + 1].name), \(fox + 2) of 13"])
+        arrow(NSLeftArrowFunctionKey, 123)
+        XCTAssertEqual(heard.last, "Fox, \(fox + 1) of 13, selected", "the chosen tile says so")
+        arrow(NSUpArrowFunctionKey, 126)
+        XCTAssertEqual(heard.last, "\(faces[fox - 7].name), \(fox - 6) of 13")
+        let count = heard.count
+        arrow(NSUpArrowFunctionKey, 126)
+        XCTAssertEqual(heard.count, count, "the top row: nowhere to go, nothing said")
+        XCTAssertEqual(closes, 0)
+    }
+
+    /// Tab and Shift-Tab stay in the card, as in a popover's window, even with a field beside it that Tab would reach.
+    /// With Full Keyboard Access off, as on a Mac whose settings a test must not change, SwiftUI keeps Tab on the grid
+    /// anyway; the card's Tab handler is what holds it there with Full Keyboard Access on, and focus leaving regardless
+    /// closes the card (`testFocusLeavingTheCardClosesIt`).
+    func testTabStaysInTheCard() throws {
+        var heard: [String] = []
+        let speak = QuireFacePicker.announce
+        QuireFacePicker.announce = { heard.append($0) }
+        defer { QuireFacePicker.announce = speak }
+        var leaves = 0
+        let view = VStack {
+            TextField("Signature", text: .constant(""))
+            QuireFacePicker(monogram: "C", ink: 0, chosen: .paper(.fox), onPick: { _ in }, onClose: { leaves += 1 }, onLeave: { leaves += 1 })
+        }
+        let host = SwiftUIHost(view)
+        defer { host.close() }
+        host.window.makeKey()
+        host.settle(0.3)
+        func send(_ characters: String, keyCode: UInt16, modifiers: NSEvent.ModifierFlags = []) {
+            for type in [NSEvent.EventType.keyDown, .keyUp] {
+                let event = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: modifiers, timestamp: 0, windowNumber: host.window.windowNumber,
+                                             context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false,
+                                             keyCode: keyCode)!
+                host.window.sendEvent(event)
+            }
+            host.settle()
+        }
+        send("\t", keyCode: 48)
+        send("\u{19}", keyCode: 48, modifiers: .shift)
+        XCTAssertEqual(leaves, 0, "focus never left the card")
+        XCTAssertFalse(host.window.firstResponder is NSText, "the field beside it did not take focus")
+        send(String(UnicodeScalar(NSRightArrowFunctionKey)!), keyCode: 124, modifiers: [.function, .numericPad])
+        XCTAssertEqual(heard.count, 1, "the grid still has the keys")
+    }
+
+    /// Focus leaving the card without Esc or a pick (VoiceOver, another control) closes it through `onLeave`, so nothing
+    /// keeps focus under a card that covers it.
+    func testFocusLeavingTheCardClosesIt() {
+        var closes = 0, leaves = 0
+        let host = SwiftUIHost(QuireFacePicker(monogram: "C", ink: 0, chosen: .paper(.fox), onPick: { _ in }, onClose: { closes += 1 },
+                                               onLeave: { leaves += 1 }))
+        defer { host.close() }
+        host.window.makeKey()
+        host.settle(0.2)
+        XCTAssertEqual(leaves, 0, "taking focus as it opens is not leaving")
+        host.window.makeFirstResponder(nil)
+        host.settle()
+        XCTAssertEqual(leaves, 1)
+        XCTAssertEqual(closes, 0, "not Esc: the caller leaves focus where it went")
+    }
+
+    // MARK: The face button
+
+    /// VoiceOver reads the face button as a pop-up button reads its choice: “Face, Fox, button”, the hint naming the account.
+    func testTheFaceButtonReadsItsFace() {
+        XCTAssertEqual(QuireFacePicker.name(of: .paper(.fox)), "Fox")
+        XCTAssertEqual(QuireFacePicker.name(of: .monogram("Dg")), "Monogram")
+        XCTAssertEqual(QuireFaceButton.hint(accountName: "Demo Gmail"), "Choose a face for Demo Gmail")
+    }
+
     /// Picking the chosen tile changes nothing; another tile is picked.
     func testPickingTheChosenTileOnlyCloses() {
         var picked: [QuireAccountFace] = []

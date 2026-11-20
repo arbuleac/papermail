@@ -943,9 +943,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
     private var titleMenuModel: TitleMenu.Model {
         let faces = AccountFaces.faces(for: accounts)
+        let monograms = AccountLabels.monograms(for: accounts)
         return TitleMenu.Model(
             view: mailboxView, inboxUnread: inboxUnread, scope: scope, showsAccounts: isMinimal, unifiedUnread: unifiedUnread,
-            accounts: accounts.map { TitleMenu.AccountEntry(account: $0, face: faces[$0.id] ?? .monogram("?"), unread: unreadByAccount[$0.id] ?? 0) },
+            accounts: accounts.map {
+                TitleMenu.AccountEntry(account: $0, face: faces[$0.id] ?? .monogram("?"), monogram: monograms[$0.id] ?? "?",
+                                       unread: unreadByAccount[$0.id] ?? 0)
+            },
             showsLater: showsLater, showsOutbox: showsOutbox
         )
     }
