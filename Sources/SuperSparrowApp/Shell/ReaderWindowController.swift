@@ -83,11 +83,19 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
         conversation.onAction = { [weak self, weak opener] action in
             if let self {
                 self.handle(action)
-            } else if case .attachmentsSaved = action {
+            } else {
                 // The window closed, and this controller went with it, while a download started from it went on (its
-                // task holds the reader): the saved toast, Show in Finder or Couldn't save, shows in the main window.
-                opener?.handle(action)
+                // task holds the reader), or a file dragged out of it was still being fetched: the saved toast, Show in
+                // Finder or Couldn't save, or the drag's Couldn't download, shows in the main window.
+                switch action {
+                case .attachmentsSaved, .attachmentDragFailed: opener?.handle(action)
+                default: break
+                }
             }
+        }
+        // A file dragged out whose promise ends after the reader itself is gone: the main window says it failed.
+        conversation.attachmentDrags.onOrphanedFailure = { [weak opener] failure, filename in
+            opener?.handle(.attachmentDragFailed(failure, filename: filename))
         }
         conversation.onQuickSendChange = { UndoSendPanel.refreshUndoKeyOwner() }
         conversation.messageMenu = { [weak self] in self?.contextMenu() }

@@ -51,6 +51,9 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     /// What the bottom bar's status says now (the app's tests read it).
     var status: ComposeStatus? { statusBoard.current }
 
+    /// Send was pressed and the message is not yet handed over: the button shows it is sending (the app's tests read it).
+    var sendIsStarting: Bool { isSending }
+
     /// The message this composer replies to (not a forward): the reader disables its quick reply while one
     /// of its conversation's messages has a reply open here (§5.18).
     var repliesTo: MessageID? {
@@ -122,10 +125,11 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     /// draft opens with what was written; one already open comes forward.
     ///
     /// `body` is text already written for it (the quick reply's, §5.18): it opens in the editor with the caret
-    /// at its end, below anything a kept draft held. With `attach`, the Attach Files panel follows at once.
+    /// at its end, below anything a kept draft held. With `attach`, the Attach Files panel follows at once; `dropped` is
+    /// what was dropped on the quick reply, attached as a drop on this window would attach it.
     @discardableResult
     static func present(client: MailClient, account: Account, accounts: [Account], mode: ComposeMode, body: String = "",
-                        attach: Bool = false) -> ComposeWindowController {
+                        attach: Bool = false, dropped: [AttachmentDropItem] = []) -> ComposeWindowController {
         let typed = body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : body
         let controller: ComposeWindowController
         var caret: Int?
@@ -154,6 +158,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
             controller.textView.setSelectedRange(NSRange(location: caret ?? (controller.textView.string as NSString).length, length: 0))
             controller.draftChanged(body: true)
         }
+        if !dropped.isEmpty { controller.attachDropped(dropped) }
         if attach { controller.attachFile(nil) }
         if let started { Analytics.send(.composeStarted(started, .app, Analytics.trigger)) }
         return controller
@@ -302,7 +307,9 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
 
     private func buildContent(in window: NSWindow) {
         window.contentView = content
-        content.onDropFiles = { [weak self] urls in self?.addAttachments(from: urls) }
+        content.onDrop = { [weak self] items in self?.attachDropped(items) }
+        // A drop while the message is being handed over, or the window is going, would be thrown away: none is offered.
+        content.acceptsDrops = { [weak self] in self.map { !$0.isSending && !$0.closesWithoutSaving } ?? false }
         content.onCommand = { [weak self] command in self?.perform(command) }
         content.rows = [fromRow, toRow, ccRow, bccRow, subjectRow]
         fromRow.isHidden = accounts.count < 2
@@ -380,6 +387,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         textView.onLinkRequest = { [weak self] _ in self?.showLinkPopover() }
         // Files pasted or dropped on the text that are not all pictures attach, as files dropped anywhere else do.
         textView.onAttachFiles = { [weak self] urls in self?.addAttachments(from: urls) }
+        textView.onAttachFromMail = { [weak self] items in self?.attachDropped(items) }
         // The autosave before a picture was ready left it out; the next one takes it in.
         textView.onPictureReady = { [weak self] in self?.scheduleAutosave() }
         quoteView.onHeightChange = { [weak self] in self?.bodyDocument.needsLayout = true }
@@ -1016,6 +1024,107 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         }
     }
 
+    /// What a drop on the window brings (§5.20), or the quick reply's (§5.18): files as Attach Files… attaches them, and
+    /// attachments dragged from a message (§5.17) as chips that load until their bytes are in. The user's change to the
+    /// draft either way.
+    func attachDropped(_ items: [AttachmentDropItem]) {
+        guard !isSending else { return }
+        var urls: [URL] = []
+        var references: [MailAttachmentReference] = []
+        for item in items {
+            switch item {
+            case .file(let url): urls.append(url)
+            case .mail(let reference): references.append(reference)
+            }
+        }
+        let attachedFiles = !urls.isEmpty && attach(urls)
+        let resolved = references.compactMap(resolve)
+        for reference in resolved { attachFromMail(reference) }
+        if resolved.count < references.count { statusBoard.post(.droppedAttachmentsGone(count: references.count - resolved.count)) }
+        if attachedFiles || !resolved.isEmpty { draftChanged(body: false) }
+    }
+
+    /// The app's own attachment as the store lists it: any app can write the type to a pasteboard, so the message and
+    /// file a reference names are only taken when a stored message lists that file, and the name, type and size are the
+    /// store's, never the pasteboard's. Nil when no stored message lists it (deleted meanwhile, or never the app's).
+    private func resolve(_ reference: MailAttachmentReference) -> MailAttachmentReference? {
+        let listed = (try? client.store.attachments(of: reference.message)) ?? nil
+        guard let info = listed?.first(where: { $0.id == reference.info.id && !$0.isInline }) else { return nil }
+        return MailAttachmentReference(message: reference.message, info: info)
+    }
+
+    /// Fetches of attachments dragged from a message, by chip: Send waits for them.
+    private var mailFetches: [UUID: Task<Void, Never>] = [:]
+    /// A Send or Send Later waiting for those fetches (§5.20): it goes once the last file is in.
+    private var sendAfterDrops: (() -> Void)?
+
+    /// An attachment dragged from a message (§5.17): its chip joins the strip at once, loading, and is ready once the engine
+    /// hands over the bytes (this Mac's copy, or a download, as the reader's Download fetches it). One that cannot be
+    /// fetched leaves the strip again and the status says so; one the user removed meanwhile is forgotten.
+    private func attachFromMail(_ reference: MailAttachmentReference) {
+        let placeholder = ComposeAttachment.loading(info: reference.info, contentID: nil)
+        attachments.append(placeholder)
+        let client = client
+        mailFetches[placeholder.id] = Task { [weak self] in
+            var bytes: Data?
+            do {
+                bytes = try await client.attachmentData(for: reference.message, attachmentID: reference.info.id,
+                                                        expectedSize: reference.info.sizeBytes, progress: nil)
+            } catch {
+                let failure = error as NSError
+                Self.logger.error("Compose could not fetch a dropped attachment: \(failure.domain, privacy: .public) \(failure.code, privacy: .public)")
+            }
+            // Removed meanwhile (its entry went with its chip), or the window closed: nothing more to do.
+            guard let self, self.mailFetches.removeValue(forKey: placeholder.id) != nil else { return }
+            guard let bytes else {
+                self.attachments.removeAll { $0.id == placeholder.id }
+                if !self.content.strip.hasChips, self.window?.firstResponder === self.content.strip { self.window?.makeFirstResponder(self.textView) }
+                self.statusBoard.post(.droppedAttachmentFailed(name: reference.filename))
+                self.dropFetchEnded(failed: true)
+                return
+            }
+            self.replaceAttachment(placeholder.id) { attachment in
+                attachment.source = .data(bytes)
+                attachment.sizeBytes = bytes.count
+                attachment.state = .ready
+            }
+            self.draftChanged(body: false)
+            self.dropFetchEnded(failed: false)
+        }
+    }
+
+    /// Send and Send Later wait for attachments dragged from a message that are still arriving (§5.20). The button shows
+    /// it is sending and the fields hold still, so the message that goes is the one checked; the window still closes
+    /// (keeping the draft), Esc stops the wait, and a loading chip can be removed, which lets the send go without it. One
+    /// that could not be fetched stops the send, its status saying which, so nothing leaves without a file the user added.
+    /// `proceed` runs at once when none is arriving; asked again while waiting, the latest action is the one that runs.
+    private func afterDroppedAttachments(_ proceed: @escaping () -> Void) {
+        guard !mailFetches.isEmpty else { return proceed() }
+        sendAfterDrops = proceed
+        setHeld(true)
+    }
+
+    /// One dropped attachment's fetch ended, or its chip was removed: a waiting send stops at a failure and goes once
+    /// nothing is left to arrive.
+    private func dropFetchEnded(failed: Bool) {
+        guard let proceed = sendAfterDrops else { return }
+        if failed {
+            stopWaitingToSend()
+            NSSound.beep()
+        } else if mailFetches.isEmpty {
+            stopWaitingToSend()
+            proceed()
+        }
+    }
+
+    private func stopWaitingToSend() {
+        sendAfterDrops = nil
+        setHeld(false)
+    }
+
+    /// Send waits for dropped attachments (the app's tests read it).
+    var isWaitingToSend: Bool { sendAfterDrops != nil }
+
     /// Attaches the readable files as the user's change to the draft.
     private func addAttachments(from urls: [URL]) {
         guard !isSending else { return }
@@ -1062,6 +1171,11 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     private func removeAttachment(id: UUID) {
         guard !isSending else { return }
         attachments.removeAll { $0.id == id }
+        // A file still arriving from a message is not waited for any longer: a send waiting on it may go.
+        if let fetch = mailFetches.removeValue(forKey: id) {
+            fetch.cancel()
+            dropFetchEnded(failed: false)
+        }
         draftChanged(body: false)
         if !content.strip.hasChips, window?.firstResponder === content.strip { window?.makeFirstResponder(textView) }
     }
@@ -1166,6 +1280,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     /// the Drafts row stands in for: opening the row brings it back as written. The window closes and the main window
     /// says when it sends, with Undo. The draft is kept before the send is queued, so a send never waits without one.
     private func performSchedule(at date: Date) {
+        guard mailFetches.isEmpty else { return afterDroppedAttachments { [weak self] in self?.performSchedule(at: date) } }
         autosaveTimer?.invalidate()
         var current = currentDraft()
         current.sendFailure = nil
@@ -1252,6 +1367,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     }
 
     private func performSend(_ action: SendAction) {
+        guard mailFetches.isEmpty else { return afterDroppedAttachments { [weak self] in self?.performSend(action) } }
         autosaveTimer?.invalidate()
         let draft = currentDraft()
         let normalized = ComposeBodyNormalizer.normalize(draft.body)
@@ -1325,11 +1441,18 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     private func setSending(_ sending: Bool) {
         isSending = sending
         if sending { sendFailure = nil }
-        bar.sendButton.isLoading = sending
-        bar.sendOptionsButton.isEnabled = !sending
-        for field in [toField, ccField, bccField] { field.isLocked = sending }
-        subjectField.isEditable = !sending
-        textView.isEditable = !sending
+        setHeld(sending)
+    }
+
+    /// The button shows the send under way and the fields hold still: while the message is handed over, and while a send
+    /// waits for dropped attachments (`afterDroppedAttachments`).
+    private func setHeld(_ held: Bool) {
+        let held = held || isSending || sendAfterDrops != nil
+        bar.sendButton.isLoading = held
+        bar.sendOptionsButton.isEnabled = !held
+        for field in [toField, ccField, bccField] { field.isLocked = held }
+        subjectField.isEditable = !held
+        textView.isEditable = !held
         updateSendEnabled()
     }
 
@@ -1343,7 +1466,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         let action = sendAction
         button.toolTip = readiness.isEnabled ? action.tooltip : readiness.tooltip
         // While sending, the button's own “Sending…” is its name.
-        button.setAccessibilityLabel(isSending ? nil : action.title)
+        button.setAccessibilityLabel(button.isLoading ? nil : action.title)
         button.isEnabled = isSending || (!isPrefilling && readiness.isEnabled)
     }
 
@@ -1381,6 +1504,8 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     /// holding the user's work stays open, since Esc must never throw work away. Every field and the window call it,
     /// so it answers wherever the keyboard is.
     @objc func escapeComposer(_ sender: Any?) {
+        // A send waiting for dropped attachments is stopped first; the message stays as written.
+        if sendAfterDrops != nil { return stopWaitingToSend() }
         guard !isSending, !isWorthKeeping, !isTypingAnAddress else { return }
         window?.performClose(nil)
     }
@@ -1422,6 +1547,13 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
 
     // MARK: NSWindowDelegate
 
+    /// To, Cc, Bcc and Subject edit in a field editor that hands dragged files and attachments to the window (§5.20).
+    private lazy var fieldEditor = ComposeFieldEditor.make()
+
+    func windowWillReturnFieldEditor(_ sender: NSWindow, to client: Any?) -> Any? {
+        client is NSTextField ? fieldEditor : nil
+    }
+
     /// Closing never asks (§5.20): content worth keeping is saved before the window goes, nothing is kept
     /// otherwise. While a send is starting the window stays; the undo panel replaces it at once.
     func windowShouldClose(_ sender: NSWindow) -> Bool {
@@ -1458,6 +1590,9 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
 
     func windowWillClose(_ notification: Notification) {
         prefillTask?.cancel()
+        for fetch in mailFetches.values { fetch.cancel() }
+        mailFetches = [:]
+        sendAfterDrops = nil
         autosaveTimer?.invalidate()
         statusObservation?.cancel()
         for field in [toField, ccField, bccField] { field.closeAutocomplete() }

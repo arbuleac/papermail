@@ -10,8 +10,8 @@ final class MetricDriftTests: XCTestCase {
     private let file = DesignTokensFile.shared
 
     func testEveryMetricIsCovered() {
-        // tokens.json had 854 leaves under layout, border and platform when this file was generated.
-        XCTAssertEqual(file.leafCount(under: ["layout", "border", "platform"]), 854, "regenerate with swift scripts/tools/quire-tokens.swift")
+        // tokens.json had 870 leaves under layout, border and platform when this file was generated.
+        XCTAssertEqual(file.leafCount(under: ["layout", "border", "platform"]), 870, "regenerate with swift scripts/tools/quire-tokens.swift")
     }
 
     func testLayoutWindow() {
@@ -503,6 +503,22 @@ final class MetricDriftTests: XCTestCase {
         number(Quire.Layout.AttachmentChip.downloadRadius, "layout.attachmentChip.downloadRadius")
         number(Quire.Layout.AttachmentChip.head, "layout.attachmentChip.head")
         number(Quire.Layout.AttachmentChip.headGap, "layout.attachmentChip.headGap")
+        number(Quire.Layout.AttachmentChip.draggingOpacity, "layout.attachmentChip.draggingOpacity")
+    }
+
+    func testLayoutDragCard() {
+        number(Quire.Layout.DragCard.height, "layout.dragCard.height")
+        number(Quire.Layout.DragCard.minWidth, "layout.dragCard.minWidth")
+        number(Quire.Layout.DragCard.maxWidth, "layout.dragCard.maxWidth")
+        number(Quire.Layout.DragCard.radius, "layout.dragCard.radius")
+        number(Quire.Layout.DragCard.padLeft, "layout.dragCard.padLeft")
+        number(Quire.Layout.DragCard.padRight, "layout.dragCard.padRight")
+        number(Quire.Layout.DragCard.icon, "layout.dragCard.icon")
+        number(Quire.Layout.DragCard.gap, "layout.dragCard.gap")
+        number(Quire.Layout.DragCard.shadowMarginX, "layout.dragCard.shadowMarginX")
+        number(Quire.Layout.DragCard.shadowMarginTop, "layout.dragCard.shadowMarginTop")
+        number(Quire.Layout.DragCard.shadowMarginBottom, "layout.dragCard.shadowMarginBottom")
+        number(Quire.Layout.DragCard.threshold, "layout.dragCard.threshold")
     }
 
     func testLayoutQuickReply() {
@@ -542,11 +558,14 @@ final class MetricDriftTests: XCTestCase {
         number(Quire.Layout.QuickReply.stripGap, "layout.quickReply.stripGap")
         number(Quire.Layout.QuickReply.stripKeycapGap, "layout.quickReply.stripKeycapGap")
         number(Quire.Layout.QuickReply.modeUnderlineY, "layout.quickReply.modeUnderlineY")
+        number(Quire.Layout.QuickReply.dropInset, "layout.quickReply.dropInset")
     }
 
     func testLayoutComposer() {
         number(Quire.Layout.Composer.dropOutline, "layout.composer.dropOutline")
         number(Quire.Layout.Composer.dropInset, "layout.composer.dropInset")
+        numbers(Quire.Layout.Composer.dropDash.map { Double($0) }, "layout.composer.dropDash")
+        number(Quire.Layout.Composer.dropVeil, "layout.composer.dropVeil")
         number(Quire.Layout.Composer.stripGlyph, "layout.composer.stripGlyph")
         number(Quire.Layout.Composer.removeGlyph, "layout.composer.removeGlyph")
         number(Quire.Layout.Composer.width, "layout.composer.width")

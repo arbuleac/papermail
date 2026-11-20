@@ -55,6 +55,10 @@ final class ComposeTextView: NSTextView {
     /// attaches them, as it does files dropped anywhere else in its window (§5.20).
     var onAttachFiles: (([URL]) -> Void)?
 
+    /// Attachments copied from a message (the chip menu's Copy, §5.17), pasted on the text: the composer attaches them as it
+    /// attaches them dropped, never from the reader's session copy, which goes when the reader does.
+    var onAttachFromMail: (([AttachmentDropItem]) -> Void)?
+
     /// A picture prepared off the main thread is in (`ComposeImageAttachment`): the composer saves its draft again, since
     /// the save before left the picture out.
     var onPictureReady: (() -> Void)?
@@ -391,6 +395,10 @@ final class ComposeTextView: NSTextView {
     var pasteboard: NSPasteboard = .general
 
     override func paste(_ sender: Any?) {
+        if allowsImages, let onAttachFromMail, AttachmentPasteboard.carriesReference(pasteboard) {
+            onAttachFromMail(AttachmentPasteboard.dropItems(on: pasteboard))
+            return
+        }
         if allowsImages, readPicturesOrFiles(from: pasteboard, actionName: "Paste") { return }
         let start = selectedRange().location
         pasteAsPlainText(sender)

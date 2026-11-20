@@ -473,6 +473,21 @@ extension Quire {
             public static let downloadRadius: CGFloat = 5
             public static let head: CGFloat = 24
             public static let headGap: CGFloat = 8
+            public static let draggingOpacity: CGFloat = 0.45
+        }
+        public enum DragCard {
+            public static let height: CGFloat = 44
+            public static let minWidth: CGFloat = 196
+            public static let maxWidth: CGFloat = 264
+            public static let radius: CGFloat = 8
+            public static let padLeft: CGFloat = 8
+            public static let padRight: CGFloat = 12
+            public static let icon: CGFloat = 32
+            public static let gap: CGFloat = 10
+            public static let shadowMarginX: CGFloat = 24
+            public static let shadowMarginTop: CGFloat = 16
+            public static let shadowMarginBottom: CGFloat = 32
+            public static let threshold: CGFloat = 3
         }
         public enum QuickReply {
             public static let rest: CGFloat = 60
@@ -511,10 +526,13 @@ extension Quire {
             public static let stripGap: CGFloat = 8
             public static let stripKeycapGap: CGFloat = 8
             public static let modeUnderlineY: CGFloat = 24
+            public static let dropInset: CGFloat = 0
         }
         public enum Composer {
             public static let dropOutline: CGFloat = 2
             public static let dropInset: CGFloat = 8
+            public static let dropDash: [CGFloat] = [6, 4]
+            public static let dropVeil: CGFloat = 0.9
             public static let stripGlyph: CGFloat = 14
             public static let removeGlyph: CGFloat = 9
             public static let width: CGFloat = 640

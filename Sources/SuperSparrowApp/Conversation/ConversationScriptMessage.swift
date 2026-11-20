@@ -10,6 +10,24 @@ enum ConversationScriptMessage: Equatable {
         let address: HeaderAddress
     }
 
+    /// A primary press on an attachment chip, or on Download all: the files a drag from here would carry and where their
+    /// chips are, in the page's coordinates (spec §5.17). The app starts the drag once the pointer moves past the drag
+    /// threshold; the page itself never does.
+    struct AttachmentPress: Equatable {
+        struct Item: Equatable {
+            let attachmentID: String
+            let rect: CGRect
+        }
+
+        let messageID: MessageID
+        let items: [Item]
+        /// Where the press was.
+        let point: CGPoint
+
+        /// The most files one press may carry: a message lists far fewer, and anything past it is not the shell's.
+        static let maxItems = 200
+    }
+
     case ready
     /// A button in a sheet. `on` is the state a toggle asks for (star); `point` is where a menu opens (More),
     /// in the web view's coordinates; `value` is what the button names (an invitation's answer, a link).
@@ -33,6 +51,7 @@ enum ConversationScriptMessage: Equatable {
     case motion
     /// Find in conversation reported its count and current match (spec §5.50).
     case find(ConversationFind.Result)
+    case attachmentPress(AttachmentPress)
 
     init?(body: Any) {
         guard let dictionary = body as? [String: Any], let kind = dictionary["kind"] as? String else { return nil }
@@ -77,8 +96,24 @@ enum ConversationScriptMessage: Equatable {
         case "find":
             guard let result = ConversationFind.Result(body: dictionary) else { return nil }
             self = .find(result)
+        case "attachmentPress":
+            guard let messageID, let point = Self.point(dictionary["x"], dictionary["y"]),
+                  let list = dictionary["items"] as? [[String: Any]], !list.isEmpty, list.count <= AttachmentPress.maxItems else { return nil }
+            var items: [AttachmentPress.Item] = []
+            for entry in list {
+                guard let id = entry["attachmentID"] as? String, !id.isEmpty, let origin = Self.point(entry["x"], entry["y"]),
+                      let size = Self.point(entry["width"], entry["height"]), size.x >= 0, size.y >= 0 else { return nil }
+                items.append(AttachmentPress.Item(attachmentID: id, rect: CGRect(origin: origin, size: CGSize(width: size.x, height: size.y))))
+            }
+            self = .attachmentPress(AttachmentPress(messageID: messageID, items: items, point: point))
         default:
             return nil
         }
+    }
+
+    /// Two finite numbers as a point; nil for anything else.
+    private static func point(_ x: Any?, _ y: Any?) -> CGPoint? {
+        guard let x = (x as? NSNumber)?.doubleValue, let y = (y as? NSNumber)?.doubleValue, x.isFinite, y.isFinite else { return nil }
+        return CGPoint(x: x, y: y)
     }
 }

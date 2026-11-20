@@ -47,6 +47,8 @@ final class QuickReplyStripView: NSView, QuirePointerTarget {
         }
         detail.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         glyph.imageScaling = .scaleNone
+        // A glyph, not a well: an image view registers for files and pictures even when it cannot be edited.
+        glyph.unregisterDraggedTypes()
         addSubview(glyph)
         undo.keycap = "⌘Z"
         undo.keycapLeads = true

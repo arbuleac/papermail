@@ -7,8 +7,8 @@ import SSDesign
 /// and the bottom bar, laid out by hand to the token metrics.
 ///
 /// Files dropped anywhere on the window become attachments, except pictures dropped on the body's text, which go into
-/// it (`ComposeTextView`, §5.20 Images in the body); while a file drag that will attach hovers, the body shows the drop
-/// outline. The composer's window-wide shortcuts (⌘↩, ⇧⌘↩, ⇧⌘A, ⇧⌘T, ⇧⌘C, ⇧⌘B) are answered here, before the
+/// it (`ComposeTextView`, §5.20 Images in the body); so do attachments dragged from a message in any reader (§5.17),
+/// whatever their type. While a drag that will attach hovers, the body shows the drop outline. The composer's window-wide shortcuts (⌘↩, ⇧⌘↩, ⇧⌘A, ⇧⌘T, ⇧⌘C, ⇧⌘B) are answered here, before the
 /// menus, so they work from every field.
 @MainActor
 final class ComposeContentView: NSView {
@@ -17,7 +17,10 @@ final class ComposeContentView: NSView {
         case send, sendAndArchive, attach, toggleFormatRow, addCc, addBcc
     }
 
-    var onDropFiles: (([URL]) -> Void)?
+    /// Files, or the app's own attachments, dropped to attach.
+    var onDrop: (([AttachmentDropItem]) -> Void)?
+    /// False while a drop would be thrown away (the message is being handed over, the window is going): nothing lights up.
+    var acceptsDrops: () -> Bool = { true }
     var onCommand: ((Command) -> Void)?
 
     var rows: [ComposeFieldRow] = [] {
@@ -37,17 +40,27 @@ final class ComposeContentView: NSView {
         didSet { if oldValue != showsFormatRow { needsLayout = true } }
     }
 
-    private let dropOutline = DropOutlineView()
+    /// The body's text stays, veiled, under the words, which keep clear of the dragged card.
+    private let dropOutline = AttachmentDropOverlay(label: "Drop to attach", inset: Quire.Layout.Composer.dropInset, radius: Quire.Radius.lg,
+                                                    fill: .qSheet, fillAlpha: Quire.Layout.Composer.dropVeil)
+
+    /// The drop outline shows (the app's tests read it, and its renders set it).
+    var showsDropOutline: Bool {
+        get { !dropOutline.isHidden }
+        set { dropOutline.isHidden = !newValue }
+    }
+
+    /// The drop treatment, for the app's tests and renders: where its words are.
+    var dropOverlay: AttachmentDropOverlay { dropOutline }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        registerForDraggedTypes([.fileURL])
+        registerForDraggedTypes(AttachmentPasteboard.dropTypes)
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
         scrollView.drawsBackground = true
         scrollView.backgroundColor = .qSheet
-        dropOutline.isHidden = true
         for view in [scrollView, strip, formatRow, bottomBar, dropOutline] as [NSView] {
             addSubview(view)
         }
@@ -137,63 +150,30 @@ final class ComposeContentView: NSView {
     // MARK: Dragging destination
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        guard !fileURLs(in: sender).isEmpty else { return [] }
-        dropOutline.isHidden = false
+        guard acceptsDrops(), !AttachmentPasteboard.dropItems(for: sender).isEmpty else { return [] }
+        dropOutline.show(for: sender)
         return .copy
     }
 
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        dropOutline.isHidden ? [] : .copy
+        guard !dropOutline.isHidden else { return [] }
+        dropOutline.show(for: sender)
+        return .copy
     }
 
     override func draggingExited(_ sender: NSDraggingInfo?) {
-        dropOutline.isHidden = true
+        dropOutline.show(for: nil)
     }
 
     override func draggingEnded(_ sender: NSDraggingInfo) {
-        dropOutline.isHidden = true
+        dropOutline.show(for: nil)
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        dropOutline.isHidden = true
-        let urls = fileURLs(in: sender)
-        guard !urls.isEmpty else { return false }
-        onDropFiles?(urls)
+        dropOutline.show(for: nil)
+        let items = AttachmentPasteboard.dropItems(for: sender)
+        guard acceptsDrops(), !items.isEmpty else { return false }
+        onDrop?(items)
         return true
-    }
-
-    private func fileURLs(in info: NSDraggingInfo) -> [URL] {
-        let objects = info.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) ?? []
-        return objects.compactMap { $0 as? URL }
-    }
-}
-
-/// The drop target over the body (§5.20, Dragging files over): a 2 pt dashed `focus` outline inset 8 pt, radius
-/// `r.lg`, with “Drop to attach” in `label` `accent` centred in it. Transparent to clicks and drags.
-@MainActor
-private final class DropOutlineView: NSView {
-    override var isFlipped: Bool { true }
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-
-    override func draw(_ dirtyRect: NSRect) {
-        let c = Quire.Layout.Composer.self
-        let width = c.dropOutline
-        let outline = bounds.insetBy(dx: c.dropInset + width / 2, dy: c.dropInset + width / 2)
-        let radius = Quire.Radius.lg
-        let path = NSBezierPath(roundedRect: outline, xRadius: radius, yRadius: radius)
-        path.lineWidth = width
-        path.setLineDash([6, 4], count: 2, phase: 0)
-        NSColor.qFocus.setStroke()
-        path.stroke()
-        let role = QuireFont.Role.label
-        let label = QuireFont.attributedString("Drop to attach", role: role, color: .qAccent)
-        let size = label.size()
-        label.draw(with: NSRect(x: (bounds.midX - size.width / 2).rounded(), y: (bounds.midY - role.lineHeight / 2).rounded(),
-                                width: ceil(size.width) + 1, height: role.lineHeight), options: QuireFont.drawingOptions, context: nil)
-    }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        needsDisplay = true
     }
 }
