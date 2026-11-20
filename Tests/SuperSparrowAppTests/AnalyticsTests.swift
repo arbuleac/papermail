@@ -164,12 +164,15 @@ final class AnalyticsTests: XCTestCase {
         }
         signals += S.InvitationAnswer.allCases.map(S.invitationAnswered)
         for provider in S.Provider.allCases { signals += [.accountAdded(provider), .accountRemoved(provider)] }
+        for writer in S.Writer.allCases {
+            for ending in S.WriteEnding.allCases { signals.append(.helpMeWriteUsed(writer, ending)) }
+        }
         return signals
     }
 
     func testTheSamplesCoverEveryNameInTheCatalog() {
         XCTAssertEqual(Set(Self.everySignal.map(\.name)), Set(AnalyticsSignal.Name.allCases))
-        XCTAssertEqual(AnalyticsSignal.Name.allCases.count, 23, "the catalog the doc lists")
+        XCTAssertEqual(AnalyticsSignal.Name.allCases.count, 24, "the catalog the doc lists")
     }
 
     /// (a) Every parameter of every signal, `mode` included, is a key of the vocabulary and takes one of its values.
@@ -216,6 +219,40 @@ final class AnalyticsTests: XCTestCase {
             XCTAssertTrue(doc.contains("`\(key)`"), "the doc names \(key)")
             for value in values { XCTAssertTrue(doc.contains("`\(value)`"), "the doc lists \(key)=\(value)") }
         }
+    }
+
+    /// Help me write's kinds and endings are the writer's own: every provider kind and every milestone but the start.
+    func testHelpMeWritesValuesAreTheWritersOwn() {
+        XCTAssertEqual(AIProviderKind.allCases.map { AnalyticsSignal.Writer($0).rawValue }, AIProviderKind.allCases.map(\.rawValue))
+        XCTAssertEqual(AIWriteMilestone.allCases.compactMap { AnalyticsSignal.WriteEnding($0)?.rawValue }, ["finished", "failed", "stopped"])
+    }
+
+    /// Help me write counts a write once, as it ends: the kind of provider and how it ended, never the instruction, the
+    /// conversation or a word of the reply.
+    func testAHelpMeWriteIsCountedAsItEndsWithItsProviderKindOnly() throws {
+        try startAnalytics()
+        let script = DemoAIScript()
+        script.delay = .zero
+        script.reply = "Thursday works for me."
+        let center = HelpMeWrite(keys: InMemoryAIKeyStore(), isDemo: true, demoScript: script) { _ in DemoAIProvider(script: script) }
+        let request = AIWriteRequest(instructions: "Write the reply.", transcript: "Lunch in Lisbon on Thursday?", task: "Say yes")
+        func write() {
+            let stream = center.writer.write(request, using: AIProviderConfiguration(kind: .demo), in: AIFieldID(name: "analytics"))
+            Task {
+                // A failed write ends its stream with the error, which the test reads from the signal instead.
+                do { for try await _ in stream {} } catch {}
+            }
+        }
+        write()
+        XCTAssertTrue(ListTestSupport.spin(until: { self.recorder.sent.count == 1 }, timeout: 5), "a finished write")
+        script.failure = .offline
+        write()
+        XCTAssertTrue(ListTestSupport.spin(until: { self.recorder.sent.count == 2 }, timeout: 5), "a failed write")
+        XCTAssertEqual(recorder.sent.map(\.name), ["HelpMeWrite.used", "HelpMeWrite.used"])
+        XCTAssertEqual(recorder.sent.map { $0.parameters["aiProvider"] }, ["demo", "demo"])
+        XCTAssertEqual(recorder.sent.map { $0.parameters["ending"] }, ["finished", "failed"])
+        XCTAssertEqual(Set(recorder.sent.flatMap(\.parameters.keys)), ["aiProvider", "ending", "mode"])
+        XCTAssertEqual(script.requests.count, 2, "both writes reached the writer")
     }
 
     func testCountsAndDurationsAreBucketed() {

@@ -99,7 +99,11 @@ final class ComposerWriteField: WriteField {
     }
 
     func writeContext() -> WriteContextInputs? {
-        guard let composer, let editor, let original = composer.repliesTo else { return nil }
+        // A send under way, or one waiting for dropped attachments (§5.20), has taken the body as it stands: a reply
+        // streaming in now would go with it half-written.
+        guard let composer, !composer.isSending, !composer.isWaitingToSend, let editor, let original = composer.repliesTo else {
+            return nil
+        }
         let store = composer.client.store
         var messages: [MessageMetadata] = []
         if let conversation = (try? store.message(original))?.conversationID {

@@ -38,6 +38,9 @@ enum AnalyticsSignal: Equatable, Sendable {
     case undo(Trigger)
     case accountAdded(Provider)
     case accountRemoved(Provider)
+    /// A Help me write write ended (§5.56; `AIWriter`'s milestones): which kind of provider wrote and how it ended. Never
+    /// the instruction, the notes, the conversation, the model or a word of the reply.
+    case helpMeWriteUsed(Writer, WriteEnding)
     /// A timing where the app keeps an `os_signpost` interval, sampled (`Analytics.performanceSampleRate`).
     case performance(PerformanceSample, seconds: Double)
 
@@ -65,6 +68,7 @@ enum AnalyticsSignal: Equatable, Sendable {
         case undo = "Undo.used"
         case accountAdded = "Account.added"
         case accountRemoved = "Account.removed"
+        case helpMeWriteUsed = "HelpMeWrite.used"
         case listRefresh = "Performance.listRefresh"
         case conversationOpen = "Performance.conversationOpen"
         case search = "Performance.search"
@@ -159,6 +163,35 @@ enum AnalyticsSignal: Equatable, Sendable {
             switch kind {
             case .gmail: self = .gmail
             case .microsoft: self = .microsoft
+            }
+        }
+    }
+
+    /// Help me write's provider, by kind only (`AIProviderKind`'s raw values): never a model, a CLI's path or a key.
+    enum Writer: String, CaseIterable, Sendable {
+        case claudeAPI, claudeCode, openAIAPI, codex, demo
+
+        init(_ kind: AIProviderKind) {
+            switch kind {
+            case .claudeAPI: self = .claudeAPI
+            case .claudeCode: self = .claudeCode
+            case .openAIAPI: self = .openAIAPI
+            case .codex: self = .codex
+            case .demo: self = .demo
+            }
+        }
+    }
+
+    /// How a write ended. Its start is no signal of its own: every write that starts ends once.
+    enum WriteEnding: String, CaseIterable, Sendable {
+        case finished, stopped, failed
+
+        init?(_ milestone: AIWriteMilestone) {
+            switch milestone {
+            case .started: return nil
+            case .finished: self = .finished
+            case .stopped: self = .stopped
+            case .failed: self = .failed
             }
         }
     }
@@ -353,6 +386,8 @@ enum AnalyticsSignal: Equatable, Sendable {
             "state": DayColumnState.allCases.map(\.rawValue),
             "answer": InvitationAnswer.allCases.map(\.rawValue),
             "provider": Provider.allCases.map(\.rawValue),
+            "aiProvider": Writer.allCases.map(\.rawValue),
+            "ending": WriteEnding.allCases.map(\.rawValue),
             "duration": DurationBuckets.interaction.labels,
         ]
         // Settings' values repeat (on and off for every toggle): each once, in order.
@@ -397,6 +432,7 @@ enum AnalyticsSignal: Equatable, Sendable {
         case .undo: return .undo
         case .accountAdded: return .accountAdded
         case .accountRemoved: return .accountRemoved
+        case .helpMeWriteUsed: return .helpMeWriteUsed
         case .performance(let sample, _):
             switch sample {
             case .listRefresh: return .listRefresh
@@ -451,6 +487,8 @@ enum AnalyticsSignal: Equatable, Sendable {
             return ["answer": answer.rawValue]
         case .accountAdded(let provider), .accountRemoved(let provider):
             return ["provider": provider.rawValue]
+        case .helpMeWriteUsed(let writer, let ending):
+            return ["aiProvider": writer.rawValue, "ending": ending.rawValue]
         case .performance(_, let seconds):
             return ["duration": DurationBuckets.interaction.label(seconds)]
         }

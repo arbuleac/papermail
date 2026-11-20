@@ -140,9 +140,14 @@ final class QuickReplyView: NSView, QuirePointerTarget {
     }
 
     /// While Help me write streams a reply into the field, the user's own edits are refused and nothing sends or is
-    /// scheduled: Send, its drop-down and Send Later wait with them.
+    /// scheduled: Send, its drop-down and Send Later wait with them, and so does a drop, which would move the half-written
+    /// reply to a composer (a drag already over the bar loses its treatment).
     var refusesEdits = false {
-        didSet { if oldValue != refusesEdits { needsLayout = true } }
+        didSet {
+            guard oldValue != refusesEdits else { return }
+            if refusesEdits { dropOverlay.show(for: nil) }
+            needsLayout = true
+        }
     }
 
     /// Asked first on Esc in the field: Help me write takes it to stop a write (§6.1) before the window's order runs.
@@ -745,9 +750,11 @@ final class QuickReplyView: NSView, QuirePointerTarget {
 
     // MARK: Dropping (§5.18)
 
-    /// The field takes a drop only while it takes typing: not while a composer holds the reply, nor while the strip counts
-    /// a send down or says how one ended, nor while hidden.
-    var acceptsDrops: Bool { onDropAttachments != nil && !isComposerOpen && strip.isHidden && !isHiddenOrHasHiddenAncestor }
+    /// The field takes a drop only while it takes typing: not while a composer holds the reply, nor while Help me write
+    /// streams a reply into it (§5.56), nor while the strip counts a send down or says how one ended, nor while hidden.
+    var acceptsDrops: Bool {
+        onDropAttachments != nil && !isComposerOpen && !refusesEdits && strip.isHidden && !isHiddenOrHasHiddenAncestor
+    }
 
     /// The drop treatment shows (the app's tests read it, and its renders set it).
     var showsDropTarget: Bool {

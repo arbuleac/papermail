@@ -691,6 +691,68 @@ final class HelpMeWriteTests: XCTestCase {
         XCTAssertTrue(composer.content.bottomBar.sendButton.isEnabled)
     }
 
+    /// A file dragged over a field a reply streams into, from the Finder as from a message (§5.17).
+    private func fileDrag() throws -> FakeDraggingInfo {
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let file = folder.appendingPathComponent("brief.txt")
+        try Data("brief".utf8).write(to: file)
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("HelpMeWriteTests-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.writeObjects([file as NSURL])
+        return FakeDraggingInfo(pasteboard: pasteboard, source: nil, mask: .copy)
+    }
+
+    /// A drop on the quick reply would move the half-written reply to a composer: while a reply streams the bar takes
+    /// none, and it shows no drop treatment; once the write ends the bar takes drops again.
+    func testTheQuickReplyRefusesADropWhileAReplyStreams() throws {
+        let (harness, script) = try harness(reply: "One two three four five six seven eight")
+        defer { harness.close() }
+        let (field, session) = try streaming("my notes", harness, script)
+        let bar = harness.reader.quickReplyBar
+        let drag = try fileDrag()
+        defer { drag.draggingPasteboard.releaseGlobally() }
+        XCTAssertFalse(bar.acceptsDrops)
+        XCTAssertEqual(bar.draggingEntered(drag), [])
+        XCTAssertFalse(bar.showsDropTarget, "no treatment for a drop the bar refuses")
+        XCTAssertFalse(bar.performDragOperation(drag))
+        XCTAssertTrue(ComposeWindowRegistry.shared.openControllers.isEmpty, "the reply moved nowhere")
+        XCTAssertEqual(field.string, "One two three four ", "and the stream goes on where it was")
+        XCTAssertEqual(session.state, .writing)
+        session.stop()
+        XCTAssertEqual(field.string, "my notes")
+        XCTAssertTrue(bar.acceptsDrops)
+        XCTAssertEqual(bar.draggingEntered(drag), .copy)
+        bar.draggingExited(drag)
+    }
+
+    /// A reply composer takes no drop while a reply streams into its body: no outline, nothing attached, and a pasted file
+    /// is refused with the body; once the write ends it attaches again.
+    func testAComposerRefusesADropWhileAReplyStreams() throws {
+        let (harness, script) = try harness(reply: "One two three four five six seven eight")
+        defer { harness.close() }
+        harness.settings.setAIConsent(true, for: .claudeAPI, demo: false)
+        script.holdsAfter = 2
+        let composer = replyComposer(harness)
+        composer.window?.makeFirstResponder(composer.bodyEditor)
+        composer.helpMeWrite(nil)
+        let session = try XCTUnwrap(composer.writeSession)
+        session.write()
+        XCTAssertTrue(ListTestSupport.spin(until: { composer.bodyText.hasPrefix("One two three four") }, timeout: 5))
+        let content = try XCTUnwrap(composer.window?.contentView as? ComposeContentView)
+        let drag = try fileDrag()
+        defer { drag.draggingPasteboard.releaseGlobally() }
+        XCTAssertEqual(content.draggingEntered(drag), [])
+        XCTAssertFalse(content.showsDropOutline)
+        XCTAssertFalse(content.performDragOperation(drag))
+        composer.attachDropped([.file(folder.appendingPathComponent("brief.txt"))])
+        XCTAssertTrue(composer.contents.attachments.isEmpty, "nothing attached while the reply streams")
+        XCTAssertEqual(session.state, .writing)
+        session.stop()
+        XCTAssertEqual(content.draggingEntered(drag), .copy)
+        XCTAssertTrue(content.performDragOperation(drag))
+        XCTAssertEqual(composer.contents.attachments.map(\.filename), ["brief.txt"])
+    }
+
     func testTheSendLaterUndoMidWriteKeepsTheUsersTextAndStopsTheWrite() throws {
         let (harness, script) = try harness(reply: "One two three four five six seven eight")
         defer { harness.close() }

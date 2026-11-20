@@ -139,6 +139,7 @@ Every signal carries `mode` (`demo` or `accounts`: which mailbox was on screen) 
 | `Undo.used` | A step taken back: Z, ⌘Z, Edit › Undo or a toast's Undo. | `trigger` |
 | `Account.added` | An account is added (the demo replaced included). | `provider` |
 | `Account.removed` | An account is removed. | `provider` |
+| `HelpMeWrite.used` | A Help me write write ends: its reply is in, it was stopped (Stop, Esc, the card closing) or it failed. One per Write, never at ⌘J. | `aiProvider`, `ending` |
 | `Performance.listRefresh` | The list applies a change from the store (`list.refresh`). One in 20, at most 20 of each kind an hour. Its number is milliseconds. | `duration` |
 | `Performance.conversationOpen` | A conversation shows in the reader (`conversation.show`). Sampled as above. | `duration` |
 | `Performance.search` | A search's first page is in the list (`list.search`). Sampled as above. | `duration` |
@@ -173,6 +174,8 @@ Every value a parameter can take:
 | `state` | `shown`, `hidden` |
 | `answer` | `accept`, `tentative`, `decline` |
 | `provider` | `gmail`, `microsoft` |
+| `aiProvider` | `claudeAPI`, `claudeCode`, `openAIAPI`, `codex` (the kind of provider chosen in Settings › AI, never the model), `demo` (the demo's made-up writer) |
+| `ending` | `finished`, `stopped`, `failed` |
 | `duration` | `<16ms`, `16-50ms`, `50-100ms`, `100-250ms`, `250ms-1s`, `1s+` |
 
 `AnalyticsTests` holds every signal to this table and to the code's vocabulary.
@@ -192,7 +195,7 @@ TelemetryDeck says it stores no IP address ([privacy FAQ](https://telemetrydeck.
 
 ### What is never sent
 
-Mail of any kind (bodies, subjects, snippets, attachments, their names), addresses and names (the user's, their accounts', anyone's), account names, monograms and signatures, search words, URLs and paths, calendar events' titles or times, the Mac's name or the user's. Nothing is logged by the SDK beyond its errors.
+Mail of any kind (bodies, subjects, snippets, attachments, their names), addresses and names (the user's, their accounts', anyone's), account names, monograms and signatures, search words, URLs and paths, calendar events' titles or times, anything of Help me write's but its provider's kind and how a write ended (no instruction, notes, reply, model, error words or API key), the Mac's name or the user's. Nothing is logged by the SDK beyond its errors.
 
 ## 4. Check it end to end
 

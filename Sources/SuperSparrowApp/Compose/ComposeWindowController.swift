@@ -112,11 +112,12 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     var writeSession: WriteSession?
     /// While Help me write streams a reply into the body, the user's own edits wait (`textView(_:shouldChangeTextIn:…)`),
     /// and so does everything else that would take the half-written reply or edit around it: Send, ⌘↩, Send and Archive
-    /// and Send Later, which would send it; From, whose signature swap the body would refuse; and the other fields,
-    /// whose edits the silenced undo would not record (§5.56).
+    /// and Send Later, which would send it; From, whose signature swap the body would refuse; the other fields, whose
+    /// edits the silenced undo would not record; and a drop to attach, which a drag already over the window loses (§5.56).
     var refusesBodyEdits = false {
         didSet {
             guard oldValue != refusesBodyEdits else { return }
+            if refusesBodyEdits { content.showsDropOutline = false }
             updateEditLock()
             updateSendEnabled()
         }
@@ -322,7 +323,8 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         window.contentView = content
         content.onDrop = { [weak self] items in self?.attachDropped(items) }
         // A drop while the message is being handed over, or the window is going, would be thrown away: none is offered.
-        content.acceptsDrops = { [weak self] in self.map { !$0.isSending && !$0.closesWithoutSaving } ?? false }
+        // Nor while Help me write streams a reply into the body (§5.56): the draft is not the user's to change until it ends.
+        content.acceptsDrops = { [weak self] in self.map { !$0.isSending && !$0.closesWithoutSaving && !$0.refusesBodyEdits } ?? false }
         content.onCommand = { [weak self] command in self?.perform(command) }
         content.rows = [fromRow, toRow, ccRow, bccRow, subjectRow]
         fromRow.isHidden = accounts.count < 2
@@ -398,8 +400,13 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
 
         textView.delegate = self
         textView.onLinkRequest = { [weak self] _ in self?.showLinkPopover() }
-        // Files pasted or dropped on the text that are not all pictures attach, as files dropped anywhere else do.
-        textView.onAttachFiles = { [weak self] urls in self?.addAttachments(from: urls) }
+        // Files pasted or dropped on the text that are not all pictures attach, as files dropped anywhere else do; while a
+        // reply streams into the body they are refused with it (§5.56).
+        textView.onAttachFiles = { [weak self] urls in
+            guard let self else { return }
+            guard !self.refusesBodyEdits else { return NSSound.beep() }
+            self.addAttachments(from: urls)
+        }
         textView.onAttachFromMail = { [weak self] items in self?.attachDropped(items) }
         // The autosave before a picture was ready left it out; the next one takes it in.
         textView.onPictureReady = { [weak self] in self?.scheduleAutosave() }
@@ -1072,6 +1079,8 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     /// draft either way.
     func attachDropped(_ items: [AttachmentDropItem]) {
         guard !isSending else { return }
+        // A drop or a paste while Help me write streams a reply into the body waits with the body (§5.56).
+        guard !refusesBodyEdits else { return NSSound.beep() }
         var urls: [URL] = []
         var references: [MailAttachmentReference] = []
         for item in items {

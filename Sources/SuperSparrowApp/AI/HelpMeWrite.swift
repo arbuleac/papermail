@@ -50,6 +50,8 @@ final class HelpMeWrite {
             // Names from the code only: what happened, and with which kind of provider.
             CrashReporting.breadcrumb(.ai, milestone.breadcrumbName)
             CrashReporting.breadcrumb(.ai, kind.breadcrumbName)
+            // Analytics counts a write once, as it ends, from the same two closed sets (docs/ANALYTICS-AND-REPORTS.md).
+            if let ending = AnalyticsSignal.WriteEnding(milestone) { Analytics.send(.helpMeWriteUsed(.init(kind), ending)) }
         }
     )
 
