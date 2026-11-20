@@ -6,8 +6,8 @@ import SSCore
 /// `--analytics-check` (debug builds, demo mode): a fixed round of the app's own steps, so what analytics sends can be
 /// read end to end against a local listener (`--telemetry-url`, docs/ANALYTICS-AND-REPORTS.md, "Check it end to end").
 /// It takes every step through the path a user's would take (the window's keys, its menu actions, Settings' model), waits
-/// for the SDK to send, turns Analytics and reports off as Settings does, takes the same steps again, waits, and quits.
-/// Nothing in the second round may reach the listener.
+/// for the SDK to send, turns Analytics and reports off and on again as Settings does, takes the same steps again, waits,
+/// and quits. Nothing in the second round may reach the listener: on again, analytics waits for the next launch.
 @MainActor
 final class AnalyticsCheck {
     private let settings: AppSettings
@@ -33,6 +33,7 @@ final class AnalyticsCheck {
             settings.onAnalyticsAndReportsChanged = { Analytics.setEnabled($0) }
             settings.sendsAnalyticsAndReports = false
         }
+        step(1, "turn on again") { [settings] in settings.sendsAnalyticsAndReports = true }
         round()
         // Not from inside this main-queue callout, as `quittingSnapshotFinished` says: terminate waits for a main-actor task.
         step(12, "quit") {
@@ -53,6 +54,8 @@ final class AnalyticsCheck {
         window(1, "unstar") { window in Analytics.from(.key) { _ = window.perform(.toggleStar) } }
         window(1, "archive") { window in Analytics.from(.key) { _ = window.perform(.archive) } }
         window(1, "undo") { window in Analytics.from(.key) { window.performUndo(window.zTarget) } }
+        window(1, "starred") { window in Analytics.from(.key) { _ = window.perform(.goTo(.starred)) } }
+        window(1, "inbox") { window in Analytics.from(.key) { _ = window.perform(.goTo(.inbox)) } }
         window(1, "search") { $0.listPane.runSearch("is:unread lisbon") }
         window(3, "search the server") { $0.searchServer(nil) }
         window(3, "leave search") { window in Analytics.from(.key) { _ = window.perform(.clearSearch) } }
@@ -96,8 +99,8 @@ final class AnalyticsCheck {
             MainActor.assumeIsolated {
                 step.run()
                 // On standard error too, with the time, so a listener's records can be matched to the steps.
-                let line = String(format: "analytics-check %.3f %@ analytics=%@\n", Date().timeIntervalSince1970, step.name,
-                                  Analytics.isRunning ? "on" : "off")
+                let state = Analytics.isRunning ? "on" : Analytics.resumesAtNextLaunch ? "next-launch" : "off"
+                let line = String(format: "analytics-check %.3f %@ analytics=%@\n", Date().timeIntervalSince1970, step.name, state)
                 FileHandle.standardError.write(Data(line.utf8))
                 Self.log.info("analytics check: \(step.name, privacy: .public)")
                 next()

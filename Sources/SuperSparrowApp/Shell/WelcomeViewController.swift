@@ -200,6 +200,10 @@ final class WelcomeViewController: NSViewController {
 /// block laid out from `layout.welcome`.
 @MainActor
 final class WelcomeView: NSView {
+    /// The footnote (§5, Welcome): literal privacy copy (§4.13), true in every build. It says nothing of crash reports or
+    /// analytics, which carry none of the mail and which Settings › General › Analytics and reports governs.
+    static let privacyNote = "Your mail is stored on this Mac and travels only between this Mac and Google or Microsoft."
+
     var buttons: (gmail: QuireButton, microsoft: QuireButton, demo: QuireButton, link: QuireButton)?
     var banner: QuireBannerView? {
         didSet { needsLayout = true }
@@ -217,8 +221,7 @@ final class WelcomeView: NSView {
             text.append(NSAttributedString(attachment: attachment))
             text.append(NSAttributedString(string: "  "))
         }
-        text.append(NSAttributedString(string: "Your mail is stored on this Mac and travels only between this Mac and Google or Microsoft. "
-                                       + "No analytics, ever."))
+        text.append(NSAttributedString(string: WelcomeView.privacyNote))
         var attributes = QuireFont.attributes(.meta, color: .qInk3)
         let style = (attributes[.paragraphStyle] as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
         style.alignment = .center
@@ -228,7 +231,7 @@ final class WelcomeView: NSView {
         let field = NSTextField(wrappingLabelWithString: "")
         field.attributedStringValue = text
         field.isSelectable = false
-        field.setAccessibilityLabel("Your mail is stored on this Mac and travels only between this Mac and Google or Microsoft. No analytics, ever.")
+        field.setAccessibilityLabel(WelcomeView.privacyNote)
         return field
     }()
 

@@ -9,8 +9,9 @@ MainActor.assumeIsolated {
     // but after the application object: making it sets AppKit's own uncaught-exception handler, which would replace the
     // crash reporter's and leave an exception on another thread reported as a bare SIGABRT, without its name or reason.
     CrashReporting.start(launch: options)
-    // Analytics follows the same switch (docs/ARCHITECTURE.md, "Analytics"), after the application object too: the SDK
-    // observes the application's notifications, and its session starts with the launch.
+    // Analytics follows the same switch (docs/ARCHITECTURE.md, "Analytics"). It takes signals from here, but starts the
+    // SDK only once the app is active, so the SDK's session begins in front (`Analytics`); turned off, it deletes what an
+    // earlier run left.
     Analytics.start(launch: options)
     let delegate = AppDelegate(options: options)
     app.delegate = delegate

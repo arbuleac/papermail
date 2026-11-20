@@ -483,14 +483,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     }
 
     private func wireCallbacks() {
-        strip.onSelect = { [weak self] scope in self?.scopeChanged(scope) }
-        strip.onSelectView = { [weak self] view in self?.setView(view) }
+        strip.onSelect = { [weak self] scope in self?.navigate { self?.scopeChanged(scope) } }
+        strip.onSelectView = { [weak self] view in self?.navigate { self?.setView(view) } }
         strip.onAddAccount = { [weak self] kind in self?.requestAddAccount(kind) }
         strip.onOpenSettings = { [weak self] in self?.onOpenSettings?() }
         strip.acceptsDrop = { [weak self] view, ids in self?.acceptsDrop(of: ids, onto: view) ?? false }
         strip.onDrop = { [weak self] view, ids in self?.drop(ids, onto: view) ?? false }
 
-        listPane.onViewChange = { [weak self] view in self?.setView(view) }
+        listPane.onViewChange = { [weak self] view in self?.navigate { self?.setView(view) } }
         listPane.onSearchChange = { [weak self] text in
             self?.searchText = text
             self?.applyQuery()
@@ -951,6 +951,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         )
     }
 
+    /// A view or scope the user picked (the rail, the title menu, the View and Go menus, ⌘0…⌘9, a G-sequence), for
+    /// analytics: sent when it moved the window, with which view and whether All Inboxes or one account, never which.
+    private func navigate(_ step: () -> Void) {
+        let before = (mailboxView, scope)
+        step()
+        guard mailboxView != before.0 || scope != before.1 else { return }
+        Analytics.send(.viewOpened(mailboxView, unified: scope == .unified, Analytics.trigger))
+    }
+
     /// Picking a mailbox means "show me that mailbox", so it also ends a search that would otherwise keep
     /// overriding the view. Later and the Outbox only while they show: G L, G O and the View menu's Later and Outbox do
     /// nothing otherwise (§5.2).
@@ -1335,7 +1344,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             performUndo(commandZ ? commandZTarget(textCanUndo: false) : zTarget)
             return true
         case .goTo(let view):
-            setView(view)
+            navigate { setView(view) }
             return true
         case .toggleDayColumn:
             // A held D or W would flip the column or the week on every repeat.
@@ -2587,7 +2596,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// A G-sequence typed in a reader window: this window comes forward on that view.
     func goTo(_ view: MailboxView) {
         comeForward()
-        setView(view)
+        navigate { setView(view) }
     }
 
     /// This window becomes key in front of a reader window: for a search, a G-sequence, or a step that closed the window.
@@ -3213,7 +3222,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
     @objc func goToMailboxView(_ sender: Any?) {
         guard let item = sender as? NSMenuItem, MailboxView.allCases.indices.contains(item.tag) else { return }
-        setView(MailboxView.allCases[item.tag])
+        navigate { setView(MailboxView.allCases[item.tag]) }
     }
 
     /// ⌃⌘S: the rail goes instantly in every mode, so no row re-truncates and no frame re-measures over frames

@@ -223,18 +223,19 @@ final class CrashReportingTests: XCTestCase {
     func testGeneralShowsTheToggleWithWhatIsSentAndKeepsItsWidth() throws {
         let settings = AppSettings(defaults: try throwawayDefaults())
         settings.onAnalyticsAndReportsChanged = { _ in }
-        XCTAssertTrue(GeneralSettingsView.reportsCaption.contains("Never your mail or addresses"))
-        for configured in [true, false] {
+        XCTAssertTrue(ReportServices.bothCaption.contains("Never your mail or addresses"))
+        for (crashReports, analytics) in [(true, true), (true, false), (false, true), (false, false)] {
             var general = GeneralSettingsView(settings: settings, defaultMailApp: DefaultMailAppModel(handler: FakeMailtoHandler()),
                                               mailboxSize: MailboxSizeModel(measure: { 292_000_000 }),
                                               launchAtLogin: LaunchAtLoginModel(handler: FakeLoginItem()),
                                               notificationPermission: NotificationPermissionModel(handler: FakeNotificationPermission(.allowed)))
-            general.reportServices = ReportServices(crashReports: configured, analytics: configured)
+            general.reportServices = ReportServices(crashReports: crashReports, analytics: analytics)
             let view = NSHostingView(rootView: general)
             ListTestSupport.spin(for: 0.05)
             view.layoutSubtreeIfNeeded()
             // The caption wraps inside the tab rather than widening Settings.
-            XCTAssertEqual(view.fittingSize.width, Quire.Layout.Settings.width, accuracy: 0.5, "configured: \(configured)")
+            XCTAssertEqual(view.fittingSize.width, Quire.Layout.Settings.width, accuracy: 0.5,
+                           "crash reports: \(crashReports), analytics: \(analytics)")
         }
     }
 }

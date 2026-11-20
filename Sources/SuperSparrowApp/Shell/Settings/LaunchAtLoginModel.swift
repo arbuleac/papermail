@@ -119,6 +119,8 @@ final class LaunchAtLoginModel: ObservableObject {
                 let error = failure.map { $0 as NSError }
                 Self.log.error("login item not changed: \(error?.domain ?? "no error", privacy: .public) \(error?.code ?? 0, privacy: .public)")
                 self.failed = change
+            } else if Self.state(state, satisfies: change) {
+                Analytics.send(.settingChanged(.launchAtLogin(isOn)))
             }
             self.settle(on: state)
         }

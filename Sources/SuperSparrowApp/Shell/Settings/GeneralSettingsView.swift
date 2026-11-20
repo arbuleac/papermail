@@ -6,8 +6,6 @@ import SwiftUI
 /// SuperSparrow, under General's cap of twelve, so it never scrolls: Font and Text size moved to Appearance, beside the theme.
 struct GeneralSettingsView: View {
     static let keepMailCaption = "Older mail stays in the list and in search, and downloads again when you open it."
-    static let reportsCaption = "Crashes, hangs and features used. Never your mail or addresses."
-    static let reportsUnavailableCaption = "Not set up in this build."
 
     /// What this build can send: crash reports with a Sentry DSN, analytics with a TelemetryDeck app ID. The one toggle
     /// governs whichever it has, names them, and is disabled with neither.
@@ -73,7 +71,7 @@ struct GeneralSettingsView: View {
                     .toggleStyle(.quire)
                     .disabled(!reportServices.isConfigured)
             }
-            QuireSettingsCaption(reportServices.isConfigured ? Self.reportsCaption : Self.reportsUnavailableCaption)
+            QuireSettingsCaption(reportServices.caption)
             QuireSettingsRow("At login") {
                 LaunchAtLoginToggle(model: launchAtLogin)
             }
@@ -113,12 +111,28 @@ struct GeneralSettingsView: View {
     }
 }
 
-/// The services Analytics and reports sends to in this build (§5.40), which its toggle names.
+/// The services Analytics and reports sends to in this build (§5.40), which its toggle names and its caption describes.
 struct ReportServices: Equatable {
+    static let bothCaption = "Crashes, hangs and features used. Never your mail or addresses."
+    static let crashReportsCaption = "Crashes and hangs. Never your mail or addresses."
+    static let analyticsCaption = "Features used. Never your mail or addresses."
+    static let unavailableCaption = "Not set up in this build."
+
     var crashReports: Bool
     var analytics: Bool
 
     var isConfigured: Bool { crashReports || analytics }
+
+    /// What this build sends, literally: a build with crash reports alone never speaks of features, nor one with
+    /// analytics alone of crashes.
+    var caption: String {
+        switch (crashReports, analytics) {
+        case (true, true): return Self.bothCaption
+        case (true, false): return Self.crashReportsCaption
+        case (false, true): return Self.analyticsCaption
+        case (false, false): return Self.unavailableCaption
+        }
+    }
 
     /// “Send to Sentry and TelemetryDeck”, or the one this build has. A build with neither names both, disabled.
     var toggleTitle: String {

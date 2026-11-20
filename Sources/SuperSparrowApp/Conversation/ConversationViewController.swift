@@ -721,7 +721,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         if remaining > 0 {
             let accounts = accountsByID.values.sorted { $0.addedAt < $1.addedAt }
             UndoSendPanel.show(client: client, accounts: accounts, sendID: send.sendID, draft: send.draft, undoWindow: Self.undoWindow,
-                               remaining: remaining, startedAt: send.startedAt, archive: send.archive)
+                               remaining: remaining, startedAt: send.startedAt, archive: send.archive, source: .quickReply)
             SendOwnership.release(send.sendID)
         } else {
             watchOutcome(of: send.sendID, draft: send.draft)

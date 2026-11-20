@@ -290,7 +290,8 @@ final class AppSettings: ObservableObject {
     }
 
     /// Settings › General › Analytics and reports: crash reports (Sentry) and analytics (TelemetryDeck) together, on
-    /// unless turned off. Turning it off stops both at once and deletes what they had queued; on starts them again
+    /// unless turned off. Turning it off stops both at once and deletes what they had queued; on starts crash reports
+    /// again, and analytics too unless it already ran in this process, when it waits for the next launch
     /// (`CrashReporting.setEnabled`, `Analytics.setEnabled`).
     @Published var sendsAnalyticsAndReports: Bool {
         didSet {

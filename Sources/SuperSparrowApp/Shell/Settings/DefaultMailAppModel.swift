@@ -98,6 +98,7 @@ final class DefaultMailAppModel: ObservableObject {
             guard let self, self.generation == asked else { return }
             if isDefault {
                 self.state = .isDefault
+                Analytics.send(.settingChanged(.defaultMailApp))
             } else if let failure, !Self.isCancellation(failure) {
                 let error = failure as NSError
                 Self.log.error("default mail app not set: \(error.domain, privacy: .public) \(error.code, privacy: .public)")

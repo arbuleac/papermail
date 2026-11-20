@@ -129,6 +129,8 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         let typed = body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : body
         let controller: ComposeWindowController
         var caret: Int?
+        // For analytics: a window opened, and as what; a kept draft's window only brought forward opens none.
+        let started: AnalyticsSignal.ComposeKind?
         // A reply scheduled with Send Later keeps its draft until it goes; R again starts another reply rather than
         // reopening that one, which would leave the same message scheduled and open for sending at once.
         if var kept = ComposeDraftStore.shared.keptDraft(for: mode, accounts: accounts),
@@ -138,8 +140,11 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
                 kept.body = joined.body
                 caret = joined.caret
             }
-            controller = present(client: client, accounts: accounts, draft: kept)
+            let reopened = reopen(client: client, accounts: accounts, draft: kept)
+            controller = reopened.controller
+            started = reopened.opened ? .draft : nil
         } else {
+            started = AnalyticsSignal.ComposeKind(mode)
             controller = ComposeWindowController(client: client, account: account, accounts: accounts, mode: mode)
             caret = controller.startBody(typed: typed.isEmpty ? nil : ComposeTextView.plainBody(typed))
             controller.show()
@@ -150,7 +155,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
             controller.draftChanged(body: true)
         }
         if attach { controller.attachFile(nil) }
-        Analytics.send(.composeStarted(.init(mode), .app))
+        if let started { Analytics.send(.composeStarted(started, .app, Analytics.trigger)) }
         return controller
     }
 
@@ -162,7 +167,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         controller.startBody(typed: nil)
         controller.show()
         controller.window?.makeFirstResponder(controller.subjectField)
-        Analytics.send(.composeStarted(.new, .app))
+        Analytics.send(.composeStarted(.new, .app, Analytics.trigger))
         return controller
     }
 
@@ -182,7 +187,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
             // The end of the link's body, above the signature.
             controller.textView.setSelectedRange(NSRange(location: bodyEnd, length: 0))
         }
-        Analytics.send(.composeStarted(.new, .mailLink))
+        Analytics.send(.composeStarted(.new, .mailLink, nil))
         return controller
     }
 
@@ -195,7 +200,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         let controller = ComposeWindowController(client: client, account: account, accounts: accounts, mode: .new)
         controller.fill(from: service)
         controller.show()
-        Analytics.send(.composeStarted(.new, .service))
+        Analytics.send(.composeStarted(.new, .service, nil))
         return controller
     }
 
@@ -203,23 +208,29 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     /// already open.
     @discardableResult
     static func present(client: MailClient, accounts: [Account], draft: ComposeDraft) -> ComposeWindowController {
+        reopen(client: client, accounts: accounts, draft: draft).controller
+    }
+
+    /// `present(client:accounts:draft:)`, saying whether a window opened rather than one already open came forward.
+    private static func reopen(client: MailClient, accounts: [Account], draft: ComposeDraft) -> (controller: ComposeWindowController, opened: Bool) {
         if let open = ComposeWindowRegistry.shared.openControllers.first(where: { $0.draftID == draft.id }) {
             open.window?.makeKeyAndOrderFront(nil)
             NSApp.activate()
-            return open
+            return (open, false)
         }
         let controller = ComposeWindowController(client: client, account: draft.account, accounts: accounts, mode: draft.mode)
         controller.restore(draft)
         controller.show()
-        return controller
+        return (controller, true)
     }
 
     /// Opens the kept draft `id` (the Drafts view's Continue Editing); false when it is gone.
     @discardableResult
     static func reopenKeptDraft(id: UUID, client: MailClient, accounts: [Account]) -> Bool {
         guard let draft = ComposeDraftStore.shared.draft(id: id, accounts: accounts) else { return false }
-        present(client: client, accounts: accounts, draft: draft)
-        Analytics.send(.composeStarted(.draft, .app))
+        if reopen(client: client, accounts: accounts, draft: draft).opened {
+            Analytics.send(.composeStarted(.draft, .app, Analytics.trigger))
+        }
         return true
     }
 

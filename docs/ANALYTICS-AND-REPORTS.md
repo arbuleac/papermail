@@ -5,9 +5,16 @@ SuperSparrow sends two things to two services, under one switch, **Settings → 
 - **Crash reports**: crashes, exceptions and hangs, to [Sentry](https://sentry.io) through Sentry's Cocoa SDK ("Crash reports" below; why and how in [ARCHITECTURE.md](ARCHITECTURE.md), "Crash reports").
 - **Analytics**: which features are used, and how fast, never what they were used on, to [TelemetryDeck](https://telemetrydeck.com) through its Swift SDK ("Analytics" below; why and how in [ARCHITECTURE.md](ARCHITECTURE.md), "Analytics").
 
-The switch is on unless the user turns it off. Off stops both at once, the current run included, and deletes what both had queued on this Mac. It keeps the defaults key crash reports had (`sendsCrashReports`), so anyone who turned crash reports off is opted out of analytics too.
+The switch is on unless the user turns it off. Off stops both at once, the current run included, and deletes what both had queued on this Mac. On again, crash reports start at once and analytics at the next launch ("Turning it off"). It keeps the defaults key crash reports had (`sendsCrashReports`), so anyone who turned crash reports off is opted out of analytics too.
 
-A build without a Sentry project or a TelemetryDeck app still runs and sends nothing of that kind. With neither, the switch is disabled and says "Not set up in this build."; with one, it governs that one and names it ("Send to Sentry", "Send to TelemetryDeck"; with both, "Send to Sentry and TelemetryDeck").
+A build without a Sentry project or a TelemetryDeck app still runs and sends nothing of that kind. With neither, the switch is disabled and says "Not set up in this build."; with one, it governs that one, names it and says what it sends:
+
+| Build | Toggle | Caption |
+|---|---|---|
+| Both | Send to Sentry and TelemetryDeck | Crashes, hangs and features used. Never your mail or addresses. |
+| Sentry only | Send to Sentry | Crashes and hangs. Never your mail or addresses. |
+| TelemetryDeck only | Send to TelemetryDeck | Features used. Never your mail or addresses. |
+| Neither | Send to Sentry and TelemetryDeck (disabled) | Not set up in this build. |
 
 # Crash reports
 
@@ -108,22 +115,23 @@ scripts/build-app.sh debug        # or release; TELEMETRYDECK_APP_ID=… scripts
 
 ## 3. What is sent
 
-Every signal carries `mode` (`demo` or `accounts`: which mailbox was on screen) besides the parameters below.
+Every signal carries `mode` (`demo` or `accounts`: which mailbox was on screen) besides the parameters below, TelemetryDeck's own two signals included (the app hands it to the SDK as a default parameter).
 
 | Signal | When | Parameters |
 |---|---|---|
 | `App.launched` | Once a launch, when the first main window is on screen. Its number is the launch's seconds. | `launchTime`, `gmailAccounts`, `microsoftAccounts`, `theme`, `appearance`, `density`, `textSize`, `font` |
 | `Settings.opened` | The Settings window opens. | none |
-| `Settings.changed` | A setting changes in Settings, or Send's drop-down changes what Send does. A value set again is no change. | `setting`, `value` |
+| `Settings.changed` | A setting changes, in Settings or by its own control elsewhere (Send's drop-down, View › Compact Rows); At login and Mail links once macOS has done what was asked. A value set again is no change. | `setting`, `value` |
 | `Mail.action` | Archive, Move to Trash, Mark as Spam, Move to Inbox, Star, Mark as Read or Unread, Later, Mute, Unsubscribe, Always Archive or Block a sender, from any window. | `action`, `trigger`, `conversations` |
-| `Compose.started` | A composer opens: New Message, Reply, Reply All, Forward, a kept draft (Continue Editing), a mail link, the Services menu. | `kind`, `origin` |
+| `Compose.started` | A composer window opens: New Message, Reply, Reply All, Forward, a kept draft opened again (Continue Editing, or Reply or Forward on a conversation whose reply or forward was kept), a mail link, the Services menu. A composer already open and only brought forward is none, nor a send undone and reopened (that is `Compose.sendUndone`). | `kind`, `origin`, `trigger` (the app's own ways in only) |
 | `Compose.sent` | A composer's message goes to the outbox (its Undo window still to run). | `kind`, `archives` |
 | `Compose.sendLaterScheduled` | Send Later from a composer or the quick reply. | `source` |
 | `Compose.sendUndone` | Undo Send, or Undo on a Send Later toast. | `source` |
 | `QuickReply.sent` | The quick reply sends. | `kind`, `archives` |
 | `Search.local` | A search of this Mac that stood for 2 s (the field searches at every keystroke; only where the user stopped counts). | `operators`, `results` |
-| `Search.server` | Search Gmail or Microsoft for more finishes. | `outcome`, `operators`, `results` |
+| `Search.server` | Search Gmail or Microsoft for more finishes. Its number is the seconds it took. | `outcome`, `operators`, `results`, `searchTime` |
 | `Reader.windowOpened` | A conversation opens in a reader window. | `trigger` |
+| `View.opened` | The user moves the window to another view or scope: the rail, the title menu, View and Go menus, ⌘0…⌘9, a G-sequence (in a reader window too). Picking where the window already is, or the app moving it on its own (an undo, a notification, an account going), is none. | `view`, `scope`, `trigger` |
 | `Calendar.dayColumn` | D, View › Hide Day or Show Day, or the column's toggle shows or hides the day column. | `state`, `trigger` |
 | `Calendar.weekOpened` | W, View › Show Week or the column's Week button opens the week. | `trigger` |
 | `Calendar.timeBlocked` | B, a drop on the calendar or a mail's own time sets 30 minutes aside. | `trigger` |
@@ -131,7 +139,7 @@ Every signal carries `mode` (`demo` or `accounts`: which mailbox was on screen) 
 | `Undo.used` | A step taken back: Z, ⌘Z, Edit › Undo or a toast's Undo. | `trigger` |
 | `Account.added` | An account is added (the demo replaced included). | `provider` |
 | `Account.removed` | An account is removed. | `provider` |
-| `Performance.listRefresh` | The list applies a change from the store (`list.refresh`). One in 20, at most 20 a run. Its number is milliseconds. | `duration` |
+| `Performance.listRefresh` | The list applies a change from the store (`list.refresh`). One in 20, at most 20 of each kind an hour. Its number is milliseconds. | `duration` |
 | `Performance.conversationOpen` | A conversation shows in the reader (`conversation.show`). Sampled as above. | `duration` |
 | `Performance.search` | A search's first page is in the list (`list.search`). Sampled as above. | `duration` |
 
@@ -147,18 +155,21 @@ Every value a parameter can take:
 | `density` | `standard`, `compact` |
 | `textSize` | `small`, `default`, `large`, `larger` |
 | `font` | `newYork`, `sfPro` |
-| `setting` | `listDensity`, `accountInitials`, `undoSend`, `remoteImages`, `notifications`, `notificationPreviews`, `keepMail`, `theme`, `appearance`, `font`, `textSize`, `adaptMailColours`, `sendAction` |
-| `value` | the setting's own: the values of `density`, `theme`, `appearance`, `font` and `textSize` above; `on`, `off`; `5s`, `10s`, `20s`, `other` (Undo send); `everything`, `oneYear`, `threeMonths` (Keep mail); `sendAndArchive`, `send` |
+| `setting` | `listDensity`, `accountInitials`, `undoSend`, `remoteImages`, `notifications`, `notificationPreviews`, `keepMail`, `theme`, `appearance`, `font`, `textSize`, `adaptMailColours`, `sendAction`, `launchAtLogin`, `defaultMailApp` |
+| `value` | the setting's own: the values of `density`, `theme`, `appearance`, `font` and `textSize` above; `on`, `off` (Mail links only `on`: the app cannot hand the role back); `5s`, `10s`, `20s`, `other` (Undo send); `everything`, `oneYear`, `threeMonths` (Keep mail); `sendAndArchive`, `send` |
 | `action` | `archive`, `trash`, `spam`, `moveToInbox`, `star`, `unstar`, `markRead`, `markUnread`, `later`, `mute`, `unmute`, `unsubscribe`, `alwaysArchiveSender`, `blockSender` |
-| `trigger` | `key`, `menu`, `toolbar` (a button in the reader or the calendar), `swipe`, `drag`, `click` (a double-click), `toast`, `notification` |
+| `trigger` | `key`, `menu` (the menu bar, a context menu, the title menu), `toolbar` (a button in the reader or the calendar), `swipe`, `drag`, `click` (a double-click), `rail` (a click on the account rail), `toast`, `notification` |
 | `conversations` | `1`, `2-5`, `6-20`, `21+` |
-| `kind` | `new`, `reply`, `replyAll`, `forward`, `draft` |
+| `kind` | `new`, `reply`, `replyAll`, `forward`, `draft` (a kept draft opened again) |
 | `origin` | `app`, `mailLink`, `service` |
 | `archives` | `on`, `off` (Send and Archive) |
 | `source` | `composer`, `quickReply`, `sendLater` |
 | `operators` | `0`, `1`, `2`, `3+` (every term but a plain word or phrase, and every negated term; the words are counted, never sent) |
 | `results` | `0`, `1-10`, `11-50`, `51-199`, `200+` (a search's first page holds 200; for the server, the conversations it added) |
 | `outcome` | `found`, `nothing`, `failed` |
+| `searchTime` | `<0.5s`, `0.5-1s`, `1-2s`, `2-5s`, `5-10s`, `10s+` |
+| `view` | `inbox`, `starred`, `sent`, `drafts`, `trash`, `all`, `later`, `outbox` |
+| `scope` | `unified` (All Inboxes), `account` (one account, never which) |
 | `state` | `shown`, `hidden` |
 | `answer` | `accept`, `tentative`, `decline` |
 | `provider` | `gmail`, `microsoft` |
@@ -171,10 +182,11 @@ Every value a parameter can take:
 The SDK adds to every signal, on its own:
 
 - **The app and the Mac:** app version and build; macOS version; the Mac's model identifier (for example `Mac16,11`) and architecture; screen resolution and scale; time zone; locale, region and languages; light or dark; Reduce Motion and Invert Colors; whether it is a debug, TestFlight or App Store build; the SDK's name and version.
-- **When:** the hour, day of week, day of month and year, week, month and quarter.
+- **When:** the exact time of each signal (UTC, to the second, as `receivedAt`), and the hour, day of week, day of month and year, week, month and quarter. With the session identifier (below), TelemetryDeck can line up one launch's signals in order, second by second.
 - **Use over time:** the day of the first session, the number of sessions and distinct days used, and average and previous session lengths, counted on this Mac.
 - **Who, anonymously:** a random identifier the SDK makes on first use and keeps in its own defaults (`com.telemetrydeck.<12 hex digits>`), hashed with SHA-256 on the Mac and hashed again with TelemetryDeck's own salt on its server; a random session identifier each launch. SuperSparrow never gives it an account's address or name.
-- **Its own signals:** `TelemetryDeck.Session.started` at each launch, `TelemetryDeck.Acquisition.newInstallDetected` at the first.
+- **Its own signals:** `TelemetryDeck.Session.started` at each launch, `TelemetryDeck.Acquisition.newInstallDetected` at the first, each with `mode`.
+- **Each request:** the Mac's IP address, as any connection does, and in its headers the app's name and version and the CFNetwork and Darwin versions (`User-Agent`), and the preferred languages (`Accept-Language`).
 
 TelemetryDeck says it stores no IP address ([privacy FAQ](https://telemetrydeck.com/docs/guides/privacy-faq/)) and keeps its servers in the EU.
 
@@ -184,7 +196,7 @@ Mail of any kind (bodies, subjects, snippets, attachments, their names), address
 
 ## 4. Check it end to end
 
-Without a TelemetryDeck account: debug builds take `--telemetry-url=<url>`, which sends this run's signals to that server instead of TelemetryDeck's, every 5 s rather than every 60, and `--analytics-check`, which (in the demo) takes a fixed round of the app's own steps once the inbox is in: opens Settings and switches the rows to Compact and back, stars and unstars, archives and undoes, searches `is:unread lisbon` and the demo's server, opens a reader window, hides and shows the day column, opens the week and leaves it, and opens and closes a new message. Then it turns **Analytics and reports** off through the same setting (leaving crash reports' folder alone, which the bare binary shares with an installed copy that may be running), takes the same round again, and quits. Each step is logged with its time on standard error, so the listener's records can be matched to them. The listener must hold the first round and nothing after the switch.
+Without a TelemetryDeck account: debug builds take `--telemetry-url=<url>`, which sends this run's signals to that server instead of TelemetryDeck's, every 5 s rather than every 60, and `--analytics-check`, which (in the demo) takes a fixed round of the app's own steps once the inbox is in: opens Settings and switches the rows to Compact and back, stars and unstars, archives and undoes, goes to Starred and back to the Inbox, searches `is:unread lisbon` and the demo's server, opens a reader window, hides and shows the day column, opens the week and leaves it, and opens and closes a new message. Then it turns **Analytics and reports** off through the same setting (leaving crash reports' folder alone, which the bare binary shares with an installed copy that may be running), turns it on again, takes the same round again, and quits. Each step is logged with its time on standard error, so the listener's records can be matched to them. The listener must hold the first round and nothing after the switch: on again, analytics waits for the next launch.
 
 ```sh
 swift build
@@ -196,8 +208,16 @@ The SDK posts a JSON array of signals (`type`, `appID`, `clientUser`, `sessionID
 
 ## Turning it off
 
-**Settings → General → Analytics and reports.** At once, the current run included: nothing more is queued, the SDK and the signals it held in memory are dropped (a request already on its way finishes), SuperSparrow's own signals are deleted from the SDK's queue file (`~/Library/Caches/telemetrysignalcache`, written as the app quits and shared, by name, with every unsandboxed app embedding the SDK, so other apps' signals stay), and the SDK's defaults (its random identifier and session counts) are deleted. On starts it again, without a relaunch, with a new identifier.
+**Settings → General → Analytics and reports.** At once, the current run included: nothing more is queued, the SDK and the signals it held in memory are dropped (a request already on its way finishes), SuperSparrow's own signals are deleted from the SDK's queue file (`~/Library/Caches/telemetrysignalcache`, written as the app quits and shared, by name, with every unsandboxed app embedding the SDK, so other apps' signals stay), and the SDK's defaults (its random identifier and session counts) are deleted, and once more 1.5 s later, after any write the SDK had begun.
+
+**On again** in the same run, crash reports start at once, and analytics at the next launch, with a new identifier and no session history. The SDK keeps the run's session counts in an object that lives as long as the process and that stopping it does not reset: started again in the same run, it would send them under the new identifier, and write them back into the defaults just deleted. Turned on before analytics had started in the run (it starts when the app is first active), it starts at once.
+
+**Leftovers.** A launch that finds the switch off deletes what an earlier run left for the build's app ID and for the one analytics last started with (kept in the app's defaults as `analyticsStartedAppID`): a stop that came as the app quit, or a write of the SDK's that landed after a stop. A build that sends to another app ID, or to none, deletes what the last one left.
+
+**Other apps' signals.** The SDK reads the whole queue file as it starts, deletes it and sends every signal in it, whichever app queued it, and its write as the app quits replaces the file. So before it starts, SuperSparrow leaves only its own signals in the file and puts the others back once the SDK has read it; as SuperSparrow quits, what other apps have in the file then goes back beside the SDK's write. SuperSparrow never sends another app's signals. (This leans on NotificationCenter calling a notification's observers in the order they were added, as the stop as the app quits does; if it ever did not, those signals would be lost, never sent.)
 
 ## What it costs
 
-Starting it reads the queue file (usually absent) on the main thread before the first window: about 0.3 ms (release, M4 Pro), and a signal costs the main thread about 0.1 ms before it is built off it. Signals are sent every 60 s. While SuperSparrow is the active app, the SDK keeps a 1 s timer on the main thread that records the session's length in its defaults (TelemetryDeck 2.x has no way to turn it off); it stops whenever the app goes behind. Once analytics has started in a run, the timer stays for the run: switched off, it keeps ticking while the app is active but writes nothing.
+Starting it reads the queue file (usually absent) on the main thread: about 0.3 ms (release, M4 Pro), and a signal costs the main thread about 0.1 ms before it is built off it. Signals are sent every 60 s. While SuperSparrow is the active app, the SDK keeps a 1 s timer on the main thread that records the session's length in its defaults (TelemetryDeck 2.x has no way to turn it off); it stops whenever the app goes behind. Once analytics has started in a run, the timer stays for the run: switched off, it keeps ticking while the app is active but writes nothing.
+
+The SDK starts the first time SuperSparrow is the active app, not at launch: 2.x starts its session half a second after it starts, and when that session begins behind other apps, the timer it starts then is replaced without being stopped the next time the app comes to the front, and the old one then ticks every second for the rest of the run, behind other apps too. Starting while active avoids that for a launch at login, a launch behind other apps, or one the user clicked away from. Signals before then (the launch, a notification's Archive) are held, at most 100, and sent as it starts. One case is left: switching to another app within that half second after SuperSparrow first comes to the front. The fix belongs in the SDK (stop the timer before replacing it).
