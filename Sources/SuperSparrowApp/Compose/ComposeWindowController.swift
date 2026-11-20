@@ -682,6 +682,11 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     }
 
     private func applyFormat(_ item: ComposeFormatRow.Item) {
+        // A reply streaming into the body takes no formatting or link until it ends, and the keyboard stays where it is.
+        guard !refusesBodyEdits else {
+            NSSound.beep()
+            return
+        }
         if window?.firstResponder !== textView { window?.makeFirstResponder(textView) }
         switch item {
         case .bold: textView.toggleBold(nil)
@@ -722,6 +727,10 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
 
     private func showLinkPopover() {
         guard linkPopover == nil, !isSending else { return }
+        guard !refusesBodyEdits else {
+            NSSound.beep()
+            return
+        }
         linkPopover = textView.presentLinkPopover(in: content) { [weak self] in
             self?.linkPopover = nil
             self?.updateFormatState()
@@ -1014,7 +1023,11 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     /// at the body's caret, as pasting them would; Attach Files… puts files on the strip instead. The panel lists
     /// pictures only.
     @objc func insertPicture(_ sender: Any?) {
-        guard let window, !isSending else { return }
+        // A reply streaming into the body refuses the picture as it refuses typing (§5.55): the item waits for it.
+        guard let window, !isSending, !refusesBodyEdits else {
+            if refusesBodyEdits { NSSound.beep() }
+            return
+        }
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
@@ -1023,7 +1036,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         panel.prompt = "Insert"
         panel.beginSheetModal(for: window) { [weak self] response in
             MainActor.assumeIsolated {
-                guard response == .OK, let self, !self.isSending else { return }
+                guard response == .OK, let self, !self.isSending, !self.refusesBodyEdits else { return }
                 self.window?.makeFirstResponder(self.textView)
                 self.textView.insertPictureFiles(panel.urls)
             }
@@ -1372,7 +1385,11 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     /// Message › Discard Draft… (§5.20): the one way to throw a draft away, since closing keeps it. The alert
     /// is AppAlert's composer form (§5.33: “Keep Writing” default and Esc, “Discard” destructive).
     @objc func discardDraft(_ sender: Any?) {
-        guard let window, !isSending else { return }
+        // While a reply streams into the body the draft is not the user's to judge yet: Stop first (§5.55).
+        guard let window, !isSending, !refusesBodyEdits else {
+            if refusesBodyEdits { NSSound.beep() }
+            return
+        }
         AppAlert.discardDraft(recipient: currentDraft().firstRecipientName).present(on: window) { [weak self] choice in
             guard choice == 1, let self else { return }
             self.confirmDiscard()
@@ -1383,6 +1400,8 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     /// button titled “Cancel”, and a button holds one key equivalent (a hidden button's never fires), so the
     /// sheet's Esc is caught by a local monitor that lives as long as the sheet.
     private func confirmDiscard() {
+        // What Undo brings back is what the user wrote, never half a reply: a write still streaming is put back first.
+        closeWriteCard()
         let draft = currentDraft()
         let client = client
         let accounts = accounts
@@ -1426,12 +1445,14 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         guard let action = menuItem.action else { return true }
         if Self.formatCommands.contains(action) {
-            return !isSending && !KeyboardRouter.isTextInput(window?.firstResponder)
+            return !isSending && !refusesBodyEdits && !KeyboardRouter.isTextInput(window?.firstResponder)
         }
         switch action {
-        case #selector(discardDraft(_:)), #selector(attachFile(_:)), #selector(insertPicture(_:)), #selector(addCcField(_:)),
-             #selector(addBccField(_:)):
+        case #selector(attachFile(_:)), #selector(addCcField(_:)), #selector(addBccField(_:)):
             return !isSending
+        case #selector(discardDraft(_:)), #selector(insertPicture(_:)):
+            // Both act on the body, which a reply streaming in keeps until it ends (§5.55).
+            return !isSending && !refusesBodyEdits
         case #selector(send(_:)), #selector(sendAndArchive(_:)), #selector(sendLater(_:)):
             return !isSending && !refusesBodyEdits && bar.sendButton.isEnabled
         case #selector(toggleFormatRow(_:)):

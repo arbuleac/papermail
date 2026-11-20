@@ -83,7 +83,11 @@ final class QuickReplyView: NSView, QuirePointerTarget {
     var isComposerOpen = false {
         didSet {
             guard oldValue != isComposerOpen else { return }
-            if isComposerOpen { blur() }
+            if isComposerOpen {
+                // The text goes behind “Reply in the composer”: a reply streaming into it stops first (§5.55).
+                willHideText?()
+                blur()
+            }
             // VoiceOver hears a dimmed field that cannot be typed in; a click still brings the composer forward.
             textView.setAccessibilityEnabled(!isComposerOpen)
             updatePlaceholder()
@@ -107,6 +111,10 @@ final class QuickReplyView: NSView, QuirePointerTarget {
     /// Called before the text is set from outside the field (`text`, `clear`, `restoreDraft`): its owner stops Help me
     /// write's write there first.
     var willReplaceText: (() -> Void)?
+
+    /// Called as a composer takes the reply and the field hides behind its quiet fill: its owner closes Help me write's
+    /// card there, the field put back, so nothing streams into text no one sees.
+    var willHideText: (() -> Void)?
 
     // MARK: Help me write (§5.55)
 

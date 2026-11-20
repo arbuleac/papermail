@@ -65,6 +65,17 @@ final class WriteSession {
         textView.window?.makeFirstResponder(textView)
     }
 
+    /// Whether the keyboard is still the card's or its field's (or no one's), with the field on screen. A write that ends
+    /// moves the keyboard only then: a click elsewhere leaves a write running (§5.55), and what the user goes on to type
+    /// there (a search, J and K in the list) must not land in the card or the reply.
+    private var keyboardIsHere: Bool {
+        guard let textView = field?.writeTextView, let window = textView.window, !textView.isHiddenOrHasHiddenAncestor else {
+            return false
+        }
+        let responder = window.firstResponder
+        return card.holdsFocus || responder === textView || responder === window || responder == nil
+    }
+
     // MARK: Opening and closing
 
     /// Shows the card under the caret: Off without a provider, else ready to write, then needs-setup if the provider's
@@ -101,7 +112,9 @@ final class WriteSession {
         removeClickMonitor()
         card.dismiss()
         field?.cardDidChange(isOpen: false)
-        if hadFocus, let textView = field?.writeTextView { textView.window?.makeFirstResponder(textView) }
+        if hadFocus, let textView = field?.writeTextView, !textView.isHiddenOrHasHiddenAncestor {
+            textView.window?.makeFirstResponder(textView)
+        }
         onClose?()
     }
 
@@ -304,6 +317,7 @@ final class WriteSession {
 
     /// The write ended without this card stopping it: the field as it was, editable, and the card ready to try again.
     private func writeEndedElsewhere() {
+        let keyboardWasHere = keyboardIsHere
         generation += 1
         writeTask = nil
         if let edit, !edit.isFinished {
@@ -313,15 +327,16 @@ final class WriteSession {
         endStream()
         guard isOpen else { return }
         show(.idle)
-        focusCard()
+        if keyboardWasHere { focusCard() }
     }
 
     /// Stop or Esc while writing: the field comes back as it was, at once; the card stays with the instruction kept.
     func stop() {
         guard isWriting else { return }
+        let keyboardWasHere = keyboardIsHere
         stopWriting()
         show(.idle)
-        focusCard()
+        if keyboardWasHere { focusCard() }
     }
 
     private func stopWriting() {
@@ -374,9 +389,11 @@ final class WriteSession {
 
     private static let signposter = OSSignposter(subsystem: "io.supersparrow.mac", category: "ai")
 
-    /// The reply is complete: one undoable change, the card closes and the caret waits after the reply.
+    /// The reply is complete: one undoable change, the card closes and the caret waits after the reply (with the keyboard,
+    /// when the keyboard was still with the card or the field).
     private func finish() {
         guard let edit, let field else { return }
+        let keyboardWasHere = keyboardIsHere
         if edit.wasDisturbed {
             stopWriting()
             if isOpen { show(.idle) }
@@ -395,7 +412,7 @@ final class WriteSession {
             if edit.wasDisturbed { show(.idle) } else {
                 show(.failed(reason: AIError.emptyReply.message(for: configuration?.kind), offersSettings: false))
             }
-            focusCard()
+            if keyboardWasHere { focusCard() }
             return
         }
         isOpen = false
@@ -403,13 +420,15 @@ final class WriteSession {
         removeClickMonitor()
         card.dismiss()
         field.cardDidChange(isOpen: false)
-        textView.window?.makeFirstResponder(textView)
+        // The caret waits after the reply; the keyboard goes to it only from the card or the field.
+        if keyboardWasHere { textView.window?.makeFirstResponder(textView) }
         Self.logger.debug("Help Me Write committed \(reply.count, privacy: .public) characters")
         onClose?()
     }
 
     /// The write failed: the field as it was, and the card says why in words (never the request or the reply).
     private func fail(_ error: AIError) {
+        let keyboardWasHere = keyboardIsHere
         if let edit, !edit.isFinished {
             edit.rollback()
             field?.streamDidUpdate()
@@ -423,7 +442,7 @@ final class WriteSession {
         }
         let reason = error.message(for: configuration?.kind)
         show(.failed(reason: reason, offersSettings: error.needsSettings))
-        focusCard()
+        if keyboardWasHere { focusCard() }
         QuireAccessibility.announce(WriteCardView.failureWords + ". " + reason, from: card)
     }
 

@@ -57,11 +57,18 @@ final class ComposerWriteField: WriteField {
         return NSRange(location: 0, length: end)
     }
 
-    /// The selection keeps its own style (bold stays bold); a reply in place of the notes is set as typed text is.
+    /// The selection keeps its own style (bold stays bold), also when the reply goes between its own leading and trailing
+    /// space and line breaks (a triple-clicked paragraph): read from the text where the reply goes, which typing attributes
+    /// may not have caught up with (a style applied to the selection after it was made), less the marks typing never
+    /// carries. A reply in place of the notes is set as typed text is.
     func writeAttributes(at range: NSRange) -> [NSAttributedString.Key: Any] {
         guard let editor else { return [:] }
-        if range.length > 0, range == editor.selectedRange() { return editor.typingAttributes }
-        return ComposeTextView.defaultTypingAttributes(at: editor.textSize)
+        let selection = editor.selectedRange()
+        guard range.length > 0, selection.length > 0, NSIntersectionRange(range, selection) == range,
+              let storage = editor.textStorage, range.location < storage.length else {
+            return ComposeTextView.defaultTypingAttributes(at: editor.textSize)
+        }
+        return ComposeTextView.typingSafe(storage.attributes(at: range.location, effectiveRange: nil))
     }
 
     func cardFrame(size: NSSize, anchoredTo range: NSRange) -> NSRect {

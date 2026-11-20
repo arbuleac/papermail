@@ -89,9 +89,10 @@ final class HelpMeWrite {
         }
     }
 
-    /// The environment is going away: every write stops, and every CLI it started has ended before this returns.
+    /// The environment is going away: every write stops, none starts after this (a card still building what it sends
+    /// ends as stopped), and every CLI it started has ended before this returns; the runner starts no other.
     func shutdown() async {
-        writer.stopAll()
+        writer.shutDown()
         await endProcesses()
     }
 
@@ -102,16 +103,23 @@ final class HelpMeWrite {
         forcesOff ? nil : configurationOverride ?? settings?.aiConfiguration(demo: isDemo)
     }
 
-    /// Whether a conversation may go to `kind`: the user allowed it (in the demo, in the demo). The demo writer itself
-    /// needs nothing, since nothing leaves the Mac.
+    /// Whether a conversation may go to `kind`: the user allowed it (in the demo, in the demo, and for a CLI the demo runs
+    /// for real, on that CLI's own sheet). The demo writer itself needs nothing, since nothing leaves the Mac.
     func hasConsent(for kind: AIProviderKind) -> Bool {
         if kind == .demo || consentOverride.contains(kind) { return true }
-        return settings?.hasAIConsent(for: kind, demo: isDemo) ?? false
+        return settings?.hasAIConsent(for: kind, demo: isDemo, live: sendsFromTheDemo(kind)) ?? false
     }
 
-    /// The consent sheet's Allow.
+    /// The consent sheet's Allow, kept where it was given: an Allow on the demo's “Nothing is sent” sheet never stands for
+    /// a send.
     func recordConsent(for kind: AIProviderKind) {
-        settings?.setAIConsent(true, for: kind, demo: isDemo)
+        settings?.setAIConsent(true, for: kind, demo: isDemo, live: sendsFromTheDemo(kind))
+    }
+
+    /// The demo sends the conversation with `kind`: one of its CLIs run for real (`--live-ai-clis`). Its Allows are kept
+    /// apart from the made-up demo's (`AppSettings.liveDemoAIConsent`).
+    func sendsFromTheDemo(_ kind: AIProviderKind) -> Bool {
+        isDemo && !makesUpReplies(for: kind)
     }
 
     /// Whether a write with `kind` is made up on this Mac by the demo's writer: in the demo, unless its CLIs run for

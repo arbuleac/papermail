@@ -68,6 +68,9 @@ final class AppSettings: ObservableObject {
         static let aiConsent = "aiConsent"
         /// The demo's own, so an Allow given where nothing leaves the Mac never stands for the user's real mail.
         static let demoAIConsent = "aiConsent.demo"
+        /// The demo's Allows for a CLI it runs for real (`--live-ai-clis`), apart again: an Allow on the demo's “Nothing
+        /// is sent” sheet never stands for a send.
+        static let liveDemoAIConsent = "aiConsent.demo.live"
         /// The demo's provider, models and CLIs, kept apart for the same reason: a choice made while trying the demo
         /// never turns Help Me Write on for the user's own mail.
         static let demoAIProvider = "aiProvider.demo"
@@ -324,6 +327,10 @@ final class AppSettings: ObservableObject {
     /// The demo's Allows, kept apart: nothing leaves the Mac there, so they never stand for the user's real mail.
     @Published private(set) var demoAIConsent: Set<AIProviderKind>
 
+    /// The demo's Allows for its CLIs run for real (`--live-ai-clis`): the conversation does leave the Mac there, so an
+    /// Allow given where replies are made up never counts for them.
+    @Published private(set) var liveDemoAIConsent: Set<AIProviderKind>
+
     /// What Help Me Write uses now for the user's own mail, or nil while it is off.
     var aiConfiguration: AIProviderConfiguration? { aiConfiguration(demo: false) }
 
@@ -371,22 +378,27 @@ final class AppSettings: ObservableObject {
         if let value { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) }
     }
 
-    /// Whether the user allowed `kind` to receive a conversation: the demo's Allows in the demo, the real ones elsewhere.
-    func hasAIConsent(for kind: AIProviderKind, demo: Bool) -> Bool {
-        (demo ? demoAIConsent : aiConsent).contains(kind)
+    /// Whether the user allowed `kind` to receive a conversation: the demo's Allows in the demo (`live`: those for a CLI the
+    /// demo runs for real), the real ones elsewhere.
+    func hasAIConsent(for kind: AIProviderKind, demo: Bool, live: Bool = false) -> Bool {
+        if !demo { return aiConsent.contains(kind) }
+        return (live ? liveDemoAIConsent : demoAIConsent).contains(kind)
     }
 
     /// The consent sheet's Allow (`given`), or Settings › AI's Forget, which makes the sheet ask again next time.
-    func setAIConsent(_ given: Bool, for kind: AIProviderKind, demo: Bool) {
-        var kinds = demo ? demoAIConsent : aiConsent
+    func setAIConsent(_ given: Bool, for kind: AIProviderKind, demo: Bool, live: Bool = false) {
+        var kinds = !demo ? aiConsent : live ? liveDemoAIConsent : demoAIConsent
         if given { kinds.insert(kind) } else { kinds.remove(kind) }
         let stored = kinds.map(\.rawValue).sorted()
-        if demo {
-            demoAIConsent = kinds
-            defaults.set(stored, forKey: Key.demoAIConsent)
-        } else {
+        if !demo {
             aiConsent = kinds
             defaults.set(stored, forKey: Key.aiConsent)
+        } else if live {
+            liveDemoAIConsent = kinds
+            defaults.set(stored, forKey: Key.liveDemoAIConsent)
+        } else {
+            demoAIConsent = kinds
+            defaults.set(stored, forKey: Key.demoAIConsent)
         }
     }
 
@@ -483,6 +495,7 @@ final class AppSettings: ObservableObject {
         demoAICLIPaths = Self.storedValues(defaults, prefix: Key.demoAICLIPathPrefix)
         aiConsent = Self.storedKinds(defaults, Key.aiConsent)
         demoAIConsent = Self.storedKinds(defaults, Key.demoAIConsent)
+        liveDemoAIConsent = Self.storedKinds(defaults, Key.liveDemoAIConsent)
         applyUndoSendDelay()
         ConversationViewController.loadRemoteImages = loadRemoteImages
     }

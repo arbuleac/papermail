@@ -204,7 +204,7 @@ final class AISettingsModel: ObservableObject {
     /// Forget: the consent sheet asks again the next time Help Me Write is used with this provider.
     func forgetConsent() {
         guard let provider, !isSnapshot else { return }
-        settings.setAIConsent(false, for: provider, demo: center.isDemo)
+        settings.setAIConsent(false, for: provider, demo: center.isDemo, live: center.sendsFromTheDemo(provider))
         hasConsent = false
     }
 

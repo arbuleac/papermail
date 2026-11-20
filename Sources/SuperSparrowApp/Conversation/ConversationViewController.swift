@@ -115,6 +115,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
                 scheduleMarkRead(for: id)
                 scheduleAcknowledge(for: id)
             } else if !isOnScreen {
+                // Help me write's card belongs to a bar on screen (§5.55): it closes, a reply streaming in put back.
+                closeWriteCard()
                 markReadTimer?.invalidate()
                 markReadTimer = nil
                 acknowledgeTimer?.invalidate()
@@ -341,6 +343,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         // Text set from outside the field (a restore, a parked draft, a clear) never lands under a reply streaming in:
         // the card closes first and the field is put back as it was (§5.55).
         quickReply.willReplaceText = { [weak self] in self?.closeWriteCard() }
+        quickReply.willHideText = { [weak self] in self?.closeWriteCard() }
         quickReply.onHeightChange = { [weak self] _ in
             self?.applyBottomInset()
             self?.writeSession?.fieldDidMove()
