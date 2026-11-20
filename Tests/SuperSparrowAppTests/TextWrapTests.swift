@@ -263,6 +263,32 @@ final class TextWrapTests: XCTestCase {
         bar.text = ""
     }
 
+    /// Blurring a bar of wrapped lines glides it back to rest (spec §4.10): the text wraps again at the rest width as the
+    /// bar lays out, and that must not set the bar's height at once and cut the glide short.
+    func testBlurringAWrappedQuickReplyGlidesToRest() throws {
+        let environment = QuireEnvironment.shared
+        let saved = environment.overrides
+        defer { environment.setOverrides(saved) }
+        environment.setOverrides(.init(isGraphite: false, increaseContrast: false, reduceMotion: false, reduceTransparency: false))
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let bar = mainWindowBar(harness)
+        type(String(Self.paragraph.prefix(200)), into: bar.writingTextView)
+        assertBarFits(bar, at: .default, "typed")
+        let focused = bar.frame.height
+        let rest = Quire.Layout.QuickReply.rest
+        bar.blur()
+        var heights: [CGFloat] = []
+        let start = Date()
+        while Date().timeIntervalSince(start) < 0.6 {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+            heights.append(bar.frame.height)
+        }
+        XCTAssertTrue(heights.contains { $0 > rest + 0.5 && $0 < focused - 0.5 }, "the bar passes between its heights: \(heights)")
+        XCTAssertEqual(heights.last ?? 0, rest, "and comes to rest")
+        bar.text = ""
+    }
+
     /// Text put in the field from outside (a parked reply coming back) wraps as typed text does.
     func testARestoredQuickReplyWraps() throws {
         let harness = try MainWindowHarness()

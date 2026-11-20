@@ -565,9 +565,10 @@ final class QuickReplyView: NSView, QuirePointerTarget {
         let trailing = toolRow ? m.focusedTrailing : m.restTrailing
         let textWidth = max(0, field.width - m.textX - trailing)
         // A new width (the window resized, the tool row in or out) wraps the text again: the bar takes the lines it now
-        // needs, and the caret stays in view.
+        // needs, and the caret stays in view. Only while it looks focused: at rest the bar is one line whatever the
+        // wrap, and blurring lays out mid-glide, where setting the height at once would cut the glide short.
         let rewrapped = fitTextWidth()
-        if rewrapped { updateHeight(animated: false) }
+        if rewrapped, looksFocused { updateHeight(animated: false) }
         let lines = looksFocused ? lineCount : 1
         scrollView.frame = NSRect(x: field.minX + m.textX, y: field.minY + m.fieldPadTop, width: textWidth, height: CGFloat(lines) * lineHeight)
         textView.frame.size.width = scrollView.contentSize.width
