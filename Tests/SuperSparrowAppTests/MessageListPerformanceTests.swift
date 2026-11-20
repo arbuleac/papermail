@@ -9,7 +9,7 @@ import XCTest
 ///
 ///     SS_PERF=1 swift test -c release --filter MessageListPerformanceTests
 ///
-/// `SS_LIST_PERF_MESSAGES` overrides the mailbox size (100,000 messages by default).
+/// The mailbox is `PerfMailboxSupport`'s (300,000 messages; `SS_PERF_MESSAGES` sets another size, `SS_PERF_RETENTION=1year` Keep mail).
 @MainActor
 final class MessageListPerformanceTests: XCTestCase {
     private typealias Support = ListTestSupport
@@ -19,22 +19,15 @@ final class MessageListPerformanceTests: XCTestCase {
         guard environment["SS_PERF"] == "1" else {
             throw XCTSkip("set SS_PERF=1 to run the list benchmark")
         }
-        let messageCount = Int(environment["SS_LIST_PERF_MESSAGES"] ?? "") ?? 100_000
+        let messageCount = PerfMailboxSupport.messageCount
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("MessageListPerformanceTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let store = try SQLiteMailStore(path: directory.appendingPathComponent("mail.sqlite").path)
-        try store.upsertAccount(Support.accountA)
-        try store.upsertAccount(Support.accountB)
-        // Two threads of one to three messages per hour: about a year and a half of mail for 100,000 messages.
-        let messages = Support.messages(threads: messageCount / 2, now: Date(), spacing: 1_800)
-        var index = 0
-        while index < messages.count {
-            let end = min(index + 200, messages.count)
-            try store.upsertMessages(Array(messages[index..<end]))
-            index = end
-        }
+        let path = directory.appendingPathComponent("mail.sqlite").path
+        try PerfMailboxSupport.install(at: path)
+        let store = try SQLiteMailStore(path: path)
+        print("SS_PERF list mailbox: \(PerfMailboxSupport.label)")
 
         let (list, window) = Support.host(store: store, settings: Support.settings(), size: NSSize(width: 380, height: 760))
         XCTAssertEqual(list.conversations.count, 200)

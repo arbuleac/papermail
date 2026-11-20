@@ -101,8 +101,9 @@ actor StorageSweeper {
 
     /// Evicts batch after batch, oldest mail first, until none is left. Returns how many bodies went.
     ///
-    /// Each batch starts where the last one stopped, so a sweep reads the mailbox once: about 20 seconds of reads for
-    /// 300,000 messages, where starting again from the oldest every batch took a quarter of an hour. The window and the kept bodies are read as each batch looks for candidates and again
+    /// Each batch starts where the last one stopped, so a sweep reads the mailbox once: 4 to 5 seconds in all for
+    /// 300,000 messages, half of them evicted (roadmap Q4.3), where starting again from the oldest every batch took a
+    /// quarter of an hour. The window and the kept bodies are read as each batch looks for candidates and again
     /// inside its write: a user who picks a longer window or Everything meanwhile keeps what it keeps, since widening
     /// never fetches back, and a body the reader marks while a batch is under way stays whole.
     private func evict() async -> Int {

@@ -13,7 +13,7 @@ import XCTest
 ///
 ///     SS_PERF=1 swift test -c release --filter TextSizePerformanceTests
 ///
-/// `SS_LIST_PERF_MESSAGES` overrides the mailbox size (100,000 messages by default).
+/// The mailbox is `PerfMailboxSupport`'s (300,000 messages; `SS_PERF_MESSAGES` sets another size, `SS_PERF_RETENTION=1year` Keep mail).
 @MainActor
 final class TextSizePerformanceTests: XCTestCase {
     private typealias Support = ListTestSupport
@@ -28,18 +28,10 @@ final class TextSizePerformanceTests: XCTestCase {
         guard environment["SS_PERF"] == "1" else {
             throw XCTSkip("set SS_PERF=1 to run the Text size benchmark")
         }
-        let messageCount = Int(environment["SS_LIST_PERF_MESSAGES"] ?? "") ?? 100_000
-        let harness = try MainWindowHarness(threads: 1)
+        let harness = try MainWindowHarness(threads: 1, perfMailbox: true)
         defer { harness.close() }
         let store = harness.environment.store
-        // Two threads of one to three messages per hour: about a year and a half of mail for 100,000 messages.
-        let messages = Support.messages(threads: messageCount / 2, now: Date(), spacing: 1_800)
-        var index = 0
-        while index < messages.count {
-            let end = min(index + 2_000, messages.count)
-            try store.upsertMessages(Array(messages[index..<end]))
-            index = end
-        }
+        print("SS_PERF textSize mailbox: \(PerfMailboxSupport.label)")
         // The first three conversations, the one opened and the two pre-rendered beside it, grow to 30 messages each.
         for thread in 0..<3 {
             try lengthen(thread: thread, to: 30, in: store)

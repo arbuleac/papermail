@@ -11,7 +11,8 @@ import XCTest
 ///
 ///     SS_PERF=1 swift test -c release --filter ReaderWindowPerformanceTests
 ///
-/// The windows open off to the side of the screens, over a throwaway store; nothing reaches the network or the user's mail.
+/// On the benchmarks' mailbox (`PerfMailboxSupport`, 300,000 messages). The windows open off to the side of the screens,
+/// over a throwaway store; nothing reaches the network or the user's mail.
 @MainActor
 final class ReaderWindowPerformanceTests: XCTestCase {
     private static let windows = 10
@@ -21,7 +22,8 @@ final class ReaderWindowPerformanceTests: XCTestCase {
             throw XCTSkip("set SS_PERF=1 to run the reader-window benchmark")
         }
         UserDefaults.standard.removeObject(forKey: "ReaderWindowSize")
-        let harness = try MainWindowHarness(threads: Self.windows + 2)
+        let harness = try MainWindowHarness(perfMailbox: true)
+        print("SS_PERF reader window mailbox: \(PerfMailboxSupport.label)")
         defer { harness.close() }
         let store = harness.environment.store
         let all = harness.list.conversations.prefix(Self.windows + 1).map(\.id)

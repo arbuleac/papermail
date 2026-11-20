@@ -9,9 +9,9 @@ import XCTest
 /// moving it. The conversation's context is read off the main thread, so the column follows one hop after the list; what
 /// the calendar adds to a step on the main thread (the selection handed over, the context landing, the column turning,
 /// refitting and drawing, measured as the main thread's CPU time) is added to the key's own work (the list's move and the
-/// reader's part of it) for the budget. The whole window, over its SQLite store, with a few thousand events around the
-/// shown weeks. Gated, as the list's benchmark is; every build prints what it measured, and the budgets are asserted in
-/// release builds:
+/// reader's part of it) for the budget. The whole window, over its SQLite store holding the benchmarks' mailbox
+/// (`PerfMailboxSupport`, 300,000 messages), with a few thousand events around the shown weeks. Gated, as the list's
+/// benchmark is; every build prints what it measured, and the budgets are asserted in release builds:
 ///
 ///     SS_PERF=1 swift test -c release --filter MainWindowCalendarPerformanceTests
 @MainActor
@@ -23,7 +23,8 @@ final class MainWindowCalendarPerformanceTests: XCTestCase {
             throw XCTSkip("set SS_PERF=1 to run the main window's calendar benchmark")
         }
         let clock = Support.Clock()
-        let harness = try MainWindowHarness(threads: 40, calendar: Support.calendar, now: { clock.now })
+        let harness = try MainWindowHarness(calendar: Support.calendar, now: { clock.now }, perfMailbox: true)
+        print("SS_PERF main window calendar mailbox: \(PerfMailboxSupport.label)")
         defer { harness.close() }
         let controller = harness.controller
         let store = harness.environment.store

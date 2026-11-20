@@ -6,7 +6,8 @@ import SSCore
 ///
 /// Threads have 2 to 8 messages spread over the two years before `Options.now`, senders come from a fixed
 /// pool of contacts, about 30 percent of received mail is unread, 5 percent starred, and a few threads sit
-/// in trash or spam.
+/// in trash or spam. With `graphFolderCount` set, a Microsoft account's archived mail is filed in that many folders of
+/// its own, a thread to a folder, as a Graph mailbox sorted by client and year is.
 public struct SyntheticMailbox: Sendable {
     public struct Options: Sendable {
         public var seed: UInt64 = 42
@@ -21,6 +22,9 @@ public struct SyntheticMailbox: Sendable {
         public var draftFraction = 0.02
         public var attachmentFraction = 0.10
         public var focusedFraction = 0.60
+        /// Folders a Microsoft account files its archived mail in (`MessageMetadata.folderID` "folder-000" onwards);
+        /// 0 leaves it in no folder, as before. Chosen from the thread's index, so the rest of the mailbox is the same.
+        public var graphFolderCount = 0
         public init() {}
     }
 
@@ -31,12 +35,22 @@ public struct SyntheticMailbox: Sendable {
     /// The contact pool senders and recipients are drawn from.
     public let contacts: [EmailAddress]
 
-    public init(seed: UInt64 = 42, accountCount: Int = 2, messageCount: Int = 1_000) {
+    public init(seed: UInt64 = 42, accountCount: Int = 2, messageCount: Int = 1_000, graphFolderCount: Int = 0) {
         var options = Options()
         options.seed = seed
         options.accountCount = accountCount
         options.messageCount = messageCount
+        options.graphFolderCount = graphFolderCount
         self.init(options: options)
+    }
+
+    /// The custom folders the Microsoft accounts file archived mail in, as `graphFolderCount` names them.
+    public var graphFolderIDs: [String] {
+        (0..<options.graphFolderCount).map(Self.graphFolderID)
+    }
+
+    private static func graphFolderID(_ index: Int) -> String {
+        String(format: "folder-%03d", index)
     }
 
     public init(options: Options) {
@@ -201,7 +215,10 @@ public struct SyntheticMailbox: Sendable {
                 inboxSection: section,
                 hasAttachments: hasAttachments,
                 labelIDs: account.kind == .gmail ? roles.map { $0.rawValue.uppercased() }.sorted() : [],
-                folderID: account.kind == .microsoft ? roles.first.map { $0.rawValue } : nil,
+                folderID: account.kind == .microsoft
+                    ? roles.first.map { $0.rawValue }
+                        ?? (options.graphFolderCount > 0 ? graphFolderID(index % options.graphFolderCount) : nil)
+                    : nil,
                 providerVersion: "v\(ordinal)",
                 sizeBytes: Int.random(in: 2_000...90_000, using: &generator)
             )

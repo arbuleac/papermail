@@ -627,18 +627,81 @@ final class SQLiteMailStoreTests: XCTestCase {
 
         let search = try store.queryPlan(for: ConversationQuery(view: .inbox, searchText: "budget"))
         XCTAssertTrue(search.contains { $0.contains("VIRTUAL TABLE INDEX") }, "hits come from FTS5: \(search)")
-        // The hits become conversation keys through one scan of the covering index, never a table lookup per hit,
-        // whether the search keeps what matches or, all its words negated, what does not.
-        // What a search of the server found is a second test in the same scan, not a plan of its own.
         let found: Set<ConversationID> = [ConversationID(accountID: accountA, providerID: "c"),
                                           ConversationID(accountID: accountB, providerID: "d")]
-        for text in ["budget", "-budget", "from:alice is:unread -budget"] {
+        for text in ["budget", "-budget", "from:alice is:unread -budget", "in:trash budget"] {
             for matches in [[], found] {
-                let plan = try store.queryPlan(for: ConversationQuery(view: .inbox, searchText: text, serverMatches: matches))
-                XCTAssertTrue(plan.contains { $0.contains("COVERING INDEX messages_by_conversation") }, "\(text): \(plan)")
-                XCTAssertFalse(plan.contains { $0.contains("INTEGER PRIMARY KEY") }, "\(text): \(plan)")
-                XCTAssertEqual(plan.filter { $0.contains("USE TEMP B-TREE FOR DISTINCT") }, [], "\(text): \(plan)")
+                let query = ConversationQuery(view: .inbox, searchText: text, serverMatches: matches)
+                // Newest first: the conversations in the date index's order, its flags turning away what the view and the
+                // operators leave out, each asked through the covering index whether one of its messages is in the set;
+                // no table lookup per hit and no sort of every result, so the walk stops at the page.
+                let walk = try store.queryPlan(for: query, plan: .newestFirst)
+                XCTAssertTrue(walk.contains { $0.hasPrefix("SCAN c USING") && $0.hasSuffix("INDEX conversations_latest") }, "\(text): \(walk)")
+                XCTAssertTrue(walk.contains { $0.contains("COVERING INDEX messages_by_conversation") }, "\(text): \(walk)")
+                XCTAssertFalse(walk.contains { $0.contains("INTEGER PRIMARY KEY") }, "\(text): \(walk)")
+                XCTAssertFalse(walk.contains { $0.contains("USE TEMP B-TREE FOR ORDER BY") }, "\(text): \(walk)")
+                // Hits first: each hit looked up by its rowid, its conversation by its key. A match with every term
+                // negated describes what does not match, so it walks whatever the plan asked for.
+                let hits = try store.queryPlan(for: query, plan: .hitsFirst)
+                if text == "-budget" {
+                    XCTAssertEqual(hits, walk, "\(text)")
+                } else {
+                    XCTAssertTrue(hits.contains { $0.contains("SEARCH m USING INTEGER PRIMARY KEY") }, "\(text): \(hits)")
+                    XCTAssertTrue(hits.contains { $0.contains("sqlite_autoindex_conversations_1") }, "\(text): \(hits)")
+                    XCTAssertFalse(hits.contains { $0.hasPrefix("SCAN c") }, "\(text): \(hits)")
+                }
             }
         }
+        // A search of the row operators alone sorts by the latest message, so it walks the date index too, not the
+        // Inbox's own, which would read and sort every conversation in the Inbox.
+        let operators = try store.queryPlan(for: ConversationQuery(view: .inbox, searchText: "in:inbox is:unread"))
+        XCTAssertTrue(operators.contains { $0.hasPrefix("SCAN c USING") && $0.hasSuffix("INDEX conversations_latest") }, "\(operators)")
+        XCTAssertFalse(operators.contains { $0.contains("USE TEMP B-TREE FOR ORDER BY") }, "\(operators)")
+    }
+
+    /// Each search takes the plan whose cost stays small (`ConversationTable.SearchPlan`), so every plan must find the
+    /// same rows in the same order: whatever the walk's length (the newest conversations walked and the older rest looked
+    /// up from the hits, split anywhere), on any page, with what a search of the server found, and with the operators.
+    func testEverySearchPlanFindsTheSameRows() throws {
+        let store = try SQLiteMailStore.inMemory()
+        let mailbox = SyntheticMailbox(seed: 3, accountCount: 3, messageCount: 1_500)
+        for account in mailbox.accounts { try store.upsertAccount(account) }
+        for batch in mailbox.batches(of: 200) {
+            try store.upsertMessages(batch)
+            try store.saveBodies(batch.map { (id: $0.id, body: mailbox.body(for: $0)) })
+        }
+        let everything = try store.conversations(ConversationQuery(view: .all, limit: .max))
+        let found = Set(stride(from: 0, to: everything.count, by: 37).map { everything[$0].id })
+        let texts = ["spreadsheet", "spre", "nakam", "from:nakamura", "to:owner", "quarterly bud", "-invoice", "budget -spreadsheet",
+                     "in:trash budget", "is:unread meeting", "has:attachment -from:nakamura", "subject:\"budget review\"", "zzzq",
+                     "before:2025-01-01 thanks", "in:sent agenda"]
+        var compared = 0
+        for text in texts {
+            for matches in [[], found] {
+                for scope in [nil, [mailbox.accounts[1].id]] {
+                    var query = ShellQuery.make(scope: scope, view: .inbox, searchText: text)
+                    query.serverMatches = matches
+                    query.limit = 25
+                    var expected: [ConversationID]?
+                    // Two pages, the second from the first's last date, as the list pages.
+                    for page in 0..<2 {
+                        let reference = try store.conversations(query, plan: .hitsFirst, walkLimit: 0).map(\.id)
+                        if page == 0 { expected = reference }
+                        for plan in [ConversationTable.SearchPlan.newestFirst, .newestThenHits] {
+                            for walkLimit in [1, 7, 40, 10_000] {
+                                let rows = try store.conversations(query, plan: plan, walkLimit: walkLimit).map(\.id)
+                                XCTAssertEqual(rows, reference, "\(text), \(plan), walk \(walkLimit), page \(page), \(matches.count) found")
+                                compared += 1
+                            }
+                        }
+                        XCTAssertEqual(try store.conversations(query).map(\.id), reference, "\(text): the plan fetch chooses")
+                        guard let last = try store.conversations(query).last else { break }
+                        query.before = last.latestDate
+                    }
+                    if text != "zzzq" { XCTAssertFalse(expected?.isEmpty ?? true, "\(text) finds something") }
+                }
+            }
+        }
+        XCTAssertGreaterThan(compared, 900)
     }
 }

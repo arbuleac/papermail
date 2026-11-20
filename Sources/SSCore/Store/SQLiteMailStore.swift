@@ -301,7 +301,10 @@ public final class SQLiteMailStore: MailStoring, MailStoreMaintenance, Sendable 
     @discardableResult
     public func queueLookups(accountID: AccountID, inFolders folderIDs: [String]) throws -> Int {
         guard !folderIDs.isEmpty else { return 0 }
-        return try write { try LookupQueue.queue(accountID: accountID, folderIDs: folderIDs, in: $0) }
+        // The scan on a reader, the inserts by key in the write, so the writer is held for the folder's messages alone.
+        let found = try read { try LookupQueue.messages(accountID: accountID, inFolders: folderIDs, in: $0) }
+        guard !found.isEmpty else { return 0 }
+        return try write { try LookupQueue.queue(accountID: accountID, providerIDs: found, inFolders: folderIDs, in: $0) }
     }
 
     public func queuedLookups(accountID: AccountID, limit: Int) throws -> [String: Int] {
@@ -661,9 +664,20 @@ public final class SQLiteMailStore: MailStoring, MailStoreMaintenance, Sendable 
         try read { try BodyEviction.explainCandidates(in: $0) }
     }
 
-    /// SQLite's plan for a list query, one line per step, so tests can pin the inbox to its index.
-    func queryPlan(for query: ConversationQuery) throws -> [String] {
-        try read { try ConversationTable.explain(query, in: $0) }
+    /// SQLite's plan for a list query, one line per step, so tests can pin the inbox to its index. A search takes the
+    /// plan its hits choose, or `plan`.
+    func queryPlan(for query: ConversationQuery, plan: ConversationTable.SearchPlan? = nil) throws -> [String] {
+        try read { try ConversationTable.explain(query, plan: plan, in: $0) }
+    }
+
+    /// The query answered through `plan`, its walk `walkLimit` conversations long where it has one.
+    func conversations(_ query: ConversationQuery, plan: ConversationTable.SearchPlan, walkLimit: Int) throws -> [ConversationSummary] {
+        try read { try ConversationTable.fetch(query, plan: plan, walkLimit: walkLimit, in: $0) }
+    }
+
+    /// The plan a search takes on this mailbox, nil for one without full-text terms.
+    func searchPlan(for query: ConversationQuery) throws -> ConversationTable.SearchPlan? {
+        try read { try ConversationTable.searchPlan(for: query, in: $0) }
     }
 
     /// SQLite's plan for the calendar's range read, one line per step, so tests can pin it to the time index.

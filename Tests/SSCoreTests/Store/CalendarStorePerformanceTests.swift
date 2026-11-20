@@ -5,7 +5,8 @@ import SSCore
 /// whole window (CalendarWindow.around) and a year of history before it: a read of an account's calendar writes its 500
 /// events within 50 ms (the first time, which also prunes the account's history to 30 days behind the window, again
 /// unchanged two minutes later, and with a few changed), and the day column's or the week's read of seven days, about 250
-/// events, takes under 5 ms. Only with `SS_PERF=1`:
+/// events, takes under 5 ms. The file holds the synthetic mailbox too (`PerfMailbox`, 300,000 messages), and the reads
+/// and an unchanged write are measured again after a sweep to Keep mail at 1 year. Only with `SS_PERF=1`:
 ///
 ///     SS_PERF=1 swift test --filter CalendarStorePerformanceTests
 final class CalendarStorePerformanceTests: XCTestCase {
@@ -21,6 +22,8 @@ final class CalendarStorePerformanceTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = try SQLiteMailStore(path: directory.appendingPathComponent("mail.sqlite").path)
         defer { try? store.close() }
+        let mailbox = PerfMailbox.make()
+        _ = try PerfMailbox.load(mailbox, into: store)
 
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "Europe/Berlin") ?? .current
@@ -74,6 +77,15 @@ final class CalendarStorePerformanceTests: XCTestCase {
         let today = try median(runs: 15) { try store.calendarEvents(in: day, accountIDs: nil) }
         report("today, every account (\(today.value.count) events)", today.milliseconds)
         XCTAssertLessThan(today.milliseconds, 5)
+
+        // Keep mail at 1 year: the sweep leaves the calendar alone, and the file it leaves serves the same reads.
+        _ = try PerfMailbox.sweep(store, to: PerfMailbox.oneYearCutoff(mailbox))
+        let unchangedAfter = try median(runs: 9) { try store.replaceCalendarEvents(read, accountID: accounts[0], window: window) }
+        report("1 year: the next read, nothing changed", unchangedAfter.milliseconds)
+        XCTAssertLessThan(unchangedAfter.milliseconds, 50, "calendar budget: a read's store write of 500 events")
+        let allAfter = try median(runs: 15) { try store.calendarEvents(in: week, accountIDs: nil) }
+        report("1 year: seven days of every account (\(allAfter.value.count) events)", allAfter.milliseconds)
+        XCTAssertLessThan(allAfter.milliseconds, 5, "the calendar's share of D or W to the calendar on screen")
     }
 
     // MARK: Fixtures
