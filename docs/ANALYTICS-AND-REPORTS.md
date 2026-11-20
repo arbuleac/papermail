@@ -139,7 +139,7 @@ Every signal carries `mode` (`demo` or `accounts`: which mailbox was on screen) 
 | `Undo.used` | A step taken back: Z, ⌘Z, Edit › Undo or a toast's Undo. | `trigger` |
 | `Account.added` | An account is added (the demo replaced included). | `provider` |
 | `Account.removed` | An account is removed. | `provider` |
-| `HelpMeWrite.used` | A Help me write write ends: its reply is in, it was stopped (Stop, Esc, the card closing) or it failed. One per Write, never at ⌘J, and none for a reply the demo makes up on this Mac (its sheet says nothing is sent). | `aiProvider`, `ending` |
+| `HelpMeWrite.used` | A Help me write write ends: its reply is in, it was stopped (Stop, Esc, the reply going away) or it failed. One per write (⌘J, Write, a chip, Try again), never as the field is focused, and none for a reply the demo makes up on this Mac (its sheet says nothing is sent). | `aiProvider`, `ending` |
 | `Performance.listRefresh` | The list applies a change from the store (`list.refresh`). One in 20, at most 20 of each kind an hour. Its number is milliseconds. | `duration` |
 | `Performance.conversationOpen` | A conversation shows in the reader (`conversation.show`). Sampled as above. | `duration` |
 | `Performance.search` | A search's first page is in the list (`list.search`). Sampled as above. | `duration` |
