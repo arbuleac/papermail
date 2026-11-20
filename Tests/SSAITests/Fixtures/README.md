@@ -21,6 +21,9 @@ ray ids. The account's email, organisation id and name were redacted at capture 
 | `codex-exec-signed-out.jsonl` | `codex exec --json …` (recipe in cli.md §C.2) while signed out: `thread.started`, `turn.started`, transient top-level `error` retry notices, an `item.completed` with `item.type:"error"`, then terminal `turn.failed`. Exit 1 after 16.99 s. Success shapes (`agent_message`, `turn.completed`) were not capturable: write those fixtures by hand from the documented schema and name them `*-synthetic.jsonl`. |
 | `codex-exec-signed-out.stderr.txt` | Its stderr (seven 401 lines). |
 | `codex-login-status-signed-out.stderr.txt` | `codex login status` signed out: this on stderr, stdout empty, exit 1. Signed in is exit 0. |
+| `codex-exec-synthetic.jsonl` | **Synthetic** (written by hand from the documented `exec --json` schema; not recorded, Codex was signed out): a successful run, `thread.started`, `turn.started`, a `reasoning` item, the `agent_message` item with the whole reply, `turn.completed` with usage. Re-capture once signed in. |
+| `codex-exec-usage-limit-synthetic.jsonl` | **Synthetic**: the ChatGPT plan's limit, a top-level `error` notice then `turn.failed` with “You've hit your usage limit…”. Exit 1. |
+| `codex-features-list-synthetic.txt` | **Synthetic**: `codex features list` (`name  stage  effective`) with the 0.163.0 feature names cli.md §C.1 lists. |
 
 ## openai/ (live, unauthenticated probes; the streams and other errors synthetic)
 

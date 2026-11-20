@@ -1,0 +1,35 @@
+apps                              stable              true
+browser_use                       experimental        true
+browser_use_external              experimental        true
+browser_use_full_cdp_access       experimental        true
+code_mode_host                    stable              true
+computer_use                      experimental        true
+enable_mcp_apps                   under development   false
+fast_mode                         stable              true
+goals                             experimental        true
+hooks                             stable              true
+image_generation                  stable              true
+in_app_browser                    experimental        true
+memories                          experimental        false
+multi_agent                       stable              true
+multi_agent_v2                    under development   false
+plugin_sharing                    experimental        true
+plugins                           stable              true
+realtime_conversation             experimental        true
+recommended_plugins               under development   false
+remote_plugin                     experimental        true
+shell_snapshot                    stable              true
+shell_tool                        stable              true
+skill_mcp_dependency_install      experimental        true
+skill_search                      experimental        true
+sleep_tool                        experimental        true
+tool_call_mcp_elicitation         experimental        true
+tool_suggest                      experimental        true
+ultrafast_mode                    experimental        true
+unified_exec                      stable              true
+unified_exec_tty                  stable              true
+view_image                        stable              true
+web_search_cached                 deprecated          false
+web_search_request                deprecated          false
+workspace_dependencies            experimental        true
+write_stdin_approval              experimental        true
