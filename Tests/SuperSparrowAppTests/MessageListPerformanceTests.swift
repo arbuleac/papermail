@@ -54,9 +54,11 @@ final class MessageListPerformanceTests: XCTestCase {
         // j/k again with Show account faces on: every row draws its account's paper face (Quire §5.55), from the cache.
         settings.showAccountFaces = true
         window.displayIfNeeded()
-        let rendersBefore = QuireAvatarRenderer.shared.paperFaceRenderCount
+        // The faces are drawn the first time a row shows them, in the warm-up steps; from then on every step reuses them.
+        var rendersAfterWarmUp = 0
         var faceSteps: [Double] = []
         for step in 0..<300 {
+            if step == 5 { rendersAfterWarmUp = QuireAvatarRenderer.shared.paperFaceRenderCount }
             let start = DispatchTime.now()
             if step < 150 { list.selectNext() } else { list.selectPrevious() }
             window.displayIfNeeded()
@@ -67,7 +69,7 @@ final class MessageListPerformanceTests: XCTestCase {
         report("j/k step with faces median", percentile(warmFaceSteps, 0.5))
         report("j/k step with faces p95", percentile(warmFaceSteps, 0.95))
         XCTAssertLessThan(percentile(warmFaceSteps, 0.95), 16, "j/k budget with account faces")
-        XCTAssertEqual(QuireAvatarRenderer.shared.paperFaceRenderCount, rendersBefore, "scrolling renders no face: they are cached")
+        XCTAssertEqual(QuireAvatarRenderer.shared.paperFaceRenderCount, rendersAfterWarmUp, "scrolling renders no face: they are cached")
         settings.showAccountFaces = false
 
         // Refresh after a sync transaction: 200 new replies move threads to the top; read, diff, apply, draw.
