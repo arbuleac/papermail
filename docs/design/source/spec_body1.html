@@ -1,4 +1,5 @@
 <body>
+{{PY: paper_defs()}}
 <div class="page">
 
 <header class="cover">
@@ -24,7 +25,7 @@
   <!-- rail -->
   <div class="rail">
     {{PY: rail_folders(0, 22, later=True)}}
-    {{PY: rail_accounts(800, [('', '<span class="face" style="--a:var(--q-acct-1)"><span>C</span></span><span class="badge">14</span>', 'Contoso · alex@contoso.test  ⌘1'), ('', '<span class="face" style="--a:var(--q-acct-2)"><span>G</span></span><span class="badge">5</span>', 'Gmail · alex.morgan@gmail.com  ⌘2'), ('', '<span class="face" style="--a:var(--q-acct-3)"><span>F</span></span><span class="badge">2</span>', 'Fabrikam · alex@fabrikam.test  ⌘3')], 'sel', 22, later=True)}}
+    {{PY: rail_accounts(800, [('', face(1) + '<span class="badge">14</span>', 'Contoso · alex@contoso.test  ⌘1'), ('', face(2) + '<span class="badge">5</span>', 'Gmail · alex.morgan@gmail.com  ⌘2'), ('', face(3) + '<span class="badge">2</span>', 'Fabrikam · alex@fabrikam.test  ⌘3')], 'sel', 22, later=True)}}
     <div class="rutil" style="bottom:64px">{{PY: s('plus', 15)}}</div>
     <div class="rutil" style="bottom:24px">{{PY: s('gearshape', 15)}}</div>
   </div>
@@ -78,14 +79,14 @@
         <div class="ind ft" style="margin-top:16px"><span class="gb">{{PY: s('arrowshape.turn.up.left', 14)}}Reply</span><span class="gb">{{PY: s('arrowshape.turn.up.left.2', 14)}}Reply all</span><span class="gb">{{PY: s('arrowshape.turn.up.right', 14)}}Forward</span></div>
       </div>
     </div></div>
-    <div class="qr"><div class="qrf"><span class="mono24" style="--a:var(--q-acct-1)"><span>C</span></span><span class="ph">Reply to Ben Carter…</span><span class="kbd">R</span><span class="ib dis" style="margin-left:{{layout.quickReply.restKeycapGap}}px;color:var(--q-inkDisabled)">{{PY: s('paperplane', 15)}}</span></div></div>
+    <div class="qr"><div class="qrf">{{PY: face24(1)}}<span class="ph">Reply to Ben Carter…</span><span class="kbd">R</span><span class="ib dis" style="margin-left:{{layout.quickReply.restKeycapGap}}px;color:var(--q-inkDisabled)">{{PY: s('paperplane', 15)}}</span></div></div>
   </div>
 </div>
 <!-- /figure:main-window -->
 <div class="notes">
   <div><b><i>1</i>The horizon</b>The traffic lights, the masthead, search, compose and the kicker share the centre line y = {{layout.listHeader.mastheadCenterY}}; the list header is that {{layout.listHeader.height}} pt band alone.</div>
   <div><b><i>2</i>The margin rule</b>Selection is the <code>selWash</code> plus a {{border.marginRule.width}} pt Iron Gall rule. Text never inverts, so cached row strings stay valid on j/k. Hover never draws on the selected row.</div>
-  <div><b><i>3</i>Accounts</b>A {{border.accountRing.width}} pt ring in the account ink (unified views), the kicker names the account in words, the rail carries domain monograms, anchored at its foot above Add, under the folders. Distinct colours are promised for six accounts.</div>
+  <div><b><i>3</i>Accounts</b>A {{border.accountRing.width}} pt ring in the account ink (unified views), the kicker names the account in words, the rail carries each account's paper face (§5.55; its domain monogram by choice), anchored at its foot above Add, under the folders. Distinct colours are promised for six accounts.</div>
   <div><b><i>4</i>Unread, three ways</b>The pip, Semibold sender and subject, and the time in Iron Gall Semibold. The queued glyph before 19:02 says the star is applied here and on its way.</div>
 </div>
 

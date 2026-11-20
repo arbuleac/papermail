@@ -48,6 +48,58 @@ def app_icon(px, appearance='default'):
             '<rect width="%g" height="%g" fill="%s"/><g transform="translate(%g %g) scale(%g)">%s</g></svg></span>') % (
         px, A['body'], A['body'], A['body'], A['body'], tile, A['markX'] - inset, A['markY'] - inset, scale, shapes)
 
+# Paper faces (spec §5.55): the art drawn as inline SVG from paper_faces.json, in the papers' Light and Dark values and each
+# lift's shadow, as QuireAvatarRenderer draws it (the shadow's offset and blur are given at `shadowReference` pt and scale
+# with the face, so in the art's units they are fixed).
+PAPER_ART = json.load(open('paper_faces.json'))
+PAPER_FACES = {f['id']: f for f in PAPER_ART['faces']}
+PAPER_ORDER = [f['id'] for f in PAPER_ART['faces']]
+def paper_defs():
+    """Once, before the first face: the papers as CSS variables for Light and Dark, the disc and the lifts' shadows."""
+    P = T.LAYOUT['paperFaces']
+    def vars_(mode, shadow):
+        return ';'.join('--q-paper-%s:%s' % (p['name'], p[mode]) for p in T.PAPERS) + ';--q-paper-shadow:%s' % shadow
+    k = P['artBox'] / P['shadowReference']
+    lifts = ''.join(
+        '<filter id="pf-lift%d" x="-20%%" y="-20%%" width="140%%" height="140%%"><feDropShadow dx="0" dy="%g" stdDeviation="%g" '
+        'style="flood-color:var(--q-paper-shadow)"/></filter>' % (i, P['shadowY'][i] * k, P['shadowBlur'][i] * k / 2)
+        for i in range(1, len(P['shadowY'])))
+    box = P['artBox']
+    return ('<style>:root{%s}@media (prefers-color-scheme:dark){:root{%s}}</style>'
+            '<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><clipPath id="pf-disc">'
+            '<circle cx="%g" cy="%g" r="%g"/></clipPath>%s</defs></svg>') % (
+        vars_('light', P['shadowLight']), vars_('dark', P['shadowDark']), box / 2, box / 2, box / 2, lifts)
+def pf(face_id):
+    """A paper face filling its box: the ground on the disc, then each cut-out bottom first with its lift's shadow."""
+    f = PAPER_FACES[face_id]
+    box = T.LAYOUT['paperFaces']['artBox']
+    layers = ''.join('<path d="%s" style="fill:var(--q-paper-%s)"%s/>' % (
+        l['d'], l['fill'], ' filter="url(#pf-lift%d)"' % l['lift'] if l['lift'] else '') for l in f['layers'])
+    return ('<svg class="pf" viewBox="0 0 %g %g" aria-hidden="true"><g clip-path="url(#pf-disc)">'
+            '<rect width="%g" height="%g" style="fill:var(--q-paper-%s)"/>%s</g></svg>') % (box, box, box, box, f['background'], layers)
+def auto_face(acct):
+    """The face an account wears until it chooses one: its ink slot's place in the order (`--q-acct-N` is slot N − 1)."""
+    return PAPER_ORDER[(acct - 1) % len(PAPER_ORDER)]
+def face(acct, fg=None, face_id=None, cls=''):
+    """An account's 30 pt face with its ring (the rail, the Settings rows, the face button): `fg` is the gap's surface."""
+    style = '--a:var(--q-acct-%d)' % acct + (';--fg:var(--q-%s)' % fg if fg else '')
+    return '<span class="face paper %s" style="%s">%s</span>' % (cls, style, pf(face_id or auto_face(acct)))
+def face24(acct, face_id=None):
+    """The quick reply's 24 pt face with its ring."""
+    return '<span class="mono24 paper" style="--a:var(--q-acct-%d)">%s</span>' % (acct, pf(face_id or auto_face(acct)))
+def face_picker(chosen, acct, monogram, focus=None):
+    """The face picker card (§5.55): the twelve faces, then Monogram; the chosen tile wears the account's ring, the focused
+    one the focus ring outside it."""
+    tiles = ''
+    for i, fid in enumerate(PAPER_ORDER + ['monogram']):
+        cls = ' on' if fid == chosen else ''
+        cls += ' foc' if fid == focus else ''
+        title = PAPER_FACES[fid]['name'] if fid != 'monogram' else 'Monogram'
+        body = pf(fid) if fid != 'monogram' else '<span>%s</span>' % html.escape(monogram)
+        tiles += '<span class="fpt%s%s" title="%s" style="--a:var(--q-acct-%d)">%s</span>' % (
+            cls, ' mono' if fid == 'monogram' else '', html.escape(title), acct, body)
+    return '<div class="fpick">%s</div>' % tiles
+
 ACCT_IDX = {'C': 1, 'G': 2, 'F': 3}
 FOLDERS = [('tray', 'Inbox  G I'), ('star', 'Starred  G S'), ('paperplane', 'Sent  G T'), ('doc', 'Drafts  G D'), ('trash', 'Trash  G #'),
            ('archivebox', 'All Mail  G A')]
@@ -106,7 +158,7 @@ def row(sender, subject, snippet, time, av, initials, acct=None, unread=False, s
     if tag:
         tm += '<span class="tag">%s</span>' % tag
     if initial_tile and acct:
-        tm += '<span class="atile" style="--a:%s">%s</span>' % (ring, acct)
+        tm += account_tile(acct, ring, initial_tile)
     tm += '<span class="t">%s</span>' % time
     cl = ''
     if count >= 2:
@@ -134,7 +186,13 @@ def row_compact(sender, subject, snippet, time, acct=None, unread=False, state='
             '<div class="l1"><span class="snd">%s</span><span class="tm">%s<span class="t">%s</span></span></div>'
             '<div class="l2"><span class="sub">%s</span><span class="sn">\u00a0— %s</span><span class="cl">%s</span></div></div>') % (
         'unread' if unread else '', st, ring, '<i class="pip"></i>' if unread else '', html.escape(sender),
-        (('<span class="atile" style="--a:%s">%s</span>' % (ring, acct)) if initial_tile else '<i class="asq"></i>') if acct else '', time, html.escape(subject), html.escape(snippet), cl)
+        (account_tile(acct, ring, initial_tile) if initial_tile else '<i class="asq"></i>') if acct else '', time, html.escape(subject), html.escape(snippet), cl)
+def account_tile(acct, ring, kind=True):
+    """The row's account tile (§4.2): the account's paper face with the gap and the round edge, or with `kind`
+    'monogram' the letter tile."""
+    if kind == 'monogram':
+        return '<span class="atile" style="--a:%s">%s</span>' % (ring, acct)
+    return '<span class="atile paper" style="--a:%s">%s</span>' % (ring, pf(auto_face(ACCT_IDX[acct])))
 def theme_tiles(chosen='study'):
     """Settings › Appearance › Theme (§5.40): the five tiles, each picture the main window drawn in its theme's variables
     (the Themes band's scopes) for the page's appearance; both sets are written and one is shown. The edge is the
