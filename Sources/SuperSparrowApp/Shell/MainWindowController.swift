@@ -348,6 +348,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
                                     symbol: Quire.Icon.later) {
                 // Gone already (a deeper ⌘Z after its time): nothing was taken back, so no reply comes back either.
                 guard scheduled.undo() else { return }
+                Analytics.send(.sendUndone(.sendLater))
                 // Its window has closed since (⌘W keeps no frame for an undo to open it again at): the reply's text is
                 // parked under its conversation, so a reader showing that conversation takes it, or the main window's
                 // says it was not sent; otherwise nothing on screen would show the undo.
@@ -482,14 +483,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     }
 
     private func wireCallbacks() {
-        strip.onSelect = { [weak self] scope in self?.scopeChanged(scope) }
-        strip.onSelectView = { [weak self] view in self?.setView(view) }
+        strip.onSelect = { [weak self] scope in self?.navigate { self?.scopeChanged(scope) } }
+        strip.onSelectView = { [weak self] view in self?.navigate { self?.setView(view) } }
         strip.onAddAccount = { [weak self] kind in self?.requestAddAccount(kind) }
         strip.onOpenSettings = { [weak self] in self?.onOpenSettings?() }
         strip.acceptsDrop = { [weak self] view, ids in self?.acceptsDrop(of: ids, onto: view) ?? false }
         strip.onDrop = { [weak self] view, ids in self?.drop(ids, onto: view) ?? false }
 
-        listPane.onViewChange = { [weak self] view in self?.setView(view) }
+        listPane.onViewChange = { [weak self] view in self?.navigate { self?.setView(view) } }
         listPane.onSearchChange = { [weak self] text in
             self?.searchText = text
             self?.applyQuery()
@@ -950,6 +951,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         )
     }
 
+    /// A view or scope the user picked (the rail, the title menu, the View and Go menus, ⌘0…⌘9, a G-sequence), for
+    /// analytics: sent when it moved the window, with which view and whether All Inboxes or one account, never which.
+    private func navigate(_ step: () -> Void) {
+        let before = (mailboxView, scope)
+        step()
+        guard mailboxView != before.0 || scope != before.1 else { return }
+        Analytics.send(.viewOpened(mailboxView, unified: scope == .unified, Analytics.trigger))
+    }
+
     /// Picking a mailbox means "show me that mailbox", so it also ends a search that would otherwise keep
     /// overriding the view. Later and the Outbox only while they show: G L, G O and the View menu's Later and Outbox do
     /// nothing otherwise (§5.2).
@@ -1113,6 +1123,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         guard !targets.isEmpty else { return }
         do {
             try environment.engine.perform(change, on: targets)
+            Analytics.from(.notification) { reportMailAction(AnalyticsSignal.MailAction(change), conversations: 1) }
         } catch {
             Self.log.error("notification action failed: \(String(describing: error), privacy: .public)")
         }
@@ -1333,7 +1344,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             performUndo(commandZ ? commandZTarget(textCanUndo: false) : zTarget)
             return true
         case .goTo(let view):
-            setView(view)
+            navigate { setView(view) }
             return true
         case .toggleDayColumn:
             // A held D or W would flip the column or the week on every repeat.
@@ -1445,7 +1456,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             return true
         }
         recordUndo(records, change: change)
+        reportMailAction(AnalyticsSignal.MailAction(change), conversations: records.count)
         return true
+    }
+
+    /// A mail action the user took, for analytics: which, how many conversations, and where it came from (`Analytics`).
+    private func reportMailAction(_ action: AnalyticsSignal.MailAction?, conversations: Int) {
+        guard let action, conversations > 0 else { return }
+        Analytics.send(.mailAction(action, Analytics.trigger, conversations: conversations))
     }
 
     /// A change to `ids`, some messages of one conversation rather than all of it (a sheet's star, More › Star Message, Mark
@@ -1470,6 +1488,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             return false
         }
         recordUndo([record], change: change)
+        reportMailAction(AnalyticsSignal.MailAction(change), conversations: 1)
         return true
     }
 
@@ -1583,6 +1602,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             return false
         }
         if case .browser(let page) = method { openUnsubscribePage(page) }
+        reportMailAction(.unsubscribe, conversations: 1)
         let archived = !records.isEmpty || snoozedAt != nil
         let words = MailActionCopy.unsubscribeToast(for: method, archived: archived)
         defer { UndoSendPanel.refreshUndoKeyOwner() }
@@ -1880,6 +1900,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             self?.confirmUndo(of: MailActionCopy.snoozeCommand)
             self?.reselect(back, inLater: fromLater)
         }
+        reportMailAction(.later, conversations: ids.count)
     }
 
     /// E and Archive: in Later, where everything is archived already, it ends the snoozes and leaves the conversations
@@ -1898,6 +1919,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             return true
         }
         recordLaterArchive(targets.map { Snooze.Change(conversationID: $0, until: prior[$0]) })
+        reportMailAction(.archive, conversations: targets.count)
         return true
     }
 
@@ -2064,6 +2086,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         } else {
             recordQuietExternalUndo(command: command, accounts: Set(changing.map(\.accountID)), revert: revert)
         }
+        reportMailAction(muting ? .mute : .unmute, conversations: changing.count)
         return true
     }
 
@@ -2114,6 +2137,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             NSSound.beep()
             return false
         }
+        reportMailAction(action == .trash ? .blockSender : .alwaysArchiveSender, conversations: 1)
         let command = MailActionCopy.senderRuleCommand(action)
         let inverse = record?.inverse ?? []
         let conversationID = message.conversationID
@@ -2168,7 +2192,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             confirmDiscardDrafts(ids)
             return true
         }
-        return mailAction(change, on: ids.filter { !LocalDraftConversation.isLocal($0) })
+        return Analytics.from(.drag) { mailAction(change, on: ids.filter { !LocalDraftConversation.isLocal($0) }) }
     }
 
     // MARK: Swipe (§5.7)
@@ -2178,10 +2202,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// the selection moving on are the key's. The list offers only what the key would change (`RowSwipe`).
     private func rowAction(_ change: MetadataChange, on id: ConversationID) {
         guard !showingWelcome else { return }
-        if change == .archive {
-            archive([id])
-        } else {
-            mailAction(change, on: [id])
+        Analytics.from(.swipe) {
+            if change == .archive {
+                archive([id])
+            } else {
+                mailAction(change, on: [id])
+            }
         }
     }
 
@@ -2204,6 +2230,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             NSSound.beep()
             return true
         }
+        Analytics.send(.undo(Analytics.trigger))
         defer {
             forgetGroupsGone()
             undoCenter.forgetPlacesOfGroupsGone()
@@ -2408,8 +2435,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         }
     }
 
-    /// The reader's actions (`ConversationViewController.onAction`); internal so the app's tests can send them.
+    /// The reader's actions (`ConversationViewController.onAction`); internal so the app's tests can send them. They come
+    /// from its header's and the page's buttons, or from a key in a reader window (`Analytics.trigger` tells a key).
     func handle(_ action: ConversationAction) {
+        Analytics.from(.toolbar) { take(action) }
+    }
+
+    private func take(_ action: ConversationAction) {
         switch action {
         case .reply(let id):
             compose(.reply(id, all: false), accountID: id.accountID)
@@ -2536,6 +2568,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         }
         let place = ReaderWindowPlace(conversation: id, view: listView)
         place.returnedAt = list.conversations.first { $0.id == id }?.returnedAt
+        Analytics.send(.readerWindowOpened(Analytics.trigger))
         return present(place, at: nil)
     }
 
@@ -2563,7 +2596,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// A G-sequence typed in a reader window: this window comes forward on that view.
     func goTo(_ view: MailboxView) {
         comeForward()
-        setView(view)
+        navigate { setView(view) }
     }
 
     /// This window becomes key in front of a reader window: for a search, a G-sequence, or a step that closed the window.
@@ -3189,7 +3222,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
     @objc func goToMailboxView(_ sender: Any?) {
         guard let item = sender as? NSMenuItem, MailboxView.allCases.indices.contains(item.tag) else { return }
-        setView(MailboxView.allCases[item.tag])
+        navigate { setView(MailboxView.allCases[item.tag]) }
     }
 
     /// ⌃⌘S: the rail goes instantly in every mode, so no row re-truncates and no frame re-measures over frames

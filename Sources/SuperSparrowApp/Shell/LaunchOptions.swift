@@ -54,12 +54,22 @@ struct LaunchOptions: Equatable {
     /// backing scale, so a render from a 1x display still shows Retina type.
     var snapshotScale: CGFloat?
     /// Debug aid: `--crash-test=<kind>` ends the app on purpose once it is up, so a crash report can be followed from
-    /// the crash to Sentry (docs/CRASH-REPORTING.md): `crash`, `fatal`, `exception`, `appkit-exception` (caught by
+    /// the crash to Sentry (docs/ANALYTICS-AND-REPORTS.md): `crash`, `fatal`, `exception`, `appkit-exception` (caught by
     /// AppKit: reported, and the app goes on) or `hang` (the main thread blocked for 5 s).
     var crashTest: CrashTest.Kind?
     /// Debug aid: `--sentry-dsn=<dsn>` sends this process's reports to that DSN instead of the bundle's, so a run of the
     /// bare binary (which has no Info.plist) can be followed to a test project or a local listener.
     var sentryDSN: String?
+    /// Debug aid: `--telemetry-app-id=<id>` sends this process's analytics to that TelemetryDeck app instead of the
+    /// bundle's (`TelemetryDeckAppID`), so a run of the bare binary can be followed to a test app.
+    var telemetryAppID: String?
+    /// Debug aid: `--telemetry-url=<url>` sends analytics to that server instead of TelemetryDeck's (a local listener
+    /// standing in for it, `http://127.0.0.1:<port>`), every 5 s, so what would leave the Mac can be read.
+    var telemetryURL: String?
+    /// Debug aid (demo mode): `--analytics-check` takes a fixed round of the app's own steps once the inbox is in,
+    /// turns Analytics and reports off and takes them again, then quits (docs/ANALYTICS-AND-REPORTS.md, "Check it end
+    /// to end"). Never a snapshot: analytics runs.
+    var analyticsCheck = false
 
     init(arguments: [String] = CommandLine.arguments) {
         for argument in arguments.dropFirst() {
@@ -112,6 +122,13 @@ struct LaunchOptions: Equatable {
                 crashTest = Self.value(of: value, after: "--crash-test=").flatMap(CrashTest.Kind.init(rawValue:))
             case let value where value.hasPrefix("--sentry-dsn="):
                 sentryDSN = Self.value(of: value, after: "--sentry-dsn=")
+            case let value where value.hasPrefix("--telemetry-app-id="):
+                telemetryAppID = Self.value(of: value, after: "--telemetry-app-id=")
+            case let value where value.hasPrefix("--telemetry-url="):
+                telemetryURL = Self.value(of: value, after: "--telemetry-url=")
+            case "--analytics-check":
+                analyticsCheck = true
+                demo = true
             case let value where value.hasPrefix("--snapshot-scale="):
                 snapshotScale = Self.value(of: value, after: "--snapshot-scale=").flatMap(Double.init).map { CGFloat(min(4, max(1, $0))) }
             #endif

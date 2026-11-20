@@ -21,6 +21,8 @@ let package = Package(
         .package(url: "https://github.com/scinfu/SwiftSoup.git", from: "2.14.3"),
         // Crash reporting (docs/ARCHITECTURE.md, "Crash reports"): the static binary SDK, scrubbed before every send.
         .package(url: "https://github.com/getsentry/sentry-cocoa.git", from: "9.35.0"),
+        // Product analytics (docs/ARCHITECTURE.md, "Analytics"): a closed catalog of signals, behind the same switch.
+        .package(url: "https://github.com/TelemetryDeck/SwiftSDK.git", from: "2.14.2"),
     ],
     targets: [
         .target(
@@ -49,6 +51,7 @@ let package = Package(
             dependencies: [
                 "SSCore", "SSGmail", "SSGraph", "SSDesign",
                 .product(name: "Sentry", package: "sentry-cocoa"),
+                .product(name: "TelemetryDeck", package: "SwiftSDK"),
             ],
             swiftSettings: settings,
             linkerSettings: [

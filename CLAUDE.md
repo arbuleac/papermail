@@ -9,7 +9,7 @@ Read `docs/ARCHITECTURE.md` before changing anything. `docs/DATA-MODEL.md` is th
 - Tests: `scripts/test.sh` (token check, then all), `swift test` or `swift test --filter SSCoreTests`
 - Run the app: `scripts/run.sh` (builds, assembles `dist/SuperSparrow.app`, opens it)
 - Bundle only: `scripts/build-app.sh [debug|release]`
-- No Node, npm, Homebrew installs or Xcode project files. SwiftPM only. Do not add dependencies beyond GRDB, SwiftSoup and Sentry (crash reporting) without asking.
+- No Node, npm, Homebrew installs or Xcode project files. SwiftPM only. Do not add dependencies beyond GRDB, SwiftSoup, Sentry (crash reporting) and TelemetryDeck (analytics) without asking.
 
 ## Layout
 - `Sources/SSCore` — models (`Model/`), ports (`Ports/`), SQLite store (`Store/`), sync engine (`Sync/`), OAuth + Keychain (`Auth/`), HTML sanitizer (`Render/`). No AppKit, no WebKit.

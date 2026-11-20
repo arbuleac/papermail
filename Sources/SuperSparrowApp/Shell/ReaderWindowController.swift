@@ -325,38 +325,44 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
 
     // MARK: Menu actions (first responder)
 
-    // The Message menu's selectors, answered for this window's conversation (§5.35).
-    @objc func archiveSelection(_ sender: Any?) { _ = perform(.archive) }
-    @objc func laterSelection(_ sender: Any?) { _ = perform(.later) }
+    // The Message menu's selectors, answered for this window's conversation (§5.35), from the menu bar or the context
+    // menu: a menu's steps for analytics, though the main window takes them as the reader's buttons' (a key equivalent
+    // still says key).
+    @objc func archiveSelection(_ sender: Any?) { fromMenu { _ = perform(.archive) } }
+    @objc func laterSelection(_ sender: Any?) { fromMenu { _ = perform(.later) } }
     @objc func snoozeSelectionUntil(_ sender: Any?) {
         guard let item = sender as? NSMenuItem, let date = LaterMenu.date(of: item) else { return }
-        opener?.snooze(from: self, until: date)
+        fromMenu { opener?.snooze(from: self, until: date) }
     }
-    @objc func pickSnoozeDate(_ sender: Any?) { opener?.pickSnoozeDate(for: self) }
-    @objc func trashSelection(_ sender: Any?) { _ = perform(.trash) }
-    @objc func markSelectionSpam(_ sender: Any?) { _ = perform(.markSpam) }
-    @objc func toggleMuteSelection(_ sender: Any?) { _ = perform(.toggleMute) }
-    @objc func alwaysArchiveSender(_ sender: Any?) { setSenderRule(.archive) }
-    @objc func blockSender(_ sender: Any?) { setSenderRule(.trash) }
-    @objc func moveSelectionToInbox(_ sender: Any?) { _ = perform(.moveToInbox) }
-    @objc func toggleStarSelection(_ sender: Any?) { _ = perform(.toggleStar) }
-    @objc func markSelectionUnread(_ sender: Any?) { _ = perform(.toggleRead) }
-    @objc func replyToSelection(_ sender: Any?) { reply(all: false) }
-    @objc func replyAllToSelection(_ sender: Any?) { reply(all: true) }
+    @objc func pickSnoozeDate(_ sender: Any?) { fromMenu { opener?.pickSnoozeDate(for: self) } }
+    @objc func trashSelection(_ sender: Any?) { fromMenu { _ = perform(.trash) } }
+    @objc func markSelectionSpam(_ sender: Any?) { fromMenu { _ = perform(.markSpam) } }
+    @objc func toggleMuteSelection(_ sender: Any?) { fromMenu { _ = perform(.toggleMute) } }
+    @objc func alwaysArchiveSender(_ sender: Any?) { fromMenu { setSenderRule(.archive) } }
+    @objc func blockSender(_ sender: Any?) { fromMenu { setSenderRule(.trash) } }
+    @objc func moveSelectionToInbox(_ sender: Any?) { fromMenu { _ = perform(.moveToInbox) } }
+    @objc func toggleStarSelection(_ sender: Any?) { fromMenu { _ = perform(.toggleStar) } }
+    @objc func markSelectionUnread(_ sender: Any?) { fromMenu { _ = perform(.toggleRead) } }
+    @objc func replyToSelection(_ sender: Any?) { fromMenu { reply(all: false) } }
+    @objc func replyAllToSelection(_ sender: Any?) { fromMenu { reply(all: true) } }
     @objc func forwardSelection(_ sender: Any?) {
         guard let target = replyTarget else { return }
-        opener?.perform(.forward(target), from: self)
+        fromMenu { opener?.perform(.forward(target), from: self) }
     }
     /// Message › Undo (Z): the latest toast's action, never a send (§6.1).
-    @objc func undoMailAction(_ sender: Any?) { undoCenter.perform(undoCenter.zTarget, typing: nil) }
+    @objc func undoMailAction(_ sender: Any?) { fromMenu { undoCenter.perform(undoCenter.zTarget, typing: nil) } }
     /// Message › Block Time (B): 30 minutes set aside for this window's conversation (§5.54).
-    @objc func blockTimeForSelection(_ sender: Any?) { _ = perform(.blockTime) }
+    @objc func blockTimeForSelection(_ sender: Any?) { fromMenu { _ = perform(.blockTime) } }
     @objc func unsubscribeFromConversation(_ sender: Any?) {
         guard let target = conversation.unsubscribeTarget else {
             NSSound.beep()
             return
         }
-        opener?.perform(.unsubscribe(target), from: self)
+        fromMenu { opener?.perform(.unsubscribe(target), from: self) }
+    }
+
+    private func fromMenu(_ step: () -> Void) {
+        Analytics.from(.menu, step)
     }
     /// Find… (⌘F) searches the mailbox: the main window comes forward with its field.
     @objc func focusSearchField(_ sender: Any?) {

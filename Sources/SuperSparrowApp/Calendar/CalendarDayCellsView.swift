@@ -291,7 +291,7 @@ final class CalendarDayCellsView: NSView, QuirePointerTarget {
         defer { setDropIndex(nil) }
         guard let conversation = CalendarDrop.conversation(in: sender),
               let index = index(at: convert(sender.draggingLocation, from: nil)) else { return false }
-        delegate?.blockTimeFirstFree(for: conversation, on: days[index])
+        Analytics.from(.drag) { delegate?.blockTimeFirstFree(for: conversation, on: days[index]) }
         return true
     }
 

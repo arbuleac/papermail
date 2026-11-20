@@ -298,7 +298,8 @@ final class AccountStripViewController: NSViewController {
         accountTiles = tiles
         refreshTileDetails()
         if case .account(let id) = scope, tiles[id] == nil {
-            select(.unified, notify: true)
+            // The rail's own step, as the account goes, not a move the user made.
+            Analytics.quietly { select(.unified, notify: true) }
         } else {
             refreshSelection()
         }
@@ -513,14 +514,16 @@ final class AccountStripViewController: NSViewController {
 
     @objc private func folderClicked(_ sender: AccountStripButton) {
         guard let index = folderTiles.firstIndex(where: { $0 === sender }) else { return }
-        selectView(TitleMenu.entries[index].view, notify: true)
+        Analytics.from(.rail) { selectView(TitleMenu.entries[index].view, notify: true) }
     }
 
     @objc private func tileClicked(_ sender: AccountStripButton) {
-        if sender === unifiedTile {
-            select(.unified, notify: true)
-        } else if let id = accountTiles.first(where: { $0.value === sender })?.key {
-            select(.account(id), notify: true)
+        Analytics.from(.rail) {
+            if sender === unifiedTile {
+                select(.unified, notify: true)
+            } else if let id = accountTiles.first(where: { $0.value === sender })?.key {
+                select(.account(id), notify: true)
+            }
         }
     }
 

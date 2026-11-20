@@ -59,6 +59,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     let services = MailServicesProvider()
     /// The app's life as crash-report breadcrumbs (`CrashReporting`).
     private let crashBreadcrumbs = CrashBreadcrumbs()
+    /// The launch was sent to analytics (the first main window only; a demo swapped in later is no launch).
+    private var launchReported = false
+    #if DEBUG
+    /// `--analytics-check`'s round of steps, kept while it runs.
+    private var analyticsCheck: AnalyticsCheck?
+    #endif
 
     init(options: LaunchOptions) {
         self.options = options
@@ -110,6 +116,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         runQuittingSnapshots()
         #if DEBUG
         if options.gallery { showDesignGallery(nil) }
+        if options.analyticsCheck {
+            let check = AnalyticsCheck(settings: settings, mainWindow: { [weak self] in self?.mainWindow },
+                                       openSettings: { [weak self] in self?.openSettings() })
+            analyticsCheck = check
+            check.run()
+        }
         #endif
     }
 
@@ -494,6 +506,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         ComposeDraftStore.shared.useDemoDirectory(environment.isDemo)
         // Crash reports say which mailbox was on screen, so one from the made-up demo reads as such.
         CrashReporting.setMode(demo: environment.isDemo)
+        Analytics.setMode(demo: environment.isDemo)
         // File › Leave Demo… exists only in demo mode (§5.35). Set here, not in validation, which skips hidden items.
         let fileItems = NSApp.mainMenu?.items.flatMap { $0.submenu?.items ?? [] } ?? []
         fileItems.first { $0.action == #selector(leaveDemo(_:)) }?.isHidden = !environment.isDemo
@@ -522,6 +535,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             openMailLinks(in: window)
             openServiceRequests(in: window)
             answerNotifications(in: window)
+            if old == nil { reportLaunch(in: environment) }
         }
         observeForNotifier(environment)
         if let oldFrame { window.window?.setFrame(oldFrame, display: false) }
@@ -543,6 +557,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             oldWindow.alphaValue = 1
         })
         requestNotificationsIfAccounts(window, in: environment)
+    }
+
+    /// The launch, once, as its first main window is on screen: how long since the process started, how many accounts of
+    /// each kind, and how the app looks (`Analytics`).
+    private func reportLaunch(in environment: AppEnvironment) {
+        guard !launchReported else { return }
+        launchReported = true
+        let accounts = (try? environment.store.accounts()) ?? []
+        Analytics.send(.launched(.init(seconds: Analytics.secondsSinceProcessStart() ?? 0,
+                                       gmailAccounts: accounts.filter { $0.kind == .gmail }.count,
+                                       microsoftAccounts: accounts.filter { $0.kind == .microsoft }.count,
+                                       theme: options.theme ?? settings.theme, appearance: settings.appearance,
+                                       density: settings.listDensity, textSize: options.textSize ?? settings.textSize,
+                                       typeface: options.typeface ?? settings.typeface)))
     }
 
     /// Mail links open in `window`, the main window `install` just put on screen, which has read its accounts: one that
@@ -819,6 +847,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         reflectSignIn()
         if let replacement = current.replacement {
             replaceDemo(with: replacement)
+            Analytics.send(.accountAdded(.init(account.kind)))
             return
         }
         if let reconnected = current.reconnecting {
@@ -834,6 +863,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
         } else {
             settings.accountWasAdded(totalAccounts: menuAccounts.count)
+            Analytics.send(.accountAdded(.init(account.kind)))
         }
         mainWindow?.notifier.requestAuthorizationIfNeeded()
         mainWindow?.refreshAccounts()
@@ -976,6 +1006,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             do {
                 try await environment.engine.removeAccount(account.id)
                 Self.removeDrafts(of: account.id)
+                Analytics.send(.accountRemoved(.init(account.kind)))
             } catch {
                 Self.log.error("remove failed: \(String(describing: error), privacy: .public)")
                 guard let self else { return }
@@ -1039,6 +1070,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             settingsWindow = controller
             reflectSignIn()
         }
+        if settingsWindow?.window?.isVisible != true { Analytics.send(.settingsOpened) }
         settingsWindow?.show(tab: tab)
         if let oauthNotice { settingsWindow?.model.oauthNotice = oauthNotice }
     }
