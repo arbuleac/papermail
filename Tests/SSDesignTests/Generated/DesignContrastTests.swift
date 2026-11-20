@@ -273,6 +273,12 @@ final class DesignContrastTests: XCTestCase {
             assertContrast("Link popover field edge", fg: ["ruleStrong"], bg: ["raised"], need: 3)
             assertContrast("Link popover field text", fg: ["ink"], bg: ["sheet"], need: 4.5)
             assertContrast("Link popover label", fg: ["ink3"], bg: ["raised"], need: 4.5)
+            assertContrast("Write card field text", fg: ["ink"], bg: ["sheet"], need: 4.5)
+            assertContrast("Write card field edge", fg: ["ruleStrong"], bg: ["raised"], need: 3)
+            assertContrast("Write card source line", fg: ["ink3"], bg: ["raised"], need: 4.5)
+            assertContrast("Write card status (Writing…, needs setup)", fg: ["ink2"], bg: ["raised"], need: 4.5)
+            assertContrast("Write card failure line and glyph", fg: ["danger"], bg: ["raised"], need: 4.5)
+            assertContrast("Write card Try Again and Open Settings links", fg: ["accent"], bg: ["raised"], need: 4.5)
             assertContrast("Composer values", fg: ["ink"], bg: ["paper"], need: 4.5)
             assertContrast("Composer body text", fg: ["ink"], bg: ["sheet"], need: 4.5)
             assertContrast("Composer folded-original caption", fg: ["ink3"], bg: ["sheet"], need: 4.5)
@@ -294,18 +300,18 @@ final class DesignContrastTests: XCTestCase {
             assertContrast("Composer drop label (Drop to attach)", fg: ["accent"], bg: ["sheet"], need: 4.5)
             assertContrast("Quick reply drop label (Drop to reply with attachment)", fg: ["accent"], bg: ["sheet"], need: 4.5)
             assertContrast("Drop outline (focus, dashed) on sheet", fg: ["focus"], bg: ["sheet"], need: 3)
-            assertContrast("Drag card name", fg: ["ink"], bg: ["sheet"], need: 4.5)
-            assertContrast("Drag card meta", fg: ["ink3"], bg: ["sheet"], need: 4.5)
-            assertContrast("Composer status: rejected drop warning glyph", fg: ["warning"], bg: ["paper"], need: 3)
-            assertContrast("Attachment strip chip name", fg: ["ink"], bg: ["sheet"], need: 4.5)
-            assertContrast("Attachment strip chip size", fg: ["ink3"], bg: ["sheet"], need: 4.5)
-            assertContrast("Attachment strip remove glyph", fg: ["ink3"], bg: ["sheet"], need: 3)
         }
     }
 
     /// `contrastPairs[240..<280]`
     func testContrastPairs240() {
         inEveryTheme {
+            assertContrast("Drag card name", fg: ["ink"], bg: ["sheet"], need: 4.5)
+            assertContrast("Drag card meta", fg: ["ink3"], bg: ["sheet"], need: 4.5)
+            assertContrast("Composer status: rejected drop warning glyph", fg: ["warning"], bg: ["paper"], need: 3)
+            assertContrast("Attachment strip chip name", fg: ["ink"], bg: ["sheet"], need: 4.5)
+            assertContrast("Attachment strip chip size", fg: ["ink3"], bg: ["sheet"], need: 4.5)
+            assertContrast("Attachment strip remove glyph", fg: ["ink3"], bg: ["sheet"], need: 3)
             assertContrast("Primary button label", fg: ["onAccent"], bg: ["accentFill"], need: 4.5)
             assertContrast("Primary button label, hover", fg: ["onAccent"], bg: ["accentFillHover"], need: 4.5)
             assertContrast("Primary button label, pressed", fg: ["onAccent"], bg: ["accentFillPressed"], need: 4.5)
@@ -340,18 +346,18 @@ final class DesignContrastTests: XCTestCase {
             assertContrast("Text field edge vs list", fg: ["ruleStrong"], bg: ["paper"], need: 3)
             assertContrast("Field error border and help", fg: ["danger"], bg: ["sheet"], need: 4.5)
             assertContrast("Field error help on desk", fg: ["danger"], bg: ["canvas"], need: 4.5)
-            assertContrast("Focus ring vs list", fg: ["focus"], bg: ["paper"], need: 3)
-            assertContrast("Focus ring vs sheet", fg: ["focus"], bg: ["sheet"], need: 3)
-            assertContrast("Focus ring vs desk", fg: ["focus"], bg: ["canvas"], need: 3)
-            assertContrast("Focus ring vs raised", fg: ["focus"], bg: ["raised"], need: 3)
-            assertContrast("Checkbox / radio off edge", fg: ["ruleStrong"], bg: ["sheet"], need: 3)
-            assertContrast("Checkbox / radio off edge vs desk", fg: ["ruleStrong"], bg: ["canvas"], need: 3)
         }
     }
 
     /// `contrastPairs[280..<320]`
     func testContrastPairs280() {
         inEveryTheme {
+            assertContrast("Focus ring vs list", fg: ["focus"], bg: ["paper"], need: 3)
+            assertContrast("Focus ring vs sheet", fg: ["focus"], bg: ["sheet"], need: 3)
+            assertContrast("Focus ring vs desk", fg: ["focus"], bg: ["canvas"], need: 3)
+            assertContrast("Focus ring vs raised", fg: ["focus"], bg: ["raised"], need: 3)
+            assertContrast("Checkbox / radio off edge", fg: ["ruleStrong"], bg: ["sheet"], need: 3)
+            assertContrast("Checkbox / radio off edge vs desk", fg: ["ruleStrong"], bg: ["canvas"], need: 3)
             assertContrast("Checkbox / radio off edge, hover face (sheet + hover)", fg: ["ruleStrong"], bg: ["sheet", "hover"], need: 3)
             assertContrast("Checkbox / radio off edge, pressed face (sheet + pressed)", fg: ["ruleStrong"], bg: ["sheet", "pressed"], need: 3)
             assertContrast("Checkbox / radio on fill vs sheet", fg: ["accentFill"], bg: ["sheet"], need: 3)
@@ -386,18 +392,18 @@ final class DesignContrastTests: XCTestCase {
             assertContrast("Error banner text", fg: ["danger"], bg: ["dangerWash"], need: 4.5)
             assertContrast("Banner body text on info wash", fg: ["ink"], bg: ["infoWash"], need: 4.5)
             assertContrast("Banner body text on error wash", fg: ["ink"], bg: ["dangerWash"], need: 4.5)
-            assertContrast("Determinate bar fill vs track", fg: ["accent"], bg: ["sheet", "fill"], need: 3)
-            assertContrast("Spinner (ink3) on sheet", fg: ["ink3"], bg: ["sheet"], need: 3)
-            assertContrast("Toast message", fg: ["onSlip"], bg: ["slip"], need: 4.5)
-            assertContrast("Toast Undo", fg: ["onSlip"], bg: ["slip"], need: 4.5)
-            assertContrast("Toast Undo, hover", fg: ["onSlip"], bg: ["slip", "slipHover"], need: 4.5)
-            assertContrast("Toast Undo, pressed", fg: ["onSlip"], bg: ["slip", "slipPressed"], need: 4.5)
         }
     }
 
     /// `contrastPairs[320..<360]`
     func testContrastPairs320() {
         inEveryTheme {
+            assertContrast("Determinate bar fill vs track", fg: ["accent"], bg: ["sheet", "fill"], need: 3)
+            assertContrast("Spinner (ink3) on sheet", fg: ["ink3"], bg: ["sheet"], need: 3)
+            assertContrast("Toast message", fg: ["onSlip"], bg: ["slip"], need: 4.5)
+            assertContrast("Toast Undo", fg: ["onSlip"], bg: ["slip"], need: 4.5)
+            assertContrast("Toast Undo, hover", fg: ["onSlip"], bg: ["slip", "slipHover"], need: 4.5)
+            assertContrast("Toast Undo, pressed", fg: ["onSlip"], bg: ["slip", "slipPressed"], need: 4.5)
             assertContrast("Toast keycap legend (Z)", fg: ["onSlip2"], bg: ["slip"], need: 4.5)
             assertContrast("Toast keycap legend, action hovered (drawn in onSlip)", fg: ["onSlip"], bg: ["slip", "slipHover"], need: 4.5)
             assertContrast("Toast keycap legend, action pressed (drawn in onSlip)", fg: ["onSlip"], bg: ["slip", "slipPressed"], need: 4.5)
@@ -432,18 +438,18 @@ final class DesignContrastTests: XCTestCase {
             assertContrast("Settings idle selection rule vs group", fg: ["selRuleIdle"], bg: ["sheet"], need: 3)
             assertContrast("Settings +/- glyphs", fg: ["ink2"], bg: ["raised"], need: 3)
             assertContrast("Settings +/- edge vs desk", fg: ["ruleStrong"], bg: ["canvas"], need: 3)
-            assertContrast("Settings empty-state hint", fg: ["ink3"], bg: ["sheet"], need: 4.5)
-            assertContrast("Settings popup label on desk form", fg: ["ink"], bg: ["raised"], need: 4.5)
-            assertContrast("Settings focus ring on desk", fg: ["focus"], bg: ["canvas"], need: 3)
-            assertContrast("Settings status: up to date glyph", fg: ["success"], bg: ["sheet"], need: 3)
-            assertContrast("Settings status: sign in required", fg: ["danger"], bg: ["sheet"], need: 4.5)
-            assertContrast("Settings status: sign in required (selected)", fg: ["danger"], bg: ["selWash"], need: 4.5)
         }
     }
 
     /// `contrastPairs[360..<400]`
     func testContrastPairs360() {
         inEveryTheme {
+            assertContrast("Settings empty-state hint", fg: ["ink3"], bg: ["sheet"], need: 4.5)
+            assertContrast("Settings popup label on desk form", fg: ["ink"], bg: ["raised"], need: 4.5)
+            assertContrast("Settings focus ring on desk", fg: ["focus"], bg: ["canvas"], need: 3)
+            assertContrast("Settings status: up to date glyph", fg: ["success"], bg: ["sheet"], need: 3)
+            assertContrast("Settings status: sign in required", fg: ["danger"], bg: ["sheet"], need: 4.5)
+            assertContrast("Settings status: sign in required (selected)", fg: ["danger"], bg: ["selWash"], need: 4.5)
             assertContrast("Settings status: sign in required (selected, not key)", fg: ["danger"], bg: ["selWashIdle"], need: 4.5)
             assertContrast("Settings info banner text (OAuth notice, demo)", fg: ["ink"], bg: ["infoWash"], need: 4.5)
             assertContrast("Settings info banner glyph", fg: ["info"], bg: ["infoWash"], need: 3)
@@ -478,18 +484,18 @@ final class DesignContrastTests: XCTestCase {
             assertContrast("Welcome waiting label and spinner", fg: ["ink"], bg: ["raised"], need: 4.5)
             assertContrast("Welcome footnote", fg: ["ink3"], bg: ["paper"], need: 4.5)
             assertContrast("Welcome demo link", fg: ["accent"], bg: ["paper"], need: 4.5)
-            assertContrast("Welcome error line", fg: ["danger"], bg: ["paper"], need: 4.5)
-            assertContrast("Day and week: hour labels, a day cell's weekday and date, a week's day heading", fg: ["ink3"], bg: ["paper"], need: 4.5)
-            assertContrast("Day and week: a day cell or day heading hovered, a pencilled event's title hovered (ink)", fg: ["ink"], bg: ["paper", "hover"], need: 4.5)
-            assertContrast("Day and week: a day cell pressed, a pencilled event's title pressed (ink)", fg: ["ink"], bg: ["paper", "pressed"], need: 4.5)
-            assertContrast("Day and week: the selected day cell's weekday and date; a third event's “+2” tag", fg: ["ink"], bg: ["raised"], need: 4.5)
-            assertContrast("Day and week: an unanswered invitation's hollow bar in a day cell, hover", fg: ["ruleStrong"], bg: ["paper", "hover"], need: 3)
         }
     }
 
     /// `contrastPairs[400..<440]`
     func testContrastPairs400() {
         inEveryTheme {
+            assertContrast("Welcome error line", fg: ["danger"], bg: ["paper"], need: 4.5)
+            assertContrast("Day and week: hour labels, a day cell's weekday and date, a week's day heading", fg: ["ink3"], bg: ["paper"], need: 4.5)
+            assertContrast("Day and week: a day cell or day heading hovered, a pencilled event's title hovered (ink)", fg: ["ink"], bg: ["paper", "hover"], need: 4.5)
+            assertContrast("Day and week: a day cell pressed, a pencilled event's title pressed (ink)", fg: ["ink"], bg: ["paper", "pressed"], need: 4.5)
+            assertContrast("Day and week: the selected day cell's weekday and date; a third event's “+2” tag", fg: ["ink"], bg: ["raised"], need: 4.5)
+            assertContrast("Day and week: an unanswered invitation's hollow bar in a day cell, hover", fg: ["ruleStrong"], bg: ["paper", "hover"], need: 3)
             assertContrast("Day and week: an unanswered invitation's hollow bar in a day cell, pressed", fg: ["ruleStrong"], bg: ["paper", "pressed"], need: 3)
             assertContrast("Day and week: an unanswered invitation's hollow bar in the selected day cell; the “+2” tag's edge", fg: ["ruleStrong"], bg: ["raised"], need: 3)
             assertContrast("Day and week: a pencilled event's dashed edge (not answered, or drawn from the mail)", fg: ["ruleStrong"], bg: ["paper"], need: 3)
@@ -524,18 +530,18 @@ final class DesignContrastTests: XCTestCase {
             assertContrast("Account ink Persimmon on idle selection", fg: ["account:Persimmon"], bg: ["selWashIdle"], need: 3, needIC: 3.5)
             assertContrast("Account ink Persimmon on rail", fg: ["account:Persimmon"], bg: ["spine"], need: 3, needIC: 3.5)
             assertContrast("Account ink Persimmon on hovered rail tile", fg: ["account:Persimmon"], bg: ["spine", "hover"], need: 3, needIC: 3.5)
-            assertContrast("Account ink Persimmon on sheet / Settings", fg: ["account:Persimmon"], bg: ["sheet"], need: 3, needIC: 3.5)
-            assertContrast("Account ink Persimmon on reader desk", fg: ["account:Persimmon"], bg: ["canvas"], need: 3, needIC: 3.5)
-            assertContrast("Account ink Persimmon on raised: popups at rest, and the 2 pt raised halo that keeps the dot or swatch off a hovered or pressed popup face", fg: ["account:Persimmon"], bg: ["raised"], need: 3, needIC: 3.5)
-            assertContrast("Rail monogram on Persimmon face", fg: ["ink"], bg: ["accountFace:Persimmon"], need: 4.5)
-            assertContrast("Rail monogram on Persimmon face, pressed (the press wash stays inside the face)", fg: ["ink"], bg: ["accountFace:Persimmon", "pressed"], need: 4.5)
-            assertContrast("Account ink Indigo on list", fg: ["account:Indigo"], bg: ["paper"], need: 3, needIC: 3.5)
         }
     }
 
     /// `contrastPairs[440..<480]`
     func testContrastPairs440() {
         inEveryTheme {
+            assertContrast("Account ink Persimmon on sheet / Settings", fg: ["account:Persimmon"], bg: ["sheet"], need: 3, needIC: 3.5)
+            assertContrast("Account ink Persimmon on reader desk", fg: ["account:Persimmon"], bg: ["canvas"], need: 3, needIC: 3.5)
+            assertContrast("Account ink Persimmon on raised: popups at rest, and the 2 pt raised halo that keeps the dot or swatch off a hovered or pressed popup face", fg: ["account:Persimmon"], bg: ["raised"], need: 3, needIC: 3.5)
+            assertContrast("Rail monogram on Persimmon face", fg: ["ink"], bg: ["accountFace:Persimmon"], need: 4.5)
+            assertContrast("Rail monogram on Persimmon face, pressed (the press wash stays inside the face)", fg: ["ink"], bg: ["accountFace:Persimmon", "pressed"], need: 4.5)
+            assertContrast("Account ink Indigo on list", fg: ["account:Indigo"], bg: ["paper"], need: 3, needIC: 3.5)
             assertContrast("Account ink Indigo on hovered row", fg: ["account:Indigo"], bg: ["paper", "hover"], need: 3, needIC: 3.5)
             assertContrast("Account ink Indigo on selected row", fg: ["account:Indigo"], bg: ["selWash"], need: 3, needIC: 3.5)
             assertContrast("Account ink Indigo on idle selection", fg: ["account:Indigo"], bg: ["selWashIdle"], need: 3, needIC: 3.5)
@@ -570,18 +576,18 @@ final class DesignContrastTests: XCTestCase {
             assertContrast("Rail monogram on Jade face, pressed (the press wash stays inside the face)", fg: ["ink"], bg: ["accountFace:Jade", "pressed"], need: 4.5)
             assertContrast("Account ink Iris on list", fg: ["account:Iris"], bg: ["paper"], need: 3, needIC: 3.5)
             assertContrast("Account ink Iris on hovered row", fg: ["account:Iris"], bg: ["paper", "hover"], need: 3, needIC: 3.5)
-            assertContrast("Account ink Iris on selected row", fg: ["account:Iris"], bg: ["selWash"], need: 3, needIC: 3.5)
-            assertContrast("Account ink Iris on idle selection", fg: ["account:Iris"], bg: ["selWashIdle"], need: 3, needIC: 3.5)
-            assertContrast("Account ink Iris on rail", fg: ["account:Iris"], bg: ["spine"], need: 3, needIC: 3.5)
-            assertContrast("Account ink Iris on hovered rail tile", fg: ["account:Iris"], bg: ["spine", "hover"], need: 3, needIC: 3.5)
-            assertContrast("Account ink Iris on sheet / Settings", fg: ["account:Iris"], bg: ["sheet"], need: 3, needIC: 3.5)
-            assertContrast("Account ink Iris on reader desk", fg: ["account:Iris"], bg: ["canvas"], need: 3, needIC: 3.5)
         }
     }
 
     /// `contrastPairs[480..<520]`
     func testContrastPairs480() {
         inEveryTheme {
+            assertContrast("Account ink Iris on selected row", fg: ["account:Iris"], bg: ["selWash"], need: 3, needIC: 3.5)
+            assertContrast("Account ink Iris on idle selection", fg: ["account:Iris"], bg: ["selWashIdle"], need: 3, needIC: 3.5)
+            assertContrast("Account ink Iris on rail", fg: ["account:Iris"], bg: ["spine"], need: 3, needIC: 3.5)
+            assertContrast("Account ink Iris on hovered rail tile", fg: ["account:Iris"], bg: ["spine", "hover"], need: 3, needIC: 3.5)
+            assertContrast("Account ink Iris on sheet / Settings", fg: ["account:Iris"], bg: ["sheet"], need: 3, needIC: 3.5)
+            assertContrast("Account ink Iris on reader desk", fg: ["account:Iris"], bg: ["canvas"], need: 3, needIC: 3.5)
             assertContrast("Account ink Iris on raised: popups at rest, and the 2 pt raised halo that keeps the dot or swatch off a hovered or pressed popup face", fg: ["account:Iris"], bg: ["raised"], need: 3, needIC: 3.5)
             assertContrast("Rail monogram on Iris face", fg: ["ink"], bg: ["accountFace:Iris"], need: 4.5)
             assertContrast("Rail monogram on Iris face, pressed (the press wash stays inside the face)", fg: ["ink"], bg: ["accountFace:Iris", "pressed"], need: 4.5)
@@ -616,18 +622,18 @@ final class DesignContrastTests: XCTestCase {
             assertContrast("Account ink Azure on sheet / Settings", fg: ["account:Azure"], bg: ["sheet"], need: 3, needIC: 3.5)
             assertContrast("Account ink Azure on reader desk", fg: ["account:Azure"], bg: ["canvas"], need: 3, needIC: 3.5)
             assertContrast("Account ink Azure on raised: popups at rest, and the 2 pt raised halo that keeps the dot or swatch off a hovered or pressed popup face", fg: ["account:Azure"], bg: ["raised"], need: 3, needIC: 3.5)
-            assertContrast("Rail monogram on Azure face", fg: ["ink"], bg: ["accountFace:Azure"], need: 4.5)
-            assertContrast("Rail monogram on Azure face, pressed (the press wash stays inside the face)", fg: ["ink"], bg: ["accountFace:Azure", "pressed"], need: 4.5)
-            assertContrast("Account ink Mulberry on list", fg: ["account:Mulberry"], bg: ["paper"], need: 3, needIC: 3.5)
-            assertContrast("Account ink Mulberry on hovered row", fg: ["account:Mulberry"], bg: ["paper", "hover"], need: 3, needIC: 3.5)
-            assertContrast("Account ink Mulberry on selected row", fg: ["account:Mulberry"], bg: ["selWash"], need: 3, needIC: 3.5)
-            assertContrast("Account ink Mulberry on idle selection", fg: ["account:Mulberry"], bg: ["selWashIdle"], need: 3, needIC: 3.5)
         }
     }
 
     /// `contrastPairs[520..<560]`
     func testContrastPairs520() {
         inEveryTheme {
+            assertContrast("Rail monogram on Azure face", fg: ["ink"], bg: ["accountFace:Azure"], need: 4.5)
+            assertContrast("Rail monogram on Azure face, pressed (the press wash stays inside the face)", fg: ["ink"], bg: ["accountFace:Azure", "pressed"], need: 4.5)
+            assertContrast("Account ink Mulberry on list", fg: ["account:Mulberry"], bg: ["paper"], need: 3, needIC: 3.5)
+            assertContrast("Account ink Mulberry on hovered row", fg: ["account:Mulberry"], bg: ["paper", "hover"], need: 3, needIC: 3.5)
+            assertContrast("Account ink Mulberry on selected row", fg: ["account:Mulberry"], bg: ["selWash"], need: 3, needIC: 3.5)
+            assertContrast("Account ink Mulberry on idle selection", fg: ["account:Mulberry"], bg: ["selWashIdle"], need: 3, needIC: 3.5)
             assertContrast("Account ink Mulberry on rail", fg: ["account:Mulberry"], bg: ["spine"], need: 3, needIC: 3.5)
             assertContrast("Account ink Mulberry on hovered rail tile", fg: ["account:Mulberry"], bg: ["spine", "hover"], need: 3, needIC: 3.5)
             assertContrast("Account ink Mulberry on sheet / Settings", fg: ["account:Mulberry"], bg: ["sheet"], need: 3, needIC: 3.5)
@@ -662,18 +668,18 @@ final class DesignContrastTests: XCTestCase {
             assertContrast("Day and week: the selected conversation's margin rule on a Persimmon face", fg: ["selRule"], bg: ["eventFace:Persimmon"], need: 3)
             assertContrast("Day and week: the selected conversation's margin rule on a Persimmon face, window not key", fg: ["selRuleIdle"], bg: ["eventFace:Persimmon"], need: 3)
             assertContrast("Day and week: the overlap hatch on a Persimmon face", fg: ["warning"], bg: ["eventFace:Persimmon"], need: 3)
-            assertContrast("Day and week: the failed glyph on a Persimmon face", fg: ["danger"], bg: ["eventFace:Persimmon"], need: 3)
-            assertContrast("Account ink Persimmon on a pressed day cell", fg: ["account:Persimmon"], bg: ["paper", "pressed"], need: 3, needIC: 3.5)
-            assertContrast("Account ink Persimmon on the folded strip, hover", fg: ["account:Persimmon"], bg: ["canvas", "hover"], need: 3, needIC: 3.5)
-            assertContrast("Account ink Persimmon on the folded strip, pressed or open", fg: ["account:Persimmon"], bg: ["canvas", "pressed"], need: 3, needIC: 3.5)
-            assertContrast("Day and week: event title on its Indigo face", fg: ["ink"], bg: ["eventFace:Indigo"], need: 4.5)
-            assertContrast("Day and week: event time, place and queued glyph on its Indigo face", fg: ["ink2"], bg: ["eventFace:Indigo"], need: 4.5)
         }
     }
 
     /// `contrastPairs[560..<600]`
     func testContrastPairs560() {
         inEveryTheme {
+            assertContrast("Day and week: the failed glyph on a Persimmon face", fg: ["danger"], bg: ["eventFace:Persimmon"], need: 3)
+            assertContrast("Account ink Persimmon on a pressed day cell", fg: ["account:Persimmon"], bg: ["paper", "pressed"], need: 3, needIC: 3.5)
+            assertContrast("Account ink Persimmon on the folded strip, hover", fg: ["account:Persimmon"], bg: ["canvas", "hover"], need: 3, needIC: 3.5)
+            assertContrast("Account ink Persimmon on the folded strip, pressed or open", fg: ["account:Persimmon"], bg: ["canvas", "pressed"], need: 3, needIC: 3.5)
+            assertContrast("Day and week: event title on its Indigo face", fg: ["ink"], bg: ["eventFace:Indigo"], need: 4.5)
+            assertContrast("Day and week: event time, place and queued glyph on its Indigo face", fg: ["ink2"], bg: ["eventFace:Indigo"], need: 4.5)
             assertContrast("Day and week: event title and time on its Indigo face, hover", fg: ["ink"], bg: ["eventFace:Indigo", "hover"], need: 4.5)
             assertContrast("Day and week: event title and time on its Indigo face, pressed", fg: ["ink"], bg: ["eventFace:Indigo", "pressed"], need: 4.5)
             assertContrast("Account ink Indigo on its event face: the edge, a tentative event's dashed outline", fg: ["account:Indigo"], bg: ["eventFace:Indigo"], need: 3, needIC: 3.5)
@@ -708,18 +714,18 @@ final class DesignContrastTests: XCTestCase {
             assertContrast("Account ink Jade on a pressed day cell", fg: ["account:Jade"], bg: ["paper", "pressed"], need: 3, needIC: 3.5)
             assertContrast("Account ink Jade on the folded strip, hover", fg: ["account:Jade"], bg: ["canvas", "hover"], need: 3, needIC: 3.5)
             assertContrast("Account ink Jade on the folded strip, pressed or open", fg: ["account:Jade"], bg: ["canvas", "pressed"], need: 3, needIC: 3.5)
-            assertContrast("Day and week: event title on its Iris face", fg: ["ink"], bg: ["eventFace:Iris"], need: 4.5)
-            assertContrast("Day and week: event time, place and queued glyph on its Iris face", fg: ["ink2"], bg: ["eventFace:Iris"], need: 4.5)
-            assertContrast("Day and week: event title and time on its Iris face, hover", fg: ["ink"], bg: ["eventFace:Iris", "hover"], need: 4.5)
-            assertContrast("Day and week: event title and time on its Iris face, pressed", fg: ["ink"], bg: ["eventFace:Iris", "pressed"], need: 4.5)
-            assertContrast("Account ink Iris on its event face: the edge, a tentative event's dashed outline", fg: ["account:Iris"], bg: ["eventFace:Iris"], need: 3, needIC: 3.5)
-            assertContrast("Day and week: the selected conversation's margin rule on a Iris face", fg: ["selRule"], bg: ["eventFace:Iris"], need: 3)
         }
     }
 
     /// `contrastPairs[600..<640]`
     func testContrastPairs600() {
         inEveryTheme {
+            assertContrast("Day and week: event title on its Iris face", fg: ["ink"], bg: ["eventFace:Iris"], need: 4.5)
+            assertContrast("Day and week: event time, place and queued glyph on its Iris face", fg: ["ink2"], bg: ["eventFace:Iris"], need: 4.5)
+            assertContrast("Day and week: event title and time on its Iris face, hover", fg: ["ink"], bg: ["eventFace:Iris", "hover"], need: 4.5)
+            assertContrast("Day and week: event title and time on its Iris face, pressed", fg: ["ink"], bg: ["eventFace:Iris", "pressed"], need: 4.5)
+            assertContrast("Account ink Iris on its event face: the edge, a tentative event's dashed outline", fg: ["account:Iris"], bg: ["eventFace:Iris"], need: 3, needIC: 3.5)
+            assertContrast("Day and week: the selected conversation's margin rule on a Iris face", fg: ["selRule"], bg: ["eventFace:Iris"], need: 3)
             assertContrast("Day and week: the selected conversation's margin rule on a Iris face, window not key", fg: ["selRuleIdle"], bg: ["eventFace:Iris"], need: 3)
             assertContrast("Day and week: the overlap hatch on a Iris face", fg: ["warning"], bg: ["eventFace:Iris"], need: 3)
             assertContrast("Day and week: the failed glyph on a Iris face", fg: ["danger"], bg: ["eventFace:Iris"], need: 3)
@@ -754,18 +760,18 @@ final class DesignContrastTests: XCTestCase {
             assertContrast("Day and week: event time, place and queued glyph on its Azure face", fg: ["ink2"], bg: ["eventFace:Azure"], need: 4.5)
             assertContrast("Day and week: event title and time on its Azure face, hover", fg: ["ink"], bg: ["eventFace:Azure", "hover"], need: 4.5)
             assertContrast("Day and week: event title and time on its Azure face, pressed", fg: ["ink"], bg: ["eventFace:Azure", "pressed"], need: 4.5)
+        }
+    }
+
+    /// `contrastPairs[640..<672]`
+    func testContrastPairs640() {
+        inEveryTheme {
             assertContrast("Account ink Azure on its event face: the edge, a tentative event's dashed outline", fg: ["account:Azure"], bg: ["eventFace:Azure"], need: 3, needIC: 3.5)
             assertContrast("Day and week: the selected conversation's margin rule on a Azure face", fg: ["selRule"], bg: ["eventFace:Azure"], need: 3)
             assertContrast("Day and week: the selected conversation's margin rule on a Azure face, window not key", fg: ["selRuleIdle"], bg: ["eventFace:Azure"], need: 3)
             assertContrast("Day and week: the overlap hatch on a Azure face", fg: ["warning"], bg: ["eventFace:Azure"], need: 3)
             assertContrast("Day and week: the failed glyph on a Azure face", fg: ["danger"], bg: ["eventFace:Azure"], need: 3)
             assertContrast("Account ink Azure on a pressed day cell", fg: ["account:Azure"], bg: ["paper", "pressed"], need: 3, needIC: 3.5)
-        }
-    }
-
-    /// `contrastPairs[640..<666]`
-    func testContrastPairs640() {
-        inEveryTheme {
             assertContrast("Account ink Azure on the folded strip, hover", fg: ["account:Azure"], bg: ["canvas", "hover"], need: 3, needIC: 3.5)
             assertContrast("Account ink Azure on the folded strip, pressed or open", fg: ["account:Azure"], bg: ["canvas", "pressed"], need: 3, needIC: 3.5)
             assertContrast("Day and week: event title on its Mulberry face", fg: ["ink"], bg: ["eventFace:Mulberry"], need: 4.5)
@@ -853,6 +859,7 @@ final class DesignContrastTests: XCTestCase {
             assertContrast("Graphite · Composer format toggle glyph (on)", fg: ["ink"], bg: ["selWashIdle"], need: 3)
             assertContrast("Graphite · Composer format toggle glyph (on), hover", fg: ["ink"], bg: ["selWashIdle", "hover"], need: 3)
             assertContrast("Graphite · Composer body link", fg: ["ink"], bg: ["sheet"], need: 4.5)
+            assertContrast("Graphite · Write card Try Again and Open Settings links", fg: ["ink"], bg: ["raised"], need: 4.5)
             assertContrast("Graphite · Address token selected", fg: ["paper"], bg: ["ink"], need: 4.5)
             assertContrast("Graphite · Autocomplete highlighted name", fg: ["ink"], bg: ["selWashIdle"], need: 4.5)
             assertContrast("Graphite · Autocomplete highlighted address", fg: ["ink3"], bg: ["selWashIdle"], need: 4.5)
@@ -883,13 +890,13 @@ final class DesignContrastTests: XCTestCase {
             assertContrast("Graphite · Checkmark on fill", fg: ["paper"], bg: ["ink"], need: 3)
             assertContrast("Graphite · Checkmark / radio dot on the hover fill", fg: ["paper"], bg: ["ink2"], need: 3)
             assertContrast("Graphite · Checkmark / radio dot on the pressed fill", fg: ["paper"], bg: ["ink3"], need: 3)
-            assertContrast("Graphite · Toggle on track vs sheet (rest, hover and pressed: the track never takes a wash)", fg: ["ink"], bg: ["sheet"], need: 3)
         }
     }
 
     /// `graphiteContrastPairs[80..<120]`
     func testGraphiteContrastPairs080() {
         inEveryTheme {
+            assertContrast("Graphite · Toggle on track vs sheet (rest, hover and pressed: the track never takes a wash)", fg: ["ink"], bg: ["sheet"], need: 3)
             assertContrast("Graphite · Toggle knob on (on track), rest, hover and pressed (the press stretches the knob; its face never changes)", fg: ["paper"], bg: ["ink"], need: 3)
             assertContrast("Graphite · Toggle on track vs desk (rest, hover and pressed)", fg: ["ink"], bg: ["canvas"], need: 3)
             assertContrast("Graphite · Unread count badge numerals", fg: ["paper"], bg: ["ink"], need: 4.5)
@@ -929,13 +936,13 @@ final class DesignContrastTests: XCTestCase {
             assertContrast("Graphite · Day and week: the selected conversation's margin rule on a Indigo face", fg: ["ink"], bg: ["eventFace:Indigo"], need: 3)
             assertContrast("Graphite · Day and week: the selected conversation's margin rule on a Lilac face", fg: ["ink"], bg: ["eventFace:Lilac"], need: 3)
             assertContrast("Graphite · Day and week: the selected conversation's margin rule on a Jade face", fg: ["ink"], bg: ["eventFace:Jade"], need: 3)
-            assertContrast("Graphite · Day and week: the selected conversation's margin rule on a Iris face", fg: ["ink"], bg: ["eventFace:Iris"], need: 3)
         }
     }
 
-    /// `graphiteContrastPairs[120..<125]`
+    /// `graphiteContrastPairs[120..<126]`
     func testGraphiteContrastPairs120() {
         inEveryTheme {
+            assertContrast("Graphite · Day and week: the selected conversation's margin rule on a Iris face", fg: ["ink"], bg: ["eventFace:Iris"], need: 3)
             assertContrast("Graphite · Day and week: the selected conversation's margin rule on a Fern face", fg: ["ink"], bg: ["eventFace:Fern"], need: 3)
             assertContrast("Graphite · Day and week: the selected conversation's margin rule on a Umber face", fg: ["ink"], bg: ["eventFace:Umber"], need: 3)
             assertContrast("Graphite · Day and week: the selected conversation's margin rule on a Azure face", fg: ["ink"], bg: ["eventFace:Azure"], need: 3)
@@ -945,10 +952,10 @@ final class DesignContrastTests: XCTestCase {
     }
 
     func testPairCounts() {
-        // tokens.json lists 666 contrast pairs and 125 Graphite pairs, each asserted in 5 themes; a regenerated
+        // tokens.json lists 672 contrast pairs and 126 Graphite pairs, each asserted in 5 themes; a regenerated
         // file must keep them all.
-        XCTAssertEqual(DesignTokensFile.shared.pairCount("contrastPairs"), 666)
-        XCTAssertEqual(DesignTokensFile.shared.pairCount("graphiteContrastPairs"), 125)
+        XCTAssertEqual(DesignTokensFile.shared.pairCount("contrastPairs"), 672)
+        XCTAssertEqual(DesignTokensFile.shared.pairCount("graphiteContrastPairs"), 126)
         XCTAssertEqual(QuireTheme.allCases.count, 5)
     }
 }

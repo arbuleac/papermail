@@ -195,20 +195,17 @@ final class ComposeTextView: NSTextView {
     /// only what the composer inserted, so a From change replaces the signature and keeps what was written after it.
     /// Nor does it carry a picture's mark, which a caret just after a picture would otherwise hand on.
     override var typingAttributes: [NSAttributedString.Key: Any] {
-        get {
-            var attributes = super.typingAttributes
-            attributes[ComposeSignature.attributeKey] = nil
-            attributes[ComposerInlineImage.attributeKey] = nil
-            attributes[.attachment] = nil
-            return attributes
-        }
-        set {
-            var attributes = newValue
-            attributes[ComposeSignature.attributeKey] = nil
-            attributes[ComposerInlineImage.attributeKey] = nil
-            attributes[.attachment] = nil
-            super.typingAttributes = attributes
-        }
+        get { Self.typingSafe(super.typingAttributes) }
+        set { super.typingAttributes = Self.typingSafe(newValue) }
+    }
+
+    /// `attributes` less the signature's and a picture's marks, which typed text never carries.
+    static func typingSafe(_ attributes: [NSAttributedString.Key: Any]) -> [NSAttributedString.Key: Any] {
+        var attributes = attributes
+        attributes[ComposeSignature.attributeKey] = nil
+        attributes[ComposerInlineImage.attributeKey] = nil
+        attributes[.attachment] = nil
+        return attributes
     }
 
     static var defaultTypingAttributes: [NSAttributedString.Key: Any] { defaultTypingAttributes(at: composerTextSize) }
@@ -321,6 +318,14 @@ final class ComposeTextView: NSTextView {
         invalidateIntrinsicContentSize()
         // The text system scrolls to the caret right after this; the frame must already be tall enough.
         enclosingScrollView?.layoutSubtreeIfNeeded()
+    }
+
+    /// Help me write changed the text without an edit being reported (a reply streaming in, §5.56): the editor takes its
+    /// new height, as after typing, and keeps the caret in view.
+    func textDidChangeByWriting() {
+        invalidateIntrinsicContentSize()
+        enclosingScrollView?.layoutSubtreeIfNeeded()
+        scrollRangeToVisible(selectedRange())
     }
 
     override func setFrameSize(_ newSize: NSSize) {
@@ -522,8 +527,12 @@ final class ComposeTextView: NSTextView {
 
     private func replaceSelection(with inserted: NSAttributedString, actionName: String?) {
         let range = rangeForUserTextChange
-        guard let storage = textStorage, range.location != NSNotFound, inserted.length > 0,
-              shouldChangeText(in: range, replacementString: inserted.string) else { return }
+        guard let storage = textStorage, range.location != NSNotFound, inserted.length > 0 else { return }
+        // Refused while a reply streams into the body (§5.56): a picture dropped or pasted then is not taken in silence.
+        guard shouldChangeText(in: range, replacementString: inserted.string) else {
+            NSSound.beep()
+            return
+        }
         // Its own undo step: typing just before or after must not fold into it.
         breakUndoCoalescing()
         storage.replaceCharacters(in: range, with: inserted)

@@ -203,6 +203,28 @@ struct AppAlert {
                  buttons: [Button(title: "Cancel"), Button(title: "Open")])
     }
 
+    /// Help me write, the first time a provider is used (§5.56): what goes, when and to whom, in few words. Cancel is the
+    /// default and Esc, so ↩ sends nothing; Allow is remembered for that provider (Settings › AI shows it and can forget
+    /// it). The CLIs add whose rules then apply. The demo's writer makes replies up on the Mac and sends nothing, so its
+    /// sheet says only that.
+    static func helpMeWriteConsent(_ kind: AIProviderKind, demo: Bool = false) -> AppAlert {
+        if demo {
+            return AppAlert(title: "Try Help Me Write?", body: "In the demo, replies are made up on this Mac. Nothing is sent.",
+                            buttons: [Button(title: "Cancel"), Button(title: "Allow")])
+        }
+        let company = kind.destination.displayName
+        // The user's own notes go as typed (an address there is one they want in the reply); the conversation's go redacted.
+        var body = "Only when you use Help Me Write: the latest messages in this conversation, your notes and your first name "
+            + "go to \(company) to draft a reply. Addresses from the conversation, attachments and other mail never do."
+        switch kind {
+        case .claudeCode: body += " Through Claude Code, under your Claude plan\u{2019}s privacy settings."
+        case .codex: body += " Through Codex, under your OpenAI account\u{2019}s privacy settings."
+        default: break
+        }
+        return AppAlert(title: "Send this conversation to \(company)?", body: body,
+                        buttons: [Button(title: "Cancel"), Button(title: "Allow")])
+    }
+
     /// Every alert of the inventory this surface owns, with sample values, for the alert snapshot.
     static var specimens: [AppAlert] {
         let contoso = Account(id: AccountID("contoso"), kind: .microsoft, email: "alex@contoso.test", displayName: "Alex Morgan",
@@ -225,6 +247,10 @@ struct AppAlert {
             leaveDemo,
             replaceDemo,
             openProgram(filename: "Invoice.command"),
+            helpMeWriteConsent(.claudeAPI),
+            helpMeWriteConsent(.claudeCode),
+            helpMeWriteConsent(.codex),
+            helpMeWriteConsent(.claudeAPI, demo: true),
         ]
     }
 

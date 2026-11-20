@@ -563,6 +563,10 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
 @MainActor
 final class ReaderWindow: NSWindow {
     @objc func undo(_ sender: Any?) {
+        if WriteSession.isStreaming(in: self) {
+            NSSound.beep()
+            return
+        }
         if let controller = windowController as? ReaderWindowController {
             controller.performEditUndo()
         } else {
@@ -570,7 +574,27 @@ final class ReaderWindow: NSWindow {
         }
     }
 
+    /// While Help me write streams a reply into a field here, Undo and Redo wait: the stack's text steps belong to the text
+    /// as it was before the write, and the write ends in one step of its own (§5.56, §6.1).
+    @objc func redo(_ sender: Any?) {
+        if WriteSession.isStreaming(in: self) {
+            NSSound.beep()
+            return
+        }
+        undoManager?.redo()
+    }
+
+    /// Undo and Redo are disabled while a reply streams in (§6.1); nil when the item is neither or nothing streams.
+    private func validateWhileWriting(_ menuItem: NSMenuItem) -> Bool? {
+        guard menuItem.action == #selector(undo(_:)) || menuItem.action == #selector(redo(_:)), WriteSession.isStreaming(in: self) else {
+            return nil
+        }
+        menuItem.title = menuItem.action == #selector(undo(_:)) ? "Can\u{2019}t Undo" : "Can\u{2019}t Redo"
+        return false
+    }
+
     override func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if let answer = validateWhileWriting(menuItem) { return answer }
         if menuItem.action == #selector(undo(_:)), let controller = windowController as? ReaderWindowController {
             return controller.validateEditUndo(menuItem)
         }

@@ -57,6 +57,18 @@ struct LaunchOptions: Equatable {
     /// the crash to Sentry (docs/ANALYTICS-AND-REPORTS.md): `crash`, `fatal`, `exception`, `appkit-exception` (caught by
     /// AppKit: reported, and the app goes on) or `hang` (the main thread blocked for 5 s).
     var crashTest: CrashTest.Kind?
+    /// Debug aid: `--live-ai-clis` makes the demo's Help Me Write run the real Claude Code and Codex (Settings › AI chooses
+    /// which) instead of its made-up writer, so the CLIs can be checked against the demo's fabricated mail, never real mail.
+    var liveAICLIs = false
+    /// Debug aid (demo mode): `--ai-provider=<kind>` (an `AIProviderKind` raw value: claudeAPI, claudeCode, openAIAPI,
+    /// codex) and `--ai-model=<model>` choose the demo's Help Me Write provider for this process only, held in memory and
+    /// never saved, as Settings › AI would.
+    var aiProvider: String?
+    var aiModel: String?
+    /// Debug aid (demo mode): `--live-write-check=<report.json>` writes one reply on the first inbox conversation's quick
+    /// reply with the provider chosen (`--ai-provider`, with `--live-ai-clis` for the real CLIs), answers its consent sheet
+    /// with Allow, writes what happened and when to this JSON file, then quits (`LiveWriteCheck`).
+    var liveWriteCheckPath: String?
     /// Debug aid: `--sentry-dsn=<dsn>` sends this process's reports to that DSN instead of the bundle's, so a run of the
     /// bare binary (which has no Info.plist) can be followed to a test project or a local listener.
     var sentryDSN: String?
@@ -120,6 +132,15 @@ struct LaunchOptions: Equatable {
                 alertsSnapshotPath = Self.value(of: value, after: "--snapshot-alerts=")
             case let value where value.hasPrefix("--crash-test="):
                 crashTest = Self.value(of: value, after: "--crash-test=").flatMap(CrashTest.Kind.init(rawValue:))
+            case "--live-ai-clis":
+                liveAICLIs = true
+            case let value where value.hasPrefix("--ai-provider="):
+                aiProvider = Self.value(of: value, after: "--ai-provider=")
+            case let value where value.hasPrefix("--ai-model="):
+                aiModel = Self.value(of: value, after: "--ai-model=")
+            case let value where value.hasPrefix("--live-write-check="):
+                liveWriteCheckPath = Self.value(of: value, after: "--live-write-check=")
+                if liveWriteCheckPath != nil { demo = true }
             case let value where value.hasPrefix("--sentry-dsn="):
                 sentryDSN = Self.value(of: value, after: "--sentry-dsn=")
             case let value where value.hasPrefix("--telemetry-app-id="):

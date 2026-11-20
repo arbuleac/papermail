@@ -214,6 +214,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         self.settings = settings
         // Every Send button reads the user's choice from these settings (§5.23), the reader's built below among them.
         SendActionPreference.settings = settings
+        // Help me write reads the provider and the user's consent from these settings, and the reader and composers reach
+        // this environment's writer (§5.56).
+        environment.helpMeWrite.settings = settings
+        HelpMeWrite.current = environment.helpMeWrite
         self.remembersScope = remembersScope
         scopeToRestore = remembersScope ? settings.savedAccountScope(demo: environment.isDemo) : nil
         list = MessageListViewController(store: environment.store)
@@ -1081,6 +1085,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             conversation.whenShownRenderLands(timeout: 10) { [weak self] _ in self?.conversation.find.open(query: "the") }
         }
         applyDebugCalendarStates()
+        applyDebugWriteStates()
         #endif
         return list.selectedConversationID ?? first
     }

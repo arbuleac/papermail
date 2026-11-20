@@ -22,6 +22,9 @@ enum CrashReporting {
         case action
         case sync
         case memory
+        /// Help Me Write's milestones (“write started”, …) and the provider's kind, as names from the code: never a prompt,
+        /// a reply or a CLI's output (§5.56).
+        case ai
     }
 
     /// Settings › General › Analytics and reports, which governs `Analytics` too; on unless turned off. Named for crash

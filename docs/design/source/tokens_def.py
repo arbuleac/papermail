@@ -2,7 +2,7 @@
 and the rendered DESIGN-LANGUAGE.md. Colour order: light, dark, lightHC, darkHC."""
 
 NAME = "Quire"
-VERSION = "1.10.2"
+VERSION = "1.11.0"
 
 # The brand palette (docs/brand, spec §5.42), written once: `layout.brand` and the app icon's colours (`layout.appIcon`)
 # read it from here. The mark is black and white only: `paper` is the plane on the icon's tile and the one-colour mark on
@@ -319,6 +319,11 @@ LAYOUT = {
               "formatRow": 36, "formatToggle": 28, "formatGap": 2, "formatGroupGap": 12,
               "linkPopoverWidth": 320, "linkPopoverPad": 12, "linkPopoverRadius": 8, "linkPopoverGap": 8,
               "linkPopoverAlign": "selectionStart", "linkPopoverOffsetY": 6, "popoverEdgeMin": 8, "pictureSelectedWash": 0.45},
+ # Help me write's card (§5.56): app-drawn like the link popover, under the caret (above it, or above the quick reply's field,
+ # without room). The instruction field is a 28 pt text field beside a small primary Write; the status line under it is
+ # `meta`, its glyph or spinner `statusGlyph` and `statusGlyphGap` before the words; a failure's reason wraps to two lines.
+ "writeCard": {"width": 380, "pad": 12, "radius": 8, "rowGap": 8, "buttonGap": 8, "statusGlyph": 12, "statusGlyphGap": 6,
+               "offsetY": 6, "edgeMin": 8, "reasonMaxLines": 2},
  "token": {"invalidGlyph": 10, "height": 22, "padX": 9, "gap": 4, "lineGrow": 26, "maxLines": 3, "rowMax": 88, "moreGap": 6},
  "autocomplete": {"width": 320, "row": 40, "avatar": 24, "maxRows": 6, "radius": 8, "pad": 4, "rowRadius": 5, "rowPadX": 8, "avatarGap": 10, "keycapTrailing": 8, "highlightRule": 3,
                   "anchor": "tokenStart", "offsetX": -46, "offsetY": 4},
@@ -352,7 +357,7 @@ LAYOUT = {
               "groupRadius": 8, "labelColumn": 140, "swatch": 14, "monogramMaxLength": 2, "plusMinus": 22, "plusMinusGlyph": 11, "plusMinusTop": 8,
               "fieldHeight": 24, "noticeGap": 16, "labelGap": 12, "fieldWidth": 360, "captionMaxWidth": 360, "captionGap": 8, "sectionGap": 20,
               "accountFaceX": 16, "tagGap": 6, "statusGap": 12, "statusTrailing": 16, "statusGlyph": 12, "statusGlyphGap": 6, "statusButtonGap": 8,
-              "statusBarWidth": 96, "statusBarGap": 4, "savedGap": 8,
+              "statusBarWidth": 96, "statusBarGap": 4, "savedGap": 8, "aiKeyFieldWidth": 220, "aiPermissionGap": 4,
               "groupMaxRows": 6, "detailTop": 20, "detailRow": 40, "monogramFieldWidth": 64, "colourPopupWidth": 160, "lastErrorMaxLines": 3,
               "signatureLines": 3, "signatureFieldHeight": 66, "mailboxSizeGap": 12,
               "sendersWidth": 440, "senderRow": 40, "senderRowsMax": 8, "senderRowX": 12, "senderActionGap": 12, "senderRemoveInset": 9,
@@ -418,6 +423,8 @@ ICON = {
  "reveal": "eye", "conceal": "eye.slash", "invitation": "calendar", "answered": "checkmark", "print": "printer",
  "findInConversation": "text.magnifyingglass", "findPrevious": "chevron.up", "findNext": "chevron.down",
  "loginApproval": "info.circle", "notificationsOff": "bell.slash",
+ # Help me write (§5.56): the Edit menu item and the card's failure line; the AI tab of Settings (§5.40).
+ "helpMeWrite": "pencil.line", "aiTab": "text.bubble",
  "mute": "bell.slash", "unmute": "bell", "blockSender": "hand.raised", "alwaysArchiveSender": "archivebox", "removeRule": "minus",
  "download": "arrow.down.circle",
  # day and week (§5.54); `later` and `send` mark Later and Send Later times on it, `warning` an overlap
@@ -487,9 +494,11 @@ CHEAT_SHEET = [
  ("Go", [("G then I", "Inbox"), ("G then L", "Later"), ("G then S", "Starred"), ("G then T", "Sent"), ("G then D", "Drafts"),
          ("G then O", "Outbox"), ("G then #", "Trash"), ("G then A", "All Mail"), ("⌘0 … ⌘9", "All Inboxes · one account"),
          ("[ ] T", "Day before · after · today")]),
- # R and A share a row, as J K and N P do, so Send later fits the band without making the sheet taller (§5.32).
+ # R and A share a row, as J K and N P do, so Send later fits the band without making the sheet taller (§5.32). Help me
+ # write (1.11, §5.56) makes Write nine rows, as long as View, so band 2 keeps its height.
  ("Write", [("C", "New message"), ("R A", "Reply · reply all"), ("F", "Forward"), ("⇧⌘R", "Open in composer"), ("⌘↩", "Send"),
-           ("⇧⌘↩", "Send and archive"), ("⇧⌘L", "Send later"), ("⇧⌘A", "Attach files")]),
+           ("⇧⌘↩", "Send and archive"), ("⇧⌘L", "Send later"), ("⇧⌘A", "Attach files"),
+           ("⌘J", "Help me write")]),
  ("Format", [("⇧⌘T", "Format row"), ("⌘B ⌘I ⌘U", "Bold · italic · underline"), ("⇧⌘8 ⇧⌘7", "Bulleted · numbered list"), ("⌘'", "Quote"),
              ("⌘K", "Add link"), ("⌥⌘I", "Insert picture"), ("⇧⌘C ⇧⌘B", "Cc · Bcc field")]),
  ("View", [("⇧⌘I ⇧⌘O", "Images · original colors"), (".", "Show · hide quoted text"), ("⌥⌘F", "Find in conversation"),

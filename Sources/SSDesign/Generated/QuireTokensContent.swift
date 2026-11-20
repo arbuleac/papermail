@@ -5,7 +5,7 @@ import CoreGraphics
 
 extension Quire {
     public static let name = "Quire"
-    public static let version = "1.10.2"
+    public static let version = "1.11.0"
 
     /// Every symbol the app draws, by action (spec §4.11). `ss.` names are custom glyphs (`QuireGlyph`).
     public enum Icon {
@@ -97,6 +97,8 @@ extension Quire {
         public static let findNext = "chevron.down"
         public static let loginApproval = "info.circle"
         public static let notificationsOff = "bell.slash"
+        public static let helpMeWrite = "pencil.line"
+        public static let aiTab = "text.bubble"
         public static let mute = "bell.slash"
         public static let unmute = "bell"
         public static let blockSender = "hand.raised"
@@ -259,6 +261,7 @@ extension Quire {
             QuireCheatSheetRow(keys: "⇧⌘↩", label: "Send and archive"),
             QuireCheatSheetRow(keys: "⇧⌘L", label: "Send later"),
             QuireCheatSheetRow(keys: "⇧⌘A", label: "Attach files"),
+            QuireCheatSheetRow(keys: "⌘J", label: "Help me write"),
         ]),
         QuireCheatSheetSection(title: "Format", rows: [
             QuireCheatSheetRow(keys: "⇧⌘T", label: "Format row"),

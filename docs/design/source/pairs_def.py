@@ -230,6 +230,13 @@ PAIRS = [
  ("Link popover field edge", "ruleStrong", ["raised"], U),
  ("Link popover field text", "ink", ["sheet"], T),
  ("Link popover label", "ink3", ["raised"], T),
+ # Help me write's card (§5.56): `raised`, its field `sheet`
+ ("Write card field text", "ink", ["sheet"], T),
+ ("Write card field edge", "ruleStrong", ["raised"], U),
+ ("Write card source line", "ink3", ["raised"], T),
+ ("Write card status (Writing…, needs setup)", "ink2", ["raised"], T),
+ ("Write card failure line and glyph", "danger", ["raised"], T),
+ ("Write card Try Again and Open Settings links", "accent", ["raised"], T),
  ("Composer values", "ink", ["paper"], T),
  ("Composer body text", "ink", ["sheet"], T),
  ("Composer folded-original caption", "ink3", ["sheet"], T),

@@ -1,0 +1,9 @@
+event: response.created
+data: {"type":"response.created","response":{"id":"resp_fixture3","object":"response","status":"in_progress","model":"gpt-6-luna","output":[],"store":false,"usage":null},"sequence_number":0}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","item_id":"msg_fixture3","output_index":0,"content_index":0,"delta":"Hi Dana, thanks for","sequence_number":1,"logprobs":[]}
+
+event: response.incomplete
+data: {"type":"response.incomplete","response":{"id":"resp_fixture3","object":"response","status":"incomplete","completed_at":null,"error":null,"incomplete_details":{"reason":"max_output_tokens"},"model":"gpt-6-luna","output":[],"store":false,"usage":{"input_tokens":390,"output_tokens":4000}},"sequence_number":2}
+
