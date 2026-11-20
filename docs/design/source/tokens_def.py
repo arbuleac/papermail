@@ -323,9 +323,9 @@ LAYOUT = {
  # ghost button, `gap` before the hint or the status line that follows it; the line's glyph or spinner is `statusGlyph`,
  # `statusGlyphGap` before its words; a keycap sits `keycapGap` before its words, a link `linkGap` after a dot. The hint
  # shows once the user's own text holds `hintMinWords` words. Text streaming in is drawn in `pencilInk` (ink2) and turns
- # to ink when the reply lands. The label drops to the glyph alone below `labelMinWidth` of room.
+ # to ink when the reply lands. Where the row is tight the hint drops “writes”, then Write its label.
  "writeTool": {"gap": 8, "statusGlyph": 12, "statusGlyphGap": 6, "keycapGap": 4, "linkGap": 3, "hintMinWords": 2,
-               "pencilInk": "ink2", "labelMinWidth": 140},
+               "pencilInk": "ink2"},
  # The instruction strip (⇧⌘J), docked inside the reply above its text: a 28 pt field (`textField.height`), then
  # `chipsGap` and the three preset chips (small secondary buttons) `chipGap` apart; `gap` below it to the text. In the
  # composer it sits `composerPadTop` under the header rows, at the body's text inset. Chips leave from the last while

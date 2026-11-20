@@ -34,6 +34,8 @@ final class WriteToolControl: NSView {
     }
 
     static let hintWords = "writes from your notes"
+    /// The hint where the row has no room for the whole: Write's own label says the rest.
+    static let shortHintWords = "from your notes"
     static let tryAgainWords = "Try again"
     static let settingsWords = "Settings\u{2026}"
 
@@ -41,6 +43,8 @@ final class WriteToolControl: NSView {
     var phase: Phase = .idle { didSet { if oldValue != phase { apply() } } }
     /// The user's own text holds enough words to write from (`layout.writeTool.hintMinWords`).
     var showsHint = false { didSet { if oldValue != showsHint { apply() } } }
+    /// The write under way rewrites a selection: “Rewriting with Claude…”.
+    var isRewriting = false { didSet { if oldValue != isRewriting { apply() } } }
 
     var onWrite: (() -> Void)?
     var onStop: (() -> Void)?
@@ -63,8 +67,9 @@ final class WriteToolControl: NSView {
     let settingsLink = SyncLineActionButton()
     private let firstDot = NSTextField(labelWithString: "\u{00b7}")
     private let secondDot = NSTextField(labelWithString: "\u{00b7}")
-    /// The button shows its glyph alone (the row is tight).
-    private var isCompact = false
+    /// How much the row's lack of room took from the idle line: 0 nothing; 1 the hint's “writes”; 2 also Write's label.
+    private var tightness = 0
+    private var isCompact: Bool { tightness >= 2 }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -144,7 +149,7 @@ final class WriteToolControl: NSView {
         case .idle:
             return showsHintNow ? "\u{2318}J " + Self.hintWords : ""
         case .writing:
-            return "Writing with \(writerName)\u{2026}"
+            return (isRewriting ? "Rewriting" : "Writing") + " with \(writerName)\u{2026}"
         case .written:
             return "Written by \(writerName) \u{00b7} \u{2318}J Try again \u{00b7} \u{2318}Z Undo"
         case .failed(let reason, let settings):
@@ -178,6 +183,7 @@ final class WriteToolControl: NSView {
             writeButton.setAccessibilityHelp("Writes a reply with \(writer), from your notes when you have typed some.")
         }
         writeButton.title = isCompact ? "" : "Write"
+        writeButton.setAccessibilityLabel("Write with Help Me Write")
         spinner.isHidden = !writing
         if writing { spinner.startAnimation() } else { spinner.stopAnimation() }
 
@@ -197,11 +203,11 @@ final class WriteToolControl: NSView {
             if showsHintNow {
                 firstKeycap.legend = "\u{2318}J"
                 firstKeycap.isHidden = false
-                words = Self.hintWords
+                words = tightness >= 1 ? Self.shortHintWords : Self.hintWords
                 color = .qInk3
             }
         case .writing:
-            words = "Writing with \(writerName)\u{2026}"
+            words = (isRewriting ? "Rewriting" : "Writing") + " with \(writerName)\u{2026}"
             firstKeycap.legend = "esc"
             firstKeycap.isHidden = false
         case .written:
@@ -250,11 +256,24 @@ final class WriteToolControl: NSView {
         ceil(field.attributedStringValue.size().width) + 2 * Self.labelInset
     }
 
-    /// The width the control would like, its line whole.
+    /// The width the control would like: Write with its label and its line whole.
     var fittingWidth: CGFloat {
         guard isShown else { return 0 }
-        return layoutItems(height: 22, apply: false)
+        return layoutItems(height: 22, apply: false) + (isCompact ? Self.labelWidth : 0) + (tightness >= 1 && showsHintNow ? hintSaving : 0)
     }
+
+    /// What the short hint saves over the whole one.
+    private var hintSaving: CGFloat {
+        func width(_ words: String) -> CGFloat { ceil(QuireFont.attributedString(words, role: .meta, color: .qInk3).size().width) }
+        return width(Self.hintWords) - width(Self.shortHintWords)
+    }
+
+    /// What “Write” adds to the button beside its glyph.
+    private static let labelWidth: CGFloat = {
+        let full = QuireButton(title: "Write", variant: .ghost, size: .small, symbolName: Quire.Icon.helpMeWrite)
+        let bare = QuireButton(title: "", variant: .ghost, size: .small, symbolName: Quire.Icon.helpMeWrite)
+        return full.intrinsicContentSize.width - bare.intrinsicContentSize.width
+    }()
 
     /// Lays its parts out from the leading edge, each centred on a row `height` tall. Returns the trailing edge of what it
     /// placed, whole (the label may then be cut to the bounds).
@@ -323,11 +342,21 @@ final class WriteToolControl: NSView {
     override func layout() {
         super.layout()
         let available = bounds.width
-        // Tight: the button drops its label first, then the line truncates.
-        let compact = available < Quire.Layout.WriteTool.labelMinWidth && phase == .idle && !showsHintNow
-        if compact != isCompact {
-            isCompact = compact
-            writeButton.title = compact ? "" : "Write"
+        // Tight: the hint drops “writes” first (“Write ⌘J from your notes”), then the button its label, then the line
+        // truncates.
+        var level = 0
+        if phase == .idle {
+            let whole = fittingWidth
+            let shortened = whole - (showsHintNow ? hintSaving : 0)
+            if shortened > available {
+                level = 2
+            } else if whole > available {
+                level = 1
+            }
+        }
+        if level != tightness {
+            tightness = level
+            apply()
         }
         let used = layoutItems(height: bounds.height, apply: true)
         if used > available, !label.isHidden {

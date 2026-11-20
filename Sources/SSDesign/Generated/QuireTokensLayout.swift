@@ -593,7 +593,6 @@ extension Quire {
             public static let linkGap: CGFloat = 3
             public static let hintMinWords: CGFloat = 2
             public static let pencilInk: String = "ink2"
-            public static let labelMinWidth: CGFloat = 140
         }
         public enum WriteStrip {
             public static let gap: CGFloat = 6

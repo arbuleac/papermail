@@ -55,7 +55,9 @@ struct DemoMailboxBuilder {
         // Scripted threads are spread over the whole window, a few of them very recent so the inbox opens on them.
         for (index, script) in scripts.enumerated() {
             let day = index < 3 ? Double(index) * 0.6 : random.unit() * Double(Self.historyDays - 5)
-            addScript(script, startDaysAgo: day, style: quoteStyle(for: script))
+            // The long thread runs over the last fortnight, ending yesterday, and stays in the inbox.
+            addScript(script, startDaysAgo: script.isRecent ? 14 : day, style: quoteStyle(for: script),
+                      inInbox: script.isRecent ? true : nil)
         }
         // Invitations are the newest mail, so the inbox opens on a card (spec §5.14).
         for invitation in DemoInvitations.invitations(for: profile, reference: reference) {

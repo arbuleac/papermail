@@ -258,7 +258,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             MainActor.assumeIsolated {
                 guard let window = ComposeWindowRegistry.shared.openControllers.first?.window,
                       let view = window.contentView?.superview ?? window.contentView,
-                      let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
+                      let bitmap = SnapshotRenderer.bitmap(for: view, in: view.bounds) else {
                     Self.log.error("snapshot: no composer window")
                     return
                 }

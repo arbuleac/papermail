@@ -75,7 +75,7 @@ enum WriteSnapshotStates {
             session.write()
         case "write-strip":
             session.showStrip()
-            session.field.instructionStrip.instruction = "Warmer, and say I can do Wednesday too"
+            session.field.instructionStrip.instruction = "Warmer, and offer Wednesday too"
             let typed = (session.field.instructionStrip.instruction as NSString).length
             (session.field.instructionStrip.field.textField.currentEditor() as? NSTextView)?
                 .setSelectedRange(NSRange(location: typed, length: 0))

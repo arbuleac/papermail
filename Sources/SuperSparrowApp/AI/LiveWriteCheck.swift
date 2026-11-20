@@ -84,25 +84,46 @@ final class LiveWriteCheck {
         }
         report["thread"] = ["subject": Self.threadSubject, "messages": thread.count] as [String: Any]
         window.reveal(thread.id)
-        conversation.whenShownRenderLands(timeout: 10) { [weak self] _ in
-            guard let self else { return }
-            guard conversation.focusQuickReply(all: false), let session = conversation.quickReplyWriteSession else {
-                self.report["error"] = "no quick reply"
-                self.end()
-                return
+        // The reader coalesces a selection's render: wait until it shows this thread (its quick reply restored for it),
+        // then for its render, so nothing set after the notes are typed replaces them.
+        waitForThread(thread.id, attempts: 0) { [weak self] in
+            conversation.whenShownRenderLands(timeout: 10) { _ in
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    MainActor.assumeIsolated { self?.typeAndPress(in: conversation) }
+                }
             }
-            self.session = session
-            let field = conversation.quickReplyBar.writingTextView
-            field.insertText(Self.notes, replacementRange: NSRange(location: 0, length: (field.string as NSString).length))
-            session.refresh()
-            self.report["availability"] = Self.describe(session.field.writeControl.availability)
-            self.report["hintShown"] = session.field.writeControl.showsHint
-            self.report["menuTitle"] = session.menuTitle(withInstructions: false)
-            self.pressed = self.clock.now
-            self.watch(field: field)
-            // ⌘J, as the user presses it.
-            conversation.helpMeWrite(nil)
         }
+    }
+
+    private func waitForThread(_ id: ConversationID, attempts: Int, then: @escaping () -> Void) {
+        if window.conversation.currentConversationID == id || attempts > 100 {
+            report["threadShown"] = window.conversation.currentConversationID == id
+            then()
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            MainActor.assumeIsolated { self?.waitForThread(id, attempts: attempts + 1, then: then) }
+        }
+    }
+
+    private func typeAndPress(in conversation: ConversationViewController) {
+        guard conversation.focusQuickReply(all: false), let session = conversation.quickReplyWriteSession else {
+            report["error"] = "no quick reply"
+            end()
+            return
+        }
+        self.session = session
+        let field = conversation.quickReplyBar.writingTextView
+        field.insertText(Self.notes, replacementRange: NSRange(location: 0, length: (field.string as NSString).length))
+        session.refresh()
+        report["fieldBefore"] = field.string
+        report["availability"] = Self.describe(session.field.writeControl.availability)
+        report["hintShown"] = session.field.writeControl.showsHint
+        report["menuTitle"] = session.menuTitle(withInstructions: false)
+        pressed = clock.now
+        watch(field: field)
+        // ⌘J, as the user presses it.
+        conversation.helpMeWrite(nil)
     }
 
     /// The demo's offsite thread: the conversation with that subject and the most messages.

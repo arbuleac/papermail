@@ -272,8 +272,10 @@ final class WriteSession {
         field.refusesEdits = true
         field.setHeldOpen(true)
         markStreaming(true, in: textView.window)
+        field.writeControl.isRewriting = isRewrite
         phase = .writing
-        QuireAccessibility.announce("Writing with \(center.writerName(for: configuration.kind))", from: field.writeControl)
+        QuireAccessibility.announce((isRewrite ? "Rewriting with " : "Writing with ") + center.writerName(for: configuration.kind),
+                                    from: field.writeControl)
 
         let writer = center.writer
         let signature = context.appendsSignature

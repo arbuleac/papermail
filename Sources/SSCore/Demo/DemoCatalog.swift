@@ -26,6 +26,8 @@ enum DemoCatalog {
         var attachment: Attachment?
         var attachmentOnLine = 0
         var starred = false
+        /// Its last message a day or so old, in the inbox: the demo's long thread, so the inbox shows it.
+        var isRecent = false
     }
 
     struct Newsletter {
@@ -270,7 +272,7 @@ enum DemoCatalog {
             "I can ask Contoso and Fabrikam; both offered to talk last quarter. I'll need the travel budget confirmed first.",
             "Travel for two customer guests fits inside the budget we approved, about $1,200 all in.",
             "Great, so we're nearly there. Can you confirm you'll send the deposit before the 3rd, and are you happy to present the roadmap on Thursday morning? Also, should we invite the new hires to the dinner on Wednesday or keep it to the Thursday?",
-        ]),
+        ], isRecent: true),
     ]
 
     /// The work account's older threads on the demo's server, found only by a search of the server (spec §5.10).

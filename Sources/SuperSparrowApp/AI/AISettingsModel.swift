@@ -46,7 +46,7 @@ final class AISettingsModel: ObservableObject {
     static let keyPrompt = "Paste your API key"
     static let keySavedPrompt = "Saved in your Keychain"
     /// The status line of a provider chosen but never turned on (one chosen before 1.12).
-    static let notTurnedOnWords = "Not turned on yet. Nothing is sent until you turn it on."
+    static let notTurnedOnWords = "Not turned on yet"
 
     @Published private(set) var provider: AIProviderKind?
     @Published private(set) var status: Status = .none

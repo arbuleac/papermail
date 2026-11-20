@@ -967,11 +967,29 @@ final class QuickReplyView: NSView, QuirePointerTarget {
     /// text, so one font and one paragraph style cover it all. Not an edit: the undo stack keeps text at the size it
     /// was typed at, and the storage's delegate sets what an undo brings back at the size then.
     private func applyWritingStyle() {
-        let writing = QuireFont.attributes(.writing, color: .qInk, textSize: textSize)
+        var writing = QuireFont.attributes(.writing, color: .qInk, textSize: textSize)
+        // Quire's role styles truncate a single line (labels); a reply wraps, to five lines and then scrolls (§5.18).
+        if let style = (writing[.paragraphStyle] as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle {
+            style.lineBreakMode = .byWordWrapping
+            writing[.paragraphStyle] = style
+        }
         textView.font = writing[.font] as? NSFont
         textView.typingAttributes = writing
         textView.defaultParagraphStyle = writing[.paragraphStyle] as? NSParagraphStyle
-        if let storage = textView.textStorage { WritingTextSize.apply(textSize, to: storage) }
+        if let storage = textView.textStorage {
+            Self.wrapLines(in: storage)
+            WritingTextSize.apply(textSize, to: storage)
+        }
+    }
+
+    /// Text set before the field wrapped (a restored draft) wraps too.
+    private static func wrapLines(in storage: NSTextStorage) {
+        storage.enumerateAttribute(.paragraphStyle, in: NSRange(location: 0, length: storage.length), options: []) { value, run, _ in
+            guard let style = value as? NSParagraphStyle, style.lineBreakMode != .byWordWrapping,
+                  let copy = style.mutableCopy() as? NSMutableParagraphStyle else { return }
+            copy.lineBreakMode = .byWordWrapping
+            storage.addAttribute(.paragraphStyle, value: copy, range: run)
+        }
     }
 
     /// The writing font in use now (tests read it).
