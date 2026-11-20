@@ -160,6 +160,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             guard let self, let window = self.mainWindow else { return }
             window.selectFirstConversation()
             window.whenReaderSettles(timeout: 10) { webView in
+                #if DEBUG
+                if main != nil, WrapSnapshot.text != nil, window.conversation.focusQuickReply(all: false) {
+                    WrapSnapshot.type(into: window.conversation.quickReplyBar.writingTextView, in: window.window)
+                }
+                #endif
                 // Frames size themselves and inline images load after the render lands.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                     MainActor.assumeIsolated {
@@ -213,6 +218,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return
         }
         reader.conversation.whenShownRenderLands(timeout: 10) { webView in
+            #if DEBUG
+            if WrapSnapshot.text != nil, reader.conversation.focusQuickReply(all: false) {
+                WrapSnapshot.type(into: reader.conversation.quickReplyBar.writingTextView, in: reader.window)
+            }
+            #endif
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                 MainActor.assumeIsolated {
                     self.captureReader(webView) { image in
@@ -241,6 +251,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func writeComposeSnapshot(to path: String) {
+        #if DEBUG
+        // `wrap-…` states: a long text typed into the body instead of the demo's sample (WrapSnapshot).
+        if WrapSnapshot.writeComposeSnapshot(from: mainWindow, to: path) { return }
+        #endif
         guard mainWindow?.openReplyComposer() == true else {
             Self.log.error("snapshot: no conversation to reply to")
             return
