@@ -105,11 +105,7 @@ final class AttachmentPreviewController: NSObject, @MainActor QLPreviewPanelData
 
     /// Keeps the original name (Quick Look picks the previewer from it) but never a path separator.
     static func safeFilename(_ filename: String) -> String {
-        let cleaned = filename
-            .replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: ":", with: "_")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return cleaned.isEmpty || cleaned == "." || cleaned == ".." ? "Attachment" : cleaned
+        AttachmentSafety.safeFilename(filename)
     }
 
     private static func folderName(for key: String) -> String {

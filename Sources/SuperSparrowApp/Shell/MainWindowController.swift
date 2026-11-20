@@ -2434,17 +2434,25 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             break
         case .attachmentsSaved(let outcome):
             showSaved(outcome)
+        case let .attachmentDragFailed(failure, filename):
+            // In the window the chip was dragged from: a reader window's own toast, or this one's (§5.17, §5.30).
+            let toasts = self.toasts
+            let host = stepToastHost
+            let words = failure.toast(filename: filename) { words in
+                toasts.fits(words, symbol: Quire.Icon.error, actionTitle: nil, keycap: nil, in: host)
+            }
+            toasts.show(words, kind: .error, symbol: Quire.Icon.error, in: host)
         case .continueDraft(let id):
             continueDraft(id)
         case .discardDrafts(let ids):
             confirmDiscardDrafts(ids)
         case .reveal(let id):
             reveal(id)
-        case let .replyInComposer(id, all, body, attach):
+        case let .replyInComposer(id, all, body, attach, dropped):
             beforeCompose?()
             guard let account = accounts.first(where: { $0.id == id.accountID }) ?? accounts.first else { return }
             ComposeWindowController.present(client: environment.engine, account: account, accounts: accounts, mode: .reply(id, all: all),
-                                            body: body, attach: attach)
+                                            body: body, attach: attach, dropped: dropped)
         case .cancelSendLater(let id):
             cancelSendLater(id)
         case .quickReplyFailed(let draft):

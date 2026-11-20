@@ -14,11 +14,8 @@ enum AttachmentSaver {
     /// quarantine; tests replace it.
     static func copy(_ file: URL, into folder: URL, mark: (URL) throws -> Void = AttachmentSafety.quarantine) -> URL? {
         let manager = FileManager.default
-        let base = file.deletingPathExtension().lastPathComponent
-        let ext = file.pathExtension
         for index in 1...999 {
-            let name = index == 1 ? file.lastPathComponent : base + " \(index)" + (ext.isEmpty ? "" : "." + ext)
-            let destination = folder.appendingPathComponent(name)
+            let destination = folder.appendingPathComponent(AttachmentSafety.numberedName(file.lastPathComponent, index))
             guard !manager.fileExists(atPath: destination.path) else { continue }
             do {
                 try manager.copyItem(at: file, to: destination)

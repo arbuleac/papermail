@@ -509,7 +509,11 @@ public enum ConversationShellAssets {
     /* The chip and its Download button are siblings in one wrapper, since a button cannot hold a button; the chip
        leaves room at its end for the button (padRight 6 + download 24 + downloadGap 4). Hovering either gives the chip
        its hover surface; only the chip itself shows the hover meta. */
-    .ss-chipw { position: relative; display: flex; min-width: 0; }
+    .ss-chipw { position: relative; display: flex; min-width: 0; -webkit-user-select: none; -webkit-user-drag: none; }
+    /* Dragging out (spec §5.17): the app draws the file card under the pointer; the chip left behind dims
+       (attachmentChip.draggingOpacity). WebKit's own drag never starts from a chip or Download all. */
+    .ss-chipw.ss-dragging { opacity: 0.45; }
+    .ss-chip, .ss-dlall { -webkit-user-drag: none; }
     .ss-chip {
       position: relative; height: 44px; min-width: 196px; max-width: 264px; padding: 0 34px 0 8px; border: 0;
       border-radius: var(--q-r-lg); background: var(--q-sheet); box-shadow: inset 0 0 0 var(--ss-hair) var(--q-rule);
@@ -546,8 +550,9 @@ public enum ConversationShellAssets {
     }
     .ss-chip-text { display: flex; flex-direction: column; min-width: 0; }
     .ss-chip-name { display: flex; min-width: 0; font: var(--q-font-label); color: var(--q-ink); }
-    .ss-chip-name .ss-cb { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-    .ss-chip-name .ss-ce { flex: none; }
+    /* `pre`: the name is cut in two flex items, and a space at the cut would otherwise end the first and vanish. */
+    .ss-chip-name .ss-cb { overflow: hidden; text-overflow: ellipsis; min-width: 0; white-space: pre; }
+    .ss-chip-name .ss-ce { flex: none; white-space: pre; }
     .ss-chip-meta { font: var(--q-font-meta); color: var(--q-ink3); }
     .ss-chip-meta .ss-hover-meta, .ss-chip:hover .ss-chip-meta .ss-rest-meta { display: none; }
     .ss-chip:hover .ss-chip-meta .ss-hover-meta { display: inline; }
@@ -2270,6 +2275,7 @@ public enum ConversationShellAssets {
         });
         wrap.appendChild(chip);
         wrap.appendChild(save);
+        if (card.dragging && card.dragging.indexOf(attachment.id) >= 0) { wrap.classList.add('ss-dragging'); }
         var progress = card.attachmentProgress ? card.attachmentProgress[attachment.id] : undefined;
         if (progress !== undefined && !failed) { showProgress(chip, progress); }
         chip.addEventListener('click', function (event) {
@@ -2280,6 +2286,7 @@ public enum ConversationShellAssets {
         chip.addEventListener('focus', function () {
           post('ss', { kind: 'focusAttachment', messageID: card.message.id, attachmentID: attachment.id });
         });
+        chip.addEventListener('mousedown', function (event) { pressAttachments(event, card, [chip]); });
         // Double click opens with the default app; the context menu is the app's system menu (spec §5.17).
         chip.addEventListener('dblclick', function (event) {
           stop(event);
@@ -2304,6 +2311,41 @@ public enum ConversationShellAssets {
         return bar;
       }
 
+      // MARK: Dragging out (spec §5.17)
+
+      // A primary press on a chip, or on Download all, tells the app which files it would drag and where their chips are;
+      // the app starts the drag itself once the pointer moves past the drag threshold, and WebKit never starts one.
+      function pressAttachments(event, card, chips) {
+        if (event.button !== 0 || event.ctrlKey || !chips.length) { return; }
+        var items = [];
+        for (var i = 0; i < chips.length; i++) {
+          var r = chips[i].getBoundingClientRect();
+          items.push({ attachmentID: chips[i].dataset.attachmentId, x: r.left, y: r.top, width: r.width, height: r.height });
+        }
+        post('ss', { kind: 'attachmentPress', messageID: card.message.id, items: items, x: event.clientX, y: event.clientY });
+      }
+
+      // The app started (on) or ended a drag of these files: their chips dim meanwhile, and the click the press would end
+      // in, which the app hands WebKit as the drag starts, opens nothing.
+      var dragSwallowsClick = false;
+      function attachmentDrag(id, attachmentIDs, on) {
+        dragSwallowsClick = !!on;
+        var card = state.byID[id];
+        if (!card) { return; }
+        // Kept on the card, so a chip rebuilt meanwhile (a failed fetch marks it) stays dimmed.
+        card.dragging = on ? attachmentIDs.slice() : null;
+        for (var i = 0; i < attachmentIDs.length; i++) {
+          var chip = card.atts.querySelector('.ss-chip[data-attachment-id="' + CSS.escape(attachmentIDs[i]) + '"]');
+          if (chip && chip.parentNode) { chip.parentNode.classList.toggle('ss-dragging', !!on); }
+        }
+      }
+      document.addEventListener('click', function (event) {
+        if (!dragSwallowsClick) { return; }
+        dragSwallowsClick = false;
+        event.preventDefault();
+        event.stopPropagation();
+      }, true);
+
       // Two files or more: the count and Download all above the chips (spec §5.17). Inline images are never in the
       // payload's list, so the count is the files the user can save.
       function buildAttachmentsHead(card) {
@@ -2318,6 +2360,10 @@ public enum ConversationShellAssets {
           // As on a chip's Download: a double-click saves the files once.
           if (event.detail > 1 || all.getAttribute('aria-disabled') === 'true') { return; }
           action('downloadAllAttachments', card, null);
+        });
+        // Dragging Download all drags every file of the message (spec §5.17).
+        all.addEventListener('mousedown', function (event) {
+          pressAttachments(event, card, Array.prototype.slice.call(card.atts.querySelectorAll('.ss-chip')));
         });
         head.appendChild(all);
         if (card.batchProgress !== undefined) { showProgress(head, card.batchProgress); }
@@ -3931,6 +3977,7 @@ public enum ConversationShellAssets {
         selectedMessageID: function () { return state.target ? state.target.message.id : null; },
         loadImages: function (id) { loadImages(id ? state.byID[id] : targetCard()); },
         attachmentFailed: attachmentFailed,
+        attachmentDrag: attachmentDrag,
         attachmentProgress: attachmentProgress,
         attachmentsProgress: attachmentsProgress,
         // Find in conversation (spec §5.50). Each posts {kind: 'find', query, count, index} as well as returning it, so

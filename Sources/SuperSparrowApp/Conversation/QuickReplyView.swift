@@ -10,6 +10,10 @@ import SSDesign
 ///
 /// The view owns no mail logic: it reports the text on ⌘↩ (with what Send does now, `sendAction`) and on ⇧⌘↩ (send and
 /// archive), the drop-down's choice and the commands of its buttons, and shows the strip and the states its owner asks for.
+///
+/// Files, and attachments dragged from a message (§5.17), can be dropped on it while its field takes typing: the field
+/// shows Quire's drop treatment with “Drop to reply with attachment”, and the drop is reported with the text and mode, for
+/// the owner to move the reply to a composer with them attached.
 @MainActor
 final class QuickReplyView: NSView, QuirePointerTarget {
     enum Mode: Int, Equatable {
@@ -42,6 +46,8 @@ final class QuickReplyView: NSView, QuirePointerTarget {
     var onOpenInComposer: ((String, Mode) -> Void)?
     /// Attach (⇧⌘A): the reply moves to the composer, which then asks for the files.
     var onAttach: ((String, Mode) -> Void)?
+    /// Files or the app's own attachments dropped on the bar: the reply moves to the composer with them attached.
+    var onDropAttachments: ((String, Mode, [AttachmentDropItem]) -> Void)?
     var onUndo: (() -> Void)?
     var onShowDraft: (() -> Void)?
     /// A click on the field while a composer holds this conversation's draft.
@@ -123,6 +129,9 @@ final class QuickReplyView: NSView, QuirePointerTarget {
     private let statusAction = QuireButton(title: "Undo", variant: .link, size: .small)
     private let statusContrail = QuireContrailView(mode: .determinate(0))
     private let strip = QuickReplyStripView()
+    /// The drop treatment over the field while something that attaches is dragged over the bar (§5.18).
+    private let dropOverlay = AttachmentDropOverlay(label: "Drop to reply with attachment", inset: Quire.Layout.QuickReply.dropInset,
+                                                    radius: Quire.Layout.QuickReply.fieldRadius, fill: .qSheet)
     private var heightConstraint: NSLayoutConstraint!
     private var hovering = false
     private var hoverArea: NSTrackingArea?
@@ -253,6 +262,9 @@ final class QuickReplyView: NSView, QuirePointerTarget {
         sendActionDidChange()
 
         statusGlyph.imageScaling = .scaleNone
+        // An image view registers for files and pictures even when it cannot be edited, and would take a drag meant for
+        // the bar from over its glyph.
+        statusGlyph.unregisterDraggedTypes()
         addSubview(statusGlyph)
         statusLabel.lineBreakMode = .byTruncatingTail
         statusLabel.maximumNumberOfLines = 1
@@ -268,6 +280,10 @@ final class QuickReplyView: NSView, QuirePointerTarget {
         strip.onShow = { [weak self] in self?.onShowDraft?() }
         strip.onDismiss = { [weak self] in self?.stripDismissed() }
         addSubview(strip)
+        // Above everything the field holds, which it hides while it shows.
+        addSubview(dropOverlay)
+        registerForDraggedTypes(AttachmentPasteboard.dropTypes)
+        textView.dropTarget = self
 
         heightConstraint = heightAnchor.constraint(equalToConstant: barHeight)
         heightConstraint.isActive = true
@@ -551,6 +567,7 @@ final class QuickReplyView: NSView, QuirePointerTarget {
 
         strip.frame = field.insetBy(dx: 1, dy: 1)
         strip.showsKeycaps = keycaps
+        dropOverlay.frame = field
         pointerRegionsDidChange()
     }
 
@@ -672,6 +689,44 @@ final class QuickReplyView: NSView, QuirePointerTarget {
 
     @objc private func windowKeyChanged() {
         needsDisplay = true
+    }
+
+    // MARK: Dropping (§5.18)
+
+    /// The field takes a drop only while it takes typing: not while a composer holds the reply, nor while the strip counts
+    /// a send down or says how one ended, nor while hidden.
+    var acceptsDrops: Bool { onDropAttachments != nil && !isComposerOpen && strip.isHidden && !isHiddenOrHasHiddenAncestor }
+
+    /// The drop treatment shows (the app's tests read it, and its renders set it).
+    var showsDropTarget: Bool {
+        get { !dropOverlay.isHidden }
+        set { dropOverlay.isHidden = !newValue }
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard acceptsDrops, !AttachmentPasteboard.dropItems(on: sender.draggingPasteboard).isEmpty else { return [] }
+        showsDropTarget = true
+        return .copy
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        showsDropTarget ? .copy : []
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        showsDropTarget = false
+    }
+
+    override func draggingEnded(_ sender: NSDraggingInfo) {
+        showsDropTarget = false
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        showsDropTarget = false
+        let items = AttachmentPasteboard.dropItems(on: sender.draggingPasteboard)
+        guard acceptsDrops, !items.isEmpty else { return false }
+        onDropAttachments?(text, mode, items)
+        return true
     }
 
     // MARK: Behavior
@@ -903,6 +958,9 @@ private final class QuickReplyTextView: NSTextView {
     var onAttach: (() -> Void)?
     var onEscape: ((_ repeated: Bool) -> Void)?
     var onFocusChange: ((Bool) -> Void)?
+    /// The bar, which takes files dragged over the text: a text view registered for files keeps the drag from it, and
+    /// would type the file's path.
+    weak var dropTarget: NSView?
     /// The key being handled is a repeat (the key held down): `cancelOperation`, which carries no event, tells the owner,
     /// since Esc's repeat must not close a reader window (§6.1).
     private var handlingRepeat = false
@@ -951,6 +1009,37 @@ private final class QuickReplyTextView: NSTextView {
 
     override func cancelOperation(_ sender: Any?) {
         onEscape?(handlingRepeat)
+    }
+
+    // Files dragged over the text attach through the bar, as attachments dragged from a message do (§5.18).
+
+    private func attaches(_ sender: NSDraggingInfo) -> Bool {
+        dropTarget != nil && AttachmentPasteboard.carriesAttachments(sender.draggingPasteboard)
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        if attaches(sender) { return dropTarget?.draggingEntered(sender) ?? [] }
+        return super.draggingEntered(sender)
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        if attaches(sender) { return dropTarget?.draggingUpdated(sender) ?? [] }
+        return super.draggingUpdated(sender)
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        if let sender, attaches(sender) { dropTarget?.draggingExited(sender) }
+        super.draggingExited(sender)
+    }
+
+    override func draggingEnded(_ sender: NSDraggingInfo) {
+        if attaches(sender) { dropTarget?.draggingEnded(sender) }
+        super.draggingEnded(sender)
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        if attaches(sender) { return dropTarget?.performDragOperation(sender) ?? false }
+        return super.performDragOperation(sender)
     }
 
     override func becomeFirstResponder() -> Bool {

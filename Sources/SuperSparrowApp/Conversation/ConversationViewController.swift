@@ -142,6 +142,10 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     /// When each save last ended, in system uptime. A file already on this Mac is saved within one turn, before a
     /// double-click's second click arrives; a press on the same control that soon is still that double-click.
     private var savesEnded: [AttachmentDownloadBoard.Chip: TimeInterval] = [:]
+    /// Drags chips out (spec §5.17, Dragging out). Internal so the app's tests can read the items a drag would carry.
+    let attachmentDrags: AttachmentDragController
+    /// The chip downloads a dropped promise is showing, oldest first per file: a file dropped twice shows twice.
+    private var promiseDownloads: [MailAttachmentReference: [(ticket: AttachmentDownloadBoard.Ticket, progress: @Sendable (Double) -> Void)]] = [:]
     /// Where Download, Download all and Save to Downloads save (spec §5.17). Tests point it at a folder of their own.
     var downloadsFolder: URL? = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
     /// Messages the page on screen shows in the sender's colours, for View › Original Colors' checkmark: what the page
@@ -222,6 +226,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         self.draftShelf = drafts ?? QuickReplyDraftShelf()
         self.pool = WebViewPool(client: client, size: poolSize)
         self.preview = AttachmentPreviewController(client: client)
+        self.attachmentDrags = AttachmentDragController(client: client)
         var accounts: [AccountID: Account] = [:]
         for account in (try? client.accounts()) ?? [] { accounts[account.id] = account }
         self.accountsByID = accounts
@@ -232,6 +237,13 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         pool.onCopyFocusedAddress = { [weak self] slot in self?.copyFocusedAddress(in: slot) }
         pool.onViewRecreated = { [weak self] slot in self?.slotWasRecreated(slot) }
         pool.onRenderLanded = { [weak self] slot in self?.renderLanded(in: slot) }
+        pool.onAttachmentDrag = { [weak self] slot, press, event in
+            guard let self, slot === self.pool.current, let webView = slot.webView as? ReaderWebView else { return false }
+            return self.attachmentDrags.startDrag(press, event: event, in: webView)
+        }
+        attachmentDrags.attachments = { [weak self] id in self?.attachments(of: id) ?? [] }
+        attachmentDrags.onDragChange = { [weak self] drag, on in self?.attachmentDragChanged(drag, on: on) }
+        attachmentDrags.onPromiseEvent = { [weak self] event in self?.promiseEvent(event) }
         let center = NotificationCenter.default
         // Block observers stay registered until removed, so their tokens are kept for deinit.
         notificationTokens.append(center.addObserver(forName: Self.remoteImagesPolicyChanged, object: nil, queue: .main) { [weak self] _ in
@@ -337,6 +349,10 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         quickReply.onHeightChange = { [weak self] _ in self?.applyBottomInset() }
         quickReply.onOpenInComposer = { [weak self] text, mode in self?.openQuickReplyInComposer(text: text, mode: mode, attach: false) }
         quickReply.onAttach = { [weak self] text, mode in self?.openQuickReplyInComposer(text: text, mode: mode, attach: true) }
+        // A drop moves the reply to a composer with what was dropped attached, as Attach and choosing the files would (§5.18).
+        quickReply.onDropAttachments = { [weak self] text, mode, items in
+            self?.openQuickReplyInComposer(text: text, mode: mode, attach: false, dropped: items)
+        }
         quickReply.onDisabledClick = { [weak self] in self?.bringReplyComposerForward() }
         quickReply.onUndo = { [weak self] in self?.undoQuickSend() }
         quickReply.onShowDraft = { [weak self] in
@@ -1277,12 +1293,16 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         case .originalColors(let shown):
             slot.originalColorsShown = shown
             return
+        case .attachmentPress(let press):
+            // Only the page on screen is pressed; its view decides whether the pointer then drags.
+            if slot === pool.current { (slot.webView as? ReaderWebView)?.armAttachmentDrag(press) }
+            return
         default:
             break
         }
         guard slot === pool.current else { return }
         switch message {
-        case .ready, .focusMark, .originalColors, .themed:
+        case .ready, .focusMark, .originalColors, .themed, .attachmentPress:
             break
         case .motion:
             // The registry holds animators weakly; this one lives until the next motion replaces it.
@@ -1944,7 +1964,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
                 if let window { panel.beginSheetModal(for: window, completionHandler: save) } else { save(panel.runModal()) }
             case .copy:
                 NSPasteboard.general.clearContents()
-                NSPasteboard.general.writeObjects([file as NSURL])
+                NSPasteboard.general.writeObjects([AttachmentPasteboard.copyItem(file: file, reference: MailAttachmentReference(message: messageID, info: info))])
             }
         }
     }
@@ -1971,6 +1991,38 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
 
     /// Quick Look's data source and delegate, for the app's tests.
     var attachmentPreview: AttachmentPreviewController { preview }
+
+    // MARK: Dragging out (spec §5.17)
+
+    /// The dragged chips dim while the drag lasts. Told before the drag hands WebKit its mouse-up, so the shell swallows the
+    /// click that mouse-up makes.
+    private func attachmentDragChanged(_ drag: AttachmentDragController.Drag, on: Bool) {
+        guard let webView = drag.webView, let slot = pool.slot(for: webView) else { return }
+        let key = ConversationShellAssets.jsStringLiteral(RenderPayload.messageKey(for: drag.messageID))
+        let ids = "[" + drag.attachmentIDs.map(ConversationShellAssets.jsStringLiteral).joined(separator: ",") + "]"
+        evaluate("window.ss && window.ss.attachmentDrag && window.ss.attachmentDrag(\(key), \(ids), \(on))", in: slot)
+    }
+
+    /// A dropped file being fetched for the Finder (or any app that took the promise) shows on its chip as a download
+    /// does; one that could not be fetched marks the chip, and either failure says so in the window's toast.
+    private func promiseEvent(_ event: AttachmentPromiseFulfiller.Event) {
+        switch event {
+        case .began(let reference):
+            setAttachmentFailed(false, reference.info.id, of: reference.message)
+            promiseDownloads[reference, default: []].append(beginDownload(reference.info.id, of: reference.message))
+        case let .progress(reference, fraction):
+            promiseDownloads[reference]?.first?.progress(fraction)
+        case let .ended(reference, failure):
+            if var list = promiseDownloads[reference], !list.isEmpty {
+                let download = list.removeFirst()
+                promiseDownloads[reference] = list.isEmpty ? nil : list
+                endDownload(download.ticket)
+            }
+            guard let failure else { return }
+            if failure == .unfetched { setAttachmentFailed(true, reference.info.id, of: reference.message) }
+            onAction?(.attachmentDragFailed(failure, filename: reference.filename))
+        }
+    }
 
     override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool {
         !preview.items.isEmpty
@@ -2117,9 +2169,9 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
 
     /// The typed text moves to a reply composer and leaves the bar, which then shows its disabled state while
     /// that composer is open, so the reply is never in two places (§5.18).
-    private func openQuickReplyInComposer(text: String, mode: QuickReplyView.Mode, attach: Bool) {
+    private func openQuickReplyInComposer(text: String, mode: QuickReplyView.Mode, attach: Bool, dropped: [AttachmentDropItem] = []) {
         guard let target = replyTarget(in: currentMessages)?.id else { return }
-        onAction?(.replyInComposer(target, all: mode == .replyAll, body: text, attach: attach))
+        onAction?(.replyInComposer(target, all: mode == .replyAll, body: text, attach: attach, dropped: dropped))
         quickReply.clear()
         quickReply.isComposerOpen = replyComposer(for: currentMessages) != nil
     }

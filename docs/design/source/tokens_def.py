@@ -2,7 +2,7 @@
 and the rendered DESIGN-LANGUAGE.md. Colour order: light, dark, lightHC, darkHC."""
 
 NAME = "Quire"
-VERSION = "1.9.3"
+VERSION = "1.10.2"
 
 # The brand palette (docs/brand, spec §5.42), written once: `layout.brand` and the app icon's colours (`layout.appIcon`)
 # read it from here. The mark is black and white only: `paper` is the plane on the icon's tile and the one-colour mark on
@@ -277,13 +277,17 @@ LAYOUT = {
            "imageWait": "motion.duration.printImageWait"},
  "attachmentChip": {"height": 44, "minWidth": 196, "maxWidth": 264, "radius": 8, "padLeft": 8, "padRight": 6, "gap": 10, "tile": 28, "tileRadius": 5,
                     "tileGlyph": 15, "progressWidth": 120, "progressHeight": 2, "chipGap": 8,
-                    "download": 24, "downloadGlyph": 14, "downloadGap": 4, "downloadRadius": 5, "head": 24, "headGap": 8},
+                    "download": 24, "downloadGlyph": 14, "downloadGap": 4, "downloadRadius": 5, "head": 24, "headGap": 8,
+                    "draggingOpacity": 0.45},
+ "dragCard": {"height": 44, "minWidth": 196, "maxWidth": 264, "radius": 8, "padLeft": 8, "padRight": 12, "icon": 32, "gap": 10,
+              "shadowMarginX": 24, "shadowMarginTop": 16, "shadowMarginBottom": 32, "threshold": 3},
  "quickReply": {"rest": 60, "barPadY": 11, "field": 38, "fieldRadius": 8, "fieldPadTop": 9, "fieldPadBottom": 8,
                 "face": 24, "faceX": 12, "faceTop": 7, "faceMonogram": 11, "faceMonogramTwoLetter": 10, "textX": 48, "restTrailing": 67, "focusedTrailing": 12,
                 "restSend": 28, "restSendGlyph": 15, "restSendInset": 5, "restKeycapGap": 8,
                 "toolRowGap": 4, "toolRow": 28, "toolRowBottom": 4, "modeGap": 16, "modeHitPad": 6, "toolGroupGap": 12, "toolIconGap": 2, "toolIcon": 22, "toolIconGlyph": 14, "sendInset": 8, "sendKeycapGap": 8,
-                "maxLines": 5, "fieldMax": 150, "max": 172, "stripGlyph": 14, "stripGap": 8, "stripKeycapGap": 8, "modeUnderlineY": 24},
- "composer": {"dropOutline": 2, "dropInset": 8, "stripGlyph": 14, "removeGlyph": 9, "width": 640, "height": 600, "minWidth": 520, "minHeight": 420, "fieldRow": 36, "subjectRow": 42, "labelX": 16, "labelColumn": 56,
+                "maxLines": 5, "fieldMax": 150, "max": 172, "stripGlyph": 14, "stripGap": 8, "stripKeycapGap": 8, "modeUnderlineY": 24,
+                "dropInset": 0},
+ "composer": {"dropOutline": 2, "dropInset": 8, "dropDash": [6, 4], "stripGlyph": 14, "removeGlyph": 9, "width": 640, "height": 600, "minWidth": 520, "minHeight": 420, "fieldRow": 36, "subjectRow": 42, "labelX": 16, "labelColumn": 56,
               "valueX": 84, "bodyPadTop": 20, "bodyPadRight": 24, "bottomBar": 52, "strip": 48, "stripChip": 30, "stripChipRadius": 6,
               "removeVisual": 16, "fromDot": 7, "fromDotGap": 8, "fieldTrailing": 16, "ccBccGap": 4,
               "focusRingX": 78, "focusRingInsetY": 3, "focusRingRadius": 5, "focusRingButtonGap": 6, "bannerInsetX": 16, "bannerInsetY": 8,
