@@ -186,6 +186,11 @@ actor CalendarLane {
         }
         let window = CalendarWindow.around(clock.now())
         if readsWindow {
+            // The window's read is background work: a body the reader is waiting for goes first, for
+            // `backgroundYieldLimit` at most. Writes and days the user turned to are the user's and do not wait.
+            let hold = budget.foreground
+            if hold.isActive { await hold.waitUntilIdle(limit: tuning.backgroundYieldLimit) }
+            if Task.isCancelled { return }
             guard await read(window) else { return }
             // The read may have found, by its key, the copy a lost create reply made of a block removed since: its
             // tombstone now holds the copy's id, which is deleted now rather than a turn later. Time set aside during

@@ -175,8 +175,23 @@ final class FaultyStore: MailStoring, @unchecked Sendable {
     private var evictionCallCount = 0
     private var evictedBySweeps = 0
     func messageIDsMissingBodies(accountID: AccountID, limit: Int) throws -> [MessageID] {
-        try base.messageIDsMissingBodies(accountID: accountID, limit: limit)
+        let delay = lock.withLock {
+            countedMissingBodiesReads += 1
+            return scriptedMissingBodiesDelay
+        }
+        // A large mailbox's scan, holding the calling thread as SQLite does.
+        if delay > 0 { Thread.sleep(forTimeInterval: delay) }
+        return try base.messageIDsMissingBodies(accountID: accountID, limit: limit)
     }
+
+    /// How long every read of the bodies the hydrator should fetch takes, and how many have begun.
+    var missingBodiesDelay: TimeInterval {
+        get { lock.withLock { scriptedMissingBodiesDelay } }
+        set { lock.withLock { scriptedMissingBodiesDelay = newValue } }
+    }
+    private var scriptedMissingBodiesDelay: TimeInterval = 0
+    var missingBodiesReads: Int { lock.withLock { countedMissingBodiesReads } }
+    private var countedMissingBodiesReads = 0
     func messageIDsMissingDesignFacts(accountID: AccountID, limit: Int) throws -> [MessageID] {
         try base.messageIDsMissingDesignFacts(accountID: accountID, limit: limit)
     }

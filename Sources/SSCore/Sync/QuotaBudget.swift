@@ -24,8 +24,13 @@ import Foundation
 /// has finished) is never shown and never left behind.
 ///
 /// Under an unmetered quota (`ProviderQuota.unlimited`) nothing waits: not for units and not for a throttle.
+///
+/// Whatever the quota, a backfill request does not go out while the reader waits for a body of the account
+/// (`foreground`): the user's open goes first (docs/ARCHITECTURE.md, "Opening a message").
 actor QuotaBudget {
     nonisolated let quota: ProviderQuota
+    /// The reader's body fetches for this account, which every backfill request waits behind.
+    nonisolated let foreground = ForegroundHold()
     /// The most the live lane's allowance holds: a minute of its share (2,000 Gmail units, 333 Graph requests). Zero
     /// when its spend is not counted (unmetered, or a backfill given the whole allowance).
     nonisolated let liveCapacity: Double
@@ -141,8 +146,12 @@ actor QuotaBudget {
     /// asked, whatever each one costs. A cost above the bucket's capacity waits for a full bucket and goes into
     /// debt, so an oversized request is slow but never stuck. Throws `CancellationError` when the calling task is
     /// cancelled; nothing is spent then, and a caller that was being served hands its turn to the next.
+    ///
+    /// Nothing is granted while a body the reader asked for is waiting or on its way (`foreground`), metered or not:
+    /// the request waits for it first, and again before it spends if one began while it waited for its units.
     func acquireBackfill(_ cost: Double) async throws {
         let cost = cost.isNaN ? 0 : max(0, cost)
+        await foreground.waitUntilIdle()
         if unmetered {
             try Task.checkCancellation()
             return
@@ -151,6 +160,10 @@ actor QuotaBudget {
         defer { leave(.unitTurn) }
         while true {
             try Task.checkCancellation()
+            if foreground.isActive {
+                await foreground.waitUntilIdle()
+                continue
+            }
             let current = readClock()
             if let pauseEnd, current < pauseEnd {
                 announce(pauseEnd)

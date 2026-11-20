@@ -11,6 +11,9 @@ enum ConversationSignposts {
     static let show: StaticString = "conversation.show"
     static let render: StaticString = "conversation.render"
     static let prerender: StaticString = "conversation.prerender"
+    /// A body the reader opens on that the store did not have: from asking the engine for it, through its `stored` event,
+    /// to the render that shows it landing (docs/ARCHITECTURE.md, "Opening a message").
+    static let body: StaticString = "conversation.body"
     /// A new reader Text size (Settings or ⌘+ / ⌘−) until every ready shell has measured its bodies at it.
     static let textSize: StaticString = "conversation.textSize"
     /// A new theme until every ready shell has restyled itself and its bodies in it (its `themed`).

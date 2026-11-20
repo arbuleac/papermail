@@ -570,15 +570,20 @@ public final class MailEngine: MailClient, @unchecked Sendable {
         return result
     }
 
-    public func ensureBody(for message: MessageID) async throws -> StoredBody {
+    public func ensureBody(for message: MessageID, priority: BodyFetchPriority) async throws -> StoredBody {
         if let stored = try store.body(for: message) { return stored }
+        // From here to the body stored: the engine's share of opening a message without its body (the provider's time
+        // inside it). Its priority is the only metadata; no id, subject or address.
+        let signposter = SyncLog.signposter
+        let interval = signposter.beginInterval("sync.body", id: signposter.makeSignpostID(), "\(priority.description, privacy: .public)")
+        defer { signposter.endInterval("sync.body", interval) }
         // Someone is opening it (the reader, a reply's quote). Fetched now, perhaps from outside the Keep mail window
         // after an eviction, it is kept whole until a later launch's sweep, so opening old mail never thrashes. Marked
         // before the fetch, so a backfill fetch this joins stores it whole too (one that read the window before the
         // mark is saved whole again by `Hydrator.ensureBody`).
         keepMail.keep([message])
         let context = try context(forAccountID: message.accountID)
-        return try await context.hydrator.ensureBody(for: message)
+        return try await context.hydrator.ensureBody(for: message, priority: priority)
     }
 
     public func keepBodies(of messages: [MessageID]) {

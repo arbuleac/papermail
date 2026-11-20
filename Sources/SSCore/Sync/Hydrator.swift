@@ -8,6 +8,13 @@ import Foundation
 /// units from the account's `QuotaBudget`. `ensureBody` serves the UI's on-demand fetches as live spend. A throttle on
 /// live spend pauses the backfill (`QuotaBudget.liveThrottled`).
 ///
+/// The reader's fetches come first (docs/ARCHITECTURE.md, "Opening a message"): while one waits or is on its way the
+/// budget's `foreground` hold keeps every backfill request back and the live path's prefetch waits for it (up to
+/// `backgroundYieldLimit`); an opened body is sent at once, and the rest of the reader's follow once no opened body is on
+/// its way, a few at a time in priority order. The actor never runs a store call itself, so a slow read or a write
+/// waiting for the writer cannot keep an open from entering; its fetches run on tasks of their own, the reader's at
+/// user-initiated priority.
+///
 /// The paced path stores a body older than the Keep mail window already evicted (`evictionCutoff`), so a backfill never
 /// grows the store past what the window keeps (docs/ARCHITECTURE.md, "Storage bounds"). The live path stores whole:
 /// its bodies are new mail and messages about to be read.
@@ -43,6 +50,23 @@ actor Hydrator {
     private var retryAfter: [MessageID: Date] = [:]
     /// Set once no stored body of this account lacks design facts; new bodies always carry them.
     private var designFactsComplete = false
+    /// Reader fetches below `.opened` waiting for one of `foregroundBodyConcurrency` places, served highest priority
+    /// first, then in the order they asked.
+    private var foregroundQueue: [ForegroundWaiter] = []
+    private var foregroundPlacesInUse = 0
+    private var nextForegroundTicket: UInt64 = 0
+    /// `.opened` calls waiting for their body. While any is, no place is handed out: the opened body has the provider to
+    /// itself but for requests that were already on their way.
+    private var openedFetches = 0
+
+    /// A reader fetch waiting for a place. Resumed with true when a place is handed to it, false when it was promoted
+    /// to `.opened` and goes without one.
+    private struct ForegroundWaiter {
+        let ticket: UInt64
+        let id: MessageID
+        var priority: BodyFetchPriority
+        let continuation: CheckedContinuation<Bool, Error>
+    }
 
     init(
         accountID: AccountID,
@@ -65,12 +89,20 @@ actor Hydrator {
     /// The live lane's path: fetches these bodies now, `liveHydrationConcurrency` at a time, and records each
     /// fetch as live spend. Never waits on the budget: the rows are already on screen and the user is likely to
     /// open the newest of them.
+    ///
+    /// Each fetch first lets the reader's go (`ForegroundHold`), for `backgroundYieldLimit` at most from the start of the
+    /// batch: these are prefetches, and a body the user is waiting for should not share the provider with them.
     func hydrateLive(_ ids: [MessageID]) async -> Outcome {
         pruneRetryAfter()
         var seen: Set<MessageID> = []
         let wanted = ids.filter { retryAfter[$0] == nil && seen.insert($0).inserted }
         guard !wanted.isEmpty else { return Outcome() }
+        let hold = budget.foreground
+        let yieldEnds = ProcessInfo.processInfo.systemUptime + tuning.backgroundYieldLimit
         let outcome = await fetch(wanted, concurrency: tuning.liveHydrationConcurrency) { [self] id in
+            let left = yieldEnds - ProcessInfo.processInfo.systemUptime
+            if left > 0, hold.isActive { await hold.waitUntilIdle(limit: left) }
+            try Task.checkCancellation()
             _ = try await fetchTask(for: id, chargesLive: true).value
             return true
         }
@@ -87,9 +119,11 @@ actor Hydrator {
         pruneRetryAfter()
         let candidates: [MessageID]
         do {
-            // Ask for a little more than one batch so deferred failures do not crowd out fetchable bodies.
+            // Ask for a little more than one batch so deferred failures do not crowd out fetchable bodies. Read off the
+            // actor: on a large mailbox this scan can take a while, and an open must not wait to enter behind it.
             let limit = tuning.hydrationBatchSize + min(retryAfter.count, tuning.hydrationBatchSize * 9)
-            candidates = try store.messageIDsMissingBodies(accountID: accountID, limit: limit)
+            let accountID = accountID
+            candidates = try await offActor { try $0.messageIDsMissingBodies(accountID: accountID, limit: limit) }
         } catch {
             SyncLog.logger.error("hydration: store read failed: \(String(describing: error), privacy: .private)")
             return Outcome()
@@ -121,7 +155,9 @@ actor Hydrator {
         guard proceed() else { throw Halted() }
         // The batch was picked before its slots and units came free. A body stored meanwhile (the live lane's
         // newest, a message the user opened) or still being fetched costs the backfill nothing.
-        if inFlight[id] != nil || (try? store.body(for: id)) != nil { return false }
+        if inFlight[id] != nil { return false }
+        if (try? await offActor({ try $0.body(for: id) })) != nil { return false }
+        // Waits behind the reader's fetches too (`QuotaBudget.foreground`).
         try await budget.acquireBackfill(cost)
         // The wait for units can be long, and the account may have been parked for sign-in during it, or a sibling's
         // throttle may have stopped the batch.
@@ -177,22 +213,130 @@ actor Hydrator {
         return written
     }
 
-    /// The stored body, fetched and sanitized first when missing. Concurrent callers share one fetch, which
-    /// counts as live spend: the user is waiting for it.
-    func ensureBody(for id: MessageID) async throws -> StoredBody {
-        if let stored = try store.body(for: id) { return stored }
+    /// The stored body, fetched and sanitized first when missing, ahead of the account's background work: from the
+    /// moment this finds no body until it returns, the budget's `foreground` hold keeps the backfill's requests back.
+    /// An `.opened` body is fetched at once; a lower one waits until no opened body is on its way and then takes one of
+    /// `foregroundBodyConcurrency` places, highest priority first, and goes at once if it is asked for again as `.opened`
+    /// meanwhile. Concurrent callers share one fetch (a background fetch already on its way included), which counts as
+    /// live spend: the user is waiting for it.
+    func ensureBody(for id: MessageID, priority: BodyFetchPriority = .opened) async throws -> StoredBody {
+        if let stored = try await offActor({ try $0.body(for: id) }) { return stored }
+        let hold = budget.foreground
+        hold.enter()
+        defer { hold.leave() }
+        if priority == .opened { openedFetches += 1 }
+        defer {
+            if priority == .opened {
+                openedFetches -= 1
+                grantForegroundPlaces()
+            }
+        }
+        var holdsPlace = false
+        defer { if holdsPlace { releaseForegroundPlace() } }
+        if priority == .opened {
+            promoteWaiters(for: id)
+        } else if inFlight[id] == nil {
+            holdsPlace = try await takeForegroundPlace(for: id, priority: priority)
+        }
+        // Begun meanwhile (a caller that asked for it opened, the live lane): this one joins it and needs no place.
+        if holdsPlace, inFlight[id] != nil {
+            releaseForegroundPlace()
+            holdsPlace = false
+        }
         let joins = inFlight[id] != nil
-        let fetched = try await fetchTask(for: id, chargesLive: true).value
+        let fetched = try await fetchTask(for: id, chargesLive: true, foreground: true).value
         // A paced fetch this joined may have read the Keep mail window before the caller marked the message kept, and
         // stored it evicted. The reader reads the body back from the store, so it is stored whole here; otherwise the
         // message would stay on its skeleton with nothing left to fetch it again.
-        if joins, try store.body(for: id) == nil { try store.saveBody(fetched, for: id) }
+        if joins {
+            try await offActor { store in
+                if try store.body(for: id) == nil { try store.saveBody(fetched, for: id) }
+            }
+        }
         return fetched
     }
 
     func cancelAll() {
         for task in inFlight.values { task.cancel() }
         inFlight = [:]
+        let waiting = foregroundQueue
+        foregroundQueue = []
+        for waiter in waiting { waiter.continuation.resume(throwing: CancellationError()) }
+    }
+
+    // MARK: Foreground places
+
+    /// A place among `foregroundBodyConcurrency` for a reader fetch below `.opened`: at once when one is free, no opened
+    /// body is on its way and nobody waits, otherwise in turn. True when the caller holds a place (and gives it back with
+    /// `releaseForegroundPlace`); false when it was promoted to `.opened` meanwhile and goes without one.
+    private func takeForegroundPlace(for id: MessageID, priority: BodyFetchPriority) async throws -> Bool {
+        try Task.checkCancellation()
+        if placeIsFree, foregroundQueue.isEmpty {
+            foregroundPlacesInUse += 1
+            return true
+        }
+        // A message already waiting at a lower priority (a neighbour pre-rendered, now the open conversation) moves up.
+        for index in foregroundQueue.indices where foregroundQueue[index].id == id && foregroundQueue[index].priority < priority {
+            foregroundQueue[index].priority = priority
+        }
+        nextForegroundTicket &+= 1
+        let ticket = nextForegroundTicket
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Bool, Error>) in
+                foregroundQueue.append(ForegroundWaiter(ticket: ticket, id: id, priority: priority, continuation: continuation))
+                // A cancellation that landed before the waiter was queued found nothing to cancel.
+                if Task.isCancelled { cancelForegroundWaiter(ticket) }
+            }
+        } onCancel: {
+            Task { await self.cancelForegroundWaiter(ticket) }
+        }
+    }
+
+    private var placeIsFree: Bool {
+        openedFetches == 0 && foregroundPlacesInUse < max(1, tuning.foregroundBodyConcurrency)
+    }
+
+    /// Gives a place back and hands the free ones to the waiters that come first.
+    private func releaseForegroundPlace() {
+        foregroundPlacesInUse = max(0, foregroundPlacesInUse - 1)
+        grantForegroundPlaces()
+    }
+
+    /// Hands out places while they are free and someone waits, the highest priority first, so nobody slips in ahead.
+    private func grantForegroundPlaces() {
+        while placeIsFree, let index = nextForegroundWaiter() {
+            foregroundPlacesInUse += 1
+            foregroundQueue.remove(at: index).continuation.resume(returning: true)
+        }
+    }
+
+    /// The highest priority waiting, the oldest among equals.
+    private func nextForegroundWaiter() -> Int? {
+        var best: Int?
+        for index in foregroundQueue.indices {
+            if let current = best, foregroundQueue[index].priority <= foregroundQueue[current].priority { continue }
+            best = index
+        }
+        return best
+    }
+
+    /// The message was asked for as `.opened`: whoever waits for it goes now, joining the fetch the opener starts.
+    private func promoteWaiters(for id: MessageID) {
+        let promoted = foregroundQueue.filter { $0.id == id }
+        guard !promoted.isEmpty else { return }
+        foregroundQueue.removeAll { $0.id == id }
+        for waiter in promoted { waiter.continuation.resume(returning: false) }
+    }
+
+    private func cancelForegroundWaiter(_ ticket: UInt64) {
+        guard let index = foregroundQueue.firstIndex(where: { $0.ticket == ticket }) else { return }
+        foregroundQueue.remove(at: index).continuation.resume(throwing: CancellationError())
+    }
+
+    /// Runs a store call off this actor: a nonisolated async function runs on the global executor, so a slow read, or a
+    /// write waiting for the writer, never keeps a reader's `ensureBody` from entering.
+    private nonisolated func offActor<T: Sendable>(_ work: @Sendable (MailStoring) throws -> T) async throws -> T {
+        try work(store)
     }
 
     // MARK: Fetching
@@ -269,8 +413,11 @@ actor Hydrator {
     /// spend when this call starts the request; the paced path has already acquired it. `evictsOld` (the paced path)
     /// stores a body older than the Keep mail window already evicted; the window and whether someone has asked for the
     /// message since (`MailEngine.ensureBody` marks it before joining) are read just before the save, which may then
-    /// wait for the writer, so `ensureBody` stores whole what a join finds evicted.
-    private func fetchTask(for id: MessageID, chargesLive: Bool, evictsOld: Bool = false) -> Task<StoredBody, Error> {
+    /// wait for the writer, so `ensureBody` stores whole what a join finds evicted. `foreground` (the reader's) runs the
+    /// fetch, its sanitizing and its save at user-initiated priority and asks the transport to send it first
+    /// (`ProviderRequestPriority`); a background fetch it joins is raised by the wait itself.
+    private func fetchTask(for id: MessageID, chargesLive: Bool, evictsOld: Bool = false,
+                           foreground: Bool = false) -> Task<StoredBody, Error> {
         if let existing = inFlight[id] { return existing }
         let provider = provider
         let sanitizer = sanitizer
@@ -278,14 +425,17 @@ actor Hydrator {
         let budget = budget
         let evictionCutoff = evictionCutoff
         let cost = budget.quota.bodyCost
+        let requestPriority: ProviderRequestPriority = foreground ? .foreground : (evictsOld ? .background : .normal)
         // Detached so sanitizing (HTML parsing) runs off this actor and fetches overlap freely.
-        let task = Task.detached(priority: .utility) { () throws -> StoredBody in
+        let task = Task.detached(priority: foreground ? .userInitiated : .utility) { () throws -> StoredBody in
             // The other path may have stored it between the caller's look and now; that costs no request.
             if let stored = try store.body(for: id) { return stored }
             if chargesLive { await budget.recordLive(cost) }
             let body: MessageBody
             do {
-                body = try await provider.body(for: id.providerID)
+                body = try await ProviderRequestPriority.$current.withValue(requestPriority) {
+                    try await provider.body(for: id.providerID)
+                }
             } catch {
                 // Every body fetch on the live share starts here (the live lane's newest, a message the user opened),
                 // so here is where its throttle pauses the backfill. A paced fetch's throttle is the backfill lane's.
