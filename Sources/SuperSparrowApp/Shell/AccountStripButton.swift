@@ -14,7 +14,7 @@ final class AccountStripButton: QuireControl {
         /// raised tile alone, so it never reads as the account selection's margin rule.
         case folder(symbol: String)
         case unified
-        case account(monogram: String, slot: Int)
+        case account(face: QuireAccountFace, slot: Int)
         /// A sign-in waiting for the browser (§5.44): a dashed placeholder, not selectable.
         case pending
     }
@@ -76,7 +76,7 @@ final class AccountStripButton: QuireControl {
     }
 
     /// The 30 pt face inside an account tile's 2 pt gap and 2 pt ring.
-    private var accountFace: NSRect {
+    var accountFace: NSRect {
         let face = Quire.Layout.Rail.face
         let tile = tileRect
         return NSRect(x: tile.midX - face / 2, y: tile.midY - face / 2, width: face, height: face)
@@ -193,11 +193,11 @@ final class AccountStripButton: QuireControl {
             } else {
                 QuireSymbol.draw(Quire.Icon.unifiedInbox, size: .custom(Quire.Layout.Rail.unifiedGlyph), color: glyph, centredIn: tile)
             }
-        case .account(let monogram, let slot):
+        case .account(let face, let slot):
             // The wash sits under the ring (`spine + hover` is an asserted ring surface); a press darkens only
-            // the face, so every account ink keeps 3:1 against what is beside it.
+            // the face, so every account ink keeps 3:1 against what is beside it. A paper face is a cached bitmap.
             if state != .rest { QuireDraw.fill(washRect, radius: wash, .qHover) }
-            QuireAvatarRenderer.drawAccountFace(monogram: monogram, slot: slot, in: accountFace)
+            QuireAvatarRenderer.drawAccountFace(face, slot: slot, in: accountFace)
             if state == .pressed { QuireDraw.fillCircle(accountFace, .qPressed) }
             QuireAvatarRenderer.drawRing(around: accountFace, accountSlot: slot)
         case .pending:

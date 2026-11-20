@@ -127,7 +127,7 @@ final class MessageListViewController: NSViewController {
         self.settings = settings
         rowContentCache = RowContentCache(store: store)
         density = settings.listDensity
-        showsAccountInitials = settings.showAccountInitials
+        showsAccountFaces = settings.showAccountFaces
         textSize = QuireEnvironment.textSize
         super.init(nibName: nil, bundle: nil)
     }
@@ -174,7 +174,7 @@ final class MessageListViewController: NSViewController {
     private var density: AppSettings.ListDensity
     /// The Text size the rows are measured and set at (spec §4.15), from `QuireEnvironment`.
     private var textSize: QuireFont.TextSize
-    private var showsAccountInitials: Bool
+    private var showsAccountFaces: Bool
     private var environmentKey = ""
     private var marks: [AccountID: ConversationCellView.AccountMark] = [:]
     private var accountNames: [AccountID: String] = [:]
@@ -963,8 +963,8 @@ final class MessageListViewController: NSViewController {
     private func mark(for summary: ConversationSummary) -> ConversationCellView.AccountMark {
         guard isUnified else { return .none }
         var mark = marks[summary.id.accountID] ?? ConversationCellView.AccountMark(inkSlot: 0, initial: "?", isUnified: true,
-                                                                                  showsInitial: false)
-        mark.showsInitial = showsAccountInitials
+                                                                                  showsFace: false)
+        mark.showsFace = showsAccountFaces
         return mark
     }
 
@@ -973,13 +973,17 @@ final class MessageListViewController: NSViewController {
         var names: [AccountID: String] = [:]
         var own: Set<String> = []
         let initials = AccountLabels.initials(for: Array(accountsByID.values))
+        let faces = AccountFaces.faces(for: Array(accountsByID.values))
         for (id, account) in accountsByID {
+            var paperFace: Quire.PaperFace?
+            if case .paper(let face)? = faces[id] { paperFace = face }
             marks[id] = ConversationCellView.AccountMark(
                 inkSlot: account.inkSlot,
                 initial: initials[id] ?? "?",
                 isUnified: true,
-                showsInitial: false,
-                accountAddress: account.email
+                showsFace: false,
+                accountAddress: account.email,
+                paperFace: paperFace
             )
             names[id] = AccountLabels.name(for: account)
             own.insert(account.email.lowercased())
@@ -1298,12 +1302,12 @@ final class MessageListViewController: NSViewController {
         apply(conversations)
     }
 
-    /// Density and account initials switch the row layout live; the Font setting is part of the environment key
+    /// Density and account faces switch the row layout live; the Font setting is part of the environment key
     /// (`environmentDidChange()`).
     @objc private func displayPreferencesChanged(_ notification: Notification) {
         let densityChanged = settings.listDensity != density
         density = settings.listDensity
-        showsAccountInitials = settings.showAccountInitials
+        showsAccountFaces = settings.showAccountFaces
         guard isViewLoaded else { return }
         if densityChanged {
             remeasureRows()
@@ -1532,3 +1536,21 @@ extension MessageListViewController: NSTableViewDelegate {
         onSelectionSetChange?(selected)
     }
 }
+
+#if DEBUG
+extension MessageListViewController {
+    /// `--snapshot-state=compact,faces` (debug builds): the row display a render asks for, in this window only. The
+    /// settings are never written, so a render leaves the user's density and Show account faces as they were.
+    func showForSnapshot(density: AppSettings.ListDensity?, faces: Bool?) {
+        let densityChanged = density.map { $0 != self.density } ?? false
+        if let density { self.density = density }
+        if let faces { showsAccountFaces = faces }
+        guard isViewLoaded else { return }
+        if densityChanged {
+            remeasureRows()
+        } else {
+            reconfigureVisibleRows()
+        }
+    }
+}
+#endif

@@ -45,8 +45,12 @@ final class SettingsModel: ObservableObject {
     var isWindowOpen = false {
         didSet { if isWindowOpen != oldValue { updateRetryClock() } }
     }
-    /// The selected account's id (`AccountID.rawValue`).
-    @Published var selection: String?
+    /// The selected account's id (`AccountID.rawValue`). Another account's selection closes the face picker: it was this one's.
+    @Published var selection: String? {
+        didSet { if selection != oldValue { showsFacePicker = false } }
+    }
+    /// The selected account's face picker is open over Accounts (Quire §5.55).
+    @Published var showsFacePicker = false
     /// A sign-in adding an account is waiting for the browser (the pending row).
     @Published var pendingSignIn: ProviderKind?
     /// A reconnect is waiting for the browser.
@@ -75,6 +79,8 @@ final class SettingsModel: ObservableObject {
     var leaveDemo: () -> Void = {}
     var setInkSlot: (Int, Account) -> Void = { _, _ in }
     var setMonogram: (String?, Account) -> Void = { _, _ in }
+    /// The face picked in the account's face picker (Quire §5.55).
+    var setFace: (AccountFace, Account) -> Void = { _, _ in }
     /// The signature's HTML (nil for none) for an account, when editing it ends. By id: the field saves for the account
     /// it was editing, which may no longer be the selected one.
     var setSignature: (String?, AccountID) -> Void = { _, _ in }
@@ -121,10 +127,17 @@ final class SettingsModel: ObservableObject {
     var rows: [QuireAccountRowContent] {
         let monograms = AccountLabels.monograms(for: accounts)
         return accounts.map { account in
-            QuireAccountRowContent(id: account.id.rawValue, name: AccountLabels.name(for: account), tag: tag(for: account),
-                                   address: account.email, monogram: monograms[account.id] ?? "?", inkSlot: account.inkSlot,
-                                   status: status(for: account))
+            let monogram = monograms[account.id] ?? "?"
+            return QuireAccountRowContent(id: account.id.rawValue, name: AccountLabels.name(for: account), tag: tag(for: account),
+                                          address: account.email, monogram: monogram, inkSlot: account.inkSlot,
+                                          status: status(for: account), face: AccountFaces.face(for: account, monogram: monogram))
         }
+    }
+
+    /// The account's monogram among the accounts (the Monogram tile's letters) and the face it wears now.
+    func face(for account: Account) -> (monogram: String, face: QuireAccountFace) {
+        let monogram = AccountLabels.monogram(for: account, among: accounts)
+        return (monogram, AccountFaces.face(for: account, monogram: monogram))
     }
 
     func account(for row: QuireAccountRowContent) -> Account? {

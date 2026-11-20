@@ -811,7 +811,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         quickReply.replyAllAvailable = QuickReplyComposer.replyAllAvailable(for: latest, accounts: accountsByID)
         if let account = accountsByID[latest.id.accountID] {
             let monogram = AccountLabels.monogram(for: account, among: Array(accountsByID.values))
-            quickReply.face = (monogram, account.inkSlot)
+            quickReply.face = (AccountFaces.face(for: account, monogram: monogram), account.inkSlot)
         } else {
             quickReply.face = nil
         }

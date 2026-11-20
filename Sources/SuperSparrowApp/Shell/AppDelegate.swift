@@ -1030,6 +1030,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             model.leaveDemo = { [weak self] in self?.confirmLeavingDemo(origin: .settings) }
             model.setInkSlot = { [weak self] slot, account in self?.edit(account) { try $0.setInkSlot(slot, for: account.id) } }
             model.setMonogram = { [weak self] monogram, account in self?.edit(account) { try $0.setMonogram(monogram, for: account.id) } }
+            model.setFace = { [weak self] face, account in self?.edit(account) { try $0.setFace(face, for: account.id) } }
             model.setSignature = { [weak self, weak model] signature, id in
                 // A field saving as its account is removed has nothing left to save to.
                 guard let account = model?.accounts.first(where: { $0.id == id }) else { return }
@@ -1043,7 +1044,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if let oauthNotice { settingsWindow?.model.oauthNotice = oauthNotice }
     }
 
-    /// Colour, monogram and signature are written to the store directly; both windows re-read their accounts, and
+    /// Colour, monogram, face and signature are written to the store directly; both windows re-read their accounts, and
     /// composers opened from then on take the new signature.
     private func edit(_ account: Account, _ change: (MailStoring) throws -> Void) {
         guard let environment else { return }

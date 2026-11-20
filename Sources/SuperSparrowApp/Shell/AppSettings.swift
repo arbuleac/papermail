@@ -12,7 +12,7 @@ final class AppSettings: ObservableObject {
 
     static let undoSendChoices: [TimeInterval] = [5, 10, 20]
 
-    /// Posted after the row display preferences below change (density, account initials), so AppKit views that
+    /// Posted after the row display preferences below change (density, account faces), so AppKit views that
     /// cache laid-out rows can rebuild without observing each property. The Font setting is not posted here: it
     /// lives in `QuireEnvironment`, whose change notification every Quire surface already follows.
     static let displayPreferencesChanged = Notification.Name("AppSettings.displayPreferencesChanged")
@@ -38,10 +38,11 @@ final class AppSettings: ObservableObject {
         /// The reader's own size, from ⌘+ and ⌘−; absent while the reader follows Text size.
         static let readerTextSize = "readerTextSize"
         static let listDensity = "listDensity"
-        static let showAccountInitials = "showAccountInitials"
+        // Named for the initial tile the faces replaced (Quire 1.10), and kept, so a choice made then still holds.
+        static let showAccountFaces = "showAccountInitials"
         static let originalColorsNoticeDismissed = "originalColorsNoticeDismissed"
-        static let accountInitialsTurnedOnAutomatically = "accountInitialsTurnedOnAutomatically"
-        static let accountInitialsChosenByUser = "accountInitialsChosenByUser"
+        static let accountFacesTurnedOnAutomatically = "accountInitialsTurnedOnAutomatically"
+        static let accountFacesChosenByUser = "accountInitialsChosenByUser"
         static let sevenAccountsNoticePending = "sevenAccountsNoticePending"
         /// The main window's account scope: `unifiedScopeValue` or an account id's raw value.
         static let accountScope = "accountScope"
@@ -63,8 +64,8 @@ final class AppSettings: ObservableObject {
     /// Account ids are UUIDs, so this can never be one.
     private static let unifiedScopeValue = "unified"
 
-    /// Spec §4.2: with this many accounts, colours alone can look alike, so account initials turn on once.
-    static let accountInitialsThreshold = 7
+    /// Spec §4.2: with this many accounts, colours alone can look alike, so account faces turn on once.
+    static let accountFacesThreshold = 7
 
     private let defaults: UserDefaults
 
@@ -200,10 +201,10 @@ final class AppSettings: ObservableObject {
         }
     }
 
-    /// Spec §5.7: an initial tile beside the account ring in unified views, a second, non-colour account cue.
-    @Published var showAccountInitials: Bool {
+    /// Spec §5.7: the account's face (or its initial) before the time in unified views, a second, non-colour account cue.
+    @Published var showAccountFaces: Bool {
         didSet {
-            defaults.set(showAccountInitials, forKey: Key.showAccountInitials)
+            defaults.set(showAccountFaces, forKey: Key.showAccountFaces)
             postDisplayChange()
         }
     }
@@ -213,16 +214,16 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(originalColorsNoticeDismissed, forKey: Key.originalColorsNoticeDismissed) }
     }
 
-    /// Spec §5.40 Seven accounts: account initials were turned on by a seventh account, not by the user.
+    /// Spec §5.40 Seven accounts: account faces were turned on by a seventh account, not by the user.
     /// While this holds and the user has not touched the checkbox, General captions it.
-    @Published private(set) var accountInitialsTurnedOnAutomatically: Bool {
-        didSet { defaults.set(accountInitialsTurnedOnAutomatically, forKey: Key.accountInitialsTurnedOnAutomatically) }
+    @Published private(set) var accountFacesTurnedOnAutomatically: Bool {
+        didSet { defaults.set(accountFacesTurnedOnAutomatically, forKey: Key.accountFacesTurnedOnAutomatically) }
     }
 
-    /// The user changed Show account initials themselves; their choice is kept and an eighth account does not
+    /// The user changed Show account faces themselves; their choice is kept and an eighth account does not
     /// turn it back on.
-    @Published private(set) var accountInitialsChosenByUser: Bool {
-        didSet { defaults.set(accountInitialsChosenByUser, forKey: Key.accountInitialsChosenByUser) }
+    @Published private(set) var accountFacesChosenByUser: Bool {
+        didSet { defaults.set(accountFacesChosenByUser, forKey: Key.accountFacesChosenByUser) }
     }
 
     /// Settings › Accounts shows the seven-accounts notice until it is dismissed or followed, across launches.
@@ -232,24 +233,24 @@ final class AppSettings: ObservableObject {
 
     /// General's caption under the Rows checkbox: “Turned on when you added a seventh account.”
     var showsSevenAccountsCaption: Bool {
-        showAccountInitials && accountInitialsTurnedOnAutomatically && !accountInitialsChosenByUser
+        showAccountFaces && accountFacesTurnedOnAutomatically && !accountFacesChosenByUser
     }
 
     /// The Rows checkbox: the user's own choice, which ends the automatic state for good.
-    func setShowAccountInitialsByUser(_ on: Bool) {
-        accountInitialsChosenByUser = true
+    func setShowAccountFacesByUser(_ on: Bool) {
+        accountFacesChosenByUser = true
         sevenAccountsNoticePending = false
-        if showAccountInitials != on { showAccountInitials = on }
+        if showAccountFaces != on { showAccountFaces = on }
     }
 
-    /// Called after an account is added. The seventh account turns initials on, once ever, unless the user
+    /// Called after an account is added. The seventh account turns faces on, once ever, unless the user
     /// already chose (spec §4.2).
     func accountWasAdded(totalAccounts: Int) {
-        guard totalAccounts >= Self.accountInitialsThreshold, !accountInitialsTurnedOnAutomatically, !accountInitialsChosenByUser,
-              !showAccountInitials else { return }
-        accountInitialsTurnedOnAutomatically = true
+        guard totalAccounts >= Self.accountFacesThreshold, !accountFacesTurnedOnAutomatically, !accountFacesChosenByUser,
+              !showAccountFaces else { return }
+        accountFacesTurnedOnAutomatically = true
         sevenAccountsNoticePending = true
-        showAccountInitials = true
+        showAccountFaces = true
     }
 
     /// The main window's day column is on (spec §5.54, D): kept here rather than in the split view's autosave, so the
@@ -307,10 +308,10 @@ final class AppSettings: ObservableObject {
             Key.typeface: QuireFont.Typeface.newYork.rawValue,
             Key.textSize: QuireFont.TextSize.default.rawValue,
             Key.listDensity: ListDensity.standard.rawValue,
-            Key.showAccountInitials: false,
+            Key.showAccountFaces: false,
             Key.originalColorsNoticeDismissed: false,
-            Key.accountInitialsTurnedOnAutomatically: false,
-            Key.accountInitialsChosenByUser: false,
+            Key.accountFacesTurnedOnAutomatically: false,
+            Key.accountFacesChosenByUser: false,
             Key.sevenAccountsNoticePending: false,
             Key.keepMail: MailRetention.everything.rawValue,
             Key.sendAction: SendAction.default.rawValue,
@@ -339,10 +340,10 @@ final class AppSettings: ObservableObject {
         appearance = AppAppearance(rawValue: defaults.string(forKey: Key.appearance) ?? "") ?? .automatic
         adaptsMailColours = defaults.object(forKey: Key.adaptsMailColours) as? Bool ?? true
         listDensity = ListDensity(rawValue: defaults.string(forKey: Key.listDensity) ?? "") ?? .standard
-        showAccountInitials = defaults.bool(forKey: Key.showAccountInitials)
+        showAccountFaces = defaults.bool(forKey: Key.showAccountFaces)
         originalColorsNoticeDismissed = defaults.bool(forKey: Key.originalColorsNoticeDismissed)
-        accountInitialsTurnedOnAutomatically = defaults.bool(forKey: Key.accountInitialsTurnedOnAutomatically)
-        accountInitialsChosenByUser = defaults.bool(forKey: Key.accountInitialsChosenByUser)
+        accountFacesTurnedOnAutomatically = defaults.bool(forKey: Key.accountFacesTurnedOnAutomatically)
+        accountFacesChosenByUser = defaults.bool(forKey: Key.accountFacesChosenByUser)
         sevenAccountsNoticePending = defaults.bool(forKey: Key.sevenAccountsNoticePending)
         sendsCrashReports = defaults.bool(forKey: Key.sendsCrashReports)
         showsDayColumn = defaults.bool(forKey: Key.showsDayColumn)

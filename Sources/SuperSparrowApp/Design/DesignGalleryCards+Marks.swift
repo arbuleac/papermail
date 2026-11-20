@@ -58,6 +58,19 @@ extension DesignGalleryCards {
                 DesignGalleryAvatar(.account(monogram: "Ga", slot: 4), diameter: 24, ring: 4),
             ], gap: 12, caption: "row avatar: cached face, ring drawn per row, gap = row fill · rail account face · account faces "
                 + "30 and 24, one and two letters")
+            // Paper faces (§5.55): the rail tile, then the sizes every surface draws, from the one bitmap cache.
+            let paperTile = S.surface(.qSpine, size: NSSize(width: 38, height: 38), radius: 8,
+                                      centring: DesignGalleryAvatar(.paper(.curlyHair), diameter: 30, ring: 0))
+            block.row(nil, [
+                paperTile,
+                DesignGalleryAvatar(.paper(.fox), diameter: 48),
+                DesignGalleryAvatar(.paper(.fox), diameter: 30, ring: 7),
+                DesignGalleryAvatar(.paper(.fox), diameter: 24, ring: 7),
+                DesignGalleryAvatar(.paper(.fox), diameter: 16),
+                DesignGalleryAvatar(.paper(.fox), diameter: 12),
+            ], gap: 12, caption: "paper faces: rail tile · 48 picker · 30 rail and Settings · 24 quick reply · 16 list tile · 12 title menu")
+            block.row(nil, Quire.PaperFace.allCases.map { DesignGalleryAvatar(.paper($0), diameter: 30) },
+                      gap: 8, caption: "the twelve faces, in the picker's order; automatic by ink slot")
             let tints = Quire.AvatarTint.allCases.map { tint -> NSView in
                 // One sample address per tint, found by the same hash rows use.
                 let address = (0..<500).lazy.map { "person\($0)@example.test" }

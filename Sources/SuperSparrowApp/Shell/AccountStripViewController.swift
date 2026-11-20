@@ -286,10 +286,10 @@ final class AccountStripViewController: NSViewController {
 
     func setAccounts(_ accounts: [Account]) {
         self.accounts = accounts
-        let monograms = AccountLabels.monograms(for: accounts)
+        let faces = AccountFaces.faces(for: accounts)
         var tiles: [AccountID: AccountStripButton] = [:]
         for account in accounts {
-            let content = AccountStripButton.Content.account(monogram: monograms[account.id] ?? "?", slot: account.inkSlot)
+            let content = AccountStripButton.Content.account(face: faces[account.id] ?? .monogram("?"), slot: account.inkSlot)
             let tile = accountTiles[account.id] ?? makeAccountTile(content)
             tile.content = content
             tiles[account.id] = tile

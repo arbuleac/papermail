@@ -13,17 +13,20 @@ final class ConversationCellView: NSView {
     static let identifier = NSUserInterfaceItemIdentifier("ConversationCell")
 
     /// How the row marks its account: nothing in a single-account view; the ring (standard) or the square
-    /// (compact) in unified views, plus the initial tile when Show account initials is on.
+    /// (compact) in unified views, plus the account tile when Show account faces is on: the account's paper face, or the
+    /// letter tile for an account that wears its monogram (spec §4.2, §5.55).
     struct AccountMark: Equatable {
         var inkSlot: Int
         var initial: String
         var isUnified: Bool
-        var showsInitial: Bool
+        var showsFace: Bool
         /// What the mark's tooltip says: the account's address, which tells two Gmail accounts apart where the
         /// colour may not (spec §4.2, "the avatar's tooltip names it").
         var accountAddress = ""
+        /// The account's paper face; nil for an account that wears its monogram, whose tile is its first letter.
+        var paperFace: Quire.PaperFace?
 
-        static let none = AccountMark(inkSlot: 0, initial: "", isUnified: false, showsInitial: false)
+        static let none = AccountMark(inkSlot: 0, initial: "", isUnified: false, showsFace: false)
     }
 
     private typealias Row = Quire.Layout.Row
@@ -90,7 +93,7 @@ final class ConversationCellView: NSView {
 
     private var isCompact: Bool { metrics.isCompact }
 
-    /// The time cluster's pieces, right to left: time, initial tile, the “Back” tag, queued or failed glyph. Rows carry
+    /// The time cluster's pieces, right to left: time, account tile, the “Back” tag, queued or failed glyph. Rows carry
     /// no category tag: the Focused/Other category is never shown (§5.7).
     private struct Cluster {
         var time = NSRect.zero
@@ -109,8 +112,8 @@ final class ConversationCellView: NSView {
         c.time = NSRect(x: x - content.timeWidth, y: lineMid - timeHeight / 2, width: content.timeWidth, height: timeHeight)
         x = c.time.minX
         if mark.isUnified {
-            if mark.showsInitial {
-                // With initials on, the tile carries both the colour and the letter; it replaces the square.
+            if mark.showsFace {
+                // With faces on, the tile carries both the colour and the face (or letter); it replaces the square.
                 let size = Row.accountTile
                 c.tile = NSRect(x: x - Row.tileGap - size, y: lineMid - size / 2, width: size, height: size)
                 x = c.tile!.minX
@@ -173,7 +176,7 @@ final class ConversationCellView: NSView {
         drawLine(content.sender, x: textX, top: m.senderY, width: c.leadingEdge - Row.timeGap - textX, height: m.senderHeight)
         drawLine(content.time, x: c.time.minX, top: c.time.minY, width: c.time.width + 1, height: c.time.height)
         if let tile = c.tile {
-            drawInitialTile(in: tile)
+            drawAccountTile(in: tile)
         }
         if let square = c.square {
             QuireDraw.fill(square, radius: Compact.accountSquareRadius, .qAccount(mark.inkSlot))
@@ -276,9 +279,20 @@ final class ConversationCellView: NSView {
         }
     }
 
-    /// The optional account initial tile (spec §4.2): no fill of its own, so the row's fill shows through, a
-    /// 1.5 pt edge in the account ink and the monogram's first letter in `tag` `ink2`.
-    private func drawInitialTile(in rect: NSRect) {
+    /// The optional account tile (spec §4.2, §5.55). An account's paper face fills the 16 pt footprint, from the renderer's
+    /// cache like every face, inside the tile's 1.5 pt edge in the account ink, round here, so the tile still carries the
+    /// colour. An account that wears its monogram keeps the letter tile: no fill of its own, so the row's fill shows
+    /// through, the edge and the monogram's first letter in `tag` `ink2`.
+    private func drawAccountTile(in rect: NSRect) {
+        if let face = mark.paperFace {
+            QuireAvatarRenderer.drawPaperFace(face, in: rect)
+            let edge = Row.accountTileBorder
+            let ring = NSBezierPath(ovalIn: rect.insetBy(dx: edge / 2, dy: edge / 2))
+            ring.lineWidth = edge
+            NSColor.qAccount(mark.inkSlot).setStroke()
+            ring.stroke()
+            return
+        }
         QuireDraw.strokeInside(rect, radius: Row.accountTileRadius, width: Row.accountTileBorder, .qAccount(mark.inkSlot))
         let letter = ConversationCellView.tileLetter(mark.initial)
         let size = letter.size()
@@ -304,7 +318,7 @@ final class ConversationCellView: NSView {
     // MARK: Tooltips
 
     /// Where the row's tooltips answer and what they say, never overlapping, so each shows its own words: the
-    /// account mark (the ringed face, the compact square, the initial tile) names the account in unified views
+    /// account mark (the ringed face, the compact square, the account tile) names the account in unified views
     /// (spec §4.2), the failed triangle says what failed, “Couldn't archive” (spec §5.7), and a Send Later row's time says
     /// on what condition it sends (§5.46). A row-wide tooltip would cover the face and hide the account. Internal so the
     /// list's tests can read it.

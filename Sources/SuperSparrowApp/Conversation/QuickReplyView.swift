@@ -49,8 +49,8 @@ final class QuickReplyView: NSView, QuirePointerTarget {
 
     /// The replying account's rail face (spec §5.18).
     /// The reader sets these on every selection change (key repeat included), so each one acts only on a change.
-    var face: (monogram: String, inkSlot: Int)? {
-        didSet { if oldValue?.monogram != face?.monogram || oldValue?.inkSlot != face?.inkSlot { needsDisplay = true } }
+    var face: (face: QuireAccountFace, inkSlot: Int)? {
+        didSet { if oldValue?.face != face?.face || oldValue?.inkSlot != face?.inkSlot { needsDisplay = true } }
     }
 
     var replyName = "" { didSet { if oldValue != replyName { updatePlaceholder() } } }
@@ -616,7 +616,7 @@ final class QuickReplyView: NSView, QuirePointerTarget {
         }
         if let face, strip.isHidden {
             let rect = restMarks(in: field).face
-            QuireAvatarRenderer.drawAccountFace(monogram: face.monogram, slot: face.inkSlot, in: rect)
+            QuireAvatarRenderer.drawAccountFace(face.face, slot: face.inkSlot, in: rect)
             QuireAvatarRenderer.drawRing(around: rect, accountSlot: face.inkSlot)
         }
     }

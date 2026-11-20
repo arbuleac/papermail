@@ -942,10 +942,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     }
 
     private var titleMenuModel: TitleMenu.Model {
-        let monograms = AccountLabels.monograms(for: accounts)
+        let faces = AccountFaces.faces(for: accounts)
         return TitleMenu.Model(
             view: mailboxView, inboxUnread: inboxUnread, scope: scope, showsAccounts: isMinimal, unifiedUnread: unifiedUnread,
-            accounts: accounts.map { TitleMenu.AccountEntry(account: $0, monogram: monograms[$0.id] ?? "?", unread: unreadByAccount[$0.id] ?? 0) },
+            accounts: accounts.map { TitleMenu.AccountEntry(account: $0, face: faces[$0.id] ?? .monogram("?"), unread: unreadByAccount[$0.id] ?? 0) },
             showsLater: showsLater, showsOutbox: showsOutbox
         )
     }
@@ -3316,7 +3316,7 @@ enum PendingSignIn: Equatable {
 #if DEBUG
 extension MainWindowController {
     /// `--snapshot-state=key,notkey,minimal,narrowed,adding,reconnect,signin,toast,search,focus-rail,focus-folder,
-    /// focus-action,hover-demo,hover-masthead,many-accounts,ic,graphite,snoozed,later,back,later-menu,later-sheet,
+    /// focus-action,hover-demo,hover-masthead,many-accounts,compact,faces,monogram-face,title-menu,ic,graphite,snoozed,later,back,later-menu,later-sheet,
     /// server-offer,server-searching,server-found,server-nothing,server-failed,server-empty` (debug builds; `several` and
     /// `find`, the find bar over the first conversation, are applied where the first selection is made):
     /// puts the window in the named states before `--snapshot` captures it, so every state of the chrome can be
@@ -3330,6 +3330,17 @@ extension MainWindowController {
         if states.contains("ic") || states.contains("graphite") {
             QuireEnvironment.shared.setOverrides(QuireEnvironment.Overrides(
                 isGraphite: states.contains("graphite") ? true : nil, increaseContrast: states.contains("ic") ? true : nil))
+        }
+        if states.contains("compact") || states.contains("faces") {
+            list.showForSnapshot(density: states.contains("compact") ? .compact : nil, faces: states.contains("faces") ? true : nil)
+        }
+        if states.contains("monogram-face"), let second {
+            // The second account wearing its monogram (Quire §5.55), in this window only, never the store.
+            var monogram = second
+            monogram.face = .monogram
+            let shown = accounts.map { $0.id == second.id ? monogram : $0 }
+            strip.setAccounts(shown)
+            list.accountsByID = Dictionary(uniqueKeysWithValues: shown.map { ($0.id, $0) })
         }
         if states.contains("many-accounts") {
             // Six made-up accounts after the real ones, in the rail only (never the store), so a render shows the
@@ -3348,6 +3359,13 @@ extension MainWindowController {
         if states.contains("minimal") {
             stripItem.isCollapsed = true
             applyMinimalMode()
+        }
+        if states.contains("title-menu"), let content = window?.contentView {
+            let menu = TitleMenu.build(titleMenuModel, target: self, viewAction: #selector(NSResponder.noResponder(for:)),
+                                       scopeAction: #selector(NSResponder.noResponder(for:)))
+            let card = TitleMenuSnapshotView(menu: menu, origin: NSPoint(x: Quire.Layout.ListHeader.mastheadMinimalX, y: 0))
+            card.frame.origin.y = content.isFlipped ? Quire.Layout.ListHeader.height : content.bounds.height - Quire.Layout.ListHeader.height - card.frame.height
+            content.addSubview(card, positioned: .above, relativeTo: nil)
         }
         if states.contains("signin") || states.contains("reconnect"), let second {
             debugStatuses = statuses.map { $0.accountID == second.id ? AccountSyncStatus(accountID: second.id, phase: .needsReauth) : $0 }
