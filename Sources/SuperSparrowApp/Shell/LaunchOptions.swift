@@ -53,6 +53,13 @@ struct LaunchOptions: Equatable {
     /// Debug aid: `--snapshot-scale=2` draws every snapshot at that many pixels a point, whatever the screen's
     /// backing scale, so a render from a 1x display still shows Retina type.
     var snapshotScale: CGFloat?
+    /// Debug aid: `--crash-test=<kind>` ends the app on purpose once it is up, so a crash report can be followed from
+    /// the crash to Sentry (docs/CRASH-REPORTING.md): `crash`, `fatal`, `exception`, `appkit-exception` (caught by
+    /// AppKit: reported, and the app goes on) or `hang` (the main thread blocked for 5 s).
+    var crashTest: CrashTest.Kind?
+    /// Debug aid: `--sentry-dsn=<dsn>` sends this process's reports to that DSN instead of the bundle's, so a run of the
+    /// bare binary (which has no Info.plist) can be followed to a test project or a local listener.
+    var sentryDSN: String?
 
     init(arguments: [String] = CommandLine.arguments) {
         for argument in arguments.dropFirst() {
@@ -101,6 +108,10 @@ struct LaunchOptions: Equatable {
                 demo = true
             case let value where value.hasPrefix("--snapshot-alerts="):
                 alertsSnapshotPath = Self.value(of: value, after: "--snapshot-alerts=")
+            case let value where value.hasPrefix("--crash-test="):
+                crashTest = Self.value(of: value, after: "--crash-test=").flatMap(CrashTest.Kind.init(rawValue:))
+            case let value where value.hasPrefix("--sentry-dsn="):
+                sentryDSN = Self.value(of: value, after: "--sentry-dsn=")
             case let value where value.hasPrefix("--snapshot-scale="):
                 snapshotScale = Self.value(of: value, after: "--snapshot-scale=").flatMap(Double.init).map { CGFloat(min(4, max(1, $0))) }
             #endif
