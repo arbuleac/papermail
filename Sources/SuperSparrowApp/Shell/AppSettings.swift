@@ -58,6 +58,16 @@ final class AppSettings: ObservableObject {
         static let hasCalendarAccess = "hasCalendarAccess"
         /// Settings › General › Crash reports (`CrashReporting` reads it at launch, before the app delegate exists).
         static let sendsCrashReports = CrashReporting.enabledDefaultsKey
+        /// Settings › AI › Provider (§5.55): an `AIProviderKind` raw value; absent while Help Me Write is off.
+        static let aiProvider = "aiProvider"
+        /// The model chosen for each provider, under this prefix and the provider's raw value.
+        static let aiModelPrefix = "aiModel."
+        /// The CLI chosen with Choose… for Claude Code and Codex, under this prefix and the provider's raw value.
+        static let aiCLIPathPrefix = "aiCLIPath."
+        /// The providers the user allowed to receive a conversation (the consent sheet's Allow), as raw values.
+        static let aiConsent = "aiConsent"
+        /// The demo's own, so an Allow given where nothing leaves the Mac never stands for the user's real mail.
+        static let demoAIConsent = "aiConsent.demo"
     }
 
     /// Account ids are UUIDs, so this can never be one.
@@ -279,6 +289,92 @@ final class AppSettings: ObservableObject {
         didSet { if oldValue != hasCalendarAccess { defaults.set(hasCalendarAccess, forKey: Key.hasCalendarAccess) } }
     }
 
+    // MARK: Help Me Write (§5.55)
+
+    /// Settings › AI › Provider: where Help Me Write sends a conversation when the user asks it to write. Nil is Off, the
+    /// default, and nothing is ever sent while it is. The demo writer is never a choice, so it is never stored.
+    @Published var aiProvider: AIProviderKind? {
+        didSet {
+            guard oldValue != aiProvider else { return }
+            if let aiProvider, aiProvider != .demo {
+                defaults.set(aiProvider.rawValue, forKey: Key.aiProvider)
+            } else {
+                defaults.removeObject(forKey: Key.aiProvider)
+            }
+        }
+    }
+
+    /// The model chosen for each provider, so switching providers keeps each one's choice. Absent is the provider's
+    /// default (the CLI's own for Claude Code and Codex).
+    @Published private(set) var aiModels: [AIProviderKind: String]
+
+    /// The CLI the user chose with Choose… for Claude Code or Codex; absent means the standard folders.
+    @Published private(set) var aiCLIPaths: [AIProviderKind: String]
+
+    /// The providers the user allowed to receive a conversation, outside the demo.
+    @Published private(set) var aiConsent: Set<AIProviderKind>
+
+    /// The demo's Allows, kept apart: nothing leaves the Mac there, so they never stand for the user's real mail.
+    @Published private(set) var demoAIConsent: Set<AIProviderKind>
+
+    /// What Help Me Write uses now, or nil while it is off.
+    var aiConfiguration: AIProviderConfiguration? {
+        aiProvider.map { AIProviderConfiguration(kind: $0, model: aiModels[$0], cliPath: aiCLIPaths[$0]) }
+    }
+
+    func setAIModel(_ model: String?, for kind: AIProviderKind) {
+        let key = Key.aiModelPrefix + kind.rawValue
+        if let model, !model.isEmpty {
+            aiModels[kind] = model
+            defaults.set(model, forKey: key)
+        } else {
+            aiModels[kind] = nil
+            defaults.removeObject(forKey: key)
+        }
+    }
+
+    func setAICLIPath(_ path: String?, for kind: AIProviderKind) {
+        let key = Key.aiCLIPathPrefix + kind.rawValue
+        if let path, !path.isEmpty {
+            aiCLIPaths[kind] = path
+            defaults.set(path, forKey: key)
+        } else {
+            aiCLIPaths[kind] = nil
+            defaults.removeObject(forKey: key)
+        }
+    }
+
+    /// Whether the user allowed `kind` to receive a conversation: the demo's Allows in the demo, the real ones elsewhere.
+    func hasAIConsent(for kind: AIProviderKind, demo: Bool) -> Bool {
+        (demo ? demoAIConsent : aiConsent).contains(kind)
+    }
+
+    /// The consent sheet's Allow (`given`), or Settings › AI's Forget, which makes the sheet ask again next time.
+    func setAIConsent(_ given: Bool, for kind: AIProviderKind, demo: Bool) {
+        var kinds = demo ? demoAIConsent : aiConsent
+        if given { kinds.insert(kind) } else { kinds.remove(kind) }
+        let stored = kinds.map(\.rawValue).sorted()
+        if demo {
+            demoAIConsent = kinds
+            defaults.set(stored, forKey: Key.demoAIConsent)
+        } else {
+            aiConsent = kinds
+            defaults.set(stored, forKey: Key.aiConsent)
+        }
+    }
+
+    private static func storedKinds(_ defaults: UserDefaults, _ key: String) -> Set<AIProviderKind> {
+        Set((defaults.stringArray(forKey: key) ?? []).compactMap(AIProviderKind.init(rawValue:)).filter { $0 != .demo })
+    }
+
+    private static func storedValues(_ defaults: UserDefaults, prefix: String) -> [AIProviderKind: String] {
+        var values: [AIProviderKind: String] = [:]
+        for kind in AIProviderKind.selectable {
+            if let value = defaults.string(forKey: prefix + kind.rawValue), !value.isEmpty { values[kind] = value }
+        }
+        return values
+    }
+
     /// The account scope an earlier launch left the main window on, or nil when none is saved. Not a setting: the
     /// window saves it whenever the scope changes and opens on it at the next launch. The demo's is kept apart,
     /// so trying the demo never changes the scope the user's own accounts open on.
@@ -347,6 +443,14 @@ final class AppSettings: ObservableObject {
         sendsCrashReports = defaults.bool(forKey: Key.sendsCrashReports)
         showsDayColumn = defaults.bool(forKey: Key.showsDayColumn)
         hasCalendarAccess = defaults.bool(forKey: Key.hasCalendarAccess)
+        // A raw value this version does not know (a provider from a later one) is Off: nothing is sent to a guess.
+        aiProvider = defaults.string(forKey: Key.aiProvider).flatMap(AIProviderKind.init(rawValue:)).flatMap {
+            AIProviderKind.selectable.contains($0) ? $0 : nil
+        }
+        aiModels = Self.storedValues(defaults, prefix: Key.aiModelPrefix)
+        aiCLIPaths = Self.storedValues(defaults, prefix: Key.aiCLIPathPrefix)
+        aiConsent = Self.storedKinds(defaults, Key.aiConsent)
+        demoAIConsent = Self.storedKinds(defaults, Key.demoAIConsent)
         applyUndoSendDelay()
         ConversationViewController.loadRemoteImages = loadRemoteImages
     }

@@ -16,6 +16,7 @@ public struct QuireSecureField: View {
     let variant: QuireFieldVariant
     let error: String?
     let height: CGFloat
+    let onCommit: (() -> Void)?
 
     @State private var isRevealed = false
     @State private var isHovered = false
@@ -28,14 +29,16 @@ public struct QuireSecureField: View {
     ///   - variant: `mono` by default: OAuth secrets set in SF Mono (§5.25).
     ///   - error: the help line, as in `QuireFieldStyle`.
     ///   - height: 24 pt in Settings rows (`textField.settingsHeight`), 28 pt elsewhere.
+    ///   - onCommit: Return, or the field losing focus, for a field that saves as editing ends (an API key, §5.40).
     public init(_ title: String, text: Binding<String>, prompt: String? = nil, variant: QuireFieldVariant = .mono,
-                error: String? = nil, height: CGFloat = Quire.Layout.TextField.settingsHeight) {
+                error: String? = nil, height: CGFloat = Quire.Layout.TextField.settingsHeight, onCommit: (() -> Void)? = nil) {
         self.title = title
         _text = text
         self.prompt = prompt
         self.variant = variant
         self.error = error
         self.height = height
+        self.onCommit = onCommit
     }
 
     /// The reveal button sits as far from the trailing edge as from the field's top and bottom.
@@ -77,8 +80,10 @@ public struct QuireSecureField: View {
     private var field: some View {
         if isRevealed {
             TextField(title, text: $text, prompt: prompt.map { QuireFieldStyle.prompt($0) })
+                .onSubmit { onCommit?() }
         } else {
-            QuireSecureTextFieldRepresentable(text: $text, prompt: prompt, role: variant.role, isFocused: $isEditingSecret)
+            QuireSecureTextFieldRepresentable(text: $text, prompt: prompt, role: variant.role, isFocused: $isEditingSecret,
+                                              onCommit: onCommit)
                 .accessibilityLabel(title)
         }
     }

@@ -10,6 +10,8 @@ struct QuireSecureTextFieldRepresentable: NSViewRepresentable {
     let role: QuireFont.Role
     /// Set while the field edits, so the SwiftUI container draws the focus ring.
     @Binding var isFocused: Bool
+    /// Return, or the field losing focus: the owner saves what was typed (Settings › AI's API key, §5.40).
+    var onCommit: (() -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -59,6 +61,10 @@ struct QuireSecureTextFieldRepresentable: NSViewRepresentable {
 
         func focusDidChange(_ focused: Bool) {
             if parent.isFocused != focused { parent.isFocused = focused }
+        }
+
+        func controlTextDidEndEditing(_ note: Notification) {
+            parent.onCommit?()
         }
     }
 }

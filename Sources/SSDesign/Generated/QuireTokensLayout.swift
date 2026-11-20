@@ -567,6 +567,18 @@ extension Quire {
             public static let popoverEdgeMin: CGFloat = 8
             public static let pictureSelectedWash: CGFloat = 0.45
         }
+        public enum WriteCard {
+            public static let width: CGFloat = 380
+            public static let pad: CGFloat = 12
+            public static let radius: CGFloat = 8
+            public static let rowGap: CGFloat = 8
+            public static let buttonGap: CGFloat = 8
+            public static let statusGlyph: CGFloat = 12
+            public static let statusGlyphGap: CGFloat = 6
+            public static let offsetY: CGFloat = 6
+            public static let edgeMin: CGFloat = 8
+            public static let reasonMaxLines: CGFloat = 2
+        }
         public enum Token {
             public static let invalidGlyph: CGFloat = 10
             public static let height: CGFloat = 22

@@ -68,6 +68,7 @@ final class KeyBindingsTests: XCTestCase {
             (#selector(MainWindowController.openSelectionInNewWindow(_:)), "o", [.command]),
             (#selector(MainWindowController.makeReaderTextBigger(_:)), "+", [.command]),
             (#selector(MainWindowController.makeReaderTextSmaller(_:)), "-", [.command]),
+            (#selector(ConversationViewController.helpMeWrite(_:)), "j", [.command]),
         ]
         for (action, key, modifiers) in expected {
             // The composer's items (Send Later…, Insert Picture…) are hidden outside a composer and still claim their keys.

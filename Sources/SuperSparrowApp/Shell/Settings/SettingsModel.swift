@@ -12,6 +12,8 @@ final class SettingsModel: ObservableObject {
         case oauth
         case general
         case appearance
+        /// Help Me Write's provider, key or CLI, model and permission (§5.40, §5.55).
+        case ai
     }
 
     /// A failure at the top of Accounts. Info notices (demo, seven accounts) come from state, not from here.

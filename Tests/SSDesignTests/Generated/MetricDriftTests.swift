@@ -10,8 +10,8 @@ final class MetricDriftTests: XCTestCase {
     private let file = DesignTokensFile.shared
 
     func testEveryMetricIsCovered() {
-        // tokens.json had 839 leaves under layout, border and platform when this file was generated.
-        XCTAssertEqual(file.leafCount(under: ["layout", "border", "platform"]), 839, "regenerate with swift scripts/tools/quire-tokens.swift")
+        // tokens.json had 849 leaves under layout, border and platform when this file was generated.
+        XCTAssertEqual(file.leafCount(under: ["layout", "border", "platform"]), 849, "regenerate with swift scripts/tools/quire-tokens.swift")
     }
 
     func testLayoutWindow() {
@@ -598,6 +598,19 @@ final class MetricDriftTests: XCTestCase {
         number(Quire.Layout.Composer.linkPopoverOffsetY, "layout.composer.linkPopoverOffsetY")
         number(Quire.Layout.Composer.popoverEdgeMin, "layout.composer.popoverEdgeMin")
         number(Quire.Layout.Composer.pictureSelectedWash, "layout.composer.pictureSelectedWash")
+    }
+
+    func testLayoutWriteCard() {
+        number(Quire.Layout.WriteCard.width, "layout.writeCard.width")
+        number(Quire.Layout.WriteCard.pad, "layout.writeCard.pad")
+        number(Quire.Layout.WriteCard.radius, "layout.writeCard.radius")
+        number(Quire.Layout.WriteCard.rowGap, "layout.writeCard.rowGap")
+        number(Quire.Layout.WriteCard.buttonGap, "layout.writeCard.buttonGap")
+        number(Quire.Layout.WriteCard.statusGlyph, "layout.writeCard.statusGlyph")
+        number(Quire.Layout.WriteCard.statusGlyphGap, "layout.writeCard.statusGlyphGap")
+        number(Quire.Layout.WriteCard.offsetY, "layout.writeCard.offsetY")
+        number(Quire.Layout.WriteCard.edgeMin, "layout.writeCard.edgeMin")
+        number(Quire.Layout.WriteCard.reasonMaxLines, "layout.writeCard.reasonMaxLines")
     }
 
     func testLayoutToken() {

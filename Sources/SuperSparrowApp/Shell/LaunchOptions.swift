@@ -57,6 +57,9 @@ struct LaunchOptions: Equatable {
     /// the crash to Sentry (docs/CRASH-REPORTING.md): `crash`, `fatal`, `exception`, `appkit-exception` (caught by
     /// AppKit: reported, and the app goes on) or `hang` (the main thread blocked for 5 s).
     var crashTest: CrashTest.Kind?
+    /// Debug aid: `--live-ai-clis` makes the demo's Help Me Write run the real Claude Code and Codex (Settings › AI chooses
+    /// which) instead of its made-up writer, so the CLIs can be checked against the demo's fabricated mail, never real mail.
+    var liveAICLIs = false
     /// Debug aid: `--sentry-dsn=<dsn>` sends this process's reports to that DSN instead of the bundle's, so a run of the
     /// bare binary (which has no Info.plist) can be followed to a test project or a local listener.
     var sentryDSN: String?
@@ -110,6 +113,8 @@ struct LaunchOptions: Equatable {
                 alertsSnapshotPath = Self.value(of: value, after: "--snapshot-alerts=")
             case let value where value.hasPrefix("--crash-test="):
                 crashTest = Self.value(of: value, after: "--crash-test=").flatMap(CrashTest.Kind.init(rawValue:))
+            case "--live-ai-clis":
+                liveAICLIs = true
             case let value where value.hasPrefix("--sentry-dsn="):
                 sentryDSN = Self.value(of: value, after: "--sentry-dsn=")
             case let value where value.hasPrefix("--snapshot-scale="):

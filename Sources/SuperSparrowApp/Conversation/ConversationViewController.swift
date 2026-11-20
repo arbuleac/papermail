@@ -81,6 +81,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     let find: ReaderFind
     private let webContainer = NSView()
     private let quickReply = QuickReplyView()
+    /// Help me write's card on the quick reply, while one is open (§5.55).
+    var writeSession: WriteSession?
     private let emptyState = QuireEmptyStateView(sentence: "No conversation selected")
     private lazy var moreMenu = MessageMoreMenu { [weak self] command in self?.performMore(command) }
     /// The chip a context menu was opened for: its commands act on it.
@@ -334,7 +336,12 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         quickReply.onSendLater = { [weak self] text, mode, date in self?.sendQuickReplyLater(text, mode: mode, at: date) }
         quickReply.sendAction = SendActionPreference.current
         quickReply.onEscape = { [weak self] repeated in self?.quickReplyEscape(repeated: repeated) }
-        quickReply.onHeightChange = { [weak self] _ in self?.applyBottomInset() }
+        // Help me write takes Esc first while its card is open or a reply streams in (§6.1).
+        quickReply.claimsEscape = { [weak self] in self?.writeSession?.escape() ?? false }
+        quickReply.onHeightChange = { [weak self] _ in
+            self?.applyBottomInset()
+            self?.writeSession?.fieldDidMove()
+        }
         quickReply.onOpenInComposer = { [weak self] text, mode in self?.openQuickReplyInComposer(text: text, mode: mode, attach: false) }
         quickReply.onAttach = { [weak self] text, mode in self?.openQuickReplyInComposer(text: text, mode: mode, attach: true) }
         quickReply.onDisabledClick = { [weak self] in self?.bringReplyComposerForward() }
@@ -374,6 +381,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     /// Selection moved. The subject updates at once; rendering is coalesced while calls arrive faster
     /// than 30 ms (key repeat) so a held `j` never queues renders it will not show.
     func show(_ id: ConversationID?) {
+        // A Help me write card belongs to the reply it was opened on: another conversation closes it, a write put back.
+        if id != currentConversationID { closeWriteCard() }
         guard let id else {
             cancelPendingShow()
             showNothing(.none)
@@ -543,6 +552,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
 
     /// Nothing, or several conversations: no conversation is rendered and the quick reply hides.
     private func showNothing(_ selection: Selection) {
+        closeWriteCard()
         if let id = currentConversationID {
             drafts.leave(quickReply.text, under: id)
         }
@@ -692,6 +702,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         // Nothing, several or an emptied conversation leaves nothing to search.
         if !showsWeb { find.close(returningFocus: false) }
         let wasVisible = !quickReply.isHidden
+        if !showsReply { closeWriteCard() }
         quickReply.isHidden = !showsReply
         if showsReply {
             configureQuickReply(messages: messages)
@@ -789,7 +800,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     }
 
     /// The message R, A and the quick reply answer: the target (spec §5.14), else the latest.
-    private func replyTarget(in messages: [MessageMetadata]) -> MessageMetadata? {
+    func replyTarget(in messages: [MessageMetadata]) -> MessageMetadata? {
         if let id = selectedMessageID, let target = messages.first(where: { $0.id == id }) { return target }
         return messages.last
     }
@@ -2651,6 +2662,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         case #selector(printConversation(_:)):
             // One printout at a time: Print… waits while one is prepared or its panel is up (§5.48).
             return showsOne && !printer.isBusy
+        case #selector(helpMeWrite(_:)):
+            return canHelpMeWrite
         default:
             return true
         }

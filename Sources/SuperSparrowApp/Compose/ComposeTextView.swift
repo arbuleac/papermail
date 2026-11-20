@@ -319,6 +319,14 @@ final class ComposeTextView: NSTextView {
         enclosingScrollView?.layoutSubtreeIfNeeded()
     }
 
+    /// Help me write changed the text without an edit being reported (a reply streaming in, §5.55): the editor takes its
+    /// new height, as after typing, and keeps the caret in view.
+    func textDidChangeByWriting() {
+        invalidateIntrinsicContentSize()
+        enclosingScrollView?.layoutSubtreeIfNeeded()
+        scrollRangeToVisible(selectedRange())
+    }
+
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         updateContainerWidth()
