@@ -319,8 +319,6 @@ final class KeyboardRouter {
     /// Places where a key is text: any editable text view (which includes the field editor behind search,
     /// token and text fields) and editable text fields themselves.
     static func isTextInput(_ responder: NSResponder?) -> Bool {
-        // Help me write's card holding the keyboard in place of its instruction field (§5.56): typing, not commands.
-        if let card = responder as? WriteCardView { return card.takesTyping }
         if let textView = responder as? NSTextView {
             return textView.isEditable || textView.isFieldEditor
         }

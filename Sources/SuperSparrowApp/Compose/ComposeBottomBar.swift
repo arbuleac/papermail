@@ -5,7 +5,8 @@ import SSDesign
 /// The composer's bottom bar (spec §5.20): 52 pt of `paper` under a top hairline, padding 16, everything
 /// centred: the primary Send (`paperplane`, regular), 2 pt after it its drop-down (a 28 pt `chevron.down` menu button,
 /// §5.23), the “⌘↩” keycap 8 pt after that; 12 pt on, Attach (`paperclip`) and Format (`textformat`, `accentWash` while
-/// the format row shows) as 28 pt icon buttons 2 pt apart; trailing at 16, the status.
+/// the format row shows) as 28 pt icon buttons 2 pt apart; 12 pt on, on a reply, Help me write's Write control and its
+/// line (§5.56); trailing at 16, the status.
 @MainActor
 final class ComposeBottomBar: NSView {
     let sendButton = QuireButton(title: "Send", variant: .primary, size: .regular, symbolName: Quire.Icon.send)
@@ -15,6 +16,8 @@ final class ComposeBottomBar: NSView {
     let attachButton = QuireIconButton(symbolName: Quire.Icon.attach, size: .large, accessibilityLabel: "Attach Files")
     let formatButton = QuireIconButton(symbolName: Quire.Icon.format, size: .large, accessibilityLabel: "Show Format Row")
     let statusView = ComposeStatusView()
+    /// Help me write on a reply's body (§5.56); hidden on a new message or a forward, which answer no one.
+    let writeControl = WriteToolControl()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -30,7 +33,8 @@ final class ComposeBottomBar: NSView {
         attachButton.toolTip = "Attach Files…  ⇧⌘A"
         formatButton.onStyle = .quiet
         formatButton.toolTip = "Show Format Row  ⇧⌘T"
-        [sendButton, sendOptionsButton, sendKeycap, attachButton, formatButton, statusView].forEach(addSubview)
+        writeControl.onContentChange = { [weak self] in self?.needsLayout = true }
+        [sendButton, sendOptionsButton, sendKeycap, attachButton, formatButton, writeControl, statusView].forEach(addSubview)
     }
 
     @available(*, unavailable)
@@ -61,6 +65,14 @@ final class ComposeBottomBar: NSView {
         let height = statusView.intrinsicContentSize.height
         statusView.frame = NSRect(x: bounds.width - c.barPadX - statusWidth, y: (midY - height / 2).rounded(), width: statusWidth,
                                   height: height)
+        // Between Format and the status, as wide as its line, never under the status.
+        if !writeControl.isHidden {
+            let start = x + c.barGroupGap
+            let end = (statusWidth > 0 ? statusView.frame.minX : bounds.width - c.barPadX) - c.barGroupGap
+            let rowHeight = Quire.Layout.QuickReply.toolRow
+            writeControl.frame = NSRect(x: start, y: (midY - rowHeight / 2).rounded(), width: max(0, min(writeControl.fittingWidth, end - start)),
+                                        height: rowHeight)
+        }
     }
 
     func statusDidChange() {

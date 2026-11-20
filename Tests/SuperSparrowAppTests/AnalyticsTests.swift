@@ -236,7 +236,8 @@ final class AnalyticsTests: XCTestCase {
     /// failure included (the test reads that from the signal instead).
     private func write(_ center: HelpMeWrite, _ configuration: AIProviderConfiguration) {
         let request = AIWriteRequest(instructions: "Write the reply.", transcript: "Lunch in Lisbon on Thursday?", task: "Say yes")
-        let stream = center.writer.write(request, using: configuration, in: AIFieldID(name: "analytics"))
+        let stream = center.writer.write(request, using: configuration, in: AIFieldID(name: "analytics"),
+                                         action: AIUserAction(userPressed: .write))
         Task { @MainActor [weak self] in
             do { for try await _ in stream {} } catch {}
             self?.writesEnded += 1

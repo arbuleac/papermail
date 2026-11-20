@@ -11,11 +11,11 @@ struct DemoAIProvider: AIProvider {
 
     var destination: AIDestination { .thisMac }
 
-    func health() async -> AIHealth {
+    func localHealth() -> AIHealth {
         script.health
     }
 
-    func write(_ request: AIWriteRequest) -> AsyncThrowingStream<AIWriteEvent, Error> {
+    func write(_ request: AIWriteRequest, action: AIUserAction) -> AsyncThrowingStream<AIWriteEvent, Error> {
         let script = script
         return AsyncThrowingStream { continuation in
             let task = Task {

@@ -10,8 +10,8 @@ final class MetricDriftTests: XCTestCase {
     private let file = DesignTokensFile.shared
 
     func testEveryMetricIsCovered() {
-        // tokens.json had 882 leaves under layout, border and platform when this file was generated.
-        XCTAssertEqual(file.leafCount(under: ["layout", "border", "platform"]), 882, "regenerate with swift scripts/tools/quire-tokens.swift")
+        // tokens.json had 884 leaves under layout, border and platform when this file was generated.
+        XCTAssertEqual(file.leafCount(under: ["layout", "border", "platform"]), 884, "regenerate with swift scripts/tools/quire-tokens.swift")
     }
 
     func testLayoutWindow() {
@@ -619,17 +619,23 @@ final class MetricDriftTests: XCTestCase {
         number(Quire.Layout.Composer.pictureSelectedWash, "layout.composer.pictureSelectedWash")
     }
 
-    func testLayoutWriteCard() {
-        number(Quire.Layout.WriteCard.width, "layout.writeCard.width")
-        number(Quire.Layout.WriteCard.pad, "layout.writeCard.pad")
-        number(Quire.Layout.WriteCard.radius, "layout.writeCard.radius")
-        number(Quire.Layout.WriteCard.rowGap, "layout.writeCard.rowGap")
-        number(Quire.Layout.WriteCard.buttonGap, "layout.writeCard.buttonGap")
-        number(Quire.Layout.WriteCard.statusGlyph, "layout.writeCard.statusGlyph")
-        number(Quire.Layout.WriteCard.statusGlyphGap, "layout.writeCard.statusGlyphGap")
-        number(Quire.Layout.WriteCard.offsetY, "layout.writeCard.offsetY")
-        number(Quire.Layout.WriteCard.edgeMin, "layout.writeCard.edgeMin")
-        number(Quire.Layout.WriteCard.reasonMaxLines, "layout.writeCard.reasonMaxLines")
+    func testLayoutWriteTool() {
+        number(Quire.Layout.WriteTool.gap, "layout.writeTool.gap")
+        number(Quire.Layout.WriteTool.statusGlyph, "layout.writeTool.statusGlyph")
+        number(Quire.Layout.WriteTool.statusGlyphGap, "layout.writeTool.statusGlyphGap")
+        number(Quire.Layout.WriteTool.keycapGap, "layout.writeTool.keycapGap")
+        number(Quire.Layout.WriteTool.linkGap, "layout.writeTool.linkGap")
+        number(Quire.Layout.WriteTool.hintMinWords, "layout.writeTool.hintMinWords")
+        string(Quire.Layout.WriteTool.pencilInk, "layout.writeTool.pencilInk")
+        number(Quire.Layout.WriteTool.labelMinWidth, "layout.writeTool.labelMinWidth")
+    }
+
+    func testLayoutWriteStrip() {
+        number(Quire.Layout.WriteStrip.gap, "layout.writeStrip.gap")
+        number(Quire.Layout.WriteStrip.chipsGap, "layout.writeStrip.chipsGap")
+        number(Quire.Layout.WriteStrip.chipGap, "layout.writeStrip.chipGap")
+        number(Quire.Layout.WriteStrip.fieldMinWidth, "layout.writeStrip.fieldMinWidth")
+        number(Quire.Layout.WriteStrip.composerPadTop, "layout.writeStrip.composerPadTop")
     }
 
     func testLayoutToken() {
@@ -927,7 +933,6 @@ final class MetricDriftTests: XCTestCase {
         number(Quire.Layout.Settings.statusBarGap, "layout.settings.statusBarGap")
         number(Quire.Layout.Settings.savedGap, "layout.settings.savedGap")
         number(Quire.Layout.Settings.aiKeyFieldWidth, "layout.settings.aiKeyFieldWidth")
-        number(Quire.Layout.Settings.aiPermissionGap, "layout.settings.aiPermissionGap")
         number(Quire.Layout.Settings.groupMaxRows, "layout.settings.groupMaxRows")
         number(Quire.Layout.Settings.detailTop, "layout.settings.detailTop")
         number(Quire.Layout.Settings.detailRow, "layout.settings.detailRow")

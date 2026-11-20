@@ -4,9 +4,13 @@ import SSAI
 import SSCore
 
 /// Settings › AI (spec §5.40, §5.56): which provider Help Me Write uses, whether it can write now, its API key or CLI,
-/// its model, and the permission the consent sheet recorded. The provider's health is asked when the tab opens and when
-/// the provider changes, never at launch; the API key's data is read only by Check (reading it can show the Keychain
-/// prompt), its presence by its attributes alone.
+/// and its model. Choosing a provider shows its privacy sheet at that moment: Turn On keeps the choice and gives it
+/// permission, Cancel puts the popup back, Off withdraws it. A provider chosen before 1.12 and never turned on says so,
+/// with Turn On….
+///
+/// Nothing here reaches a provider unless the user presses Check or saves a key (spec §3b): the status as the tab opens
+/// or the provider changes comes from this Mac (a key's presence by its attributes alone, the CLI's file and the version
+/// its path names), and the API key's data is read only by Check (reading it can show the Keychain prompt).
 @MainActor
 final class AISettingsModel: ObservableObject {
     /// The status line under Provider.
@@ -41,7 +45,8 @@ final class AISettingsModel: ObservableObject {
 
     static let keyPrompt = "Paste your API key"
     static let keySavedPrompt = "Saved in your Keychain"
-    static let permissionWords = "Permission given"
+    /// The status line of a provider chosen but never turned on (one chosen before 1.12).
+    static let notTurnedOnWords = "Not turned on yet. Nothing is sent until you turn it on."
 
     @Published private(set) var provider: AIProviderKind?
     @Published private(set) var status: Status = .none
@@ -50,6 +55,7 @@ final class AISettingsModel: ObservableObject {
     /// What is typed in the key field: never the stored key, which is not read back into Settings.
     @Published var keyText = ""
     @Published private(set) var keyFailure: String?
+    /// The chosen provider has its permission (its privacy sheet's Turn On).
     @Published private(set) var hasConsent = false
     /// The CLI shown in the CLI row: the one chosen with Choose… while it is there, else the one found in the standard
     /// folders; nil when there is none.
@@ -61,6 +67,9 @@ final class AISettingsModel: ObservableObject {
     /// Bumped by every check, so a slow answer for an earlier provider is dropped.
     private var generation = 0
     private var isSnapshot = false
+
+    /// The window the privacy sheet goes on: Settings'. The Settings window sets it.
+    var window: () -> NSWindow? = { nil }
 
     /// Shows the panel for Choose…; the app's tests answer it themselves.
     var chooseExecutable: (AIProviderKind, @escaping @MainActor (URL?) -> Void) -> Void = AISettingsModel.openPanel
@@ -91,26 +100,29 @@ final class AISettingsModel: ObservableObject {
         }
     }
 
-    /// The caption under the rows: where a conversation goes, and when. Nil while Help Me Write is off. In the demo,
+    /// The caption under the rows: what is sent, when, and how to stop it. Nil while Help Me Write is off. In the demo,
     /// whose writer makes replies up on the Mac, it says nothing goes anywhere.
     var caption: String? {
         guard let provider else { return nil }
         if center.makesUpReplies(for: provider) { return Self.demoCaption }
-        return "When you use Help Me Write, the conversation you\u{2019}re replying to goes to "
-            + "\(provider.destination.displayName). Nothing is sent otherwise."
+        return "Only when you press Write, the conversation you\u{2019}re replying to and your notes go to "
+            + "\(provider.destination.displayName). Choose Off to stop."
     }
+
+    /// The chosen provider was never turned on (chosen before 1.12): it writes nothing until its sheet's Turn On.
+    var needsTurnOn: Bool { provider != nil && !hasConsent }
 
     static let demoCaption = "In the demo, Help Me Write makes replies up on this Mac. Nothing is sent."
 
     /// The key field's placeholder: where a stored key is, without reading it.
     var keyPrompt: String { hasKey ? Self.keySavedPrompt : Self.keyPrompt }
 
-    /// The tab opened, or came back: the key's presence, the permission, the CLI and the provider's health, again.
+    /// The tab opened, or came back: the key's presence, the permission, the CLI and the provider's state, from this Mac.
     func refresh() {
         guard !isSnapshot else { return }
         provider = settings.aiProvider(demo: center.isDemo)
         readState()
-        checkHealth(deep: false)
+        showLocalHealth()
     }
 
     private func readState() {
@@ -128,8 +140,24 @@ final class AISettingsModel: ObservableObject {
         }
     }
 
-    /// The provider's health (`deep`: the Check button's authenticated call, which sends the key and nothing else).
-    private func checkHealth(deep: Bool) {
+    /// The provider's state from this Mac alone (no network, no process), or what this run's last Check found for it.
+    private func showLocalHealth() {
+        healthTask?.cancel()
+        generation += 1
+        guard let configuration else {
+            status = .none
+            return
+        }
+        if needsTurnOn {
+            status = .needsSetup(Self.notTurnedOnWords)
+            return
+        }
+        status = Status(center.checkedHealth[configuration] ?? center.writer.localHealth(of: configuration))
+    }
+
+    /// Check, or a key just saved: the provider's own check (the models list, which sends the key and nothing else; the
+    /// CLI's version and sign-in), for the user's `action`, the one place Settings reaches beyond this Mac.
+    private func runCheck(_ action: AIUserAction) {
         healthTask?.cancel()
         generation += 1
         let mine = generation
@@ -138,30 +166,80 @@ final class AISettingsModel: ObservableObject {
             return
         }
         status = .checking
-        let writer = center.writer
+        let center = center
         healthTask = Task { [weak self] in
-            let health = deep ? await writer.check(configuration) : await writer.health(of: configuration)
+            let health = await center.writer.check(configuration, action: action)
             guard let self, self.generation == mine, !Task.isCancelled else { return }
-            self.status = Status(health)
+            center.rememberCheck(health, for: configuration)
+            self.status = self.needsTurnOn ? .needsSetup(Self.notTurnedOnWords) : Status(health)
         }
     }
 
     // MARK: Changing
 
+    /// The Provider popup. A provider shows its privacy sheet first (§5.40): Turn On keeps it and gives it permission,
+    /// withdrawing the one it replaces; Cancel puts the popup back as it was. Off withdraws the permission at once.
     func setProvider(_ kind: AIProviderKind?) {
-        guard kind != provider, kind != .demo else { return }
+        guard kind != provider, kind != .demo, !isAsking else {
+            objectWillChange.send()
+            return
+        }
+        guard !isSnapshot else {
+            choose(kind)
+            return
+        }
+        guard let kind else {
+            if let previous = provider { center.withdrawConsent(for: previous) }
+            choose(nil)
+            return
+        }
+        // Cancel must find the popup as it was: it shows the old choice until Turn On.
+        objectWillChange.send()
+        askToTurnOn(kind) { [weak self] turnedOn in
+            guard let self, turnedOn else { return }
+            if let previous = self.provider, previous != kind { self.center.withdrawConsent(for: previous) }
+            self.choose(kind)
+        }
+    }
+
+    /// Turn On… beside a provider chosen but never turned on: its sheet, as if it were chosen now.
+    func turnOnChosenProvider() {
+        guard let provider, needsTurnOn, !isSnapshot else { return }
+        askToTurnOn(provider) { [weak self] _ in
+            self?.readState()
+            self?.showLocalHealth()
+        }
+    }
+
+    /// The privacy sheet is up: the popup and Turn On… wait for its answer.
+    @Published private(set) var isAsking = false
+
+    private func askToTurnOn(_ kind: AIProviderKind, then done: @escaping @MainActor (Bool) -> Void) {
+        isAsking = true
+        center.presentAlert(center.turnOnAlert(for: kind), window()) { [weak self] choice in
+            guard let self else { return }
+            self.isAsking = false
+            let turnedOn = choice == 1
+            if turnedOn { self.center.recordConsent(for: kind) }
+            self.objectWillChange.send()
+            done(turnedOn)
+        }
+    }
+
+    private func choose(_ kind: AIProviderKind?) {
         provider = kind
         keyText = ""
         if !isSnapshot { settings.setAIProvider(kind, demo: center.isDemo) }
         readState()
-        checkHealth(deep: false)
+        showLocalHealth()
+        center.availabilityChanged()
     }
 
     func setModel(_ model: String?) {
         guard let provider, !isSnapshot else { return }
         settings.setAIModel(model == provider.defaultModel ? nil : model, for: provider, demo: center.isDemo)
         objectWillChange.send()
-        checkHealth(deep: false)
+        showLocalHealth()
     }
 
     /// Return in the key field, or leaving it: what was typed is saved to the Keychain and checked. An empty field
@@ -175,7 +253,9 @@ final class AISettingsModel: ObservableObject {
             keyText = ""
             keyFailure = nil
             hasKey = true
-            checkHealth(deep: true)
+            center.forgetCheck(for: provider)
+            // Saving a key is the user's own act of setting it up: the key, and nothing else, is checked with the provider.
+            runCheck(AIUserAction(userPressed: .check))
         } catch {
             keyFailure = "Couldn\u{2019}t save the key in your Keychain."
         }
@@ -189,23 +269,17 @@ final class AISettingsModel: ObservableObject {
             keyText = ""
             keyFailure = nil
             hasKey = false
-            checkHealth(deep: false)
+            center.forgetCheck(for: provider)
+            showLocalHealth()
         } catch {
             keyFailure = "Couldn\u{2019}t remove the key from your Keychain."
         }
     }
 
-    /// Check: the provider's cheapest authenticated call.
+    /// Check: the provider's cheapest authenticated call, or the CLI's version and sign-in.
     func check() {
         guard !isSnapshot else { return }
-        checkHealth(deep: true)
-    }
-
-    /// Forget: the consent sheet asks again the next time Help Me Write is used with this provider.
-    func forgetConsent() {
-        guard let provider, !isSnapshot else { return }
-        settings.setAIConsent(false, for: provider, demo: center.isDemo, live: center.sendsFromTheDemo(provider))
-        hasConsent = false
+        runCheck(AIUserAction(userPressed: .check))
     }
 
     /// Choose…: another CLI, which Help Me Write runs from then on.
@@ -214,15 +288,16 @@ final class AISettingsModel: ObservableObject {
         chooseExecutable(provider) { [weak self] url in
             guard let self, let url, self.provider == provider else { return }
             self.settings.setAICLIPath(url.path, for: provider, demo: self.center.isDemo)
+            self.center.forgetCheck(for: provider)
             self.readState()
-            self.checkHealth(deep: false)
+            self.showLocalHealth()
         }
     }
 
     // MARK: Snapshots
 
     /// Shows a state for a snapshot, writing nothing: the provider, its status line, a stored key and the permission.
-    func showForSnapshot(provider: AIProviderKind?, status: Status, hasKey: Bool = false, hasConsent: Bool = false, cliPath: String? = nil) {
+    func showForSnapshot(provider: AIProviderKind?, status: Status, hasKey: Bool = false, hasConsent: Bool = true, cliPath: String? = nil) {
         isSnapshot = true
         healthTask?.cancel()
         self.provider = provider

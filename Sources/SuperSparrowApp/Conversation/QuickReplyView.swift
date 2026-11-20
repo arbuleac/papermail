@@ -5,8 +5,9 @@ import SSDesign
 /// The quick reply bar (spec §5.18): docked to the bottom of the reader and drawn over the web view, which
 /// is told the bar's height as a bottom inset instead of being resized. The field sits on the reading column;
 /// at rest it is one 38 pt line with the replying account's face, the R keycap and a send glyph; focused it
-/// grows with the text to five lines and shows the tool row (Reply · Reply all, Attach, Open in Composer, Send and its
-/// drop-down).
+/// grows with the text to five lines and shows the tool row (Reply · Reply all, Attach, Open in Composer, Help me write's
+/// Write control and its line, Send and its drop-down). Help me write's instruction strip (⇧⌘J) docks inside the field
+/// above the text, which moves down by its height (§5.56).
 ///
 /// The view owns no mail logic: it reports the text on ⌘↩ (with what Send does now, `sendAction`) and on ⇧⌘↩ (send and
 /// archive), the drop-down's choice and the commands of its buttons, and shows the strip and the states its owner asks for.
@@ -127,8 +128,8 @@ final class QuickReplyView: NSView, QuirePointerTarget {
     /// The field's text view, which Help me write writes into.
     var writingTextView: NSTextView { textView }
 
-    /// Help me write's card is open on the field: the bar stays open around its text, as if focused, while the keyboard
-    /// is in the card.
+    /// Help me write's strip is docked or a reply streams in: the bar stays open around its text, as if focused, while the
+    /// keyboard is in the strip (§5.56).
     var isHeldOpen = false {
         didSet {
             guard oldValue != isHeldOpen else { return }
@@ -150,8 +151,35 @@ final class QuickReplyView: NSView, QuirePointerTarget {
         }
     }
 
-    /// Asked first on Esc in the field: Help me write takes it to stop a write (§6.1) before the window's order runs.
+    /// Asked first on Esc in the field: Help me write takes it to stop a write or close its strip (§6.1) before the
+    /// window's order runs.
     var claimsEscape: (() -> Bool)?
+
+    /// The user changed the text (typing, a paste, an undo, a reply landing): Help me write's line and hint follow.
+    var onUserEdit: (() -> Void)?
+
+    /// Help me write's control in the tool row (§5.56): Write and its hint, or the line of a write under way, just
+    /// written or failed, which then takes the row's leading place as the send status does.
+    let writeControl = WriteToolControl()
+
+    /// Help me write's instruction strip, docked inside the field above the text while it shows.
+    let writeStrip = WriteInstructionStrip()
+
+    /// The strip is docked: the field grows by its height and the text moves down under it.
+    var showsWriteStrip = false {
+        didSet {
+            guard oldValue != showsWriteStrip else { return }
+            writeStrip.isHidden = !showsWriteStrip
+            updateHeight(animated: false)
+            needsLayout = true
+        }
+    }
+
+    /// The strip's share of the field's height while it shows: its own and the gap under it.
+    private var stripExtra: CGFloat {
+        guard showsWriteStrip, looksFocused, !isComposerOpen, strip.isHidden else { return 0 }
+        return WriteInstructionStrip.height + Quire.Layout.WriteStrip.gap
+    }
 
     /// The text changed under the field without an edit (a reply streaming in): its height and placeholder follow.
     func textDidChangeByWriting() {
@@ -335,6 +363,10 @@ final class QuickReplyView: NSView, QuirePointerTarget {
         strip.onUndo = { [weak self] in self?.onUndo?() }
         strip.onShow = { [weak self] in self?.onShowDraft?() }
         strip.onDismiss = { [weak self] in self?.stripDismissed() }
+        writeControl.onContentChange = { [weak self] in self?.needsLayout = true }
+        addSubview(writeControl)
+        writeStrip.isHidden = true
+        addSubview(writeStrip)
         addSubview(strip)
         // Above everything the field holds, which it hides while it shows.
         addSubview(dropOverlay)
@@ -477,7 +509,8 @@ final class QuickReplyView: NSView, QuirePointerTarget {
     private var fieldHeight: CGFloat {
         let m = Quire.Layout.QuickReply.self
         guard looksFocused, !isComposerOpen else { return restField }
-        return min(m.fieldMax + m.maxLines * lineStep, m.fieldPadTop + CGFloat(lineCount) * lineHeight + m.toolRowGap + m.toolRow + m.toolRowBottom)
+        return min(m.fieldMax + m.maxLines * lineStep + stripExtra,
+                   m.fieldPadTop + stripExtra + CGFloat(lineCount) * lineHeight + m.toolRowGap + m.toolRow + m.toolRowBottom)
     }
 
     private var fieldRect: NSRect {
@@ -513,7 +546,7 @@ final class QuickReplyView: NSView, QuirePointerTarget {
 
     private func updateHeight(animated: Bool) {
         let m = Quire.Layout.QuickReply.self
-        let target = min(m.max + m.maxLines * lineStep, fieldHeight + 2 * m.barPadY)
+        let target = min(m.max + m.maxLines * lineStep + stripExtra, fieldHeight + 2 * m.barPadY)
         guard abs(heightConstraint.constant - target) > 0.5 else {
             needsLayout = true
             return
@@ -541,11 +574,19 @@ final class QuickReplyView: NSView, QuirePointerTarget {
         let trailing = toolRow ? m.focusedTrailing : m.restTrailing
         let textWidth = max(0, field.width - m.textX - trailing)
         let lines = looksFocused ? lineCount : 1
-        scrollView.frame = NSRect(x: field.minX + m.textX, y: field.minY + m.fieldPadTop, width: textWidth, height: CGFloat(lines) * lineHeight)
+        let extra = stripExtra
+        writeStrip.isHidden = extra == 0
+        if extra > 0 {
+            // The strip's field lines up with the text under it; its top sits where the text's first line would.
+            writeStrip.frame = NSRect(x: field.minX + m.textX, y: field.minY + m.fieldPadTop - 3, width: textWidth,
+                                      height: WriteInstructionStrip.height)
+        }
+        scrollView.frame = NSRect(x: field.minX + m.textX, y: field.minY + m.fieldPadTop + extra, width: textWidth,
+                                  height: CGFloat(lines) * lineHeight)
         textView.frame.size.width = scrollView.contentSize.width
         scrollView.hasVerticalScroller = looksFocused && lineCount >= Int(m.maxLines)
         let placeholderHeight = ReaderFonts.fieldHeight(placeholder)
-        placeholder.frame = NSRect(x: field.minX + m.textX - 2, y: (field.minY + m.fieldPadTop + (lineHeight - placeholderHeight) / 2).rounded(),
+        placeholder.frame = NSRect(x: field.minX + m.textX - 2, y: (field.minY + m.fieldPadTop + extra + (lineHeight - placeholderHeight) / 2).rounded(),
                                    width: textWidth + 4, height: placeholderHeight)
         // Unfocused with text, the field shows its first line tail-truncated so the reader does not jump.
         let showsPreview = !looksFocused && !text.isEmpty && strip.isHidden
@@ -562,11 +603,14 @@ final class QuickReplyView: NSView, QuirePointerTarget {
         restSend.frame = restSend.frame(forVisualRect: marks.send)
         restKeycap.frame = marks.keycap
 
-        let rowY = field.minY + m.fieldPadTop + CGFloat(lines) * lineHeight + m.toolRowGap
+        let rowY = field.minY + m.fieldPadTop + extra + CGFloat(lines) * lineHeight + m.toolRowGap
         let showsStatus = status != .none
-        tabs.isHidden = !toolRow || showsStatus
-        attach.isHidden = !toolRow || showsStatus
-        openInComposer.isHidden = !toolRow || (showsStatus && status == .error)
+        // Help me write's line (writing, written, failed) takes the row's leading place as the send status does; the send
+        // status, when there is one, wins.
+        let writeLine = toolRow && !showsStatus && writeControl.takesTheRow
+        tabs.isHidden = !toolRow || showsStatus || writeLine
+        attach.isHidden = !toolRow || showsStatus || writeLine
+        openInComposer.isHidden = !toolRow || (showsStatus && status == .error) || writeLine
         send.isHidden = !toolRow
         sendOptions.isHidden = !toolRow
         sendOptions.isEnabled = !refusesEdits
@@ -621,6 +665,14 @@ final class QuickReplyView: NSView, QuirePointerTarget {
         } else if let composerX {
             openInComposer.frame = openInComposer.frame(forVisualRect: NSRect(x: composerX, y: iconY, width: m.toolIcon, height: m.toolIcon))
         }
+        // Help me write: after the tools a group's gap on, or from the row's start while its line takes the row; never
+        // over Send.
+        writeControl.isHidden = !toolRow || showsStatus || !writeControl.isShown
+        if !writeControl.isHidden {
+            let start = writeLine ? field.minX + m.textX : (composerX ?? x) + m.toolIcon + m.toolGroupGap
+            let end = sendVisual.minX - m.toolGroupGap
+            writeControl.frame = NSRect(x: start, y: rowY, width: max(0, min(writeControl.fittingWidth, end - start)), height: m.toolRow)
+        }
 
         strip.frame = field.insetBy(dx: 1, dy: 1)
         strip.showsKeycaps = keycaps
@@ -646,6 +698,11 @@ final class QuickReplyView: NSView, QuirePointerTarget {
         }
         guard strip.isHidden else {
             return regions + QuirePointerRegion.regions(field, cursor: .arrow, cutting: holes)
+        }
+        if !writeStrip.isHidden {
+            // Between the strip's field and its chips a click changes nothing: the arrow, as over the tool row.
+            regions += QuirePointerRegion.regions(writeStrip.frame, cursor: .arrow, cutting: holes)
+            holes.append(writeStrip.frame)
         }
         if showsToolRow {
             if status == .error, !statusLabel.isHidden {
@@ -995,6 +1052,7 @@ final class QuickReplyView: NSView, QuirePointerTarget {
 extension QuickReplyView: NSTextViewDelegate {
     func textDidChange(_ notification: Notification) {
         textDidChange()
+        onUserEdit?()
     }
 
     /// While Help me write streams into the field, typing waits: the reply and the user's keys never interleave.

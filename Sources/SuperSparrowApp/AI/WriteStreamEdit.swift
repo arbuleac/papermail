@@ -1,9 +1,10 @@
 import AppKit
+import SSDesign
 
 /// Text from Help Me Write going into a text view (spec §5.56, Writing): it replaces `range` (the selection, or the
-/// user's own text) as it streams, with undo registration off and no edit reported, so typing, the draft and the undo
-/// stack never see the stream; then either one undoable change, “Help Me Write”, from what was there to the reply, or
-/// the text exactly as it was.
+/// user's own text) as it streams, drawn in pencil (`layout.writeTool.pencilInk`, `ink2`), with undo registration off and
+/// no edit reported, so typing, the draft and the undo stack never see the stream; then either one undoable change,
+/// “Help Me Write”, from what was there to the reply in the field's own ink, or the text exactly as it was.
 ///
 /// The stream writes the storage directly: the field refuses the user's own edits meanwhile (its owner's
 /// `shouldChangeText` delegate answer), so the two never interleave.
@@ -17,6 +18,8 @@ final class WriteStreamEdit {
     let original: NSAttributedString
     private let originalSelection: [NSValue]
     private let attributes: [NSAttributedString.Key: Any]
+    /// `attributes` in pencil: what streams in is not the user's text yet.
+    private let pencilAttributes: [NSAttributedString.Key: Any]
     /// The text the stream has put in so far, and where it sits.
     private(set) var shown = ""
     private(set) var range: NSRange
@@ -27,7 +30,9 @@ final class WriteStreamEdit {
     /// The undo manager whose registration this edit turned off, so the same one is turned back on.
     private var silencedUndo: UndoManager?
 
-    init(textView: NSTextView, range: NSRange, attributes: [NSAttributedString.Key: Any]) {
+    /// `previous`, when given, is shown in pencil in place of `range` until the first words arrive: Try again keeps the
+    /// draft it replaces in sight rather than flashing the notes back.
+    init(textView: NSTextView, range: NSRange, attributes: [NSAttributedString.Key: Any], showing previous: String? = nil) {
         self.textView = textView
         let length = textView.textStorage?.length ?? 0
         let location = min(max(0, range.location), length)
@@ -36,24 +41,48 @@ final class WriteStreamEdit {
         original = textView.textStorage?.attributedSubstring(from: safe) ?? NSAttributedString()
         originalSelection = textView.selectedRanges
         self.attributes = attributes
+        var pencil = attributes
+        pencil[.foregroundColor] = WriteStreamEdit.pencilInk
+        pencilAttributes = pencil
         self.range = safe
+        if let previous, !previous.isEmpty, let storage = textView.textStorage {
+            silenceUndo()
+            storage.beginEditing()
+            storage.replaceCharacters(in: safe, with: NSAttributedString(string: previous, attributes: pencilAttributes))
+            storage.endEditing()
+            self.range = NSRange(location: safe.location, length: (previous as NSString).length)
+            holdsPrevious = true
+            wroteStorage = true
+        }
     }
+
+    /// Pencil: the colour token `layout.writeTool.pencilInk` names (`ink2`).
+    static var pencilInk: NSColor {
+        (QuireColorToken(rawValue: Quire.Layout.WriteTool.pencilInk) ?? .ink2).color
+    }
+
+    /// The previous draft is in the field, in pencil, until the first words replace it.
+    private var holdsPrevious = false
+    /// The storage holds something of the stream's (or the previous draft), so a rollback has text to put back.
+    private var wroteStorage = false
 
     /// Puts `text`, the whole reply so far, in the field: only what was added since the last call when the reply grew,
     /// all of it when it was replaced (a CLI's authoritative whole text).
     func show(_ text: String) {
-        guard !isFinished, text != shown, let storage = textView.textStorage else { return }
+        guard !isFinished, text != shown || holdsPrevious, let storage = textView.textStorage else { return }
         guard holdsItsRange(in: storage) else { return }
         silenceUndo()
         let now = text as NSString
         let before = shown as NSString
         storage.beginEditing()
-        if before.length > 0, now.length > before.length, now.substring(to: before.length) == shown {
-            let added = NSAttributedString(string: now.substring(from: before.length), attributes: attributes)
+        if !holdsPrevious, before.length > 0, now.length > before.length, now.substring(to: before.length) == shown {
+            let added = NSAttributedString(string: now.substring(from: before.length), attributes: pencilAttributes)
             storage.insert(added, at: NSMaxRange(range))
         } else {
-            storage.replaceCharacters(in: range, with: NSAttributedString(string: text, attributes: attributes))
+            storage.replaceCharacters(in: range, with: NSAttributedString(string: text, attributes: pencilAttributes))
         }
+        holdsPrevious = false
+        wroteStorage = true
         storage.endEditing()
         shown = text
         range = NSRange(location: originalRange.location, length: now.length)
@@ -97,13 +126,14 @@ final class WriteStreamEdit {
     }
 
     private func restoreOriginal() {
-        if let storage = textView.textStorage, shown != "" || range != originalRange, holdsItsRange(in: storage) {
+        if let storage = textView.textStorage, wroteStorage || shown != "" || range != originalRange, holdsItsRange(in: storage) {
             silenceUndo()
             storage.beginEditing()
             storage.replaceCharacters(in: range, with: original)
             storage.endEditing()
             range = originalRange
         }
+        wroteStorage = false
         shown = ""
         if let silencedUndo {
             silencedUndo.enableUndoRegistration()

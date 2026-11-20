@@ -35,6 +35,27 @@ final class ComposeContentView: NSView {
     let strip = AttachmentStripView()
     let formatRow = ComposeFormatRow()
     let bottomBar = ComposeBottomBar()
+    /// Help me write's instruction strip (⇧⌘J, §5.56), docked above the body while it shows: the body gives it its height.
+    /// Made for a reply's Help me write only: a new message or a forward has none.
+    var writeStrip: WriteInstructionStrip {
+        if let madeStrip { return madeStrip }
+        let strip = WriteInstructionStrip()
+        strip.isHidden = true
+        addSubview(strip, positioned: .below, relativeTo: dropOutline)
+        madeStrip = strip
+        return strip
+    }
+
+    private var madeStrip: WriteInstructionStrip?
+
+    var showsWriteStrip = false {
+        didSet {
+            guard oldValue != showsWriteStrip else { return }
+            writeStrip.isHidden = !showsWriteStrip
+            needsLayout = true
+            needsDisplay = true
+        }
+    }
 
     var showsFormatRow = false {
         didSet { if oldValue != showsFormatRow { needsLayout = true } }
@@ -92,6 +113,8 @@ final class ComposeContentView: NSView {
 
     /// Where the body (and the drop outline) sits.
     private(set) var bodyRect: NSRect = .zero
+    /// The band the strip sits in, on the body's `sheet`.
+    private var stripBand: NSRect = .zero
 
     override func layout() {
         super.layout()
@@ -114,6 +137,17 @@ final class ComposeContentView: NSView {
             bottom -= c.strip
             strip.frame = NSRect(x: 0, y: bottom, width: bounds.width, height: c.strip)
         }
+        if showsWriteStrip {
+            // On the body's sheet, at its text's inset, the body's own top padding under it.
+            let s = Quire.Layout.WriteStrip.self
+            let height = WriteInstructionStrip.height
+            stripBand = NSRect(x: 0, y: y, width: bounds.width, height: s.composerPadTop + height)
+            writeStrip.frame = NSRect(x: c.valueX, y: y + s.composerPadTop, width: max(0, bounds.width - c.valueX - c.bodyPadRight),
+                                      height: height)
+            y += s.composerPadTop + height
+        } else {
+            stripBand = .zero
+        }
         bodyRect = NSRect(x: 0, y: y, width: bounds.width, height: max(0, bottom - y))
         scrollView.frame = bodyRect
         dropOutline.frame = bodyRect
@@ -127,6 +161,11 @@ final class ComposeContentView: NSView {
         let band = titlebarHeight
         QuireHairline.fill(along: NSRect(x: 0, y: 0, width: bounds.width, height: band), orientation: .horizontal,
                            width: QuireHairline.width(for: self), color: .qRule)
+        if !stripBand.isEmpty {
+            // The strip's band continues the body's sheet, so it reads as part of the reply, not of the header.
+            NSColor.qSheet.setFill()
+            stripBand.intersection(dirtyRect).fill()
+        }
     }
 
     override func viewDidChangeEffectiveAppearance() {

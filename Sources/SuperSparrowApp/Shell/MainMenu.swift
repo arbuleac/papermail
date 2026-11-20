@@ -138,6 +138,10 @@ enum MainMenu {
         return menu
     }
 
+    /// Edit › Help Me Write's titles where it does not apply; where it does, the field titles it (§5.35).
+    static let helpMeWriteTitle = "Help Me Write"
+    static let helpMeWriteWithInstructionsTitle = "Help Me Write with Instructions\u{2026}"
+
     /// `searchServer` is the main window's: hidden while a composer is key.
     private static func editMenu() -> (menu: NSMenu, searchServer: NSMenuItem) {
         let menu = menu("Edit")
@@ -163,9 +167,12 @@ enum MainMenu {
         let searchServer = item(ServerSearchRow.menuTitle(for: nil), #selector(MainWindowController.searchServer(_:)))
         menu.addItem(searchServer)
         // Help me write (§5.56): on the focused quick reply or reply composer's text, beside the Mac's own Writing Tools,
-        // which AppKit adds to this menu. Nil-targeted: the reader or the composer answers it while its field has focus.
+        // which AppKit adds to this menu. Nil-targeted: the reader or the composer answers it while its field has focus,
+        // and titles it for what it does there (“Write Reply from Notes”, “Rewrite Selection”, “Write Reply”).
         menu.addItem(.separator())
-        menu.addItem(item("Help Me Write\u{2026}", #selector(ConversationViewController.helpMeWrite(_:)), "j", symbol: Quire.Icon.helpMeWrite))
+        menu.addItem(item(helpMeWriteTitle, #selector(ConversationViewController.helpMeWrite(_:)), "j", symbol: Quire.Icon.helpMeWrite))
+        menu.addItem(item(helpMeWriteWithInstructionsTitle, #selector(ConversationViewController.helpMeWriteWithInstructions(_:)), "j",
+                          [.command, .shift]))
         // The text system's own submenus, acting on whichever text view has focus. Without them spelling, text
         // replacement and smart quotes could be switched only from a text view's context menu. Writing Tools, AutoFill,
         // Start Dictation and Emoji & Symbols are not built here: AppKit adds them at launch to the menu titled "Edit"

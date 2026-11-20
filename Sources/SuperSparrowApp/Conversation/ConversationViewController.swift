@@ -81,7 +81,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     let find: ReaderFind
     private let webContainer = NSView()
     private let quickReply = QuickReplyView()
-    /// Help me write's card on the quick reply, while one is open (§5.56).
+    /// Help me write on the quick reply (§5.56), made the first time it is reached (`quickReplyWriteSession`).
     var writeSession: WriteSession?
     private let emptyState = QuireEmptyStateView(sentence: "No conversation selected")
     private lazy var moreMenu = MessageMoreMenu { [weak self] command in self?.performMore(command) }
@@ -116,7 +116,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
                 scheduleAcknowledge(for: id)
             } else if !isOnScreen {
                 // Help me write's card belongs to a bar on screen (§5.56): it closes, a reply streaming in put back.
-                closeWriteCard()
+                endHelpMeWrite()
                 markReadTimer?.invalidate()
                 markReadTimer = nil
                 acknowledgeTimer?.invalidate()
@@ -356,16 +356,19 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         quickReply.onSendLater = { [weak self] text, mode, date in self?.sendQuickReplyLater(text, mode: mode, at: date) }
         quickReply.sendAction = SendActionPreference.current
         quickReply.onEscape = { [weak self] repeated in self?.quickReplyEscape(repeated: repeated) }
-        // Help me write takes Esc first while its card is open or a reply streams in (§6.1).
+        // Help me write takes Esc first while a reply streams in or its strip shows (§6.1).
         quickReply.claimsEscape = { [weak self] in self?.writeSession?.escape() ?? false }
         // Text set from outside the field (a restore, a parked draft, a clear) never lands under a reply streaming in:
-        // the card closes first and the field is put back as it was (§5.56).
-        quickReply.willReplaceText = { [weak self] in self?.closeWriteCard() }
-        quickReply.willHideText = { [weak self] in self?.closeWriteCard() }
-        quickReply.onHeightChange = { [weak self] _ in
-            self?.applyBottomInset()
-            self?.writeSession?.fieldDidMove()
+        // the write stops first and the field is put back as it was (§5.56).
+        quickReply.willReplaceText = { [weak self] in self?.endHelpMeWrite() }
+        quickReply.willHideText = { [weak self] in self?.endHelpMeWrite() }
+        quickReply.onUserEdit = { [weak self] in self?.writeSession?.userDidEdit() }
+        // The Write control's state is read from this Mac as the bar takes the keyboard (spec §3b: nothing is asked of a
+        // provider until Write).
+        quickReply.onFocusChange = { [weak self] focused in
+            if focused { self?.quickReplyWriteSession?.refresh() }
         }
+        quickReply.onHeightChange = { [weak self] _ in self?.applyBottomInset() }
         quickReply.onOpenInComposer = { [weak self] text, mode in self?.openQuickReplyInComposer(text: text, mode: mode, attach: false) }
         quickReply.onAttach = { [weak self] text, mode in self?.openQuickReplyInComposer(text: text, mode: mode, attach: true) }
         // A drop moves the reply to a composer with what was dropped attached, as Attach and choosing the files would (§5.18).
@@ -411,7 +414,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     /// than 30 ms (key repeat) so a held `j` never queues renders it will not show.
     func show(_ id: ConversationID?) {
         // A Help me write card belongs to the reply it was opened on: another conversation closes it, a write put back.
-        if id != currentConversationID { closeWriteCard() }
+        if id != currentConversationID { endHelpMeWrite() }
         guard let id else {
             cancelPendingShow()
             showNothing(.none)
@@ -582,7 +585,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
 
     /// Nothing, or several conversations: no conversation is rendered and the quick reply hides.
     private func showNothing(_ selection: Selection) {
-        closeWriteCard()
+        endHelpMeWrite()
         if let id = currentConversationID {
             drafts.leave(quickReply.text, under: id)
         }
@@ -734,7 +737,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         // Nothing, several or an emptied conversation leaves nothing to search.
         if !showsWeb { find.close(returningFocus: false) }
         let wasVisible = !quickReply.isHidden
-        if !showsReply { closeWriteCard() }
+        if !showsReply { endHelpMeWrite() }
         quickReply.isHidden = !showsReply
         if showsReply {
             configureQuickReply(messages: messages)
@@ -2188,7 +2191,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         guard !parked.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         drafts.forget(id)
         // What the user typed, never a reply still streaming in: the card closes and the field is theirs again first.
-        closeWriteCard()
+        endHelpMeWrite()
         let typed = quickReply.text
         quickReply.restoreDraft(typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? parked : typed + "\n\n" + parked)
     }
@@ -2355,7 +2358,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     private func restoreUnsentQuickReply(_ text: String, under conversation: ConversationID) {
         if drafts.restoreUnsent(text, under: conversation, shown: currentConversationID) {
             // Kept below the unsent reply is what the user typed, never a reply streaming in: that write stops first.
-            closeWriteCard()
+            endHelpMeWrite()
             let typed = quickReply.text
             quickReply.restoreDraft(typed.isEmpty ? text : text + "\n\n" + typed)
             quickReply.focus()
@@ -2509,7 +2512,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             quickReply.status = .none
             // Anything typed since the send belongs to the same thread, so it is kept below the unsent text; a reply
             // Help me write is writing is not typed yet, so its write stops first.
-            closeWriteCard()
+            endHelpMeWrite()
             let typed = quickReply.text
             quickReply.restoreDraft(typed.isEmpty ? send.text : send.text + "\n\n" + typed)
             quickReply.focus()
@@ -2756,8 +2759,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         case #selector(printConversation(_:)):
             // One printout at a time: Print… waits while one is prepared or its panel is up (§5.48).
             return showsOne && !printer.isBusy
-        case #selector(helpMeWrite(_:)):
-            return canHelpMeWrite
+        case #selector(helpMeWrite(_:)), #selector(helpMeWriteWithInstructions(_:)):
+            return validateHelpMeWrite(menuItem)
         default:
             return true
         }

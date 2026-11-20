@@ -585,17 +585,22 @@ extension Quire {
             public static let popoverEdgeMin: CGFloat = 8
             public static let pictureSelectedWash: CGFloat = 0.45
         }
-        public enum WriteCard {
-            public static let width: CGFloat = 380
-            public static let pad: CGFloat = 12
-            public static let radius: CGFloat = 8
-            public static let rowGap: CGFloat = 8
-            public static let buttonGap: CGFloat = 8
+        public enum WriteTool {
+            public static let gap: CGFloat = 8
             public static let statusGlyph: CGFloat = 12
             public static let statusGlyphGap: CGFloat = 6
-            public static let offsetY: CGFloat = 6
-            public static let edgeMin: CGFloat = 8
-            public static let reasonMaxLines: CGFloat = 2
+            public static let keycapGap: CGFloat = 4
+            public static let linkGap: CGFloat = 3
+            public static let hintMinWords: CGFloat = 2
+            public static let pencilInk: String = "ink2"
+            public static let labelMinWidth: CGFloat = 140
+        }
+        public enum WriteStrip {
+            public static let gap: CGFloat = 6
+            public static let chipsGap: CGFloat = 8
+            public static let chipGap: CGFloat = 4
+            public static let fieldMinWidth: CGFloat = 160
+            public static let composerPadTop: CGFloat = 12
         }
         public enum Token {
             public static let invalidGlyph: CGFloat = 10
@@ -881,7 +886,6 @@ extension Quire {
             public static let statusBarGap: CGFloat = 4
             public static let savedGap: CGFloat = 8
             public static let aiKeyFieldWidth: CGFloat = 220
-            public static let aiPermissionGap: CGFloat = 4
             public static let groupMaxRows: CGFloat = 6
             public static let detailTop: CGFloat = 20
             public static let detailRow: CGFloat = 40

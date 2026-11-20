@@ -3,55 +3,98 @@ import SSCore
 import SSDesign
 import os
 
-/// One Help me write card on one field, from ⌘J to its close (spec §5.56): it shows the state, asks for consent the
-/// first time a provider is used, builds what is sent only once Write is pressed, streams the reply into the field at
-/// most once a frame, and ends in one undoable change or the field exactly as it was.
+/// Help me write on one reply, in place (spec §5.56): the quick reply's field or a reply composer's body, with its Write
+/// control in the tool row and its instruction strip docked above the text. No card: ⌘J (or Write) starts at once and
+/// the reply streams into the field in pencil, replacing the user's notes (or the selection), then lands in ink as one
+/// undoable step, “Undo Help Me Write”, which brings the notes back. Right after, ⌘J tries again from the same notes; once
+/// the user edits the draft, ⌘J writes from what the field holds now. ⇧⌘J opens the strip to say how.
 ///
-/// The quick reply's owner and a reply composer each keep at most one. Closing it always stops its write first: the
-/// writer's field is the text view's identity, and a write must never outlive the card that shows it.
+/// Nothing about the conversation is read, built or sent before the user's Write (spec §3b): the control's state comes
+/// from this Mac's facts alone (`HelpMeWrite.availability`), and the write itself is the one place in the app that makes a
+/// write's `AIUserAction`. There is no permission sheet here: permission is given in Settings › AI when a provider is
+/// chosen; without it, ⌘J says so in the tool row and sends nothing.
+///
+/// The quick reply's owner and each reply composer keep one session for as long as the reply lives. `end()` stops its
+/// write first: the writer's field is the text view's identity, and a write must never outlive the reply it fills.
 @MainActor
 final class WriteSession {
     let center: HelpMeWrite
     /// The field's adapter, which holds its owner weakly: the owner keeps the session, the session keeps the adapter.
-    private(set) var field: WriteField?
-    let card = WriteCardView()
-    /// Called once the card has gone, whichever way it closed.
-    var onClose: (() -> Void)?
+    let field: WriteField
 
-    private(set) var isOpen = false
-    /// The configuration the card was opened with, and the one a write runs with.
+    /// What the session is doing, as the Write control shows it.
+    private(set) var phase: WriteToolControl.Phase = .idle {
+        didSet {
+            guard oldValue != phase else { return }
+            field.writeControl.phase = phase
+        }
+    }
+
+    /// The strip is docked above the text.
+    private(set) var isStripShown = false
+
+    /// The last reply written here, while it stands as written: Try again replaces it from the same notes.
+    private struct Draft {
+        var ask: WriteAsk
+        /// Where the notes (or the selection) were, which the reply replaced.
+        var range: NSRange
+        var isRewrite: Bool
+        /// The reply as it landed.
+        var reply: String
+        /// The field's whole text with the reply in it: any change since is the user's edit.
+        var textAfter: String
+    }
+
+    private var lastDraft: Draft?
+    /// The write under way: what it asks, so a reply that lands becomes `lastDraft`.
+    private var running: (ask: WriteAsk, isRewrite: Bool)?
     private var configuration: AIProviderConfiguration?
-    private var isRewrite = false
     private var edit: WriteStreamEdit?
     private var writeTask: Task<Void, Never>?
-    private var healthTask: Task<Void, Never>?
     /// Bumped by every write and every stop, so events meant for an earlier write are dropped.
     private var generation = 0
     /// The whole reply so far, and whether the field has caught up with it.
     private var written = ""
     private var flushScheduled = false
-    private var clickMonitor: Any?
-    private var fieldID: AIFieldID?
+    /// Set while the session itself changes the text (a reply landing, Try again's undo), which is not the user's edit.
+    private var isChangingText = false
+    private var responderObservation: NSKeyValueObservation?
+    private var availabilityObserver: NSObjectProtocol?
 
     private static let logger = Logger(subsystem: "io.supersparrow.mac", category: "ai")
+    private static let signposter = OSSignposter(subsystem: "io.supersparrow.mac", category: "ai")
     /// Every session with a write streaming, by window: Edit › Undo waits while one streams there (§6.1).
     private static var streaming: [ObjectIdentifier: Int] = [:]
+
+    #if DEBUG
+    /// The debug-only live check reads what a write sends, to report it; nothing else sets it, and it is never logged.
+    static var requestObserver: ((AIWriteRequest) -> Void)?
+    #endif
 
     init(center: HelpMeWrite, field: WriteField) {
         self.center = center
         self.field = field
-        card.onWrite = { [weak self] in self?.write() }
-        card.onStop = { [weak self] in self?.stop() }
-        card.onEscape = { [weak self] in _ = self?.escape() }
-        card.onOpenSettings = { [weak self] in
-            self?.close()
-            self?.center.openSettings()
+        let control = field.writeControl
+        control.onWrite = { [weak self] in self?.writeFromControl() }
+        control.onStop = { [weak self] in self?.stop() }
+        control.onTryAgain = { [weak self] in self?.writeFromControl() }
+        control.onUndo = { [weak self] in self?.undoDraft() }
+        control.onOpenSettings = { [weak self] in self?.openSettings() }
+        let strip = field.instructionStrip
+        strip.onRun = { [weak self] instruction in self?.run(instruction: instruction) }
+        strip.onEscape = { [weak self] in _ = self?.stripEscape() }
+        availabilityObserver = NotificationCenter.default.addObserver(forName: HelpMeWrite.availabilityDidChange, object: center,
+                                                                      queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refresh() }
         }
+        refresh()
     }
 
-    /// The card's state now (the app's tests read it).
-    var state: WriteCardView.State { card.state }
-    var isWriting: Bool { card.state == .writing }
+    deinit {
+        if let availabilityObserver { NotificationCenter.default.removeObserver(availabilityObserver) }
+    }
+
+    var isWriting: Bool { phase == .writing }
 
     /// Whether a Help me write reply is streaming into a field of `window`: its undo stack waits until it ends.
     static func isStreaming(in window: NSWindow?) -> Bool {
@@ -59,214 +102,192 @@ final class WriteSession {
         return (streaming[ObjectIdentifier(window)] ?? 0) > 0
     }
 
-    /// The keyboard to the card's field, or back to the text when the card has none (Off, needs setup).
-    private func focusCard() {
-        guard !card.takeFocus(), let textView = field?.writeTextView, textView.window?.firstResponder !== textView else { return }
-        textView.window?.makeFirstResponder(textView)
+    private var textView: NSTextView { field.writeTextView }
+
+    // MARK: What the control shows
+
+    /// Reads the provider's state again from this Mac (the field took the keyboard, Settings changed) and the hint.
+    func refresh() {
+        field.writeControl.availability = center.availability()
+        updateHint()
+        watchTheKeyboard()
     }
 
-    /// Whether the keyboard is still the card's or its field's (or no one's), with the field on screen. A write that ends
-    /// moves the keyboard only then: a click elsewhere leaves a write running (§5.56), and what the user goes on to type
-    /// there (a search, J and K in the list) must not land in the card or the reply.
-    private var keyboardIsHere: Bool {
-        guard let textView = field?.writeTextView, let window = textView.window, !textView.isHiddenOrHasHiddenAncestor else {
-            return false
+    /// The hint shows once the user's own text holds a few words (§5.56): their notes are worth writing from.
+    private func updateHint() {
+        field.writeControl.showsHint = Self.wordCount(in: ownText) >= Int(Quire.Layout.WriteTool.hintMinWords)
+    }
+
+    private var ownText: String {
+        let text = textView.string as NSString
+        let own = field.ownTextRange
+        guard NSMaxRange(own) <= text.length else { return "" }
+        return text.substring(with: own)
+    }
+
+    /// Words: runs holding a letter or a digit.
+    static func wordCount(in text: String) -> Int {
+        text.split(whereSeparator: { $0.isWhitespace }).filter { $0.contains { $0.isLetter || $0.isNumber } }.count
+    }
+
+    /// The user changed the text (typing, a paste, an undo): a line about the last reply or a failure goes, and Try again
+    /// with it.
+    func userDidEdit() {
+        guard !isChangingText else { return }
+        if phase == .written || isFailed { phase = .idle }
+        if phase != .writing, let lastDraft, textView.string != lastDraft.textAfter { self.lastDraft = nil }
+        updateHint()
+    }
+
+    private var isFailed: Bool {
+        if case .failed = phase { return true }
+        return false
+    }
+
+    // MARK: What ⌘J does now
+
+    enum Plan: Equatable {
+        /// Rewrite the selection.
+        case rewriteSelection
+        /// Write again from the same notes: the last reply stands as written.
+        case tryAgain
+        /// Write the reply from the user's notes.
+        case fromNotes
+        /// Write the reply from the conversation alone.
+        case reply
+    }
+
+    var plan: Plan {
+        if textView.selectedRange().length > 0, !isWriting { return .rewriteSelection }
+        if let lastDraft, textView.string == lastDraft.textAfter { return .tryAgain }
+        return ownText.contains { !$0.isWhitespace } ? .fromNotes : .reply
+    }
+
+    /// Edit › Help Me Write's title for what it does now (§5.35).
+    func menuTitle(withInstructions: Bool) -> String {
+        switch (plan, withInstructions) {
+        case (.rewriteSelection, false): return "Rewrite Selection"
+        case (.rewriteSelection, true): return "Rewrite Selection with Instructions\u{2026}"
+        case (.tryAgain, false): return "Try Again"
+        case (.fromNotes, false): return "Write Reply from Notes"
+        case (.reply, false): return "Write Reply"
+        case (_, true): return "Write Reply with Instructions\u{2026}"
         }
-        let responder = window.firstResponder
-        return card.holdsFocus || responder === textView || responder === window || responder == nil
-    }
-
-    // MARK: Opening and closing
-
-    /// Shows the card under the caret: Off without a provider, else ready to write, then needs-setup if the provider's
-    /// health says so (a quick check that sends no mail: a key is stored, the CLI is found and signed in).
-    func open() {
-        guard !isOpen, let field else { return }
-        isOpen = true
-        let textView = field.writeTextView
-        fieldID = AIFieldID(textView)
-        isRewrite = textView.selectedRange().length > 0
-        configuration = center.configuration
-        if let configuration {
-            card.configure(state: .idle, isRewrite: isRewrite, sourceLine: center.sourceLine(for: configuration))
-            checkHealth(configuration)
-        } else {
-            card.configure(state: .off, isRewrite: false, sourceLine: "")
-        }
-        field.cardDidChange(isOpen: true)
-        card.present(in: field.cardHost, frame: frame(anchoredTo: textView.selectedRange()))
-        focusCard()
-        installClickMonitor()
-        QuireAccessibility.announce(card.accessibilityWords, from: card)
-    }
-
-    /// Closes the card; a write still running is stopped and the field put back as it was. Focus that was in the card
-    /// goes back to the field.
-    func close() {
-        guard isOpen else { return }
-        isOpen = false
-        let hadFocus = card.holdsFocus
-        stopWriting()
-        healthTask?.cancel()
-        healthTask = nil
-        removeClickMonitor()
-        card.dismiss()
-        field?.cardDidChange(isOpen: false)
-        if hadFocus, let textView = field?.writeTextView, !textView.isHiddenOrHasHiddenAncestor {
-            textView.window?.makeFirstResponder(textView)
-        }
-        onClose?()
-    }
-
-    /// Esc, from the card or the field (claimed before anything else answers it, §6.1): a write stops and the field comes
-    /// back as it was, with the card open and the instruction kept; otherwise the card closes. False when no card is open.
-    @discardableResult
-    func escape() -> Bool {
-        guard isOpen else { return false }
-        if isWriting { stop() } else { close() }
-        return true
-    }
-
-    private func frame(anchoredTo range: NSRange) -> NSRect {
-        guard let field else { return .zero }
-        return field.cardFrame(size: card.preferredSize, anchoredTo: range).integral
-    }
-
-    /// The card's frame again: its size changed with the state, or the text under it moved.
-    private func reposition(anchoredTo range: NSRange? = nil) {
-        guard isOpen, let field else { return }
-        let anchor = range ?? edit?.range ?? field.writeTextView.selectedRange()
-        card.frame = frame(anchoredTo: anchor)
-        card.needsLayout = true
-    }
-
-    /// The field moved or grew (the quick reply's bar takes its height): the card follows it.
-    func fieldDidMove() {
-        reposition()
-    }
-
-    private func show(_ state: WriteCardView.State) {
-        card.configure(state: state, isRewrite: isRewrite, sourceLine: configuration.map(center.sourceLine(for:)) ?? "")
-        reposition()
-    }
-
-    private func checkHealth(_ configuration: AIProviderConfiguration) {
-        let writer = center.writer
-        healthTask = Task { [weak self] in
-            let health = await writer.health(of: configuration)
-            guard let self, !Task.isCancelled, self.isOpen, self.card.state == .idle, !health.isReady else { return }
-            // The answer can come while the user types an instruction: the field goes, and the keyboard stays on the card
-            // (Esc closes it, ↩ opens Settings) rather than jumping to the reply with the rest of what was typed.
-            let typing = self.card.holdsFocus
-            self.show(.needsSetup(reason: health.words))
-            if typing { self.card.holdKeyboard() } else { self.focusCard() }
-        }
-    }
-
-    /// A click anywhere in the window outside the card closes it and sends nothing; while it writes, the card stays.
-    private func installClickMonitor() {
-        clickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
-            MainActor.assumeIsolated {
-                guard let self, self.isOpen, !self.isWriting, let window = self.card.window, event.window === window else { return }
-                let point = self.card.convert(event.locationInWindow, from: nil)
-                if !self.card.bounds.contains(point) { self.close() }
-            }
-            return event
-        }
-    }
-
-    private func removeClickMonitor() {
-        if let clickMonitor { NSEvent.removeMonitor(clickMonitor) }
-        clickMonitor = nil
     }
 
     // MARK: Writing
 
-    /// Write (↩, the button, Try Again): consent first, the first time this provider is used; then the write.
+    /// The Write button or a line's Try again: the keyboard goes to the text first, so a selection there counts.
+    private func writeFromControl() {
+        if textView.window?.firstResponder !== textView, !field.instructionStrip.holdsFocus { field.focusText() }
+        write()
+    }
+
+    /// ⌘J: Try again, a selection's rewrite, or a reply from the notes, with the strip's instruction while it shows.
     func write() {
-        guard isOpen, !isWriting, let field else { return }
-        // Settings may have changed since the card opened: the provider the user chose now is the one asked.
+        run(instruction: isStripShown ? field.instructionStrip.instruction.trimmingCharacters(in: .whitespacesAndNewlines) : nil)
+    }
+
+    /// Runs a write with `instruction` (the strip's ↩ or a chip; nil: ⌘J's own, the last draft's on Try again).
+    func run(instruction: String?) {
+        guard !isWriting else { return }
+        refresh()
         guard let configuration = center.configuration else {
-            self.configuration = nil
-            show(.off)
-            focusCard()
+            phase = .failed(reason: HelpMeWrite.offWords, offersSettings: true)
+            announceFailure(HelpMeWrite.offWords)
+            return
+        }
+        if case .unavailable(let reason) = field.writeControl.availability {
+            phase = .failed(reason: reason, offersSettings: true)
+            announceFailure(reason)
             return
         }
         self.configuration = configuration
-        guard center.hasConsent(for: configuration.kind) else {
-            askConsent(for: configuration.kind, window: field.writeTextView.window)
+        let text = textView.string as NSString
+        let selection = textView.selectedRange()
+
+        if selection.length > 0, NSMaxRange(selection) <= text.length {
+            // The selection's own leading and trailing space and line breaks stay where they are (a triple-clicked
+            // paragraph keeps its line break): the reply, trimmed, replaces what lies between them.
+            let range = Self.trimmedCore(of: selection, in: text)
+            let ask = WriteAsk(instruction: instruction ?? "", draft: .selection(text.substring(with: range)))
+            start(ask: ask, range: range, isRewrite: true, previous: nil, configuration: configuration)
             return
         }
-        start(configuration)
-    }
-
-    /// The consent sheet (§5.33): Allow records the answer and writes; Cancel (the default, and Esc) sends nothing and
-    /// leaves the card as it was.
-    private func askConsent(for kind: AIProviderKind, window: NSWindow?) {
-        center.presentAlert(center.consentAlert(for: kind), window) { [weak self] choice in
-            guard let self, self.isOpen else { return }
-            if choice == 1 {
-                self.center.recordConsent(for: kind)
-                self.write()
-            } else {
-                self.focusCard()
-            }
+        if let draft = lastDraft, textView.string == draft.textAfter {
+            tryAgain(draft, instruction: instruction, configuration: configuration)
+            return
         }
+        let own = field.ownTextRange
+        let notes = NSMaxRange(own) <= text.length ? text.substring(with: own) : ""
+        let typed = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        let ask = WriteAsk(instruction: instruction ?? "", draft: typed.isEmpty ? .empty : .notes(typed))
+        start(ask: ask, range: own, isRewrite: false, previous: nil, configuration: configuration)
     }
 
-    private func start(_ configuration: AIProviderConfiguration) {
-        guard let field, let fieldID, let context = field.writeContext() else {
+    /// Writes again from the notes the last reply came from, never from the reply: its step is undone first, so the new
+    /// reply's one step goes back to the notes, and the old reply stays in sight, in pencil, until the new one starts.
+    private func tryAgain(_ draft: Draft, instruction: String?, configuration: AIProviderConfiguration) {
+        var ask = draft.ask
+        if let instruction { ask.instruction = instruction }
+        if let undo = textView.undoManager, undo.canUndo, undo.undoActionName == WriteStreamEdit.actionName {
+            isChangingText = true
+            undo.undo()
+            isChangingText = false
+        }
+        let range = draft.isRewrite ? draft.range : field.ownTextRange
+        guard NSMaxRange(range) <= (textView.string as NSString).length, textView.string != draft.textAfter else {
+            // The undo did not bring the notes back (the stack changed under it): the field as it is is the notes.
+            lastDraft = nil
+            run(instruction: instruction)
+            return
+        }
+        start(ask: ask, range: range, isRewrite: draft.isRewrite, previous: draft.reply, configuration: configuration)
+    }
+
+    private func start(ask: WriteAsk, range: NSRange, isRewrite: Bool, previous: String?, configuration: AIProviderConfiguration) {
+        guard let context = field.writeContext() else {
             NSSound.beep()
             return
         }
-        let textView = field.writeTextView
-        let selection = textView.selectedRange()
-        let own = field.ownTextRange
-        let ask: WriteAsk
-        let range: NSRange
-        let text = textView.string as NSString
-        if selection.length > 0, NSMaxRange(selection) <= text.length {
-            isRewrite = true
-            // The selection's own leading and trailing space and line breaks stay where they are (a triple-clicked
-            // paragraph keeps its line break): the reply, trimmed, replaces what lies between them.
-            range = Self.trimmedCore(of: selection, in: text)
-            ask = WriteAsk(instruction: card.instruction, draft: .selection(text.substring(with: range)))
-        } else {
-            isRewrite = false
-            range = own
-            let notes = NSMaxRange(own) <= text.length ? text.substring(with: own) : ""
-            let typed = notes.trimmingCharacters(in: .whitespacesAndNewlines)
-            ask = WriteAsk(instruction: card.instruction, draft: typed.isEmpty ? .empty : .notes(typed))
-        }
         // The reply replaces the whole selection or the notes, so all of it must be sent: past the cap, nothing is.
-        if case .selection(let part) = ask.draft, ReplyContextBuilder.exceedsAskLimit(part) {
-            show(.failed(reason: AIError.tooLong(selection: true).message(for: configuration.kind), offersSettings: false))
-            focusCard()
+        switch ask.draft {
+        case .selection(let part) where ReplyContextBuilder.exceedsAskLimit(part),
+             .notes(let part) where ReplyContextBuilder.exceedsAskLimit(part):
+            let reason = AIError.tooLong(selection: isRewrite).message(for: configuration.kind)
+            phase = .failed(reason: reason, offersSettings: false)
+            announceFailure(reason)
             return
+        default:
+            break
         }
-        if case .notes(let part) = ask.draft, ReplyContextBuilder.exceedsAskLimit(part) {
-            show(.failed(reason: AIError.tooLong(selection: false).message(for: configuration.kind), offersSettings: false))
-            focusCard()
-            return
-        }
+        let fieldID = AIFieldID(textView)
         generation += 1
         let mine = generation
         written = ""
-        edit = WriteStreamEdit(textView: textView, range: range, attributes: field.writeAttributes(at: range))
+        lastDraft = nil
+        running = (ask, isRewrite)
+        edit = WriteStreamEdit(textView: textView, range: range, attributes: field.writeAttributes(at: range), showing: previous)
+        field.streamDidUpdate()
         field.refusesEdits = true
+        field.setHeldOpen(true)
         markStreaming(true, in: textView.window)
-        show(.writing)
-        focusCard()
-        QuireAccessibility.announce(WriteCardView.writingWords, from: card)
+        phase = .writing
+        QuireAccessibility.announce("Writing with \(center.writerName(for: configuration.kind))", from: field.writeControl)
 
         let writer = center.writer
         let signature = context.appendsSignature
+        // The one place a write's user action is made: the user pressed Write, ⌘J, ⇧⌘J's ↩, a chip or Try again.
+        let action = AIUserAction(userPressed: .write)
         writeTask = Task { [weak self] in
             // Read and redacted off the main thread, only now that Write was pressed (§5.56: nothing before).
             let built = await Task.detached(priority: .userInitiated) { context.build(ask: ask) }.value
             guard let self, self.generation == mine, !Task.isCancelled else { return }
             let request = WritePrompt.request(for: built, appendsSignature: signature, configuration: configuration)
-            let stream = writer.write(request, using: configuration, in: fieldID)
+            #if DEBUG
+            Self.requestObserver?(request)
+            #endif
+            let stream = writer.write(request, using: configuration, in: fieldID, action: action)
             do {
                 for try await event in stream {
                     guard self.generation == mine else { return }
@@ -284,7 +305,7 @@ final class WriteSession {
                         self.finish()
                         return
                     case .finished(.cancelled):
-                        // Not this card's Stop, which changes `generation` first: the writer was stopped from outside
+                        // Not this session's Stop, which changes `generation` first: the writer was stopped from outside
                         // (quit, Leave Demo, the environment going away). The field goes back as it was all the same.
                         self.writeEndedElsewhere()
                         return
@@ -315,38 +336,66 @@ final class WriteSession {
         return start < end ? NSRange(location: start, length: end - start) : selection
     }
 
-    /// The write ended without this card stopping it: the field as it was, editable, and the card ready to try again.
-    private func writeEndedElsewhere() {
-        let keyboardWasHere = keyboardIsHere
-        generation += 1
-        writeTask = nil
-        if let edit, !edit.isFinished {
-            edit.rollback()
-            field?.streamDidUpdate()
+    // MARK: Stopping
+
+    /// Esc in the text (claimed before anything else answers it, §6.1): a write stops and the notes come back exactly;
+    /// else the strip closes. False when neither applies, so Esc goes on as it would.
+    @discardableResult
+    func escape() -> Bool {
+        if isWriting {
+            stop()
+            return true
         }
-        endStream()
-        guard isOpen else { return }
-        show(.idle)
-        if keyboardWasHere { focusCard() }
+        if isStripShown {
+            closeStrip(focusText: true)
+            return true
+        }
+        return false
     }
 
-    /// Stop or Esc while writing: the field comes back as it was, at once; the card stays with the instruction kept.
+    /// Esc in the strip: a write stops; else the strip closes and the keyboard goes back to the text.
+    @discardableResult
+    func stripEscape() -> Bool {
+        if isWriting {
+            stop()
+        } else {
+            closeStrip(focusText: true)
+        }
+        return true
+    }
+
+    /// Stop or Esc while writing: the field comes back as it was, at once.
     func stop() {
         guard isWriting else { return }
         let keyboardWasHere = keyboardIsHere
         stopWriting()
-        show(.idle)
-        if keyboardWasHere { focusCard() }
+        phase = .idle
+        field.setHeldOpen(isStripShown)
+        if keyboardWasHere, !field.instructionStrip.holdsFocus { field.focusText() }
+        QuireAccessibility.announce("Stopped", from: field.writeControl)
+    }
+
+    /// The reply goes away (another conversation, text set from outside, sent, the window closing): a write stops with the
+    /// field put back, the strip closes, and Try again and the strip's instruction are forgotten.
+    func end() {
+        stopWriting()
+        phase = .idle
+        lastDraft = nil
+        field.instructionStrip.instruction = ""
+        if isStripShown { setStrip(false) }
+        field.setHeldOpen(false)
+        updateHint()
     }
 
     private func stopWriting() {
         generation += 1
         writeTask?.cancel()
         writeTask = nil
-        if let fieldID { center.writer.stop(fieldID) }
+        running = nil
+        center.writer.stop(AIFieldID(textView))
         if let edit, !edit.isFinished {
             edit.rollback()
-            field?.streamDidUpdate()
+            field.streamDidUpdate()
         }
         endStream()
     }
@@ -354,8 +403,40 @@ final class WriteSession {
     private func endStream() {
         if edit != nil { markStreaming(false, in: edit?.textView.window) }
         edit = nil
-        field?.refusesEdits = false
+        field.refusesEdits = false
         flushScheduled = false
+    }
+
+    /// The write ended without this session stopping it: the field as it was, editable.
+    private func writeEndedElsewhere() {
+        let keyboardWasHere = keyboardIsHere
+        stopWriting()
+        phase = .idle
+        field.setHeldOpen(isStripShown)
+        if keyboardWasHere, !field.instructionStrip.holdsFocus { field.focusText() }
+    }
+
+    // MARK: The instruction strip (⇧⌘J)
+
+    /// ⇧⌘J: the strip docks above the text with the keyboard in it, its last instruction kept (and selected).
+    func showStrip() {
+        if !isStripShown { setStrip(true) }
+        field.instructionStrip.rewritesSelection = textView.selectedRange().length > 0
+        field.instructionStrip.focus()
+    }
+
+    func closeStrip(focusText: Bool) {
+        guard isStripShown else { return }
+        let hadFocus = field.instructionStrip.holdsFocus
+        setStrip(false)
+        if focusText || hadFocus { field.focusText() }
+    }
+
+    private func setStrip(_ shown: Bool) {
+        isStripShown = shown
+        field.setHeldOpen(shown || isWriting)
+        field.setStripShown(shown)
+        if shown { QuireAccessibility.announce("Help Me Write instructions", from: field.instructionStrip) }
     }
 
     // MARK: Streaming into the field
@@ -375,75 +456,118 @@ final class WriteSession {
         guard let edit, !edit.isFinished else { return }
         let signpost = Self.signposter.beginInterval("ai.flush")
         edit.show(written)
-        field?.streamDidUpdate()
+        field.streamDidUpdate()
         Self.signposter.endInterval("ai.flush", signpost)
         // The text was replaced around the stream by something that did not stop it first: the write ends here and
         // writes nothing more (`WriteStreamEdit.wasDisturbed`).
         if edit.wasDisturbed {
             stopWriting()
-            if isOpen { show(.idle) }
-            return
+            phase = .idle
+            field.setHeldOpen(isStripShown)
         }
-        reposition()
     }
 
-    private static let signposter = OSSignposter(subsystem: "io.supersparrow.mac", category: "ai")
-
-    /// The reply is complete: one undoable change, the card closes and the caret waits after the reply (with the keyboard,
-    /// when the keyboard was still with the card or the field).
+    /// The reply is complete: one undoable change in ink, the caret after it, and the line that offers Try again and Undo.
     private func finish() {
-        guard let edit, let field else { return }
+        guard let edit, let running else { return }
         let keyboardWasHere = keyboardIsHere
         if edit.wasDisturbed {
             stopWriting()
-            if isOpen { show(.idle) }
+            phase = .idle
             return
         }
-        let textView = edit.textView
         field.refusesEdits = false
         markStreaming(false, in: textView.window)
         self.edit = nil
+        self.running = nil
         let reply = written.trimmingCharacters(in: .whitespacesAndNewlines)
+        isChangingText = true
         let committed = edit.commit(reply)
+        isChangingText = false
         field.streamDidUpdate()
         written = ""
+        field.setHeldOpen(isStripShown)
         guard committed else {
             // Text replaced around the stream at the last moment is the user's now: nothing is said about the reply.
-            if edit.wasDisturbed { show(.idle) } else {
-                show(.failed(reason: AIError.emptyReply.message(for: configuration?.kind), offersSettings: false))
+            if edit.wasDisturbed {
+                phase = .idle
+            } else {
+                let reason = AIError.emptyReply.message(for: configuration?.kind)
+                phase = .failed(reason: reason, offersSettings: false)
+                announceFailure(reason)
             }
-            if keyboardWasHere { focusCard() }
             return
         }
-        isOpen = false
-        healthTask?.cancel()
-        removeClickMonitor()
-        card.dismiss()
-        field.cardDidChange(isOpen: false)
-        // The caret waits after the reply; the keyboard goes to it only from the card or the field.
-        if keyboardWasHere { textView.window?.makeFirstResponder(textView) }
+        lastDraft = Draft(ask: running.ask, range: edit.originalRange, isRewrite: running.isRewrite, reply: reply,
+                          textAfter: textView.string)
+        phase = .written
+        // The caret waits after the reply; the keyboard goes to it from the strip or the text, never from elsewhere.
+        if keyboardWasHere { field.focusText() }
+        updateHint()
+        let writer = configuration.map { center.writerName(for: $0.kind) } ?? "Claude"
+        QuireAccessibility.announce(running.isRewrite ? "Selection rewritten by \(writer)" : "Reply written by \(writer)",
+                                    from: field.writeControl)
         Self.logger.debug("Help Me Write committed \(reply.count, privacy: .public) characters")
-        onClose?()
     }
 
-    /// The write failed: the field as it was, and the card says why in words (never the request or the reply).
+    /// The write failed: the field as it was, and the tool row says why in words (never the request or the reply).
     private func fail(_ error: AIError) {
         let keyboardWasHere = keyboardIsHere
-        if let edit, !edit.isFinished {
-            edit.rollback()
-            field?.streamDidUpdate()
-        }
-        endStream()
-        guard isOpen else { return }
-        if error == .consentRequired, let kind = configuration?.kind {
-            show(.idle)
-            askConsent(for: kind, window: field?.writeTextView.window)
+        stopWriting()
+        field.setHeldOpen(isStripShown)
+        let reason = error == .consentRequired ? HelpMeWrite.turnOnWords : error.message(for: configuration?.kind)
+        phase = .failed(reason: reason, offersSettings: error.needsSettings || error == .consentRequired)
+        if keyboardWasHere, !field.instructionStrip.holdsFocus { field.focusText() }
+        announceFailure(reason)
+    }
+
+    private func announceFailure(_ reason: String) {
+        QuireAccessibility.announce("Couldn\u{2019}t write. " + reason, from: field.writeControl)
+    }
+
+    /// The line's Undo: the reply's one step, as ⌘Z would take it back.
+    private func undoDraft() {
+        field.focusText()
+        guard let undo = textView.undoManager, undo.canUndo, undo.undoActionName == WriteStreamEdit.actionName else {
+            NSSound.beep()
             return
         }
-        let reason = error.message(for: configuration?.kind)
-        show(.failed(reason: reason, offersSettings: error.needsSettings))
-        if keyboardWasHere { focusCard() }
-        QuireAccessibility.announce(WriteCardView.failureWords + ". " + reason, from: card)
+        undo.undo()
+    }
+
+    private func openSettings() {
+        phase = .idle
+        center.openSettings()
+    }
+
+    // MARK: The keyboard
+
+    /// Whether the keyboard is in the text, the strip, the Write control or nowhere, with the field on screen. A write
+    /// that ends moves the keyboard only then: what the user went on to type elsewhere (a search, J and K in the list) must
+    /// not land in the reply.
+    private var keyboardIsHere: Bool {
+        guard let window = textView.window, !textView.isHiddenOrHasHiddenAncestor else { return false }
+        return isHere(window.firstResponder) || window.firstResponder === window || window.firstResponder == nil
+    }
+
+    private func isHere(_ responder: NSResponder?) -> Bool {
+        guard let responder else { return false }
+        if responder === textView || field.instructionStrip.holdsFocus { return true }
+        return (responder as? NSView)?.isDescendant(of: field.writeControl) ?? false
+    }
+
+    /// The user moving away (the keyboard leaving the text, the strip and the control) ends the line about the last reply
+    /// or a failure, and closes the strip unless a write runs (§5.56); its instruction stays for the next ⇧⌘J.
+    private func watchTheKeyboard() {
+        guard responderObservation == nil, let window = textView.window else { return }
+        responderObservation = window.observe(\.firstResponder, options: [.new]) { [weak self] window, _ in
+            MainActor.assumeIsolated {
+                guard let self, let responder = window.firstResponder, responder !== window else { return }
+                guard !self.isHere(responder), self.textView.window === window else { return }
+                if self.phase == .written || self.isFailed { self.phase = .idle }
+                if self.isStripShown, !self.isWriting { self.setStrip(false) }
+            }
+        }
     }
 
     private func markStreaming(_ on: Bool, in window: NSWindow?) {

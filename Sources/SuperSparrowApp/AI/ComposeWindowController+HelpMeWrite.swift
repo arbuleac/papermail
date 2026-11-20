@@ -2,39 +2,65 @@ import AppKit
 import SSCore
 import SSDesign
 
-/// Edit › Help Me Write… (⌘J) in a reply composer (spec §5.56): the card under the caret, writing the reply to the
-/// message this composer answers.
+/// Help me write in a reply composer (spec §5.56): ⌘J writes in place in the body, ⇧⌘J opens the strip above it; the
+/// Write control sits in the bottom bar.
 extension ComposeWindowController {
     @objc func helpMeWrite(_ sender: Any?) {
-        guard canHelpMeWrite, let center = HelpMeWrite.current else {
+        guard canHelpMeWrite, let session = bodyWriteSession else {
             NSSound.beep()
             return
         }
-        let session = WriteSession(center: center, field: ComposerWriteField(composer: self))
-        session.onClose = { [weak self, weak session] in
-            if let self, self.writeSession === session { self.writeSession = nil }
+        session.write()
+    }
+
+    @objc func helpMeWriteWithInstructions(_ sender: Any?) {
+        guard canHelpMeWrite, let session = bodyWriteSession else {
+            NSSound.beep()
+            return
         }
+        session.showStrip()
+    }
+
+    /// The body's session, for a reply or reply all: new messages and forwards answer no one, so they have none.
+    var bodyWriteSession: WriteSession? {
+        if let writeSession { return writeSession }
+        guard repliesTo != nil, let center = HelpMeWrite.current else { return nil }
+        let session = WriteSession(center: center, field: ComposerWriteField(composer: self))
         writeSession = session
-        session.open()
+        return session
     }
 
-    /// ⌘J applies while the keyboard is in the body of a reply or reply all that can be written in, with no card open.
-    /// New messages and forwards answer no one, so it never applies there.
+    /// ⌘J and ⇧⌘J apply while the keyboard is in the body (or its strip) of a reply that can be written in, and no write
+    /// runs there. New messages and forwards answer no one, so they never apply there.
     var canHelpMeWrite: Bool {
-        guard repliesTo != nil, HelpMeWrite.current != nil, writeSession == nil, !isSending, let window else { return false }
-        return window.firstResponder === bodyEditor && bodyEditor.isEditable
+        guard repliesTo != nil, HelpMeWrite.current != nil, writeSession?.isWriting != true, !isSending, let window else {
+            return false
+        }
+        let inBody = window.firstResponder === bodyEditor || content.writeStrip.holdsFocus
+        return inBody && bodyEditor.isEditable
     }
 
-    /// Closes Help me write's card, putting the body back first if a reply was streaming into it.
-    func closeWriteCard() {
-        writeSession?.close()
-        writeSession = nil
+    /// The menu items' titles for what ⌘J and ⇧⌘J do now; on a new message or a forward, why they do nothing (§5.35).
+    func validateHelpMeWrite(_ item: NSMenuItem) -> Bool {
+        let instructions = item.action == #selector(helpMeWriteWithInstructions(_:))
+        item.toolTip = repliesTo == nil ? "Help Me Write works on replies" : nil
+        guard canHelpMeWrite, let session = bodyWriteSession else {
+            item.title = instructions ? MainMenu.helpMeWriteWithInstructionsTitle : MainMenu.helpMeWriteTitle
+            return false
+        }
+        item.title = session.menuTitle(withInstructions: instructions)
+        return true
+    }
+
+    /// Ends Help me write on the body: a reply streaming in is put back first, the strip closes, Try again is forgotten.
+    func endHelpMeWrite() {
+        writeSession?.end()
     }
 }
 
 /// A reply composer's body as Help me write's field: the user's own text is the body above the signature (the quoted
-/// original is never in the text), the card sits under the caret or the reply being written, and the reply answers the
-/// message the composer replies to.
+/// original is never in the text), the Write control sits in the bottom bar, the strip docks above the body, and the reply
+/// answers the message the composer replies to.
 @MainActor
 final class ComposerWriteField: WriteField {
     private weak var composer: ComposeWindowController?
@@ -46,8 +72,6 @@ final class ComposerWriteField: WriteField {
     private var editor: ComposeTextView? { composer?.bodyEditor }
 
     var writeTextView: NSTextView { editor ?? NSTextView() }
-
-    var cardHost: NSView { composer?.content ?? NSView() }
 
     var ownTextRange: NSRange {
         guard let editor else { return NSRange(location: 0, length: 0) }
@@ -71,31 +95,28 @@ final class ComposerWriteField: WriteField {
         return ComposeTextView.typingSafe(storage.attributes(at: range.location, effectiveRange: nil))
     }
 
-    func cardFrame(size: NSSize, anchoredTo range: NSRange) -> NSRect {
-        let host = cardHost
-        let c = Quire.Layout.WriteCard.self
-        guard let editor, let lines = WriteCardGeometry.lineRects(in: editor, range: range, host: host) else {
-            return NSRect(x: Quire.Layout.Composer.valueX - c.pad, y: Quire.Layout.Composer.fieldRow * 4, width: size.width, height: size.height)
-        }
-        // Under the last line, its leading edge at the selection's start (at a caret, the text's) less the card's padding, so
-        // the instruction field starts over the text it writes; above the first line without room.
-        let textStart = host.convert(NSPoint(x: editor.textContainerOrigin.x, y: 0), from: editor).x
-        let startX = range.length > 0 ? lines.first.minX : textStart
-        let frame = ComposePopoverPlacement.linkPopover(firstLine: lines.first, lastLine: lines.last, selectionStartX: startX,
-                                                        size: size, bounds: WriteCardGeometry.topDown(host.bounds, in: host),
-                                                        pad: c.pad, offsetY: c.offsetY, edgeMin: c.edgeMin)
-        return WriteCardGeometry.topDown(frame, in: host)
-    }
-
     var refusesEdits: Bool {
         get { composer?.refusesBodyEdits ?? false }
         set { composer?.refusesBodyEdits = newValue }
     }
 
-    func cardDidChange(isOpen: Bool) {}
-
     func streamDidUpdate() {
         editor?.textDidChangeByWriting()
+    }
+
+    var writeControl: WriteToolControl { composer?.content.bottomBar.writeControl ?? WriteToolControl() }
+
+    var instructionStrip: WriteInstructionStrip { composer?.content.writeStrip ?? WriteInstructionStrip() }
+
+    func setStripShown(_ shown: Bool) {
+        composer?.content.showsWriteStrip = shown
+    }
+
+    func setHeldOpen(_ held: Bool) {}
+
+    func focusText() {
+        guard let editor else { return }
+        editor.window?.makeFirstResponder(editor)
     }
 
     func writeContext() -> WriteContextInputs? {

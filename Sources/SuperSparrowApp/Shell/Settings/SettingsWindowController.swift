@@ -54,6 +54,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         window.tabbingMode = .disallowed
         super.init(window: window)
         window.delegate = self
+        // Settings › AI's privacy sheet goes on this window, as the provider is chosen (§5.40).
+        ai.window = { [weak window] in window }
         tabs.fitWindow(animate: false)
         window.center()
         // The saved frame brings back the position; the size always follows the content.

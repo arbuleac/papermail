@@ -56,7 +56,8 @@ public enum AIError: Error, Sendable, Hashable {
     case emptyReply
     /// The provider cannot be used at all here (not built into this build, or nothing is configured).
     case unavailable
-    /// The user has not allowed this provider yet: the UI shows the consent sheet first, and the writer refuses.
+    /// The user has not turned this provider on in Settings › AI (its privacy sheet's Turn On): the writer refuses, and
+    /// the reply's Write line says where to turn it on.
     case consentRequired
     /// The selection to rewrite (`selection`) or the notes are longer than Help Me Write sends
     /// (`ReplyContextBuilder.Limits.maxAskCharacters`): nothing is sent, rather than a cut part that the reply would
@@ -80,11 +81,11 @@ public enum AIError: Error, Sendable, Hashable {
         return .badResponse(code: 0)
     }
 
-    /// Whether the fix is in Settings › AI, so the card offers Open Settings… beside Try Again.
+    /// Whether the fix is in Settings › AI, so the Write line offers Settings… beside Try again.
     public var needsSettings: Bool {
         switch self {
         case .keyRefused, .missingKey, .signedOut, .notInstalled, .unsupportedVersion, .newerVersion, .toolsStayOn,
-             .otherSignIn, .modelUnavailable, .unavailable:
+             .otherSignIn, .modelUnavailable, .unavailable, .consentRequired:
             return true
         default:
             return false
@@ -161,8 +162,7 @@ public enum AIError: Error, Sendable, Hashable {
         case .unavailable:
             return kind.map { "\($0.displayName) isn't available right now" } ?? "Help Me Write isn't available right now"
         case .consentRequired:
-            return kind.map { "Help Me Write needs your permission to send this to \($0.destination.displayName)" }
-                ?? "Help Me Write needs your permission first"
+            return kind.map { "Turn \($0.displayName) on in Settings \u{203a} AI first" } ?? "Turn it on in Settings \u{203a} AI"
         case .tooLong(let selection):
             return selection ? "The selection is too long to rewrite. Select less, then try again."
                 : "Your draft is too long to send as notes. Shorten it, or select a part to rewrite."

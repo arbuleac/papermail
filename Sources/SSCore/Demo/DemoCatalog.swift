@@ -254,6 +254,23 @@ enum DemoCatalog {
             "Sure, I can do 30 minutes on actors, Sendable and the migration path. Thursday the 20th?",
             "Booked the big room. Pizza is on me.",
         ]),
+        // The demo's long thread (thirteen messages, three people), last so the threads before it keep the mail they had:
+        // Help me write's whole-thread context reads it newest first, older messages shortened (spec §5.56).
+        Script(subject: "Team offsite: venue, dates and agenda", people: [elena, aisha], lines: [
+            "Kicking off planning for the spring offsite. Two venues are on the shortlist: the Harbour Loft in town and Millbrook Farm, an hour out. Can you two give me your preferences by Friday?",
+            "Harbour Loft gets my vote. Nobody has to drive, and the AV is built in. Millbrook is lovely but the travel eats half a day.",
+            "Agree on the Loft. One worry: it only seats 40 for dinner, and we're at 46 with the new hires.",
+            "Could we split dinner across two tables at the restaurant next door? They did that for the design team last year.",
+            "Good idea. I called them: they can take 50 on the 18th or the 25th, not the 11th.",
+            "The 18th clashes with the release freeze. The 25th works for engineering if we keep the Monday free for the rollout.",
+            "Then let's hold Thursday 25 and Friday 26. I'll put a provisional booking on the Loft for both days.",
+            "Booked provisionally. They need the deposit, 20% of the quote, by the 3rd to keep the dates.",
+            "On the agenda: I'd like one morning for the roadmap and one for customer stories. Afternoons free for team sessions?",
+            "Works for me. I'll draft the roadmap morning. Can someone own the customer stories and invite two customers?",
+            "I can ask Contoso and Fabrikam; both offered to talk last quarter. I'll need the travel budget confirmed first.",
+            "Travel for two customer guests fits inside the budget we approved, about $1,200 all in.",
+            "Great, so we're nearly there. Can you confirm you'll send the deposit before the 3rd, and are you happy to present the roadmap on Thursday morning? Also, should we invite the new hires to the dinner on Wednesday or keep it to the Thursday?",
+        ]),
     ]
 
     /// The work account's older threads on the demo's server, found only by a search of the server (spec §5.10).

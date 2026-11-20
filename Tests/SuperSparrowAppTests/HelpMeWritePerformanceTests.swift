@@ -3,9 +3,9 @@ import SSCore
 import XCTest
 @testable import SuperSparrowApp
 
-/// Help me write's budgets in docs/ARCHITECTURE.md (spec §5.56): ⌘J to the card on screen within 16 ms (nothing about the
-/// conversation is read for it), and each streamed update of the field within 4 ms, at most one a frame, however long the
-/// reply grows. Only with `SS_PERF=1`:
+/// Help me write's budgets in docs/ARCHITECTURE.md (spec §5.56): ⌘J to the write under way within 16 ms (the field in
+/// pencil, the line saying Writing; the conversation is read off the main thread after), and each streamed update of the
+/// field within 4 ms, at most one a frame, however long the reply grows. Only with `SS_PERF=1`:
 ///
 ///     SS_PERF=1 swift test -c release -Xswiftc -enable-testing --filter HelpMeWritePerformanceTests
 @MainActor
@@ -16,10 +16,12 @@ final class HelpMeWritePerformanceTests: XCTestCase {
         }
     }
 
-    func testCommandJShowsTheCardWithinAFrameAndEachUpdateTakesUnder4ms() throws {
+    func testCommandJStartsWithinAFrameAndEachUpdateTakesUnder4ms() throws {
         let harness = try MainWindowHarness()
         defer { harness.close() }
         harness.settings.aiProvider = .claudeAPI
+        harness.settings.setAIConsent(true, for: .claudeAPI, demo: false)
+        harness.environment.helpMeWrite.demoScript?.holdsAfter = 0
         let id = try XCTUnwrap(harness.list.conversations.first { $0.id.providerID == "thread-2" }?.id)
         harness.list.selectedConversationID = id
         harness.list.onSelectionChange?(id)
@@ -30,14 +32,15 @@ final class HelpMeWritePerformanceTests: XCTestCase {
 
         var opens: [Double] = []
         for _ in 0..<15 {
-            harness.reader.closeWriteCard()
+            harness.reader.endHelpMeWrite()
             harness.controller.window?.makeFirstResponder(field)
             let start = DispatchTime.now().uptimeNanoseconds
             harness.reader.helpMeWrite(nil)
             harness.reader.view.layoutSubtreeIfNeeded()
             opens.append(Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000)
+            XCTAssertTrue(harness.reader.isWritingReply)
         }
-        harness.reader.closeWriteCard()
+        harness.reader.endHelpMeWrite()
 
         // A reply streamed two words at a time to 2,400 characters, each update timed as the session makes it.
         let words = Array(repeating: "Tuesday at ten works for me, and I will bring the draft budget along.", count: 35)
@@ -59,7 +62,7 @@ final class HelpMeWritePerformanceTests: XCTestCase {
         let open = opens.sorted()[opens.count / 2]
         let median = updates.sorted()[updates.count / 2]
         let p95 = updates.sorted()[Int(Double(updates.count) * 0.95)]
-        print(String(format: "Help me write budget: ⌘J to the card %.2f ms (median of %d); an update %.2f ms median, %.2f ms p95 over %d updates to %d characters",
+        print(String(format: "Help me write budget: ⌘J to the write under way %.2f ms (median of %d); an update %.2f ms median, %.2f ms p95 over %d updates to %d characters",
                      open, opens.count, median, p95, updates.count, written.count))
         XCTAssertLessThan(open, 16)
         XCTAssertLessThan(p95, 4)

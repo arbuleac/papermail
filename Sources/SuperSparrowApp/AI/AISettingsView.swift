@@ -4,8 +4,9 @@ import SwiftUI
 
 /// Settings › AI (spec §5.40, §5.56): on General's grid, a fifth tab after Appearance that never scrolls. Provider (Off,
 /// then by where mail goes: Anthropic's Claude with an API key or Claude Code with the user's sign-in, OpenAI's API or
-/// Codex), its status line, the API key (Check, Remove) or the CLI (Choose…), the model, then the caption that says where
-/// a conversation goes and when, and the permission the consent sheet recorded, with Forget.
+/// Codex), whose choice shows the privacy sheet; its status line (with Turn On… for one never turned on); the API key
+/// (Check, Remove) or the CLI (Choose…, Check); the model; then the caption that says what is sent, when, and that Off
+/// stops it.
 struct AISettingsView: View {
     static let offCaption = "Off: Help Me Write sends nothing anywhere. Choose a provider to draft replies with \u{2318}J."
 
@@ -17,7 +18,16 @@ struct AISettingsView: View {
                 QuirePopup("Provider", selection: provider, sections: Self.providerSections) { Self.title(for: $0) }
             }
             if model.provider != nil {
-                QuireSettingsRow(nil) { AIStatusLine(status: model.status) }
+                QuireSettingsRow(nil) {
+                    HStack(spacing: Quire.Layout.Settings.statusButtonGap) {
+                        AIStatusLine(status: model.status)
+                        if model.needsTurnOn {
+                            Button("Turn On\u{2026}") { model.turnOnChosenProvider() }
+                                .buttonStyle(.quire(.secondary, size: .small))
+                                .disabled(model.isAsking)
+                        }
+                    }
+                }
             }
             if let kind = model.provider {
                 if kind.usesAPIKey {
@@ -36,11 +46,7 @@ struct AISettingsView: View {
                 }
                 QuireSettingsDivider()
                 if let caption = model.caption {
-                    // The permission line sits a little apart: it is about this Mac's answer, not where mail goes.
-                    QuireSettingsCaption(caption, spacingBelow: model.hasConsent ? Self.permissionGap : 0)
-                }
-                if model.hasConsent {
-                    QuireSettingsCaption(AISettingsModel.permissionWords + " \u{00b7}", link: ("Forget", { model.forgetConsent() }))
+                    QuireSettingsCaption(caption)
                 }
             } else {
                 QuireSettingsCaption(Self.offCaption)
@@ -79,11 +85,12 @@ struct AISettingsView: View {
                 .accessibilityLabel(path.map { "\(kind.displayName) at \($0)" } ?? "\(kind.displayName) not found")
             Button("Choose\u{2026}") { model.chooseCLI() }
                 .buttonStyle(.quire(.secondary, size: .small))
+            // Its version and sign-in, asked only now: `claude auth status` may reach Anthropic (spec §3b).
+            Button("Check") { model.check() }
+                .buttonStyle(.quire(.secondary, size: .small))
+                .disabled(path == nil)
         }
     }
-
-    /// “Permission given · Forget” under the caption (§5.40).
-    static let permissionGap = Quire.Layout.Settings.aiPermissionGap
 
     /// The key field leaves room for Check and Remove inside the field column.
     static let keyFieldWidth = Quire.Layout.Settings.aiKeyFieldWidth

@@ -51,7 +51,7 @@ final class AIErrorTests: XCTestCase {
         XCTAssertEqual(AIError.badResponse(code: 1).message(for: .claudeCode), "Unexpected answer from Claude Code (code 1)")
         XCTAssertEqual(AIError.timedOut.message(for: .codex), "Codex took too long to answer")
         XCTAssertEqual(AIError.timedOut.message(for: .openAIAPI), "OpenAI took too long to answer")
-        XCTAssertEqual(AIError.consentRequired.message(for: .codex), "Help Me Write needs your permission to send this to OpenAI")
+        XCTAssertEqual(AIError.consentRequired.message(for: .codex), "Turn Codex on in Settings \u{203a} AI first")
         XCTAssertEqual(AIError.refused.message(for: .codex), "Codex declined to write this.")
         XCTAssertEqual(AIError.refused.message(for: .openAIAPI), "The model declined to write this.")
     }
@@ -75,7 +75,7 @@ final class AIErrorTests: XCTestCase {
         XCTAssertEqual(Self.everyCase.filter(\.needsSettings),
                        [.keyRefused, .missingKey, .signedOut, .modelUnavailable, .notInstalled,
                         .unsupportedVersion(found: "2.1.322 (Claude Code)"), .newerVersion(found: "3.0.1"),
-                        .toolsStayOn(found: "codex-cli 0.163.0"), .otherSignIn, .unavailable])
+                        .toolsStayOn(found: "codex-cli 0.163.0"), .otherSignIn, .unavailable, .consentRequired])
     }
 
     func testAVersionKeepsOnlyItsDigitsAndDots() {

@@ -112,15 +112,17 @@ enum AppSnapshots {
             // Notifications: off for SuperSparrow in System Settings, then only the Dock badge off there.
             { launchAtLogin.showForSnapshot(.off); notificationPermission.showForSnapshot(.denied) },
             { notificationPermission.showForSnapshot(.allowedWithoutBadge) },
-            // AI (§5.56), held for the render: Off; Claude Code found and signed in; Codex not found; OpenAI without a key;
-            // Claude checking.
+            // AI (§5.56), held for the render: Off; Claude Code as the tab opens (found, from this Mac) and after Check;
+            // Codex not found; OpenAI without a key; Claude checking; Claude chosen before 1.12 and never turned on.
             { notificationPermission.showForSnapshot(.allowed); ai.showForSnapshot(provider: nil, status: .none); model.tab = .ai },
+            { ai.showForSnapshot(provider: .claudeCode, status: .ready("Claude Code 2.1.322 found"), cliPath: home + "/.local/bin/claude") },
             { ai.showForSnapshot(provider: .claudeCode, status: .ready("Claude Code 2.1.322 \u{00b7} signed in with claude.ai"),
-                                 hasConsent: true, cliPath: home + "/.local/bin/claude") },
-            { ai.showForSnapshot(provider: .codex,
-                                 status: .needsSetup(AIHealth.notFoundWords(for: .codex))) },
+                                 cliPath: home + "/.local/bin/claude") },
+            { ai.showForSnapshot(provider: .codex, status: .needsSetup(AIHealth.notFoundWords(for: .codex))) },
             { ai.showForSnapshot(provider: .openAIAPI, status: .needsSetup("Add your API key")) },
             { ai.showForSnapshot(provider: .claudeAPI, status: .checking, hasKey: true) },
+            { ai.showForSnapshot(provider: .claudeAPI, status: .needsSetup(AISettingsModel.notTurnedOnWords), hasKey: true,
+                                 hasConsent: false) },
         ]
         render(controller, steps: steps) { bitmap in
             model.oauth = original

@@ -4,20 +4,21 @@ import SSCore
 
 /// `--live-write-check=<report.json>` (debug builds, demo mode only): Help Me Write once, end to end, with the provider
 /// `--ai-provider` and `--ai-model` choose (with `--live-ai-clis`, the user's real Claude Code or Codex), over the demo's
-/// made-up mail. It types notes into the first inbox conversation's quick reply, opens the card, checks the provider's
-/// health, presses Write, answers the real consent sheet with Allow (the demo's earlier Allow for that provider is
-/// forgotten first, so the sheet asks), and reports when the first words reached the field, when the reply landed,
-/// what landed and the undo step, or the failure's words. A provider that is not ready is still sent the Write, as
-/// Try Again would, to show that its own pre-send check refuses it.
+/// made-up mail. It opens the demo's longest conversation (the thirteen-message offsite thread), types short notes into
+/// its quick reply and presses ⌘J, as the user would; the provider is held turned on for the run (the demo's own
+/// permission, never the user's). It reports the Write control's state before, when the first words reached the field,
+/// when the reply landed, what landed and its undo step, or the failure's words, and the exact context the provider was
+/// given (the request's transcript and task), to show the thread newest first with older messages shortened.
 ///
-/// The report holds the demo's reply in full: a debug aid's output, on made-up mail, written only where its caller asked.
+/// The report holds the demo's reply and context in full: a debug aid's output, on made-up mail, written only where its
+/// caller asked, never logged.
 @MainActor
 final class LiveWriteCheck {
-    /// The check under way: nothing else holds it while it waits on the card.
+    /// The check under way: nothing else holds it while it waits on the field.
     private static var current: LiveWriteCheck?
 
-    static let notes = "thu 3pm works, I will bring the mockups"
-    static let instruction = "Short and friendly."
+    static let notes = "yes to deposit, happy to do roadmap thu, invite new hires to wed dinner"
+    static let threadSubject = "Team offsite: venue, dates and agenda"
 
     /// `--ai-provider` and `--ai-model`: the demo's provider for this process, held in memory, never saved.
     static func chooseProvider(_ options: LaunchOptions, for environment: AppEnvironment) {
@@ -40,10 +41,8 @@ final class LiveWriteCheck {
     private var report: [String: Any] = [:]
     private var monitor: Timer?
     private var session: WriteSession?
-    private var configuration: AIProviderConfiguration?
     private let clock = ContinuousClock()
     private var pressed: ContinuousClock.Instant?
-    private var allowed: ContinuousClock.Instant?
     private var writing: ContinuousClock.Instant?
     private var firstText: ContinuousClock.Instant?
     private var finished = false
@@ -63,7 +62,6 @@ final class LiveWriteCheck {
             end()
             return
         }
-        self.configuration = configuration
         let kind = configuration.kind
         report["provider"] = kind.rawValue
         report["model"] = configuration.model ?? NSNull()
@@ -71,84 +69,50 @@ final class LiveWriteCheck {
         report["sourceLine"] = center.sourceLine(for: configuration)
         report["madeUpOnThisMac"] = center.makesUpReplies(for: kind)
         report["notes"] = Self.notes
-        report["instruction"] = Self.instruction
-        report["consentGivenBefore"] = center.hasConsent(for: kind)
-        // So the sheet asks in this run: the demo's own Allow for this provider, never the user's.
-        settings.setAIConsent(false, for: kind, demo: center.isDemo, live: center.sendsFromTheDemo(kind))
-        let present = center.presentAlert
-        center.presentAlert = { [weak self] alert, window, completion in
-            self?.sheetShown(alert)
-            present(alert, window, completion)
-            // A click on Allow a moment after the sheet shows, on the system's own sheet.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                MainActor.assumeIsolated { self?.pressAllow(on: window) }
-            }
+        // Turned on for this run only, as Settings › AI's sheet would: the demo's own permission, held in memory.
+        center.consentOverride.insert(kind)
+        report["permission"] = "held for the run (Settings › AI's Turn On)"
+        WriteSession.requestObserver = { [weak self] request in
+            self?.report["context"] = ["promptVersion": request.promptVersion, "transcript": request.transcript, "task": request.task,
+                                       "userTurnCharacters": request.userTurn.count] as [String: Any]
         }
         let conversation = window.conversation
+        guard let thread = Self.longestThread(in: window.environment.store) else {
+            report["error"] = "no demo thread of ten or more messages"
+            end()
+            return
+        }
+        report["thread"] = ["subject": Self.threadSubject, "messages": thread.count] as [String: Any]
+        window.reveal(thread.id)
         conversation.whenShownRenderLands(timeout: 10) { [weak self] _ in
             guard let self else { return }
-            guard conversation.focusQuickReply(all: false) else {
+            guard conversation.focusQuickReply(all: false), let session = conversation.quickReplyWriteSession else {
                 self.report["error"] = "no quick reply"
                 self.end()
                 return
             }
+            self.session = session
             let field = conversation.quickReplyBar.writingTextView
             field.insertText(Self.notes, replacementRange: NSRange(location: 0, length: (field.string as NSString).length))
+            session.refresh()
+            self.report["availability"] = Self.describe(session.field.writeControl.availability)
+            self.report["hintShown"] = session.field.writeControl.showsHint
+            self.report["menuTitle"] = session.menuTitle(withInstructions: false)
+            self.pressed = self.clock.now
+            self.watch(field: field)
+            // ⌘J, as the user presses it.
             conversation.helpMeWrite(nil)
-            guard let session = conversation.writeSession else {
-                self.report["error"] = "the card did not open"
-                self.end()
-                return
-            }
-            self.session = session
-            Task { @MainActor in
-                let started = self.clock.now
-                let health = await self.center.writer.health(of: configuration)
-                self.report["health"] = ["ready": health.isReady, "words": health.words,
-                                         "ms": Self.milliseconds(self.clock.now - started)] as [String: Any]
-                // The card asks for itself as it opens: a moment for its answer to show before reading it.
-                if !health.isReady {
-                    for _ in 0..<100 where session.state == .idle { try? await Task.sleep(for: .milliseconds(20)) }
-                }
-                self.report["cardStateAfterHealth"] = Self.describe(session.state)
-                session.card.instruction = Self.instruction
-                self.report["forcedWriteWhileNotReady"] = !health.isReady
-                self.pressed = self.clock.now
-                self.watch(field: field)
-                session.write()
-            }
         }
     }
 
-    private func sheetShown(_ alert: AppAlert) {
-        report["consentSheet"] = ["title": alert.title, "body": alert.body, "buttons": alert.buttons.map(\.title),
-                                  "shownMsAfterWrite": pressed.map { Self.milliseconds(clock.now - $0) } ?? NSNull()] as [String: Any]
+    /// The demo's offsite thread: the conversation with that subject and the most messages.
+    private static func longestThread(in store: any MailStoring) -> (id: ConversationID, count: Int)? {
+        let all = (try? store.conversations(ConversationQuery(view: .all, limit: .max))) ?? []
+        let threads = all.filter { $0.subject.contains(threadSubject) && $0.messageCount >= 10 }
+        return threads.max { $0.messageCount < $1.messageCount }.map { ($0.id, $0.messageCount) }
     }
 
-    private func pressAllow(on window: NSWindow?) {
-        guard let sheet = window?.attachedSheet, let content = sheet.contentView else {
-            report["consentAnswer"] = "no sheet on the window"
-            return
-        }
-        let buttons = Self.buttons(in: content)
-        // Which button ↩ presses: the sheet's default button, or the one holding Return as its key.
-        report["consentDefaultButton"] = sheet.defaultButtonCell?.title
-            ?? buttons.first { $0.keyEquivalent == "\r" }?.title ?? NSNull()
-        guard let allow = buttons.first(where: { $0.title == "Allow" }) else {
-            report["consentAnswer"] = "no Allow button"
-            return
-        }
-        allowed = clock.now
-        report["allowedAt"] = Date().timeIntervalSince1970
-        report["consentAnswer"] = "Allow"
-        allow.performClick(nil)
-    }
-
-    private static func buttons(in view: NSView) -> [NSButton] {
-        ((view as? NSButton).map { [$0] } ?? []) + view.subviews.flatMap(buttons(in:))
-    }
-
-    /// Every 2 ms: when the card starts writing, when the field first changes from the notes, and how the write ends.
+    /// Every 2 ms: when the line says Writing, when the field first changes from the notes, and how the write ends.
     private func watch(field: NSTextView) {
         let monitor = Timer(timeInterval: 0.002, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick(field: field) }
@@ -167,22 +131,27 @@ final class LiveWriteCheck {
     private func tick(field: NSTextView) {
         guard !finished, let session else { return }
         let now = clock.now
-        if writing == nil, session.state == .writing { writing = now }
+        if writing == nil, session.phase == .writing { writing = now }
         if firstText == nil, writing != nil, field.string != Self.notes {
             firstText = now
             report["firstTextCharacters"] = (field.string as NSString).length
         }
-        if case .failed(let reason, let offersSettings) = session.state {
+        switch session.phase {
+        case .failed(let reason, let offersSettings):
             report["outcome"] = "failed"
             report["failure"] = ["reason": reason, "offersSettings": offersSettings] as [String: Any]
             report["fieldAfter"] = field.string
             report["fieldRestored"] = field.string == Self.notes
             end()
-        } else if !session.isOpen {
+        case .written:
             report["outcome"] = "inserted"
             report["inserted"] = field.string
+            report["line"] = session.field.writeControl.lineWords
             report["undoActionName"] = field.undoManager?.undoActionName ?? NSNull()
+            report["menuTitleAfter"] = session.menuTitle(withInstructions: false)
             end()
+        case .idle, .writing:
+            break
         }
     }
 
@@ -190,12 +159,12 @@ final class LiveWriteCheck {
         guard !finished else { return }
         finished = true
         monitor?.invalidate()
-        let origin = allowed ?? pressed
+        WriteSession.requestObserver = nil
         func since(_ instant: ContinuousClock.Instant?) -> Any {
-            guard let origin, let instant else { return NSNull() }
-            return Self.milliseconds(instant - origin)
+            guard let pressed, let instant else { return NSNull() }
+            return Self.milliseconds(instant - pressed)
         }
-        report["timesFrom"] = allowed != nil ? "Allow clicked" : "Write pressed"
+        report["timesFrom"] = "⌘J pressed"
         report["writingMs"] = since(writing)
         report["firstTextMs"] = since(firstText)
         report["totalMs"] = since(clock.now)
@@ -204,7 +173,7 @@ final class LiveWriteCheck {
             FileManager.default.createFile(atPath: reportPath, contents: data)
         }
         Self.current = nil
-        // The CLI is gone once the card closed or failed; a moment for its folder to go too.
+        // The CLI is gone once the reply landed or failed; a moment for its folder to go too.
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [done] in MainActor.assumeIsolated { done() } }
     }
 
@@ -213,13 +182,11 @@ final class LiveWriteCheck {
         return Int(seconds) * 1000 + Int(attoseconds / 1_000_000_000_000_000)
     }
 
-    private static func describe(_ state: WriteCardView.State) -> String {
-        switch state {
+    private static func describe(_ availability: WriteToolControl.Availability) -> String {
+        switch availability {
         case .off: return "off"
-        case .idle: return "idle"
-        case .writing: return "writing"
-        case .needsSetup(let reason): return "needsSetup: " + reason
-        case .failed(let reason, _): return "failed: " + reason
+        case .unavailable(let reason): return "unavailable: " + reason
+        case .ready(let writer, let source): return "ready: \(writer) (\(source))"
         }
     }
 }

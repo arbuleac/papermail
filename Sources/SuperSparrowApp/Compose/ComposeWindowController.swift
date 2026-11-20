@@ -108,7 +108,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     /// A draft of this window is on disk, so “nothing worth keeping” must remove it.
     private var hasStoredDraft = false
     private var linkPopover: ComposeLinkPopover?
-    /// Help me write's card on the body, while one is open (§5.56).
+    /// Help me write on the body of a reply (§5.56), made the first time it is reached (`bodyWriteSession`).
     var writeSession: WriteSession?
     /// While Help me write streams a reply into the body, the user's own edits wait (`textView(_:shouldChangeTextIn:…)`),
     /// and so does everything else that would take the half-written reply or edit around it: Send, ⌘↩, Send and Archive
@@ -443,7 +443,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         loop.append(subjectField)
         loop.append(textView)
         loop.append(content.strip)
-        loop += [bar.sendButton, bar.sendOptionsButton, bar.attachButton, bar.formatButton]
+        loop += [bar.sendButton, bar.sendOptionsButton, bar.attachButton, bar.formatButton, bar.writeControl.writeButton]
         if content.showsFormatRow { loop += content.formatRow.buttons.map(\.button) }
         for (index, view) in loop.enumerated() {
             view.nextKeyView = loop[(index + 1) % loop.count]
@@ -489,6 +489,8 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         for row in [fromRow, toRow, ccRow, bccRow, subjectRow] { row.needsDisplay = true }
         for field in [toField, ccField, bccField] { field.windowKeyDidChange() }
         content.strip.windowKeyDidChange()
+        // The Write control's state is read from this Mac as the window comes forward (spec §3b: no provider is asked).
+        if note.name == NSWindow.didBecomeKeyNotification { bodyWriteSession?.refresh() }
         if note.name == NSWindow.didResignKeyNotification {
             for field in [toField, ccField, bccField] { field.closeAutocomplete() }
         }
@@ -676,6 +678,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         // A From change replacing the signature reports itself as a header edit (`fromChanged`).
         if !isReplacingSignature { draftChanged(body: true) }
         updateFormatState()
+        bodyWriteSession?.userDidEdit()
     }
 
     func textViewDidChangeSelection(_ notification: Notification) {
@@ -1202,14 +1205,19 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     /// with the sample in it (and write the sample a second time), and the demo's Drafts never show it. A reply that
     /// already holds the sample (kept by a run before this rule) is left as it is.
     func writeDemoSample() {
-        autosaveTimer?.invalidate()
-        closesWithoutSaving = true
+        keepNoDraft()
         guard !textView.string.contains(DemoComposerSample.text),
               let picture = ComposeImageAttachment.make(data: DemoComposerSample.picture, typeIdentifier: ComposerImageFormat.png.typeIdentifier,
                                                         filename: DemoComposerSample.pictureName) else { return }
         window?.makeFirstResponder(textView)
         textView.insertText(DemoComposerSample.text + "\n", replacementRange: textView.selectedRange())
         textView.insertPictures([picture])
+    }
+
+    /// A snapshot's composer keeps no draft: its sample is the snapshot's, not the user's.
+    func keepNoDraft() {
+        autosaveTimer?.invalidate()
+        closesWithoutSaving = true
     }
 
     private func removeAttachment(id: UUID) {
@@ -1546,7 +1554,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     /// sheet's Esc is caught by a local monitor that lives as long as the sheet.
     private func confirmDiscard() {
         // What Undo brings back is what the user wrote, never half a reply: a write still streaming is put back first.
-        closeWriteCard()
+        endHelpMeWrite()
         let draft = currentDraft()
         let client = client
         let accounts = accounts
@@ -1565,7 +1573,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     /// holding the user's work stays open, since Esc must never throw work away. Every field and the window call it,
     /// so it answers wherever the keyboard is.
     @objc func escapeComposer(_ sender: Any?) {
-        // Help me write's card takes Esc first: it stops a write, or closes (§6.1).
+        // Help me write takes Esc first: it stops a write, or closes its strip (§6.1).
         if writeSession?.escape() == true { return }
         // A send waiting for dropped attachments is stopped next; the message stays as written.
         if sendAfterDrops != nil { return stopWaitingToSend() }
@@ -1605,10 +1613,9 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         case #selector(toggleFormatRow(_:)):
             menuItem.title = content.showsFormatRow ? "Hide Format Row" : "Show Format Row"
             return true
-        case #selector(helpMeWrite(_:)):
+        case #selector(helpMeWrite(_:)), #selector(helpMeWriteWithInstructions(_:)):
             // New messages and forwards answer no one: the item says so rather than writing to nobody (§5.56).
-            menuItem.toolTip = repliesTo == nil ? "Help Me Write works on replies" : nil
-            return canHelpMeWrite
+            return validateHelpMeWrite(menuItem)
         default:
             return true
         }
@@ -1636,7 +1643,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     /// a draft that no longer holds anything worth keeping is removed.
     private func keepDraftNow() {
         // A reply still streaming in is not the user's yet: the body goes back to what they wrote before it is kept.
-        closeWriteCard()
+        endHelpMeWrite()
         // A picture still being prepared goes into this save: the window will not be there to save it later.
         textView.finishPreparingPictures()
         autosaveTimer?.invalidate()
@@ -1660,7 +1667,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     }
 
     func windowWillClose(_ notification: Notification) {
-        closeWriteCard()
+        endHelpMeWrite()
         prefillTask?.cancel()
         for fetch in mailFetches.values { fetch.cancel() }
         mailFetches = [:]

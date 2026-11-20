@@ -18,13 +18,14 @@ final class MainWindowHarness {
     /// snapshot's window. `calendar` and `now` fix the day column's and the week's (the Mac's and the clock's by default).
     /// `perfMailbox` opens the window on the benchmarks' large mailbox (`PerfMailboxSupport`) instead of `threads`.
     init(threads: Int = 8, spacing: TimeInterval = 600, accounts: Bool = true, settings: AppSettings? = nil, demo: Bool = false,
-         remembersScope: Bool = true, calendar: Calendar? = nil, now: (() -> Date)? = nil, perfMailbox: Bool = false) throws {
+         remembersScope: Bool = true, calendar: Calendar? = nil, now: (() -> Date)? = nil, perfMailbox: Bool = false,
+         helpMeWrite: HelpMeWrite? = nil) throws {
         directory = FileManager.default.temporaryDirectory.appendingPathComponent("SuperSparrowAppTests-\(UUID().uuidString)")
         if perfMailbox {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             try PerfMailboxSupport.install(at: directory.appendingPathComponent("scratch.sqlite").path)
         }
-        environment = try AppEnvironment.makeScratch(in: directory, mode: demo ? .demo : .real)
+        environment = try AppEnvironment.makeScratch(in: directory, mode: demo ? .demo : .real, helpMeWrite: helpMeWrite)
         if accounts, !perfMailbox { try Self.seed(environment.store, threads: threads, spacing: spacing) }
         let settings = settings ?? ListTestSupport.settings()
         self.settings = settings

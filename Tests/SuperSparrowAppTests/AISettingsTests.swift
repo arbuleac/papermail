@@ -5,9 +5,10 @@ import SwiftUI
 import XCTest
 @testable import SuperSparrowApp
 
-/// Settings › AI (spec §5.40, §5.56): the fifth tab, its rows per provider within its height cap, the key saved to and
-/// removed from the key store (an in-memory one: never the Keychain), the model and the CLI chosen, the permission and
-/// its Forget, and the choices kept in AppSettings. The demo writer answers every health check.
+/// Settings › AI (spec §5.40, §5.56): the fifth tab, its rows per provider within its height cap, the privacy sheet as a
+/// provider is chosen (Turn On keeps it, Cancel puts the popup back, Off withdraws), a provider never turned on, the key
+/// saved to and removed from the key store (an in-memory one: never the Keychain), the model and the CLI chosen, and the
+/// choices kept in AppSettings. The demo writer answers every health check.
 @MainActor
 final class AISettingsTests: XCTestCase {
     /// The tab's height cap: well under Accounts' 760 pt, so it never scrolls whatever the provider shows.
@@ -34,12 +35,21 @@ final class AISettingsTests: XCTestCase {
         return try AppEnvironment.makeScratch(in: directory)
     }
 
-    private func model(_ settings: AppSettings, _ environment: AppEnvironment) -> AISettingsModel {
+    /// The tab's model; the privacy sheet is answered `choice` (1 Turn On, 0 Cancel), each sheet recorded in `sheets`.
+    private func model(_ settings: AppSettings, _ environment: AppEnvironment, choice: Int = 1) -> AISettingsModel {
         environment.helpMeWrite.settings = settings
         let model = AISettingsModel(settings: settings, center: environment.helpMeWrite)
         model.locateExecutable = { kind, chosen in chosen ?? (kind == .claudeCode ? "/opt/homebrew/bin/claude" : nil) }
+        environment.helpMeWrite.presentAlert = { [weak self] alert, _, done in
+            self?.sheets.append(alert)
+            done(self?.answer ?? choice)
+        }
+        answer = choice
         return model
     }
+
+    private var sheets: [AppAlert] = []
+    private var answer = 1
 
     // MARK: The tab
 
@@ -182,20 +192,85 @@ final class AISettingsTests: XCTestCase {
         XCTAssertNil(AISettingsModel.locateLikeTheProviders(.claudeAPI, chosen: tool.path, searchFolders: here), "an API provider has no CLI")
     }
 
-    func testTheCaptionSaysWhereMailGoesAndForgetAsksAgain() throws {
+    func testChoosingAProviderShowsItsPrivacySheetAndTurnOnKeepsIt() throws {
         let settings = AppSettings(defaults: try throwawayDefaults())
         let environment = try environment()
         let model = model(settings, environment)
         XCTAssertNil(model.caption)
-        model.setProvider(.codex)
-        XCTAssertEqual(model.caption, "When you use Help Me Write, the conversation you\u{2019}re replying to goes to OpenAI. Nothing is sent otherwise.")
-        XCTAssertFalse(model.hasConsent)
-        settings.setAIConsent(true, for: .codex, demo: false)
-        model.refresh()
+        model.setProvider(.claudeAPI)
+        let sheet = try XCTUnwrap(sheets.last, "the notice shows as the provider is chosen")
+        XCTAssertEqual(sheet.title, "Use Claude to help write replies?")
+        XCTAssertEqual(sheet.buttons.map(\.title), ["Cancel", "Turn On"], "Cancel is the default: ↩ turns nothing on")
+        XCTAssertEqual(sheet.escapeIndex, 0)
+        XCTAssertTrue(sheet.body.hasPrefix("When you press Write, the conversation you\u{2019}re replying to (newest messages first, older ones shortened)"))
+        XCTAssertTrue(sheet.body.contains("Nothing is sent until you press Write."))
+        XCTAssertTrue(sheet.body.contains("Anthropic"))
+        XCTAssertEqual(settings.aiProvider, .claudeAPI)
+        XCTAssertTrue(settings.hasAIConsent(for: .claudeAPI, demo: false), "Turn On gives the permission")
         XCTAssertTrue(model.hasConsent)
-        model.forgetConsent()
-        XCTAssertFalse(settings.hasAIConsent(for: .codex, demo: false), "the sheet asks again next time")
-        XCTAssertFalse(model.hasConsent)
+        XCTAssertFalse(model.needsTurnOn)
+        XCTAssertEqual(model.caption, "Only when you press Write, the conversation you\u{2019}re replying to and your notes go to "
+            + "Anthropic. Choose Off to stop.")
+
+        // Another provider: its own sheet; Turn On moves the permission to it.
+        model.setProvider(.codex)
+        XCTAssertEqual(sheets.last?.title, "Use Codex to help write replies?")
+        XCTAssertTrue(sheets.last?.body.hasSuffix("Through Codex, under your OpenAI account\u{2019}s privacy settings.") ?? false)
+        XCTAssertEqual(settings.aiProvider, .codex)
+        XCTAssertTrue(settings.hasAIConsent(for: .codex, demo: false))
+        XCTAssertFalse(settings.hasAIConsent(for: .claudeAPI, demo: false), "the one it replaced is withdrawn")
+
+        // Off withdraws, with no sheet.
+        let shown = sheets.count
+        model.setProvider(nil)
+        XCTAssertEqual(sheets.count, shown)
+        XCTAssertNil(settings.aiProvider)
+        XCTAssertFalse(settings.hasAIConsent(for: .codex, demo: false), "Turn Off is how permission is withdrawn")
+    }
+
+    func testCancelPutsThePopupBack() throws {
+        let settings = AppSettings(defaults: try throwawayDefaults())
+        let environment = try environment()
+        let model = model(settings, environment)
+        model.setProvider(.claudeCode)
+        answer = 0
+        model.setProvider(.openAIAPI)
+        XCTAssertEqual(sheets.last?.title, "Use OpenAI to help write replies?")
+        XCTAssertEqual(model.provider, .claudeCode, "Cancel puts the popup back to what it was")
+        XCTAssertEqual(settings.aiProvider, .claudeCode)
+        XCTAssertTrue(settings.hasAIConsent(for: .claudeCode, demo: false), "and leaves its permission")
+        XCTAssertFalse(settings.hasAIConsent(for: .openAIAPI, demo: false))
+        XCTAssertTrue(sheets.last?.body.hasSuffix("Through Claude Code, under your Claude plan\u{2019}s privacy settings.") == false)
+        XCTAssertTrue(AppAlert.helpMeWriteTurnOn(.claudeCode).body.hasSuffix("Through Claude Code, under your Claude plan\u{2019}s privacy settings."))
+    }
+
+    /// A provider chosen before 1.12 and never confirmed: Settings says so and offers Turn On…, which shows its sheet.
+    func testAProviderNeverTurnedOnSaysSoAndOffersTheSheet() throws {
+        let settings = AppSettings(defaults: try throwawayDefaults())
+        settings.aiProvider = .claudeAPI
+        let environment = try environment()
+        let model = model(settings, environment, choice: 0)
+        model.refresh()
+        XCTAssertTrue(model.needsTurnOn)
+        XCTAssertEqual(model.status, .needsSetup(AISettingsModel.notTurnedOnWords))
+        XCTAssertTrue(sheets.isEmpty, "opening the tab shows no sheet")
+        model.turnOnChosenProvider()
+        XCTAssertEqual(sheets.count, 1)
+        XCTAssertTrue(model.needsTurnOn, "Cancel leaves it as it was")
+        answer = 1
+        model.turnOnChosenProvider()
+        XCTAssertFalse(model.needsTurnOn)
+        XCTAssertTrue(settings.hasAIConsent(for: .claudeAPI, demo: false))
+        XCTAssertNotEqual(model.status, .needsSetup(AISettingsModel.notTurnedOnWords))
+    }
+
+    func testTheDemosSheetSaysNothingIsSent() throws {
+        let demo = AppAlert.helpMeWriteTurnOn(.claudeAPI, demo: true)
+        XCTAssertEqual(demo.title, "Try Help Me Write?")
+        XCTAssertEqual(demo.body, "In the demo, replies are made up on this Mac. Nothing is sent.")
+        XCTAssertEqual(demo.buttons.map(\.title), ["Cancel", "Turn On"])
+        XCTAssertTrue(AppAlert.specimens.contains { $0.title == "Use Claude to help write replies?" })
+        XCTAssertTrue(AppAlert.specimens.contains { $0.title == "Try Help Me Write?" })
     }
 
     // MARK: AppSettings
