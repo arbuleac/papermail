@@ -112,7 +112,8 @@ final class ReplyContextBuilderTests: XCTestCase {
         XCTAssertEqual(context.messages.map(\.position), Array(0..<6))
         XCTAssertEqual(context.messages.map(\.form), [.full, .full, .full, .digest, .digest, .digest],
                        "the latest and the next two in full, older ones condensed")
-        XCTAssertEqual(context.messages.map(\.positionLabel), ["Latest", "2nd latest", "3rd latest", "Earlier", "Earlier", "Earlier"])
+        XCTAssertEqual(context.messages.map(\.positionLabel), ["Latest", "2nd latest", "3rd latest", "4th latest", "5th latest",
+                                                               "6th latest"], "digests too, by their real place")
         XCTAssertEqual(context.messages.first?.text, "Message 6 says one thing. And then another thing.")
         XCTAssertNil(context.fold)
     }
@@ -123,9 +124,7 @@ final class ReplyContextBuilderTests: XCTestCase {
             if number == 20 { return "The big one starts here. " + String(repeating: "Lots of detail about the venue budget. ", count: 800) }
             return "Message \(number) is about the venue budget. " + String(repeating: "It goes on about catering and the date. ", count: 12)
         }
-        let started = Date()
         let context = build(messages, bodies: bodies)
-        XCTAssertLessThan(Date().timeIntervalSince(started), 0.5, "extractive and local: no model, no network")
         let limits = ReplyContextBuilder.Limits.standard
         let total = context.messages.reduce(0) { $0 + $1.text.count + ReplyContextBuilder.headerAllowance }
         XCTAssertLessThanOrEqual(total, limits.maxCharacters, "the whole context fits the budget")
@@ -144,7 +143,8 @@ final class ReplyContextBuilderTests: XCTestCase {
         if let big = context.messages.first(where: { $0.position == 20 }) {
             XCTAssertEqual(big.form, .digest)
             XCTAssertTrue(big.text.hasPrefix("The big one starts here."))
-            XCTAssertLessThanOrEqual(big.text.count, limits.digestCap(age: 17), "30 KB read down to its first sentences")
+            XCTAssertLessThanOrEqual(big.text.count, limits.digestCap(age: 17, scale: limits.digestMaxScale),
+                                     "30 KB read down to its first sentences")
         }
 
         // The same thread with the 30 KB message the latest: it takes its large share, cut, and the rest still fit.
@@ -164,6 +164,25 @@ final class ReplyContextBuilderTests: XCTestCase {
         XCTAssertEqual(weighed.foldedCount + weighed.messages.count, 40)
     }
 
+    /// Extractive and local, in a few milliseconds (spec §2): a 40-message thread of 2,000-character messages, and the
+    /// 300 of a very long one, read only as far as each message's share needs. Debug builds run this several times slower
+    /// than the app; the bounds leave room for that and still catch a build that reads the whole thread.
+    func testTheContextOfALongThreadIsBuiltInMilliseconds() {
+        let sentence = "Hi Alex,\n\nThe venue for the offsite needs a deposit by Friday, see https://contoso.test/x and ben@contoso.test. "
+        let body = String(String(repeating: sentence, count: 2_000 / sentence.count + 1).prefix(2_000))
+        for (count, bound) in [(40, 0.1), (300, 0.4)] {
+            let (messages, bodies) = thread(count) { _ in body }
+            _ = build(messages, bodies: bodies)
+            var best = Double.infinity
+            for _ in 0..<3 {
+                let started = Date()
+                _ = build(messages, bodies: bodies)
+                best = min(best, Date().timeIntervalSince(started))
+            }
+            XCTAssertLessThan(best, bound, "\(count) messages: \(Int(best * 1000)) ms")
+        }
+    }
+
     func testDigestsShrinkWithAge() {
         let long = String(repeating: "This sentence is about the offsite plans. ", count: 40)
         let (messages, bodies) = thread(14) { _ in long }
@@ -175,14 +194,40 @@ final class ReplyContextBuilderTests: XCTestCase {
         }
         XCTAssertGreaterThan(digests[0].text.count, digests[digests.count - 1].text.count)
         let limits = ReplyContextBuilder.Limits.standard
+        let scale = limits.digestScale(count: digests.count, room: limits.maxCharacters
+            - context.messages.filter { $0.form != .digest }.reduce(0) { $0 + $1.text.count + ReplyContextBuilder.headerAllowance })
+        XCTAssertGreaterThan(scale, 1, "a 14-message thread leaves room: its digests grow into it")
         for (age, digest) in digests.enumerated() {
-            XCTAssertLessThanOrEqual(digest.text.count, limits.digestCap(age: age))
+            XCTAssertLessThanOrEqual(digest.text.count, limits.digestCap(age: age, scale: scale))
             XCTAssertTrue(digest.text.hasSuffix("plans."), "whole sentences: \(digest.text.suffix(20))")
             XCTAssertFalse(digest.text.contains("\n"), "one line")
         }
         XCTAssertEqual(limits.digestCap(age: 0), 400)
         XCTAssertEqual(limits.digestCap(age: 1), 340)
         XCTAssertEqual(limits.digestCap(age: 40), limits.digestFloor)
+        XCTAssertEqual(limits.digestCap(age: 0, scale: 2), 800)
+        XCTAssertEqual(limits.digestCap(age: 40, scale: 2), 2 * limits.digestFloor, "the floor grows with the caps")
+        XCTAssertEqual(limits.digestCap(age: 0, scale: 10), Int(400 * limits.digestMaxScale), "never past the most")
+    }
+
+    /// The budget the messages sent whole leave goes to the digests, all in proportion and never past the most; a tight
+    /// budget leaves them at their caps.
+    func testDigestsGrowIntoTheBudgetLeftOver() {
+        let long = String(repeating: "This sentence is about the offsite plans. ", count: 60)
+        let (messages, bodies) = thread(14) { _ in long }
+        let roomy = build(messages, bodies: bodies).messages.filter { $0.form == .digest }
+        XCTAssertGreaterThan(roomy[0].text.count, ReplyContextBuilder.Limits.standard.digestCap(age: 0),
+                             "the newest digest says more than its first sentences")
+        let total = build(messages, bodies: bodies).messages.reduce(0) { $0 + $1.text.count + ReplyContextBuilder.headerAllowance }
+        XCTAssertLessThanOrEqual(total, ReplyContextBuilder.Limits.standard.maxCharacters, "and the whole still fits")
+        let tight = ReplyContextBuilder.Limits(maxCharacters: 8_000)
+        let tightDigests = build(messages, limits: tight, bodies: bodies).messages.filter { $0.form == .digest }
+        for (age, digest) in tightDigests.enumerated() {
+            XCTAssertLessThanOrEqual(digest.text.count, tight.digestCap(age: age), "no room left: the caps as they are")
+        }
+        XCTAssertEqual(tight.digestScale(count: 3, room: 100), 1)
+        XCTAssertEqual(tight.digestScale(count: 0, room: 10_000), 1)
+        XCTAssertEqual(tight.digestScale(count: 1, room: 100_000), tight.digestMaxScale)
     }
 
     func testDigestsAreOwnWordsOnly() {
@@ -256,6 +301,112 @@ final class ReplyContextBuilderTests: XCTestCase {
         let messages = [message(1, from: priya), message(2, from: priya)]
         let context = build(messages, target: MessageID(accountID: gmail.id, providerID: "gone"))
         XCTAssertEqual(context.messages.map(\.isReplyTarget), [true, false])
+    }
+
+    // MARK: What a message carries besides what it says
+
+    /// A thread as real mail writes it: greetings, pleasantries, Microsoft 365's external-sender banner, Outlook's
+    /// signature card with a phone and an address, a disclaimer. Older digests keep what each message said; the whole
+    /// messages keep their greeting and sign-off name but not the card; the fold's topics and the summary's question are
+    /// the thread's own words.
+    func testDigestsKeepWhatWasSaidNotTheGreetingTheBannerOrTheSignature() throws {
+        let banner = "CAUTION: This email originated from outside of the organization. Do not click links or open attachments "
+            + "unless you recognize the sender and know the content is safe."
+        let card = "Best regards,\nBen Carter\nSenior Events Manager | Fabrikam Ltd\nM: +1 (555) 010-4477\n"
+            + "123 Harbour Street, Springfield\n\nThis email and any attachments are confidential and intended solely for the "
+            + "addressee. If you are not the intended recipient, please delete it."
+        let openers = ["Hope you had a good weekend!", "Sorry for the slow reply, it's been a busy week.",
+                       "Thanks for getting back to me.", "Hope you're well."]
+        let (messages, bodies) = thread(20) { number in
+            let opener = openers[number % openers.count]
+            let says = "The venue for the offsite needs a deposit by Friday, item \(number)."
+            return "\(banner)\n\nHi Alex,\n\n\(opener) \(says)\n\nCan we lock the venue today?\n\n\(card)\n\nSent from Outlook for iOS"
+        }
+        let context = build(messages, bodies: bodies)
+        let latest = try XCTUnwrap(context.messages.first)
+        XCTAssertTrue(latest.text.hasPrefix("Hi Alex,"), "a message sent whole keeps its greeting: \(latest.text.prefix(40))")
+        XCTAssertTrue(latest.text.hasSuffix("Best regards,\nBen Carter"), "and its sign-off name, not the card: \(latest.text.suffix(60))")
+        let everything = context.messages.map(\.text).joined(separator: "\n")
+        for gone in ["CAUTION", "originated", "010-4477", "Harbour Street", "Senior Events Manager", "confidential",
+                     "Sent from Outlook"] {
+            XCTAssertFalse(everything.contains(gone), "\(gone) is not sent")
+        }
+        let digests = context.messages.filter { $0.form == .digest }
+        XCTAssertGreaterThan(digests.count, 10)
+        for digest in digests {
+            XCTAssertTrue(digest.text.hasPrefix("The venue for the offsite needs a deposit by Friday"),
+                          "an old digest says what the message said: \(digest.text.prefix(60))")
+            XCTAssertFalse(digest.text.contains("Hi Alex"))
+            XCTAssertFalse(digest.text.contains("Best regards"))
+        }
+        XCTAssertEqual(context.summary.asks, ["Can we lock the venue today?"], "the question, not the greeting before it")
+
+        let folded = build(messages, limits: ReplyContextBuilder.Limits(maxCharacters: 1_500), bodies: bodies)
+        let fold = try XCTUnwrap(folded.fold)
+        for word in ["caution", "originated", "email", "organization", "sender", "outlook", "confidential"] {
+            XCTAssertFalse(fold.keywords.contains(word), "\(word) is no topic: \(fold.keywords)")
+        }
+        XCTAssertTrue(fold.keywords.contains("venue") || fold.keywords.contains("deposit"), "\(fold.keywords)")
+    }
+
+    func testTheBoilerplatesShapes() {
+        XCTAssertTrue(MailBoilerplate.isBanner("[EXTERNAL] Be careful with this message"))
+        XCTAssertTrue(MailBoilerplate.isBanner("You don\u{2019}t often get email from priya@example.test."))
+        XCTAssertFalse(MailBoilerplate.isBanner("Caution is wise with the budget."))
+        XCTAssertTrue(MailBoilerplate.isSentFrom("Sent from my iPhone"))
+        XCTAssertTrue(MailBoilerplate.isSentFrom("Get Outlook for Android"))
+        XCTAssertTrue(MailBoilerplate.isValediction("Kind regards,"))
+        XCTAssertTrue(MailBoilerplate.isValediction("Thanks!"))
+        XCTAssertFalse(MailBoilerplate.isValediction("Thanks, that works for me."))
+        XCTAssertTrue(MailBoilerplate.isContactLine("M: +44 20 7946 0958"))
+        XCTAssertTrue(MailBoilerplate.isContactLine("Priya Shah | Head of Events | Contoso"))
+        XCTAssertFalse(MailBoilerplate.isContactLine("Let's meet at 10 on Tuesday."))
+
+        // Whole: the greeting and the sign-off name stay; the card, the disclaimer and the app's line go.
+        XCTAssertEqual(MailBoilerplate.trimmedForFullText("Hi Ben,\n\nTuesday works.\n\nThanks,\nPriya\nHead of Events\n+44 20 7946 0958"),
+                       "Hi Ben,\n\nTuesday works.\n\nThanks,\nPriya")
+        XCTAssertEqual(MailBoilerplate.trimmedForFullText("Tuesday works.\n\nPriya Shah\nM: +44 20 7946 0958\nwww.contoso.test"),
+                       "Tuesday works.\n\nPriya Shah", "no sign-off: only the contact lines at the end go")
+        XCTAssertEqual(MailBoilerplate.trimmedForFullText("Thanks!"), "Thanks!", "a message that is only thanks is the message")
+        // A digest: the greeting, the pleasantry and the sign-off go too.
+        XCTAssertEqual(MailBoilerplate.trimmedForDigest("Hi Ben,\n\nHope you're well. Tuesday works.\n\nCheers,\nPriya"),
+                       "\nTuesday works.\n")
+        XCTAssertEqual(MailBoilerplate.trimmedForDigest("Hey Ben, can we do Tuesday?"), "Can we do Tuesday?")
+        XCTAssertEqual(MailBoilerplate.trimmedForDigest("Hope you're well."), "Hope you're well.", "nothing else said: kept")
+        // A text cut short of its end keeps what looks like a sign-off near the cut.
+        XCTAssertEqual(MailBoilerplate.trimmedForFullText("Point one.\nThanks!\nPoint two goes on", sawTheEnd: false),
+                       "Point one.\nThanks!\nPoint two goes on")
+    }
+
+    /// What the redactor reads ends at a word: an address or a link cut in two would not be seen as one.
+    func testTheScanEndsAtAWordSoNothingIsHalfRedacted() {
+        XCTAssertEqual(ReplyContextBuilder.prefix("write to priya@contoso.test today", characters: 18), "write to")
+        XCTAssertEqual(ReplyContextBuilder.prefix("short", characters: 18), "short")
+        XCTAssertEqual(ReplyContextBuilder.prefix("cut at priya@cont", characters: 100, wasCut: true), "cut at",
+                       "read short already: its last word may be half")
+        // The fold reads a few words of each message: an address straddling where it stops is left out whole, never read
+        // as a word of its own.
+        let filler = String(repeating: "venue ", count: 25)
+        let (messages, bodies) = thread(30) { _ in filler + "zebrapriya@contoso.test about the deposit." }
+        let context = build(messages, limits: ReplyContextBuilder.Limits(maxCharacters: 1_500), bodies: bodies)
+        let fold = try? XCTUnwrap(context.fold)
+        XCTAssertNotNil(fold)
+        XCTAssertFalse(fold?.keywords.contains { $0.hasPrefix("zebra") } ?? true, "\(fold?.keywords ?? [])")
+        XCTAssertFalse(context.messages.map(\.text).joined().contains("zebra"))
+    }
+
+    /// Replying to an older message, the messages newer than it are labelled by their place, never as earlier ones.
+    func testMessagesNewerThanAnOlderTargetAreLabelledByTheirPlace() throws {
+        let (messages, bodies) = thread(40) { number in "Message \(number) about the venue. It goes on a little." }
+        let target = messages[40 - 16].id
+        let context = build(messages, target: target, bodies: bodies)
+        let replied = try XCTUnwrap(context.messages.first { $0.isReplyTarget })
+        XCTAssertEqual(replied.positionLabel, "16th latest")
+        for message in context.messages where message.position < 15 {
+            XCTAssertEqual(message.positionLabel, message.position == 0 ? "Latest" : ReplyContext.ordinal(message.position + 1) + " latest")
+        }
+        XCTAssertFalse(context.messages.contains { $0.positionLabel == "Earlier" })
+        XCTAssertFalse(context.summary.targetIsLatest)
     }
 
     // MARK: The summary

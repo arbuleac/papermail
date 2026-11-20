@@ -36,7 +36,8 @@ enum MainMenu {
         NSApp.helpMenu = help
         MainMenuController.shared = MainMenuController(mainWindowItems: message.mainWindow + [edit.searchServer],
                                                        composerItems: message.composer,
-                                                       formatItem: format, viewMenu: view, appDelegate: appDelegate)
+                                                       formatItem: format, viewMenu: view, editMenu: edit.menu,
+                                                       appDelegate: appDelegate)
         return main
     }
 
@@ -442,8 +443,9 @@ final class MainMenuBar: NSMenu {
 }
 
 /// Keeps the menus in step with the key window and the accounts: the Message menu's composer items and the
-/// Format menu show only while a composer is key, View's ⌘1…⌘9 items carry the accounts' names, and View's Later and
-/// Outbox show while the rail's Later and Outbox tiles do.
+/// Format menu show only while a composer is key, View's ⌘1…⌘9 items carry the accounts' names, View's Later and
+/// Outbox show while the rail's Later and Outbox tiles do, and Edit's Help Me Write items start from their own titles
+/// each time the menu opens.
 @MainActor
 final class MainMenuController: NSObject, NSMenuDelegate {
     static var shared: MainMenuController?
@@ -454,13 +456,18 @@ final class MainMenuController: NSObject, NSMenuDelegate {
     private weak var appDelegate: AppDelegate?
     private var observers: [NSObjectProtocol] = []
 
-    init(mainWindowItems: [NSMenuItem], composerItems: [NSMenuItem], formatItem: NSMenuItem, viewMenu: NSMenu, appDelegate: AppDelegate) {
+    private weak var editMenu: NSMenu?
+
+    init(mainWindowItems: [NSMenuItem], composerItems: [NSMenuItem], formatItem: NSMenuItem, viewMenu: NSMenu, editMenu: NSMenu? = nil,
+         appDelegate: AppDelegate) {
         self.mainWindowItems = mainWindowItems
         self.composerItems = composerItems
         self.formatItem = formatItem
         self.appDelegate = appDelegate
+        self.editMenu = editMenu
         super.init()
         viewMenu.delegate = self
+        editMenu?.delegate = self
         let center = NotificationCenter.default
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { _ in
@@ -478,12 +485,28 @@ final class MainMenuController: NSObject, NSMenuDelegate {
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
+        if menu === editMenu {
+            Self.resetHelpMeWriteTitles(in: menu)
+            return
+        }
         Self.showConditionalViews(in: menu, later: appDelegate?.menuShowsLater ?? false, outbox: appDelegate?.menuShowsOutbox ?? false)
         let accounts = appDelegate?.menuAccounts ?? []
         for item in menu.items where item.action == #selector(MainWindowController.selectAccountShortcut(_:)) && item.tag > 0 {
             let index = item.tag - 1
             item.isHidden = index >= accounts.count
             if index < accounts.count { item.title = AccountLabels.name(for: accounts[index]) + " · " + accounts[index].email }
+        }
+    }
+
+    /// Help Me Write's items take their own titles before the menu validates: the reader or a composer whose field has
+    /// the keyboard titles them for what ⌘J does there (“Rewrite Selection”), and where nothing answers them (the keyboard
+    /// in the list, Settings key) AppKit disables them without asking anyone, which would leave that title behind.
+    static func resetHelpMeWriteTitles(in menu: NSMenu) {
+        for item in menu.items {
+            if item.action == #selector(ConversationViewController.helpMeWrite(_:)) { item.title = MainMenu.helpMeWriteTitle }
+            if item.action == #selector(ConversationViewController.helpMeWriteWithInstructions(_:)) {
+                item.title = MainMenu.helpMeWriteWithInstructionsTitle
+            }
         }
     }
 

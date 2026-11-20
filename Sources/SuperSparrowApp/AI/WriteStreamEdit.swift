@@ -16,7 +16,10 @@ final class WriteStreamEdit {
     /// Where the reply goes, as it was before the write.
     let originalRange: NSRange
     let original: NSAttributedString
-    private let originalSelection: [NSValue]
+    /// The selection before the write (the caret, usually): a stop puts it back, and so does undoing the reply.
+    let originalSelection: [NSValue]
+    /// The field's whole text before the write.
+    let textBefore: String
     private let attributes: [NSAttributedString.Key: Any]
     /// `attributes` in pencil: what streams in is not the user's text yet.
     private let pencilAttributes: [NSAttributedString.Key: Any]
@@ -40,6 +43,7 @@ final class WriteStreamEdit {
         originalRange = safe
         original = textView.textStorage?.attributedSubstring(from: safe) ?? NSAttributedString()
         originalSelection = textView.selectedRanges
+        textBefore = textView.string
         self.attributes = attributes
         var pencil = attributes
         pencil[.foregroundColor] = WriteStreamEdit.pencilInk
@@ -92,7 +96,9 @@ final class WriteStreamEdit {
     }
 
     /// The reply, as one undoable change from what was there before the write: Edit › Undo reads “Undo Help Me Write”
-    /// and brings back exactly that. The caret ends after the reply. False when the field refused the change.
+    /// and brings back exactly that, with the caret where it was before the write (never the notes selected, which ⌘J
+    /// would then rewrite as a selection); Redo puts the reply back with the caret after it. The caret ends after the
+    /// reply. False when the field refused the change.
     @discardableResult
     func commit(_ text: String) -> Bool {
         guard !isFinished else { return false }
@@ -100,21 +106,52 @@ final class WriteStreamEdit {
         isFinished = true
         let inserted = NSAttributedString(string: text, attributes: attributes)
         guard !wasDisturbed else { return false }
-        guard let storage = textView.textStorage, inserted.length > 0,
-              textView.shouldChangeText(in: originalRange, replacementString: text) else {
+        // The owner's answer first (it refuses while it holds edits), so a refused change leaves no step behind.
+        let allowed = textView.isEditable
+            && (textView.delegate?.textView?(textView, shouldChangeTextIn: originalRange, replacementString: text) ?? true)
+        guard let storage = textView.textStorage, inserted.length > 0, allowed else {
             textView.selectedRanges = originalSelection
             return false
         }
         // Its own undo step: typing just before or after must not fold into it.
         textView.breakUndoCoalescing()
+        let end = NSRange(location: originalRange.location + inserted.length, length: 0)
+        let undo = textView.undoManager
+        undo?.beginUndoGrouping()
+        // An undo group runs last what was registered first: the caret goes back after the text view's own undo of the
+        // change (registered as it is asked whether it may change), which selects the text it puts back. The second
+        // registration runs first on undo and does nothing then; its redo runs last on redo, after the text view selects
+        // the reply, and puts the caret after it.
+        Self.registerSelection(on: undo, of: textView, undoTo: originalSelection, redoTo: nil)
+        guard textView.shouldChangeText(in: originalRange, replacementString: text) else {
+            undo?.endUndoGrouping()
+            textView.selectedRanges = originalSelection
+            return false
+        }
         storage.replaceCharacters(in: originalRange, with: inserted)
         textView.didChangeText()
-        textView.undoManager?.setActionName(Self.actionName)
+        Self.registerSelection(on: undo, of: textView, undoTo: nil, redoTo: [NSValue(range: end)])
+        undo?.setActionName(Self.actionName)
+        undo?.endUndoGrouping()
         textView.breakUndoCoalescing()
-        let end = NSRange(location: originalRange.location + inserted.length, length: 0)
         textView.setSelectedRange(end)
         textView.scrollRangeToVisible(end)
         return true
+    }
+
+    /// Registers on `undo` a step that sets `textView`'s selection to `undoTo` (nothing when nil) and registers its
+    /// inverse, which sets `redoTo`: one of the pair runs on each undo and redo of the reply's group.
+    private static func registerSelection(on undo: UndoManager?, of textView: NSTextView, undoTo: [NSValue]?, redoTo: [NSValue]?) {
+        guard let undo else { return }
+        undo.registerUndo(withTarget: textView) { [weak undo] view in
+            MainActor.assumeIsolated {
+                if let undoTo, let length = view.textStorage?.length,
+                   undoTo.allSatisfy({ NSMaxRange($0.rangeValue) <= length }) {
+                    view.selectedRanges = undoTo
+                }
+                registerSelection(on: undo, of: view, undoTo: redoTo, redoTo: undoTo)
+            }
+        }
     }
 
     /// The field exactly as it was before the write, selection included, with nothing on the undo stack.

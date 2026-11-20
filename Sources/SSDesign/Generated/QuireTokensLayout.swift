@@ -587,6 +587,7 @@ extension Quire {
         }
         public enum WriteTool {
             public static let gap: CGFloat = 8
+            public static let hintGap: CGFloat = 2
             public static let statusGlyph: CGFloat = 12
             public static let statusGlyphGap: CGFloat = 6
             public static let keycapGap: CGFloat = 4

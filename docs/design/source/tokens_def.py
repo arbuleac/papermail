@@ -320,12 +320,14 @@ LAYOUT = {
               "linkPopoverWidth": 320, "linkPopoverPad": 12, "linkPopoverRadius": 8, "linkPopoverGap": 8,
               "linkPopoverAlign": "selectionStart", "linkPopoverOffsetY": 6, "popoverEdgeMin": 8, "pictureSelectedWash": 0.45},
  # Help me write in place (§5.56, 1.12): the Write control in the quick reply's tool row and the composer's bar, a small
- # ghost button, `gap` before the hint or the status line that follows it; the line's glyph or spinner is `statusGlyph`,
- # `statusGlyphGap` before its words; a keycap sits `keycapGap` before its words, a link `linkGap` after a dot. The hint
- # shows once the user's own text holds `hintMinWords` words. Text streaming in is drawn in `pencilInk` (ink2) and turns
- # to ink when the reply lands. Where the row is tight the hint drops “writes”, then Write its label.
- "writeTool": {"gap": 8, "statusGlyph": 12, "statusGlyphGap": 6, "keycapGap": 4, "linkGap": 3, "hintMinWords": 2,
-               "pencilInk": "ink2"},
+ # ghost button, `gap` before the status line that follows it; the hint's keycap only `hintGap` after Write's face, whose
+ # own padding makes the rest of the space; the line's glyph or spinner is `statusGlyph`, `statusGlyphGap` before its
+ # words; a keycap sits `keycapGap` before its words, a link `linkGap` after a dot. The hint shows once the user's own
+ # text holds `hintMinWords` words, or with text selected. Text streaming in is drawn in `pencilInk` (ink2) and turns to
+ # ink when the reply lands. Where the row is tight the hint gives way first (its short words, its keycap alone, none),
+ # and only then Write its label; nothing is ever drawn past the room the row gives.
+ "writeTool": {"gap": 8, "hintGap": 2, "statusGlyph": 12, "statusGlyphGap": 6, "keycapGap": 4, "linkGap": 3,
+               "hintMinWords": 2, "pencilInk": "ink2"},
  # The instruction strip (⇧⌘J), docked inside the reply above its text: a 28 pt field (`textField.height`), then
  # `chipsGap` and the three preset chips (small secondary buttons) `chipGap` apart; `gap` below it to the text. In the
  # composer it sits `composerPadTop` under the header rows, at the body's text inset. Chips leave from the last while

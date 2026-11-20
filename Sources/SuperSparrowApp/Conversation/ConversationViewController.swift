@@ -363,6 +363,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         quickReply.willReplaceText = { [weak self] in self?.endHelpMeWrite() }
         quickReply.willHideText = { [weak self] in self?.endHelpMeWrite() }
         quickReply.onUserEdit = { [weak self] in self?.writeSession?.userDidEdit() }
+        quickReply.onSelectionChange = { [weak self] in self?.writeSession?.selectionDidChange() }
         // The Write control's state is read from this Mac as the bar takes the keyboard (spec §3b: nothing is asked of a
         // provider until Write).
         quickReply.onFocusChange = { [weak self] focused in

@@ -683,6 +683,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
 
     func textViewDidChangeSelection(_ notification: Notification) {
         updateFormatState()
+        if (notification.object as? NSTextView) === textView { bodyWriteSession?.selectionDidChange() }
     }
 
     /// Clicking a link in the body places the caret, as anywhere else in text being written; ⌘K on it opens

@@ -26,7 +26,7 @@ public final class QuireCheatSheetPanel: NSView, QuirePointerTarget {
 
     private let sheet = QuireSheetView(frame: .zero)
     private let titleView = TitleView(frame: .zero)
-    private let scrollView = NSScrollView(frame: .zero)
+    let scrollView = NSScrollView(frame: .zero)
     private let bands: BandsView
 
     public init(sections: [QuireCheatSheetSection] = Quire.cheatSheet, searchTerms: [String] = Quire.cheatSheetSearch) {
@@ -110,8 +110,12 @@ public final class QuireCheatSheetPanel: NSView, QuirePointerTarget {
         let side = closeButton.size.side
         closeButton.frame = closeButton.frame(forVisualRect: NSRect(x: bounds.width - c.closeInset - side, y: c.closeInset, width: side, height: side))
         let top = QuireCheatSheetPanel.bandsTop
-        scrollView.frame = NSRect(x: 0, y: top, width: bounds.width, height: max(0, bounds.height - top - c.pad))
-        bands.frame = NSRect(x: 0, y: 0, width: bounds.width, height: QuireCheatSheetPanel.bandsHeight(for: sections, searchTerms: searchTerms))
+        // The bands scroll down to the panel's edge, their bottom padding inside the scrolled content: where the panel is
+        // a little short of its content, the padding scrolls away first, so the last row of keycaps still draws whole
+        // and only what lies below it (the search line) waits for a scroll, rather than a row cut at the padding's edge.
+        scrollView.frame = NSRect(x: 0, y: top, width: bounds.width, height: max(0, bounds.height - top))
+        bands.frame = NSRect(x: 0, y: 0, width: bounds.width,
+                             height: QuireCheatSheetPanel.bandsHeight(for: sections, searchTerms: searchTerms) + c.pad)
         pointerRegionsDidChange()
     }
 

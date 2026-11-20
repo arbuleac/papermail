@@ -215,9 +215,11 @@ final class HelpMeWriteTests: XCTestCase {
         XCTAssertTrue(control.isHidden, "with AI off the control is absent")
         commandJ(harness)
         XCTAssertEqual(try session(harness).phase, .failed(reason: "Help Me Write is off", offersSettings: true))
+        harness.reader.quickReplyBar.layoutSubtreeIfNeeded()
         XCTAssertFalse(control.isHidden, "⌘J says why in the tool row")
-        XCTAssertFalse(control.settingsLink.isHidden)
-        control.settingsLink.performClick(nil)
+        let settings: QuireControl = control.settingsLink.isHidden ? control.settingsIcon : control.settingsLink
+        XCTAssertFalse(settings.isHidden, "Settings…, as a link or, where the reason needs the room, its glyph")
+        settings.performClick(nil)
         XCTAssertEqual(opened, 1, "Settings… opens Settings › AI")
         XCTAssertEqual(field.string, "Tuesday works")
         XCTAssertTrue(script.requests.isEmpty)
@@ -267,6 +269,395 @@ final class HelpMeWriteTests: XCTestCase {
         XCTAssertTrue(script.requests.isEmpty)
     }
 
+    // MARK: The row's room
+
+    /// A quick reply on its own, as wide as a reader `width` pt wide, open as if focused, with notes typed and Help me
+    /// write ready: its tool row at any width, from the narrowest reader (400 pt) up.
+    @MainActor
+    private final class LoneBar {
+        let bar = QuickReplyView(frame: NSRect(x: 0, y: 0, width: 616, height: 120))
+        let window = NSWindow(contentRect: NSRect(x: -20_000, y: -20_000, width: 616, height: 240), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+
+        init() {
+            window.isReleasedWhenClosed = false
+            let content = window.contentView!
+            content.addSubview(bar)
+            bar.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                bar.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+                bar.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+                bar.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            ])
+            bar.text = "tue 10 works, I'll bring the budget"
+            bar.isHeldOpen = true
+            bar.writeControl.availability = .ready(writer: "Claude", source: "Claude Opus 5.5 \u{00b7} Anthropic")
+        }
+
+        var control: WriteToolControl { bar.writeControl }
+
+        /// Lays the bar out `width` wide; Send's face in the bar.
+        @discardableResult
+        func layOut(width: CGFloat) -> NSRect {
+            window.setContentSize(NSSize(width: width, height: 240))
+            window.layoutIfNeeded()
+            bar.layoutSubtreeIfNeeded()
+            let send = bar.subviews.compactMap { $0 as? QuireButton }.first { $0.title == "Send" }
+            return send.map { $0.alignmentRect(forFrame: $0.frame) } ?? .zero
+        }
+
+        func view<T: NSView>(_ type: T.Type) -> T? { bar.subviews.first { $0 is T } as? T }
+
+        func close() { window.close() }
+    }
+
+    /// Where each part of the control draws, in the bar: a control's face, a label's text.
+    private func drawnParts(of control: WriteToolControl, in bar: NSView) -> [(NSView, NSRect)] {
+        control.subviews.filter { !$0.isHidden }.map { view in
+            let rect = (view as? QuireControl).map { $0.alignmentRect(forFrame: $0.frame) }
+                ?? (view is NSTextField ? view.frame.insetBy(dx: 2, dy: 0) : view.frame)
+            return (view, control.convert(rect, to: bar))
+        }
+    }
+
+    /// At every width down to the narrowest reader (400 pt, the day column folded), in every state the line can take,
+    /// nothing of Help me write draws on Send or past the room the row gives: the hint and the line give way, measured,
+    /// and what does not fit is not shown.
+    func testNothingOfTheLineDrawsOverSendAtAnyWidth() throws {
+        let lone = LoneBar()
+        defer { lone.close() }
+        let control = lone.control
+        let states: [(String, WriteToolControl.Phase, WriteToolControl.Hint?)] = [
+            ("the hint", .idle, .notes), ("the selection's hint", .idle, .selection), ("no hint", .idle, nil),
+            ("writing", .writing, nil), ("written", .written, nil),
+            ("failed", .failed(reason: "Claude Code is signed out. Run claude in Terminal to sign in.", offersSettings: true), nil),
+            ("failed briefly", .failed(reason: "No connection", offersSettings: false), nil),
+        ]
+        for width in stride(from: CGFloat(400), through: 760, by: 12) {
+            for (name, phase, hint) in states {
+                control.phase = phase
+                control.hint = hint
+                let send = lone.layOut(width: width)
+                XCTAssertGreaterThan(send.width, 0)
+                XCTAssertEqual(lone.bar.frame.width, width, "\(name): the bar is \(width) wide")
+                XCTAssertFalse(control.isHidden, "\(name) at \(width)")
+                for (view, drawn) in drawnParts(of: control, in: lone.bar) {
+                    XCTAssertLessThanOrEqual(drawn.maxX, send.minX - Quire.Layout.QuickReply.toolGroupGap + 0.5,
+                                             "\(name) at \(width): \(Swift.type(of: view)) ends at \(drawn.maxX), Send at \(send.minX)")
+                    XCTAssertLessThanOrEqual(drawn.maxX, control.frame.maxX + 0.5, "\(name) at \(width): within its frame")
+                }
+                // Nothing of the line under the tabs or the tools that still show.
+                for tool in lone.bar.subviews where !tool.isHidden && (tool is QuireUnderlineTabs || tool is QuireIconButton) {
+                    let face = (tool as? QuireControl).map { $0.alignmentRect(forFrame: $0.frame) } ?? tool.frame
+                    guard face.maxX < send.minX else { continue }
+                    for (view, drawn) in drawnParts(of: control, in: lone.bar) {
+                        XCTAssertFalse(drawn.intersects(face), "\(name) at \(width): \(Swift.type(of: view)) over \(Swift.type(of: tool))")
+                    }
+                }
+            }
+        }
+        // At the narrowest reader Open in Composer leaves Send no room for Write (⌘J and the Edit menu still write): it is
+        // not drawn rather than drawn over Send. A little wider, its glyph; wider still, its label, the hint giving way.
+        control.phase = .idle
+        control.hint = .notes
+        lone.layOut(width: 400)
+        XCTAssertTrue(control.writeButton.isHidden, "no room at all: nothing")
+        lone.layOut(width: 448)
+        XCTAssertFalse(control.writeButton.isHidden)
+        XCTAssertEqual(control.writeButton.title, "", "its glyph alone")
+        lone.layOut(width: 496)
+        XCTAssertEqual(control.writeButton.title, "Write")
+        XCTAssertTrue(control.label.isHidden, "the hint gave way first")
+        // A draft's and a failure's line take what the row has, and say what they must.
+        control.phase = .written
+        lone.layOut(width: 400)
+        XCTAssertFalse(control.undoLink.isHidden, "Undo at the narrowest reader")
+        XCTAssertTrue(control.shownWords.hasPrefix("Written by Claude"), control.shownWords)
+        control.phase = .failed(reason: "No connection", offersSettings: false)
+        lone.layOut(width: 400)
+        XCTAssertEqual(control.label.stringValue, "No connection", "a short reason whole")
+    }
+
+    /// Typing the second word brings the hint without taking Write's label: the hint gives way first, so the button
+    /// looks the same, in the same place, with one word typed as with two.
+    func testTheHintNeverTakesWritesLabel() throws {
+        let lone = LoneBar()
+        defer { lone.close() }
+        let control = lone.control
+        for width in stride(from: CGFloat(400), through: 760, by: 8) {
+            control.hint = nil
+            lone.layOut(width: width)
+            let before = (control.writeButton.isHidden, control.writeButton.title, control.writeButton.frame)
+            if width >= 496 { XCTAssertEqual(control.writeButton.title, "Write", "one word at \(width)") }
+            control.hint = .notes
+            lone.layOut(width: width)
+            XCTAssertEqual(control.writeButton.isHidden, before.0, "\(width)")
+            XCTAssertEqual(control.writeButton.title, before.1, "two words at \(width): the hint gave way, not Write")
+            XCTAssertEqual(control.writeButton.frame, before.2, "Write did not move at \(width)")
+        }
+        lone.layOut(width: 760)
+        XCTAssertEqual(control.shownWords, "\u{2318}J writes from your notes", "whole where there is room")
+        control.hint = .selection
+        lone.layOut(width: 760)
+        XCTAssertEqual(control.shownWords, "\u{2318}J rewrites the selection")
+
+        // In the app's default window, the hint keeps its short words after Write.
+        let (harness, _) = try harness()
+        defer { harness.close() }
+        type("thursday works", harness)
+        harness.reader.quickReplyBar.layoutSubtreeIfNeeded()
+        XCTAssertEqual(self.control(harness).writeButton.title, "Write")
+        XCTAssertEqual(self.control(harness).shownWords, "\u{2318}J from notes")
+        XCTAssertEqual(self.control(harness).lineWords, "\u{2318}J writes from your notes", "the whole hint for VoiceOver")
+    }
+
+    /// A failure's reason is what the line is for: the links turn to glyphs before it is cut, a cut one ends where its
+    /// text does, and the reason never says Try again beside the link.
+    func testAFailureKeepsItsReasonWholeLongest() throws {
+        let lone = LoneBar()
+        defer { lone.close() }
+        let control = lone.control
+        let reason = AIError.signedOut.lineMessage(for: .claudeCode)
+        control.phase = .failed(reason: reason, offersSettings: true)
+        lone.layOut(width: 616)
+        XCTAssertEqual(control.label.stringValue, reason, "whole at the default reader")
+        XCTAssertFalse(control.tryAgainIcon.isHidden && control.tryAgainLink.isHidden)
+        XCTAssertEqual(control.label.frame.width, ceil(control.label.attributedStringValue.size().width) + 4, accuracy: 1,
+                       "the label is as wide as its words")
+        lone.layOut(width: 400)
+        XCTAssertTrue(control.label.stringValue.hasSuffix("\u{2026}"), "cut where it must be: \(control.label.stringValue)")
+        XCTAssertTrue(control.tryAgainLink.isHidden, "the links went to glyphs first")
+        XCTAssertFalse(control.tryAgainIcon.isHidden)
+        XCTAssertFalse(control.settingsIcon.isHidden)
+        XCTAssertEqual(control.label.frame.width, ceil(control.label.attributedStringValue.size().width) + 4, accuracy: 1,
+                       "a cut label ends where its text does: no gap before what follows")
+        let iconStart = control.tryAgainIcon.alignmentRect(forFrame: control.tryAgainIcon.frame).minX
+        XCTAssertEqual(iconStart - (control.label.frame.maxX - 2), Quire.Layout.WriteTool.gap, accuracy: 1, "the glyphs follow at the gap")
+        XCTAssertEqual(control.label.toolTip, reason, "the whole reason in its tooltip")
+        XCTAssertEqual(control.lineWords, reason + " \u{00b7} Try again \u{00b7} Settings\u{2026}", "and whole for VoiceOver")
+        XCTAssertFalse(AIError.rateLimited(retryAfter: 30).lineMessage(for: .claudeAPI).contains("Try again"))
+    }
+
+    /// After a draft lands the reply's own tools stay: the line follows them where it can, or at least the tabs; only a
+    /// write under way takes the row. Taking it, Stop's glyph starts on the text's column.
+    func testAfterADraftTheRepliesToolsStayAndStopLinesUpWithTheText() throws {
+        let (harness, script) = try harness(reply: "Tuesday at ten works. See you then.")
+        defer { harness.close() }
+        script.holdsAfter = 1
+        let field = type("tue 10 ok", harness)
+        let bar = harness.reader.quickReplyBar
+        let control = control(harness)
+        commandJ(harness)
+        let session = try session(harness)
+        until({ !field.string.hasPrefix("tue") }, "streaming")
+        bar.layoutSubtreeIfNeeded()
+        let tabs = try XCTUnwrap(bar.subviews.first { $0 is QuireUnderlineTabs })
+        XCTAssertTrue(tabs.isHidden, "while a reply streams the line takes the row")
+        let stop = control.convert(control.stopButton.alignmentRect(forFrame: control.stopButton.frame), to: bar)
+        let textColumn = try XCTUnwrap(field.enclosingScrollView).frame.minX
+        XCTAssertEqual(stop.minX + QuireButtonSize.small.padX, textColumn, accuracy: 0.5, "Stop's glyph on the text's column")
+        session.stop()
+
+        script.holdsAfter = nil
+        commandJ(harness)
+        until({ session.phase == .written })
+        bar.layoutSubtreeIfNeeded()
+        XCTAssertFalse(tabs.isHidden, "Reply · Reply all at the default reader")
+        XCTAssertFalse(control.undoLink.isHidden, "beside the draft's Undo")
+        XCTAssertFalse(control.tryAgainLink.isHidden)
+        XCTAssertTrue(control.shownWords.hasPrefix("Written by Claude"), control.shownWords)
+        XCTAssertGreaterThanOrEqual(control.frame.minX, tabs.frame.maxX, "after the tabs")
+
+        // Wider, Attach and Open in Composer stay too.
+        let lone = LoneBar()
+        defer { lone.close() }
+        lone.control.phase = .written
+        lone.layOut(width: 760)
+        let tools = lone.bar.subviews.compactMap { $0 as? QuireIconButton }.filter { !$0.isHidden }
+        XCTAssertEqual(tools.count, 3, "Attach, Open in Composer and Send's options")
+        XCTAssertFalse(lone.view(QuireUnderlineTabs.self)?.isHidden ?? true)
+        XCTAssertEqual(lone.control.shownWords, "Written by Claude Try again Say how Undo", "its keycaps gave way first")
+        // VoiceOver hears the whole line, keys included.
+        XCTAssertEqual(lone.control.lineWords,
+                       "Written by Claude \u{00b7} \u{2318}J Try again \u{00b7} \u{21e7}\u{2318}J Say how \u{00b7} \u{2318}Z Undo")
+        lone.control.phase = .writing
+        lone.layOut(width: 760)
+        XCTAssertTrue(lone.view(QuireUnderlineTabs.self)?.isHidden ?? false, "a write under way takes the row")
+    }
+
+    // MARK: Undo, redo and the selection
+
+    /// ⌘Z after a draft brings the notes back with the caret where it was before ⌘J, never the notes selected, which ⌘J
+    /// would then rewrite as a selection; ⌘⇧Z brings the draft back with the caret after it, still a Try again. The line's
+    /// Undo, and Esc during Try again, do the same.
+    func testUndoAndRedoPutTheCaretBackAndKeepTryAgain() throws {
+        let (harness, script) = try harness(reply: "First draft of the reply.")
+        defer { harness.close() }
+        let field = type("tue 10 ok", harness)
+        XCTAssertEqual(field.selectedRange(), NSRange(location: 9, length: 0))
+        commandJ(harness)
+        let session = try session(harness)
+        until({ session.phase == .written })
+        let undo = try XCTUnwrap(field.undoManager)
+
+        undo.undo()
+        XCTAssertEqual(field.string, "tue 10 ok")
+        XCTAssertEqual(field.selectedRange(), NSRange(location: 9, length: 0), "the caret, not the notes selected")
+        XCTAssertEqual(session.plan, .fromNotes)
+        let write = writeItem
+        XCTAssertTrue(harness.reader.validateMenuItem(write))
+        XCTAssertEqual(write.title, "Write Reply from Notes")
+
+        undo.redo()
+        XCTAssertEqual(field.string, "First draft of the reply.")
+        XCTAssertEqual(field.selectedRange(), NSRange(location: 25, length: 0), "the caret after the draft")
+        XCTAssertEqual(session.plan, .tryAgain, "a redone draft is tried again from its notes")
+        XCTAssertTrue(harness.reader.validateMenuItem(write))
+        XCTAssertEqual(write.title, "Try Again")
+        script.reply = "Second draft."
+        commandJ(harness)
+        until({ script.requests.count == 2 && session.phase == .written })
+        XCTAssertTrue(script.requests[1].task.contains("tue 10 ok"), "from the notes")
+        XCTAssertFalse(script.requests[1].task.contains("First draft"), "never from the draft")
+        XCTAssertFalse(script.requests[1].task.contains("SELECTION"), "and never as a selection")
+
+        // The line's Undo.
+        harness.reader.quickReplyBar.layoutSubtreeIfNeeded()
+        control(harness).undoLink.performClick(nil)
+        XCTAssertEqual(field.string, "tue 10 ok")
+        XCTAssertEqual(field.selectedRange(), NSRange(location: 9, length: 0))
+        XCTAssertEqual(session.plan, .fromNotes)
+
+        // Try again, stopped: the notes and the caret, as before the first ⌘J.
+        undo.redo()
+        XCTAssertEqual(field.string, "Second draft.")
+        script.reply = "Third draft, a longer one with more words in it."
+        script.holdsAfter = 1
+        commandJ(harness)
+        XCTAssertEqual(session.phase, .writing)
+        until({ field.string.hasPrefix("Third") }, "the new draft starts")
+        field.cancelOperation(nil)
+        XCTAssertEqual(field.string, "tue 10 ok")
+        XCTAssertEqual(field.selectedRange(), NSRange(location: 9, length: 0), "Esc puts the caret back, not a selection")
+        XCTAssertEqual(session.plan, .fromNotes)
+    }
+
+    /// A selection of spaces or line breaks alone is no selection: ⌘J writes from the notes, as its menu title says.
+    func testABlankSelectionIsNoSelection() throws {
+        let (harness, script) = try harness(reply: "A whole reply.")
+        defer { harness.close() }
+        let field = type("Hi Ben,\n\nsee you Tuesday", harness)
+        field.setSelectedRange(NSRange(location: 7, length: 2))
+        let session = try session(harness)
+        XCTAssertEqual(session.plan, .fromNotes)
+        let write = writeItem
+        XCTAssertTrue(harness.reader.validateMenuItem(write))
+        XCTAssertEqual(write.title, "Write Reply from Notes")
+        XCTAssertEqual(control(harness).hint, .notes)
+        commandJ(harness)
+        until({ session.phase == .written })
+        let request = try XCTUnwrap(script.requests.first)
+        XCTAssertTrue(request.task.contains("see you Tuesday"), "the notes around it are the brief")
+        XCTAssertFalse(request.task.contains("SELECTION"))
+        XCTAssertEqual(field.string, "A whole reply.", "the reply replaces the notes, not the gap")
+    }
+
+    /// With text selected the hint says ⌘J rewrites it, following the selection, and so does the open strip.
+    func testTheHintAndTheStripFollowTheSelection() throws {
+        let (harness, _) = try harness()
+        defer { harness.close() }
+        let field = type("tue 10 works, I'll bring the budget", harness)
+        let control = control(harness)
+        XCTAssertEqual(control.hint, .notes)
+        XCTAssertEqual(control.lineWords, "\u{2318}J writes from your notes")
+        field.setSelectedRange(NSRange(location: 25, length: 10))
+        XCTAssertEqual(control.hint, .selection)
+        XCTAssertEqual(control.lineWords, "\u{2318}J rewrites the selection")
+        harness.reader.helpMeWriteWithInstructions(nil)
+        let strip = harness.reader.quickReplyBar.writeStrip
+        XCTAssertTrue(strip.rewritesSelection)
+        field.setSelectedRange(NSRange(location: 3, length: 0))
+        XCTAssertFalse(strip.rewritesSelection, "the strip's placeholder follows the selection while it is open")
+        XCTAssertEqual(strip.field.placeholder, "Tell it what to write\u{2026}")
+        XCTAssertEqual(control.hint, .notes)
+        field.setSelectedRange(NSRange(location: 13, length: 1))
+        XCTAssertEqual(control.hint, .notes, "a space alone is no selection")
+    }
+
+    /// Text set from outside while the keyboard stays in the field (a send undone puts the draft back) is read for the hint.
+    func testTextPutBackFromOutsideIsReadForTheHint() throws {
+        let (harness, _) = try harness()
+        defer { harness.close() }
+        type("", harness)
+        let bar = harness.reader.quickReplyBar
+        let control = control(harness)
+        XCTAssertFalse(control.showsHint)
+        bar.restoreDraft("hi there friend")
+        XCTAssertTrue(harness.controller.window?.firstResponder === bar.writingTextView, "the keyboard stayed")
+        XCTAssertTrue(control.showsHint, "three words put back: the hint")
+        bar.text = ""
+        XCTAssertFalse(control.showsHint)
+    }
+
+    /// Edit › Help Me Write's titles start over each time the menu opens: with the keyboard where nothing answers ⌘J (the
+    /// list), the disabled item reads Help Me Write, not the last field's “Rewrite Selection”.
+    func testTheEditMenusTitlesStartOverAsItOpens() throws {
+        let previous = (MainMenuController.shared, NSApp.windowsMenu, NSApp.helpMenu)
+        defer { (MainMenuController.shared, NSApp.windowsMenu, NSApp.helpMenu) = previous }
+        let bar = MainMenu.build(appDelegate: AppDelegate(options: LaunchOptions(arguments: ["SuperSparrow"])))
+        let edit = try XCTUnwrap(bar.items.first { $0.title == "Edit" }?.submenu)
+        XCTAssertTrue(edit.delegate === MainMenuController.shared)
+        let write = try XCTUnwrap(edit.items.first { $0.action == #selector(ConversationViewController.helpMeWrite(_:)) })
+        let instructions = try XCTUnwrap(edit.items.first {
+            $0.action == #selector(ConversationViewController.helpMeWriteWithInstructions(_:))
+        })
+        write.title = "Rewrite Selection"
+        instructions.title = "Rewrite Selection with Instructions\u{2026}"
+        MainMenuController.shared?.menuNeedsUpdate(edit)
+        XCTAssertEqual(write.title, MainMenu.helpMeWriteTitle)
+        XCTAssertEqual(instructions.title, MainMenu.helpMeWriteWithInstructionsTitle)
+    }
+
+    /// ⇧⌘J is found from the reply itself: Write's tooltip names it, its right-click menu holds Say How… and the presets,
+    /// and a draft's line offers Say how.
+    func testSayHowIsFoundFromTheReply() throws {
+        let (harness, script) = try harness(reply: "Tuesday at ten works.")
+        defer { harness.close() }
+        let field = type("tue 10 ok", harness)
+        let control = control(harness)
+        XCTAssertTrue(control.writeButton.toolTip?.contains("Say how  \u{21e7}\u{2318}J") == true, control.writeButton.toolTip ?? "")
+        let menu = try XCTUnwrap(control.writeButton.menu)
+        XCTAssertEqual(menu.items.map(\.title), ["Write", "Say How\u{2026}", "", "Shorter", "Friendlier", "Say no politely"])
+        XCTAssertEqual(menu.items[1].keyEquivalentModifierMask, [.command, .shift])
+        // A preset from the menu runs at once, from the notes.
+        let shorter = menu.items[3]
+        _ = (shorter.target as? NSObject)?.perform(shorter.action, with: shorter)
+        let session = try session(harness)
+        until({ session.phase == .written })
+        XCTAssertTrue(script.requests.first?.task.hasSuffix("Shorter") == true)
+        XCTAssertTrue(script.requests.first?.task.contains("tue 10 ok") == true)
+        XCTAssertEqual(field.string, "Tuesday at ten works.")
+        // The draft's line offers Say how where the row has room for it beside the reply's tools (a composer's bar, a wide
+        // reader; in the default reader Write's tooltip and menu say it): it opens the strip, the keyboard in it.
+        _ = (control.writeButton.menu?.items[1]).map { item in (item.target as? NSObject)?.perform(item.action, with: item) }
+        let bar = harness.reader.quickReplyBar
+        XCTAssertTrue(bar.showsWriteStrip, "Write's Say How… opens the strip")
+        XCTAssertTrue(bar.writeStrip.holdsFocus)
+        XCTAssertEqual(bar.writeStrip.instruction, "Shorter", "the strip remembers the last instruction")
+
+        let composer = replyComposer(harness)
+        composer.window?.makeFirstResponder(composer.bodyEditor)
+        composer.bodyEditor.insertText("will read", replacementRange: NSRange(location: 0, length: 0))
+        composer.helpMeWrite(nil)
+        let composed = try XCTUnwrap(composer.writeSession)
+        until({ composed.phase == .written })
+        let composerControl = composer.content.bottomBar.writeControl
+        composer.content.bottomBar.layoutSubtreeIfNeeded()
+        XCTAssertFalse(composerControl.sayHowLink.isHidden, composerControl.shownWords)
+        composerControl.sayHowLink.performClick(nil)
+        XCTAssertTrue(composer.content.writeStrip.holdsFocus, "the composer's strip, the keyboard in it")
+    }
+
     // MARK: Writing in place
 
     func testCommandJWritesFromTheNotesInPencilThenInkAsOneUndoStep() throws {
@@ -292,7 +683,7 @@ final class HelpMeWriteTests: XCTestCase {
         until({ session.phase == .written }, "the reply lands")
         XCTAssertEqual(field.string, "One two three four five six seven eight nine ten")
         XCTAssertEqual(color(of: field, at: 0), .qInk, "and turns to ink")
-        XCTAssertEqual(control(harness).lineWords, "Written by Claude \u{00b7} \u{2318}J Try again \u{00b7} \u{2318}Z Undo")
+        XCTAssertEqual(control(harness).lineWords, "Written by Claude \u{00b7} \u{2318}J Try again \u{00b7} \u{21e7}\u{2318}J Say how \u{00b7} \u{2318}Z Undo")
         XCTAssertTrue(field.window?.firstResponder === field)
         XCTAssertTrue(announced.contains("Reply written by Claude"), "\(announced)")
         let request = try XCTUnwrap(script.requests.first)
@@ -632,7 +1023,7 @@ final class HelpMeWriteTests: XCTestCase {
         until({ session.phase == .written })
         XCTAssertEqual(composer.bodyText, "Thanks, I'll read it tonight.\n\nAlex", "the reply replaces the notes and keeps the signature")
         MainWindowHarness.assertWritingStyle(composer.contents.body)
-        XCTAssertEqual(control.lineWords, "Written by Claude \u{00b7} \u{2318}J Try again \u{00b7} \u{2318}Z Undo")
+        XCTAssertEqual(control.lineWords, "Written by Claude \u{00b7} \u{2318}J Try again \u{00b7} \u{21e7}\u{2318}J Say how \u{00b7} \u{2318}Z Undo")
         XCTAssertEqual(editor.undoManager?.undoMenuItemTitle, "Undo Help Me Write")
         editor.undoManager?.undo()
         XCTAssertEqual(composer.bodyText, before)
@@ -979,7 +1370,7 @@ final class HelpMeWriteTests: XCTestCase {
         field.setSelectedRange(NSRange(location: 0, length: (long as NSString).length))
         commandJ(harness)
         let session = try session(harness)
-        XCTAssertEqual(session.phase, .failed(reason: "The selection is too long to rewrite. Select less, then try again.",
+        XCTAssertEqual(session.phase, .failed(reason: "The selection is too long to rewrite. Select less.",
                                               offersSettings: false))
         ListTestSupport.spin(for: 0.2)
         XCTAssertTrue(script.requests.isEmpty, "nothing is sent, rather than a cut part the reply would replace whole")

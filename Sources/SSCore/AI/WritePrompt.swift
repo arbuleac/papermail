@@ -21,13 +21,15 @@ public enum WritePrompt {
 
         How the conversation is laid out: a short summary of the thread comes first (its subject, who is in it, how many \
         messages over which dates, and what the message being replied to asks). Then the messages, newest first, each \
-        headed by its place (Latest, 2nd latest, …, Earlier), its author (“you” is the user) and its date. The message \
-        being replied to is marked and given in full; the next newest are given in full or cut short with […]; older \
+        headed by its place (Latest, 2nd latest, 3rd latest, …), its author (“you” is the user) and its date. The message \
+        being replied to is marked and given in full; the next newest are given in full or cut short with […]; other \
         messages are marked shortened and give only their first sentences; the oldest may be folded into one line that \
         says how many there were, who wrote them and what they were about.
 
-        Weigh the latest message most, and reply to the message being replied to, from the user's side. Use the older, \
-        shortened messages only as background: don't answer them, quote them or repeat what they settled.
+        Weigh the latest message most, and reply to the message being replied to, from the user's side. When it is not \
+        the latest, the messages above it are newer: they may update or settle what it asks, so take them into account. \
+        Use the shortened messages older than it only as background: don't answer them, quote them or repeat what they \
+        settled.
         Use the user's notes as the brief when they give them: they say what the reply should say. When they give an \
         instruction, follow it. When they give part of their reply to rewrite, rewrite only that part and keep its meaning \
         and language.

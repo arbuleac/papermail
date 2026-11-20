@@ -207,6 +207,29 @@ final class OverlayAndPanelTests: XCTestCase {
         XCTAssertEqual(overlay.scrim.frame, overlay.bounds)
     }
 
+    /// At the default window the panel is a little short of its content: the bands' bottom padding scrolls away first,
+    /// so every row of keycaps draws whole at rest and only the search line below them waits for a scroll.
+    func testTheLastRowOfKeycapsDrawsWholeAtTheDefaultWindow() {
+        let c = Quire.Layout.CheatSheet.self
+        let overlay = QuireCheatSheetOverlay(frame: NSRect(x: 0, y: 0, width: 1304, height: 800))
+        overlay.layoutSubtreeIfNeeded()
+        let panel = overlay.panel
+        XCTAssertTrue(panel.scrolls, "the search line still scrolls")
+        let rows = QuireCheatSheetPanel.bands(of: panel.sections).map(QuireCheatSheetPanel.bandHeight).reduce(0, +)
+            + c.sectionGap * CGFloat(QuireCheatSheetPanel.bands(of: panel.sections).count - 1)
+        let visible = panel.scrollView.contentView.bounds
+        XCTAssertEqual(visible.minY, 0, "at rest")
+        XCTAssertGreaterThanOrEqual(visible.height, rows, "every band's last row inside the visible rect")
+        XCTAssertEqual(panel.scrollView.frame.maxY, panel.bounds.height, "the bands scroll to the panel's edge")
+        let document = panel.scrollView.documentView?.frame.height ?? 0
+        XCTAssertEqual(document, QuireCheatSheetPanel.bandsHeight(for: panel.sections) + c.pad, "the padding is the content's")
+        // Tall enough for everything, nothing scrolls and the padding sits under the search line.
+        let tall = QuireCheatSheetOverlay(frame: NSRect(x: 0, y: 0, width: 1304, height: 852))
+        tall.layoutSubtreeIfNeeded()
+        XCTAssertFalse(tall.panel.scrolls)
+        XCTAssertEqual(tall.panel.scrollView.contentView.bounds.height, document)
+    }
+
     func testOverlayKeys() {
         let action = QuireCheatSheetOverlay.action(forCharacters:keyCode:modifiers:)
         XCTAssertEqual(action("\u{1b}", 53, []), .dismiss, "Esc")

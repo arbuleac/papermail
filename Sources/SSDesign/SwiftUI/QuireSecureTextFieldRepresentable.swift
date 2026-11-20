@@ -11,7 +11,7 @@ struct QuireSecureTextFieldRepresentable: NSViewRepresentable {
     /// Set while the field edits, so the SwiftUI container draws the focus ring.
     @Binding var isFocused: Bool
     /// Return, or the field losing focus: the owner saves what was typed (Settings › AI's API key, §5.40).
-    var onCommit: (() -> Void)?
+    var onCommit: ((QuireSecureField.Commit) -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -64,7 +64,14 @@ struct QuireSecureTextFieldRepresentable: NSViewRepresentable {
         }
 
         func controlTextDidEndEditing(_ note: Notification) {
-            parent.onCommit?()
+            parent.onCommit?(Self.commit(for: note))
+        }
+
+        /// Return ends editing with the return movement; a click elsewhere, Tab, a closing window or the app quitting end
+        /// it otherwise.
+        static func commit(for note: Notification) -> QuireSecureField.Commit {
+            let movement = (note.userInfo?["NSTextMovement"] as? Int).flatMap(NSTextMovement.init(rawValue:))
+            return movement == .return ? .pressedReturn : .leftField
         }
     }
 }

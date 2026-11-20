@@ -19,12 +19,15 @@ struct AISettingsView: View {
             }
             if model.provider != nil {
                 QuireSettingsRow(nil) {
+                    // Turn On… follows its words at the row's gap, as Check follows the key field, rather than at the
+                    // column's far edge.
                     HStack(spacing: Quire.Layout.Settings.statusButtonGap) {
-                        AIStatusLine(status: model.status)
+                        AIStatusLine(status: model.status, hugsWords: model.needsTurnOn)
                         if model.needsTurnOn {
                             Button("Turn On\u{2026}") { model.turnOnChosenProvider() }
                                 .buttonStyle(.quire(.secondary, size: .small))
                                 .disabled(model.isAsking)
+                            Spacer(minLength: 0)
                         }
                     }
                 }
@@ -54,13 +57,15 @@ struct AISettingsView: View {
         }
         .settingsTabContent()
         .onAppear { model.refresh() }
-        .onDisappear { model.commitKey() }
+        .onDisappear { model.commitKey(checking: false) }
     }
 
     private var keyControls: some View {
         let s = Quire.Layout.Settings.self
         return HStack(spacing: s.statusButtonGap) {
-            QuireSecureField("API key", text: $model.keyText, prompt: model.keyPrompt, onCommit: { model.commitKey() })
+            // ↩ saves the key and checks it; leaving the field only saves it (spec §3b).
+            QuireSecureField("API key", text: $model.keyText, prompt: model.keyPrompt,
+                             onCommit: { model.commitKey(checking: $0 == .pressedReturn) })
                 .frame(width: Self.keyFieldWidth)
             Button("Check") { model.check() }
                 .buttonStyle(.quire(.secondary, size: .small))
@@ -128,6 +133,8 @@ struct AISettingsView: View {
 /// checking with a spinner.
 struct AIStatusLine: View {
     let status: AISettingsModel.Status
+    /// The words take only their own width, so a button after them sits beside them (Turn On…).
+    var hugsWords = false
 
     var body: some View {
         let s = Quire.Layout.Settings.self
@@ -149,8 +156,8 @@ struct AIStatusLine: View {
                 .tracking(QuireFont.Role.snippet.tracking)
                 .foregroundStyle(.qInk2)
                 .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: s.fieldWidth, alignment: .leading)
+                .fixedSize(horizontal: hugsWords, vertical: true)
+                .frame(maxWidth: hugsWords ? nil : s.fieldWidth, alignment: .leading)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(status.words ?? "")

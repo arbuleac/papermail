@@ -56,6 +56,32 @@ final class AIErrorTests: XCTestCase {
         XCTAssertEqual(AIError.refused.message(for: .openAIAPI), "The model declined to write this.")
     }
 
+    /// The tool row's words leave Try again and Settings… to the links beside them, and keep a wait the provider named.
+    func testTheLinesWordsNeverRepeatItsLinks() {
+        XCTAssertEqual(AIError.rateLimited(retryAfter: 30).lineMessage(for: .claudeAPI), "Anthropic is limiting requests. Wait 30 seconds.")
+        XCTAssertEqual(AIError.rateLimited(retryAfter: nil).lineMessage(for: .claudeAPI), "Anthropic is limiting requests")
+        XCTAssertEqual(AIError.overloaded.lineMessage(for: .claudeAPI), "Anthropic is busy")
+        XCTAssertEqual(AIError.emptyReply.lineMessage(for: .claudeAPI), "Nothing came back")
+        XCTAssertEqual(AIError.modelUnavailable.lineMessage(for: .claudeAPI), "That model isn't available")
+        XCTAssertEqual(AIError.missingKey.lineMessage(for: .claudeAPI), "Add your Anthropic API key")
+        XCTAssertEqual(AIError.unsupportedVersion(found: "2.0.1").lineMessage(for: .claudeCode), "Claude Code 2.0.1 is too old. Update it.")
+        XCTAssertEqual(AIError.keyRefused.lineMessage(for: .claudeAPI), AIError.keyRefused.message(for: .claudeAPI))
+        XCTAssertEqual(AIError.signedOut.lineMessage(for: .claudeCode), "Claude Code is signed out. Run claude in Terminal.",
+                       "as Settings › AI says it, short enough to show whole in the default reader")
+        XCTAssertEqual(AIError.keyRefused.lineMessage(for: .claudeCode), AIError.signedOut.lineMessage(for: .claudeCode))
+        for error in Self.everyCase {
+            for kind in AIProviderKind.allCases + [nil] {
+                let words = error.lineMessage(for: kind)
+                XCTAssertFalse(words.isEmpty)
+                XCTAssertFalse(words.lowercased().contains("try again"), "\(error) says Try again beside its link: \(words)")
+                if error.needsSettings {
+                    XCTAssertFalse(words.contains("in Settings \u{203a} AI.") && error != .consentRequired,
+                                   "\(error) names Settings beside its link: \(words)")
+                }
+            }
+        }
+    }
+
     func testEveryCaseHasWordsForEveryKindAndWithout() {
         for error in Self.everyCase {
             XCTAssertFalse(error.message(for: nil).isEmpty)

@@ -42,8 +42,7 @@ enum HTTPKeyCheck {
         guard let key, !key.isEmpty else { return .needsSetup(reason: addKey) }
         do {
             let urlRequest = request(key)
-            AIEgress.record(AIEgress.contact(for: urlRequest), by: action)
-            let (data, response) = try await session.data(for: urlRequest)
+            let (data, response) = try await ProviderHTTP.data(for: urlRequest, on: session, by: action)
             guard let http = response as? HTTPURLResponse else {
                 return .unavailable(reason: AIError.badResponse(code: 0).message(for: kind))
             }

@@ -98,15 +98,8 @@ final class HelpMeWriteEgressTests: XCTestCase {
         harness.spin { harness.reader.currentConversationID == id }
     }
 
-    func testNothingReachesAProviderOrStartsACLIUnlessTheUserActs() throws {
-        let log = try installFakeClaude()
-        let center = realCenter(keys: InMemoryAIKeyStore([.claudeAPI: "sk-ant-test-key"]))
-        // Launch.
-        let harness = try MainWindowHarness(helpMeWrite: center)
-        var closed = false
-        defer { if !closed { harness.close() } }
-
-        // Settings › AI opened, as the window shows it, then providers chosen: each sheet answered Turn On.
+    /// Settings, opened on its AI tab as the window shows it, finding CLIs in the fake's folder only.
+    private func openSettings(_ harness: MainWindowHarness) -> SettingsWindowController {
         let settings = SettingsWindowController(environment: harness.environment, settings: harness.settings,
                                                 mailtoHandler: FakeMailtoHandler(), loginItem: FakeLoginItem())
         settings.window?.setFrameAutosaveName("")
@@ -114,13 +107,77 @@ final class HelpMeWriteEgressTests: XCTestCase {
         settings.ai.locateExecutable = { [folder] kind, chosen in
             AISettingsModel.locateLikeTheProviders(kind, chosen: chosen, searchFolders: [folder!.appendingPathComponent("bin")])
         }
+        settings.show(tab: .ai)
+        ListTestSupport.spin(for: 0.3)
+        return settings
+    }
+
+    /// Settings › AI's API key field, the AppKit field the user types in.
+    private func keyField(in settings: SettingsWindowController) -> NSSecureTextField? {
+        var found: NSSecureTextField?
+        XCTAssertTrue(ListTestSupport.spin(until: {
+            found = Self.first(NSSecureTextField.self, in: settings.window?.contentView)
+            return found != nil
+        }, timeout: 3), "the key field shows")
+        return found
+    }
+
+    private static func first<T: NSView>(_ type: T.Type, in view: NSView?) -> T? {
+        guard let view else { return nil }
+        if let match = view as? T { return match }
+        for subview in view.subviews { if let match = first(type, in: subview) { return match } }
+        return nil
+    }
+
+    /// Types `text` into the key field as the user would, the keyboard left there.
+    private func type(_ text: String, into field: NSSecureTextField, in settings: SettingsWindowController) {
+        XCTAssertTrue(settings.window?.makeFirstResponder(field) ?? false)
+        let editor = field.currentEditor() as? NSTextView
+        XCTAssertNotNil(editor, "the field edits")
+        editor?.insertText(text, replacementRange: NSRange(location: 0, length: (editor?.string as NSString?)?.length ?? 0))
+        ListTestSupport.spin(for: 0.1)
+    }
+
+    /// Quits as the app does (`AppDelegate.prepareToQuit`, Settings' field ending its editing first), then lets the
+    /// window and the store's folder go.
+    private func quit(_ harness: MainWindowHarness, settings: SettingsWindowController?) {
+        var finished = false
+        Task { @MainActor in
+            await AppDelegate.prepareToQuit(settings: settings, environments: [harness.environment])
+            finished = true
+        }
+        XCTAssertTrue(ListTestSupport.spin(until: { finished }, timeout: 10), "quitting finishes")
+        settings?.tearDown()
+        settings?.window?.close()
+        harness.controller.tearDown()
+        harness.controller.close()
+        ListTestSupport.spin(for: 0.3)
+        try? FileManager.default.removeItem(at: harness.directory)
+    }
+
+    private func assertNoContact(_ log: URL, _ moment: String, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertEqual(contacts, [], "\(moment): no contact recorded", file: file, line: line)
+        XCTAssertEqual(EgressStubProtocol.requests, [], "\(moment): no request to Anthropic or OpenAI", file: file, line: line)
+        XCTAssertEqual(launches(log), [], "\(moment): no CLI started", file: file, line: line)
+    }
+
+    func testNothingReachesAProviderOrStartsACLIUnlessTheUserActs() throws {
+        let log = try installFakeClaude()
+        let center = realCenter(keys: InMemoryAIKeyStore([.claudeAPI: "sk-ant-test-key"]))
+        // Launch.
+        let harness = try MainWindowHarness(helpMeWrite: center)
+        var quitting = false
+        defer { if !quitting { harness.close() } }
+        ListTestSupport.spin(for: 0.3)
+        assertNoContact(log, "launch")
+
+        // Settings › AI opened, as the window shows it, then providers chosen: each sheet answered Turn On.
         var sheets = 0
         center.presentAlert = { _, _, done in
             sheets += 1
             done(1)
         }
-        settings.show(tab: .ai)
-        ListTestSupport.spin(for: 0.3)
+        let settings = openSettings(harness)
         settings.ai.refresh()
         settings.ai.setProvider(.claudeAPI)
         settings.ai.setProvider(.claudeCode)
@@ -151,17 +208,119 @@ final class HelpMeWriteEgressTests: XCTestCase {
         ListTestSupport.spin(for: 0.5)
         composer.closeWithoutSaving()
 
-        XCTAssertEqual(contacts, [], "no contact recorded")
-        XCTAssertEqual(EgressStubProtocol.requests, [], "no request to Anthropic or OpenAI")
-        XCTAssertEqual(launches(log), [], "no CLI started")
+        assertNoContact(log, "typing, the hint, switching, a composer")
 
-        // Quitting.
-        harness.close()
-        closed = true
+        // Quitting as the app does, with Settings › AI open again.
+        let reopened = openSettings(harness)
+        assertNoContact(log, "Settings › AI reopened with Claude Code on")
+        quitting = true
+        quit(harness, settings: reopened)
+        assertNoContact(log, "quitting")
+    }
+
+    /// Launched with a provider already on (Claude Code turned on, or Claude's API with a key stored), Settings › AI
+    /// opened and reopened, a reply typed in: nothing is sent, nothing started, and quitting with Settings open sends
+    /// nothing either. The status comes from this Mac.
+    func testLaunchingAndReopeningSettingsWithAProviderOnReachNothing() throws {
+        for kind in [AIProviderKind.claudeCode, .claudeAPI] {
+            EgressRecorder.shared.reset()
+            EgressStubProtocol.reset()
+            let log = try installFakeClaude()
+            try? FileManager.default.removeItem(at: log)
+            let keys = InMemoryAIKeyStore(kind == .claudeAPI ? [.claudeAPI: "sk-ant-test-key"] : [:])
+            let center = realCenter(keys: keys)
+            let appSettings = ListTestSupport.settings()
+            appSettings.aiProvider = kind
+            appSettings.setAIConsent(true, for: kind, demo: false)
+            // Launch.
+            let harness = try MainWindowHarness(settings: appSettings, helpMeWrite: center)
+            var quitting = false
+            defer { if !quitting { harness.close() } }
+            ListTestSupport.spin(for: 0.3)
+            assertNoContact(log, "\(kind) launch")
+
+            try select("thread-2", harness)
+            XCTAssertTrue(harness.reader.focusQuickReply(all: false))
+            harness.reader.quickReplyBar.writingTextView.insertText("tue 10 ok", replacementRange: NSRange(location: 0, length: 0))
+            let control = harness.reader.quickReplyBar.writeControl
+            XCTAssertEqual(control.availability, .ready(writer: "Claude", source: kind == .claudeCode
+                ? "Claude Code \u{00b7} Anthropic" : "Claude Opus 5.5 \u{00b7} Anthropic"))
+            assertNoContact(log, "\(kind) typing")
+
+            for opening in ["first", "second"] {
+                let settings = openSettings(harness)
+                XCTAssertEqual(settings.ai.provider, kind)
+                XCTAssertEqual(settings.ai.status.isReady, true, "\(kind): ready, from this Mac")
+                assertNoContact(log, "\(kind) Settings › AI opened, \(opening) time")
+                if opening == "second" {
+                    quitting = true
+                    quit(harness, settings: settings)
+                } else {
+                    settings.tearDown()
+                    settings.window?.close()
+                }
+            }
+            assertNoContact(log, "\(kind) quitting")
+        }
+    }
+
+    /// The key field saves on leaving it, but only Return checks the key with Anthropic: a click elsewhere, Settings
+    /// closing and quitting with a key typed send nothing (the key is saved all the same).
+    func testOnlyReturnInTheKeyFieldChecksTheKeyNeverLeavingItOrQuitting() throws {
+        let log = try installFakeClaude()
+        let keys = InMemoryAIKeyStore()
+        let center = realCenter(keys: keys)
+        let appSettings = ListTestSupport.settings()
+        appSettings.aiProvider = .claudeAPI
+        appSettings.setAIConsent(true, for: .claudeAPI, demo: false)
+        let harness = try MainWindowHarness(settings: appSettings, helpMeWrite: center)
+        var quitting = false
+        defer { if !quitting { harness.close() } }
+        let settings = openSettings(harness)
+        let field = try XCTUnwrap(keyField(in: settings))
+
+        // Return: saved and checked, once.
+        type("sk-ant-first", into: field, in: settings)
+        XCTAssertEqual(settings.ai.keyText, "sk-ant-first")
+        field.currentEditor()?.insertNewline(nil)
+        XCTAssertTrue(ListTestSupport.spin(until: { EgressStubProtocol.requests.count == 1 && settings.ai.status != .checking },
+                                           timeout: 10), "Return checks the key")
+        XCTAssertEqual(try keys.key(for: .claudeAPI), "sk-ant-first")
+        XCTAssertEqual(contacts, ["check: GET api.anthropic.com/v1/models"])
+
+        // A click elsewhere: saved, not checked.
+        EgressRecorder.shared.reset()
+        EgressStubProtocol.reset()
+        type("sk-ant-second", into: field, in: settings)
+        settings.endEditing()
         ListTestSupport.spin(for: 0.3)
-        XCTAssertEqual(contacts, [])
-        XCTAssertEqual(EgressStubProtocol.requests, [])
-        XCTAssertEqual(launches(log), [])
+        XCTAssertEqual(try keys.key(for: .claudeAPI), "sk-ant-second", "saved as the field lost the keyboard")
+        assertNoContact(log, "leaving the key field")
+
+        // Quitting with a key typed: saved, not checked.
+        type("sk-ant-third", into: field, in: settings)
+        quitting = true
+        quit(harness, settings: settings)
+        XCTAssertEqual(try keys.key(for: .claudeAPI), "sk-ant-third", "saved as quitting ended its editing")
+        XCTAssertFalse(center.writer.isChecking)
+        assertNoContact(log, "quitting with a key typed")
+    }
+
+    /// A check under way when the environment goes away is cancelled, and none starts after: quitting never reaches a
+    /// provider.
+    func testShuttingDownCancelsACheckAndRefusesLaterOnes() throws {
+        let log = try installFakeClaude()
+        let center = realCenter(keys: InMemoryAIKeyStore([.claudeAPI: "sk-ant-test-key"]))
+        let configuration = AIProviderConfiguration(kind: .claudeAPI)
+        var finished = false
+        Task { @MainActor in
+            await center.shutdown()
+            let health = await center.writer.check(configuration, action: AIUserAction(userPressed: .check))
+            XCTAssertTrue(health.isReady, "after shutdown a check answers from this Mac: \(health)")
+            finished = true
+        }
+        XCTAssertTrue(ListTestSupport.spin(until: { finished }, timeout: 5))
+        assertNoContact(log, "a check after shutdown")
     }
 
     func testEachAllowedActionMakesExactlyItsOwnContacts() throws {
@@ -200,7 +359,7 @@ final class HelpMeWriteEgressTests: XCTestCase {
         model.setProvider(.claudeAPI)
         XCTAssertEqual(contacts, [])
         model.keyText = "sk-ant-test-key"
-        model.commitKey()
+        model.commitKey(checking: true)
         XCTAssertTrue(ListTestSupport.spin(until: { model.status != .checking }, timeout: 10))
         XCTAssertEqual(contacts, ["check: GET api.anthropic.com/v1/models"])
         XCTAssertEqual(EgressStubProtocol.requests, ["GET api.anthropic.com/v1/models"])
@@ -231,39 +390,142 @@ final class HelpMeWriteEgressTests: XCTestCase {
         }
     }
 
-    /// Only the user's own actions make the token every request and launch needs: Write and its siblings in the reply's
-    /// session, Check and a saved key in Settings › AI. A new call site elsewhere fails here.
-    func testOnlyTheUsersActionsMakeTheToken() throws {
-        var makers: [String: Int] = [:]
-        for file in try sources(under: "Sources") {
-            let code = file.text.split(separator: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-            let count = code.reduce(0) { $0 + $1.components(separatedBy: "AIUserAction(userPressed:").count - 1 }
-            if count > 0 { makers[file.name] = count }
-        }
-        XCTAssertEqual(makers, [
-            "Sources/SuperSparrowApp/AI/WriteSession.swift": 1,
-            "Sources/SuperSparrowApp/AI/AISettingsModel.swift": 2,
-        ])
+    /// `text` without its comments: `//` to the end of a line (outside a string's quotes, as far as a scan can tell)
+    /// and `/* … */` blocks, so a doc comment that names an API is not a call to it.
+    private static func code(_ text: String) -> String {
+        let withoutBlocks = text.replacingOccurrences(of: #"/\*[\s\S]*?\*/"#, with: "", options: .regularExpression)
+        return withoutBlocks.split(separator: "\n", omittingEmptySubsequences: false).map { line -> String in
+            var inString = false
+            var previous: Character = " "
+            var kept = ""
+            for character in line {
+                if character == "\"" && previous != "\\" { inString.toggle() }
+                if !inString, character == "/", previous == "/" {
+                    kept.removeLast()
+                    break
+                }
+                kept.append(character)
+                previous = character
+            }
+            return kept
+        }.joined(separator: "\n")
     }
 
-    /// The adapters reach the network and start processes in three places only, and each records the contact against
-    /// its user action first.
-    func testEveryRequestAndLaunchGoesThroughTheGate() throws {
-        var network: Set<String> = []
-        var processes: Set<String> = []
-        for file in try sources(under: "Sources/SSAI") {
-            if file.text.contains("session.bytes(") || file.text.contains("session.data(") || file.text.contains(".dataTask(") {
-                network.insert(file.name)
-                XCTAssertTrue(file.text.contains("AIEgress.record("), "\(file.name) records before it sends")
-            }
-            if file.text.contains("Process()") { processes.insert(file.name) }
+    /// Where `pattern` matches in `text`, each with the name of the function it sits in (the last `func` before it).
+    private static func matches(of pattern: String, in text: String) throws -> [String] {
+        let expression = try NSRegularExpression(pattern: pattern)
+        let functions = try NSRegularExpression(pattern: #"\bfunc\s+([A-Za-z_][A-Za-z0-9_]*)"#)
+        let whole = text as NSString
+        return expression.matches(in: text, range: NSRange(location: 0, length: whole.length)).map { match in
+            let before = NSRange(location: 0, length: match.range.location)
+            let enclosing = functions.matches(in: text, range: before).last.map { whole.substring(with: $0.range(at: 1)) }
+            return enclosing ?? "(top level)"
         }
-        XCTAssertEqual(network, Set(["Sources/SSAI/HTTPStreamingWrite.swift", "Sources/SSAI/HTTPKeyCheck.swift"]))
-        XCTAssertEqual(processes, ["Sources/SSAI/CLIProcess.swift"], "one process launcher")
-        let runner = try XCTUnwrap(try sources(under: "Sources/SSAI").first { $0.name.hasSuffix("CLIProcessRunner.swift") })
-        XCTAssertTrue(runner.text.contains("AIEgress.record(.launch("), "every launch is recorded before it starts")
-        let command = try XCTUnwrap(try sources(under: "Sources/SSAI").first { $0.name.hasSuffix("CLICommand.swift") })
-        XCTAssertTrue(command.text.contains("var action: AIUserAction"), "no command without the user's action")
+    }
+
+    /// A `URLSession` send in any of its spellings (or the old `NSURLConnection`), but not a call through the gate itself.
+    private static let sends = #"(?<!ProviderHTTP)\.(data|bytes|upload|download)\s*\(\s*(for|from|with)\b"#
+        + #"|\b(dataTask|uploadTask|downloadTask|webSocketTask|streamTask)\s*\(|URLSession\s*\.\s*shared|NSURLConnection"#
+
+    /// Every Swift file under Sources, comments left out, keyed by its path from the package root.
+    private func allSources() throws -> [(name: String, code: String)] {
+        try sources(under: "Sources").map { ($0.name, Self.code($0.text)) }
+    }
+
+    /// Only the user's own actions make the token every request and launch needs: Write and its siblings in the reply's
+    /// session (`start`), Return on a typed key and Check in Settings › AI. Any spelling counts (`AIUserAction(userPressed:`,
+    /// `.init(userPressed:`, `AIUserAction.init(…)`), and so does a new initializer in an extension: a new call site
+    /// anywhere in the app fails here.
+    func testOnlyTheUsersActionsMakeTheToken() throws {
+        var makers: [String] = []
+        var extensions: [String] = []
+        for file in try allSources() where file.name != "Sources/SSCore/AI/AIUserAction.swift" {
+            makers += try Self.matches(of: #"userPressed\s*:|AIUserAction\s*\.\s*init\b"#, in: file.code).map { "\(file.name) \($0)" }
+            if try !Self.matches(of: #"extension\s+AIUserAction\b"#, in: file.code).isEmpty { extensions.append(file.name) }
+        }
+        XCTAssertEqual(makers.sorted(), [
+            "Sources/SuperSparrowApp/AI/AISettingsModel.swift check",
+            "Sources/SuperSparrowApp/AI/AISettingsModel.swift commitKey",
+            "Sources/SuperSparrowApp/AI/WriteSession.swift start",
+        ])
+        XCTAssertEqual(extensions, [], "no other way to make one")
+        let token = try XCTUnwrap(try allSources().first { $0.name == "Sources/SSCore/AI/AIUserAction.swift" })
+        XCTAssertEqual(try Self.matches(of: #"\binit\s*\("#, in: token.code).count, 1, "one initializer")
+    }
+
+    /// The scan finds a token made in any of the spellings Swift allows.
+    func testTheTokenScanSeesEverySpelling() throws {
+        for line in ["func a() { _ = AIUserAction(userPressed: .write) }",
+                     "func a() { writer.check(config, action: .init(userPressed: .check)) }",
+                     "func a() { _ = AIUserAction.init(userPressed: .write) }",
+                     "func a() { let make = AIUserAction.init; _ = make(.write) }",
+                     "func a() { _ = AIUserAction(userPressed\n: .write) }"] {
+            let found = try Self.matches(of: #"userPressed\s*:|AIUserAction\s*\.\s*init\b"#, in: Self.code(line))
+            XCTAssertFalse(found.isEmpty, line)
+            XCTAssertEqual(Set(found), ["a"], line)
+        }
+        let commented = Self.code("/// AIUserAction(userPressed: .write)\nlet x = 1 // userPressed: no")
+        XCTAssertEqual(try Self.matches(of: #"userPressed\s*:"#, in: commented), [], "comments are not code")
+    }
+
+    /// Every HTTP send to Anthropic or OpenAI goes through `ProviderHTTP`, which records it against the user's action
+    /// first; no other SSAI file calls a `URLSession` send, and no module but SSAI names their hosts. Every CLI launch is
+    /// one `CLIProcess`, made only by `CLIProcessRunner.run` after it records the launch; nothing else in the app starts a
+    /// process.
+    func testEveryRequestAndLaunchGoesThroughTheGate() throws {
+        let all = try allSources()
+        let sends = Self.sends
+        var ssaiSenders: [String: Int] = [:]
+        for file in all where file.name.hasPrefix("Sources/SSAI/") {
+            let found = try Self.matches(of: sends, in: file.code)
+            if !found.isEmpty { ssaiSenders[file.name] = found.count }
+        }
+        XCTAssertEqual(ssaiSenders, ["Sources/SSAI/ProviderHTTP.swift": 2], "one place sends")
+        let gate = try XCTUnwrap(all.first { $0.name == "Sources/SSAI/ProviderHTTP.swift" })
+        for function in ["data", "bytes"] {
+            let body = try XCTUnwrap(gate.code.components(separatedBy: "static func \(function)(").dropFirst().first)
+            let record = try XCTUnwrap(body.range(of: "AIEgress.record("), "\(function) records")
+            let send = try XCTUnwrap(body.range(of: "session.\(function)(for:"))
+            XCTAssertLessThan(record.lowerBound, send.lowerBound, "\(function) records before it sends")
+        }
+
+        let hosts = #"api\.anthropic\.com|api\.openai\.com"#
+        let naming = try all.filter { try !Self.matches(of: hosts, in: $0.code).isEmpty }.map(\.name)
+        XCTAssertEqual(Set(naming), ["Sources/SSAI/AnthropicMessagesProvider.swift", "Sources/SSAI/OpenAIResponsesProvider.swift"],
+                       "only the providers know where to send")
+
+        let launching = #"\bProcess\s*\(|\bProcess\s*\.\s*(run|launchedProcess)\b|\bposix_spawn|\bNSTask\b"#
+            + #"|\bexecv[pe]?\s*\(|\bfork\s*\(\s*\)"#
+        let launchers = try all.filter { try !Self.matches(of: launching, in: $0.code).isEmpty }.map(\.name)
+        XCTAssertEqual(launchers, ["Sources/SSAI/CLIProcess.swift"], "one process launcher")
+        let process = try XCTUnwrap(all.first { $0.name == "Sources/SSAI/CLIProcess.swift" })
+        XCTAssertEqual(try Self.matches(of: #"\bprocess\s*\.\s*run\s*\("#, in: process.code), ["start"], "it starts in one place")
+        let makers = try all.flatMap { file in try Self.matches(of: #"\bCLIProcess\s*\("#, in: file.code).map { "\(file.name) \($0)" } }
+        XCTAssertEqual(makers, ["Sources/SSAI/CLIProcessRunner.swift run"], "made only to run a command")
+        let runner = try XCTUnwrap(all.first { $0.name == "Sources/SSAI/CLIProcessRunner.swift" })
+        let run = try XCTUnwrap(runner.code.components(separatedBy: "func run(_ command: CLICommand)").dropFirst().first)
+        let record = try XCTUnwrap(run.range(of: "AIEgress.record(.launch("), "every launch is recorded")
+        let make = try XCTUnwrap(run.range(of: "CLIProcess("))
+        XCTAssertLessThan(record.lowerBound, make.lowerBound, "before it starts")
+        let command = try XCTUnwrap(all.first { $0.name == "Sources/SSAI/CLICommand.swift" })
+        XCTAssertTrue(command.code.contains("var action: AIUserAction"), "no command without the user's action")
+    }
+
+    /// The send scan sees the spellings a new call site could use.
+    func testTheSendScanSeesEverySpelling() throws {
+        let sends = Self.sends
+        for line in ["func a() async { _ = try? await session.data(for: request) }",
+                     "func a() async { _ = try? await URLSession.shared.data(from: url) }",
+                     "func a() async { _ = try? await session.upload(for: request, from: body) }",
+                     "func a() async { _ = try? await session.download(for: request) }",
+                     "func a() { session.dataTask(with: request).resume() }",
+                     "func a() { session.webSocketTask(with: url).resume() }",
+                     "func a() async { _ = try? await session.bytes(for: request) }"] {
+            XCTAssertFalse(try Self.matches(of: sends, in: line).isEmpty, line)
+        }
+        let gated = "func a() async { _ = try? await ProviderHTTP.data(for: request, on: session, by: action) }"
+        XCTAssertTrue(try Self.matches(of: sends, in: gated).isEmpty,
+                      "the gate's own callers are not sends")
     }
 }
 

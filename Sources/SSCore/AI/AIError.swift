@@ -169,6 +169,37 @@ public enum AIError: Error, Sendable, Hashable {
         }
     }
 
+    /// The reply's tool-row words (§5.56), where Try again and, when the fix is there, Settings… are links beside them:
+    /// `message(for:)` without the closing “Try again …” or “… in Settings › AI” the links already say, so the line never
+    /// says Try again twice and the reason keeps the room. A wait the provider named stays: “Wait 30 seconds.”
+    public func lineMessage(for kind: AIProviderKind?) -> String {
+        let kind = kind == .demo ? nil : kind
+        switch self {
+        case .rateLimited(let retryAfter):
+            let limiting = "\(Self.company(kind)) is limiting requests"
+            guard let wait = Self.wait(retryAfter) else { return limiting }
+            return limiting + ". Wait \(wait)."
+        case .overloaded:
+            return "\(Self.company(kind)) is busy"
+        case .emptyReply:
+            return "Nothing came back"
+        case .modelUnavailable:
+            return "That model isn't available"
+        case .missingKey:
+            return kind.map { "Add your \($0.destination.displayName) API key" } ?? "Add your API key"
+        case .unsupportedVersion(let found):
+            return "\(Self.productAndVersion(kind, found)) is too old. Update it."
+        case .signedOut where kind == .claudeCode:
+            return "Claude Code is signed out. Run claude in Terminal."
+        case .keyRefused where kind == .claudeCode:
+            return AIError.signedOut.lineMessage(for: kind)
+        case .tooLong(let selection):
+            return selection ? "The selection is too long to rewrite. Select less." : message(for: kind)
+        default:
+            return message(for: kind)
+        }
+    }
+
     /// The first dotted number in what a CLI printed (“2.1.322 (Claude Code)” gives “2.1.322”): digits and dots only,
     /// so nothing else the CLI wrote, or anything a provider put there by mistake, reaches the words.
     static func sanitizedVersion(_ found: String) -> String {
@@ -208,12 +239,17 @@ public enum AIError: Error, Sendable, Hashable {
     }
 
     private static func when(_ retryAfter: TimeInterval?) -> String {
-        guard let retryAfter, retryAfter.isFinite, retryAfter > 0 else { return "in a moment" }
+        wait(retryAfter).map { "in " + $0 } ?? "in a moment"
+    }
+
+    /// “30 seconds”, “a minute”, “3 minutes”; nil when the provider named no wait.
+    private static func wait(_ retryAfter: TimeInterval?) -> String? {
+        guard let retryAfter, retryAfter.isFinite, retryAfter > 0 else { return nil }
         let seconds = Int(retryAfter.rounded(.up))
-        if seconds <= 1 { return "in a second" }
-        if seconds < 60 { return "in \(seconds) seconds" }
+        if seconds <= 1 { return "a second" }
+        if seconds < 60 { return "\(seconds) seconds" }
         let minutes = (seconds + 59) / 60
-        return minutes == 1 ? "in a minute" : "in \(minutes) minutes"
+        return minutes == 1 ? "a minute" : "\(minutes) minutes"
     }
 }
 

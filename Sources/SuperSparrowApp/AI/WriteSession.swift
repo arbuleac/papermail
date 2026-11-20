@@ -41,8 +41,13 @@ final class WriteSession {
         var isRewrite: Bool
         /// The reply as it landed.
         var reply: String
-        /// The field's whole text with the reply in it: any change since is the user's edit.
+        /// The field's whole text with the reply in it.
         var textAfter: String
+        /// The field's whole text before the reply (the notes): ⌘Z brings it back, ⌘⇧Z the reply, and neither is the
+        /// user's edit. Any other text is.
+        var textBefore: String
+        /// The selection before ⌘J (the caret, usually), which ⌘Z puts back with the notes.
+        var selection: [NSValue]
     }
 
     private var lastDraft: Draft?
@@ -80,6 +85,8 @@ final class WriteSession {
         control.onTryAgain = { [weak self] in self?.writeFromControl() }
         control.onUndo = { [weak self] in self?.undoDraft() }
         control.onOpenSettings = { [weak self] in self?.openSettings() }
+        control.onSayHow = { [weak self] in self?.sayHowFromControl() }
+        control.onPreset = { [weak self] preset in self?.runPresetFromControl(preset) }
         let strip = field.instructionStrip
         strip.onRun = { [weak self] instruction in self?.run(instruction: instruction) }
         strip.onEscape = { [weak self] in _ = self?.stripEscape() }
@@ -113,9 +120,34 @@ final class WriteSession {
         watchTheKeyboard()
     }
 
-    /// The hint shows once the user's own text holds a few words (§5.56): their notes are worth writing from.
+    /// The hint says what ⌘J does with the user's text (§5.56): with text selected, it rewrites the selection; once the
+    /// user's own text holds a few words, it writes from them, their notes.
     private func updateHint() {
-        field.writeControl.showsHint = Self.wordCount(in: ownText) >= Int(Quire.Layout.WriteTool.hintMinWords)
+        if rewritableSelection != nil {
+            field.writeControl.hint = .selection
+        } else if Self.wordCount(in: ownText) >= Int(Quire.Layout.WriteTool.hintMinWords) {
+            field.writeControl.hint = .notes
+        } else {
+            field.writeControl.hint = nil
+        }
+    }
+
+    /// The selection ⌘J would rewrite, less its leading and trailing blanks: nil with nothing selected, or a selection of
+    /// spaces and line breaks only, which ⌘J treats as no selection (it writes from the notes or the thread).
+    private var rewritableSelection: NSRange? {
+        let text = textView.string as NSString
+        let selection = textView.selectedRange()
+        guard selection.length > 0, NSMaxRange(selection) <= text.length else { return nil }
+        let core = Self.trimmedCore(of: selection, in: text)
+        guard text.substring(with: core).contains(where: { !$0.isWhitespace }) else { return nil }
+        return core
+    }
+
+    /// The selection moved: the hint, and the open strip's placeholder, follow what ⌘J would rewrite.
+    func selectionDidChange() {
+        guard !isWriting, !isChangingText else { return }
+        updateHint()
+        if isStripShown { field.instructionStrip.rewritesSelection = rewritableSelection != nil }
     }
 
     private var ownText: String {
@@ -135,7 +167,10 @@ final class WriteSession {
     func userDidEdit() {
         guard !isChangingText else { return }
         if phase == .written || isFailed { phase = .idle }
-        if phase != .writing, let lastDraft, textView.string != lastDraft.textAfter { self.lastDraft = nil }
+        // ⌘Z back to the notes and ⌘⇧Z back to the reply keep Try again: a redone reply is tried again from its notes.
+        if phase != .writing, let lastDraft, textView.string != lastDraft.textAfter, textView.string != lastDraft.textBefore {
+            self.lastDraft = nil
+        }
         updateHint()
     }
 
@@ -158,7 +193,7 @@ final class WriteSession {
     }
 
     var plan: Plan {
-        if textView.selectedRange().length > 0, !isWriting { return .rewriteSelection }
+        if rewritableSelection != nil, !isWriting { return .rewriteSelection }
         if let lastDraft, textView.string == lastDraft.textAfter { return .tryAgain }
         return ownText.contains { !$0.isWhitespace } ? .fromNotes : .reply
     }
@@ -204,12 +239,11 @@ final class WriteSession {
         }
         self.configuration = configuration
         let text = textView.string as NSString
-        let selection = textView.selectedRange()
 
-        if selection.length > 0, NSMaxRange(selection) <= text.length {
+        if let range = rewritableSelection {
             // The selection's own leading and trailing space and line breaks stay where they are (a triple-clicked
-            // paragraph keeps its line break): the reply, trimmed, replaces what lies between them.
-            let range = Self.trimmedCore(of: selection, in: text)
+            // paragraph keeps its line break): the reply, trimmed, replaces what lies between them. A selection of blanks
+            // alone is none: ⌘J then writes from the notes.
             let ask = WriteAsk(instruction: instruction ?? "", draft: .selection(text.substring(with: range)))
             start(ask: ask, range: range, isRewrite: true, previous: nil, configuration: configuration)
             return
@@ -233,6 +267,8 @@ final class WriteSession {
         if let undo = textView.undoManager, undo.canUndo, undo.undoActionName == WriteStreamEdit.actionName {
             isChangingText = true
             undo.undo()
+            // The caret from before the first ⌘J, never the notes selected: Esc during this write puts it back so.
+            if textView.string == draft.textBefore { textView.selectedRanges = draft.selection }
             isChangingText = false
         }
         let range = draft.isRewrite ? draft.range : field.ownTextRange
@@ -254,7 +290,7 @@ final class WriteSession {
         switch ask.draft {
         case .selection(let part) where ReplyContextBuilder.exceedsAskLimit(part),
              .notes(let part) where ReplyContextBuilder.exceedsAskLimit(part):
-            let reason = AIError.tooLong(selection: isRewrite).message(for: configuration.kind)
+            let reason = AIError.tooLong(selection: isRewrite).lineMessage(for: configuration.kind)
             phase = .failed(reason: reason, offersSettings: false)
             announceFailure(reason)
             return
@@ -423,8 +459,23 @@ final class WriteSession {
     /// ⇧⌘J: the strip docks above the text with the keyboard in it, its last instruction kept (and selected).
     func showStrip() {
         if !isStripShown { setStrip(true) }
-        field.instructionStrip.rewritesSelection = textView.selectedRange().length > 0
+        field.instructionStrip.rewritesSelection = rewritableSelection != nil
         field.instructionStrip.focus()
+    }
+
+    /// The written line's Say how, or Write's menu: the strip, as ⇧⌘J opens it.
+    private func sayHowFromControl() {
+        guard !isWriting else { return }
+        if !isStripShown, textView.window?.firstResponder !== textView { field.focusText() }
+        showStrip()
+    }
+
+    /// A preset from Write's menu: run as the strip's chip runs it, the strip showing what was asked.
+    private func runPresetFromControl(_ preset: String) {
+        guard !isWriting else { return }
+        if textView.window?.firstResponder !== textView, !field.instructionStrip.holdsFocus { field.focusText() }
+        field.instructionStrip.instruction = preset
+        run(instruction: preset)
     }
 
     func closeStrip(focusText: Bool) {
@@ -494,14 +545,14 @@ final class WriteSession {
             if edit.wasDisturbed {
                 phase = .idle
             } else {
-                let reason = AIError.emptyReply.message(for: configuration?.kind)
+                let reason = AIError.emptyReply.lineMessage(for: configuration?.kind)
                 phase = .failed(reason: reason, offersSettings: false)
                 announceFailure(reason)
             }
             return
         }
         lastDraft = Draft(ask: running.ask, range: edit.originalRange, isRewrite: running.isRewrite, reply: reply,
-                          textAfter: textView.string)
+                          textAfter: textView.string, textBefore: edit.textBefore, selection: edit.originalSelection)
         phase = .written
         // The caret waits after the reply; the keyboard goes to it from the strip or the text, never from elsewhere.
         if keyboardWasHere { field.focusText() }
@@ -517,7 +568,7 @@ final class WriteSession {
         let keyboardWasHere = keyboardIsHere
         stopWriting()
         field.setHeldOpen(isStripShown)
-        let reason = error == .consentRequired ? HelpMeWrite.turnOnWords : error.message(for: configuration?.kind)
+        let reason = error == .consentRequired ? HelpMeWrite.turnOnWords : error.lineMessage(for: configuration?.kind)
         phase = .failed(reason: reason, offersSettings: error.needsSettings || error == .consentRequired)
         if keyboardWasHere, !field.instructionStrip.holdsFocus { field.focusText() }
         announceFailure(reason)

@@ -112,6 +112,9 @@ final class QuickReplyView: NSView, QuirePointerTarget {
             willReplaceText?()
             textView.string = newValue
             textDidChange()
+            // Setting the string reports no edit: Help me write's hint reads the new text here (a send undone or failed
+            // puts the draft back while the keyboard may still be in the field).
+            onUserEdit?()
         }
     }
 
@@ -155,11 +158,16 @@ final class QuickReplyView: NSView, QuirePointerTarget {
     /// window's order runs.
     var claimsEscape: (() -> Bool)?
 
-    /// The user changed the text (typing, a paste, an undo, a reply landing): Help me write's line and hint follow.
+    /// The user changed the text (typing, a paste, an undo, a reply landing, the text set from outside): Help me write's
+    /// line and hint follow.
     var onUserEdit: (() -> Void)?
 
+    /// The selection in the text changed: Help me write's hint says whether ⌘J rewrites it.
+    var onSelectionChange: (() -> Void)?
+
     /// Help me write's control in the tool row (§5.56): Write and its hint, or the line of a write under way, just
-    /// written or failed, which then takes the row's leading place as the send status does.
+    /// written or failed, after the tools or the tabs where it fits, else (and always while writing) in the row's leading
+    /// place as the send status is.
     let writeControl = WriteToolControl()
 
     /// Help me write's instruction strip, docked inside the field above the text while it shows.
@@ -605,12 +613,6 @@ final class QuickReplyView: NSView, QuirePointerTarget {
 
         let rowY = field.minY + m.fieldPadTop + extra + CGFloat(lines) * lineHeight + m.toolRowGap
         let showsStatus = status != .none
-        // Help me write's line (writing, written, failed) takes the row's leading place as the send status does; the send
-        // status, when there is one, wins.
-        let writeLine = toolRow && !showsStatus && writeControl.takesTheRow
-        tabs.isHidden = !toolRow || showsStatus || writeLine
-        attach.isHidden = !toolRow || showsStatus || writeLine
-        openInComposer.isHidden = !toolRow || (showsStatus && status == .error) || writeLine
         send.isHidden = !toolRow
         sendOptions.isHidden = !toolRow
         sendOptions.isEnabled = !refusesEdits
@@ -632,6 +634,18 @@ final class QuickReplyView: NSView, QuirePointerTarget {
         let sendVisual = NSRect(x: optionsVisual.minX - m.toolIconGap - sendSize.width, y: rowY + (m.toolRow - sendSize.height) / 2,
                                 width: sendSize.width, height: sendSize.height)
         send.frame = send.frame(forVisualRect: sendVisual)
+        // Help me write's line follows the tools while it can say what it must there (“Written by Claude · Try again ·
+        // Undo”, a failure's whole reason), so Reply all, Attach and Open in Composer stay at hand after a draft lands;
+        // with less room Attach and Open in Composer give way, then the tabs. While a reply streams it takes the row's
+        // leading place as the send status does; the send status, when there is one, wins.
+        let writeStart = x + m.toolIcon + m.toolGroupGap
+        let writeEnd = sendVisual.minX - m.toolGroupGap
+        let afterTabs = field.minX + m.textX + tabSize.width + m.toolGroupGap
+        let writePlacement = toolRow && !showsStatus && writeControl.isShown
+            ? writeControl.placement(roomAfterTools: writeEnd - writeStart, roomAfterTabs: writeEnd - afterTabs) : .afterTools
+        tabs.isHidden = !toolRow || showsStatus || writePlacement == .row
+        attach.isHidden = !toolRow || showsStatus || writePlacement != .afterTools
+        openInComposer.isHidden = !toolRow || (showsStatus && status == .error) || writePlacement != .afterTools
 
         // The leading status replaces the tabs and tools; Open in Composer follows it when it applies.
         statusGlyph.isHidden = !toolRow || !showsStatus || { if case .counting = status { return true } else { return false } }()
@@ -669,9 +683,15 @@ final class QuickReplyView: NSView, QuirePointerTarget {
         // over Send.
         writeControl.isHidden = !toolRow || showsStatus || !writeControl.isShown
         if !writeControl.isHidden {
-            let start = writeLine ? field.minX + m.textX : (composerX ?? x) + m.toolIcon + m.toolGroupGap
-            let end = sendVisual.minX - m.toolGroupGap
-            writeControl.frame = NSRect(x: start, y: rowY, width: max(0, min(writeControl.fittingWidth, end - start)), height: m.toolRow)
+            // Taking the row, its first mark (Stop's glyph, the failed glyph, the words) starts on the text's column.
+            let start: CGFloat
+            switch writePlacement {
+            case .row: start = field.minX + m.textX - writeControl.leadingInset
+            case .afterTabs: start = afterTabs
+            case .afterTools: start = writeStart
+            }
+            writeControl.frame = NSRect(x: start, y: rowY, width: max(0, min(writeControl.fittingWidth, writeEnd - start)),
+                                        height: m.toolRow)
         }
 
         strip.frame = field.insetBy(dx: 1, dy: 1)
@@ -1071,6 +1091,10 @@ extension QuickReplyView: NSTextViewDelegate {
     func textDidChange(_ notification: Notification) {
         textDidChange()
         onUserEdit?()
+    }
+
+    func textViewDidChangeSelection(_ notification: Notification) {
+        onSelectionChange?()
     }
 
     /// While Help me write streams into the field, typing waits: the reply and the user's keys never interleave.

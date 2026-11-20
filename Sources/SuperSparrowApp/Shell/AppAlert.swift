@@ -216,7 +216,7 @@ struct AppAlert {
         let company = kind.destination.displayName
         // The user's own notes go as typed (an address there is one they want in the reply); the conversation's go redacted.
         var body = "When you press Write, the conversation you\u{2019}re replying to (newest messages first, older ones "
-            + "shortened), your notes and your first name go to \(company) to draft a reply. Addresses from the conversation, "
+            + "shortened), your notes and your first name go to \(company) to draft a reply. Email addresses from the conversation, "
             + "attachments and other mail are never sent. Nothing is sent until you press Write."
         switch kind {
         case .claudeCode: body += " Through Claude Code, under your Claude plan\u{2019}s privacy settings."

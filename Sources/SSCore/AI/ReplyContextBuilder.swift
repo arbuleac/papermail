@@ -27,11 +27,15 @@ public struct ReplyContextBuilder: Sendable {
         public var digestCap: Int
         public var digestDecay: Double
         public var digestFloor: Int
+        /// How far the digests' caps may grow, all in proportion, when the budget has room left after the messages sent
+        /// whole: a short thread's older messages then say more than their first sentence.
+        public var digestMaxScale: Double
         /// The most characters of the user's notes, selection or instruction: a paste of a whole document is not an ask.
         public var maxAskCharacters: Int
 
         public init(maxCharacters: Int = 24_000, targetShare: Double = 0.45, recentShare: Double = 0.15, recentCount: Int = 2,
-                    digestCap: Int = 400, digestDecay: Double = 0.85, digestFloor: Int = 80, maxAskCharacters: Int = 8_000) {
+                    digestCap: Int = 400, digestDecay: Double = 0.85, digestFloor: Int = 80, digestMaxScale: Double = 3,
+                    maxAskCharacters: Int = 8_000) {
             self.maxCharacters = maxCharacters
             self.targetShare = targetShare
             self.recentShare = recentShare
@@ -39,6 +43,7 @@ public struct ReplyContextBuilder: Sendable {
             self.digestCap = digestCap
             self.digestDecay = digestDecay
             self.digestFloor = digestFloor
+            self.digestMaxScale = digestMaxScale
             self.maxAskCharacters = maxAskCharacters
         }
 
@@ -49,9 +54,28 @@ public struct ReplyContextBuilder: Sendable {
         /// The characters each of the next newest messages may take.
         public var recentBudget: Int { Int(Double(maxCharacters) * recentShare) }
 
-        /// The cap of the digest `age` places after the newest digest.
-        public func digestCap(age: Int) -> Int {
-            max(digestFloor, Int((Double(digestCap) * pow(digestDecay, Double(max(0, age)))).rounded()))
+        /// The cap of the digest `age` places after the newest digest, its cap and floor grown by `scale` (1 to
+        /// `digestMaxScale`) when the budget has room for it.
+        public func digestCap(age: Int, scale: Double = 1) -> Int {
+            let scale = min(max(1, scale), max(1, digestMaxScale))
+            let decayed = Double(digestCap) * scale * pow(digestDecay, Double(max(0, age)))
+            return max(Int((Double(digestFloor) * scale).rounded()), Int(decayed.rounded()))
+        }
+
+        /// How much the caps of `count` digests grow when `room` characters are left for them, headers included: as
+        /// much as fills the room, between 1 and `digestMaxScale`.
+        public func digestScale(count: Int, room: Int) -> Double {
+            guard count > 0 else { return 1 }
+            let base = (0..<count).reduce(0) { $0 + digestCap(age: $1) }
+            let words = room - count * ReplyContextBuilder.headerAllowance
+            guard base > 0, words > base else { return 1 }
+            // The floor grows with the caps, so the scale that fills the room is found by trying, from the largest down.
+            var scale = max(1, digestMaxScale)
+            while scale > 1 {
+                if (0..<count).reduce(0, { $0 + digestCap(age: $1, scale: scale) }) <= words { return scale }
+                scale = max(1, scale - 0.25)
+            }
+            return 1
         }
     }
 
@@ -111,12 +135,19 @@ public struct ReplyContextBuilder: Sendable {
         var digestAge = 0
         var spent = 0
         var folded: [Int] = []
+        let digestCount = newest.indices.filter { $0 != targetIndex && !recent.contains($0) }.count
+        /// Set at the first digest, once the messages sent whole have taken theirs: what is left grows the digests.
+        var digestScale: Double?
         // The message replied to first, then the newest to the oldest: whatever is left when the oldest come is theirs.
         for index in [targetIndex] + newest.indices.filter({ $0 != targetIndex }) {
             let metadata = newest[index]
             let isTarget = index == targetIndex
             let isDigest = !isTarget && !recent.contains(index)
-            let cap = isTarget ? limits.targetBudget : recent.contains(index) ? limits.recentBudget : limits.digestCap(age: digestAge)
+            if isDigest, digestScale == nil {
+                digestScale = limits.digestScale(count: digestCount, room: limits.maxCharacters - spent)
+            }
+            let cap = isTarget ? limits.targetBudget : recent.contains(index) ? limits.recentBudget
+                : limits.digestCap(age: digestAge, scale: digestScale ?? 1)
             if isDigest {
                 digestAge += 1
                 // Past the budget, this one and every older one fold into one line.
@@ -150,9 +181,11 @@ public struct ReplyContextBuilder: Sendable {
         let subject = redactor.redact(RenderPayloadBuilder.subject(of: Array(newest.reversed())))
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let targetMessage = newest[targetIndex]
+        // The summary reads the message replied to as it is sent, rather than reading and redacting it again.
+        let targetText = sent.first { $0.isReplyTarget }?.text ?? ""
         return ReplyContext(
             subject: String(subject.prefix(300)),
-            summary: summary(of: newest, target: targetIndex, own: ownAddresses, redactor: redactor, body: body),
+            summary: summary(of: newest, target: targetIndex, targetText: targetText, own: ownAddresses, redactor: redactor),
             messages: sent,
             fold: fold(of: folded.sorted().map { newest[$0] }, own: ownAddresses, redactor: redactor, body: body),
             userFirstName: firstName(in: Array(newest.reversed()), target: targetMessage, own: ownAddresses),
@@ -174,7 +207,10 @@ public struct ReplyContextBuilder: Sendable {
                          redactor: AIRedactor, body: (MessageMetadata) -> Body?) -> ReplyContext.Message {
         let isFromUser = Self.isFromUser(metadata, own: own)
         // A digest needs only its first sentences: reading less keeps a 30 KB message's digest to its first lines.
-        let (text, attachments, isPreview) = ownText(metadata, scanCharacters: digest ? cap * 2 + 256 : cap + 256,
+        // A digest reads past its cap for the boilerplate it drops (a banner, a greeting), then keeps a little more than the
+        // cap for its sentences to end in.
+        let (text, attachments, isPreview) = ownText(metadata, reading: digest ? cap * 2 + 512 : cap + 256,
+                                                     keeping: digest ? cap + 128 : cap + 256, digest: digest,
                                                      redactor: redactor, body: body)
         var form = ReplyContext.Form.full
         var shown = text
@@ -198,15 +234,38 @@ public struct ReplyContextBuilder: Sendable {
         )
     }
 
-    /// The message's own words (quoted history stripped), redacted and tidied, read up to about `scanCharacters`.
-    private func ownText(_ metadata: MessageMetadata, scanCharacters: Int, redactor: AIRedactor,
+    /// The message's own words (quoted history stripped, the mail's boilerplate dropped: `MailBoilerplate`, more of it
+    /// for a digest), read up to about `reading` characters, then redacted and tidied, at most `keeping` of them.
+    private func ownText(_ metadata: MessageMetadata, reading: Int, keeping: Int, digest: Bool, redactor: AIRedactor,
                          body: (MessageMetadata) -> Body?) -> (text: String, attachments: Int, isPreview: Bool) {
         if let stored = body(metadata) {
-            // Bytes, not characters, bound the scan: four per character keeps a CJK thread from being cut early.
-            let words = QuotedHistory.ownWords(of: Self.normalizedNewlines(stored.plainText), limit: max(1, scanCharacters) * 4)
+            // Bytes bound the read (four per character keeps a CJK thread from being cut early); characters bound what is
+            // redacted, so ASCII mail is not redacted at four times what is shown.
+            let limit = max(1, reading) * 4
+            // Only the head is ever read: a long message, or a thread of hundreds, is not copied whole to be cut. A little
+            // past the limit, so a quote's Outlook header (From:, then Sent: below it) is still seen as one.
+            let head = QuotedHistory.limited(stored.plainText, to: limit + 512)
+            let read = QuotedHistory.ownWords(of: Self.normalizedNewlines(head), limit: limit)
+            let wasCut = read.utf8.count >= limit - 4
+            var words = digest ? MailBoilerplate.trimmedForDigest(read, sawTheEnd: !wasCut)
+                : MailBoilerplate.trimmedForFullText(read, sawTheEnd: !wasCut)
+            words = Self.prefix(words, characters: keeping, wasCut: wasCut)
             return (Self.tidied(redactor.redact(words)), stored.attachmentCount, false)
         }
         return (Self.tidied(redactor.redact(metadata.snippet)), metadata.hasAttachments ? 1 : 0, true)
+    }
+
+    /// `text` up to `characters`, ending at a word: a word cut in two (an address, a link) never reaches the redactor,
+    /// which could not tell it is one. `wasCut`: the text was already cut short, its last word perhaps with it.
+    static func prefix(_ text: String, characters: Int, wasCut: Bool = false) -> String {
+        guard wasCut || text.count > characters else { return text }
+        var head = text.count > characters ? String(text.prefix(characters)) : text
+        if let space = head.lastIndex(where: \.isWhitespace) {
+            head = String(head[..<space])
+        } else if text.count > characters || wasCut {
+            head = ""
+        }
+        return head
     }
 
     private static func isFromUser(_ metadata: MessageMetadata, own: Set<String>) -> Bool {
@@ -295,14 +354,15 @@ public struct ReplyContextBuilder: Sendable {
 
     // MARK: The summary
 
-    private func summary(of newest: [MessageMetadata], target: Int, own: Set<String>, redactor: AIRedactor,
-                         body: (MessageMetadata) -> Body?) -> ReplyContext.Summary {
+    private func summary(of newest: [MessageMetadata], target: Int, targetText: String, own: Set<String>,
+                         redactor: AIRedactor) -> ReplyContext.Summary {
         var participants: [String] = []
         for message in newest {
             let name = Self.isFromUser(message, own: own) ? "you" : Self.author(message.from, redactor: redactor)
             if !participants.contains(name) { participants.append(name) }
         }
-        let asked = ownText(newest[target], scanCharacters: limits.targetBudget, redactor: redactor, body: body).text
+        // “Hi Alex,” is not part of what it asks.
+        let asked = MailBoilerplate.withoutGreeting(targetText)
         return ReplyContext.Summary(
             participants: participants,
             messageCount: newest.count,
@@ -334,7 +394,9 @@ public struct ReplyContextBuilder: Sendable {
             let name = Self.isFromUser(message, own: own) ? "you" : Self.author(message.from, redactor: redactor)
             if counts[name] == nil { order.append(name) }
             counts[name, default: 0] += 1
-            text += " " + ownText(message, scanCharacters: limits.digestCap, redactor: redactor, body: body).text
+            // A few words each are enough to find what they were about: a long thread's fold reads little.
+            text += " " + ownText(message, reading: limits.digestFloor * 2 + 256, keeping: limits.digestFloor * 2, digest: true,
+                                  redactor: redactor, body: body).text
         }
         let authors = order.enumerated()
             .sorted { (counts[$0.element] ?? 0, -$0.offset) > (counts[$1.element] ?? 0, -$1.offset) }
@@ -375,7 +437,8 @@ public struct ReplyContextBuilder: Sendable {
         "things", "think", "this", "those", "through", "time", "today", "tomorrow", "very", "want", "week", "well", "were",
         "what", "when", "where", "which", "while", "will", "with", "would", "yeah", "your", "yours", "you're", "we're", "i'll",
         "i'm", "don't", "can't", "didn't", "isn't", "won't", "wouldn't", "couldn't", "shouldn't", "cheers", "best", "kind",
-        "someone", "address", "link", "card", "number", "code",
+        "someone", "address", "link", "card", "number", "code", "email", "e-mail", "caution", "originated", "organization",
+        "organisation", "outlook", "iphone", "confidential", "intended", "recipient", "sender", "message", "sent",
     ]
 
     // MARK: The user's first name

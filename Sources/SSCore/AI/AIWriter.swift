@@ -46,7 +46,9 @@ public final class AIWriter {
     private let hasConsent: Consent
     private let milestones: Milestones
     private var runs: [AIFieldID: Run] = [:]
-    /// Set by `shutDown()`: the environment is going away, and no write starts after it.
+    /// The checks under way (Settings' Check, a key saved with Return), so `shutDown()` can end them.
+    private var checks: [UUID: Task<AIHealth, Never>] = [:]
+    /// Set by `shutDown()`: the environment is going away, and no write or check starts after it.
     public private(set) var isShutDown = false
 
     public init(resolve: @escaping Resolve, hasConsent: @escaping Consent, milestones: @escaping Milestones = { _, _ in }) {
@@ -125,11 +127,14 @@ public final class AIWriter {
         for field in Array(runs.keys) { stop(field) }
     }
 
-    /// Stops every write and refuses every later one: the environment is going away (quit, Leave Demo), and a write still
-    /// on its way to `write` (its context being built) must not start once its CLIs have been ended.
+    /// Stops every write and check and refuses every later one: the environment is going away (quit, Leave Demo), and a
+    /// write still on its way to `write` (its context being built) or a check must not start once its CLIs have been
+    /// ended. Quitting is never a reason to reach a provider (spec §3b).
     public func shutDown() {
         isShutDown = true
         stopAll()
+        for check in checks.values { check.cancel() }
+        checks = [:]
     }
 
     /// The provider's health from this Mac alone (no network, no process): Settings › AI's status line as it opens and
@@ -143,12 +148,21 @@ public final class AIWriter {
 
     /// Settings' Check button, or a key just saved: the provider's deeper check (an API key's authenticated GET, a CLI's
     /// version and sign-in), for the user's `action`.
+    /// After `shutDown()` it answers from this Mac alone and sends nothing; `shutDown()` cancels one under way.
     public func check(_ configuration: AIProviderConfiguration, action: AIUserAction) async -> AIHealth {
+        guard !isShutDown else { return localHealth(of: configuration) }
         guard let provider = resolve(configuration) else {
             return .unavailable(reason: AIError.unavailable.message(for: configuration.kind))
         }
-        return await provider.check(action)
+        let id = UUID()
+        let task = Task { await provider.check(action) }
+        checks[id] = task
+        defer { checks[id] = nil }
+        return await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
     }
+
+    /// Whether a check is under way (tests).
+    public var isChecking: Bool { !checks.isEmpty }
 
     // MARK: Running
 

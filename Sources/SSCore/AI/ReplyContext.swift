@@ -46,10 +46,10 @@ public struct ReplyContext: Sendable, Hashable {
             self.form = form
         }
 
-        /// “Latest”, “2nd latest”, “3rd latest”, … for a message sent whole or cut; “Earlier” for a digest.
+        /// “Latest”, “2nd latest”, “3rd latest”, …: its real place, whether sent whole, cut or as a digest, so a digest of
+        /// a message newer than the one replied to never reads as older (the transcript adds “shortened” to a digest).
         public var positionLabel: String {
-            if form == .digest { return "Earlier" }
-            return position == 0 ? "Latest" : ReplyContext.ordinal(position + 1) + " latest"
+            position == 0 ? "Latest" : ReplyContext.ordinal(position + 1) + " latest"
         }
     }
 

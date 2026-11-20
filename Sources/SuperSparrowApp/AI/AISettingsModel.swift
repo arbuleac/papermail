@@ -8,7 +8,7 @@ import SSCore
 /// permission, Cancel puts the popup back, Off withdraws it. A provider chosen before 1.12 and never turned on says so,
 /// with Turn On….
 ///
-/// Nothing here reaches a provider unless the user presses Check or saves a key (spec §3b): the status as the tab opens
+/// Nothing here reaches a provider unless the user presses Check or Return on a typed key (spec §3b): the status as the tab opens
 /// or the provider changes comes from this Mac (a key's presence by its attributes alone, the CLI's file and the version
 /// its path names), and the API key's data is read only by Check (reading it can show the Keychain prompt).
 @MainActor
@@ -155,7 +155,7 @@ final class AISettingsModel: ObservableObject {
         status = Status(center.checkedHealth[configuration] ?? center.writer.localHealth(of: configuration))
     }
 
-    /// Check, or a key just saved: the provider's own check (the models list, which sends the key and nothing else; the
+    /// Check, or Return on a typed key: the provider's own check (the models list, which sends the key and nothing else; the
     /// CLI's version and sign-in), for the user's `action`, the one place Settings reaches beyond this Mac.
     private func runCheck(_ action: AIUserAction) {
         healthTask?.cancel()
@@ -242,9 +242,11 @@ final class AISettingsModel: ObservableObject {
         showLocalHealth()
     }
 
-    /// Return in the key field, or leaving it: what was typed is saved to the Keychain and checked. An empty field
+    /// Return in the key field (`checking`), or leaving it: what was typed is saved to the Keychain. Return also checks
+    /// it with the provider; leaving the field (a click elsewhere, Settings closing, the app quitting) only saves it and
+    /// shows its status from this Mac, since none of those asks for anything to be sent (spec §3b). An empty field
     /// changes nothing (the stored key is never shown, so an empty field is not a cleared one; Remove clears it).
-    func commitKey() {
+    func commitKey(checking: Bool) {
         guard let provider, provider.usesAPIKey, !isSnapshot else { return }
         let typed = keyText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !typed.isEmpty else { return }
@@ -254,8 +256,13 @@ final class AISettingsModel: ObservableObject {
             keyFailure = nil
             hasKey = true
             center.forgetCheck(for: provider)
-            // Saving a key is the user's own act of setting it up: the key, and nothing else, is checked with the provider.
-            runCheck(AIUserAction(userPressed: .check))
+            if checking, !center.writer.isShutDown {
+                // Return on a key is the user's own act of setting it up: the key, and nothing else, is checked with the
+                // provider.
+                runCheck(AIUserAction(userPressed: .check))
+            } else {
+                showLocalHealth()
+            }
         } catch {
             keyFailure = "Couldn\u{2019}t save the key in your Keychain."
         }

@@ -54,7 +54,7 @@ final class WritePromptTests: XCTestCase {
         --- 2nd latest · you · Wed 18 Nov 2026 12:06
         (no new text)
 
-        --- Earlier · Priya Shah · Wed 18 Nov 2026 11:06 · 2 attachments · shortened
+        --- 3rd latest · Priya Shah · Wed 18 Nov 2026 11:06 · 2 attachments · shortened
         Could we move lunch to Thursday?
 
         (9 earlier messages from Priya Shah, Ben Carter and you, about venue, budget, catering)
@@ -69,6 +69,8 @@ final class WritePromptTests: XCTestCase {
         XCTAssertTrue(instructions.contains("from the user's side"))
         XCTAssertTrue(instructions.contains("shortened"))
         XCTAssertTrue(instructions.contains("only as background"))
+        XCTAssertTrue(instructions.contains("When it is not the latest, the messages above it are newer"),
+                      "a reply to an older message hears that newer ones may update it")
         XCTAssertTrue(instructions.contains("Never invent facts"))
         XCTAssertTrue(instructions.contains("notes as the brief"))
         XCTAssertTrue(instructions.contains("rewrite only that part"))

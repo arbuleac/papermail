@@ -90,8 +90,7 @@ struct HTTPStreamingWrite<Decoder: HTTPStreamDecoding>: Sendable {
 
     private func attempt(_ number: Int, shownText: inout Bool, into continuation: HTTPEventStream.Continuation) async -> AttemptEnd {
         do {
-            AIEgress.record(AIEgress.contact(for: request), by: action)
-            let (bytes, response) = try await session.bytes(for: request)
+            let (bytes, response) = try await ProviderHTTP.bytes(for: request, on: session, by: action)
             // Whatever ends this attempt (a refusal mid-stream, a failure step, the reader leaving) ends the transfer.
             defer { bytes.task.cancel() }
             guard let http = response as? HTTPURLResponse else {

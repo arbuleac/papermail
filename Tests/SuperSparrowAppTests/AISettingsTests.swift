@@ -108,11 +108,11 @@ final class AISettingsTests: XCTestCase {
         XCTAssertEqual(model.keyPrompt, AISettingsModel.keyPrompt)
 
         model.keyText = ""
-        model.commitKey()
+        model.commitKey(checking: true)
         XCTAssertFalse(try keys.hasKey(for: .claudeAPI), "an empty field changes nothing")
 
         model.keyText = "  sk-ant-test-1234  "
-        model.commitKey()
+        model.commitKey(checking: true)
         XCTAssertTrue(try keys.hasKey(for: .claudeAPI))
         XCTAssertEqual(try keys.key(for: .claudeAPI), "sk-ant-test-1234", "trimmed")
         XCTAssertEqual(model.keyText, "", "the field never holds the stored key")
