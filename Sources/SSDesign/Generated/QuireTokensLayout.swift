@@ -862,6 +862,8 @@ extension Quire {
             public static let statusBarWidth: CGFloat = 96
             public static let statusBarGap: CGFloat = 4
             public static let savedGap: CGFloat = 8
+            public static let aiKeyFieldWidth: CGFloat = 220
+            public static let aiPermissionGap: CGFloat = 4
             public static let groupMaxRows: CGFloat = 6
             public static let detailTop: CGFloat = 20
             public static let detailRow: CGFloat = 40

@@ -330,7 +330,7 @@ LAYOUT = {
               "groupRadius": 8, "labelColumn": 140, "swatch": 14, "monogramMaxLength": 2, "plusMinus": 22, "plusMinusGlyph": 11, "plusMinusTop": 8,
               "fieldHeight": 24, "noticeGap": 16, "labelGap": 12, "fieldWidth": 360, "captionMaxWidth": 360, "captionGap": 8, "sectionGap": 20,
               "accountFaceX": 16, "tagGap": 6, "statusGap": 12, "statusTrailing": 16, "statusGlyph": 12, "statusGlyphGap": 6, "statusButtonGap": 8,
-              "statusBarWidth": 96, "statusBarGap": 4, "savedGap": 8,
+              "statusBarWidth": 96, "statusBarGap": 4, "savedGap": 8, "aiKeyFieldWidth": 220, "aiPermissionGap": 4,
               "groupMaxRows": 6, "detailTop": 20, "detailRow": 40, "monogramFieldWidth": 64, "colourPopupWidth": 160, "lastErrorMaxLines": 3,
               "signatureLines": 3, "signatureFieldHeight": 66, "mailboxSizeGap": 12,
               "sendersWidth": 440, "senderRow": 40, "senderRowsMax": 8, "senderRowX": 12, "senderActionGap": 12, "senderRemoveInset": 9,

@@ -82,10 +82,11 @@ struct AISettingsView: View {
         }
     }
 
-    static let permissionGap: CGFloat = 4
+    /// “Permission given · Forget” under the caption (§5.40).
+    static let permissionGap = Quire.Layout.Settings.aiPermissionGap
 
     /// The key field leaves room for Check and Remove inside the field column.
-    static let keyFieldWidth: CGFloat = 220
+    static let keyFieldWidth = Quire.Layout.Settings.aiKeyFieldWidth
 
     // MARK: Choices
 
