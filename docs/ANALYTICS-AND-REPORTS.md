@@ -139,7 +139,7 @@ Every signal carries `mode` (`demo` or `accounts`: which mailbox was on screen) 
 | `Undo.used` | A step taken back: Z, ⌘Z, Edit › Undo or a toast's Undo. | `trigger` |
 | `Account.added` | An account is added (the demo replaced included). | `provider` |
 | `Account.removed` | An account is removed. | `provider` |
-| `HelpMeWrite.used` | A Help me write write ends: its reply is in, it was stopped (Stop, Esc, the card closing) or it failed. One per Write, never at ⌘J. | `aiProvider`, `ending` |
+| `HelpMeWrite.used` | A Help me write write ends: its reply is in, it was stopped (Stop, Esc, the card closing) or it failed. One per Write, never at ⌘J, and none for a reply the demo makes up on this Mac (its sheet says nothing is sent). | `aiProvider`, `ending` |
 | `Performance.listRefresh` | The list applies a change from the store (`list.refresh`). One in 20, at most 20 of each kind an hour. Its number is milliseconds. | `duration` |
 | `Performance.conversationOpen` | A conversation shows in the reader (`conversation.show`). Sampled as above. | `duration` |
 | `Performance.search` | A search's first page is in the list (`list.search`). Sampled as above. | `duration` |
@@ -159,7 +159,7 @@ Every value a parameter can take:
 | `setting` | `listDensity`, `accountFaces`, `undoSend`, `remoteImages`, `notifications`, `notificationPreviews`, `keepMail`, `theme`, `appearance`, `font`, `textSize`, `adaptMailColours`, `sendAction`, `launchAtLogin`, `defaultMailApp` |
 | `value` | the setting's own: the values of `density`, `theme`, `appearance`, `font` and `textSize` above; `on`, `off` (Mail links only `on`: the app cannot hand the role back); `5s`, `10s`, `20s`, `other` (Undo send); `everything`, `oneYear`, `threeMonths` (Keep mail); `sendAndArchive`, `send` |
 | `action` | `archive`, `trash`, `spam`, `moveToInbox`, `star`, `unstar`, `markRead`, `markUnread`, `later`, `mute`, `unmute`, `unsubscribe`, `alwaysArchiveSender`, `blockSender` |
-| `trigger` | `key`, `menu` (the menu bar, a context menu, the title menu), `toolbar` (a button in the reader or the calendar), `swipe`, `drag`, `click` (a double-click), `rail` (a click on the account rail), `toast`, `notification` |
+| `trigger` | `key`, `menu` (the menu bar, a context menu, the title menu), `toolbar` (a button in the reader or the calendar), `swipe`, `drag` (rows dropped on a rail folder or the calendar, files or a message's attachments dropped on the quick reply), `click` (a double-click), `rail` (a click on the account rail), `toast`, `notification` |
 | `conversations` | `1`, `2-5`, `6-20`, `21+` |
 | `kind` | `new`, `reply`, `replyAll`, `forward`, `draft` (a kept draft opened again) |
 | `origin` | `app`, `mailLink`, `service` |
@@ -174,7 +174,7 @@ Every value a parameter can take:
 | `state` | `shown`, `hidden` |
 | `answer` | `accept`, `tentative`, `decline` |
 | `provider` | `gmail`, `microsoft` |
-| `aiProvider` | `claudeAPI`, `claudeCode`, `openAIAPI`, `codex` (the kind of provider chosen in Settings › AI, never the model), `demo` (the demo's made-up writer) |
+| `aiProvider` | `claudeAPI`, `claudeCode`, `openAIAPI`, `codex` (the kind of provider chosen in Settings › AI, never the model) |
 | `ending` | `finished`, `stopped`, `failed` |
 | `duration` | `<16ms`, `16-50ms`, `50-100ms`, `100-250ms`, `250ms-1s`, `1s+` |
 

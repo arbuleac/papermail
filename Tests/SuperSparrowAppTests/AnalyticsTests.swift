@@ -221,38 +221,114 @@ final class AnalyticsTests: XCTestCase {
         }
     }
 
-    /// Help me write's kinds and endings are the writer's own: every provider kind and every milestone but the start.
+    /// Help me write's kinds and endings are the writer's own: the four kinds Settings › AI offers (the demo's made-up
+    /// writer is none) and every milestone but the start.
     func testHelpMeWritesValuesAreTheWritersOwn() {
-        XCTAssertEqual(AIProviderKind.allCases.map { AnalyticsSignal.Writer($0).rawValue }, AIProviderKind.allCases.map(\.rawValue))
+        XCTAssertEqual(AIProviderKind.allCases.compactMap { AnalyticsSignal.Writer($0)?.rawValue }, AIProviderKind.selectable.map(\.rawValue))
+        XCTAssertNil(AnalyticsSignal.Writer(.demo))
         XCTAssertEqual(AIWriteMilestone.allCases.compactMap { AnalyticsSignal.WriteEnding($0)?.rawValue }, ["finished", "failed", "stopped"])
     }
 
+    /// Writes Help me write's tests started and saw end.
+    private var writesEnded = 0
+
+    /// Starts a write with `configuration` through `center`'s writer, counted in `writesEnded` once its stream is over, a
+    /// failure included (the test reads that from the signal instead).
+    private func write(_ center: HelpMeWrite, _ configuration: AIProviderConfiguration) {
+        let request = AIWriteRequest(instructions: "Write the reply.", transcript: "Lunch in Lisbon on Thursday?", task: "Say yes")
+        let stream = center.writer.write(request, using: configuration, in: AIFieldID(name: "analytics"))
+        Task { @MainActor [weak self] in
+            do { for try await _ in stream {} } catch {}
+            self?.writesEnded += 1
+        }
+    }
+
     /// Help me write counts a write once, as it ends: the kind of provider and how it ended, never the instruction, the
-    /// conversation or a word of the reply.
+    /// conversation or a word of the reply. The scripted writer stands in for Claude here.
     func testAHelpMeWriteIsCountedAsItEndsWithItsProviderKindOnly() throws {
         try startAnalytics()
         let script = DemoAIScript()
         script.delay = .zero
         script.reply = "Thursday works for me."
-        let center = HelpMeWrite(keys: InMemoryAIKeyStore(), isDemo: true, demoScript: script) { _ in DemoAIProvider(script: script) }
-        let request = AIWriteRequest(instructions: "Write the reply.", transcript: "Lunch in Lisbon on Thursday?", task: "Say yes")
-        func write() {
-            let stream = center.writer.write(request, using: AIProviderConfiguration(kind: .demo), in: AIFieldID(name: "analytics"))
-            Task {
-                // A failed write ends its stream with the error, which the test reads from the signal instead.
-                do { for try await _ in stream {} } catch {}
-            }
-        }
-        write()
-        XCTAssertTrue(ListTestSupport.spin(until: { self.recorder.sent.count == 1 }, timeout: 5), "a finished write")
+        let center = HelpMeWrite(keys: InMemoryAIKeyStore(), isDemo: false, demoScript: script) { _ in DemoAIProvider(script: script) }
+        center.consentOverride = [.claudeAPI]
+        let claude = AIProviderConfiguration(kind: .claudeAPI)
+        writesEnded = 0
+        write(center, claude)
+        XCTAssertTrue(ListTestSupport.spin(until: { self.writesEnded == 1 && self.recorder.sent.count == 1 }, timeout: 5), "a finished write")
         script.failure = .offline
-        write()
-        XCTAssertTrue(ListTestSupport.spin(until: { self.recorder.sent.count == 2 }, timeout: 5), "a failed write")
+        write(center, claude)
+        XCTAssertTrue(ListTestSupport.spin(until: { self.writesEnded == 2 && self.recorder.sent.count == 2 }, timeout: 5), "a failed write")
         XCTAssertEqual(recorder.sent.map(\.name), ["HelpMeWrite.used", "HelpMeWrite.used"])
-        XCTAssertEqual(recorder.sent.map { $0.parameters["aiProvider"] }, ["demo", "demo"])
+        XCTAssertEqual(recorder.sent.map { $0.parameters["aiProvider"] }, ["claudeAPI", "claudeAPI"])
         XCTAssertEqual(recorder.sent.map { $0.parameters["ending"] }, ["finished", "failed"])
         XCTAssertEqual(Set(recorder.sent.flatMap(\.parameters.keys)), ["aiProvider", "ending", "mode"])
         XCTAssertEqual(script.requests.count, 2, "both writes reached the writer")
+    }
+
+    /// The demo's sheet and Settings › AI say a reply it makes up sends nothing: such a write sends no signal, whichever
+    /// provider the demo's Settings chose. A demo CLI run for real (`--live-ai-clis`) sends its conversation, and counts.
+    func testAReplyTheDemoMakesUpSendsNoSignal() throws {
+        try startAnalytics()
+        let center = HelpMeWrite.demo(isDemo: true)
+        let script = try XCTUnwrap(center.demoScript)
+        script.delay = .zero
+        let settings = AppSettings(defaults: try throwawayDefaults())
+        center.settings = settings
+        writesEnded = 0
+        for (index, kind) in AIProviderKind.selectable.enumerated() {
+            settings.setAIProvider(kind, demo: true)
+            settings.setAIConsent(true, for: kind, demo: true)
+            let configuration = try XCTUnwrap(center.configuration)
+            XCTAssertEqual(configuration.kind, kind, "the demo's own choice, never the demo writer's kind")
+            write(center, configuration)
+            XCTAssertTrue(ListTestSupport.spin(until: { self.writesEnded == index + 1 }, timeout: 5), "\(kind): the write ended")
+        }
+        XCTAssertEqual(script.requests.count, AIProviderKind.selectable.count, "every write was made up on this Mac")
+        ListTestSupport.spin(for: 0.1)
+        XCTAssertEqual(recorder.sent.map(\.name), [], "and none of them was counted")
+        for milestone in AIWriteMilestone.allCases {
+            XCTAssertNil(center.analyticsSignal(milestone, .demo))
+        }
+
+        let live = HelpMeWrite.demo(isDemo: true, liveCLIs: true)
+        XCTAssertEqual(live.analyticsSignal(.finished, .claudeCode), .helpMeWriteUsed(.claudeCode, .finished))
+        XCTAssertNil(live.analyticsSignal(.finished, .claudeAPI), "the demo's API providers still make replies up")
+        XCTAssertNil(live.analyticsSignal(.started, .claudeCode), "a write counts as it ends")
+    }
+
+    /// A drop on the quick reply opens its composer from a drag; Open in Composer, a button in the reader, from the toolbar.
+    func testAQuickReplyDropOpensItsComposerFromADrag() throws {
+        try startAnalytics()
+        try useThrowawayDrafts()
+        let harness = try MainWindowHarness()
+        defer {
+            for composer in ComposeWindowRegistry.shared.openControllers { composer.closeWithoutSaving() }
+            harness.close()
+        }
+        let id = try XCTUnwrap(harness.list.conversations.first { $0.id.providerID == "thread-2" }?.id)
+        harness.list.selectedConversationID = id
+        harness.list.onSelectionChange?(id)
+        harness.spin { harness.reader.currentMessages.count == 3 }
+        let bar = harness.reader.quickReplyBar
+        bar.onOpenInComposer?("", .reply)
+        try XCTUnwrap(ComposeWindowRegistry.shared.openControllers.first).closeWithoutSaving()
+        XCTAssertFalse(bar.isComposerOpen)
+
+        let file = try throwawayDirectory().appendingPathComponent("brief.txt")
+        try Data("brief".utf8).write(to: file)
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("AnalyticsTests-\(UUID().uuidString)"))
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
+        pasteboard.writeObjects([file as NSURL])
+        let drag = FakeDraggingInfo(pasteboard: pasteboard, source: nil, mask: .copy)
+        XCTAssertEqual(bar.draggingEntered(drag), .copy)
+        XCTAssertTrue(bar.performDragOperation(drag))
+        XCTAssertEqual(ComposeWindowRegistry.shared.openControllers.first?.contents.attachments.map(\.filename), ["brief.txt"])
+        let started = recorder.sent.filter { $0.name == "Compose.started" }
+        XCTAssertEqual(started.map { $0.parameters["kind"] }, ["reply", "reply"])
+        XCTAssertEqual(started.map { $0.parameters["trigger"] }, ["toolbar", "drag"])
+        assertNothingOfTheMail(in: harness)
     }
 
     func testCountsAndDurationsAreBucketed() {

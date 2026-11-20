@@ -39,7 +39,8 @@ enum AnalyticsSignal: Equatable, Sendable {
     case accountAdded(Provider)
     case accountRemoved(Provider)
     /// A Help me write write ended (§5.56; `AIWriter`'s milestones): which kind of provider wrote and how it ended. Never
-    /// the instruction, the notes, the conversation, the model or a word of the reply.
+    /// the instruction, the notes, the conversation, the model or a word of the reply, and none for a reply the demo makes
+    /// up (`HelpMeWrite.analyticsSignal`).
     case helpMeWriteUsed(Writer, WriteEnding)
     /// A timing where the app keeps an `os_signpost` interval, sampled (`Analytics.performanceSampleRate`).
     case performance(PerformanceSample, seconds: Double)
@@ -82,7 +83,7 @@ enum AnalyticsSignal: Equatable, Sendable {
         /// A button in the reader's header or the page's own (Reply, Archive, Star…).
         case toolbar
         case swipe
-        /// Rows dragged onto a rail folder or the calendar.
+        /// Rows dragged onto a rail folder or the calendar; files or a message's attachments dropped on the quick reply.
         case drag
         /// A double-click on a row.
         case click
@@ -167,17 +168,18 @@ enum AnalyticsSignal: Equatable, Sendable {
         }
     }
 
-    /// Help me write's provider, by kind only (`AIProviderKind`'s raw values): never a model, a CLI's path or a key.
+    /// Help me write's provider, by kind only (`AIProviderKind`'s raw values, the four Settings › AI offers): never a
+    /// model, a CLI's path or a key. The demo's made-up writer is none, since a reply it makes up sends nothing.
     enum Writer: String, CaseIterable, Sendable {
-        case claudeAPI, claudeCode, openAIAPI, codex, demo
+        case claudeAPI, claudeCode, openAIAPI, codex
 
-        init(_ kind: AIProviderKind) {
+        init?(_ kind: AIProviderKind) {
             switch kind {
             case .claudeAPI: self = .claudeAPI
             case .claudeCode: self = .claudeCode
             case .openAIAPI: self = .openAIAPI
             case .codex: self = .codex
-            case .demo: self = .demo
+            case .demo: return nil
             }
         }
     }

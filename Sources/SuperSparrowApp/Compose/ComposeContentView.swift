@@ -47,7 +47,17 @@ final class ComposeContentView: NSView {
     /// The drop outline shows (the app's tests read it, and its renders set it).
     var showsDropOutline: Bool {
         get { !dropOutline.isHidden }
-        set { dropOutline.isHidden = !newValue }
+        set {
+            if newValue { raiseDropOutline() }
+            dropOutline.isHidden = !newValue
+        }
+    }
+
+    /// The drop treatment shows above whatever was laid over the body after it, Help me write's card (§5.56) included:
+    /// the card goes under the veil with the text, and never covers the words.
+    private func raiseDropOutline() {
+        guard dropOutline.superview === self, subviews.last !== dropOutline else { return }
+        addSubview(dropOutline, positioned: .above, relativeTo: nil)
     }
 
     /// The drop treatment, for the app's tests and renders: where its words are.
@@ -151,6 +161,7 @@ final class ComposeContentView: NSView {
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
         guard acceptsDrops(), !AttachmentPasteboard.dropItems(for: sender).isEmpty else { return [] }
+        raiseDropOutline()
         dropOutline.show(for: sender)
         return .copy
     }

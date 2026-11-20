@@ -725,9 +725,10 @@ final class HelpMeWriteTests: XCTestCase {
         bar.draggingExited(drag)
     }
 
-    /// A reply composer takes no drop while a reply streams into its body: no outline, nothing attached, and a pasted file
-    /// is refused with the body; once the write ends it attaches again.
-    func testAComposerRefusesADropWhileAReplyStreams() throws {
+    /// A composer's attachment strip is not the body: while a reply streams in, a file dropped on the window or pasted on
+    /// the body attaches as Attach Files… would, and the reply streams on, untouched. The drop outline lies over the open
+    /// card, which goes under the veil with the text and so never hides “Drop to attach”.
+    func testAComposerStillAttachesWhileAReplyStreams() throws {
         let (harness, script) = try harness(reply: "One two three four five six seven eight")
         defer { harness.close() }
         harness.settings.setAIConsent(true, for: .claudeAPI, demo: false)
@@ -741,16 +742,23 @@ final class HelpMeWriteTests: XCTestCase {
         let content = try XCTUnwrap(composer.window?.contentView as? ComposeContentView)
         let drag = try fileDrag()
         defer { drag.draggingPasteboard.releaseGlobally() }
-        XCTAssertEqual(content.draggingEntered(drag), [])
-        XCTAssertFalse(content.showsDropOutline)
-        XCTAssertFalse(content.performDragOperation(drag))
-        composer.attachDropped([.file(folder.appendingPathComponent("brief.txt"))])
-        XCTAssertTrue(composer.contents.attachments.isEmpty, "nothing attached while the reply streams")
-        XCTAssertEqual(session.state, .writing)
-        session.stop()
         XCTAssertEqual(content.draggingEntered(drag), .copy)
+        XCTAssertTrue(content.showsDropOutline)
+        XCTAssertTrue(session.card.superview === content, "the card lies over the body")
+        let card = try XCTUnwrap(content.subviews.firstIndex(of: session.card))
+        let veil = try XCTUnwrap(content.subviews.firstIndex(of: content.dropOverlay))
+        XCTAssertGreaterThan(veil, card, "the outline and its words are drawn over the card")
         XCTAssertTrue(content.performDragOperation(drag))
-        XCTAssertEqual(composer.contents.attachments.map(\.filename), ["brief.txt"])
+        XCTAssertFalse(content.showsDropOutline)
+        XCTAssertEqual(composer.contents.attachments.map(\.filename), ["brief.txt"], "dropped while the reply streams")
+        composer.bodyEditor.pasteboard = drag.draggingPasteboard
+        composer.bodyEditor.paste(nil)
+        XCTAssertEqual(composer.contents.attachments.map(\.filename), ["brief.txt", "brief.txt"], "and pasted on the body")
+        XCTAssertTrue(composer.bodyText.hasPrefix("One two three four"))
+        XCTAssertFalse(composer.bodyText.contains("brief"), "nothing went into the reply")
+        XCTAssertEqual(session.state, .writing, "and it streams on")
+        session.stop()
+        XCTAssertEqual(composer.contents.attachments.map(\.filename), ["brief.txt", "brief.txt"], "putting the body back keeps the strip")
     }
 
     func testTheSendLaterUndoMidWriteKeepsTheUsersTextAndStopsTheWrite() throws {

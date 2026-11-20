@@ -369,8 +369,9 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         quickReply.onOpenInComposer = { [weak self] text, mode in self?.openQuickReplyInComposer(text: text, mode: mode, attach: false) }
         quickReply.onAttach = { [weak self] text, mode in self?.openQuickReplyInComposer(text: text, mode: mode, attach: true) }
         // A drop moves the reply to a composer with what was dropped attached, as Attach and choosing the files would (§5.18).
+        // The composer it opens came from a drag, not from the reader's buttons the reply's other ways in share.
         quickReply.onDropAttachments = { [weak self] text, mode, items in
-            self?.openQuickReplyInComposer(text: text, mode: mode, attach: false, dropped: items)
+            Analytics.from(.drag) { self?.openQuickReplyInComposer(text: text, mode: mode, attach: false, dropped: items) }
         }
         quickReply.onDisabledClick = { [weak self] in self?.bringReplyComposerForward() }
         quickReply.onUndo = { [weak self] in self?.undoQuickSend() }

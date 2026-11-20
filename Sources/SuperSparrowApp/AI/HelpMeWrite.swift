@@ -46,12 +46,11 @@ final class HelpMeWrite {
     private(set) lazy var writer = AIWriter(
         resolve: resolve,
         hasConsent: { [weak self] kind in self?.hasConsent(for: kind) ?? false },
-        milestones: { milestone, kind in
+        milestones: { [weak self] milestone, kind in
             // Names from the code only: what happened, and with which kind of provider.
             CrashReporting.breadcrumb(.ai, milestone.breadcrumbName)
             CrashReporting.breadcrumb(.ai, kind.breadcrumbName)
-            // Analytics counts a write once, as it ends, from the same two closed sets (docs/ANALYTICS-AND-REPORTS.md).
-            if let ending = AnalyticsSignal.WriteEnding(milestone) { Analytics.send(.helpMeWriteUsed(.init(kind), ending)) }
+            if let signal = self?.analyticsSignal(milestone, kind) { Analytics.send(signal) }
         }
     )
 
@@ -128,6 +127,15 @@ final class HelpMeWrite {
     /// real (`--live-ai-clis`).
     func makesUpReplies(for kind: AIProviderKind) -> Bool {
         isDemo && !(routesCLIsToThisMac && (kind == .claudeCode || kind == .codex))
+    }
+
+    /// What Analytics hears of a write (docs/ANALYTICS-AND-REPORTS.md): one signal as it ends, from the same two closed
+    /// sets as the breadcrumbs, the provider's kind and how it ended. A reply the demo makes up on this Mac is none: the
+    /// demo's sheet and Settings › AI say nothing is sent, and its kind would only be the one picked in the demo.
+    func analyticsSignal(_ milestone: AIWriteMilestone, _ kind: AIProviderKind) -> AnalyticsSignal? {
+        guard !makesUpReplies(for: kind), let writer = AnalyticsSignal.Writer(kind),
+              let ending = AnalyticsSignal.WriteEnding(milestone) else { return nil }
+        return .helpMeWriteUsed(writer, ending)
     }
 
     /// The card's source line in the demo, where no model writes: what is shown is attributed truthfully (§5.56).
