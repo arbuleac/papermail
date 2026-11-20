@@ -50,8 +50,8 @@ final class ConversationRowStatesRenderTests: XCTestCase {
     private func makeBoard(mode: QuireMode) -> NSView {
         let columns: [[NSView]] = [
             [label("Read · unread · hover · selected · selected (window not key) · multi-selection · no subject")] + columnOne(),
-            [label("Starred · attachment · count · queued · failed · initials · Drafts · Sent")] + columnTwo(),
-            [label("Compact density · square account mark · with initials on, the tile replaces the square")] + columnThree()
+            [label("Starred · attachment · count · queued · failed · account tile · Drafts · Sent")] + columnTwo(),
+            [label("Compact density · square account mark · with faces on, the tile replaces the square")] + columnThree()
                 + [label("Running heads · hidden in search and in views under 8 conversations")] + headsCard()
                 + [label("Scripts New York lacks fall back to subjectSans; line height stays 18 pt")] + scriptsCard(),
             [label("List tail · loading and failed")] + footerCard() + [label("Empty states (spec §5.9)")] + emptyCard(),
@@ -271,7 +271,7 @@ final class ConversationRowStatesRenderTests: XCTestCase {
         let cell = ConversationCellView(frame: row.bounds)
         let initial = ["C", "G", "F"][spec.slot % 3]
         cell.configure(with: ConversationRowContent(text: text),
-                       mark: ConversationCellView.AccountMark(inkSlot: spec.slot, initial: initial, isUnified: spec.unified, showsInitial: spec.initials),
+                       mark: ConversationCellView.AccountMark(inkSlot: spec.slot, initial: initial, isUnified: spec.unified, showsFace: spec.initials),
                        metrics: metrics)
         row.addSubview(cell)
         return row

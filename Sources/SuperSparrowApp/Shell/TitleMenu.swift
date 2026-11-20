@@ -6,11 +6,14 @@ import SSDesign
 /// something in scope is snoozed and the Outbox after Drafts while a send in scope waits to go (the rail's conditional
 /// tiles, §5.2), each with its symbol and its G-sequence in a right-aligned `ink3` column (an attributed title, because
 /// `keyEquivalent` cannot express a sequence), a checkmark on the current view and the Inbox unread count as a system
-/// badge. In minimal mode it gains All Inboxes and the accounts, with their monograms, ⌘0…⌘9 and their counts.
+/// badge. In minimal mode it gains All Inboxes and the accounts, with their faces, ⌘0…⌘9 and their counts.
 @MainActor
 enum TitleMenu {
     struct AccountEntry {
         var account: Account
+        /// The account's face (§5.55): a paper face, or its monogram, of which the menu draws the first letter.
+        var face: QuireAccountFace
+        /// The account's monogram as the rail would show it: its first letter stands in for a paper face below 2× (§5.55).
         var monogram: String
         var unread: Int
     }
@@ -99,7 +102,7 @@ enum TitleMenu {
             item.keyEquivalentModifierMask = .command
             item.target = target
             item.tag = index + 1
-            item.image = monogramImage(entry.monogram, slot: entry.account.inkSlot)
+            item.image = faceImage(entry.face, monogram: entry.monogram, slot: entry.account.inkSlot)
             item.state = model.scope == .account(entry.account.id) ? .on : .off
             setUnread(entry.unread, on: item)
             menu.addItem(item)
@@ -121,15 +124,26 @@ enum TitleMenu {
         item.setAccessibilityHelp(words.isEmpty ? nil : words.joined(separator: ", "))
     }
 
-    /// A small account face with its ring, drawn when the menu shows so it follows the appearance.
-    private static func monogramImage(_ monogram: String, slot: Int) -> NSImage {
+    /// A small account face with its ring, drawn when the menu shows, so it follows the appearance and the screen it is on.
+    /// A paper face is the rail's art at 12 pt, still the person or animal at that size on a 2× screen; on a 1× screen its
+    /// 12 pixels are a blob, so there it is `monogram`'s first letter, as for an account that wears its monogram (§5.55).
+    static func faceImage(_ face: QuireAccountFace, monogram: String, slot: Int) -> NSImage {
         let side: CGFloat = 18
         return NSImage(size: NSSize(width: side, height: side), flipped: true) { rect in
             // Menus draw their images on the main thread.
             MainActor.assumeIsolated {
                 let ring = Quire.Border.AccountRing.width / 2 + 0.5
-                let face = rect.insetBy(dx: ring + 1.5, dy: ring + 1.5)
-                QuireAvatarRenderer.drawAccountFace(monogram: String(monogram.prefix(1)), slot: slot, in: face)
+                let inner = rect.insetBy(dx: ring + 1.5, dy: ring + 1.5)
+                // Read from the destination, not the main screen: a menu opened on a 1× screen of a Mac that also has a 2× one.
+                let scale = NSGraphicsContext.current.map { QuireAvatarRenderer.deviceScale(of: $0.cgContext) } ?? 1
+                switch face {
+                case .monogram(let letters):
+                    QuireAvatarRenderer.drawAccountFace(monogram: String(letters.prefix(1)), slot: slot, in: inner)
+                case .paper where scale < 2:
+                    QuireAvatarRenderer.drawAccountFace(monogram: String(monogram.prefix(1)), slot: slot, in: inner)
+                case .paper:
+                    QuireAvatarRenderer.drawAccountFace(face, slot: slot, in: inner)
+                }
                 let path = NSBezierPath(ovalIn: rect.insetBy(dx: ring, dy: ring))
                 path.lineWidth = 1.5
                 NSColor.qAccount(slot).setStroke()

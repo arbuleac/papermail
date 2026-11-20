@@ -74,7 +74,17 @@ enum AppSnapshots {
             { model.pendingSignIn = nil; model.accountsNotice = .addFailed(kind: .gmail, reason: "Google refused the sign-in. Check the client ID.") },
             { model.accountsNotice = nil; model.reconnecting = accounts.last?.id },
             { model.reconnecting = nil; model.setAccounts([]) },
-            { model.setAccounts(accounts); model.tab = .oauth; model.oauthNotice = .needsClient(.gmail) },
+            // The face picker open over the first account (Quire §5.55), then the second wearing its monogram, the field
+            // beside its face: the model's copy only, never the store.
+            { model.setAccounts(accounts); model.selection = accounts.first?.id.rawValue; model.showsFacePicker = true },
+            {
+                var monogram = accounts
+                if monogram.count > 1 { monogram[1].face = .monogram }
+                model.setAccounts(monogram)
+                model.selection = monogram.last?.id.rawValue
+                model.showsFacePicker = true
+            },
+            { model.showsFacePicker = false; model.setAccounts(accounts); model.tab = .oauth; model.oauthNotice = .needsClient(.gmail) },
             { model.oauthNotice = .unreadable(reason: "The file isn't valid JSON.") },
             { model.oauthNotice = .saveFailed(reason: "The disk is full.") },
             // A validation line under its field, with Save enabled by the edit.

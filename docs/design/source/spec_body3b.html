@@ -5,7 +5,7 @@
       <div class="rail">
         <div class="lights"><i></i><i></i><i></i></div>
         {{PY: rail_folders(0, 9)}}
-        {{PY: rail_accounts(600, [('', '<span class="face" style="--a:var(--q-acct-1)"><span>N</span></span>', 'Northwind · ada@northwind.test  ⌘1'), ('', '<span class="face" style="--a:var(--q-acct-2)"><span>W</span></span>', 'Wingtip · ada@wingtip.test  ⌘2')], 'sel', 9)}}
+        {{PY: rail_accounts(600, [('', face(1) + '', 'Northwind · ada@northwind.test  ⌘1'), ('', face(2) + '', 'Wingtip · ada@wingtip.test  ⌘2')], 'sel', 9)}}
         <span class="rutil" style="bottom:64px">{{PY: s('plus', 15)}}</span>
         <span class="rutil" style="bottom:24px">{{PY: s('gearshape', 15)}}</span>
       </div>
@@ -30,7 +30,7 @@
       <div class="rail">
         <div class="lights"><i></i><i></i><i></i></div>
         {{PY: rail_folders(0)}}
-        {{PY: rail_accounts(600, [('', '<span class="face" style="--a:var(--q-acct-1)"><span>C</span></span>', 'Contoso · alex@contoso.test  ⌘1'), ('', '<span class="pface"><span class="spin" style="--sz:16px;color:var(--q-ink3)"></span></span>', 'Finish signing in in your browser…')], 'sel', None, True)}}
+        {{PY: rail_accounts(600, [('', face(1) + '', 'Contoso · alex@contoso.test  ⌘1'), ('', '<span class="pface"><span class="spin" style="--sz:16px;color:var(--q-ink3)"></span></span>', 'Finish signing in in your browser…')], 'sel', None, True)}}
         <span class="rutil" style="bottom:64px;background:var(--q-pressed);color:var(--q-ink)">{{PY: s('plus', 15)}}</span>
         <span class="rutil" style="bottom:24px">{{PY: s('gearshape', 15)}}</span>
       </div>
@@ -58,14 +58,14 @@
         <span class="lbl">Demo banner · selected, Settings key</span>
         <div class="banner info ml">{{PY: s('info.circle', 14)}}<span class="txt">Demo mode: these mailboxes are made up and live only on this Mac.</span><span class="btn linkb" style="height:16px">Leave demo…</span></div>
         <div class="sgroup">
-          <div class="arow sel"><span class="face" style="--a:var(--q-acct-1);--fg:var(--q-selWash)"><span>N</span></span><div class="an"><b><span class="nmx">Northwind</span><span class="tag">Demo</span></b><i>alex@northwind.test</i></div><span class="ast" style="color:var(--q-ink3)">{{PY: s('info.circle', 12, 'q')}}Made up, nothing syncs</span></div>
-          <div class="arow"><span class="face" style="--a:var(--q-acct-2);--fg:var(--q-sheet)"><span>W</span></span><div class="an"><b><span class="nmx">Wingtip</span><span class="tag">Demo</span></b><i>alex@wingtip.test</i></div><span class="ast" style="color:var(--q-ink3)">{{PY: s('info.circle', 12, 'q')}}Made up, nothing syncs</span></div>
+          <div class="arow sel">{{PY: face(1, 'selWash')}}<div class="an"><b><span class="nmx">Northwind</span><span class="tag">Demo</span></b><i>alex@northwind.test</i></div><span class="ast" style="color:var(--q-ink3)">{{PY: s('info.circle', 12, 'q')}}Made up, nothing syncs</span></div>
+          <div class="arow">{{PY: face(2, 'sheet')}}<div class="an"><b><span class="nmx">Wingtip</span><span class="tag">Demo</span></b><i>alex@wingtip.test</i></div><span class="ast" style="color:var(--q-ink3)">{{PY: s('info.circle', 12, 'q')}}Made up, nothing syncs</span></div>
         </div>
       </div>
       <div style="display:grid;gap:12px">
         <span class="lbl">Selected, Settings not key · adding (waiting for the browser)</span>
         <div class="sgroup">
-          <div class="arow sel idle"><span class="face" style="--a:var(--q-acct-1);--fg:var(--q-selWashIdle)"><span>C</span></span><div class="an"><b>Contoso</b><i>alex@contoso.test</i></div><span class="ast">{{PY: s('checkmark.circle.fill', 12)}}Up to date</span></div>
+          <div class="arow sel idle">{{PY: face(1, 'selWashIdle')}}<div class="an"><b>Contoso</b><i>alex@contoso.test</i></div><span class="ast">{{PY: s('checkmark.circle.fill', 12)}}Up to date</span></div>
           <div class="arow"><span class="pface"><span class="spin" style="--sz:{{layout.progress.spinner.1}}px;color:var(--q-ink3)"></span></span><div class="an"><b style="font-weight:400">Finish signing in in your browser…</b><i>Gmail</i></div><span class="btn sm secondary">Cancel</span></div>
         </div>
         <div class="rowline" style="gap:0"><span class="sq sqf" style="color:var(--q-inkDisabled)">{{PY: s('plus', 11)}}</span><span class="sq sqf">{{PY: s('minus', 11)}}</span><span class="ann" style="margin-left:10px">+ disabled while a sign-in runs</span></div>
@@ -75,13 +75,13 @@
         <div class="sgroup"><div class="arow" style="justify-content:center;flex-direction:column;gap:0;padding:0"><b style="font:var(--q-font-body);color:var(--q-ink2)">No accounts yet</b><i style="font-style:normal;font:var(--q-font-snippet);color:var(--q-ink3)">Add one to start syncing.</i></div></div>
         <div class="banner info ml">{{PY: s('info.circle', 14)}}<span class="txt">To add a Gmail account, SuperSparrow needs your own Google OAuth client ID. Enter it below and click Save, then try again. <span style="color:var(--q-accent);font:var(--q-font-label)">How to create one…</span></span></div>
         <div class="banner bad ml">{{PY: s('exclamationmark.triangle.fill', 14)}}<span class="txt">Couldn’t add the account. Google refused the sign-in; check the client ID. <span style="color:var(--q-accent);font:var(--q-font-label)">Try again</span></span></div>
-        <div class="banner info ml">{{PY: s('info.circle', 14)}}<span class="txt">Rows now show each account’s initial. With seven or more accounts, colours alone can look alike. <span style="color:var(--q-accent);font:var(--q-font-label)">Change in General…</span></span><span class="bx">{{PY: s('xmark', 9)}}</span></div>
+        <div class="banner info ml">{{PY: s('info.circle', 14)}}<span class="txt">Rows now show each account’s face. With seven or more accounts, colours alone can look alike. <span style="color:var(--q-accent);font:var(--q-font-label)">Change in General…</span></span><span class="bx">{{PY: s('xmark', 9)}}</span></div>
       </div>
     </div>
     <div style="display:grid;gap:12px;margin-top:20px;width:{{PY: T.LAYOUT['settings']['width'] - 2 * T.LAYOUT['settings']['padX']}}px">
         <span class="lbl" style="margin-top:0">Reconnecting (waiting for the browser), at the real group width: Cancel replaces Reconnect, “Sign in required” stays</span>
         <div class="sgroup">
-          <div class="arow"><span class="face" style="--a:var(--q-acct-3);--fg:var(--q-sheet)"><span>F</span></span><div class="an"><b><span class="nmx">Fabrikam</span><span class="tag">Microsoft 365</span></b><i class="bad">{{PY: s('exclamationmark.triangle.fill', 10)}}Sign in required</i></div><span class="ast" style="gap:{{layout.settings.statusGlyphGap}}px"><span class="spin" style="--sz:{{layout.progress.spinner.0}}px;color:var(--q-ink3)"></span>Waiting for your browser<span class="btn sm secondary" style="margin-left:{{layout.settings.statusButtonGap}}px">Cancel</span></span></div>
+          <div class="arow">{{PY: face(3, 'sheet')}}<div class="an"><b><span class="nmx">Fabrikam</span><span class="tag">Microsoft 365</span></b><i class="bad">{{PY: s('exclamationmark.triangle.fill', 10)}}Sign in required</i></div><span class="ast" style="gap:{{layout.settings.statusGlyphGap}}px"><span class="spin" style="--sz:{{layout.progress.spinner.0}}px;color:var(--q-ink3)"></span>Waiting for your browser<span class="btn sm secondary" style="margin-left:{{layout.settings.statusButtonGap}}px">Cancel</span></span></div>
         </div>
     </div>
   </div>
@@ -272,7 +272,7 @@
               <div class="ft" style="margin-top:10px;align-items:center"><span class="gb">{{PY: s('arrowshape.turn.up.left', 14)}}Reply</span><span class="gb">{{PY: s('arrowshape.turn.up.left.2', 14)}}Reply all</span><span class="gb">{{PY: s('arrowshape.turn.up.right', 14)}}Forward</span></div>
             </div>
           </div>
-          <div class="qr"><div class="qrf" style="left:16px;right:16px"><span class="mono24" style="--a:var(--q-acct-2)"><span>G</span></span><span class="ph">Reply to Northwind Weekly…</span><span class="ib sm dis">{{PY: s('paperplane', 14)}}</span></div></div>
+          <div class="qr"><div class="qrf" style="left:16px;right:16px">{{PY: face24(2)}}<span class="ph">Reply to Northwind Weekly…</span><span class="ib sm dis">{{PY: s('paperplane', 14)}}</span></div></div>
         </div>
       </div>
       <div>
@@ -292,7 +292,7 @@
               <div class="ft" style="margin-top:10px;align-items:center"><span class="gb">{{PY: s('arrowshape.turn.up.left', 14)}}Reply</span><span class="gb">{{PY: s('arrowshape.turn.up.left.2', 14)}}Reply all</span><span class="gb">{{PY: s('arrowshape.turn.up.right', 14)}}Forward</span></div>
             </div>
           </div>
-          <div class="qr"><div class="qrf" style="left:16px;right:16px"><span class="mono24" style="--a:var(--q-acct-2)"><span>G</span></span><span class="ph">Reply to Northwind Weekly…</span><span class="ib sm dis">{{PY: s('paperplane', 14)}}</span></div></div>
+          <div class="qr"><div class="qrf" style="left:16px;right:16px">{{PY: face24(2)}}<span class="ph">Reply to Northwind Weekly…</span><span class="ib sm dis">{{PY: s('paperplane', 14)}}</span></div></div>
         </div>
       </div>
       <p class="ann" style="max-width:250px;margin-top:22px">Keycaps hidden: the target keeps its <code>ruleStrong</code> edge instead; tooltips still name R, A, F and ⌘↩. The scroller shows only while scrolling (drawn here as if scrolling).</p>

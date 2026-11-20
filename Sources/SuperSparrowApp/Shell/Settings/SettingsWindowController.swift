@@ -189,7 +189,7 @@ final class SettingsTabViewController: NSTabViewController {
     /// Each tab is hosted in a `QuireThemeRoot`, so a theme, Graphite or Increase Contrast switch redraws it in place,
     /// keeping focus and every field's state (spec §4.16).
     private func addTab<Content: View>(_ content: Content, title: String, symbol: String) {
-        let hosting = NSHostingController(rootView: QuireThemeRoot(content))
+        let hosting = NSHostingController(rootView: QuireThemeRoot(content).modifier(SnapshotDisplayScale()))
         hosting.sizingOptions = [.preferredContentSize]
         hosting.title = title
         let item = NSTabViewItem(viewController: hosting)

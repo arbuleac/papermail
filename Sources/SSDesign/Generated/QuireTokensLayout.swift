@@ -878,6 +878,23 @@ extension Quire {
             public static let themeTileLine: CGFloat = 1.5
             public static let themeTileInset: CGFloat = 4
         }
+        public enum PaperFaces {
+            public static let artBox: CGFloat = 100
+            public static let shadowReference: CGFloat = 30
+            public static let shadowY: [CGFloat] = [0, 0.6, 1]
+            public static let shadowBlur: [CGFloat] = [0, 1.2, 2]
+            public static let shadowLight: String = "#00000040"
+            public static let shadowDark: String = "#00000073"
+            public static let pickerFace: CGFloat = 48
+            public static let pickerCell: CGFloat = 62
+            public static let pickerGap: CGFloat = 4
+            public static let pickerPad: CGFloat = 12
+            public static let pickerColumns: CGFloat = 7
+            public static let pickerRadius: CGFloat = 8
+            public static let pickerOffset: CGFloat = 6
+            public static let pickerEdgeMin: CGFloat = 8
+            public static let tileGap: CGFloat = 1
+        }
         public enum Menu {
             public static let titleMenuOffsetY: CGFloat = 4
         }

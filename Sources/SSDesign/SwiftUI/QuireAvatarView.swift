@@ -6,8 +6,10 @@ import SwiftUI
 ///
 /// - Sender avatars: the tint chosen by the address hash (FNV-1a, `Quire.avatarTint(forAddress:)`), initials in
 ///   New York Semibold at 0.42 × the diameter (never under 10 pt) in the tint's ink. Sizes 24 / 30 / 36.
-/// - Account faces: the account ink at `rail.faceAlpha` over `sheet`, the monogram in `ink` at 14 / 12 pt on a
-///   30 pt face and 11 / 10 pt on a 24 pt face (one / two letters), always with the account ring.
+/// - Account faces: one of the paper faces (spec §5.55), drawn from the renderer's cache in the view's Light or Dark,
+///   or the account ink at `rail.faceAlpha` over `sheet` with the monogram in `ink` at 14 / 12 pt on a 30 pt face and
+///   11 / 10 pt on a 24 pt face (one / two letters); always with the account ring. VoiceOver reads a monogram as its
+///   letters and skips a paper face: an account's face is read as the account, and only the picker names it.
 /// - Under the SF Pro font every monogram is `monogramSans` (spec §4.4, §5.29). The view tracks the setting
 ///   itself and redraws when it changes, so a Settings window left open follows a switch at once.
 /// - The account ring: 2 pt in the account ink outside a 2 pt gap. The gap is left undrawn, so the surface the
@@ -20,6 +22,7 @@ public struct QuireAvatarView: View {
     enum Face: Equatable {
         case sender(tint: Quire.AvatarTint)
         case account(slot: Int)
+        case paper(Quire.PaperFace)
         case pending
     }
 
@@ -54,6 +57,28 @@ public struct QuireAvatarView: View {
         ringSlot = slot
     }
 
+    /// An account's face, paper or monogram, ringed in its ink (the Settings account row, the face button).
+    public init(account face: QuireAccountFace, ink slot: Int, diameter: CGFloat = Quire.Layout.Settings.accountFace) {
+        self.init(account: face, ink: slot, diameter: diameter, ringed: true)
+    }
+
+    /// An account's face with or without its ring: the face picker rings only the chosen tile (spec §5.55).
+    init(account face: QuireAccountFace, ink slot: Int, diameter: CGFloat, ringed: Bool) {
+        switch face {
+        case .monogram(let monogram):
+            self.init(face: .account(slot: slot), monogram: monogram, diameter: diameter, ringSlot: ringed ? slot : nil)
+        case .paper(let paper):
+            self.init(face: .paper(paper), monogram: "", diameter: diameter, ringSlot: ringed ? slot : nil)
+        }
+    }
+
+    private init(face: Face, monogram: String, diameter: CGFloat, ringSlot: Int?) {
+        self.face = face
+        self.monogram = monogram
+        self.diameter = diameter
+        self.ringSlot = ringSlot
+    }
+
     /// The face of an account that is still signing in (spec §5.40, Adding): `fill`, a dashed 1 pt
     /// `ruleStrong` ring where the account ring will be, and a 16 pt `ink3` spinner.
     public static func pending(diameter: CGFloat = Quire.Layout.Settings.accountFace) -> QuireAvatarView {
@@ -81,6 +106,8 @@ public struct QuireAvatarView: View {
                 Text(monogram)
                     .font(Font(QuireAvatarView.monogramFont(face: face, monogram: monogram, diameter: diameter, typeface: typeface) as CTFont))
                     .foregroundStyle(.qInk)
+            case .paper(let paper):
+                QuirePaperFaceImage(face: paper, diameter: diameter)
             case .pending:
                 Circle().fill(.qFill)
                 QuireSpinner(.medium, delay: 0)
@@ -89,11 +116,19 @@ public struct QuireAvatarView: View {
         .lineLimit(1)
         .frame(width: diameter, height: diameter)
         .overlay { ring }
-        .accessibilityHidden(face == .pending)
+        .accessibilityHidden(!showsLetters)
         .accessibilityLabel(Text(monogram))
         .onReceive(NotificationCenter.default.publisher(for: QuireEnvironment.didChangeNotification)) { _ in
             let now = QuireEnvironment.typeface
             if now != typeface { typeface = now }
+        }
+    }
+
+    /// Only letters are read: a pending face says nothing yet, and a paper face is read as the account it stands for.
+    private var showsLetters: Bool {
+        switch face {
+        case .sender, .account: return true
+        case .paper, .pending: return false
         }
     }
 
@@ -142,5 +177,26 @@ public struct QuireAvatarView: View {
             named = diameter == Quire.Layout.Rail.face ? base : ((base * diameter / Quire.Layout.Rail.face) * 2).rounded() / 2
         }
         return QuireFont.monogramSize(named: named, typeface: typeface)
+    }
+}
+
+/// A paper face as SwiftUI draws it: the renderer's cached bitmap for this size, the display's scale and the view's Light
+/// or Dark, so a Settings row and the rail show the same pixels.
+struct QuirePaperFaceImage: View {
+    let face: Quire.PaperFace
+    let diameter: CGFloat
+
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.displayScale) private var displayScale
+
+    var body: some View {
+        if let image = QuireAvatarRenderer.shared.paperFace(face, diameter: diameter, scale: max(1, displayScale), dark: colorScheme == .dark) {
+            Image(decorative: image, scale: max(1, displayScale))
+                .resizable()
+                .interpolation(.high)
+                .frame(width: diameter, height: diameter)
+        } else {
+            Circle().fill(Color.qAvatarPaper(face.ground))
+        }
     }
 }

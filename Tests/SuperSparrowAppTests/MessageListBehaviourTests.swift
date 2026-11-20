@@ -356,7 +356,7 @@ final class MessageListBehaviourTests: XCTestCase {
 
     func testAUnifiedViewOfOneAccountDropsTheAccountMarks() throws {
         let store = try Support.store(threads: 10)
-        let (list, window) = Support.host(store: store, settings: Support.settings(initials: true))
+        let (list, window) = Support.host(store: store, settings: Support.settings(faces: true))
         list.accountsByID = [Support.accountA.id: Support.accountA]
         window.displayIfNeeded()
         let cell = try XCTUnwrap(cell(of: list, conversation: 0))
@@ -366,7 +366,7 @@ final class MessageListBehaviourTests: XCTestCase {
 
     func testTheFailedGlyphSaysWhatFailedWithoutCoveringTheAccount() throws {
         let store = try Support.store(threads: 10)
-        let (list, window) = Support.host(store: store, settings: Support.settings(initials: true))
+        let (list, window) = Support.host(store: store, settings: Support.settings(faces: true))
         let target = list.conversations[2]
         let messageID = try XCTUnwrap(store.messages(in: target.id).last?.id)
         var operation = Operation(accountID: target.id.accountID, change: .archive, targets: [messageID])
@@ -380,7 +380,7 @@ final class MessageListBehaviourTests: XCTestCase {
         let regions = cell.toolTipRegions()
         let failure = try XCTUnwrap(regions.first { $0.text == "Couldn't archive" }, "the triangle's tooltip (spec §5.7)")
         let account = regions.filter { $0.text.contains("@") }
-        XCTAssertEqual(account.count, 2, "the face and the initial tile both name the account")
+        XCTAssertEqual(account.count, 2, "the face and the account tile both name the account")
         for region in account {
             XCTAssertFalse(region.rect.intersects(failure.rect), "tooltip rects never overlap, so each shows its own words")
         }

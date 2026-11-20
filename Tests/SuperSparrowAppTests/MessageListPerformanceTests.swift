@@ -1,5 +1,6 @@
 import AppKit
 import SSCore
+import SSDesign
 import XCTest
 @testable import SuperSparrowApp
 
@@ -29,7 +30,8 @@ final class MessageListPerformanceTests: XCTestCase {
         let store = try SQLiteMailStore(path: path)
         print("SS_PERF list mailbox: \(PerfMailboxSupport.label)")
 
-        let (list, window) = Support.host(store: store, settings: Support.settings(), size: NSSize(width: 380, height: 760))
+        let settings = Support.settings()
+        let (list, window) = Support.host(store: store, settings: settings, size: NSSize(width: 380, height: 760))
         XCTAssertEqual(list.conversations.count, 200)
         XCTAssertTrue(list.layout.showsHeads)
 
@@ -48,6 +50,31 @@ final class MessageListPerformanceTests: XCTestCase {
         report("j/k step p95", percentile(warmSteps, 0.95))
         report("j/k step max", warmSteps.max() ?? 0)
         XCTAssertLessThan(percentile(warmSteps, 0.95), 16, "j/k budget")
+
+        // j/k again with Show account faces on: every row draws its account's paper face (Quire §5.55), from the cache.
+        settings.showAccountFaces = true
+        window.displayIfNeeded()
+        // The rows on screen carry a paper face to draw, so the steps below are timed with faces, not without.
+        let cells = list.tableView.subviews.flatMap(\.subviews).compactMap { $0 as? ConversationCellView }.filter { !$0.isHidden }
+        XCTAssertFalse(cells.isEmpty)
+        XCTAssertTrue(cells.allSatisfy { $0.mark.showsFace && $0.mark.paperFace != nil }, "every visible row draws its account's paper face")
+        // The faces are drawn the first time a row shows them, in the warm-up steps; from then on every step reuses them.
+        var rendersAfterWarmUp = 0
+        var faceSteps: [Double] = []
+        for step in 0..<300 {
+            if step == 5 { rendersAfterWarmUp = QuireAvatarRenderer.shared.paperFaceRenderCount }
+            let start = DispatchTime.now()
+            if step < 150 { list.selectNext() } else { list.selectPrevious() }
+            window.displayIfNeeded()
+            faceSteps.append(milliseconds(since: start))
+            RunLoop.main.run(until: Date())
+        }
+        let warmFaceSteps = Array(faceSteps.dropFirst(5))
+        report("j/k step with faces median", percentile(warmFaceSteps, 0.5))
+        report("j/k step with faces p95", percentile(warmFaceSteps, 0.95))
+        XCTAssertLessThan(percentile(warmFaceSteps, 0.95), 16, "j/k budget with account faces")
+        XCTAssertEqual(QuireAvatarRenderer.shared.paperFaceRenderCount, rendersAfterWarmUp, "scrolling renders no face: they are cached")
+        settings.showAccountFaces = false
 
         // Refresh after a sync transaction: 200 new replies move threads to the top; read, diff, apply, draw.
         var refreshes: [Double] = []

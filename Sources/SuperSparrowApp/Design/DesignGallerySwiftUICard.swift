@@ -14,7 +14,7 @@ enum DesignGallerySwiftUICard {
                               + "quireForcedStates, disabled and controlActiveState; each caption names them in order.",
                           span: 12, surface: .canvas) { block in
             block.labelWidth = 0
-            let hosting = NSHostingView(rootView: QuireThemeRoot(QuireSettingsGallery()))
+            let hosting = NSHostingView(rootView: QuireThemeRoot(QuireSettingsGallery()).modifier(SnapshotDisplayScale()))
             // The gallery sizes itself; the card only gives it a place.
             hosting.setFrameSize(hosting.fittingSize)
             block.full(hosting)

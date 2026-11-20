@@ -155,7 +155,7 @@ Every value a parameter can take:
 | `density` | `standard`, `compact` |
 | `textSize` | `small`, `default`, `large`, `larger` |
 | `font` | `newYork`, `sfPro` |
-| `setting` | `listDensity`, `accountInitials`, `undoSend`, `remoteImages`, `notifications`, `notificationPreviews`, `keepMail`, `theme`, `appearance`, `font`, `textSize`, `adaptMailColours`, `sendAction`, `launchAtLogin`, `defaultMailApp` |
+| `setting` | `listDensity`, `accountFaces`, `undoSend`, `remoteImages`, `notifications`, `notificationPreviews`, `keepMail`, `theme`, `appearance`, `font`, `textSize`, `adaptMailColours`, `sendAction`, `launchAtLogin`, `defaultMailApp` |
 | `value` | the setting's own: the values of `density`, `theme`, `appearance`, `font` and `textSize` above; `on`, `off` (Mail links only `on`: the app cannot hand the role back); `5s`, `10s`, `20s`, `other` (Undo send); `everything`, `oneYear`, `threeMonths` (Keep mail); `sendAndArchive`, `send` |
 | `action` | `archive`, `trash`, `spam`, `moveToInbox`, `star`, `unstar`, `markRead`, `markUnread`, `later`, `mute`, `unmute`, `unsubscribe`, `alwaysArchiveSender`, `blockSender` |
 | `trigger` | `key`, `menu` (the menu bar, a context menu, the title menu), `toolbar` (a button in the reader or the calendar), `swipe`, `drag`, `click` (a double-click), `rail` (a click on the account rail), `toast`, `notification` |

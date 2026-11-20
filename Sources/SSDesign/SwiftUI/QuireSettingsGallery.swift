@@ -206,7 +206,7 @@ struct QuireGalleryChoices: View {
             }
             QuireGalleryCaption("toggle: off · on · focused · on + focused · pressed · on pressed · disabled")
             QuireRadioGroup("List density", selection: .constant("Standard"), options: ["Standard", "Compact"]) { $0 }
-            Toggle("Show account initials in unified views", isOn: .constant(false)).toggleStyle(.quireCheckbox)
+            Toggle("Show account faces in unified views", isOn: .constant(false)).toggleStyle(.quireCheckbox)
             Toggle("Load by default", isOn: .constant(true)).toggleStyle(.quire)
         }
     }
@@ -266,12 +266,15 @@ struct QuireGalleryFaces: View {
                 QuireAvatarView(initials: "PR", address: "priya@fabrikam.test", diameter: 30, ringInk: 1)
             }
             HStack(spacing: Quire.Space.s7) {
+                QuireAvatarView(account: .paper(.curlyHair), ink: 0)
+                QuireAvatarView(account: .paper(.fox), ink: 7)
                 QuireAvatarView(accountMonogram: "C", ink: 0)
                 QuireAvatarView(accountMonogram: "Ga", ink: 3)
+                QuireAvatarView(account: .paper(.owl), ink: 9, diameter: 24)
                 QuireAvatarView(accountMonogram: "C", ink: 4, diameter: 24)
                 QuireAvatarView.pending()
             }
-            QuireGalleryCaption("senders 24 / 30 / 36 · ringed · account faces · pending")
+            QuireGalleryCaption("senders 24 / 30 / 36 · ringed · account faces, paper and monogram · pending")
         }
         .padding(.leading, Quire.Space.s2)
     }
@@ -289,7 +292,7 @@ struct QuireGalleryBanners: View {
             QuireBanner(.danger, "Couldn't load this message.", link: ("Retry", {}))
             QuireBanner(.info, "To add a Gmail account, SuperSparrow needs your own Google OAuth client ID. Enter it below and click Save, then try again.",
                         link: ("How to create one…", {}))
-            QuireBanner(.info, "Rows now show each account's initial. With seven or more accounts, colours alone can look alike.",
+            QuireBanner(.info, "Rows now show each account's face. With seven or more accounts, colours alone can look alike.",
                         link: ("Change in General…", {}), onDismiss: {})
         }
         .frame(width: Quire.Layout.Settings.width - 2 * Quire.Layout.Settings.padX)
@@ -299,9 +302,11 @@ struct QuireGalleryBanners: View {
 enum QuireGallerySamples {
     static let accounts: [QuireAccountRowContent] = [
         QuireAccountRowContent(id: "contoso", name: "Contoso", tag: "Microsoft 365", address: "alex@contoso.test", monogram: "C",
-                               inkSlot: 0, status: .upToDate(checked: "23:41")),
+                               inkSlot: 0, status: .upToDate(checked: "23:41"), face: .paper(.automatic(forSlot: 0))),
         QuireAccountRowContent(id: "personal", name: "Gmail", tag: "Gmail", address: "alex.morgan@gmail.com", monogram: "G",
-                               inkSlot: 1, status: .downloading(done: 3412, total: 8120, locale: Locale(identifier: "en_US"))),
+                               inkSlot: 1, status: .downloading(done: 3412, total: 8120, locale: Locale(identifier: "en_US")),
+                               face: .paper(.fox)),
+        // An account that wears its monogram (§5.55).
         QuireAccountRowContent(id: "northwind", name: "Northwind", tag: "Gmail", address: "alex@northwind.test", monogram: "N",
                                inkSlot: 3, status: .retrying(inSeconds: 30)),
         QuireAccountRowContent(id: "fabrikam", name: "Fabrikam", tag: "Microsoft 365", address: "alex@fabrikam.test", monogram: "F",
@@ -443,7 +448,7 @@ struct QuireGalleryGeneral: View {
                 QuireRadioGroup("List density", selection: .constant("Standard"), options: ["Standard", "Compact"]) { $0 }
             }
             QuireSettingsRow("Rows") {
-                Toggle("Show account initials in unified views", isOn: .constant(false)).toggleStyle(.quireCheckbox)
+                Toggle("Show account faces in unified views", isOn: .constant(false)).toggleStyle(.quireCheckbox)
             }
             QuireSettingsCaption("Turned on when you added a seventh account.")
             QuireSettingsRow("Undo send") {
@@ -471,11 +476,22 @@ struct QuireGalleryGeneral: View {
                 QuirePopup("Colour", selection: .constant(0), options: Array(0..<10), width: Quire.Layout.Settings.colourPopupWidth,
                            title: { Quire.accountInkNames[$0] }, swatch: { $0 })
             }
-            QuireSettingsRow("Monogram") {
-                TextField("", text: .constant(""), prompt: QuireFieldStyle.prompt("C"))
-                    .quireFieldStyle()
-                    .frame(width: Quire.Layout.Settings.monogramFieldWidth)
+            QuireSettingsRow("Face") {
+                HStack(spacing: Quire.Layout.Settings.labelGap + Quire.Border.AccountRing.gap + Quire.Border.AccountRing.width) {
+                    QuireFaceButton(face: .monogram("C"), ink: 0, accountName: "Contoso") {}
+                    TextField("", text: .constant(""), prompt: QuireFieldStyle.prompt("C"))
+                        .quireFieldStyle()
+                        .frame(width: Quire.Layout.Settings.monogramFieldWidth)
+                }
+                .padding(.leading, Quire.Border.AccountRing.gap + Quire.Border.AccountRing.width)
             }
+            QuireSettingsRow("Face") {
+                // The account above's ink (the Colour popup's Persimmon), as the picker under it rings the fox in it.
+                QuireFaceButton(face: .paper(.fox), ink: 0, accountName: "Contoso") {}
+                    .padding(.leading, Quire.Border.AccountRing.gap + Quire.Border.AccountRing.width)
+            }
+            QuireFacePicker(monogram: "C", ink: 0, chosen: .paper(.fox), onPick: { _ in }, onClose: {})
+                .padding(.vertical, Quire.Space.s4)
             // The app's field is the composer's AppKit editor; this stands in for it with the same container and lines.
             QuireSettingsRow("Signature", alignment: .top) {
                 (Text("Alex Morgan").bold() + Text("\nContoso · ") + Text("contoso.test").foregroundStyle(.qAccent).underline())

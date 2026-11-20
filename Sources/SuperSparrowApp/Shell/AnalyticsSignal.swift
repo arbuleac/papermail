@@ -198,7 +198,7 @@ enum AnalyticsSignal: Equatable, Sendable {
     /// new value.
     enum SettingChange: Equatable, Sendable {
         case listDensity(AppSettings.ListDensity)
-        case accountInitials(Bool)
+        case accountFaces(Bool)
         case undoSend(TimeInterval)
         case remoteImages(Bool)
         case notifications(Bool)
@@ -216,14 +216,14 @@ enum AnalyticsSignal: Equatable, Sendable {
         case defaultMailApp
 
         enum Setting: String, CaseIterable, Sendable {
-            case listDensity, accountInitials, undoSend, remoteImages, notifications, notificationPreviews, keepMail, theme
+            case listDensity, accountFaces, undoSend, remoteImages, notifications, notificationPreviews, keepMail, theme
             case appearance, font, textSize, adaptMailColours, sendAction, launchAtLogin, defaultMailApp
         }
 
         var setting: Setting {
             switch self {
             case .listDensity: return .listDensity
-            case .accountInitials: return .accountInitials
+            case .accountFaces: return .accountFaces
             case .undoSend: return .undoSend
             case .remoteImages: return .remoteImages
             case .notifications: return .notifications
@@ -244,7 +244,7 @@ enum AnalyticsSignal: Equatable, Sendable {
         var value: String {
             switch self {
             case .listDensity(let density): return density.rawValue
-            case .accountInitials(let on), .remoteImages(let on), .notifications(let on), .notificationPreviews(let on),
+            case .accountFaces(let on), .remoteImages(let on), .notifications(let on), .notificationPreviews(let on),
                  .adaptMailColours(let on), .launchAtLogin(let on):
                 return Toggle(on).rawValue
             case .defaultMailApp: return Toggle.on.rawValue
@@ -267,7 +267,7 @@ enum AnalyticsSignal: Equatable, Sendable {
         static func values(of setting: Setting) -> [String] {
             switch setting {
             case .listDensity: return AppSettings.ListDensity.allCases.map(\.rawValue)
-            case .accountInitials, .remoteImages, .notifications, .notificationPreviews, .adaptMailColours, .launchAtLogin:
+            case .accountFaces, .remoteImages, .notifications, .notificationPreviews, .adaptMailColours, .launchAtLogin:
                 return Toggle.allCases.map(\.rawValue)
             case .defaultMailApp: return [Toggle.on.rawValue]
             case .undoSend: return AppSettings.undoSendChoices.map(undoSendValue) + ["other"]

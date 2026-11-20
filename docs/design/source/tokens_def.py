@@ -117,6 +117,29 @@ AVATARS = [  # face / ink per mode
  {"name": "Stone",   "light": ["#E6E2DA", "#4E4943"], "dark": ["#2F2D2A", "#CFC8BD"], "lightHC": ["#D8D3C9", "#36322D"], "darkHC": ["#383532", "#E2DCD2"]},
 ]
 
+# The papers the paper faces are cut from (§5.55), in the art's order: grounds and garments, then six skin papers, lightest
+# to deepest. Light is the paper in daylight; dark the same paper under a dimmer, warm lamp (about 0.72 x in sRGB, a touch
+# less chroma), never brighter. They are illustration, not interface: no theme recolours them, Graphite leaves them alone
+# and Increase Contrast keeps them (the account ring carries the contrast), so they have no IC values of their own.
+# paper_faces_gen.py reads them from here, and build.py checks that paper_faces.json names exactly these.
+PAPERS = [
+ {"name": "cream",       "light": "#F1E3C8", "dark": "#A79D88"},
+ {"name": "ochre",       "light": "#E1A43C", "dark": "#A97D33"},
+ {"name": "terracotta",  "light": "#C9643F", "dark": "#9A5035"},
+ {"name": "vermilion",   "light": "#D9472F", "dark": "#A63C2C"},
+ {"name": "rose",        "light": "#EDAAA2", "dark": "#AE807A"},
+ {"name": "ultramarine", "light": "#2F4CA8", "dark": "#2E4282"},
+ {"name": "sage",        "light": "#A7BC92", "dark": "#7C8B6D"},
+ {"name": "leaf",        "light": "#3B6E47", "dark": "#2F5638"},
+ {"name": "ink",         "light": "#23202B", "dark": "#16141B"},
+ {"name": "porcelain",   "light": "#F7DAC5", "dark": "#B9A495"},
+ {"name": "peach",       "light": "#EDBE96", "dark": "#B18E72"},
+ {"name": "honey",       "light": "#D09566", "dark": "#9C7150"},
+ {"name": "sienna",      "light": "#A86B45", "dark": "#7F5236"},
+ {"name": "umber",       "light": "#7B4B30", "dark": "#5D3A26"},
+ {"name": "cocoa",       "light": "#4F3022", "dark": "#3B251B"},
+]
+
 # role: family, size, weight, lineHeight, tracking, extras
 TYPE = [
  ("display",        "serif",   34, 600, 40, -0.6, {"twin": "displaySans", "use": "Welcome title"}),
@@ -331,6 +354,17 @@ LAYOUT = {
               "sendersWidth": 440, "senderRow": 40, "senderRowsMax": 8, "senderRowX": 12, "senderActionGap": 12, "senderRemoveInset": 9,
               "themeTile": [60, 40], "themeTileGap": 15, "themeRow": 76, "themeNameGap": 6, "themeUnderline": 2, "themeUnderlineGap": 3,
               "themeCaptionLines": 2, "themeTileSpine": 8, "themeTilePaper": 18, "themeTilePip": 4, "themeTileLine": 1.5, "themeTileInset": 4},
+ # Paper faces (§5.55). The art is drawn in an `artBox`-unit square (paper_faces.json). Each layer casts a shadow by its lift
+ # (0 none, 1 a sheet laid on, 2 one stood off on a foam dot): `shadowY` down and `shadowBlur`, indexed by lift and given at
+ # `shadowReference` pt, scale with the diameter; the shadow is `shadowLight` / `shadowDark` (#RRGGBBAA, black). The picker
+ # card is a 7-column grid of `pickerCell` cells (the face, the chosen face's account ring outside it, the focus ring outside
+ # that), `pickerOffset` off the face button's ring, below it or, without room, above, and `pickerEdgeMin` inside the tab.
+# In the list's account tile a face stays `row.accountTile` across and its edge (`row.accountTileBorder`) stands `tileGap` off
+# it, a gap of the row's own fill, so an ink never meets a ground of its own hue.
+ "paperFaces": {"artBox": 100, "shadowReference": 30, "shadowY": [0, 0.6, 1.0], "shadowBlur": [0, 1.2, 2.0],
+               "shadowLight": "#00000040", "shadowDark": "#00000073",
+               "pickerFace": 48, "pickerCell": 62, "pickerGap": 4, "pickerPad": 12, "pickerColumns": 7, "pickerRadius": 8,
+               "pickerOffset": 6, "pickerEdgeMin": 8, "tileGap": 1},
  "menu": {"titleMenuOffsetY": 4},
  "iconSize": {"window": 15, "inText": 14, "row": 12, "rail": 18},
  "notification": {"bodyMaxChars": 120, "summaryThreshold": 3, "summaryWindowSeconds": 30},

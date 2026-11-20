@@ -30,6 +30,9 @@ final class SettingsModel: ObservableObject {
         didSet {
             // The incoming notice stays until Save succeeds or the tab is left.
             if oldValue == .oauth, tab != .oauth, case .needsClient = oauthNotice { oauthNotice = nil }
+            // The face picker is a card over Accounts: the tab's toolbar is outside its click-catching layer, so leaving
+            // the tab must close it, or it would be open again over Accounts on the way back (Quire §5.55).
+            if tab != oldValue { showsFacePicker = false }
         }
     }
 
@@ -43,10 +46,19 @@ final class SettingsModel: ObservableObject {
     /// The window is open; set by its controller. A closed window keeps its model (and the status observation
     /// feeding it), so without this the clock would tick for rows nobody sees.
     var isWindowOpen = false {
-        didSet { if isWindowOpen != oldValue { updateRetryClock() } }
+        didSet {
+            if isWindowOpen != oldValue { updateRetryClock() }
+            // The model outlives the window: a card left open would show again, without focus, when Settings next opens.
+            if !isWindowOpen { showsFacePicker = false }
+        }
     }
-    /// The selected account's id (`AccountID.rawValue`).
-    @Published var selection: String?
+    /// The selected account's id (`AccountID.rawValue`). Another account's selection closes the face picker: it was this one's.
+    @Published var selection: String? {
+        didSet { if selection != oldValue { showsFacePicker = false } }
+    }
+    /// The selected account's face picker is open over Accounts (Quire §5.55). Selecting another account, leaving the
+    /// Accounts tab and closing the window all close it.
+    @Published var showsFacePicker = false
     /// A sign-in adding an account is waiting for the browser (the pending row).
     @Published var pendingSignIn: ProviderKind?
     /// A reconnect is waiting for the browser.
@@ -75,6 +87,8 @@ final class SettingsModel: ObservableObject {
     var leaveDemo: () -> Void = {}
     var setInkSlot: (Int, Account) -> Void = { _, _ in }
     var setMonogram: (String?, Account) -> Void = { _, _ in }
+    /// The face picked in the account's face picker (Quire §5.55).
+    var setFace: (AccountFace, Account) -> Void = { _, _ in }
     /// The signature's HTML (nil for none) for an account, when editing it ends. By id: the field saves for the account
     /// it was editing, which may no longer be the selected one.
     var setSignature: (String?, AccountID) -> Void = { _, _ in }
@@ -121,10 +135,17 @@ final class SettingsModel: ObservableObject {
     var rows: [QuireAccountRowContent] {
         let monograms = AccountLabels.monograms(for: accounts)
         return accounts.map { account in
-            QuireAccountRowContent(id: account.id.rawValue, name: AccountLabels.name(for: account), tag: tag(for: account),
-                                   address: account.email, monogram: monograms[account.id] ?? "?", inkSlot: account.inkSlot,
-                                   status: status(for: account))
+            let monogram = monograms[account.id] ?? "?"
+            return QuireAccountRowContent(id: account.id.rawValue, name: AccountLabels.name(for: account), tag: tag(for: account),
+                                          address: account.email, monogram: monogram, inkSlot: account.inkSlot,
+                                          status: status(for: account), face: AccountFaces.face(for: account, monogram: monogram))
         }
+    }
+
+    /// The account's monogram among the accounts (the Monogram tile's letters) and the face it wears now.
+    func face(for account: Account) -> (monogram: String, face: QuireAccountFace) {
+        let monogram = AccountLabels.monogram(for: account, among: accounts)
+        return (monogram, AccountFaces.face(for: account, monogram: monogram))
     }
 
     func account(for row: QuireAccountRowContent) -> Account? {

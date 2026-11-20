@@ -156,5 +156,22 @@ for th in themes:
     fails += account_rules(th['color'], th['name'], th['inkless'])
     for r in theme_rules(th):
         fails += 1; print('FAIL', th['name'], r)
+# Paper faces (§5.55): every ground and fill is a paper of the palette, every lift has a shadow, ids are unique, and the
+# papers keep their values under Increase Contrast.
+papers = {p['name']: p for p in t['paperPalette']}
+lifts = len(t['layout']['paperFaces']['shadowY'])
+ids = [f['id'] for f in t['paperFaces']]
+if len(set(ids)) != len(ids):
+    fails += 1; print('FAIL paper face ids are not unique')
+for p in t['paperPalette']:
+    if p['lightHC'] != p['light'] or p['darkHC'] != p['dark']:
+        fails += 1; print('FAIL paper %s changes under Increase Contrast' % p['name'])
+for f in t['paperFaces']:
+    if f['ground'] not in papers:
+        fails += 1; print('FAIL paper face %s: ground %s is not a paper' % (f['id'], f['ground']))
+    for l in f['layers']:
+        n += 1
+        if l['paper'] not in papers or not 0 <= l['lift'] < lifts:
+            fails += 1; print('FAIL paper face %s: %s, lift %s' % (f['id'], l['paper'], l['lift']))
 print('%d themes, %d checks, %d failures' % (len(themes), n, fails))
 sys.exit(1 if fails else 0)

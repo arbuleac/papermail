@@ -25,7 +25,7 @@ struct GeneralSettingsView: View {
                 }
             }
             QuireSettingsRow("Rows") {
-                Toggle("Show account initials in unified views", isOn: accountInitials)
+                Toggle("Show account faces in unified views", isOn: accountFaces)
                     .toggleStyle(.quireCheckbox)
             }
             if settings.showsSevenAccountsCaption {
@@ -106,8 +106,8 @@ struct GeneralSettingsView: View {
     }
 
     /// The user's own choice ends the seven-accounts automatic state for good (§5.40).
-    private var accountInitials: Binding<Bool> {
-        Binding(get: { settings.showAccountInitials }, set: { settings.setShowAccountInitialsByUser($0) })
+    private var accountFaces: Binding<Bool> {
+        Binding(get: { settings.showAccountFaces }, set: { settings.setShowAccountFacesByUser($0) })
     }
 }
 

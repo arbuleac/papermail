@@ -47,9 +47,12 @@ enum SnapshotRenderer {
         let height = bitmaps.map(\.size.height).reduce(0, +) + gap * CGFloat(bitmaps.count - 1)
         guard let canvas = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int((width * scale).rounded(.up)),
                                             pixelsHigh: Int((height * scale).rounded(.up)), bitsPerSample: 8, samplesPerPixel: 4,
-                                            hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
-              let context = NSGraphicsContext(bitmapImageRep: canvas) else { return nil }
+                                            hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)
+        else { return nil }
+        // Sized before the context is made: a context takes the bitmap's size as it is then, and one made at the pixel
+        // size would draw a 2× stack at 1× into a quarter of it.
         canvas.size = NSSize(width: width, height: height)
+        guard let context = NSGraphicsContext(bitmapImageRep: canvas) else { return nil }
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = context
         appearance.performAsCurrentDrawingAppearance {

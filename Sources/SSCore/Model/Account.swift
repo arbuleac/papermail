@@ -16,6 +16,8 @@ public struct Account: Hashable, Codable, Sendable, Identifiable {
     /// composer inserts on new messages, replies and forwards. Nil means none, the default. A local setting: it is
     /// never read from or written to the provider.
     public var signature: String?
+    /// The face the user chose in Settings (Quire §5.55); `automatic` until they choose one.
+    public var face: AccountFace
 
     /// Settings caps an edited monogram at two characters, and the store enforces the same limit.
     public static let monogramMaxLength = 2
@@ -28,7 +30,8 @@ public struct Account: Hashable, Codable, Sendable, Identifiable {
         addedAt: Date,
         inkSlot: Int = 0,
         monogram: String? = nil,
-        signature: String? = nil
+        signature: String? = nil,
+        face: AccountFace = .automatic
     ) {
         self.id = id
         self.kind = kind
@@ -38,6 +41,7 @@ public struct Account: Hashable, Codable, Sendable, Identifiable {
         self.inkSlot = inkSlot
         self.monogram = monogram
         self.signature = signature
+        self.face = face
     }
 
     /// How the store keeps a monogram: trimmed, at most `monogramMaxLength` characters, and nil when nothing

@@ -119,6 +119,10 @@ public final class SQLiteMailStore: MailStoring, MailStoreMaintenance, Sendable 
         try write { try AccountTable.setSignature(signature, for: accountID, in: $0) }
     }
 
+    public func setFace(_ face: AccountFace, for accountID: AccountID) throws {
+        try write { try AccountTable.setFace(face, for: accountID, in: $0) }
+    }
+
     // MARK: Sync state
 
     public func syncCursor(for accountID: AccountID) throws -> String? {

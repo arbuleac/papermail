@@ -95,6 +95,55 @@ extension MailStoreContractTests {
         XCTAssertEqual(try store.accounts().count, 2)
     }
 
+    /// The face choice (Quire §5.55): automatic until chosen, any choice round-trips through the setter and an upsert,
+    /// and a paper face with no id is automatic, the one representation of "nothing chosen".
+    func testFaceRoundTrip() throws {
+        XCTAssertEqual(try store.accounts().map(\.face), [.automatic, .automatic])
+
+        try store.setFace(.paper("fox"), for: accountA)
+        try store.setFace(.monogram, for: accountB)
+        XCTAssertEqual(try store.accounts().map(\.face), [.paper("fox"), .monogram])
+        XCTAssertEqual(try store.accounts().map(\.inkSlot), [0, 0], "a face leaves the ink alone")
+        XCTAssertEqual(try store.accounts().map(\.monogram), [nil, nil], "and the monogram")
+
+        try store.setFace(.paper("owl"), for: accountA)
+        XCTAssertEqual(try store.accounts().first?.face, .paper("owl"))
+        try store.setFace(.paper(""), for: accountA)
+        XCTAssertEqual(try store.accounts().first?.face, .automatic, "no id means nothing chosen")
+        try store.setFace(.monogram, for: accountA)
+        try store.setFace(.automatic, for: accountA)
+        XCTAssertEqual(try store.accounts().first?.face, .automatic)
+
+        // An upsert carries the face as the setters do; a profile refresh re-saving the account it read keeps it.
+        var updated = try XCTUnwrap(try store.accounts().last)
+        updated.face = .paper("black-cat")
+        try store.upsertAccount(updated)
+        XCTAssertEqual(try store.accounts().last?.face, .paper("black-cat"))
+        var refreshed = try XCTUnwrap(try store.accounts().last)
+        refreshed.displayName = "Renamed"
+        try store.upsertAccount(refreshed)
+        XCTAssertEqual(try store.accounts().last?.face, .paper("black-cat"))
+        updated.face = .paper("")
+        try store.upsertAccount(updated)
+        XCTAssertEqual(try store.accounts().last?.face, .automatic)
+    }
+
+    /// An unknown account is refused, and removing an account takes its choice with it: an account added again later
+    /// starts automatic.
+    func testFaceRejectsUnknownAccountsAndGoesWithTheAccount() throws {
+        XCTAssertThrowsError(try store.setFace(.paper("fox"), for: AccountID("nobody"))) { error in
+            guard case StoreError.notFound = error else { return XCTFail("expected notFound, got \(error)") }
+        }
+        XCTAssertEqual(try store.accounts().map(\.face), [.automatic, .automatic], "a refused write changes nothing")
+
+        let account = try XCTUnwrap(try store.accounts().first { $0.id == accountB })
+        try store.setFace(.paper("frog"), for: accountB)
+        try store.deleteAccount(accountB)
+        XCTAssertEqual(try store.accounts().map(\.id), [accountA])
+        try store.upsertAccount(account)
+        XCTAssertEqual(try store.accounts().first { $0.id == accountB }?.face, .automatic, "the choice went with the row")
+    }
+
     // MARK: Bodies
 
     func testBodyDesignFactsRoundTrip() throws {

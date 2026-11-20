@@ -99,6 +99,7 @@ final class FaultyStore: MailStoring, @unchecked Sendable {
     func setInkSlot(_ slot: Int, for accountID: AccountID) throws { try base.setInkSlot(slot, for: accountID) }
     func setMonogram(_ monogram: String?, for accountID: AccountID) throws { try base.setMonogram(monogram, for: accountID) }
     func setSignature(_ signature: String?, for accountID: AccountID) throws { try base.setSignature(signature, for: accountID) }
+    func setFace(_ face: AccountFace, for accountID: AccountID) throws { try base.setFace(face, for: accountID) }
     func syncCursor(for accountID: AccountID) throws -> String? { try base.syncCursor(for: accountID) }
     func bootstrapState(for accountID: AccountID) throws -> BootstrapState? { try base.bootstrapState(for: accountID) }
     func wipeMailData(for accountID: AccountID) throws { try base.wipeMailData(for: accountID) }

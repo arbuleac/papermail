@@ -64,11 +64,11 @@ enum ListTestSupport {
         return store
     }
 
-    static func settings(density: AppSettings.ListDensity = .standard, initials: Bool = false) -> AppSettings {
+    static func settings(density: AppSettings.ListDensity = .standard, faces: Bool = false) -> AppSettings {
         let defaults = UserDefaults(suiteName: "SuperSparrowAppTests.\(UUID().uuidString)") ?? .standard
         let settings = AppSettings(defaults: defaults)
         settings.listDensity = density
-        settings.showAccountInitials = initials
+        settings.showAccountFaces = faces
         return settings
     }
 

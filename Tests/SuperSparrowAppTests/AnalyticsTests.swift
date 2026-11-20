@@ -118,7 +118,7 @@ final class AnalyticsTests: XCTestCase {
         signals.append(.settingsOpened)
         let changes: [S.SettingChange] = AppSettings.ListDensity.allCases.map(S.SettingChange.listDensity)
             + [true, false].flatMap { on in
-                [S.SettingChange.accountInitials(on), .remoteImages(on), .notifications(on), .notificationPreviews(on),
+                [S.SettingChange.accountFaces(on), .remoteImages(on), .notifications(on), .notificationPreviews(on),
                  .adaptMailColours(on), .launchAtLogin(on)]
             }
             + [S.SettingChange.defaultMailApp]
@@ -473,10 +473,10 @@ final class AnalyticsTests: XCTestCase {
         settings.listDensity = .compact
         settings.undoSendDelay = 20
         settings.keepMail = .threeMonths
-        settings.setShowAccountInitialsByUser(true)
+        settings.setShowAccountFacesByUser(true)
         settings.accountWasAdded(totalAccounts: 9)
         XCTAssertEqual(recorder.sent.map(\.parameters).map { [$0["setting"], $0["value"]] },
-                       [["listDensity", "compact"], ["undoSend", "20s"], ["keepMail", "threeMonths"], ["accountInitials", "on"]],
+                       [["listDensity", "compact"], ["undoSend", "20s"], ["keepMail", "threeMonths"], ["accountFaces", "on"]],
                        "a value set again is no change, and the seventh account's initials are not the user's")
     }
 

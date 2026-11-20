@@ -14,7 +14,7 @@
         {{PY: row('Rachel Kim', 'Q4 roadmap review', 'Great work. One comment on offline mode.', '17:20', 'sea', 'RK', acct='C', state='sel', clip=True, count=2)}}
         {{PY: row('Rachel Kim', 'No subject', 'Sending the photos from Friday.', '16:02', 'sea', 'RK', acct='C', unread=True, subject_cls='phi')}}
       </div></div>
-      <div><span class="lbl">Starred · attachment · count · queued · failed · initials · Drafts · Send Later in Drafts · Sent · back from Later · in Later</span><div class="listbox">
+      <div><span class="lbl">Starred · attachment · count · queued · failed · account tile · Drafts · Send Later in Drafts · Sent · back from Later · in Later</span><div class="listbox">
         {{PY: row('Linda Morgan', 'Sunday dinner', 'Ha, noted. I will bring the plum cake.', '19:02', 'rose', 'LM', acct='G', star=True, clip=True, count=4, pending=True)}}
         {{PY: row('Forge', '[sparrow-sync] PR #2657', 'maya-c commented: one nit about the retry budget.', '21:48', 'stone', 'F', acct='F', failed=True)}}
         {{PY: row('Northwind Weekly', 'Issue #182: Quiet software', 'This week: the case for fewer notifications.', '08:15', 'slate', 'NW', acct='G')}}
@@ -26,7 +26,7 @@
         {{PY: row('Diego Alvarez', 'Photos from the offsite', 'Of course. Group shot coming tomorrow.', 'Back Tue 09:00', 'clay', 'DA', acct='G', clip=True, count=3)}}
       </div></div>
       <div>
-        <span class="lbl">Compact density · square account mark · with initials on, the tile replaces the square</span><div class="listbox" style="width:100%">
+        <span class="lbl">Compact density · square account mark · with faces on, the tile replaces the square</span><div class="listbox" style="width:100%">
           {{PY: row_compact('Priya Raman', 'Lisbon in March?', 'Booked the flat near Príncipe Real.', '22:10', acct='G', unread=True, star=True, count=3)}}
           {{PY: row_compact('Ben Carter, Alex Morgan', 'Contoso rollout: go-live checklist', 'Tested with three accounts.', '23:39', acct='C', state='sel', count=4, clip=True)}}
           {{PY: row_compact('Forge', '[sparrow-sync] PR #2657', 'maya-c commented.', '21:48', acct='F', initial_tile=True)}}
@@ -50,17 +50,17 @@
 
   <div class="c4 card">
     <h3>Account rail <code>layout.rail</code></h3>
-    <p class="cap">Opaque <code>spine</code>, {{layout.rail.width}} pt ({{layout.rail.width26}} from macOS 26). Tiles {{layout.rail.tile}} pt visual, {{layout.rail.tileHit}} pt hit. Folders at the top, the accounts anchored above Add. A selected folder is a raised tile with no margin rule; the selected account carries the rule. Domain monograms. A press darkens only the face, never the ring's surroundings. While something in the scope is snoozed a Later tile shows below Inbox (A shows it) and the folders below it move down one pitch.</p>
+    <p class="cap">Opaque <code>spine</code>, {{layout.rail.width}} pt ({{layout.rail.width26}} from macOS 26). Tiles {{layout.rail.tile}} pt visual, {{layout.rail.tileHit}} pt hit. Folders at the top, the accounts anchored above Add. A selected folder is a raised tile with no margin rule; the selected account carries the rule. Paper faces (§5.55); an account that chooses Monogram wears its domain monogram (Collision: Ga). A press darkens only the face, never the ring's surroundings. While something in the scope is snoozed a Later tile shows below Inbox (A shows it) and the folders below it move down one pitch.</p>
     <div class="railspec">
-      <div><span class="rt2"><span class="face" style="--a:var(--q-acct-1)"><span>C</span></span></span><b>Rest</b></div>
-      <div><span class="rt2 hov"><span class="face" style="--a:var(--q-acct-2)"><span>G</span></span></span><b>Hover</b></div>
-      <div><span class="rt2"><i class="mr2"></i><span class="face" style="--a:var(--q-acct-1)"><span>C</span></span></span><b>Selected</b></div>
-      <div><span class="rt2"><i class="mr2 idle"></i><span class="face" style="--a:var(--q-acct-1)"><span>C</span></span></span><b>Selected, not key</b></div>
-      <div><span class="rt2 foc"><span class="face" style="--a:var(--q-acct-3)"><span>F</span></span></span><b>Focused</b></div>
-      <div><span class="rt2"><span class="face" style="--a:var(--q-acct-2)"><span>G</span></span><span class="badge">128</span></span><b>Unread (99+ cap)</b></div>
-      <div><span class="rt2"><span class="face" style="--a:var(--q-acct-3)"><span>F</span></span><span class="badge attn">{{PY: s('exclamationmark', 9)}}</span></span><b>Needs sign-in</b></div>
-      <div><span class="rt2"><span class="face" style="--a:var(--q-acct-4)"><span>F</span></span><span class="spin" style="position:absolute;top:-4px;right:-6px;--sz:12px;color:var(--q-ink3)"></span></span><b>First sync</b></div>
-      <div><span class="rt2 hov prs"><span class="face" style="--a:var(--q-acct-3)"><span>L</span></span></span><b>Pressed (face only)</b></div>
+      <div><span class="rt2">{{PY: face(1)}}</span><b>Rest</b></div>
+      <div><span class="rt2 hov">{{PY: face(2)}}</span><b>Hover</b></div>
+      <div><span class="rt2"><i class="mr2"></i>{{PY: face(1)}}</span><b>Selected</b></div>
+      <div><span class="rt2"><i class="mr2 idle"></i>{{PY: face(1)}}</span><b>Selected, not key</b></div>
+      <div><span class="rt2 foc">{{PY: face(3)}}</span><b>Focused</b></div>
+      <div><span class="rt2">{{PY: face(2)}}<span class="badge">128</span></span><b>Unread (99+ cap)</b></div>
+      <div><span class="rt2">{{PY: face(3)}}<span class="badge attn">{{PY: s('exclamationmark', 9)}}</span></span><b>Needs sign-in</b></div>
+      <div><span class="rt2">{{PY: face(4)}}<span class="spin" style="position:absolute;top:-4px;right:-6px;--sz:12px;color:var(--q-ink3)"></span></span><b>First sync</b></div>
+      <div><span class="rt2 hov prs">{{PY: face(3)}}</span><b>Pressed (face only)</b></div>
       <div><span class="rt2" title="Finish signing in in your browser…"><span class="pface"><span class="spin" style="--sz:{{layout.rail.pendingSpinner}}px;color:var(--q-ink3)"></span></span></span><b>Signing in</b></div>
       <div><span class="rt2"><span class="face two" style="--a:var(--q-acct-5)"><span>Ga</span></span></span><b>Collision: Ga</b></div>
       <div><span class="rt2 sel2"><i class="mr2"></i>{{PY: g('ss.quire', 18)}}</span><b>All Inboxes</b></div>
@@ -238,9 +238,9 @@
     <h3>Quick reply <code>layout.quickReply</code></h3>
     <p class="cap">Docked under the reader, aligned to the reading column. Writing is SF Pro ({{typography.writing.size}}/{{typography.writing.lineHeight}}): what you type is sent without a font.</p>
     <div style="display:grid;gap:12px">
-      <div class="qrf s" ><span class="mono24" style="--a:var(--q-acct-1)"><span>C</span></span><span class="ph">Reply to Ben Carter…</span><span class="kbd">R</span><span class="ib dis" style="margin-left:{{layout.quickReply.restKeycapGap}}px;color:var(--q-inkDisabled)">{{PY: s('paperplane', 15)}}</span></div>
+      <div class="qrf s" >{{PY: face24(1)}}<span class="ph">Reply to Ben Carter…</span><span class="kbd">R</span><span class="ib dis" style="margin-left:{{layout.quickReply.restKeycapGap}}px;color:var(--q-inkDisabled)">{{PY: s('paperplane', 15)}}</span></div>
       <div class="qrf s foc" style="height:auto;flex-wrap:wrap;padding:10px 6px 6px 12px;align-items:flex-start">
-        <span class="mono24" style="--a:var(--q-acct-1)"><span>C</span></span><span class="ph" style="color:var(--q-ink)">Thanks Ben, forwarding to IT now.<span class="caret" style="display:inline-block;vertical-align:-3px"></span></span>
+        {{PY: face24(1)}}<span class="ph" style="color:var(--q-ink)">Thanks Ben, forwarding to IT now.<span class="caret" style="display:inline-block;vertical-align:-3px"></span></span>
         <div style="flex-basis:100%;display:flex;align-items:center;gap:4px;margin-top:8px;padding-left:34px">
           <span class="mt on">{{PY: s('arrowshape.turn.up.left', 12)}}Reply</span><span class="mt" style="margin-left:{{layout.quickReply.modeGap}}px">{{PY: s('arrowshape.turn.up.left.2', 12)}}Reply all</span><span class="qtool" style="margin-left:{{layout.quickReply.toolGroupGap}}px"><span class="ib sm">{{PY: s('paperclip', 14)}}</span><span class="ib sm" style="margin-left:{{layout.quickReply.toolIconGap}}px">{{PY: s('arrow.up.left.and.arrow.down.right', 14)}}</span></span>
           <span class="kbd" style="margin-left:auto">⌘↩</span><span class="btn sm primary" style="margin-left:{{layout.quickReply.sendKeycapGap}}px">Send</span><span class="ib sm" style="margin-left:calc({{layout.quickReply.toolIconGap}}px - 4px)" title="Send Options">{{PY: s('chevron.down', 12)}}</span></div>
@@ -249,7 +249,7 @@
       <div class="qrf s"><span class="st2">{{PY: s('checkmark', 14)}}<b>Sent</b></span></div>
       <div class="qrf s"><span class="st2">{{PY: s('arrow.uturn.backward', 14)}}<b>Not sent · draft kept in “Contoso rollout”</b><a>Show</a></span></div>
       <div class="qrf s" style="height:auto;flex-wrap:wrap;padding:10px 6px 6px 12px;align-items:flex-start;box-shadow:inset 0 0 0 1.5px var(--q-danger)">
-        <span class="mono24" style="--a:var(--q-acct-1)"><span>C</span></span><span class="ph" style="color:var(--q-ink)">Thanks Ben, forwarding to IT now.</span>
+        {{PY: face24(1)}}<span class="ph" style="color:var(--q-ink)">Thanks Ben, forwarding to IT now.</span>
         <div style="flex-basis:100%;display:flex;align-items:center;gap:4px;margin-top:8px;padding-left:34px"><span class="qstat bad">{{PY: s('exclamationmark.triangle.fill', 12)}}Couldn’t send · Open in composer</span><span class="btn sm primary" style="margin-left:auto">Send</span><span class="ib sm" style="margin-left:calc({{layout.quickReply.toolIconGap}}px - 4px)">{{PY: s('chevron.down', 12)}}</span></div>
       </div>
       <div class="qrf s" style="background:var(--q-fill);box-shadow:none"><span class="ph">Reply in the composer</span></div>
@@ -299,7 +299,7 @@
     <span class="lbl">{{layout.avatar.sizes}}; initials 0.42 × d, never below {{typography.monogram.minSize}} pt; initials only, no photos</span>
     <div class="rowline" style="gap:18px">
       <span style="position:relative;width:38px;height:38px;display:inline-flex;align-items:center;justify-content:center"><span class="avz" style="--d:30px;--face:var(--q-av-heather-face);--avink:var(--q-av-heather-ink);box-shadow:0 0 0 2px var(--q-paper),0 0 0 4px var(--q-acct-2)">PR</span></span>
-      <span style="position:relative;width:38px;height:38px;display:inline-flex;align-items:center;justify-content:center;background:var(--q-spine);border-radius:8px"><span class="face" style="--a:var(--q-acct-1)"><span>C</span></span></span>
+      <span style="position:relative;width:38px;height:38px;display:inline-flex;align-items:center;justify-content:center;background:var(--q-spine);border-radius:8px">{{PY: face(1)}}</span>
       <span class="ann">row avatar: cached face, ring drawn per row, gap = row fill · rail account face</span>
     </div>
   </div>
