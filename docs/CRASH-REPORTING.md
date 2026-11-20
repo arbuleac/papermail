@@ -9,7 +9,7 @@ A build without a Sentry project still runs; it sends nothing, and **Settings �
 1. Sign in at [sentry.io](https://sentry.io) and create an organization. Choose the **EU** data region if you want reports kept in the EU. The region cannot be changed later.
 2. **Projects → Create Project**, platform **Apple → macOS**, name it `supersparrow-macos`.
 3. Under **Settings → Projects → supersparrow-macos → Client Keys (DSN)**, copy the DSN. It looks like `https://<key>@o<org>.ingest.<region>.sentry.io/<project>`. A DSN only lets an app send reports, so it is not a secret, but keep it out of a public repository so strangers cannot fill your quota.
-4. Optional, recommended: under **Settings → Projects → supersparrow-macos → Security & Privacy**, turn on **Data Scrubber** and **Prevent Storing of IP Addresses**. The app already scrubs reports before they leave; this is a second net on the server.
+4. Optional, recommended: under **Settings → Projects → supersparrow-macos → Security & Privacy**, turn on **Data Scrubber** and **Prevent Storing of IP Addresses**. The app already scrubs reports before they leave; this is a second net on the server. Sentry still works out a city and country from the sender's IP address before it drops the address, so also add an **Advanced Data Scrubbing** rule: **Remove**, **Anything**, from `$user.geo.**`.
 
 ## 2. Build with it
 
@@ -26,13 +26,20 @@ scripts/build-app.sh debug        # or release; SENTRY_DSN=… scripts/build-app
 
 Without symbols, Sentry shows the app's own frames as image offsets. To upload them:
 
-1. Install `sentry-cli` as the standalone binary from its [releases](https://github.com/getsentry/sentry-cli/releases). Use the `sentry-cli-Darwin-universal` asset; put it on your `PATH` as `sentry-cli` and `chmod +x` it. No npm or Homebrew.
-2. Create an auth token under **Settings → Account → Personal Tokens** (scope `project:releases` and `project:write`), then:
+1. Install Sentry's CLI, `sentry`, a standalone binary in `~/.local/bin` (no npm or Homebrew), and sign in:
 
 ```sh
-export SENTRY_AUTH_TOKEN=… SENTRY_ORG=<your org slug> SENTRY_PROJECT=supersparrow-macos
+curl -fsSL https://cli.sentry.dev/install | bash
+sentry auth login
+```
+
+2. Upload. Run from the repository, the CLI finds the organization and project from `Resources/SentryDSN`:
+
+```sh
 scripts/upload-dsyms.sh                    # add --include-sources to show source lines in Sentry
 ```
+
+The script falls back to the legacy `sentry-cli` when `sentry` is missing. That one needs `SENTRY_AUTH_TOKEN`, `SENTRY_ORG` and `SENTRY_PROJECT` in the environment.
 
 A debug build's dSYM is about 50 MB and a release build's about 65 MB. Each build has its own UUID, so upload after every build you run day to day.
 
