@@ -179,9 +179,12 @@ enum AppSnapshots {
         let height = bitmaps.map(\.size.height).max() ?? 0
         guard let canvas = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int((width * scale).rounded(.up)),
                                             pixelsHigh: Int((height * scale).rounded(.up)), bitsPerSample: 8, samplesPerPixel: 4,
-                                            hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
-              let context = NSGraphicsContext(bitmapImageRep: canvas) else { return nil }
+                                            hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)
+        else { return nil }
+        // The size in points before the context is made: the context takes its scale from it, so at
+        // `--snapshot-scale=2` each point is two pixels rather than the images landing at half size in a corner.
         canvas.size = NSSize(width: width, height: height)
+        guard let context = NSGraphicsContext(bitmapImageRep: canvas) else { return nil }
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = context
         appearance.performAsCurrentDrawingAppearance {

@@ -110,8 +110,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         runQuittingSnapshots()
         #if DEBUG
         if options.gallery { showDesignGallery(nil) }
+        if let report = options.liveWriteCheckPath, options.demo { runLiveWriteCheck(report: report) }
         #endif
     }
+
+    #if DEBUG
+    /// `--live-write-check` (debug, demo only): one Help Me Write reply on the first inbox conversation's quick reply,
+    /// reported to `report`, then the app quits.
+    private func runLiveWriteCheck(report: String) {
+        waitForInbox(deadline: Date().addingTimeInterval(20)) { [weak self] in
+            guard let self, let window = self.mainWindow, let environment = self.environment, environment.isDemo else { return }
+            window.selectFirstConversation()
+            LiveWriteCheck.run(in: window, center: environment.helpMeWrite, settings: self.settings, report: report) {
+                // As the quitting snapshots do: from a run-loop block, never a main-queue callout.
+                RunLoop.main.perform { MainActor.assumeIsolated { NSApp.terminate(nil) } }
+            }
+        }
+    }
+    #endif
 
     // MARK: Snapshots (debug aid)
 
@@ -473,6 +489,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             NSApp.terminate(nil)
             return
         }
+        #if DEBUG
+        LiveWriteCheck.chooseProvider(options, for: environment)
+        #endif
         environment.start()
         install(environment, replacing: nil)
     }
