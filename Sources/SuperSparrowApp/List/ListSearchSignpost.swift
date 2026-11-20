@@ -19,20 +19,26 @@ final class ListSearchSignpost {
     private static let name: StaticString = "list.search"
     private let signposter = ListSignposts.signposter
     private var open: OSSignpostIntervalState?
+    private var openedAt: ContinuousClock.Instant?
 
     /// A new search query; one still waiting for its rows was superseded by it.
     func begin() {
         supersede()
         open = signposter.beginInterval(Self.name, id: signposter.makeSignpostID())
+        openedAt = .now
         onEvent?(.began)
     }
 
-    /// The query's first page is in the list. Later refreshes of the same query find nothing open.
-    func finish() {
-        guard let state = open else { return }
+    /// The query's first page is in the list: how long it took, for analytics' sampled timing. Later refreshes of the same
+    /// query find nothing open, and return nil.
+    @discardableResult
+    func finish() -> Double? {
+        guard let state = open else { return nil }
         open = nil
         signposter.endInterval(Self.name, state)
         onEvent?(.finished)
+        defer { openedAt = nil }
+        return openedAt.map { Analytics.seconds(since: $0) }
     }
 
     /// The query was replaced before its first page arrived.

@@ -16,5 +16,7 @@ docs/design/source/palette2.json
 # proposal renders; regenerate with scripts/tools/html-snapshot.swift
 docs/design/proposals/*/*.png
 
-# The Sentry project DSN scripts/build-app.sh writes into the bundle (docs/CRASH-REPORTING.md).
+# The Sentry project DSN and the TelemetryDeck app ID scripts/build-app.sh writes into the bundle
+# (docs/ANALYTICS-AND-REPORTS.md).
 Resources/SentryDSN
+Resources/TelemetryDeckAppID

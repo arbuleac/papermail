@@ -6,8 +6,8 @@ import XCTest
 @testable import SuperSparrowApp
 
 /// Crash reporting (docs/ARCHITECTURE.md, "Crash reports"): the SDK's options keep everything that could carry mail off,
-/// every report is scrubbed before it leaves, breadcrumbs name code and never content, and Settings › General turns it
-/// off. Nothing here starts the SDK: a test process must never send a report.
+/// every report is scrubbed before it leaves, breadcrumbs name code and never content, and Settings › General › Analytics
+/// and reports turns it off. Nothing here starts the SDK: a test process must never send a report.
 @MainActor
 final class CrashReportingTests: XCTestCase {
     private let redactor = CrashRedactor(homeDirectory: "/Users/alex", userName: "alex")
@@ -206,29 +206,30 @@ final class CrashReportingTests: XCTestCase {
 
     // MARK: Settings
 
-    func testSendCrashReportsIsOnUnlessTurnedOffAndAppliesAtOnce() throws {
+    func testAnalyticsAndReportsIsOnUnlessTurnedOffAndAppliesAtOnce() throws {
         let defaults = try throwawayDefaults()
         let settings = AppSettings(defaults: defaults)
         var applied: [Bool] = []
-        settings.onCrashReportsChanged = { applied.append($0) }
-        XCTAssertTrue(settings.sendsCrashReports)
-        settings.sendsCrashReports = false
+        settings.onAnalyticsAndReportsChanged = { applied.append($0) }
+        XCTAssertTrue(settings.sendsAnalyticsAndReports)
+        settings.sendsAnalyticsAndReports = false
         XCTAssertEqual(applied, [false])
         XCTAssertEqual(defaults.object(forKey: CrashReporting.enabledDefaultsKey) as? Bool, false)
-        XCTAssertFalse(AppSettings(defaults: defaults).sendsCrashReports, "kept across launches")
+        XCTAssertEqual(CrashReporting.enabledDefaultsKey, "sendsCrashReports", "the key crash reports had, so a choice made then holds")
+        XCTAssertFalse(AppSettings(defaults: defaults).sendsAnalyticsAndReports, "kept across launches")
         XCTAssertFalse(CrashReporting.isEnabled(in: defaults), "read at launch, before the app delegate, from the same key")
     }
 
     func testGeneralShowsTheToggleWithWhatIsSentAndKeepsItsWidth() throws {
         let settings = AppSettings(defaults: try throwawayDefaults())
-        settings.onCrashReportsChanged = { _ in }
-        XCTAssertTrue(GeneralSettingsView.crashReportsCaption.contains("Never your mail or addresses"))
+        settings.onAnalyticsAndReportsChanged = { _ in }
+        XCTAssertTrue(GeneralSettingsView.reportsCaption.contains("Never your mail or addresses"))
         for configured in [true, false] {
             var general = GeneralSettingsView(settings: settings, defaultMailApp: DefaultMailAppModel(handler: FakeMailtoHandler()),
                                               mailboxSize: MailboxSizeModel(measure: { 292_000_000 }),
                                               launchAtLogin: LaunchAtLoginModel(handler: FakeLoginItem()),
                                               notificationPermission: NotificationPermissionModel(handler: FakeNotificationPermission(.allowed)))
-            general.crashReportsConfigured = configured
+            general.reportServices = ReportServices(crashReports: configured, analytics: configured)
             let view = NSHostingView(rootView: general)
             ListTestSupport.spin(for: 0.05)
             view.layoutSubtreeIfNeeded()

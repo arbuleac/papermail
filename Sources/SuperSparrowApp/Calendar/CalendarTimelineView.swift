@@ -801,7 +801,7 @@ final class CalendarTimelineView: NSView, QuirePointerTarget {
         defer { setGhost(nil) }
         guard let conversation = CalendarDrop.conversation(in: sender),
               let drop = dropStart(at: convert(sender.draggingLocation, from: nil)) else { return false }
-        delegate?.blockTime(for: conversation, at: drop.start)
+        Analytics.from(.drag) { delegate?.blockTime(for: conversation, at: drop.start) }
         return true
     }
 

@@ -12,8 +12,8 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN_DIR/SuperSparrow" "$APP/Contents/MacOS/SuperSparrow"
 cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
-# Crash reporting (docs/CRASH-REPORTING.md): the Sentry project's DSN, from SENTRY_DSN or the untracked file
-# Resources/SentryDSN. Without one the app sends no crash reports, and Settings › General says so.
+# Crash reporting (docs/ANALYTICS-AND-REPORTS.md): the Sentry project's DSN, from SENTRY_DSN or the untracked file
+# Resources/SentryDSN. Without one the app sends no crash reports.
 DSN="${SENTRY_DSN:-}"
 if [ -z "$DSN" ] && [ -f "$ROOT/Resources/SentryDSN" ]; then
   DSN="$(tr -d '[:space:]' < "$ROOT/Resources/SentryDSN")"
@@ -22,6 +22,18 @@ if [ -n "$DSN" ]; then
   plutil -replace SentryDSN -string "$DSN" "$APP/Contents/Info.plist"
 else
   echo "note: no Sentry DSN (SENTRY_DSN or Resources/SentryDSN); this build sends no crash reports" >&2
+fi
+# Analytics (docs/ANALYTICS-AND-REPORTS.md): the TelemetryDeck app's ID, from TELEMETRYDECK_APP_ID or the untracked file
+# Resources/TelemetryDeckAppID. Without one the app sends no analytics; with neither this nor a DSN, Settings › General
+# says Analytics and reports is not set up in this build.
+APP_ID="${TELEMETRYDECK_APP_ID:-}"
+if [ -z "$APP_ID" ] && [ -f "$ROOT/Resources/TelemetryDeckAppID" ]; then
+  APP_ID="$(tr -d '[:space:]' < "$ROOT/Resources/TelemetryDeckAppID")"
+fi
+if [ -n "$APP_ID" ]; then
+  plutil -replace TelemetryDeckAppID -string "$APP_ID" "$APP/Contents/Info.plist"
+else
+  echo "note: no TelemetryDeck app ID (TELEMETRYDECK_APP_ID or Resources/TelemetryDeckAppID); this build sends no analytics" >&2
 fi
 # The build's debug symbols beside the bundle, so its crash reports can be symbolicated (scripts/upload-dsyms.sh).
 DSYM="$ROOT/dist/SuperSparrow.app.dSYM"

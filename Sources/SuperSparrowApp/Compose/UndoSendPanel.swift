@@ -262,6 +262,8 @@ final class UndoSendPanel: NSPanel {
             return
         }
         dismissNow()
+        // A quick reply's countdown moved to this panel brings its text back to the bar (`onUndone`).
+        Analytics.send(.sendUndone(onUndone == nil ? .composer : .quickReply))
         // The conversation comes back to the Inbox before the composer takes the screen.
         archive?.revert()
         archive = nil

@@ -10,7 +10,7 @@ import SSDesign
 final class AppSettings: ObservableObject {
     static let shared = AppSettings()
 
-    static let undoSendChoices: [TimeInterval] = [5, 10, 20]
+    nonisolated static let undoSendChoices: [TimeInterval] = [5, 10, 20]
 
     /// Posted after the row display preferences below change (density, account initials), so AppKit views that
     /// cache laid-out rows can rebuild without observing each property. The Font setting is not posted here: it
@@ -56,8 +56,9 @@ final class AppSettings: ObservableObject {
         static let showsDayColumn = "showsDayColumn"
         /// Some account had granted the calendar permission when the engine last said (spec §5.54, the calendar toggle).
         static let hasCalendarAccess = "hasCalendarAccess"
-        /// Settings › General › Crash reports (`CrashReporting` reads it at launch, before the app delegate exists).
-        static let sendsCrashReports = CrashReporting.enabledDefaultsKey
+        /// Settings › General › Analytics and reports (`CrashReporting` and `Analytics` read it at launch, before the app
+        /// delegate exists). Named for crash reports, which it governed first, so a choice made then still holds.
+        static let sendsAnalyticsAndReports = CrashReporting.enabledDefaultsKey
     }
 
     /// Account ids are UUIDs, so this can never be one.
@@ -69,12 +70,18 @@ final class AppSettings: ObservableObject {
     private let defaults: UserDefaults
 
     @Published var notificationsEnabled: Bool {
-        didSet { defaults.set(notificationsEnabled, forKey: Key.notifications) }
+        didSet {
+            defaults.set(notificationsEnabled, forKey: Key.notifications)
+            if oldValue != notificationsEnabled { report(.notifications(notificationsEnabled)) }
+        }
     }
 
     /// Sender and subject in the notification body. On by default: this is a personal client on the user's own Mac.
     @Published var showPreviews: Bool {
-        didSet { defaults.set(showPreviews, forKey: Key.previews) }
+        didSet {
+            defaults.set(showPreviews, forKey: Key.previews)
+            if oldValue != showPreviews { report(.notificationPreviews(showPreviews)) }
+        }
     }
 
     /// Read live: by the sanitizer for bodies synced from now on, and by the reader, which renders every
@@ -83,13 +90,17 @@ final class AppSettings: ObservableObject {
         didSet {
             defaults.set(loadRemoteImages, forKey: Key.remoteImages)
             applyRemoteImages()
+            if oldValue != loadRemoteImages { report(.remoteImages(loadRemoteImages)) }
         }
     }
 
     /// Spec §5.40 General › Keep mail on this Mac: how far back bodies stay whole on this Mac. Each environment's engine
     /// follows it (`AppEnvironment.follow`), sweeping at once when it narrows; Everything is the default.
     @Published var keepMail: MailRetention {
-        didSet { defaults.set(keepMail.rawValue, forKey: Key.keepMail) }
+        didSet {
+            defaults.set(keepMail.rawValue, forKey: Key.keepMail)
+            if oldValue != keepMail { report(.keepMail(keepMail)) }
+        }
     }
 
     /// The popup's choices, in the order it lists them.
@@ -109,7 +120,10 @@ final class AppSettings: ObservableObject {
     @Published var sendAction: SendAction {
         didSet {
             defaults.set(sendAction.rawValue, forKey: Key.sendAction)
-            if oldValue != sendAction { NotificationCenter.default.post(name: SendActionPreference.didChange, object: self) }
+            if oldValue != sendAction {
+                NotificationCenter.default.post(name: SendActionPreference.didChange, object: self)
+                report(.sendAction(sendAction))
+            }
         }
     }
 
@@ -117,6 +131,7 @@ final class AppSettings: ObservableObject {
         didSet {
             defaults.set(undoSendDelay, forKey: Key.undoSend)
             applyUndoSendDelay()
+            if oldValue != undoSendDelay { report(.undoSend(undoSendDelay)) }
         }
     }
 
@@ -126,6 +141,7 @@ final class AppSettings: ObservableObject {
         didSet {
             defaults.set(typeface.rawValue, forKey: Key.typeface)
             applyTypeface()
+            if oldValue != typeface { report(.font(typeface)) }
         }
     }
 
@@ -139,7 +155,10 @@ final class AppSettings: ObservableObject {
             // Quire still held the old size, broadcast that and measure every body at a size nobody chose, then
             // measure them all again at the new one.
             applyTextSize()
-            if oldValue != textSize { readerTextSize = nil }
+            if oldValue != textSize {
+                readerTextSize = nil
+                report(.textSize(textSize))
+            }
         }
     }
 
@@ -175,6 +194,7 @@ final class AppSettings: ObservableObject {
         didSet {
             defaults.set(theme.rawValue, forKey: Key.theme)
             applyTheme()
+            if oldValue != theme { report(.theme(theme)) }
         }
     }
 
@@ -182,7 +202,10 @@ final class AppSettings: ObservableObject {
     @Published var appearance: AppAppearance {
         didSet {
             defaults.set(appearance.rawValue, forKey: Key.appearance)
-            if oldValue != appearance { applyAppearance() }
+            if oldValue != appearance {
+                applyAppearance()
+                report(.appearance(appearance))
+            }
         }
     }
 
@@ -190,13 +213,17 @@ final class AppSettings: ObservableObject {
     /// that declares its own colours opens adapted to the theme's inks (on, the default) or as sent on a white page
     /// (off). ⇧⌘O still switches one message. The reader reads it for every render.
     @Published var adaptsMailColours: Bool {
-        didSet { defaults.set(adaptsMailColours, forKey: Key.adaptsMailColours) }
+        didSet {
+            defaults.set(adaptsMailColours, forKey: Key.adaptsMailColours)
+            if oldValue != adaptsMailColours { report(.adaptMailColours(adaptsMailColours)) }
+        }
     }
 
     @Published var listDensity: ListDensity {
         didSet {
             defaults.set(listDensity.rawValue, forKey: Key.listDensity)
             postDisplayChange()
+            if oldValue != listDensity { report(.listDensity(listDensity)) }
         }
     }
 
@@ -239,7 +266,10 @@ final class AppSettings: ObservableObject {
     func setShowAccountInitialsByUser(_ on: Bool) {
         accountInitialsChosenByUser = true
         sevenAccountsNoticePending = false
-        if showAccountInitials != on { showAccountInitials = on }
+        if showAccountInitials != on {
+            showAccountInitials = on
+            report(.accountInitials(on))
+        }
     }
 
     /// Called after an account is added. The seventh account turns initials on, once ever, unless the user
@@ -259,22 +289,26 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(showsDayColumn, forKey: Key.showsDayColumn) }
     }
 
-    /// Whether some account had granted the calendar permission when the engine last said. Not a setting: the main
-    /// window keeps it so the calendar toggle (and a hidden column's strip) is in place from a launch's first frame,
-    /// before the engine has looked at any account's permission.
-    /// Settings › General › Crash reports › Send to Sentry: on unless turned off. Turning it off closes the crash reporter at once;
-    /// on starts it again (`CrashReporting.setEnabled`).
-    @Published var sendsCrashReports: Bool {
+    /// Settings › General › Analytics and reports: crash reports (Sentry) and analytics (TelemetryDeck) together, on
+    /// unless turned off. Turning it off stops both at once and deletes what they had queued; on starts them again
+    /// (`CrashReporting.setEnabled`, `Analytics.setEnabled`).
+    @Published var sendsAnalyticsAndReports: Bool {
         didSet {
-            guard oldValue != sendsCrashReports else { return }
-            defaults.set(sendsCrashReports, forKey: Key.sendsCrashReports)
-            onCrashReportsChanged(sendsCrashReports)
+            guard oldValue != sendsAnalyticsAndReports else { return }
+            defaults.set(sendsAnalyticsAndReports, forKey: Key.sendsAnalyticsAndReports)
+            onAnalyticsAndReportsChanged(sendsAnalyticsAndReports)
         }
     }
 
-    /// Applies Crash reports; the app's crash reporter unless a test sets its own.
-    var onCrashReportsChanged: (Bool) -> Void = { CrashReporting.setEnabled($0) }
+    /// Applies Analytics and reports; the app's crash reporter and analytics unless a test sets its own.
+    var onAnalyticsAndReportsChanged: (Bool) -> Void = { on in
+        CrashReporting.setEnabled(on)
+        Analytics.setEnabled(on)
+    }
 
+    /// Whether some account had granted the calendar permission when the engine last said. Not a setting: the main
+    /// window keeps it so the calendar toggle (and a hidden column's strip) is in place from a launch's first frame,
+    /// before the engine has looked at any account's permission.
     @Published var hasCalendarAccess: Bool {
         didSet { if oldValue != hasCalendarAccess { defaults.set(hasCalendarAccess, forKey: Key.hasCalendarAccess) } }
     }
@@ -318,7 +352,7 @@ final class AppSettings: ObservableObject {
             Key.appearance: AppAppearance.automatic.rawValue,
             Key.adaptsMailColours: true,
             Key.showsDayColumn: true,
-            Key.sendsCrashReports: true,
+            Key.sendsAnalyticsAndReports: true,
         ])
         notificationsEnabled = defaults.bool(forKey: Key.notifications)
         showPreviews = defaults.bool(forKey: Key.previews)
@@ -344,7 +378,7 @@ final class AppSettings: ObservableObject {
         accountInitialsTurnedOnAutomatically = defaults.bool(forKey: Key.accountInitialsTurnedOnAutomatically)
         accountInitialsChosenByUser = defaults.bool(forKey: Key.accountInitialsChosenByUser)
         sevenAccountsNoticePending = defaults.bool(forKey: Key.sevenAccountsNoticePending)
-        sendsCrashReports = defaults.bool(forKey: Key.sendsCrashReports)
+        sendsAnalyticsAndReports = defaults.bool(forKey: Key.sendsAnalyticsAndReports)
         showsDayColumn = defaults.bool(forKey: Key.showsDayColumn)
         hasCalendarAccess = defaults.bool(forKey: Key.hasCalendarAccess)
         applyUndoSendDelay()
@@ -376,6 +410,11 @@ final class AppSettings: ObservableObject {
     /// Shows the saved appearance. Called by `appearance`'s observer; the app delegate applies it itself at launch.
     func applyAppearance() {
         NSApplication.shared.appearance = appearance.nsAppearance
+    }
+
+    /// A setting the user changed, for analytics: which, and its new value from a closed set.
+    private func report(_ change: AnalyticsSignal.SettingChange) {
+        Analytics.send(.settingChanged(change))
     }
 
     private func postDisplayChange() {

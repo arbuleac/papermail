@@ -92,6 +92,7 @@ final class ServerSearchController {
             found.formUnion(result.conversations)
             failedAccounts = result.failedAccounts
             state = result.failedAccounts.isEmpty ? .finished : .failed
+            report()
         case .failure(let error) where error is CancellationError:
             // Only `reset` cancels, and it has already moved on.
             return
@@ -99,8 +100,18 @@ final class ServerSearchController {
             // The engine could not even start (its store unreadable): every account in scope counts as failed.
             failedAccounts = scope ?? []
             state = .failed
+            report()
         }
         onChange?()
+    }
+
+    /// How the search went, for analytics: what it added to the local results, and how many operators it used. The words
+    /// are counted, never sent.
+    private func report() {
+        let added = found.subtracting(before).count
+        let outcome: AnalyticsSignal.ServerSearchOutcome = state == .failed ? .failed : (added > 0 ? .found : .nothing)
+        let operators = AnalyticsSignal.operators(in: words.flatMap { SearchQuery(parsing: $0) })
+        Analytics.send(.serverSearch(outcome, operators: operators, found: added))
     }
 
     #if DEBUG

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Upload the last build's debug symbols to Sentry, so its crash reports name functions, files and lines
-# (docs/CRASH-REPORTING.md). Usage: scripts/upload-dsyms.sh [extra upload arguments, e.g. --include-sources]
+# (docs/ANALYTICS-AND-REPORTS.md). Usage: scripts/upload-dsyms.sh [extra upload arguments, e.g. --include-sources]
 #
 # Uses Sentry's `sentry` CLI when it is installed (signed in with `sentry auth login`). Run from the repository, it
 # finds the organization and project from the DSN in Resources/SentryDSN. Otherwise the legacy `sentry-cli`, with
@@ -19,6 +19,6 @@ if command -v sentry >/dev/null 2>&1; then
 elif command -v sentry-cli >/dev/null 2>&1; then
   sentry-cli debug-files upload "$@" "$DSYM"
 else
-  echo "error: neither sentry nor sentry-cli is installed; see docs/CRASH-REPORTING.md" >&2
+  echo "error: neither sentry nor sentry-cli is installed; see docs/ANALYTICS-AND-REPORTS.md" >&2
   exit 1
 fi

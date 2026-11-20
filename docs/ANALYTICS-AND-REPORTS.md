@@ -1,0 +1,203 @@
+# Analytics and reports
+
+SuperSparrow sends two things to two services, under one switch, **Settings → General → Analytics and reports**:
+
+- **Crash reports**: crashes, exceptions and hangs, to [Sentry](https://sentry.io) through Sentry's Cocoa SDK ("Crash reports" below; why and how in [ARCHITECTURE.md](ARCHITECTURE.md), "Crash reports").
+- **Analytics**: which features are used, and how fast, never what they were used on, to [TelemetryDeck](https://telemetrydeck.com) through its Swift SDK ("Analytics" below; why and how in [ARCHITECTURE.md](ARCHITECTURE.md), "Analytics").
+
+The switch is on unless the user turns it off. Off stops both at once, the current run included, and deletes what both had queued on this Mac. It keeps the defaults key crash reports had (`sendsCrashReports`), so anyone who turned crash reports off is opted out of analytics too.
+
+A build without a Sentry project or a TelemetryDeck app still runs and sends nothing of that kind. With neither, the switch is disabled and says "Not set up in this build."; with one, it governs that one and names it ("Send to Sentry", "Send to TelemetryDeck"; with both, "Send to Sentry and TelemetryDeck").
+
+# Crash reports
+
+## 1. Create the project (once)
+
+1. Sign in at [sentry.io](https://sentry.io) and create an organization. Choose the **EU** data region if you want reports kept in the EU. The region cannot be changed later.
+2. **Projects → Create Project**, platform **Apple → macOS**, name it `supersparrow-macos`.
+3. Under **Settings → Projects → supersparrow-macos → Client Keys (DSN)**, copy the DSN. It looks like `https://<key>@o<org>.ingest.<region>.sentry.io/<project>`. A DSN only lets an app send reports, so it is not a secret, but keep it out of a public repository so strangers cannot fill your quota.
+4. Optional, recommended: under **Settings → Projects → supersparrow-macos → Security & Privacy**, turn on **Data Scrubber** and **Prevent Storing of IP Addresses**. The app already scrubs reports before they leave; this is a second net on the server. Sentry still works out a city and country from the sender's IP address before it drops the address, so also add an **Advanced Data Scrubbing** rule: **Remove**, **Anything**, from `$user.geo.**`.
+
+## 2. Build with it
+
+Put the DSN in the untracked file `Resources/SentryDSN`. `.gitignore` keeps it out of git.
+
+```sh
+echo 'https://<key>@o<org>.ingest.<region>.sentry.io/<project>' > Resources/SentryDSN
+scripts/build-app.sh debug        # or release; SENTRY_DSN=… scripts/build-app.sh also works
+```
+
+`scripts/build-app.sh` writes it into the bundle's Info.plist as `SentryDSN` and writes the build's debug symbols to `dist/SuperSparrow.app.dSYM`.
+
+## 3. Upload symbols (each build you run)
+
+Without symbols, Sentry shows the app's own frames as image offsets. To upload them:
+
+1. Install Sentry's CLI, `sentry`, a standalone binary in `~/.local/bin` (no npm or Homebrew), and sign in:
+
+```sh
+curl -fsSL https://cli.sentry.dev/install | bash
+sentry auth login
+```
+
+2. Upload. Run from the repository, the CLI finds the organization and project from `Resources/SentryDSN`:
+
+```sh
+scripts/upload-dsyms.sh                    # add --include-sources to show source lines in Sentry
+```
+
+The script falls back to the legacy `sentry-cli` when `sentry` is missing. That one needs `SENTRY_AUTH_TOKEN`, `SENTRY_ORG` and `SENTRY_PROJECT` in the environment.
+
+A debug build's dSYM is about 50 MB and a release build's about 65 MB. Each build has its own UUID, so upload after every build you run day to day.
+
+## 4. Check it end to end
+
+Debug builds take `--crash-test=<kind>`, which acts two seconds after launch:
+
+| Kind | What happens | What Sentry shows |
+|---|---|---|
+| `crash` | The SDK's test crash (a bad memory access). The app quits. | A fatal `EXC_BAD_ACCESS` at the next launch |
+| `fatal` | A Swift trap (a force-unwrapped nil). The app quits. | A fatal `EXC_BREAKPOINT` with the Swift error message, at the next launch |
+| `exception` | An Objective-C exception no one catches, thrown on a background queue. The app quits. | A fatal `NSInternalInconsistencyException` with its reason, at the next launch |
+| `appkit-exception` | An exception thrown while AppKit dispatches an event. AppKit catches it and the app goes on. | An error `NSInvalidArgumentException`, tag `caught_by: appkit`, at once |
+| `hang` | The main thread blocked for 5 s. The app goes on. | "App hanging for at least 2000 ms", at once |
+
+```sh
+dist/SuperSparrow.app/Contents/MacOS/SuperSparrow --demo --crash-test=crash
+open dist/SuperSparrow.app --args --demo     # the next launch sends the crash
+```
+
+Use `--demo` so a test never touches your real mailbox. To look at exactly what would leave the Mac without sending anything to Sentry, run the bare binary against a local listener with `--sentry-dsn=http://key@127.0.0.1:8977/1` (`NSAllowsLocalNetworking` lets it use plain http to 127.0.0.1). The listener should store every POST to `/api/1/envelope/`; the SDK gzips them.
+
+## What is caught, and what is not
+
+- **Caught:**
+  - crashes (Mach exceptions and signals, Swift traps included)
+  - uncaught Objective-C and C++ exceptions, on any thread
+  - exceptions AppKit catches while it dispatches an event (reported as errors; the app goes on)
+  - main-thread hangs of 2 s or more
+  - MetricKit's crash, hang, CPU and disk-write diagnostics, at a later launch
+  - crash-free sessions per release
+- **Not caught:**
+  - **A crash while a debugger is attached.** The debugger takes it first.
+  - **An exception AppKit catches during layout or a Core Animation commit.** It ends the app through a private AppKit method, so Sentry shows the SIGABRT and its stack but not the exception's reason.
+  - **A force quit, or the system ending the app for memory.** These leave no crash report (MetricKit may report the cause later).
+  - **Crashes in WebKit's own processes.** The reader recovers from those by itself.
+- **Turning it off:** **Settings → General → Analytics and reports**. This takes effect at once, the current run included, and deletes reports still queued on disk (`~/Library/Caches/io.supersparrow.mac/Sentry`), so none goes later.
+
+# Analytics
+
+SuperSparrow counts which features are used, from where (a key, a menu, a swipe…) and how fast, through TelemetryDeck's Swift SDK (`TelemetryDeck`, `from: "2.14.2"`). Every signal comes from a closed catalog in the code (`AnalyticsSignal`): each parameter value is one of a fixed set of words, a count put in a range, or a duration put in a range, so nothing a user wrote or received can be sent.
+
+## 1. Create the app (once)
+
+1. Sign in at [telemetrydeck.com](https://telemetrydeck.com) and create an organization.
+2. **Create App**, name it `SuperSparrow`. Its **App ID** (a UUID) is under the app's settings. An app ID only lets an app send signals, so it is not a secret, but keep it out of a public repository so strangers cannot fill your quota.
+3. Debug builds send TelemetryDeck's *test* signals, which the dashboard shows only with **Test Mode** on; release builds send live ones.
+
+## 2. Build with it
+
+Put the app ID in the untracked file `Resources/TelemetryDeckAppID`. `.gitignore` keeps it out of git.
+
+```sh
+echo '<app-id>' > Resources/TelemetryDeckAppID
+scripts/build-app.sh debug        # or release; TELEMETRYDECK_APP_ID=… scripts/build-app.sh also works
+```
+
+`scripts/build-app.sh` writes it into the bundle's Info.plist as `TelemetryDeckAppID`. A debug build's bare binary takes `--telemetry-app-id=<id>` instead. Without an app ID nothing starts.
+
+## 3. What is sent
+
+Every signal carries `mode` (`demo` or `accounts`: which mailbox was on screen) besides the parameters below.
+
+| Signal | When | Parameters |
+|---|---|---|
+| `App.launched` | Once a launch, when the first main window is on screen. Its number is the launch's seconds. | `launchTime`, `gmailAccounts`, `microsoftAccounts`, `theme`, `appearance`, `density`, `textSize`, `font` |
+| `Settings.opened` | The Settings window opens. | none |
+| `Settings.changed` | A setting changes in Settings, or Send's drop-down changes what Send does. A value set again is no change. | `setting`, `value` |
+| `Mail.action` | Archive, Move to Trash, Mark as Spam, Move to Inbox, Star, Mark as Read or Unread, Later, Mute, Unsubscribe, Always Archive or Block a sender, from any window. | `action`, `trigger`, `conversations` |
+| `Compose.started` | A composer opens: New Message, Reply, Reply All, Forward, a kept draft (Continue Editing), a mail link, the Services menu. | `kind`, `origin` |
+| `Compose.sent` | A composer's message goes to the outbox (its Undo window still to run). | `kind`, `archives` |
+| `Compose.sendLaterScheduled` | Send Later from a composer or the quick reply. | `source` |
+| `Compose.sendUndone` | Undo Send, or Undo on a Send Later toast. | `source` |
+| `QuickReply.sent` | The quick reply sends. | `kind`, `archives` |
+| `Search.local` | A search of this Mac that stood for 2 s (the field searches at every keystroke; only where the user stopped counts). | `operators`, `results` |
+| `Search.server` | Search Gmail or Microsoft for more finishes. | `outcome`, `operators`, `results` |
+| `Reader.windowOpened` | A conversation opens in a reader window. | `trigger` |
+| `Calendar.dayColumn` | D, View › Hide Day or Show Day, or the column's toggle shows or hides the day column. | `state`, `trigger` |
+| `Calendar.weekOpened` | W, View › Show Week or the column's Week button opens the week. | `trigger` |
+| `Calendar.timeBlocked` | B, a drop on the calendar or a mail's own time sets 30 minutes aside. | `trigger` |
+| `Calendar.invitationAnswered` | Accept, Tentative or Decline on an invitation card. | `answer` |
+| `Undo.used` | A step taken back: Z, ⌘Z, Edit › Undo or a toast's Undo. | `trigger` |
+| `Account.added` | An account is added (the demo replaced included). | `provider` |
+| `Account.removed` | An account is removed. | `provider` |
+| `Performance.listRefresh` | The list applies a change from the store (`list.refresh`). One in 20, at most 20 a run. Its number is milliseconds. | `duration` |
+| `Performance.conversationOpen` | A conversation shows in the reader (`conversation.show`). Sampled as above. | `duration` |
+| `Performance.search` | A search's first page is in the list (`list.search`). Sampled as above. | `duration` |
+
+Every value a parameter can take:
+
+| Parameter | Values |
+|---|---|
+| `mode` | `demo`, `accounts` |
+| `launchTime` | `<0.5s`, `0.5-1s`, `1-2s`, `2-5s`, `5s+` |
+| `gmailAccounts`, `microsoftAccounts` | `0`, `1`, `2`, `3-5`, `6+` |
+| `theme` | `study`, `gallery`, `rain`, `grove`, `dusk` |
+| `appearance` | `automatic`, `light`, `dark` |
+| `density` | `standard`, `compact` |
+| `textSize` | `small`, `default`, `large`, `larger` |
+| `font` | `newYork`, `sfPro` |
+| `setting` | `listDensity`, `accountInitials`, `undoSend`, `remoteImages`, `notifications`, `notificationPreviews`, `keepMail`, `theme`, `appearance`, `font`, `textSize`, `adaptMailColours`, `sendAction` |
+| `value` | the setting's own: the values of `density`, `theme`, `appearance`, `font` and `textSize` above; `on`, `off`; `5s`, `10s`, `20s`, `other` (Undo send); `everything`, `oneYear`, `threeMonths` (Keep mail); `sendAndArchive`, `send` |
+| `action` | `archive`, `trash`, `spam`, `moveToInbox`, `star`, `unstar`, `markRead`, `markUnread`, `later`, `mute`, `unmute`, `unsubscribe`, `alwaysArchiveSender`, `blockSender` |
+| `trigger` | `key`, `menu`, `toolbar` (a button in the reader or the calendar), `swipe`, `drag`, `click` (a double-click), `toast`, `notification` |
+| `conversations` | `1`, `2-5`, `6-20`, `21+` |
+| `kind` | `new`, `reply`, `replyAll`, `forward`, `draft` |
+| `origin` | `app`, `mailLink`, `service` |
+| `archives` | `on`, `off` (Send and Archive) |
+| `source` | `composer`, `quickReply`, `sendLater` |
+| `operators` | `0`, `1`, `2`, `3+` (every term but a plain word or phrase, and every negated term; the words are counted, never sent) |
+| `results` | `0`, `1-10`, `11-50`, `51-199`, `200+` (a search's first page holds 200; for the server, the conversations it added) |
+| `outcome` | `found`, `nothing`, `failed` |
+| `state` | `shown`, `hidden` |
+| `answer` | `accept`, `tentative`, `decline` |
+| `provider` | `gmail`, `microsoft` |
+| `duration` | `<16ms`, `16-50ms`, `50-100ms`, `100-250ms`, `250ms-1s`, `1s+` |
+
+`AnalyticsTests` holds every signal to this table and to the code's vocabulary.
+
+### What TelemetryDeck adds
+
+The SDK adds to every signal, on its own:
+
+- **The app and the Mac:** app version and build; macOS version; the Mac's model identifier (for example `Mac16,11`) and architecture; screen resolution and scale; time zone; locale, region and languages; light or dark; Reduce Motion and Invert Colors; whether it is a debug, TestFlight or App Store build; the SDK's name and version.
+- **When:** the hour, day of week, day of month and year, week, month and quarter.
+- **Use over time:** the day of the first session, the number of sessions and distinct days used, and average and previous session lengths, counted on this Mac.
+- **Who, anonymously:** a random identifier the SDK makes on first use and keeps in its own defaults (`com.telemetrydeck.<12 hex digits>`), hashed with SHA-256 on the Mac and hashed again with TelemetryDeck's own salt on its server; a random session identifier each launch. SuperSparrow never gives it an account's address or name.
+- **Its own signals:** `TelemetryDeck.Session.started` at each launch, `TelemetryDeck.Acquisition.newInstallDetected` at the first.
+
+TelemetryDeck says it stores no IP address ([privacy FAQ](https://telemetrydeck.com/docs/guides/privacy-faq/)) and keeps its servers in the EU.
+
+### What is never sent
+
+Mail of any kind (bodies, subjects, snippets, attachments, their names), addresses and names (the user's, their accounts', anyone's), account names, monograms and signatures, search words, URLs and paths, calendar events' titles or times, the Mac's name or the user's. Nothing is logged by the SDK beyond its errors.
+
+## 4. Check it end to end
+
+Without a TelemetryDeck account: debug builds take `--telemetry-url=<url>`, which sends this run's signals to that server instead of TelemetryDeck's, every 5 s rather than every 60, and `--analytics-check`, which (in the demo) takes a fixed round of the app's own steps once the inbox is in: opens Settings and switches the rows to Compact and back, stars and unstars, archives and undoes, searches `is:unread lisbon` and the demo's server, opens a reader window, hides and shows the day column, opens the week and leaves it, and opens and closes a new message. Then it turns **Analytics and reports** off through the same setting (leaving crash reports' folder alone, which the bare binary shares with an installed copy that may be running), takes the same round again, and quits. Each step is logged with its time on standard error, so the listener's records can be matched to them. The listener must hold the first round and nothing after the switch.
+
+```sh
+swift build
+# with a listener on 127.0.0.1:8978 that stores every POST body and answers 200:
+.build/debug/SuperSparrow --demo --telemetry-app-id=LOCAL-CHECK --telemetry-url=http://127.0.0.1:8978 --analytics-check
+```
+
+The SDK posts a JSON array of signals (`type`, `appID`, `clientUser`, `sessionID`, `floatValue`, `payload`, `isTestMode`, `receivedAt`) to `<url>/v2/`. Search what it stored for the demo accounts' addresses and names: none may appear. (The bare binary has no Info.plist, so its signals say version 0, build 0. The locale TelemetryDeck sends can hold an `@`, as in `en_US@rg=gbzzzz`, a region chosen apart from the language.) The run's switch is saved in the bare binary's own defaults (`SuperSparrow`), so turn it back on afterwards (`defaults delete SuperSparrow sendsCrashReports`).
+
+## Turning it off
+
+**Settings → General → Analytics and reports.** At once, the current run included: nothing more is queued, the SDK and the signals it held in memory are dropped (a request already on its way finishes), SuperSparrow's own signals are deleted from the SDK's queue file (`~/Library/Caches/telemetrysignalcache`, written as the app quits and shared, by name, with every unsandboxed app embedding the SDK, so other apps' signals stay), and the SDK's defaults (its random identifier and session counts) are deleted. On starts it again, without a relaunch, with a new identifier.
+
+## What it costs
+
+Starting it reads the queue file (usually absent) on the main thread before the first window: about 0.3 ms (release, M4 Pro), and a signal costs the main thread about 0.1 ms before it is built off it. Signals are sent every 60 s. While SuperSparrow is the active app, the SDK keeps a 1 s timer on the main thread that records the session's length in its defaults (TelemetryDeck 2.x has no way to turn it off); it stops whenever the app goes behind. Once analytics has started in a run, the timer stays for the run: switched off, it keeps ticking while the app is active but writes nothing.

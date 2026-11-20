@@ -2,15 +2,16 @@ import SSDesign
 import SwiftUI
 
 /// Settings › General (spec §5.40): a two-column grid, hairlines between the list and Undo send, the mail group, Keep mail
-/// on this Mac, and Crash reports with At login and Mail links. Ten controls, eleven while macOS keeps notifications from
+/// on this Mac, and Analytics and reports with At login and Mail links. Ten controls, eleven while macOS keeps notifications from
 /// SuperSparrow, under General's cap of twelve, so it never scrolls: Font and Text size moved to Appearance, beside the theme.
 struct GeneralSettingsView: View {
     static let keepMailCaption = "Older mail stays in the list and in search, and downloads again when you open it."
-    static let crashReportsCaption = "When the app crashes or hangs. Never your mail or addresses."
-    static let crashReportsUnavailableCaption = "Not set up in this build."
+    static let reportsCaption = "Crashes, hangs and features used. Never your mail or addresses."
+    static let reportsUnavailableCaption = "Not set up in this build."
 
-    /// Whether this build can send reports at all (it has a DSN); the toggle is disabled without one.
-    var crashReportsConfigured = CrashReporting.isConfigured
+    /// What this build can send: crash reports with a Sentry DSN, analytics with a TelemetryDeck app ID. The one toggle
+    /// governs whichever it has, names them, and is disabled with neither.
+    var reportServices = ReportServices(crashReports: CrashReporting.isConfigured, analytics: Analytics.isConfigured)
 
     @ObservedObject var settings: AppSettings
     @ObservedObject var defaultMailApp: DefaultMailAppModel
@@ -67,12 +68,12 @@ struct GeneralSettingsView: View {
             QuireSettingsCaption(Self.keepMailCaption)
             QuireSettingsDivider()
             // Above At login, so Mail links stays the last row.
-            QuireSettingsRow("Crash reports") {
-                Toggle("Send to Sentry", isOn: $settings.sendsCrashReports)
+            QuireSettingsRow("Analytics and reports") {
+                Toggle(reportServices.toggleTitle, isOn: $settings.sendsAnalyticsAndReports)
                     .toggleStyle(.quire)
-                    .disabled(!crashReportsConfigured)
+                    .disabled(!reportServices.isConfigured)
             }
-            QuireSettingsCaption(crashReportsConfigured ? Self.crashReportsCaption : Self.crashReportsUnavailableCaption)
+            QuireSettingsCaption(reportServices.isConfigured ? Self.reportsCaption : Self.reportsUnavailableCaption)
             QuireSettingsRow("At login") {
                 LaunchAtLoginToggle(model: launchAtLogin)
             }
@@ -109,6 +110,23 @@ struct GeneralSettingsView: View {
     /// The user's own choice ends the seven-accounts automatic state for good (§5.40).
     private var accountInitials: Binding<Bool> {
         Binding(get: { settings.showAccountInitials }, set: { settings.setShowAccountInitialsByUser($0) })
+    }
+}
+
+/// The services Analytics and reports sends to in this build (§5.40), which its toggle names.
+struct ReportServices: Equatable {
+    var crashReports: Bool
+    var analytics: Bool
+
+    var isConfigured: Bool { crashReports || analytics }
+
+    /// “Send to Sentry and TelemetryDeck”, or the one this build has. A build with neither names both, disabled.
+    var toggleTitle: String {
+        switch (crashReports, analytics) {
+        case (true, false): return "Send to Sentry"
+        case (false, true): return "Send to TelemetryDeck"
+        default: return "Send to Sentry and TelemetryDeck"
+        }
     }
 }
 

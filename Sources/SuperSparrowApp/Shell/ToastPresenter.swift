@@ -179,6 +179,7 @@ final class ToastPresenter {
     @objc private func actionClicked(_ sender: Any?) {
         let action = self.action
         end(.acted)
-        action?()
+        // Its Undo is a step taken back from a toast, for analytics.
+        Analytics.from(.toast) { action?() }
     }
 }

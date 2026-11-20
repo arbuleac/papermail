@@ -512,7 +512,7 @@ final class MessageListViewController: NSViewController {
     /// the app's tests can double-click without events.
     func rowDoubleClicked(_ row: Int) {
         guard let index = layout.conversationIndex(atRow: row) else { return }
-        onOpenInWindow?(conversations[index].id)
+        Analytics.from(.click) { onOpenInWindow?(conversations[index].id) }
     }
 
     // MARK: Selection
@@ -661,6 +661,8 @@ final class MessageListViewController: NSViewController {
             // Begun before the store is asked, since a store may hand over the first page inside the call. A search
             // still waiting for its rows is superseded either way, by the next search or by leaving search.
             if isSearch { searchSignpost.begin() } else { searchSignpost.supersede() }
+            // A search the user typed on from, or left, before it settled is not one they stopped at.
+            Analytics.cancelPendingSearch()
         }
         let observed = observedQuery
         // New finds keep the row searching until the rows they add are in; re-observing for the kept conversation
@@ -677,7 +679,10 @@ final class MessageListViewController: NSViewController {
                 guard let self, self.subscriptionGeneration == generation else { return }
                 self.handleHeadUpdate(rows)
                 // A query set by a callback while the rows were applied has an interval of its own.
-                if self.subscriptionGeneration == generation { self.searchSignpost.finish() }
+                if self.subscriptionGeneration == generation, let seconds = self.searchSignpost.finish() {
+                    Analytics.sample(.search, seconds: seconds)
+                    Analytics.searchSettled(operators: AnalyticsSignal.operators(in: observed.search), results: rows.count)
+                }
             }
         }, onError: { [weak self] _ in
             // The store has logged the error; the list keeps the rows it shows, and its search stops waiting.
@@ -695,7 +700,11 @@ final class MessageListViewController: NSViewController {
     /// Internal so the refresh budget can be timed on its own.
     func handleHeadUpdate(_ rows: [ConversationSummary]) {
         let state = signposter.beginInterval("list.refresh")
-        defer { signposter.endInterval("list.refresh", state) }
+        let started = ContinuousClock.now
+        defer {
+            signposter.endInterval("list.refresh", state)
+            Analytics.sample(.listRefresh, seconds: Analytics.seconds(since: started))
+        }
         hasReceivedFirstPage = true
         let addsServerRows = awaitingServerRows
         awaitingServerRows = false

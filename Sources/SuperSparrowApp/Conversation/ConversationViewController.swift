@@ -172,6 +172,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     private var keyMonitor: Any?
     private var motionFinisher: ShellMotionFinisher?
     private var showSignpost: OSSignpostIntervalState?
+    /// When the open show began, for analytics' sampled timing of a conversation opening.
+    private var showStartedAt: ContinuousClock.Instant?
     /// Called each time a show's render has landed and its web view is on screen.
     private var showLandedWaiters: [(WKWebView?) -> Void] = []
 
@@ -478,6 +480,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             ConversationSignposts.end(ConversationSignposts.show, previous)
         }
         showSignpost = ConversationSignposts.begin(ConversationSignposts.show)
+        showStartedAt = .now
         if currentConversationID != id {
             // The find bar belongs to the conversation it searched (spec §5.50); one opened for this conversation while
             // its show waited stays.
@@ -586,7 +589,9 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         if let state = showSignpost {
             ConversationSignposts.end(ConversationSignposts.show, state)
             showSignpost = nil
+            if let started = showStartedAt { Analytics.sample(.conversationOpen, seconds: Analytics.seconds(since: started)) }
         }
+        showStartedAt = nil
         refreshChrome()
         if slot.renderedID == currentConversationID, !slot.renderInFlight {
             let waiters = showLandedWaiters
@@ -1374,6 +1379,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     private func answerInvitation(_ response: InvitationResponse, _ id: MessageID) {
         do {
             try client.answerInvitation(response, to: id)
+            if let answer = AnalyticsSignal.InvitationAnswer(response) { Analytics.send(.invitationAnswered(answer)) }
         } catch {
             ConversationSignposts.log.error("answering an invitation failed: \(String(describing: error), privacy: .public)")
             NSSound.beep()
@@ -1494,6 +1500,11 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     }
 
     private func performMore(_ command: MessageMoreMenu.Command) {
+        // A menu's step, for analytics, though the window takes it as the reader's buttons' (`MainWindowController.handle`).
+        Analytics.from(.menu) { takeMore(command) }
+    }
+
+    private func takeMore(_ command: MessageMoreMenu.Command) {
         guard let id = selectedMessageID, let current = pool.current else { return }
         switch command {
         case .reply: onAction?(.reply(id))
@@ -2146,6 +2157,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
                                  attachments: [], quoted: nil, threading: ReplyThreading(original: latest, isReply: true))
         do {
             let sendID = try client.send(message, undoWindow: Self.undoWindow)
+            Analytics.send(.quickReplySent(replyAll: mode == .replyAll, archives: (action ?? SendActionPreference.current).archives))
             // The bar answers for the reply from now on, before the outbox's observation can say anything about it (§5.53).
             SendOwnership.claim(sendID)
             let startedAt = Date()
@@ -2205,6 +2217,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         }
         do {
             let sendID = try client.scheduleSend(message, at: date, draftID: draft.id)
+            Analytics.send(.sendLaterScheduled(.quickReply))
             quickReply.clear()
             drafts.park("", under: conversation)
             let client = client
@@ -2395,6 +2408,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             quickReply.showStrip(.alreadySent)
             return
         }
+        Analytics.send(.sendUndone(.quickReply))
         if let archive = send.archive {
             // Back in the Inbox and selected again, as Z after E leaves it; a show the debounce holds lands now, so the text
             // goes back into its own conversation's box below rather than being parked.

@@ -150,6 +150,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
             controller.draftChanged(body: true)
         }
         if attach { controller.attachFile(nil) }
+        Analytics.send(.composeStarted(.init(mode), .app))
         return controller
     }
 
@@ -161,6 +162,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         controller.startBody(typed: nil)
         controller.show()
         controller.window?.makeFirstResponder(controller.subjectField)
+        Analytics.send(.composeStarted(.new, .app))
         return controller
     }
 
@@ -180,6 +182,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
             // The end of the link's body, above the signature.
             controller.textView.setSelectedRange(NSRange(location: bodyEnd, length: 0))
         }
+        Analytics.send(.composeStarted(.new, .mailLink))
         return controller
     }
 
@@ -192,6 +195,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         let controller = ComposeWindowController(client: client, account: account, accounts: accounts, mode: .new)
         controller.fill(from: service)
         controller.show()
+        Analytics.send(.composeStarted(.new, .service))
         return controller
     }
 
@@ -215,6 +219,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     static func reopenKeptDraft(id: UUID, client: MailClient, accounts: [Account]) -> Bool {
         guard let draft = ComposeDraftStore.shared.draft(id: id, accounts: accounts) else { return false }
         present(client: client, accounts: accounts, draft: draft)
+        Analytics.send(.composeStarted(.draft, .app))
         return true
     }
 
@@ -1187,6 +1192,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
             self.hasStoredDraft = true
             do {
                 let sendID = try self.client.scheduleSend(message, at: date, draftID: draft.id)
+                Analytics.send(.sendLaterScheduled(.composer))
                 let client = self.client
                 let accounts = self.accounts
                 self.closesWithoutSaving = true
@@ -1270,6 +1276,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
             let message = sent.outgoingMessage(normalizedBody: normalized, loadedAttachments: outcome.parts)
             do {
                 let sendID = try self.client.send(message, undoWindow: Self.undoWindow)
+                Analytics.send(.messageSent(.init(self.mode), archives: action.archives))
                 // Queued: Send and Archive archives the conversation it answers now, as E would, and the panel's Undo
                 // brings it back with the message (§5.23). A new message has none.
                 let archive = action.archives

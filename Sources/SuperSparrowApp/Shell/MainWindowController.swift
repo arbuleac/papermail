@@ -348,6 +348,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
                                     symbol: Quire.Icon.later) {
                 // Gone already (a deeper ⌘Z after its time): nothing was taken back, so no reply comes back either.
                 guard scheduled.undo() else { return }
+                Analytics.send(.sendUndone(.sendLater))
                 // Its window has closed since (⌘W keeps no frame for an undo to open it again at): the reply's text is
                 // parked under its conversation, so a reader showing that conversation takes it, or the main window's
                 // says it was not sent; otherwise nothing on screen would show the undo.
@@ -1113,6 +1114,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         guard !targets.isEmpty else { return }
         do {
             try environment.engine.perform(change, on: targets)
+            Analytics.from(.notification) { reportMailAction(AnalyticsSignal.MailAction(change), conversations: 1) }
         } catch {
             Self.log.error("notification action failed: \(String(describing: error), privacy: .public)")
         }
@@ -1445,7 +1447,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             return true
         }
         recordUndo(records, change: change)
+        reportMailAction(AnalyticsSignal.MailAction(change), conversations: records.count)
         return true
+    }
+
+    /// A mail action the user took, for analytics: which, how many conversations, and where it came from (`Analytics`).
+    private func reportMailAction(_ action: AnalyticsSignal.MailAction?, conversations: Int) {
+        guard let action, conversations > 0 else { return }
+        Analytics.send(.mailAction(action, Analytics.trigger, conversations: conversations))
     }
 
     /// A change to `ids`, some messages of one conversation rather than all of it (a sheet's star, More › Star Message, Mark
@@ -1470,6 +1479,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             return false
         }
         recordUndo([record], change: change)
+        reportMailAction(AnalyticsSignal.MailAction(change), conversations: 1)
         return true
     }
 
@@ -1583,6 +1593,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             return false
         }
         if case .browser(let page) = method { openUnsubscribePage(page) }
+        reportMailAction(.unsubscribe, conversations: 1)
         let archived = !records.isEmpty || snoozedAt != nil
         let words = MailActionCopy.unsubscribeToast(for: method, archived: archived)
         defer { UndoSendPanel.refreshUndoKeyOwner() }
@@ -1880,6 +1891,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             self?.confirmUndo(of: MailActionCopy.snoozeCommand)
             self?.reselect(back, inLater: fromLater)
         }
+        reportMailAction(.later, conversations: ids.count)
     }
 
     /// E and Archive: in Later, where everything is archived already, it ends the snoozes and leaves the conversations
@@ -1898,6 +1910,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             return true
         }
         recordLaterArchive(targets.map { Snooze.Change(conversationID: $0, until: prior[$0]) })
+        reportMailAction(.archive, conversations: targets.count)
         return true
     }
 
@@ -2064,6 +2077,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         } else {
             recordQuietExternalUndo(command: command, accounts: Set(changing.map(\.accountID)), revert: revert)
         }
+        reportMailAction(muting ? .mute : .unmute, conversations: changing.count)
         return true
     }
 
@@ -2114,6 +2128,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             NSSound.beep()
             return false
         }
+        reportMailAction(action == .trash ? .blockSender : .alwaysArchiveSender, conversations: 1)
         let command = MailActionCopy.senderRuleCommand(action)
         let inverse = record?.inverse ?? []
         let conversationID = message.conversationID
@@ -2168,7 +2183,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             confirmDiscardDrafts(ids)
             return true
         }
-        return mailAction(change, on: ids.filter { !LocalDraftConversation.isLocal($0) })
+        return Analytics.from(.drag) { mailAction(change, on: ids.filter { !LocalDraftConversation.isLocal($0) }) }
     }
 
     // MARK: Swipe (§5.7)
@@ -2178,10 +2193,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// the selection moving on are the key's. The list offers only what the key would change (`RowSwipe`).
     private func rowAction(_ change: MetadataChange, on id: ConversationID) {
         guard !showingWelcome else { return }
-        if change == .archive {
-            archive([id])
-        } else {
-            mailAction(change, on: [id])
+        Analytics.from(.swipe) {
+            if change == .archive {
+                archive([id])
+            } else {
+                mailAction(change, on: [id])
+            }
         }
     }
 
@@ -2204,6 +2221,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             NSSound.beep()
             return true
         }
+        Analytics.send(.undo(Analytics.trigger))
         defer {
             forgetGroupsGone()
             undoCenter.forgetPlacesOfGroupsGone()
@@ -2408,8 +2426,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         }
     }
 
-    /// The reader's actions (`ConversationViewController.onAction`); internal so the app's tests can send them.
+    /// The reader's actions (`ConversationViewController.onAction`); internal so the app's tests can send them. They come
+    /// from its header's and the page's buttons, or from a key in a reader window (`Analytics.trigger` tells a key).
     func handle(_ action: ConversationAction) {
+        Analytics.from(.toolbar) { take(action) }
+    }
+
+    private func take(_ action: ConversationAction) {
         switch action {
         case .reply(let id):
             compose(.reply(id, all: false), accountID: id.accountID)
@@ -2536,6 +2559,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         }
         let place = ReaderWindowPlace(conversation: id, view: listView)
         place.returnedAt = list.conversations.first { $0.id == id }?.returnedAt
+        Analytics.send(.readerWindowOpened(Analytics.trigger))
         return present(place, at: nil)
     }
 
