@@ -85,9 +85,21 @@ struct CLITool: Sendable {
     let environment: [String: String]
     /// Settings' status line when the sign-in check fails (SPEC §2).
     let signedOutWords: String
+    /// Versions inside the tested range that still hand the model a tool under the recipe, so they never run: the
+    /// recipe promises a reply written from what was sent and nothing else (no command, no file of this Mac, no agent).
+    var keepsToolsOn: [Range<CLIVersion>] = []
 
     func supports(_ version: CLIVersion) -> Bool {
         version >= minimum && version < below
+    }
+
+    /// Why `version` cannot run the recipe: too old (an update helps), too new (it does not), or one whose tools the
+    /// recipe cannot turn off; nil when it can.
+    func refusal(of version: CLIVersion) -> AIError? {
+        if version < minimum { return .unsupportedVersion(found: version.description) }
+        if version >= below { return .newerVersion(found: version.description) }
+        if keepsToolsOn.contains(where: { $0.contains(version) }) { return .toolsStayOn(found: version.description) }
+        return nil
     }
 }
 
@@ -103,7 +115,8 @@ final class CLIToolCache: @unchecked Sendable {
 
     enum Verdict: Sendable, Equatable {
         case supported(CLIVersion)
-        case unsupported(found: String)
+        /// Too old, too new, or keeping its tools on (`AIError.unsupportedVersion`, `.newerVersion`, `.toolsStayOn`).
+        case refused(AIError)
     }
 
     private let lock = NSLock()
@@ -130,8 +143,8 @@ final class CLIToolCache: @unchecked Sendable {
 
 extension CLIProcessRunner {
     /// Finds `tool`'s executable and checks its version, plus `verify` (Codex's feature names), once per executable
-    /// file. Throws `notInstalled`, `unsupportedVersion(found:)` (remembered until the file changes), or what running
-    /// `--version` threw (not remembered: it may pass next time).
+    /// file. Throws `notInstalled`, `unsupportedVersion(found:)`, `newerVersion(found:)` or `toolsStayOn(found:)`
+    /// (remembered until the file changes), or what running `--version` threw (not remembered: it may pass next time).
     func prepare(_ tool: CLITool, chosen: String?,
                  verify: (@Sendable (URL, CLIVersion) async throws -> Void)? = nil) async throws -> (URL, CLIVersion) {
         guard let executable = locate(tool.executableName, chosen: chosen) else { throw AIError.notInstalled }
@@ -139,7 +152,7 @@ extension CLIProcessRunner {
         if let identity, let verdict = cache.verdict(for: identity) {
             switch verdict {
             case .supported(let version): return (executable, version)
-            case .unsupported(let found): throw AIError.unsupportedVersion(found: found)
+            case .refused(let error): throw error
             }
         }
         let printed = try await capture(quick(executable, ["--version"], tool: tool))
@@ -148,14 +161,24 @@ extension CLIProcessRunner {
             throw AIError.badResponse(code: printed.exit.code)
         }
         do {
-            guard tool.supports(version) else { throw AIError.unsupportedVersion(found: version.description) }
+            if let refusal = tool.refusal(of: version) { throw refusal }
             try await verify?(executable, version)
-        } catch AIError.unsupportedVersion(let found) {
-            if let identity { cache.remember(.unsupported(found: found), for: identity) }
-            throw AIError.unsupportedVersion(found: found)
+        } catch let error as AIError where error.isVersionVerdict {
+            if let identity { cache.remember(.refused(error), for: identity) }
+            throw error
         }
         if let identity { cache.remember(.supported(version), for: identity) }
         return (executable, version)
+    }
+}
+
+extension AIError {
+    /// A verdict on the CLI's version, kept until its file changes.
+    var isVersionVerdict: Bool {
+        switch self {
+        case .unsupportedVersion, .newerVersion, .toolsStayOn: return true
+        default: return false
+        }
     }
 }
 
@@ -165,10 +188,10 @@ enum CLIHealthWords {
     static func health(for error: AIError, tool: CLITool) -> AIHealth {
         switch error {
         case .notInstalled:
-            return .needsSetup(reason: "\(tool.kind.displayName) not found in ~/.local/bin, /opt/homebrew/bin or /usr/local/bin. Choose…")
+            return .needsSetup(reason: AIHealth.notFoundWords(for: tool.kind))
         case .signedOut:
             return .needsSetup(reason: tool.signedOutWords)
-        case .unsupportedVersion:
+        case .unsupportedVersion, .newerVersion, .toolsStayOn, .otherSignIn:
             return .needsSetup(reason: error.message(for: tool.kind))
         default:
             return .unavailable(reason: error.message(for: tool.kind))

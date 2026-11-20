@@ -155,6 +155,63 @@ final class CLIProcessRunnerTests: XCTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(started), 2.5, "stops reading shortly after the CLI exits")
     }
 
+    /// Whether the process `pid` names still runs.
+    private func isRunning(_ pid: pid_t) -> Bool {
+        kill(pid, 0) == 0 || errno == EPERM
+    }
+
+    private func recordedPID(_ name: String) -> pid_t? {
+        fake.recorded(name).flatMap { pid_t($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+    }
+
+    func testAHelperGoesWithTheCLI() async throws {
+        let helper = CLIFakeTool.quoted(fake.spy.appendingPathComponent("helper").path)
+        var behaviour = CLIFakeTool.Behaviour()
+        behaviour.main = "/bin/sleep 30 & echo $! > \(helper); printf '{\"type\":\"done\"}\\n'; exit 0"
+        let executable = try fake.install("claude", behaviour)
+        let (_, exit) = try await outputs(fake.runner(), command(executable, input: "hi"))
+        XCTAssertEqual(exit?.status, .exited(0))
+        let pid = try XCTUnwrap(recordedPID("helper"))
+        let gone = await fake.wait(timeout: 3) { !self.isRunning(pid) }
+        XCTAssertTrue(gone, "the helper holding the pipes was ended with its CLI, not left with the request")
+        XCTAssertEqual(fake.leftoverFolders(), [])
+    }
+
+    func testATimeoutEndsTheCLIsHelpersToo() async throws {
+        let helper = CLIFakeTool.quoted(fake.spy.appendingPathComponent("helper").path)
+        var behaviour = CLIFakeTool.Behaviour()
+        behaviour.main = "/bin/sleep 30 > /dev/null 2>&1 & echo $! > \(helper); printf '{\"type\":\"init\"}\\n'; exec /bin/sleep 30"
+        let executable = try fake.install("claude", behaviour)
+        let (_, exit) = try await outputs(fake.runner(), command(executable, input: "hi", idle: .seconds(2)))
+        XCTAssertEqual(exit?.timedOut, true)
+        let pid = try XCTUnwrap(recordedPID("helper"))
+        let gone = await fake.wait(timeout: 3) { !self.isRunning(pid) }
+        XCTAssertTrue(gone, "SIGTERM went to the CLI's whole group, its helper among it")
+    }
+
+    func testEndAllEndsEveryRunAtOnceEvenOneIgnoringSIGTERM() async throws {
+        let signals = CLIFakeTool.quoted(fake.spy.appendingPathComponent("signals").path)
+        let ready = CLIFakeTool.quoted(fake.spy.appendingPathComponent("ready").path)
+        var behaviour = CLIFakeTool.Behaviour()
+        behaviour.main = #"trap 'echo TERM >> "# + signals + #"' TERM; echo yes > "# + ready
+            + #"; printf '{"type":"init"}\n'; while :; do /bin/sleep 0.05; done"#
+        let executable = try fake.install("claude", behaviour)
+        let runner = fake.runner()
+        let command = command(executable, input: "hi")
+        let consumer = Task { try await outputs(runner, command) }
+        let started = await fake.wait { fake.recorded("ready") == "yes\n" }
+        XCTAssertTrue(started)
+        let before = Date()
+        await runner.endAll(grace: .milliseconds(200))
+        XCTAssertLessThan(Date().timeIntervalSince(before), 1.5, "the app's quit does not wait for the 2-minute limit")
+        XCTAssertEqual(runner.running.all.count, 0)
+        XCTAssertEqual(fake.leftoverFolders(), [], "its folder went before endAll returned")
+        XCTAssertEqual(fake.recorded("signals"), "TERM\n", "SIGTERM first, then SIGKILL")
+        let (_, exit) = try await consumer.value
+        XCTAssertEqual(exit?.status, .signaled(SIGKILL))
+        await runner.endAll()
+    }
+
     // MARK: Ending it
 
     func testSilenceEndsTheProcess() async throws {

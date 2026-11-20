@@ -9,9 +9,11 @@ import SSCore
 /// The success shapes (`agent_message`, `turn.completed`) follow the documented schema: Codex was not signed in when
 /// the fixtures were recorded (`cli/codex-*-synthetic.jsonl`).
 struct CodexStream: CLIReplyParser {
-    /// Items that mean a tool ran, although the recipe turns every tool off.
-    static let toolItems: Set<String> = ["command_execution", "file_change", "mcp_tool_call", "web_search",
-                                         "collab_tool_call", "image_generation", "image_view"]
+    /// The only items a reply may hold: the message, the model's reasoning and error notices. Anything else (a command,
+    /// a file change, a tool, code mode's calls, a plan, or a type this build has never seen) ends the run at once,
+    /// although the recipe turns every tool off: the guard fails closed, so no tool output, which could hold a file of
+    /// this Mac, follows the request to OpenAI.
+    static let allowedItems: Set<String> = ["agent_message", "reasoning", "error"]
 
     /// What the field shows so far.
     private(set) var shown = ""
@@ -22,8 +24,10 @@ struct CodexStream: CLIReplyParser {
         guard let object = CLIJSON.object(line), let type = object["type"] as? String else { return [] }
         switch type {
         case "item.started", "item.updated", "item.completed":
-            guard let item = object["item"] as? [String: Any], let itemType = item["type"] as? String else { return [] }
-            if Self.toolItems.contains(itemType) { return [.abort(.badResponse(code: 0))] }
+            guard let item = object["item"] as? [String: Any], let itemType = item["type"] as? String,
+                  Self.allowedItems.contains(itemType) else {
+                return [.abort(.badResponse(code: 0))]
+            }
             guard itemType == "agent_message", type != "item.started", let text = item["text"] as? String else { return [] }
             return replace(with: text)
         case "error":
@@ -54,7 +58,7 @@ struct CodexStream: CLIReplyParser {
             steps.append(.finished(.done))
             return steps
         }
-        if CLIStderr.rejectsArguments(exit.stderr) { return [.failed(.unsupportedVersion(found: version.description))] }
+        if CLIStderr.rejectsArguments(exit.stderr) { return [.failed(.newerVersion(found: version.description))] }
         if let lastNotice, let error = Self.error(for: lastNotice) { return [.failed(error)] }
         return [.failed(.badResponse(code: exit.code))]
     }

@@ -32,7 +32,14 @@ struct ClaudeCodeStream: CLIReplyParser {
             if (object["rate_limit_info"] as? [String: Any])?["status"] as? String == "rejected" { rateLimitRejected = true }
             return []
         case "system":
-            if object["subtype"] as? String == "api_retry", let error = object["error"] as? String { retryFailure = error }
+            switch object["subtype"] as? String {
+            case "init":
+                return initialized(object)
+            case "api_retry":
+                if let error = object["error"] as? String { retryFailure = error }
+            default:
+                break
+            }
             return []
         case "result":
             return result(object)
@@ -52,11 +59,25 @@ struct ClaudeCodeStream: CLIReplyParser {
             default: return [.finished(.done)]
             }
         }
-        if CLIStderr.rejectsArguments(exit.stderr) { return [.failed(.unsupportedVersion(found: version.description))] }
+        if CLIStderr.rejectsArguments(exit.stderr) { return [.failed(.newerVersion(found: version.description))] }
         return [.failed(classifiedFailure() ?? .badResponse(code: exit.code))]
     }
 
     // MARK: Lines
+
+    /// The init line, about 0.2 s in and before the request leaves (`status: requesting` follows it): the run must use
+    /// the user's own sign-in, not an API key from anywhere (`apiKeySource` other than `none`), and none of the user's
+    /// plugins (whose hooks would see the request), which the recipe's isolation leaves out. Claude Code's own built-in
+    /// plugins (`path: "builtin"`) come with every run. Otherwise the run ends here: a second line of defence, since
+    /// the request may already be leaving as this line is read.
+    private func initialized(_ object: [String: Any]) -> [CLIReplyStep] {
+        if let source = object["apiKeySource"], source as? String != "none" { return [.abort(.otherSignIn)] }
+        let plugins = object["plugins"] as? [Any] ?? []
+        let usersOwn = plugins.contains { plugin in
+            ((plugin as? [String: Any])?["path"] as? String) != "builtin"
+        }
+        return usersOwn ? [.abort(.badResponse(code: 0))] : []
+    }
 
     private mutating func streamEvent(_ event: [String: Any]) -> [CLIReplyStep] {
         switch event["type"] as? String {

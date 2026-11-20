@@ -40,7 +40,7 @@ final class ClaudeCodeProviderTests: XCTestCase {
     // MARK: The recipe
 
     func testTheVerifiedRecipeStreamsTheRecordedReply() async throws {
-        try install(main: CLIFakeTool.replay("cli/claude-stream.jsonl"))
+        try install(main: try fake.replayIsolated("cli/claude-stream.jsonl"))
         let (events, error) = await write(provider())
         XCTAssertNil(error)
         XCTAssertEqual(events, [
@@ -51,6 +51,7 @@ final class ClaudeCodeProviderTests: XCTestCase {
         XCTAssertEqual(try fake.arguments(), [
             "-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
             "--model", "haiku",
+            "--restricted", "--setting-sources", "",
             "--tools", "",
             "--strict-mcp-config", "--mcp-config", #"{"mcpServers":{}}"#,
             "--safe-mode", "--disable-slash-commands",
@@ -68,12 +69,14 @@ final class ClaudeCodeProviderTests: XCTestCase {
         }
         XCTAssertEqual(environment["USER"], "someone")
         XCTAssertNil(environment["ANTHROPIC_API_KEY"])
-        XCTAssertEqual(fake.calls(), ["--version", "-p --output-format"], "no sign-in check: signed out fails locally")
+        XCTAssertEqual(fake.calls(), ["--version", "auth status", "-p --output-format"], "the sign-in is checked before each send")
+        XCTAssertEqual(fake.invocations()[1], "--restricted --setting-sources  auth status",
+                       "the sign-in is read with the run's isolation: a settings file's Bedrock or key never counts")
         XCTAssertEqual(fake.leftoverFolders(), [])
     }
 
     func testWithoutAModelTheCLIChooses() async throws {
-        try install(main: CLIFakeTool.replay("cli/claude-stream.jsonl"))
+        try install(main: try fake.replayIsolated("cli/claude-stream.jsonl"))
         var request = request
         request.model = nil
         _ = await write(provider(model: nil), request)
@@ -81,7 +84,7 @@ final class ClaudeCodeProviderTests: XCTestCase {
     }
 
     func testTheRequestsModelWins() async throws {
-        try install(main: CLIFakeTool.replay("cli/claude-stream.jsonl"))
+        try install(main: try fake.replayIsolated("cli/claude-stream.jsonl"))
         var request = request
         request.model = "opus"
         _ = await write(provider(model: "haiku"), request)
@@ -89,17 +92,27 @@ final class ClaudeCodeProviderTests: XCTestCase {
         XCTAssertEqual(arguments[arguments.firstIndex(of: "--model")! + 1], "opus")
     }
 
+    func testAStreamLetGoUnreadNeverStarts() async throws {
+        try install(main: try fake.replayIsolated("cli/claude-stream.jsonl"))
+        do {
+            _ = provider().write(request)
+        }
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(fake.calls(), [], "no --version, no auth status, no run: nothing starts before the first read")
+        XCTAssertNil(fake.recorded("stdin"))
+    }
+
     // MARK: Failures
 
     func testSignedOutSaysSoAndShowsNothing() async throws {
-        try install(main: CLIFakeTool.replay("cli/claude-signed-out.jsonl", status: 1))
+        try install(main: try fake.replayIsolated("cli/claude-signed-out.jsonl", status: 1))
         let (events, error) = await write(provider())
         XCTAssertEqual(error, .signedOut)
         XCTAssertEqual(events, [], "the synthetic line's “Not logged in” is the CLI's, never the reply")
     }
 
     func testABadModelIsUnavailable() async throws {
-        try install(main: CLIFakeTool.replay("cli/claude-bad-model.jsonl", stderr: "cli/claude-bad-model.stderr.txt", status: 1))
+        try install(main: try fake.replayIsolated("cli/claude-bad-model.jsonl", stderr: "cli/claude-bad-model.stderr.txt", status: 1))
         let (events, error) = await write(provider())
         XCTAssertEqual(error, .modelUnavailable)
         XCTAssertEqual(events, [])
@@ -134,7 +147,51 @@ final class ClaudeCodeProviderTests: XCTestCase {
     func testARejectedFlagMeansThisVersionDoesNotFit() async throws {
         try install(main: "printf '%s\\n' \"error: unknown option '--safe-mode'\" >&2; exit 1", version: "2.4.0 (Claude Code)")
         let (_, error) = await write(provider())
-        XCTAssertEqual(error, .unsupportedVersion(found: "2.4.0"))
+        XCTAssertEqual(error, .newerVersion(found: "2.4.0"), "a flag gone is a newer Claude Code: updating cannot help")
+    }
+
+    // MARK: Where it sends
+
+    func testAnotherServiceOrSignInSendsNothing() async throws {
+        for status in [#"{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"bedrock"}"#,
+                       #"{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"vertex"}"#,
+                       #"{"loggedIn":true,"authMethod":"console","apiProvider":"firstParty"}"#,
+                       #"{"loggedIn":true,"authMethod":"claude.ai"}"#] {
+            fake.remove()
+            fake = try CLIFakeTool()
+            var behaviour = CLIFakeTool.Behaviour()
+            behaviour.authStatus = "printf '%s\\n' \(CLIFakeTool.quoted(status)); exit 0"
+            behaviour.main = try fake.replayIsolated("cli/claude-stream.jsonl")
+            try fake.install("claude", behaviour)
+            let (events, error) = await write(provider())
+            XCTAssertEqual(error, .otherSignIn, status)
+            XCTAssertEqual(events, [], status)
+            XCTAssertEqual(fake.calls(), ["--version", "auth status"], "\(status): never run with the request")
+            XCTAssertNil(fake.recorded("stdin"), status)
+            let health = await provider().health()
+            XCTAssertEqual(health, .needsSetup(reason: "Claude Code isn't using your claude.ai sign-in"), status)
+        }
+    }
+
+    func testAnAPIKeyInTheRunEndsItBeforeTheRequest() async throws {
+        let signals = CLIFakeTool.quoted(fake.spy.appendingPathComponent("signals").path)
+        let initLine = try FixtureFiles.isolatedClaude("cli/claude-stream.jsonl").split(separator: "\n")[1]
+            .replacingOccurrences(of: #""apiKeySource":"none""#, with: #""apiKeySource":"ANTHROPIC_API_KEY""#)
+        try install(main: #"trap 'echo TERM >> "# + signals + #"; exit 143' TERM; "#
+            + "printf '%s\\n' \(CLIFakeTool.quoted(initLine)); while :; do /bin/sleep 0.05; done")
+        let (events, error) = await write(provider())
+        XCTAssertEqual(error, .otherSignIn)
+        XCTAssertEqual(events, [])
+        let ended = await fake.wait { fake.recorded("signals") == "TERM\n" && fake.leftoverFolders().isEmpty }
+        XCTAssertTrue(ended)
+    }
+
+    func testTheUsersOwnPluginsEndTheRun() async throws {
+        // As recorded before the isolation joined the recipe: the user's swift-lsp plugin in the init line.
+        try install(main: CLIFakeTool.replay("cli/claude-stream.jsonl"))
+        let (events, error) = await write(provider())
+        XCTAssertEqual(error, .badResponse(code: 0))
+        XCTAssertEqual(events, [], "ended at the init line, before any text")
     }
 
     func testSilenceTimesOut() async throws {
@@ -203,7 +260,7 @@ final class ClaudeCodeProviderTests: XCTestCase {
         let finished = CLIFakeTool.quoted(fake.spy.appendingPathComponent("exited-by-itself").path)
         let signals = CLIFakeTool.quoted(fake.spy.appendingPathComponent("signals").path)
         try install(main: #"trap 'echo TERM >> "# + signals + #"; exit 143' TERM; "#
-            + #"/bin/cat "# + CLIFakeTool.quoted(FixtureFiles.url("cli/claude-stream.jsonl").path)
+            + #"/bin/cat "# + CLIFakeTool.quoted(try fake.isolatedCopy("cli/claude-stream.jsonl").path)
             + "; /bin/sleep 3; echo yes > \(finished); exit 0")
         let started = Date()
         let (events, error) = await write(provider())
@@ -243,11 +300,13 @@ final class ClaudeCodeProviderTests: XCTestCase {
         let (_, error) = await write(provider())
         XCTAssertEqual(error, .notInstalled)
         let health = await provider().health()
-        XCTAssertEqual(health, .needsSetup(reason: "Claude Code not found in ~/.local/bin, /opt/homebrew/bin or /usr/local/bin. Choose…"))
+        XCTAssertEqual(health, .needsSetup(reason: AIHealth.notFoundWords(for: .claudeCode)))
+        XCTAssertEqual(health.words.replacingOccurrences(of: "\u{2060}", with: ""),
+                       "Claude Code not found in ~/.local/bin, /opt/homebrew/bin or /usr/local/bin")
     }
 
     func testAnOldVersionIsRefusedBeforeAnythingIsSent() async throws {
-        try install(main: CLIFakeTool.replay("cli/claude-stream.jsonl"), version: "2.0.76 (Claude Code)")
+        try install(main: try fake.replayIsolated("cli/claude-stream.jsonl"), version: "2.0.76 (Claude Code)")
         let provider = provider()
         let (_, error) = await write(provider)
         XCTAssertEqual(error, .unsupportedVersion(found: "2.0.76"))
@@ -258,20 +317,21 @@ final class ClaudeCodeProviderTests: XCTestCase {
     }
 
     func testTheVersionIsCheckedOncePerExecutableFile() async throws {
-        try install(main: CLIFakeTool.replay("cli/claude-stream.jsonl"))
+        try install(main: try fake.replayIsolated("cli/claude-stream.jsonl"))
         let provider = provider()
         _ = await write(provider)
         _ = await write(provider)
         XCTAssertEqual(fake.calls().filter { $0 == "--version" }.count, 1)
         // An update is a new file.
-        try install(main: CLIFakeTool.replay("cli/claude-stream.jsonl"), version: "2.1.400 (Claude Code)")
+        try install(main: try fake.replayIsolated("cli/claude-stream.jsonl"), version: "2.1.400 (Claude Code)")
         _ = await write(provider)
         XCTAssertEqual(fake.calls().filter { $0 == "--version" }.count, 2)
     }
 
     func testAChosenCLIIsUsed() async throws {
         var behaviour = CLIFakeTool.Behaviour()
-        behaviour.main = CLIFakeTool.replay("cli/claude-stream.jsonl")
+        behaviour.authStatus = CLIFakeTool.replay("cli/claude-auth-status.json")
+        behaviour.main = try fake.replayIsolated("cli/claude-stream.jsonl")
         let chosen = try fake.install("claude-nightly", in: fake.root, behaviour)
         let (events, error) = await write(provider(chosen: chosen.path))
         XCTAssertNil(error)
@@ -288,12 +348,12 @@ final class ClaudeCodeProviderTests: XCTestCase {
 
     func testHealthNeverSaysWho() async throws {
         var behaviour = CLIFakeTool.Behaviour()
-        let status = #"{"loggedIn":true,"authMethod":"console","email":"dana@contoso.example","orgName":"Contoso Ltd","orgId":"org-123"}"#
+        let status = #"{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty","email":"dana@contoso.example","orgName":"Contoso Ltd","orgId":"org-123"}"#
         behaviour.authStatus = "printf '%s\\n' \(CLIFakeTool.quoted(status)); exit 0"
         try fake.install("claude", behaviour)
         let health = await provider().health()
-        XCTAssertEqual(health, .ready(detail: "Claude Code 2.1.322 · signed in"))
-        for secret in ["dana", "contoso", "Contoso", "org-123", "console"] {
+        XCTAssertEqual(health, .ready(detail: "Claude Code 2.1.322 · signed in with claude.ai"))
+        for secret in ["dana", "contoso", "Contoso", "org-123"] {
             XCTAssertFalse(health.words.contains(secret), secret)
         }
     }

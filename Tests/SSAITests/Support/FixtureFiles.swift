@@ -25,6 +25,16 @@ enum FixtureFiles {
         String(decoding: try data(path, file: file, line: line), as: UTF8.self)
     }
 
+    /// A recorded Claude Code run as the recipe gives it now: the recordings were made before `--setting-sources ""`
+    /// joined it, and their init line lists the user's own swift-lsp plugin, which that flag leaves out and the parser
+    /// refuses (`ClaudeCodeStream`). Built-in plugins (`"path":"builtin"`) stay, as they do in every run.
+    static func isolatedClaude(_ path: String, file: StaticString = #filePath, line: UInt = #line) throws -> String {
+        let text = try string(path, file: file, line: line)
+        let usersOwn = try NSRegularExpression(pattern: #"\{"name":"[^"]*","path":"/[^"]*"[^}]*\},?"#)
+        return usersOwn.stringByReplacingMatches(in: text, range: NSRange(location: 0, length: (text as NSString).length),
+                                                 withTemplate: "")
+    }
+
     /// Every fixture file, relative paths, README excluded.
     static func all() -> [String] {
         let base = root.standardizedFileURL.path

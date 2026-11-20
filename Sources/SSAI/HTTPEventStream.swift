@@ -6,13 +6,27 @@ import SSCore
 /// When the reader stops (its task is cancelled, or it lets the stream go) the work is cancelled, which cancels the
 /// URLSession task: `AIWriter`'s Stop and deadline reach the network that way.
 enum HTTPEventStream {
+    typealias Continuation = LazyEventStream.Continuation
+
+    static func make(_ work: @escaping LazyEventStream.Work) -> AsyncThrowingStream<AIWriteEvent, Error> {
+        LazyEventStream.make(work)
+    }
+}
+
+/// A provider's stream whose work starts on the stream's first `next()`, never when the stream is made: a stream
+/// nobody reads sends nothing, reads no key and starts no process (the port's promise). `HTTPEventStream` for the APIs,
+/// `CLIReplyStream` for the CLIs.
+enum LazyEventStream {
     typealias Continuation = AsyncThrowingStream<AIWriteEvent, Error>.Continuation
     typealias Work = @Sendable (Continuation) async -> Void
 
-    static func make(_ work: @escaping Work) -> AsyncThrowingStream<AIWriteEvent, Error> {
+    /// - Parameter cancelsWork: when the stream ends, whether started work is cancelled with it. Always, by default; a
+    ///   CLI's work goes on after its answer so the CLI can tidy up and exit by itself.
+    static func make(cancelsWork: @escaping @Sendable (Continuation.Termination) -> Bool = { _ in true },
+                     _ work: @escaping Work) -> AsyncThrowingStream<AIWriteEvent, Error> {
         let (events, continuation) = AsyncThrowingStream.makeStream(of: AIWriteEvent.self, throwing: Error.self)
         let starter = Starter(work: work, continuation: continuation)
-        continuation.onTermination = { _ in starter.cancel() }
+        continuation.onTermination = { termination in starter.end(cancellingWork: cancelsWork(termination)) }
         let reader = Reader(events.makeAsyncIterator())
         // `unfolding` runs in the reader's own task, so its cancellation reaches the inner iterator, which ends the
         // inner stream and, through `onTermination`, the work.
@@ -43,13 +57,14 @@ enum HTTPEventStream {
             task = Task { await work(continuation) }
         }
 
-        func cancel() {
+        /// The stream ended: work not started never starts; started work is cancelled when `cancellingWork`.
+        func end(cancellingWork: Bool) {
             lock.lock()
             let task = self.task
             work = nil
             continuation = nil
             lock.unlock()
-            task?.cancel()
+            if cancellingWork { task?.cancel() }
         }
     }
 

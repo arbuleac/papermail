@@ -20,9 +20,17 @@ final class CodexProviderTests: XCTestCase {
         fake = nil
     }
 
+    /// Codex as if its version kept no tool on, so the recipe runs against the fake (`toolFree`); the real provider
+    /// refuses every version so far (`testNoCodexRunsWhileItKeepsToolsOn`).
     private func provider(model: String? = nil, limits: CLILimits = CLIFakeTool.fastLimits) -> CodexProvider {
-        CodexProvider(model: model, executablePath: nil, runner: fake.runner(limits: limits))
+        CodexProvider(model: model, executablePath: nil, runner: fake.runner(limits: limits), tool: Self.toolFree)
     }
+
+    private static let toolFree: CLITool = {
+        var tool = CodexProvider.tool
+        tool.keepsToolsOn = []
+        return tool
+    }()
 
     private func behaviour(main: String, version: String = "codex-cli 0.163.0") -> CLIFakeTool.Behaviour {
         var behaviour = CLIFakeTool.Behaviour()
@@ -77,7 +85,7 @@ final class CodexProviderTests: XCTestCase {
             arguments[index + 1] = CLIFakeTool.realPath((arguments[index + 1] as NSString).deletingLastPathComponent) + "/last-message.txt"
         }
         XCTAssertEqual(arguments, expected)
-        XCTAssertEqual(CodexProvider.disabledFeatures.count, 21)
+        XCTAssertEqual(CodexProvider.disabledFeatures.count, 28)
         XCTAssertEqual(fake.recorded("stdin"), request.userTurn)
         XCTAssertFalse(try fake.arguments().contains { $0.contains("MARKER") }, "the mail and the ask never go in argv")
         XCTAssertNil(try fake.environment()["OPENAI_API_KEY"])
@@ -149,21 +157,44 @@ final class CodexProviderTests: XCTestCase {
         try fake.install("codex", behaviour)
         let provider = provider()
         let (_, error) = await write(provider)
-        XCTAssertEqual(error, .unsupportedVersion(found: "0.170.0"))
+        XCTAssertEqual(error, .newerVersion(found: "0.170.0"))
         XCTAssertFalse(fake.calls().contains { $0.hasPrefix("exec") || $0 == "login status" })
         let health = await provider.health()
-        XCTAssertEqual(health, .needsSetup(reason: "Codex 0.170.0 isn't supported. Update it, then try again."))
+        XCTAssertEqual(health, .needsSetup(reason: "Codex 0.170.0 is newer than this SuperSparrow supports"))
         XCTAssertEqual(fake.calls().filter { $0 == "features list" }.count, 1, "remembered for that file")
     }
 
     func testVersionsOutsideTheTestedRange() async throws {
-        for version in ["codex-cli 0.150.0", "codex-cli 1.2.0"] {
+        for (version, expected) in [("codex-cli 0.150.0", AIError.unsupportedVersion(found: "0.150.0")),
+                                    ("codex-cli 1.2.0", .newerVersion(found: "1.2.0"))] {
             try install(main: CLIFakeTool.replay("cli/codex-exec-synthetic.jsonl"), version: version)
             let (_, error) = await write(provider())
-            XCTAssertEqual(error, .unsupportedVersion(found: String(version.dropFirst("codex-cli ".count))))
+            XCTAssertEqual(error, expected, "too old says update; too new does not")
         }
         XCTAssertFalse(fake.calls().contains("features list"))
         XCTAssertFalse(fake.calls().contains { $0.hasPrefix("exec") })
+    }
+
+    // MARK: Tools that stay on
+
+    func testNoCodexRunsWhileItKeepsToolsOn() async throws {
+        // 0.163.0 still offers code mode's exec, request_user_input and spawn_agent under the recipe (CodexProvider).
+        for version in ["codex-cli 0.163.0", "codex-cli 0.170.2"] {
+            fake.remove()
+            fake = try CLIFakeTool()
+            try install(main: CLIFakeTool.replay("cli/codex-exec-synthetic.jsonl"), version: version)
+            let found = String(version.dropFirst("codex-cli ".count))
+            let real = CodexProvider(model: nil, executablePath: nil, runner: fake.runner())
+            let (events, error) = await write(real)
+            XCTAssertEqual(error, .toolsStayOn(found: found), version)
+            XCTAssertEqual(events, [], version)
+            XCTAssertEqual(fake.calls(), ["--version"], "\(version): no features list, no login status, no exec")
+            XCTAssertNil(fake.recorded("stdin"), "\(version): the request never reached the CLI")
+            let health = await real.health()
+            XCTAssertEqual(health, .needsSetup(reason: "Codex \(found) can't turn its tools off, so Help Me Write doesn't use it"))
+            XCTAssertEqual(fake.calls(), ["--version"], "\(version): the verdict is kept for that file")
+        }
+        XCTAssertTrue(AIError.toolsStayOn(found: "0.163.0").needsSettings, "Settings › AI is where another provider is chosen")
     }
 
     func testFeatureNamesAreTheFirstColumn() throws {
@@ -207,7 +238,7 @@ final class CodexProviderTests: XCTestCase {
         try install(main: "printf '%s\\n' 'Error: unknown configuration field `include_apps_instructions`' >&2; exit 1",
                     version: "codex-cli 0.171.0")
         let (_, error) = await write(provider())
-        XCTAssertEqual(error, .unsupportedVersion(found: "0.171.0"))
+        XCTAssertEqual(error, .newerVersion(found: "0.171.0"))
     }
 
     func testCancellingEndsTheProcess() async throws {
@@ -246,6 +277,7 @@ final class CodexProviderTests: XCTestCase {
 
     func testHealthWhenNotFound() async {
         let health = await provider().health()
-        XCTAssertEqual(health, .needsSetup(reason: "Codex not found in ~/.local/bin, /opt/homebrew/bin or /usr/local/bin. Choose…"))
+        XCTAssertEqual(health, .needsSetup(reason: AIHealth.notFoundWords(for: .codex)))
+        XCTAssertFalse(health.words.contains("Choose"), "the row's Choose… and the card's Open Settings… are the actions")
     }
 }

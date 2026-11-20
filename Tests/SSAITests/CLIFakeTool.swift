@@ -78,6 +78,15 @@ final class CLIFakeTool {
         let input = behaviour.readsInput ? "/bin/cat > \(spy)/stdin" : ": unread"
         let script = """
         #!/bin/sh
+        printf '%s\\n' "$*" >> \(spy)/invocations
+        # Claude Code's global isolation options come before a subcommand (`--restricted --setting-sources "" auth status`).
+        while :; do
+          case "$1" in
+            --restricted) shift ;;
+            --setting-sources) shift 2 ;;
+            *) break ;;
+          esac
+        done
         printf '%s %s\\n' "$1" "$2" >> \(spy)/calls
         case "$1" in
           --version) \(behaviour.version) ;;
@@ -115,6 +124,21 @@ final class CLIFakeTool {
         return shell + "; exit \(status)"
     }
 
+    /// Replays a recorded Claude Code run as `FixtureFiles.isolatedClaude` gives it (the user's own plugin left out, as
+    /// `--setting-sources ""` does), with the recorded stderr, and exits with `status`.
+    func replayIsolated(_ fixture: String, stderr: String? = nil, status: Int32 = 0) throws -> String {
+        var shell = "/bin/cat \(Self.quoted(try isolatedCopy(fixture).path))"
+        if let stderr { shell += "; /bin/cat \(Self.quoted(FixtureFiles.url(stderr).path)) >&2" }
+        return shell + "; exit \(status)"
+    }
+
+    /// `FixtureFiles.isolatedClaude(fixture)` as a file in the test's folder, for a fake to print.
+    func isolatedCopy(_ fixture: String) throws -> URL {
+        let copy = root.appendingPathComponent("isolated-" + (fixture as NSString).lastPathComponent)
+        try Data(try FixtureFiles.isolatedClaude(fixture).utf8).write(to: copy)
+        return copy
+    }
+
     /// Prints `lines` (JSON written by the test) and exits with `status`.
     static func emit(_ lines: [String], status: Int32 = 0) -> String {
         lines.map { "printf '%s\\n' \(quoted($0))" }.joined(separator: "; ") + "; exit \(status)"
@@ -149,6 +173,11 @@ final class CLIFakeTool {
     /// `$1 $2` of every call, in order: "--version ", "auth status", "-p --output-format", "exec --json"…
     func calls() -> [String] {
         (recorded("calls") ?? "").split(separator: "\n").map { String($0).trimmingCharacters(in: .whitespaces) }
+    }
+
+    /// Every call's whole argv, joined by spaces (an empty argument shows as two spaces), in order.
+    func invocations() -> [String] {
+        (recorded("invocations") ?? "").split(separator: "\n").map(String.init)
     }
 
     /// The run folders still in the runner's temporary directory.

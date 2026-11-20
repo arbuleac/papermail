@@ -15,6 +15,11 @@ final class CLIReplyParserTests: XCTestCase {
         try FixtureFiles.string(fixture).split(separator: "\n").map { Data($0.utf8) }
     }
 
+    /// A recorded Claude Code run as the recipe's isolation gives it (`FixtureFiles.isolatedClaude`).
+    private func isolatedLines(_ fixture: String) throws -> [Data] {
+        try FixtureFiles.isolatedClaude(fixture).split(separator: "\n").map { Data($0.utf8) }
+    }
+
     private func steps<Parser: CLIReplyParser>(_ parser: inout Parser, _ lines: [Data]) -> [CLIReplyStep] {
         lines.flatMap { parser.consume($0) }
     }
@@ -23,7 +28,7 @@ final class CLIReplyParserTests: XCTestCase {
 
     func testClaudeCodesRecordedRun() throws {
         var parser = ClaudeCodeStream()
-        XCTAssertEqual(steps(&parser, try lines("cli/claude-stream.jsonl")), [
+        XCTAssertEqual(steps(&parser, try isolatedLines("cli/claude-stream.jsonl")), [
             .event(.text("Thanks, Thursday")), .event(.text(" works.")),
             .event(.usage(AIUsage(inputTokens: 687, outputTokens: 13))), .finished(.done),
         ])
@@ -33,8 +38,23 @@ final class CLIReplyParserTests: XCTestCase {
     func testClaudeCodesRecordedFailuresNeverShowTheirText() throws {
         for (fixture, error) in [("cli/claude-signed-out.jsonl", AIError.signedOut), ("cli/claude-bad-model.jsonl", .modelUnavailable)] {
             var parser = ClaudeCodeStream()
-            XCTAssertEqual(steps(&parser, try lines(fixture)), [.failed(error)], fixture)
+            XCTAssertEqual(steps(&parser, try isolatedLines(fixture)), [.failed(error)], fixture)
             XCTAssertEqual(parser.shown, "", fixture)
+        }
+    }
+
+    func testClaudeCodesInitLineMustShowTheUsersOwnSignInAndNoPluginOfTheirs() throws {
+        let recorded = try lines("cli/claude-stream.jsonl")[1]
+        var parser = ClaudeCodeStream()
+        XCTAssertEqual(parser.consume(recorded), [.abort(.badResponse(code: 0))], "the user's swift-lsp plugin, as recorded")
+        let isolated = try isolatedLines("cli/claude-stream.jsonl")[1]
+        parser = ClaudeCodeStream()
+        XCTAssertEqual(parser.consume(isolated), [], "built-in plugins only")
+        for source in ["ANTHROPIC_API_KEY", "apiKeyHelper", "/login managed key"] {
+            let line = String(decoding: isolated, as: UTF8.self)
+                .replacingOccurrences(of: #""apiKeySource":"none""#, with: #""apiKeySource":"\#(source)""#)
+            parser = ClaudeCodeStream()
+            XCTAssertEqual(parser.consume(Data(line.utf8)), [.abort(.otherSignIn)], source)
         }
     }
 
@@ -43,7 +63,7 @@ final class CLIReplyParserTests: XCTestCase {
         _ = parser.consume(Data(#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"Hi"}}}"#.utf8))
         XCTAssertEqual(parser.finish(exit(), version: version), [.finished(.done)])
         XCTAssertEqual(ClaudeCodeStream().finishing(exit(.exited(1), stderr: "error: unknown option '--safe-mode'\n"), version),
-                       [.failed(.unsupportedVersion(found: "2.1.322"))])
+                       [.failed(.newerVersion(found: "2.1.322"))])
         XCTAssertEqual(ClaudeCodeStream().finishing(exit(.exited(1), stderr: "Error: Input must be provided"), version),
                        [.failed(.badResponse(code: 1))])
         XCTAssertEqual(ClaudeCodeStream().finishing(exit(.signaled(SIGSEGV)), version), [.failed(.badResponse(code: 139))])
@@ -128,7 +148,7 @@ final class CLIReplyParserTests: XCTestCase {
                        [.event(.replaceAll("From the file")), .finished(.done)])
         XCTAssertEqual(CodexStream().finishing(exit(kept: "  \n"), version), [.finished(.done)])
         XCTAssertEqual(CodexStream().finishing(exit(.exited(1), stderr: "Error: Unknown feature flag: shell_tool"), version),
-                       [.failed(.unsupportedVersion(found: "2.1.322"))])
+                       [.failed(.newerVersion(found: "2.1.322"))])
         XCTAssertEqual(CodexStream().finishing(exit(.exited(2)), version), [.failed(.badResponse(code: 2))])
         var parser = CodexStream()
         _ = parser.consume(Data(#"{"type":"error","message":"Reconnecting... 5/5 (unexpected status 401 Unauthorized)"}"#.utf8))
@@ -145,11 +165,20 @@ final class CLIReplyParserTests: XCTestCase {
                        [.event(.replaceAll("Thanks, Thursday works."))])
         XCTAssertEqual(parser.consume(Data(#"{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"Thanks, Thursday works."}}"#.utf8)),
                        [], "the same text twice is one replace")
-        for tool in ["command_execution", "file_change", "mcp_tool_call", "web_search"] {
-            var parser = CodexStream()
-            XCTAssertEqual(parser.consume(Data(#"{"type":"item.started","item":{"id":"item_2","type":"\#(tool)"}}"#.utf8)),
-                           [.abort(.badResponse(code: 0))], tool)
+        for tool in ["command_execution", "file_change", "mcp_tool_call", "web_search", "todo_list", "code_mode_call",
+                     "a_type_from_a_later_codex"] {
+            for event in ["item.started", "item.updated", "item.completed"] {
+                var parser = CodexStream()
+                XCTAssertEqual(parser.consume(Data(#"{"type":"\#(event)","item":{"id":"item_2","type":"\#(tool)"}}"#.utf8)),
+                               [.abort(.badResponse(code: 0))], "\(event) \(tool): only the message, reasoning and notices pass")
+            }
         }
+        var untyped = CodexStream()
+        XCTAssertEqual(untyped.consume(Data(#"{"type":"item.started","item":{"id":"item_3"}}"#.utf8)), [.abort(.badResponse(code: 0))],
+                       "an item without a type fails closed too")
+        var reasoning = CodexStream()
+        XCTAssertEqual(reasoning.consume(Data(#"{"type":"item.completed","item":{"id":"item_0","type":"reasoning","text":"…"}}"#.utf8)), [])
+        XCTAssertEqual(reasoning.consume(Data(#"{"type":"item.completed","item":{"id":"item_1","type":"error","message":"notice"}}"#.utf8)), [])
     }
 
     // MARK: Versions
@@ -186,6 +215,11 @@ final class CLIReplyParserTests: XCTestCase {
         XCTAssertTrue(codex.supports(CLIVersion(0, 180, 2)))
         XCTAssertFalse(codex.supports(CLIVersion(0, 162, 9)))
         XCTAssertFalse(codex.supports(CLIVersion(1, 0, 0)))
+        XCTAssertEqual(codex.refusal(of: CLIVersion(0, 163, 0)), .toolsStayOn(found: "0.163.0"), "no Codex runs with its tools on")
+        XCTAssertEqual(codex.refusal(of: CLIVersion(0, 999, 9)), .toolsStayOn(found: "0.999.9"))
+        XCTAssertEqual(codex.refusal(of: CLIVersion(0, 162)), .unsupportedVersion(found: "0.162"))
+        XCTAssertEqual(codex.refusal(of: CLIVersion(1, 0)), .newerVersion(found: "1.0"))
+        XCTAssertNil(claude.refusal(of: CLIVersion(2, 1, 322)))
     }
 }
 

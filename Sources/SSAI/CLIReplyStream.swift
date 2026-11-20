@@ -17,7 +17,8 @@ enum CLIReplyStep: Sendable, Equatable {
 }
 
 /// A CLI provider's `write`: prepares (finds the CLI, checks its version and sign-in), runs it, and relays what the
-/// parser makes of its output, ending with exactly one `.finished` or one thrown `AIError`.
+/// parser makes of its output, ending with exactly one `.finished` or one thrown `AIError`. Nothing runs before the
+/// stream's first `next()` (`LazyEventStream`): a stream let go unread starts no CLI.
 ///
 /// Once the reply is decided (the `result` or `turn.completed` line) the stream ends at once, but the process is left
 /// to exit by itself, so the CLI tidies up its own session files; the runner's timeouts still bound it. Before that, the
@@ -26,15 +27,12 @@ enum CLIReplyStream {
     typealias Prepare = @Sendable () async throws -> (runner: CLIProcessRunner, command: CLICommand, version: CLIVersion)
 
     static func make<Parser: CLIReplyParser>(_ parser: Parser, prepare: @escaping Prepare) -> AsyncThrowingStream<AIWriteEvent, Error> {
-        AsyncThrowingStream { continuation in
-            let answered = CLILatch()
-            let task = Task {
-                await relay(parser, prepare: prepare, answered: answered, into: continuation)
-            }
-            continuation.onTermination = { termination in
-                guard case .cancelled = termination, !answered.isClosed else { return }
-                task.cancel()
-            }
+        let answered = CLILatch()
+        return LazyEventStream.make(cancelsWork: { termination in
+            guard case .cancelled = termination else { return false }
+            return !answered.isClosed
+        }) { continuation in
+            await relay(parser, prepare: prepare, answered: answered, into: continuation)
         }
     }
 

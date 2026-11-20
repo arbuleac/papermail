@@ -16,6 +16,8 @@ public struct CLIProcessRunner: Sendable {
     /// Searched in order when Settings names no CLI (SPEC §3): never a login shell, whose PATH a GUI app lacks.
     let searchFolders: [URL]
     let cache: CLIToolCache
+    /// The runs not ended yet, shared by every copy of this runner: `endAll` ends them when the app goes away.
+    let running = CLIRunningSet()
 
     /// The run folders' name prefix; folders left by a crash are swept once they are clearly stale.
     static let folderPrefix = "ss-ai-"
@@ -28,6 +30,13 @@ public struct CLIProcessRunner: Sendable {
         let base = CLIBaseEnvironment.current
         self.init(temporaryDirectory: temporaryDirectory, limits: .standard, base: base,
                   searchFolders: Self.standardFolders(home: base.home))
+    }
+
+    /// A runner that looks for CLIs in `searchFolders` instead of the standard ones: the app's tests find a CLI in a
+    /// folder of their own with it, whatever this Mac has installed.
+    public init(searchFolders: [URL]) {
+        self.init(temporaryDirectory: FileManager.default.temporaryDirectory, limits: .standard, base: .current,
+                  searchFolders: searchFolders)
     }
 
     init(temporaryDirectory: URL, limits: CLILimits, base: CLIBaseEnvironment, searchFolders: [URL]) {
@@ -90,6 +99,7 @@ public struct CLIProcessRunner: Sendable {
             let process = CLIProcess(
                 command: command, limits: limits, folder: folder,
                 environment: environment(for: command.executable, folder: folder, adding: command.environment),
+                registry: running,
                 onLine: { continuation.yield(.line($0)) },
                 onExit: { exit in
                     continuation.yield(.exit(exit))
@@ -104,6 +114,28 @@ public struct CLIProcessRunner: Sendable {
                 continuation.finish(throwing: error)
             }
         }
+    }
+
+    /// Ends every run this runner started, at once, and returns once they are gone with their folders, or after
+    /// `grace` plus a moment: the app is quitting or its window graph is going away, and a CLI must not outlive it with
+    /// a request in hand. SIGTERM to each CLI's group, then SIGKILL to what is left after `grace`.
+    public func endAll(grace: Duration = .milliseconds(500)) async {
+        let processes = running.all
+        guard !processes.isEmpty else { return }
+        await Task.detached(priority: .userInitiated) {
+            for process in processes { process.signalNow(SIGTERM) }
+            let clock = ContinuousClock()
+            let deadline = clock.now + grace
+            while clock.now < deadline, processes.contains(where: { !$0.hasEnded }) {
+                try? await Task.sleep(for: .milliseconds(10))
+            }
+            for process in processes where !process.hasEnded { process.signalNow(SIGKILL) }
+            // A killed process ends at once; its folder goes when its exit is seen.
+            let killed = clock.now + .milliseconds(300)
+            while clock.now < killed, processes.contains(where: { !$0.hasEnded }) {
+                try? await Task.sleep(for: .milliseconds(10))
+            }
+        }.value
     }
 
     /// Runs a short command to its end and returns its output (cut at `captureBytes`).

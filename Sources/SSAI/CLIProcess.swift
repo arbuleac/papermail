@@ -7,6 +7,10 @@ import SSCore
 /// Every piece of state is touched on `queue` only, so the readers, the exit, the timers and a stop from the consumer
 /// never race. The object keeps itself alive until the process has exited and both pipes are drained (the termination
 /// handler holds it); only then is the folder removed and the exit delivered.
+///
+/// Signals go to the CLI's whole process group, which Foundation's `Process` starts it in (its own: the group's id is
+/// its pid), so a helper it started (Codex's code-mode host, a hook's shell) ends with it and keeps no copy of the
+/// request running. A CLI not leading its own group is signalled alone, so the app's own group is never signalled.
 final class CLIProcess: @unchecked Sendable {
     private static let log = Logger(subsystem: "io.supersparrow.mac", category: "ai")
 
@@ -16,6 +20,10 @@ final class CLIProcess: @unchecked Sendable {
     private let folder: URL
     private let environment: [String: String]
     private let process = Process()
+    /// Every run of the runner that started this one, for `CLIProcessRunner.endAll`.
+    private let registry: CLIRunningSet
+    /// The process group the CLI leads, or nil when it does not lead one: then only the CLI itself is signalled.
+    private var group: pid_t?
 
     private var onLine: ((Data) -> Void)?
     private var onExit: ((CLIExit) -> Void)?
@@ -38,12 +46,13 @@ final class CLIProcess: @unchecked Sendable {
     private var drainTimer: DispatchSourceTimer?
     private var lineCount = 0
 
-    init(command: CLICommand, limits: CLILimits, folder: URL, environment: [String: String],
+    init(command: CLICommand, limits: CLILimits, folder: URL, environment: [String: String], registry: CLIRunningSet,
          onLine: @escaping (Data) -> Void, onExit: @escaping (CLIExit) -> Void) {
         self.command = command
         self.limits = limits
         self.folder = folder
         self.environment = environment
+        self.registry = registry
         self.onLine = onLine
         self.onExit = onExit
     }
@@ -74,17 +83,22 @@ final class CLIProcess: @unchecked Sendable {
             close(input.read)
             close(output.write)
             close(errors.write)
+            let pid = process.processIdentifier
+            let leadsAGroup = getpgid(pid) == pid && pid != getpgrp()
+            registry.insert(self)
             let channels = [
                 channel(reading: output.read, chunk: { [self] in received($0) }, end: { [self] in stdoutEnded() }),
                 channel(reading: errors.read, chunk: { [self] in receivedErrors($0) }, end: { [self] in stderrEnded() }),
             ]
             queue.async { [self] in
+                self.group = leadsAGroup ? pid : nil
                 self.channels = channels
                 didLaunch()
             }
             write(command.input, to: input.write)
         } catch {
             process.terminationHandler = nil
+            registry.remove(self)
             for descriptor in descriptors { close(descriptor) }
             try? FileManager.default.removeItem(at: folder)
             Self.log.debug("CLI did not start: \(self.command.executable.lastPathComponent, privacy: .public)")
@@ -100,6 +114,20 @@ final class CLIProcess: @unchecked Sendable {
             onExit = nil
             if launched { terminate() } else { stopRequested = true }
         }
+    }
+
+    /// Sends `signal` to the CLI's group now, while anything of it still runs: the app is going away
+    /// (`CLIProcessRunner.endAll`) and will not wait for the grace. Never called on `queue`.
+    func signalNow(_ signal: Int32) {
+        queue.sync { [self] in
+            guard !ended else { return }
+            if launched { send(signal) } else { stopRequested = true }
+        }
+    }
+
+    /// Whether the CLI and the helpers holding its pipes are gone, the folder with them.
+    var hasEnded: Bool {
+        queue.sync { ended }
     }
 
     // MARK: Lifecycle (on `queue`)
@@ -167,8 +195,11 @@ final class CLIProcess: @unchecked Sendable {
         totalTimer?.cancel()
         killTimer?.cancel()
         if stdoutOpen || stderrOpen {
-            // A helper the CLI started may still hold the pipes; what the CLI itself wrote is in them already.
+            // A helper the CLI started still holds the pipes; what the CLI itself wrote is in them already. The helper
+            // is the CLI's, not the user's: it goes with it, and the pipes close after the drain whatever it does.
+            send(SIGTERM)
             drainTimer = after(limits.drain) { [self] in
+                send(SIGKILL)
                 for channel in channels { channel.close(flags: .stop) }
             }
         }
@@ -178,6 +209,7 @@ final class CLIProcess: @unchecked Sendable {
     private func endIfDone() {
         guard let status, !stdoutOpen, !stderrOpen, !ended else { return }
         ended = true
+        registry.remove(self)
         // The timers' handlers and the channels hold this object: let them go.
         for timer in [idleTimer, totalTimer, killTimer, drainTimer] { timer?.cancel() }
         idleTimer = nil
@@ -206,10 +238,20 @@ final class CLIProcess: @unchecked Sendable {
     private func terminate() {
         guard status == nil, !terminating else { return }
         terminating = true
-        process.terminate()
+        send(SIGTERM)
         killTimer = after(limits.killGrace) { [self] in
-            guard status == nil, process.isRunning else { return }
-            kill(process.processIdentifier, SIGKILL)
+            guard status == nil else { return }
+            send(SIGKILL)
+        }
+    }
+
+    /// `signal` to the CLI's group: the CLI while it runs, and after it exited the helpers still holding its pipes (a
+    /// group's id is never reused while any member lives). Without a group of its own, the CLI alone while it runs.
+    private func send(_ signal: Int32) {
+        if let group {
+            kill(-group, signal)
+        } else if status == nil, process.isRunning {
+            kill(process.processIdentifier, signal)
         }
     }
 
@@ -280,5 +322,23 @@ extension Duration {
     var dispatchInterval: DispatchTimeInterval {
         let (seconds, attoseconds) = components
         return .nanoseconds(Int(clamping: seconds * 1_000_000_000 + attoseconds / 1_000_000_000))
+    }
+}
+
+/// The CLI runs a runner started that have not ended yet.
+final class CLIRunningSet: @unchecked Sendable {
+    private let lock = NSLock()
+    private var processes: [ObjectIdentifier: CLIProcess] = [:]
+
+    func insert(_ process: CLIProcess) {
+        lock.withLock { processes[ObjectIdentifier(process)] = process }
+    }
+
+    func remove(_ process: CLIProcess) {
+        lock.withLock { processes[ObjectIdentifier(process)] = nil }
+    }
+
+    var all: [CLIProcess] {
+        lock.withLock { Array(processes.values) }
     }
 }
