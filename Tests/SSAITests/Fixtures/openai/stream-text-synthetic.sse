@@ -1,0 +1,41 @@
+event: response.created
+data: {"type":"response.created","response":{"id":"resp_fixture1","object":"response","created_at":1795000000,"status":"in_progress","error":null,"incomplete_details":null,"instructions":"(the app's instructions)","max_output_tokens":4000,"model":"gpt-6.1-terra","output":[],"reasoning":{"effort":"low","summary":null},"store":false,"text":{"format":{"type":"text"},"verbosity":"low"},"usage":null},"sequence_number":0}
+
+event: response.in_progress
+data: {"type":"response.in_progress","response":{"id":"resp_fixture1","object":"response","status":"in_progress","store":false,"usage":null},"sequence_number":1}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","output_index":0,"item":{"id":"rs_fixture1","type":"reasoning","summary":[]},"sequence_number":2}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","output_index":0,"item":{"id":"rs_fixture1","type":"reasoning","summary":[]},"sequence_number":3}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","output_index":1,"item":{"id":"msg_fixture1","type":"message","status":"in_progress","role":"assistant","content":[]},"sequence_number":4}
+
+event: response.content_part.added
+data: {"type":"response.content_part.added","item_id":"msg_fixture1","output_index":1,"content_index":0,"part":{"type":"output_text","text":"","annotations":[],"logprobs":[]},"sequence_number":5}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","item_id":"msg_fixture1","output_index":1,"content_index":0,"delta":"Hi Dana,\n\nThanks, Thursday","sequence_number":6,"logprobs":[]}
+
+: Intermediate response events omitted.
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","item_id":"msg_fixture1","output_index":1,"content_index":0,"delta":" at 10 works for me.","sequence_number":7,"logprobs":[]}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","item_id":"msg_fixture1","output_index":1,"content_index":0,"delta":" I'll bring the draft — see you then.","sequence_number":8,"logprobs":[]}
+
+event: response.output_text.done
+data: {"type":"response.output_text.done","item_id":"msg_fixture1","output_index":1,"content_index":0,"text":"Hi Dana,\n\nThanks, Thursday at 10 works for me. I'll bring the draft — see you then.","sequence_number":9,"logprobs":[]}
+
+event: response.content_part.done
+data: {"type":"response.content_part.done","item_id":"msg_fixture1","output_index":1,"content_index":0,"part":{"type":"output_text","text":"Hi Dana,\n\nThanks, Thursday at 10 works for me. I'll bring the draft — see you then.","annotations":[],"logprobs":[]},"sequence_number":10}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","output_index":1,"item":{"id":"msg_fixture1","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":"Hi Dana,\n\nThanks, Thursday at 10 works for me. I'll bring the draft — see you then.","annotations":[],"logprobs":[]}]},"sequence_number":11}
+
+event: response.completed
+data: {"type":"response.completed","response":{"id":"resp_fixture1","object":"response","created_at":1795000000,"status":"completed","completed_at":1795000002,"error":null,"incomplete_details":null,"model":"gpt-6.1-terra","output":[{"id":"rs_fixture1","type":"reasoning","summary":[]},{"id":"msg_fixture1","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"Hi Dana,\n\nThanks, Thursday at 10 works for me. I'll bring the draft — see you then.","annotations":[],"logprobs":[]}]}],"store":false,"usage":{"input_tokens":397,"input_tokens_details":{"cached_tokens":0,"cache_write_tokens":0},"output_tokens":52,"output_tokens_details":{"reasoning_tokens":18},"total_tokens":449}},"sequence_number":12}
+
