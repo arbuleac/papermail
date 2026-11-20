@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import SSAI
 import SSCore
 
 /// Settings › AI (spec §5.40, §5.55): which provider Help Me Write uses, whether it can write now, its API key or CLI,
@@ -50,7 +51,8 @@ final class AISettingsModel: ObservableObject {
     @Published var keyText = ""
     @Published private(set) var keyFailure: String?
     @Published private(set) var hasConsent = false
-    /// The CLI shown in the CLI row: the one chosen with Choose…, else the one found in the standard folders.
+    /// The CLI shown in the CLI row: the one chosen with Choose… while it is there, else the one found in the standard
+    /// folders; nil when there is none.
     @Published private(set) var cliPath: String?
 
     private let settings: AppSettings
@@ -62,8 +64,9 @@ final class AISettingsModel: ObservableObject {
 
     /// Shows the panel for Choose…; the app's tests answer it themselves.
     var chooseExecutable: (AIProviderKind, @escaping @MainActor (URL?) -> Void) -> Void = AISettingsModel.openPanel
-    /// Finds a CLI in the standard folders, as the CLI providers search them; tests point it elsewhere.
-    var locateExecutable: (String) -> String? = AISettingsModel.locateInStandardFolders
+    /// The CLI a provider would run for the path chosen in Settings (or none): the CLI providers' own finder, so the row
+    /// shows exactly what Help Me Write runs. Tests point it elsewhere.
+    var locateExecutable: (AIProviderKind, String?) -> String? = AISettingsModel.locateLikeTheProviders
 
     init(settings: AppSettings, center: HelpMeWrite) {
         self.settings = settings
@@ -111,8 +114,8 @@ final class AISettingsModel: ObservableObject {
             hasKey = false
         }
         hasConsent = provider.map { center.hasConsent(for: $0) && $0 != .demo } ?? false
-        if let provider, let name = provider.executableName {
-            cliPath = settings.aiCLIPaths[provider] ?? locateExecutable(name)
+        if let provider, provider.executableName != nil {
+            cliPath = locateExecutable(provider, settings.aiCLIPaths[provider])
         } else {
             cliPath = nil
         }
@@ -232,15 +235,12 @@ final class AISettingsModel: ObservableObject {
         return path.hasPrefix(home + "/") ? "~" + path.dropFirst(home.count) : path
     }
 
-    /// The first executable `name` in ~/.local/bin, /opt/homebrew/bin and /usr/local/bin: where the CLIs install, read
-    /// without a login shell.
-    static func locateInStandardFolders(_ name: String) -> String? {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        for folder in [home + "/.local/bin", "/opt/homebrew/bin", "/usr/local/bin"] {
-            let path = folder + "/" + name
-            if FileManager.default.isExecutableFile(atPath: path) { return path }
-        }
-        return nil
+    /// Finds CLIs only (it runs nothing): the chosen path when it is an executable file, else the first in
+    /// ~/.local/bin, /opt/homebrew/bin and /usr/local/bin, read without a login shell, as the CLI providers do.
+    private static let finder = CLIProcessRunner()
+
+    static func locateLikeTheProviders(_ kind: AIProviderKind, chosen: String?) -> String? {
+        finder.locate(kind, chosen: chosen)?.path
     }
 
     private static func openPanel(_ kind: AIProviderKind, _ done: @escaping @MainActor (URL?) -> Void) {

@@ -37,7 +37,7 @@ final class AISettingsTests: XCTestCase {
     private func model(_ settings: AppSettings, _ environment: AppEnvironment) -> AISettingsModel {
         environment.helpMeWrite.settings = settings
         let model = AISettingsModel(settings: settings, center: environment.helpMeWrite)
-        model.locateExecutable = { name in name == "claude" ? "/opt/homebrew/bin/claude" : nil }
+        model.locateExecutable = { kind, chosen in chosen ?? (kind == .claudeCode ? "/opt/homebrew/bin/claude" : nil) }
         return model
     }
 
@@ -154,6 +154,24 @@ final class AISettingsTests: XCTestCase {
         model.setProvider(.claudeCode)
         XCTAssertEqual(model.model, "haiku", "each provider keeps its own model")
         XCTAssertEqual(settings.aiModels[.claudeAPI], "claude-haiku-5-5")
+    }
+
+    /// The row's default finder is the CLI providers' own (`CLIProcessRunner.locate`): it shows the CLI Help Me Write
+    /// runs, so a chosen path that is no longer an executable file is not shown as if it were used. Runs nothing.
+    func testTheCommandRowFindsWhatTheProviderRuns() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("AISettingsTests-cli-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: folder) }
+        let tool = folder.appendingPathComponent("claude")
+        try Data("#!/bin/sh\nexit 0\n".utf8).write(to: tool)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tool.path)
+        let notATool = folder.appendingPathComponent("notes.txt")
+        try Data("not a tool".utf8).write(to: notATool)
+
+        XCTAssertEqual(AISettingsModel.locateLikeTheProviders(.claudeCode, chosen: tool.path), tool.path, "the chosen one wins")
+        XCTAssertNotEqual(AISettingsModel.locateLikeTheProviders(.claudeCode, chosen: notATool.path), notATool.path,
+                          "a chosen file that can't run is passed over, as the provider passes it over")
+        XCTAssertNil(AISettingsModel.locateLikeTheProviders(.claudeAPI, chosen: tool.path), "an API provider has no CLI")
     }
 
     func testTheCaptionSaysWhereMailGoesAndForgetAsksAgain() throws {
