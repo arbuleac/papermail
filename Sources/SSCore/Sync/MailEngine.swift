@@ -586,6 +586,11 @@ public final class MailEngine: MailClient, @unchecked Sendable {
         return try await context.hydrator.ensureBody(for: message, priority: priority)
     }
 
+    /// The reader fetches below `.opened` waiting for a place in `account`'s hydrator, for tests that order them.
+    func foregroundBodyWaiters(for account: AccountID) async throws -> Int {
+        try await context(forAccountID: account).hydrator.foregroundWaiterCount
+    }
+
     public func keepBodies(of messages: [MessageID]) {
         keepMail.keep(messages)
     }

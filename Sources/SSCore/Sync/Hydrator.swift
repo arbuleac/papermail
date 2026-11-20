@@ -292,6 +292,9 @@ actor Hydrator {
         }
     }
 
+    /// Reader fetches below `.opened` waiting for a place, for tests that order them without guessing at timing.
+    var foregroundWaiterCount: Int { foregroundQueue.count }
+
     private var placeIsFree: Bool {
         openedFetches == 0 && foregroundPlacesInUse < max(1, tuning.foregroundBodyConcurrency)
     }
