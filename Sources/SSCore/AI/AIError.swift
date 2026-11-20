@@ -28,9 +28,20 @@ public enum AIError: Error, Sendable, Hashable {
     case modelUnavailable
     /// The CLI was not found (standard folders, or the path chosen in Settings).
     case notInstalled
-    /// The CLI is outside the versions this build was tested with; `found` is its version (only its first dotted number
-    /// reaches the words).
+    /// The CLI is older than the versions this build was tested with, so updating it helps; `found` is its version (only
+    /// its first dotted number reaches the words).
     case unsupportedVersion(found: String)
+    /// The CLI is newer than the versions this build was tested with, or no longer takes the recipe's flags, features or
+    /// settings: updating it cannot help (Claude Code updates itself). `found` as for `unsupportedVersion`.
+    case newerVersion(found: String)
+    /// The CLI's version still hands the model a tool under the recipe (Codex 0.163's code mode, its agents and its
+    /// questions to the user), so it never runs: updating may help once a version is checked. `found` as for
+    /// `unsupportedVersion`.
+    case toolsStayOn(found: String)
+    /// The CLI is set up to send somewhere other than the provider's own service under the user's own sign-in (another
+    /// cloud, a gateway, an API key or a key helper): nothing goes through it, since the consent sheet named the company
+    /// and the plan.
+    case otherSignIn
     /// No answer within the deadline, or the CLI fell silent.
     case timedOut
     /// No network.
@@ -47,6 +58,10 @@ public enum AIError: Error, Sendable, Hashable {
     case unavailable
     /// The user has not allowed this provider yet: the UI shows the consent sheet first, and the writer refuses.
     case consentRequired
+    /// The selection to rewrite (`selection`) or the notes are longer than Help Me Write sends
+    /// (`ReplyContextBuilder.Limits.maxAskCharacters`): nothing is sent, rather than a cut part that the reply would
+    /// then replace whole.
+    case tooLong(selection: Bool)
 
     /// Maps whatever a provider threw. Its own description is never read, since it may quote the request.
     public static func from(_ error: any Error) -> AIError {
@@ -68,7 +83,8 @@ public enum AIError: Error, Sendable, Hashable {
     /// Whether the fix is in Settings › AI, so the card offers Open Settings… beside Try Again.
     public var needsSettings: Bool {
         switch self {
-        case .keyRefused, .missingKey, .signedOut, .notInstalled, .unsupportedVersion, .modelUnavailable, .unavailable:
+        case .keyRefused, .missingKey, .signedOut, .notInstalled, .unsupportedVersion, .newerVersion, .toolsStayOn,
+             .otherSignIn, .modelUnavailable, .unavailable:
             return true
         default:
             return false
@@ -118,8 +134,17 @@ public enum AIError: Error, Sendable, Hashable {
         case .notInstalled:
             return "\(Self.product(kind)) isn't installed"
         case .unsupportedVersion(let found):
-            let version = Self.sanitizedVersion(found)
-            return "\(Self.product(kind))\(version.isEmpty ? "" : " \(version)") isn't supported. Update it, then try again."
+            return "\(Self.productAndVersion(kind, found)) is too old. Update it, then try again."
+        case .newerVersion(let found):
+            return "\(Self.productAndVersion(kind, found)) is newer than this SuperSparrow supports"
+        case .toolsStayOn(let found):
+            return "\(Self.productAndVersion(kind, found)) can't turn its tools off, so Help Me Write doesn't use it"
+        case .otherSignIn:
+            switch kind {
+            case .claudeCode: return "Claude Code isn't using your claude.ai sign-in"
+            case .codex: return "Codex isn't using your own sign-in"
+            case .claudeAPI, .openAIAPI, .demo, nil: return "\(Self.product(kind)) isn't using your own sign-in"
+            }
         case .timedOut:
             return "\(Self.source(kind)) took too long to answer"
         case .offline:
@@ -138,6 +163,9 @@ public enum AIError: Error, Sendable, Hashable {
         case .consentRequired:
             return kind.map { "Help Me Write needs your permission to send this to \($0.destination.displayName)" }
                 ?? "Help Me Write needs your permission first"
+        case .tooLong(let selection):
+            return selection ? "The selection is too long to rewrite. Select less, then try again."
+                : "Your draft is too long to send as notes. Shorten it, or select a part to rewrite."
         }
     }
 
@@ -171,6 +199,12 @@ public enum AIError: Error, Sendable, Hashable {
 
     private static func product(_ kind: AIProviderKind?) -> String {
         kind?.displayName ?? "The tool"
+    }
+
+    /// “Claude Code 2.1.322”, or the product alone when nothing printed was a version.
+    private static func productAndVersion(_ kind: AIProviderKind?, _ found: String) -> String {
+        let version = sanitizedVersion(found)
+        return product(kind) + (version.isEmpty ? "" : " \(version)")
     }
 
     private static func when(_ retryAfter: TimeInterval?) -> String {

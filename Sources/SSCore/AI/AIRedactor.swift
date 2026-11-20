@@ -67,7 +67,7 @@ public struct AIRedactor: Sendable {
     private static let schemeLink = regex(#"(?i)\b(?:https?://|www\.)[^\s<>"'`]+"#)
     /// A domain followed by a path (“acme.test/reset?t=…”), as plain-text mail writes links; a domain alone (“at
     /// contoso.com”) is ordinary prose and stays.
-    private static let bareLink = regex(#"(?i)(?<![\w@./-])(?:[a-z0-9-]+\.)+[a-z]{2,}/[^\s<>"'`]*"#)
+    private static let bareLink = regex(#"(?i)(?<![\w@./-])(?:[\p{L}\p{N}-]+\.)+\p{L}{2,}/[^\s<>"'`]*"#)
 
     /// The link and the punctuation that ends the sentence around it, which stays in the text.
     private static func trimmedLink(_ link: String) -> (String, String) {
@@ -103,7 +103,10 @@ public struct AIRedactor: Sendable {
 
     // MARK: Addresses
 
-    private static let address = regex(#"(?i)(?:mailto:)?([a-z0-9._%+\-]+@([a-z0-9\-]+(?:\.[a-z0-9\-]+)*\.[a-z]{2,}))"#)
+    /// Unicode letters and digits on both sides of the @, as internationalised addresses have (“jörg@müller.de”).
+    private static let address = regex(
+        #"(?i)(?:mailto:)?([\p{L}\p{N}._%+\-]+@([\p{L}\p{N}\-]+(?:\.[\p{L}\p{N}\-]+)*\.\p{L}{2,}))"#
+    )
 
     // MARK: Card numbers
 
@@ -130,9 +133,11 @@ public struct AIRedactor: Sendable {
         #"(?i)\b(?:code|codes|otp|pin|passcode|password|one[- ]time|two[- ]factor|2fa|mfa|verif\w*|confirm\w* number|código|codice|kod|kode|bestätigungscode|sicherheitscode|verifizierungscode|anmeldecode|zugangscode)\b"#
     )
     /// Four to eight digits, or two groups of three or four (“482 913”), optionally after one letter and a dash
-    /// (“G-482913”). Not part of an amount, a time, a version or a longer number.
+    /// (“G-482913”); or five to ten letters and digits with a letter after a digit (“K7QX9P”, Steam's “F7G2K”), which a
+    /// word with a number at its end is not (a promotion's “SAVE10” stays). Not part of an amount, a time, a version or
+    /// a longer word or number.
     private static let codeCandidate = regex(
-        #"(?<![\w$€£¥#.,/-])(?:[A-Z]-)?(?:\d{3,4}[ -]\d{3,4}|\d{4,8})(?![\w/:-]|[.,]\d)"#
+        #"(?<![\w$€£¥#.,/-])(?:(?:[A-Z]-)?(?:\d{3,4}[ -]\d{3,4}|\d{4,8})|(?=[A-Za-z\d]*\d[A-Za-z\d]*[A-Za-z])[A-Za-z\d]{5,10})(?![\w/:-]|[.,]\d)"#
     )
     /// Numbers labelled as something else keep their digits even beside the word “code”.
     private static let otherNumberLabel = regex(

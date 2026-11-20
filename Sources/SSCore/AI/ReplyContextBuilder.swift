@@ -175,9 +175,10 @@ public struct ReplyContextBuilder: Sendable {
 
     // MARK: The user's first name
 
-    /// From the thread first (the replying account's own messages, then any of the user's, then how others address
-    /// them), then the name the app knows, then a Microsoft account's display name. Never Gmail's display name: it is
-    /// the address's local part.
+    /// From the user's own messages in the thread (the replying account's first, then any of theirs), then the name
+    /// the app knows, then a Microsoft account's display name. Never how others address the user in To or Cc: a sender
+    /// writes that header, and the name goes outside the fences, where the instructions do not call it data. Never
+    /// Gmail's display name: it is the address's local part.
     private func firstName(in messages: [MessageMetadata], target: MessageMetadata?, own: Set<String>) -> String? {
         let replying = target.flatMap { target in accounts.first { $0.id == target.id.accountID } }
         let replyingAddress = replying?.email.lowercased()
@@ -187,9 +188,6 @@ public struct ReplyContextBuilder: Sendable {
             candidates += newestFirst.map { $0.from?.address.lowercased() == replyingAddress ? $0.from?.name : nil }
         }
         candidates += newestFirst.map { message in message.from.flatMap { own.contains($0.address.lowercased()) ? $0.name : nil } }
-        candidates += newestFirst.flatMap { message in
-            (message.to + message.cc).map { own.contains($0.address.lowercased()) ? $0.name : nil }
-        }
         candidates.append(knownUserName)
         if let replying, replying.kind == .microsoft { candidates.append(replying.displayName) }
         for candidate in candidates {
@@ -198,13 +196,18 @@ public struct ReplyContextBuilder: Sendable {
         return nil
     }
 
+    /// The name's first word when it is a name: letters, with an apostrophe or a hyphen inside (“O'Neil”, “Jean-Luc”),
+    /// at most 40 of them. Anything else (digits, punctuation, a word that could carry an instruction) gives none.
     static func firstWord(of name: String?) -> String? {
         guard let name = usableName(name) else { return nil }
         // “Morgan, Alex” is the directory form: the first name follows the comma.
         let given = name.contains(",") ? String(name.split(separator: ",", maxSplits: 1).last ?? "") : name
-        let word = given.split(whereSeparator: \.isWhitespace).first.map(String.init)
-        guard let word, word.contains(where: \.isLetter) else { return nil }
-        return String(word.prefix(40))
+        guard let word = given.split(whereSeparator: \.isWhitespace).first.map(String.init), word.count <= 40,
+              word.first?.isLetter == true, word.last?.isLetter == true,
+              word.allSatisfy({ $0.isLetter || "'\u{2019}-".contains($0) }) else {
+            return nil
+        }
+        return word
     }
 
     // MARK: Text
@@ -225,9 +228,19 @@ public struct ReplyContextBuilder: Sendable {
         return lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// Whether `text`, as the ask would send it (invisible characters gone, trimmed), is longer than `limits` lets go:
+    /// the app refuses such a selection or notes rather than send a cut part that the reply would replace whole.
+    public static func exceedsAskLimit(_ text: String, limits: Limits = .standard) -> Bool {
+        askText(text).count > limits.maxAskCharacters
+    }
+
+    private static func askText(_ text: String) -> String {
+        AIRedactor.removingInvisibleCharacters(text).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private static func cleaned(_ ask: WriteAsk, limit: Int) -> WriteAsk {
         func clean(_ text: String) -> String {
-            String(AIRedactor.removingInvisibleCharacters(text).trimmingCharacters(in: .whitespacesAndNewlines).prefix(limit))
+            String(askText(text).prefix(limit))
         }
         var cleaned = ask
         cleaned.instruction = clean(ask.instruction)

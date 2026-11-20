@@ -16,6 +16,15 @@ public enum AIHealth: Sendable, Hashable {
         return false
     }
 
+    /// A CLI provider's needs-setup words when its CLI is in none of the folders searched: the folders, named. Settings'
+    /// Choose… and the card's Open Settings… are the actions, so the words name none. A word joiner after each slash
+    /// keeps a path on one line where the words wrap (Settings' status line, the card): a line breaks between paths,
+    /// never inside one.
+    public static func notFoundWords(for kind: AIProviderKind) -> String {
+        let folders = "~/.local/bin, /opt/homebrew/bin or /usr/local/bin".replacingOccurrences(of: "/", with: "/\u{2060}")
+        return "\(kind.displayName) not found in \(folders)"
+    }
+
     /// The status line's words, whatever the state.
     public var words: String {
         switch self {

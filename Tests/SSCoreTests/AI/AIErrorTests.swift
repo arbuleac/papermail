@@ -6,8 +6,10 @@ final class AIErrorTests: XCTestCase {
     static let everyCase: [AIError] = [
         .keyRefused, .missingKey, .signedOut, .planLimit, .noCredit, .rateLimited(retryAfter: nil), .rateLimited(retryAfter: 1),
         .rateLimited(retryAfter: 30), .rateLimited(retryAfter: 90), .overloaded, .refused, .modelUnavailable, .notInstalled,
-        .unsupportedVersion(found: "2.1.322 (Claude Code)"), .timedOut, .offline, .cancelled, .badResponse(code: 0),
-        .badResponse(code: 529), .busy, .emptyReply, .unavailable, .consentRequired,
+        .unsupportedVersion(found: "2.1.322 (Claude Code)"), .newerVersion(found: "3.0.1"), .toolsStayOn(found: "codex-cli 0.163.0"),
+        .otherSignIn, .timedOut, .offline, .cancelled, .badResponse(code: 0),
+        .badResponse(code: 529), .busy, .emptyReply, .unavailable, .consentRequired, .tooLong(selection: true),
+        .tooLong(selection: false),
     ]
 
     // MARK: Words
@@ -35,7 +37,16 @@ final class AIErrorTests: XCTestCase {
         XCTAssertEqual(AIError.rateLimited(retryAfter: 61).message(for: .claudeAPI), "Anthropic is limiting requests. Try again in 2 minutes.")
         XCTAssertEqual(AIError.rateLimited(retryAfter: nil).message(for: .claudeAPI), "Anthropic is limiting requests. Try again in a moment.")
         XCTAssertEqual(AIError.unsupportedVersion(found: "codex-cli 0.99.1\nextra").message(for: .codex),
-                       "Codex 0.99.1 isn't supported. Update it, then try again.")
+                       "Codex 0.99.1 is too old. Update it, then try again.")
+        XCTAssertEqual(AIError.newerVersion(found: "3.0.1 (Claude Code)").message(for: .claudeCode),
+                       "Claude Code 3.0.1 is newer than this SuperSparrow supports", "updating cannot help: no “Update it”")
+        XCTAssertEqual(AIError.otherSignIn.message(for: .claudeCode), "Claude Code isn't using your claude.ai sign-in")
+        XCTAssertEqual(AIError.toolsStayOn(found: "codex-cli 0.163.0").message(for: .codex),
+                       "Codex 0.163.0 can't turn its tools off, so Help Me Write doesn't use it")
+        XCTAssertEqual(AIError.tooLong(selection: true).message(for: .claudeAPI),
+                       "The selection is too long to rewrite. Select less, then try again.")
+        XCTAssertEqual(AIError.tooLong(selection: false).message(for: .codex),
+                       "Your draft is too long to send as notes. Shorten it, or select a part to rewrite.")
         XCTAssertEqual(AIError.badResponse(code: 529).message(for: .claudeAPI), "Unexpected answer from Anthropic (code 529)")
         XCTAssertEqual(AIError.badResponse(code: 1).message(for: .claudeCode), "Unexpected answer from Claude Code (code 1)")
         XCTAssertEqual(AIError.timedOut.message(for: .codex), "Codex took too long to answer")
@@ -63,7 +74,8 @@ final class AIErrorTests: XCTestCase {
     func testOnlySettingsFixableErrorsOfferSettings() {
         XCTAssertEqual(Self.everyCase.filter(\.needsSettings),
                        [.keyRefused, .missingKey, .signedOut, .modelUnavailable, .notInstalled,
-                        .unsupportedVersion(found: "2.1.322 (Claude Code)"), .unavailable])
+                        .unsupportedVersion(found: "2.1.322 (Claude Code)"), .newerVersion(found: "3.0.1"),
+                        .toolsStayOn(found: "codex-cli 0.163.0"), .otherSignIn, .unavailable])
     }
 
     func testAVersionKeepsOnlyItsDigitsAndDots() {
@@ -117,6 +129,8 @@ final class AIErrorTests: XCTestCase {
             // carry it into words.
             let built: [AIError] = Self.everyCase + [
                 .unsupportedVersion(found: transcript), .unsupportedVersion(found: "1.2 " + notes),
+                .newerVersion(found: transcript), .newerVersion(found: "3.1 " + notes),
+                .toolsStayOn(found: transcript), .toolsStayOn(found: "0.2 " + output),
                 AIError.from(NSError(domain: transcript, code: 3, userInfo: [NSLocalizedDescriptionKey: output])),
                 AIError.from(URLError(.badServerResponse, userInfo: [NSLocalizedDescriptionKey: instruction])),
             ]

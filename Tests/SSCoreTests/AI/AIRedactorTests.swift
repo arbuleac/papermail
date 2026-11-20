@@ -17,6 +17,12 @@ final class AIRedactorTests: XCTestCase {
         XCTAssertEqual(redactor.redact("billing@mail.shop.example.test"), "an address at mail.shop.example.test")
     }
 
+    func testAnInternationalisedAddressGoesToo() {
+        XCTAssertEqual(redactor.redact("Write to jörg@müller.de today"), "Write to an address at müller.de today")
+        XCTAssertEqual(redactor.redact("田中@例え.テスト"), "an address at 例え.テスト")
+        XCTAssertEqual(AIRedactor(names: ["Jörg@Müller.de": "Jörg Müller"]).redact("cc jörg@müller.de"), "cc Jörg Müller")
+    }
+
     // MARK: Links
 
     func testLinksBecomeTheirDomain() {
@@ -51,6 +57,16 @@ final class AIRedactorTests: XCTestCase {
         XCTAssertEqual(redactor.redact("Your OTP: 5521"), "Your OTP: [code]")
         XCTAssertEqual(redactor.redact("Ihr Bestätigungscode lautet 771234"), "Ihr Bestätigungscode lautet [code]")
         XCTAssertEqual(redactor.redact("Tu código es 123-456"), "Tu código es [code]")
+    }
+
+    func testLettersAndDigitsMixedNearCodeWordsGo() {
+        XCTAssertEqual(redactor.redact("Your verification code is K7QX9P"), "Your verification code is [code]")
+        XCTAssertEqual(redactor.redact("Steam Guard code: F7G2K"), "Steam Guard code: [code]")
+        XCTAssertEqual(redactor.redact("Use 9AB7C2 to sign in, it is your one-time code."), "Use [code] to sign in, it is your one-time code.")
+        XCTAssertEqual(redactor.redact("Your code is 482913."), "Your code is [code].")
+        for text in ["Use code SAVE10 at checkout", "The code mentions COVID19 twice", "Booking code ref AB12CD34 is confirmed"] {
+            XCTAssertEqual(redactor.redact(text), text, "a word with its number, or a labelled reference, stays")
+        }
     }
 
     func testNumbersFarFromCodeWordsStay() {
