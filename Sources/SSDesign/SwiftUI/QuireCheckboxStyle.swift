@@ -5,7 +5,7 @@ import SwiftUI
 /// several values): `accentFill` with an 8 × 2 pt bar. The label is `body` `ink`, 8 pt from the box, and part
 /// of the click target. Checkboxes are for options in a form; toggles apply at once.
 ///
-///     Toggle("Show account initials in unified views", isOn: $initials).toggleStyle(.quireCheckbox)
+///     Toggle("Show account faces in unified views", isOn: $initials).toggleStyle(.quireCheckbox)
 public struct QuireCheckboxStyle: ToggleStyle {
     public init() {}
 

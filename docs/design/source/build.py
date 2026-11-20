@@ -40,6 +40,28 @@ assert T.LAYOUT['window']['defaultWidth'] == (T.LAYOUT['rail']['width26'] + T.LA
 assert T.LAYOUT['calendarPane']['readerMinWithColumn'] == T.LAYOUT['window']['readerMinWidth'], 'calendarPane.readerMinWithColumn'
 # the swipe's Archive is accentFill by another name (§5.7): only its Graphite value sets it apart
 assert all(color['swipeArchive'][m] == color['accentFill'][m] for m in MODES), 'swipeArchive is accentFill by another name'
+# Paper faces (§5.55): the art (paper_faces.json, written by paper_faces_gen.py) names its papers; they are tokens
+# (T.PAPERS), so the file must name exactly those, in that order, with those values. Increase Contrast keeps the art: its
+# IC values are its own.
+PAPER_ART = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'paper_faces.json')))
+assert list(PAPER_ART['palette']) == [p['name'] for p in T.PAPERS], 'paper_faces.json papers are tokens_def.PAPERS, in order'
+assert all(PAPER_ART['palette'][p['name']] == {'light': p['light'], 'dark': p['dark']} for p in T.PAPERS), 'paper values'
+assert PAPER_ART['viewBox'] == [0, 0, T.LAYOUT['paperFaces']['artBox'], T.LAYOUT['paperFaces']['artBox']], 'paper art box'
+assert PAPER_ART['fillRule'] == 'nonzero', 'the renderer fills paper with the nonzero rule'
+_lifts = len(T.LAYOUT['paperFaces']['shadowY'])
+assert len(T.LAYOUT['paperFaces']['shadowBlur']) == _lifts and T.LAYOUT['paperFaces']['shadowY'][0] == 0 == T.LAYOUT['paperFaces']['shadowBlur'][0]
+assert len({f['id'] for f in PAPER_ART['faces']}) == len(PAPER_ART['faces']), 'paper face ids are unique'
+for _f in PAPER_ART['faces']:
+    assert re.fullmatch(r'[a-z][a-z0-9-]*', _f['id']), _f['id']
+    assert _f['background'] in PAPER_ART['palette'], (_f['id'], _f['background'])
+    for _l in _f['layers']:
+        assert _l['fill'] in PAPER_ART['palette'], (_f['id'], _l['fill'])
+        assert 0 <= _l['lift'] < _lifts, (_f['id'], _l['lift'])
+# automatic faces go by ink slot (faces[slot % count]): ten slots, so every slot needs its own face
+assert len(PAPER_ART['faces']) >= len(T.ACCOUNTS), 'one paper face per account ink at least'
+tokens['paperPalette'] = [{'name': p['name'], 'light': p['light'], 'dark': p['dark'], 'lightHC': p['light'], 'darkHC': p['dark']} for p in T.PAPERS]
+tokens['paperFaces'] = [{'id': f['id'], 'name': f['name'], 'ground': f['background'],
+                         'layers': [{'d': l['d'], 'paper': l['fill'], 'lift': l['lift']} for l in f['layers']]} for f in PAPER_ART['faces']]
 tokens['contrastPairs'] = None  # filled after ALL_PAIRS is built
 tokens['cheatSheetContent'] = [{'section': sec, 'rows': [{'keys': k, 'label': l} for k, l in rows]} for sec, rows in T.CHEAT_SHEET]
 tokens['cheatSheetSearch'] = {'title': T.CHEAT_SHEET_SEARCH[0], 'terms': T.CHEAT_SHEET_SEARCH[1]}
@@ -381,6 +403,18 @@ def table_avatars():
     for a in T.AVATARS:
         rows.append((a['name'],) + tuple('%s / %s' % (fmt_hex(a[m][0]), fmt_hex(a[m][1])) for m in MODES))
     return md_table(['Tint', 'Light face / ink', 'Dark face / ink', 'Light IC face / ink', 'Dark IC face / ink'], rows)
+def table_papers():
+    return md_table(['Paper', 'Light', 'Dark'], [('`%s`' % p['name'], fmt_hex(p['light']), fmt_hex(p['dark'])) for p in T.PAPERS])
+def table_paper_faces():
+    rows = []
+    for i, f in enumerate(tokens['paperFaces']):
+        slots = ' · '.join(str(k) for k in range(len(T.ACCOUNTS)) if k % len(tokens['paperFaces']) == i) or '—'
+        papers = []
+        for l in f['layers']:
+            if l['paper'] not in papers: papers.append(l['paper'])
+        lifts = ' '.join(str(l['lift']) for l in f['layers'])
+        rows.append((i + 1, '`%s`' % f['id'], f['name'], '`%s`' % f['ground'], len(f['layers']), lifts, ', '.join('`%s`' % p for p in papers), slots))
+    return md_table(['#', 'Id', 'Name (VoiceOver, in the picker)', 'Ground', 'Layers', 'Lifts, bottom first', 'Papers', 'Automatic for ink slot'], rows)
 FAMILY = {'sf': 'SF Pro', 'serif': 'New York', 'rounded': 'SF Pro Rounded', 'mono': 'SF Mono'}
 def table_type(twins=False, variants=False):
     rows = []
@@ -717,6 +751,8 @@ def render(text):
             if kind == 'cvd': return table_cvd()
             if kind == 'refs': return table_refs()
             if kind == 'avatars': return table_avatars()
+            if kind == 'papers': return table_papers()
+            if kind == 'paperFaces': return table_paper_faces()
             if kind == 'type': return table_type(False)
             if kind == 'twins': return table_type(True)
             if kind == 'variants': return table_type(False, True)

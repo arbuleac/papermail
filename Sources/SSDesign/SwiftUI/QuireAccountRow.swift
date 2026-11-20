@@ -2,7 +2,7 @@ import SwiftUI
 
 /// One 56 pt row of the Settings account group (spec §5.40, Account row parts):
 ///
-/// - the account face (30 pt, ring in the account ink) with its leading edge at x = 16;
+/// - the account face (30 pt, paper or monogram, ring in the account ink) with its leading edge at x = 16;
 /// - from x = 62, the name in `bodyStrong` `ink` with the provider tag 6 pt after it (the name truncates, the
 ///   tag never does), over the address in `snippet` `ink2`, or Sign in required in `danger` in its place;
 /// - the status block 16 pt from the trailing edge, centred on the row, at least 12 pt clear of the name;
@@ -37,7 +37,7 @@ public struct QuireAccountRow: View {
         let selection = QuireSelectionAppearance.resolve(isSelected: isSelected, isWindowKey: activeState != .inactive)
         HStack(spacing: 0) {
             HStack(spacing: 0) {
-                QuireAvatarView(accountMonogram: content.monogram, ink: content.inkSlot, diameter: s.accountFace)
+                QuireAvatarView(account: content.face, ink: content.inkSlot, diameter: s.accountFace)
                     .padding(.leading, s.accountFaceX)
                     .padding(.trailing, s.accountHairlineX - s.accountFaceX - s.accountFace)
                 VStack(alignment: .leading, spacing: 0) {

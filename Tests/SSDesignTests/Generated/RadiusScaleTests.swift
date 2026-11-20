@@ -55,11 +55,12 @@ final class RadiusScaleTests: XCTestCase {
         assertOnScale("layout.kbd.largeRadius", Quire.Layout.Kbd.largeRadius)
         assertOnScale("layout.progress.barRadius", Quire.Layout.Progress.barRadius)
         assertOnScale("layout.settings.groupRadius", Quire.Layout.Settings.groupRadius)
+        assertOnScale("layout.paperFaces.pickerRadius", Quire.Layout.PaperFaces.pickerRadius)
     }
 
     func testTheRadiusMetricsAreAllCovered() {
-        // tokens.json has 44 radius metrics under layout; this file asserts each of them.
-        XCTAssertEqual(DesignTokensFile.shared.layoutRadiusPaths().count, 44)
+        // tokens.json has 45 radius metrics under layout; this file asserts each of them.
+        XCTAssertEqual(DesignTokensFile.shared.layoutRadiusPaths().count, 45)
     }
 
     private func assertOnScale(_ path: String, _ value: CGFloat, file: StaticString = #filePath, line: UInt = #line) {
