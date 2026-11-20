@@ -208,6 +208,32 @@ final class HelpMeWriteTests: XCTestCase {
         XCTAssertTrue(AppAlert.specimens.contains { $0.title == "Try Help Me Write?" })
     }
 
+    func testTheDemoNeverCreditsMadeUpTextToAModel() throws {
+        let demo = HelpMeWrite.demo(isDemo: true)
+        for kind in AIProviderKind.selectable {
+            XCTAssertEqual(demo.sourceLine(for: AIProviderConfiguration(kind: kind)), "Demo \u{00b7} made up on this Mac", "\(kind)")
+            XCTAssertEqual(demo.consentAlert(for: kind).title, "Try Help Me Write?")
+        }
+        // With --live-ai-clis the demo's CLIs run for real: those say who writes, and where the conversation goes.
+        let live = HelpMeWrite.demo(isDemo: true, liveCLIs: true)
+        XCTAssertEqual(live.sourceLine(for: AIProviderConfiguration(kind: .claudeCode)), "Claude Code \u{00b7} Anthropic")
+        XCTAssertEqual(live.consentAlert(for: .claudeCode).title, "Send this conversation to Anthropic?")
+        XCTAssertEqual(live.sourceLine(for: AIProviderConfiguration(kind: .claudeAPI)), "Demo \u{00b7} made up on this Mac")
+        let real = HelpMeWrite.demo(isDemo: false)
+        XCTAssertEqual(real.sourceLine(for: AIProviderConfiguration(kind: .claudeAPI)), "Claude Opus 5.5 \u{00b7} Anthropic")
+
+        let suite = "HelpMeWriteTests.demo.\(UUID().uuidString)"
+        addTeardownBlock { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
+        let settings = AppSettings(defaults: try XCTUnwrap(UserDefaults(suiteName: suite)))
+        demo.settings = settings
+        let model = AISettingsModel(settings: settings, center: demo)
+        model.locateExecutable = { _, _ in nil }
+        model.setProvider(.claudeAPI)
+        XCTAssertEqual(model.caption, "In the demo, Help Me Write makes replies up on this Mac. Nothing is sent.")
+        XCTAssertNil(settings.aiProvider, "a provider chosen in the demo is the demo's alone")
+        XCTAssertEqual(settings.aiProvider(demo: true), .claudeAPI)
+    }
+
     // MARK: Writing
 
     func testAllowWritesTheReplyAsOneUndoStep() throws {
