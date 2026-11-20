@@ -34,9 +34,10 @@ final class AnalyticsCheck {
             settings.sendsAnalyticsAndReports = false
         }
         round()
-        // From the run loop, not from this main-queue block: quitting waits on main-actor work (`applicationShouldTerminate`),
-        // which a main-queue block that is still running would hold back.
-        step(12, "quit") { NSApp.perform(#selector(NSApplication.terminate(_:)), with: nil, afterDelay: 0) }
+        // Not from inside this main-queue callout, as `quittingSnapshotFinished` says: terminate waits for a main-actor task.
+        step(12, "quit") {
+            RunLoop.main.perform { MainActor.assumeIsolated { NSApp.terminate(nil) } }
+        }
         waitForInbox(deadline: Date().addingTimeInterval(30))
     }
 
