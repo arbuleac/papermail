@@ -130,8 +130,9 @@ final class QuickReplyView: NSView, QuirePointerTarget {
     private let statusContrail = QuireContrailView(mode: .determinate(0))
     private let strip = QuickReplyStripView()
     /// The drop treatment over the field while something that attaches is dragged over the bar (§5.18).
-    private let dropOverlay = AttachmentDropOverlay(label: "Drop to reply with attachment", inset: Quire.Layout.QuickReply.dropInset,
-                                                    radius: Quire.Layout.QuickReply.fieldRadius, fill: .qSheet)
+    private let dropOverlay = AttachmentDropOverlay(label: "Drop to reply with attachment", compactLabel: "Drop to attach",
+                                                    inset: Quire.Layout.QuickReply.dropInset, radius: Quire.Layout.QuickReply.fieldRadius,
+                                                    fill: .qSheet)
     private var heightConstraint: NSLayoutConstraint!
     private var hovering = false
     private var hoverArea: NSTrackingArea?
@@ -703,27 +704,39 @@ final class QuickReplyView: NSView, QuirePointerTarget {
         set { dropOverlay.isHidden = !newValue }
     }
 
+    /// The drop treatment, for the app's tests and renders: where its words are.
+    var dropTreatment: AttachmentDropOverlay { dropOverlay }
+
+    /// What a drop of `drag` would attach. A folder, or a file that cannot be read, is left out: the drop moves the reply
+    /// out of the bar, which it must not do for nothing.
+    private func attachable(_ drag: NSDraggingInfo) -> [AttachmentDropItem] {
+        AttachmentPasteboard.attachable(AttachmentPasteboard.dropItems(for: drag))
+    }
+
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        guard acceptsDrops, !AttachmentPasteboard.dropItems(on: sender.draggingPasteboard).isEmpty else { return [] }
-        showsDropTarget = true
+        guard acceptsDrops, !attachable(sender).isEmpty else { return [] }
+        dropOverlay.show(for: sender)
         return .copy
     }
 
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        showsDropTarget ? .copy : []
+        guard showsDropTarget else { return [] }
+        // The words move clear of the card as the pointer moves.
+        dropOverlay.show(for: sender)
+        return .copy
     }
 
     override func draggingExited(_ sender: NSDraggingInfo?) {
-        showsDropTarget = false
+        dropOverlay.show(for: nil)
     }
 
     override func draggingEnded(_ sender: NSDraggingInfo) {
-        showsDropTarget = false
+        dropOverlay.show(for: nil)
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        showsDropTarget = false
-        let items = AttachmentPasteboard.dropItems(on: sender.draggingPasteboard)
+        dropOverlay.show(for: nil)
+        let items = attachable(sender)
         guard acceptsDrops, !items.isEmpty else { return false }
         onDropAttachments?(text, mode, items)
         return true

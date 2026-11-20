@@ -5,6 +5,9 @@ import SSCore
 /// cache, or downloaded through the engine as Download does (the UI never calls a provider), then delivered quarantined
 /// under the attachment's own name (`AttachmentSafety.deliver`). Everything here runs off the main thread; `events` tells
 /// the reader, which hops to the main thread, so the chip can show the download and say when it failed.
+///
+/// Promises are kept one at a time, in the order they were asked for (`line`), as Download all saves: a drop of twenty
+/// files holds one file in memory, never twenty, and asks the account's provider for one at a time.
 struct AttachmentPromiseFulfiller: Sendable {
     /// Why a promise could not be kept: the file never arrived, or it arrived and could not be written there.
     typealias Failure = AttachmentDragFailure
@@ -24,6 +27,8 @@ struct AttachmentPromiseFulfiller: Sendable {
     let events: @Sendable (Event) -> Void
     /// The quarantine mark; tests replace it.
     var mark: @Sendable (URL) throws -> Void = { try AttachmentSafety.quarantine($0) }
+    /// Where a promise waits its turn: one for the whole app, so drags from any reader take turns too.
+    var line: AttachmentPromiseLine = .shared
 
     init(fetch: @escaping Fetch, events: @escaping @Sendable (Event) -> Void = { _ in }) {
         self.fetch = fetch
@@ -39,10 +44,15 @@ struct AttachmentPromiseFulfiller: Sendable {
         }, events: events)
     }
 
-    /// Fetches the file and writes it at `url` (another free name beside it when that one is taken). Returns where it is.
+    /// Fetches the file and writes it at `url` (another free name beside it when that one is taken), once the promises
+    /// asked for before it are kept. Returns where it is. The chip shows its download from the start of the wait.
     @discardableResult
     func fulfil(_ reference: MailAttachmentReference, at url: URL) async throws -> URL {
         events(.began(reference))
+        return try await line.run { try await keep(reference, at: url) }
+    }
+
+    private func keep(_ reference: MailAttachmentReference, at url: URL) async throws -> URL {
         let data: Data
         do {
             data = try await fetch(reference) { [events] fraction in events(.progress(reference, fraction)) }
@@ -73,4 +83,37 @@ struct AttachmentPromiseFulfiller: Sendable {
 /// The engine is safe to call from any thread (`MailEngine` is Sendable); the `MailClient` protocol does not say so.
 private struct EngineHandle: @unchecked Sendable {
     let client: MailClient
+}
+
+/// Runs the work it is handed one piece at a time, first come first served.
+actor AttachmentPromiseLine {
+    static let shared = AttachmentPromiseLine()
+
+    private var busy = false
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+
+    func run<T: Sendable>(_ work: @Sendable () async throws -> T) async throws -> T {
+        await take()
+        do {
+            let value = try await work()
+            pass()
+            return value
+        } catch {
+            pass()
+            throw error
+        }
+    }
+
+    private func take() async {
+        guard busy else {
+            busy = true
+            return
+        }
+        await withCheckedContinuation { waiting.append($0) }
+    }
+
+    /// The next in line goes on with the line still taken; with nobody waiting the line is free.
+    private func pass() {
+        if waiting.isEmpty { busy = false } else { waiting.removeFirst().resume() }
+    }
 }

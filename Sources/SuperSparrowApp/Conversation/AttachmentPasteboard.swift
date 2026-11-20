@@ -49,12 +49,34 @@ enum AttachmentPasteboard {
     }
 
     /// What a drop of `pasteboard` attaches: the app's own attachments when it carries them (a dragged chip also promises
-    /// its file to other apps, which the app never needs), else its files. Empty for anything else.
+    /// its file to other apps, which the app never needs), else its files. Empty for anything else. Any process can write
+    /// the app's type, so what takes these looks each reference up in the store before using it (`ComposeWindowController`).
     static func dropItems(on pasteboard: NSPasteboard) -> [AttachmentDropItem] {
         let references = references(on: pasteboard)
         if !references.isEmpty { return references.map(AttachmentDropItem.mail) }
+        return files(on: pasteboard)
+    }
+
+    /// What a drag attaches: the app's own attachments only from a drag of a reader's chips (another process never names a
+    /// source), else the files it carries.
+    static func dropItems(for drag: NSDraggingInfo) -> [AttachmentDropItem] {
+        guard drag.draggingSource is AttachmentDragController else { return files(on: drag.draggingPasteboard) }
+        return dropItems(on: drag.draggingPasteboard)
+    }
+
+    private static func files(on pasteboard: NSPasteboard) -> [AttachmentDropItem] {
         let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) ?? []
         return urls.compactMap { ($0 as? URL).map(AttachmentDropItem.file) }
+    }
+
+    /// The items a file attaches as, leaving out folders (packages too) and files that cannot be read: the quick reply,
+    /// which moves the reply to a composer for what is dropped, takes nothing it would not attach.
+    nonisolated static func attachable(_ items: [AttachmentDropItem]) -> [AttachmentDropItem] {
+        items.filter { item in
+            guard case .file(let url) = item else { return true }
+            let values = try? url.resourceValues(forKeys: [.isDirectoryKey])
+            return values?.isDirectory == false && FileManager.default.isReadableFile(atPath: url.path)
+        }
     }
 
     /// The chip menu's Copy (spec §5.17): the file this Mac holds for the reader, which the Finder pastes, and the app's

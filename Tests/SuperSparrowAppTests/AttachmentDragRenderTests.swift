@@ -120,6 +120,99 @@ final class AttachmentDragRenderTests: XCTestCase {
         }
     }
 
+    /// The drop treatment with the real card under the pointer, composited where the drag holds it: the quick reply with
+    /// the pointer at the middle, a quarter and four fifths of its field, and a reply composer whose body holds seven
+    /// paragraphs, the pointer at its middle. The words stay clear of the card, and the body's text never runs through them.
+    func testTheDropWordsKeepClearOfTheCard() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let window = try XCTUnwrap(harness.controller.window)
+        window.setContentSize(NSSize(width: 1280, height: 800))
+        let id = try XCTUnwrap(harness.list.conversations.first?.id)
+        harness.list.selectedConversationID = id
+        harness.list.onSelectionChange?(id)
+        harness.spin { !harness.reader.currentMessages.isEmpty }
+        let reader = harness.reader
+        let webView = try XCTUnwrap(reader.pool.current?.webView as? ReaderWebView)
+        let plan = AttachmentInfo(id: "att-plan", filename: "Contoso rollout plan.pdf", mimeType: "application/pdf", sizeBytes: 240_000, isInline: false)
+        let message = MessageID(accountID: id.accountID, providerID: "msg-render")
+        let drags = reader.attachmentDrags
+        drags.attachments = { _ in [plan] }
+        drags.beginSession = { _, _, _, _ in true }
+        // Pressed on the name, 60 pt into the chip, as a person takes it.
+        let pointer = NSPoint(x: 80, y: 320)
+        let press = ConversationScriptMessage.AttachmentPress(
+            messageID: message, items: [.init(attachmentID: plan.id, rect: CGRect(x: 20, y: 300, width: 220, height: 44))], point: pointer)
+        let event = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDragged, location: webView.convert(pointer, to: nil), modifierFlags: [],
+                                                     timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                                     context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        XCTAssertTrue(drags.startDrag(press, event: event, in: webView))
+        defer { drags.dragEnded() }
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("AttachmentDragRenderTests-\(UUID().uuidString)"))
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
+        pasteboard.writeObjects([AttachmentFilePromise(reference: MailAttachmentReference(message: message, info: plan),
+                                                       fulfiller: AttachmentPromiseFulfiller(fetch: { _, _ in Data() }))])
+        let drag = FakeDraggingInfo(pasteboard: pasteboard, source: drags, mask: .copy)
+        let content = AttachmentDragCard.content(for: plan)
+        let margin = AttachmentDragCard.margin
+
+        let bar = reader.quickReplyBar
+        let paragraphs = (1...7).map { "Paragraph \($0): here is a long line about the rollout plan and the support rota that wraps across the body's width." }
+        let draft = ComposeDraft(id: UUID(), mode: .new, account: harness.controller.accounts[0], to: [EmailAddress(name: "Ada Ritchie", address: "ada@example.com")],
+                                 cc: [], bcc: [], subject: "Re: Project update 2 and the quarterly planning document",
+                                 body: NSAttributedString(string: paragraphs.joined(separator: "\n\n")), attachments: [], quoted: nil, threading: nil)
+        let composer = ComposeWindowController.present(client: harness.environment.engine, accounts: harness.controller.accounts, draft: draft)
+        defer { composer.closeWithoutSaving() }
+        let composerWindow = try XCTUnwrap(composer.window)
+        composerWindow.setFrameOrigin(NSPoint(x: -20_000, y: -20_000))
+        let body = try XCTUnwrap(composerWindow.contentView as? ComposeContentView)
+
+        for (mode, name) in modes {
+            window.appearance = mode.appearance
+            composerWindow.appearance = mode.appearance
+            window.makeFirstResponder(nil)
+            Quire.Motion.finishAll()
+            ListTestSupport.spin(until: { false }, timeout: 0.6)
+            window.layoutIfNeeded()
+            let card = AttachmentDragCard.bitmap(content, size: AttachmentDragCard.imageSize(for: content), mode: mode, scale: 2)
+            let cardSize = AttachmentDragCard.imageSize(for: content)
+            var reps: [NSBitmapImageRep] = []
+            for fraction in [0.5, 0.25, 0.8] {
+                let field = bar.dropTreatment.frame
+                drag.draggingLocation = bar.convert(NSPoint(x: field.minX + field.width * fraction, y: field.midY), to: nil)
+                XCTAssertEqual(bar.draggingEntered(drag), .copy)
+                bar.display()
+                let obstruction = try XCTUnwrap(bar.dropTreatment.obstruction)
+                XCTAssertFalse(bar.dropTreatment.placedLabel.frame.intersects(obstruction), "\(fraction)")
+                let rep = try render(bar, mode: mode)
+                let origin = bar.convert(NSPoint(x: obstruction.minX - margin.left, y: obstruction.minY - margin.top), from: bar.dropTreatment)
+                reps.append(try compose(size: rep.size, background: .clear, mode: mode) {
+                    rep.draw(in: NSRect(origin: .zero, size: rep.size), from: .zero, operation: .copy, fraction: 1, respectFlipped: true, hints: nil)
+                    card?.draw(in: NSRect(origin: origin, size: cardSize), from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+                })
+                bar.draggingExited(drag)
+            }
+            try write(try stack(reps), "quick-reply-drop-card-\(name)@2x.png")
+
+            composerWindow.layoutIfNeeded()
+            let overlay = body.dropOverlay
+            drag.draggingLocation = body.convert(NSPoint(x: overlay.frame.midX, y: overlay.frame.midY), to: nil)
+            XCTAssertEqual(body.draggingEntered(drag), .copy)
+            body.display()
+            let obstruction = try XCTUnwrap(overlay.obstruction)
+            XCTAssertFalse(overlay.placedLabel.frame.intersects(obstruction))
+            let rep = try render(body, mode: mode)
+            let origin = body.convert(NSPoint(x: obstruction.minX - margin.left, y: obstruction.minY - margin.top), from: overlay)
+            let composite = try compose(size: rep.size, background: .clear, mode: mode) {
+                rep.draw(in: NSRect(origin: .zero, size: rep.size), from: .zero, operation: .copy, fraction: 1, respectFlipped: true, hints: nil)
+                card?.draw(in: NSRect(origin: origin, size: cardSize), from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+            }
+            body.draggingExited(drag)
+            try write(composite, "composer-drop-text-\(name)@2x.png")
+        }
+    }
+
     /// A reader whose first chip is being dragged: the chip left behind dims, its neighbour stays.
     func testTheDraggedChipInTheReader() throws {
         let harness = try MainWindowHarness()

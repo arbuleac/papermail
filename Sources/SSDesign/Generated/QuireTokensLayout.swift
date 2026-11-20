@@ -532,6 +532,7 @@ extension Quire {
             public static let dropOutline: CGFloat = 2
             public static let dropInset: CGFloat = 8
             public static let dropDash: [CGFloat] = [6, 4]
+            public static let dropVeil: CGFloat = 0.9
             public static let stripGlyph: CGFloat = 14
             public static let removeGlyph: CGFloat = 9
             public static let width: CGFloat = 640

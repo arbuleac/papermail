@@ -287,7 +287,7 @@ LAYOUT = {
                 "toolRowGap": 4, "toolRow": 28, "toolRowBottom": 4, "modeGap": 16, "modeHitPad": 6, "toolGroupGap": 12, "toolIconGap": 2, "toolIcon": 22, "toolIconGlyph": 14, "sendInset": 8, "sendKeycapGap": 8,
                 "maxLines": 5, "fieldMax": 150, "max": 172, "stripGlyph": 14, "stripGap": 8, "stripKeycapGap": 8, "modeUnderlineY": 24,
                 "dropInset": 0},
- "composer": {"dropOutline": 2, "dropInset": 8, "dropDash": [6, 4], "stripGlyph": 14, "removeGlyph": 9, "width": 640, "height": 600, "minWidth": 520, "minHeight": 420, "fieldRow": 36, "subjectRow": 42, "labelX": 16, "labelColumn": 56,
+ "composer": {"dropOutline": 2, "dropInset": 8, "dropDash": [6, 4], "dropVeil": 0.9, "stripGlyph": 14, "removeGlyph": 9, "width": 640, "height": 600, "minWidth": 520, "minHeight": 420, "fieldRow": 36, "subjectRow": 42, "labelX": 16, "labelColumn": 56,
               "valueX": 84, "bodyPadTop": 20, "bodyPadRight": 24, "bottomBar": 52, "strip": 48, "stripChip": 30, "stripChipRadius": 6,
               "removeVisual": 16, "fromDot": 7, "fromDotGap": 8, "fieldTrailing": 16, "ccBccGap": 4,
               "focusRingX": 78, "focusRingInsetY": 3, "focusRingRadius": 5, "focusRingButtonGap": 6, "bannerInsetX": 16, "bannerInsetY": 8,

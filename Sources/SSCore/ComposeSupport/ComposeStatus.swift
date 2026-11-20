@@ -17,6 +17,9 @@ public enum ComposeStatus: Hashable, Sendable {
     case unreadableAttachment(name: String)
     /// An attachment dragged from a message could not be fetched, so its chip was taken away again.
     case droppedAttachmentFailed(name: String)
+    /// Attachments dropped or pasted as the app's own that no stored message lists (deleted meanwhile, or written by
+    /// another app): nothing was attached for them.
+    case droppedAttachmentsGone(count: Int)
     case saving
     case saved
     /// The sending account cannot reach its provider; a send waits in the outbox.
@@ -65,6 +68,9 @@ public enum ComposeStatus: Hashable, Sendable {
             return "“\(name)” couldn't be read. Remove it to send."
         case .droppedAttachmentFailed(let name):
             return "“\(name)” couldn't be downloaded, so it wasn't attached."
+        case .droppedAttachmentsGone(let count):
+            return count == 1 ? "That attachment is no longer in your mail, so it wasn't attached."
+                : "\(count) attachments are no longer in your mail, so they weren't attached."
         case .saving: return "Saving…"
         case .saved: return "Draft saved"
         case .offline: return "Will send when you're back online"
@@ -79,7 +85,8 @@ public enum ComposeStatus: Hashable, Sendable {
 
     public var tone: Tone {
         switch self {
-        case .originalFailed, .attachmentsFailed, .rejectedDrop, .unreadableAttachment, .droppedAttachmentFailed: return .warning
+        case .originalFailed, .attachmentsFailed, .rejectedDrop, .unreadableAttachment, .droppedAttachmentFailed, .droppedAttachmentsGone:
+            return .warning
         case .originalGone: return .info
         case .loadingOriginal, .saving, .saved, .offline: return .quiet
         }
@@ -90,7 +97,7 @@ public enum ComposeStatus: Hashable, Sendable {
         switch self {
         case .loadingOriginal, .saving: return nil
         case .originalGone: return "info.circle"
-        case .originalFailed, .attachmentsFailed, .rejectedDrop, .unreadableAttachment, .droppedAttachmentFailed:
+        case .originalFailed, .attachmentsFailed, .rejectedDrop, .unreadableAttachment, .droppedAttachmentFailed, .droppedAttachmentsGone:
             return "exclamationmark.triangle.fill"
         case .saved: return "checkmark"
         case .offline: return "wifi.slash"

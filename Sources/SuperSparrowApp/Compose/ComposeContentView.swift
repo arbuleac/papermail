@@ -19,6 +19,8 @@ final class ComposeContentView: NSView {
 
     /// Files, or the app's own attachments, dropped to attach.
     var onDrop: (([AttachmentDropItem]) -> Void)?
+    /// False while a drop would be thrown away (the message is being handed over, the window is going): nothing lights up.
+    var acceptsDrops: () -> Bool = { true }
     var onCommand: ((Command) -> Void)?
 
     var rows: [ComposeFieldRow] = [] {
@@ -38,13 +40,18 @@ final class ComposeContentView: NSView {
         didSet { if oldValue != showsFormatRow { needsLayout = true } }
     }
 
-    private let dropOutline = AttachmentDropOverlay(label: "Drop to attach", inset: Quire.Layout.Composer.dropInset, radius: Quire.Radius.lg)
+    /// The body's text stays, veiled, under the words, which keep clear of the dragged card.
+    private let dropOutline = AttachmentDropOverlay(label: "Drop to attach", inset: Quire.Layout.Composer.dropInset, radius: Quire.Radius.lg,
+                                                    fill: .qSheet, fillAlpha: Quire.Layout.Composer.dropVeil)
 
     /// The drop outline shows (the app's tests read it, and its renders set it).
     var showsDropOutline: Bool {
         get { !dropOutline.isHidden }
         set { dropOutline.isHidden = !newValue }
     }
+
+    /// The drop treatment, for the app's tests and renders: where its words are.
+    var dropOverlay: AttachmentDropOverlay { dropOutline }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -143,27 +150,29 @@ final class ComposeContentView: NSView {
     // MARK: Dragging destination
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        guard !AttachmentPasteboard.dropItems(on: sender.draggingPasteboard).isEmpty else { return [] }
-        dropOutline.isHidden = false
+        guard acceptsDrops(), !AttachmentPasteboard.dropItems(for: sender).isEmpty else { return [] }
+        dropOutline.show(for: sender)
         return .copy
     }
 
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        dropOutline.isHidden ? [] : .copy
+        guard !dropOutline.isHidden else { return [] }
+        dropOutline.show(for: sender)
+        return .copy
     }
 
     override func draggingExited(_ sender: NSDraggingInfo?) {
-        dropOutline.isHidden = true
+        dropOutline.show(for: nil)
     }
 
     override func draggingEnded(_ sender: NSDraggingInfo) {
-        dropOutline.isHidden = true
+        dropOutline.show(for: nil)
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        dropOutline.isHidden = true
-        let items = AttachmentPasteboard.dropItems(on: sender.draggingPasteboard)
-        guard !items.isEmpty else { return false }
+        dropOutline.show(for: nil)
+        let items = AttachmentPasteboard.dropItems(for: sender)
+        guard acceptsDrops(), !items.isEmpty else { return false }
         onDrop?(items)
         return true
     }

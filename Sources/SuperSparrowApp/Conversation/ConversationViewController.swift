@@ -243,7 +243,11 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         }
         attachmentDrags.attachments = { [weak self] id in self?.attachments(of: id) ?? [] }
         attachmentDrags.onDragChange = { [weak self] drag, on in self?.attachmentDragChanged(drag, on: on) }
-        attachmentDrags.onPromiseEvent = { [weak self] event in self?.promiseEvent(event) }
+        attachmentDrags.onPromiseEvent = { [weak self] event in
+            guard let self else { return false }
+            self.promiseEvent(event)
+            return true
+        }
         let center = NotificationCenter.default
         // Block observers stay registered until removed, so their tokens are kept for deinit.
         notificationTokens.append(center.addObserver(forName: Self.remoteImagesPolicyChanged, object: nil, queue: .main) { [weak self] _ in

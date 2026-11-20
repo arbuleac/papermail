@@ -10,6 +10,9 @@ import UniformTypeIdentifiers
 /// which time the Finder has long asked for the file.
 final class AttachmentFilePromise: NSFilePromiseProvider, NSFilePromiseProviderDelegate {
     let reference: MailAttachmentReference
+    /// The name the file is promised under: its own, made safe, and numbered when another file of the same drag has it
+    /// (`AttachmentDragController`), since a receiver other than the Finder reads the file at the name it was promised.
+    let promisedName: String
     private let fulfiller: AttachmentPromiseFulfiller
 
     /// The promises are written here, never on the main queue (which a provider uses unless told otherwise): a fetch's
@@ -21,8 +24,9 @@ final class AttachmentFilePromise: NSFilePromiseProvider, NSFilePromiseProviderD
         return queue
     }()
 
-    init(reference: MailAttachmentReference, fulfiller: AttachmentPromiseFulfiller) {
+    init(reference: MailAttachmentReference, fulfiller: AttachmentPromiseFulfiller, promisedName: String? = nil) {
         self.reference = reference
+        self.promisedName = promisedName ?? reference.filename
         self.fulfiller = fulfiller
         super.init()
         fileType = Self.fileType(filename: reference.info.filename, mimeType: reference.info.mimeType).identifier
@@ -60,7 +64,7 @@ final class AttachmentFilePromise: NSFilePromiseProvider, NSFilePromiseProviderD
     // MARK: NSFilePromiseProviderDelegate
 
     func filePromiseProvider(_ filePromiseProvider: NSFilePromiseProvider, fileNameForType fileType: String) -> String {
-        reference.filename
+        promisedName
     }
 
     func operationQueue(for filePromiseProvider: NSFilePromiseProvider) -> OperationQueue {

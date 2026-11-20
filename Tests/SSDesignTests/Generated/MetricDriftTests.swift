@@ -10,8 +10,8 @@ final class MetricDriftTests: XCTestCase {
     private let file = DesignTokensFile.shared
 
     func testEveryMetricIsCovered() {
-        // tokens.json had 854 leaves under layout, border and platform when this file was generated.
-        XCTAssertEqual(file.leafCount(under: ["layout", "border", "platform"]), 854, "regenerate with swift scripts/tools/quire-tokens.swift")
+        // tokens.json had 855 leaves under layout, border and platform when this file was generated.
+        XCTAssertEqual(file.leafCount(under: ["layout", "border", "platform"]), 855, "regenerate with swift scripts/tools/quire-tokens.swift")
     }
 
     func testLayoutWindow() {
@@ -565,6 +565,7 @@ final class MetricDriftTests: XCTestCase {
         number(Quire.Layout.Composer.dropOutline, "layout.composer.dropOutline")
         number(Quire.Layout.Composer.dropInset, "layout.composer.dropInset")
         numbers(Quire.Layout.Composer.dropDash.map { Double($0) }, "layout.composer.dropDash")
+        number(Quire.Layout.Composer.dropVeil, "layout.composer.dropVeil")
         number(Quire.Layout.Composer.stripGlyph, "layout.composer.stripGlyph")
         number(Quire.Layout.Composer.removeGlyph, "layout.composer.removeGlyph")
         number(Quire.Layout.Composer.width, "layout.composer.width")

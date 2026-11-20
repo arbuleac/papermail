@@ -2221,6 +2221,9 @@ public enum ConversationShellAssets {
       }
 
       function chipName(name) {
+        // The halves keep their spaces (`white-space: pre`), so a sender's line breaks and tabs would break the line too:
+        // every control character and line separator reads as a space.
+        name = String(name).replace(/[\u0000-\u001F\u007F-\u009F\u2028\u2029]/g, ' ');
         var node = el('span', 'ss-chip-name');
         // Middle truncation keeps the extension (spec §4.4): the head shrinks, the last characters never do.
         var dot = name.lastIndexOf('.');
@@ -2328,6 +2331,13 @@ public enum ConversationShellAssets {
       // The app started (on) or ended a drag of these files: their chips dim meanwhile, and the click the press would end
       // in, which the app hands WebKit as the drag starts, opens nothing.
       var dragSwallowsClick = false;
+      // The click the press ends in, and the dblclick after it when the press was a double-click's second, are the drag's.
+      function swallowDragClick(event) {
+        if (!dragSwallowsClick) { return; }
+        if (event.type === 'dblclick' || event.detail < 2) { dragSwallowsClick = false; }
+        event.preventDefault();
+        event.stopPropagation();
+      }
       function attachmentDrag(id, attachmentIDs, on) {
         dragSwallowsClick = !!on;
         var card = state.byID[id];
@@ -2339,12 +2349,8 @@ public enum ConversationShellAssets {
           if (chip && chip.parentNode) { chip.parentNode.classList.toggle('ss-dragging', !!on); }
         }
       }
-      document.addEventListener('click', function (event) {
-        if (!dragSwallowsClick) { return; }
-        dragSwallowsClick = false;
-        event.preventDefault();
-        event.stopPropagation();
-      }, true);
+      document.addEventListener('click', swallowDragClick, true);
+      document.addEventListener('dblclick', swallowDragClick, true);
 
       // Two files or more: the count and Download all above the chips (spec §5.17). Inline images are never in the
       // payload's list, so the count is the files the user can save.

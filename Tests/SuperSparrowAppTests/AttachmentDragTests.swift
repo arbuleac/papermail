@@ -101,6 +101,18 @@ final class AttachmentDragTests: XCTestCase {
         XCTAssertEqual(AttachmentSafety.safeFilename("in\u{0}voice\u{7}.pdf"), "invoice.pdf", "control characters go")
         XCTAssertEqual(AttachmentSafety.safeFilename(""), "Attachment")
         XCTAssertEqual(AttachmentSafety.safeFilename(".."), "Attachment")
+        XCTAssertEqual(AttachmentSafety.safeFilename(".zshrc"), "_zshrc", "never a hidden file, nor a shell's own")
+        XCTAssertEqual(AttachmentSafety.safeFilename("..env"), "__env")
+        XCTAssertEqual(AttachmentSafety.safeFilename("in\u{80}voice\u{9F}.pdf"), "invoice.pdf", "C1 controls go")
+        XCTAssertEqual(AttachmentSafety.safeFilename("invoice\u{202E}fdp.exe"), "invoicefdp.exe", "a bidi override cannot disguise the extension")
+        XCTAssertEqual(AttachmentSafety.safeFilename("a\u{2066}b\u{2069}.pdf"), "ab.pdf", "nor an isolate")
+        let family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467} family.jpg"
+        XCTAssertEqual(AttachmentSafety.safeFilename(family), family, "the joiners of an emoji sequence stay")
+        let scotland = "\u{1F3F4}\u{E0067}\u{E0062}\u{E0073}\u{E0063}\u{E0074}\u{E007F} trip.png"
+        XCTAssertEqual(AttachmentSafety.safeFilename(scotland), scotland, "a flag's tag characters stay")
+        let persian = "\u{0645}\u{06CC}\u{200C}\u{062E}\u{0648}\u{0627}\u{0647}\u{0645}.pdf"
+        XCTAssertEqual(AttachmentSafety.safeFilename(persian), persian, "ZWNJ is spelling")
+        XCTAssertEqual(AttachmentSafety.safeFilename("\u{200F}report.pdf"), "\u{200F}report.pdf", "a mark that only sets a direction stays")
         let long = String(repeating: "é", count: 200) + ".pdf"
         let cut = AttachmentSafety.safeFilename(long)
         XCTAssertLessThanOrEqual(cut.utf8.count, 255)
@@ -302,10 +314,8 @@ final class AttachmentDragTests: XCTestCase {
         XCTAssertTrue(ListTestSupport.spin(until: { webView.isAttachmentDragArmed }, timeout: 5), "the shell names the pressed chip")
         send(.leftMouseDragged, at: NSPoint(x: start.x + 2, y: start.y), to: webView)
         XCTAssertTrue(started.isEmpty, "inside the threshold the press is still a click")
-        let begin = Date()
         send(.leftMouseDragged, at: NSPoint(x: start.x + 6, y: start.y + 2), to: webView)
-        XCTAssertLessThan(Date().timeIntervalSince(begin), 0.016, "the drag starts inside a frame of the event")
-        XCTAssertEqual(started.count, 1)
+        XCTAssertEqual(started.count, 1, "the drag starts in the event that crosses the threshold (its time: testStartingADragStaysInsideAFrame)")
         let item = try XCTUnwrap(started.first)
         XCTAssertEqual((item.item as? AttachmentFilePromise)?.reference, MailAttachmentReference(message: fixture.messageID, info: Self.plan))
         let margin = AttachmentDragCard.margin
@@ -519,9 +529,11 @@ final class AttachmentDragTests: XCTestCase {
         defer { drag.draggingPasteboard.releaseGlobally() }
         XCTAssertTrue(content.performDragOperation(drag))
         composer.send(nil)
-        XCTAssertTrue(composer.sendIsStarting, "the button shows it is sending while the file arrives")
+        XCTAssertTrue(composer.isWaitingToSend, "the button shows it is sending while the file arrives")
+        XCTAssertFalse(composer.sendIsStarting, "nothing is handed over yet")
         gate.open()
-        XCTAssertTrue(ListTestSupport.spin(until: { !composer.sendIsStarting }, timeout: 5))
+        XCTAssertTrue(ListTestSupport.spin(until: { !composer.isWaitingToSend }, timeout: 5))
+        XCTAssertFalse(composer.sendIsStarting)
         XCTAssertNotNil(composer.window, "nothing sent: the composer stays")
         XCTAssertTrue(ComposeWindowRegistry.shared.openControllers.contains { $0 === composer })
         XCTAssertEqual(composer.status, .droppedAttachmentFailed(name: "plan.pdf"))
@@ -742,21 +754,520 @@ final class AttachmentDragTests: XCTestCase {
         return cg.makeImage().map(NSBitmapImageRep.init(cgImage:))
     }
 
+    // MARK: Names, writing and the line
+
+    /// Files of one drag that share a name are promised under names of their own, numbered as the Finder numbers a copy
+    /// and compared without case, so a receiver that reads the name it was promised gets each file.
+    func testSameNamedFilesOfOneDragArePromisedUnderTheirOwnNames() throws {
+        let fixture = try ReaderFixture(folder: folder)
+        defer { fixture.close() }
+        let drags = fixture.reader.attachmentDrags
+        let infos = [
+            AttachmentInfo(id: "i1", filename: "image.png", mimeType: "image/png", sizeBytes: 10, isInline: false),
+            AttachmentInfo(id: "i2", filename: "image.png", mimeType: "image/png", sizeBytes: 11, isInline: false),
+            AttachmentInfo(id: "i3", filename: "IMAGE.png", mimeType: "image/png", sizeBytes: 12, isInline: false),
+            AttachmentInfo(id: "i4", filename: "", mimeType: "", sizeBytes: 1, isInline: false),
+            AttachmentInfo(id: "i5", filename: "", mimeType: "", sizeBytes: 1, isInline: false),
+        ]
+        drags.attachments = { _ in infos }
+        let press = ConversationScriptMessage.AttachmentPress(
+            messageID: fixture.messageID, items: infos.map { .init(attachmentID: $0.id, rect: CGRect(x: 20, y: 300, width: 210, height: 44)) },
+            point: CGPoint(x: 40, y: 320))
+        let promises = drags.draggingItems(for: press, in: fixture.webView).compactMap { $0.item as? AttachmentFilePromise }
+        XCTAssertEqual(promises.map { $0.filePromiseProvider($0, fileNameForType: $0.fileType) },
+                       ["image.png", "image 2.png", "IMAGE 3.png", "Attachment", "Attachment 2"])
+    }
+
+    /// Writes to one name at the same moment never land on it both: each file arrives whole, under a name of its own.
+    func testDeliveriesAtOnceNeverShareAName() throws {
+        let target = drops.appendingPathComponent("image.png")
+        let log = DeliveryLog()
+        DispatchQueue.concurrentPerform(iterations: 8) { index in
+            log.record(index, try? AttachmentSafety.deliver(Data([UInt8(index)]), to: target))
+        }
+        let written = log.entries
+        XCTAssertEqual(written.count, 8, "every write arrived")
+        XCTAssertEqual(Set(written.values.map(\.lastPathComponent)).count, 8, "each under its own name")
+        for (index, url) in written {
+            XCTAssertEqual(try Data(contentsOf: url), Data([UInt8(index)]), url.lastPathComponent)
+        }
+        let listed = try FileManager.default.contentsOfDirectory(atPath: drops.path)
+        XCTAssertEqual(listed.count, 8, "no partial file left behind: \(listed)")
+    }
+
+    /// Two promises of one name kept at once both arrive, each with its own bytes.
+    func testTwoSameNamedPromisesAtOnceBothArrive() async throws {
+        let first = AttachmentInfo(id: "i1", filename: "image.png", mimeType: "image/png", sizeBytes: 2, isInline: false)
+        let second = AttachmentInfo(id: "i2", filename: "image.png", mimeType: "image/png", sizeBytes: 2, isInline: false)
+        var fulfiller = AttachmentPromiseFulfiller(fetch: { reference, _ in Data(reference.info.id.utf8) })
+        fulfiller.line = AttachmentPromiseLine()
+        let keeper = fulfiller
+        let destination = drops.appendingPathComponent("image.png")
+        async let one = keeper.fulfil(MailAttachmentReference(message: Self.message, info: first), at: destination)
+        async let two = keeper.fulfil(MailAttachmentReference(message: Self.message, info: second), at: destination)
+        let written = try await [one, two]
+        XCTAssertEqual(Set(written.map(\.lastPathComponent)), ["image.png", "image 2.png"])
+        XCTAssertEqual(try Data(contentsOf: written[0]), Data("i1".utf8))
+        XCTAssertEqual(try Data(contentsOf: written[1]), Data("i2".utf8))
+    }
+
+    /// Promises are kept one at a time: a drop of many files never fetches, or holds, more than one at once.
+    func testPromisesAreKeptOneAtATime() async throws {
+        let gauge = Gauge()
+        var fulfiller = AttachmentPromiseFulfiller(fetch: { reference, _ in
+            gauge.enter()
+            try await Task.sleep(nanoseconds: 20_000_000)
+            gauge.leave()
+            return Data(reference.info.id.utf8)
+        })
+        fulfiller.line = AttachmentPromiseLine()
+        let keeper = fulfiller
+        let drops: URL = self.drops
+        try await withThrowingTaskGroup(of: URL.self) { group in
+            for index in 0..<5 {
+                let info = AttachmentInfo(id: "f\(index)", filename: "f\(index).txt", mimeType: "text/plain", sizeBytes: 2, isInline: false)
+                group.addTask {
+                    try await keeper.fulfil(MailAttachmentReference(message: AttachmentDragTests.message, info: info),
+                                            at: drops.appendingPathComponent("f\(index).txt"))
+                }
+            }
+            for try await _ in group {}
+        }
+        XCTAssertEqual(gauge.peak, 1, "one at a time")
+        XCTAssertEqual(gauge.total, 5)
+    }
+
+    /// An empty attachment arrives as an empty file, marked as any other.
+    func testAnEmptyFileArrivesEmpty() async throws {
+        let fulfiller = AttachmentPromiseFulfiller(fetch: { _, _ in Data() })
+        let written = try await fulfiller.fulfil(reference(Self.notes), at: drops.appendingPathComponent("notes.txt"))
+        XCTAssertEqual(written.lastPathComponent, "notes.txt")
+        XCTAssertEqual(try Data(contentsOf: written), Data())
+        XCTAssertTrue(AttachmentSafety.isQuarantined(written))
+    }
+
+    // MARK: A reader that went
+
+    /// A promise that fails after its reader went still says so: with nobody to take its end, the failure goes to what
+    /// outlives the reader.
+    func testAFailedPromiseAfterTheReaderWentStillSaysSo() throws {
+        let engine = try makeEngine(CountingAttachmentProvider(accountID: Self.message.accountID, files: [:]))
+        var orphaned: [(AttachmentDragFailure, String)] = []
+        let fulfiller: AttachmentPromiseFulfiller = autoreleasepool {
+            let controller = AttachmentDragController(client: engine)
+            controller.onOrphanedFailure = { orphaned.append(($0, $1)) }
+            return controller.fulfiller
+        }
+        let plan = self.reference()
+        let destination = drops.appendingPathComponent("plan.pdf")
+        Task.detached { _ = try? await fulfiller.fulfil(plan, at: destination) }
+        XCTAssertTrue(ListTestSupport.spin(until: { !orphaned.isEmpty }, timeout: 5), "the failure is told")
+        XCTAssertEqual(orphaned.first?.0, .unfetched)
+        XCTAssertEqual(orphaned.first?.1, "plan.pdf")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
+    }
+
+    /// A reader window hands a failure nobody else takes to the main window, whose toast says it.
+    func testAReaderWindowsOrphanedFailureShowsInTheMainWindow() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let id = try XCTUnwrap(harness.list.conversations.first?.id)
+        harness.list.selectedConversationID = id
+        harness.list.onSelectionChange?(id)
+        harness.controller.openSelectionInNewWindow(nil)
+        let reader = try XCTUnwrap(harness.controller.readerWindows.first { $0.conversationID == id })
+        defer { reader.close() }
+        let orphaned = try XCTUnwrap(reader.conversation.attachmentDrags.onOrphanedFailure)
+        orphaned(.unfetched, "plan.pdf")
+        XCTAssertEqual(harness.toastMessage, "Couldn\u{2019}t download \u{201C}plan.pdf\u{201D}")
+    }
+
+    // MARK: What a drop may name
+
+    /// A reference is taken only as the store lists it: a disguised one attaches the stored file under its stored name
+    /// and type, and one no stored message lists attaches nothing, which the status says.
+    func testAReferenceIsTakenOnlyAsTheStoreListsIt() throws {
+        let provider = CountingAttachmentProvider(accountID: Self.message.accountID, files: [Self.plan.id: Self.planBytes])
+        let composer = try makeComposer(provider)
+        let disguised = MailAttachmentReference(message: Self.message, info: AttachmentInfo(
+            id: Self.plan.id, filename: "harmless.txt", mimeType: "text/plain", sizeBytes: 1, isInline: false))
+        let otherMessage = MailAttachmentReference(message: MessageID(accountID: Self.message.accountID, providerID: "elsewhere"), info: Self.plan)
+        let otherFile = MailAttachmentReference(message: Self.message, info: AttachmentInfo(
+            id: "att-secret", filename: "notes.txt", mimeType: "text/plain", sizeBytes: 13, isInline: false))
+        let pasteboard = board()
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
+        pasteboard.writeObjects([disguised, otherMessage, otherFile].map { reference -> NSPasteboardItem in
+            let item = NSPasteboardItem()
+            item.setData(AttachmentPasteboard.encode(reference) ?? Data(), forType: AttachmentPasteboard.referenceType)
+            return item
+        })
+        let editor = composer.bodyEditor
+        editor.pasteboard = pasteboard
+        composer.window?.makeFirstResponder(editor)
+        editor.paste(nil)
+        XCTAssertEqual(composer.contents.attachments.map(\.filename), ["plan.pdf"], "the store's name, not the pasteboard's")
+        XCTAssertEqual(composer.contents.attachments.first?.mimeType, "application/pdf")
+        XCTAssertEqual(composer.status, .droppedAttachmentsGone(count: 2))
+        XCTAssertEqual(composer.status?.text, "2 attachments are no longer in your mail, so they weren't attached.")
+        XCTAssertTrue(ListTestSupport.spin(until: { composer.contents.attachments.first?.state == .ready }, timeout: 5))
+        XCTAssertEqual(provider.calls, 1)
+    }
+
+    /// A drag from another app that names the app's attachments is no drag of the app's own: nothing lights up and
+    /// nothing attaches, on the composer or the quick reply.
+    func testADragFromAnotherAppNamingTheAppsAttachmentsIsRefused() throws {
+        let composer = try makeComposer(CountingAttachmentProvider(accountID: Self.message.accountID, files: [:]))
+        let content = try XCTUnwrap(composer.window?.contentView as? ComposeContentView)
+        let drag = mailDrag([reference()], fromAnotherApp: true)
+        defer { drag.draggingPasteboard.releaseGlobally() }
+        XCTAssertEqual(content.draggingEntered(drag), [])
+        XCTAssertFalse(content.showsDropOutline)
+        XCTAssertFalse(content.performDragOperation(drag))
+        XCTAssertTrue(composer.contents.attachments.isEmpty)
+    }
+
+    // MARK: Waiting to send
+
+    /// Send waits for a dropped attachment and then goes with it.
+    func testSendGoesWithADroppedAttachmentOnceItArrives() throws {
+        let gate = DropGate()
+        let engine = try makeEngine(CountingAttachmentProvider(accountID: Self.message.accountID, files: [Self.plan.id: Self.planBytes], gate: gate))
+        defer { engine.stop() }
+        let composer = ComposeWindowController.present(client: engine, accounts: [ListTestSupport.accountA], draft: draftToBen())
+        let content = try XCTUnwrap(composer.window?.contentView as? ComposeContentView)
+        let drag = mailDrag([reference()])
+        defer { drag.draggingPasteboard.releaseGlobally() }
+        XCTAssertTrue(content.performDragOperation(drag))
+        composer.send(nil)
+        XCTAssertTrue(composer.isWaitingToSend)
+        XCTAssertTrue(try engine.store.pendingSends().isEmpty, "nothing goes before the file is in")
+        gate.open()
+        XCTAssertTrue(ListTestSupport.spin(until: { (try? engine.store.pendingSends().isEmpty) == false }, timeout: 5), "then it goes")
+        let send = try XCTUnwrap(try engine.store.pendingSends().last)
+        XCTAssertEqual(send.message.attachments.map(\.filename), ["plan.pdf"])
+        XCTAssertEqual(send.message.attachments.first?.data, Self.planBytes)
+        UndoSendPanel.panel(sendID: send.id)?.undo()
+    }
+
+    /// Send Later waits as Send does, and schedules the message with the file once it is in.
+    func testSendLaterWaitsForADroppedAttachment() throws {
+        let gate = DropGate()
+        let engine = try makeEngine(CountingAttachmentProvider(accountID: Self.message.accountID, files: [Self.plan.id: Self.planBytes], gate: gate))
+        defer { engine.stop() }
+        let composer = ComposeWindowController.present(client: engine, accounts: [ListTestSupport.accountA], draft: draftToBen())
+        let content = try XCTUnwrap(composer.window?.contentView as? ComposeContentView)
+        let drag = mailDrag([reference()])
+        defer { drag.draggingPasteboard.releaseGlobally() }
+        XCTAssertTrue(content.performDragOperation(drag))
+        let when = Date().addingTimeInterval(3_600)
+        composer.sendLater(at: when)
+        XCTAssertTrue(composer.isWaitingToSend)
+        XCTAssertTrue(try engine.store.pendingSends().isEmpty)
+        gate.open()
+        XCTAssertTrue(ListTestSupport.spin(until: { (try? engine.store.pendingSends().isEmpty) == false }, timeout: 5))
+        let send = try XCTUnwrap(try engine.store.pendingSends().last)
+        XCTAssertEqual(send.message.attachments.map(\.filename), ["plan.pdf"])
+        _ = try engine.cancelSend(id: send.id)
+    }
+
+    /// Removing a chip that is still arriving lets a waiting send go without it, at once.
+    func testRemovingALoadingChipLetsAWaitingSendGo() throws {
+        let gate = DropGate()
+        let engine = try makeEngine(CountingAttachmentProvider(accountID: Self.message.accountID, files: [Self.plan.id: Self.planBytes], gate: gate))
+        defer {
+            gate.open()
+            engine.stop()
+        }
+        let composer = ComposeWindowController.present(client: engine, accounts: [ListTestSupport.accountA], draft: draftToBen())
+        let content = try XCTUnwrap(composer.window?.contentView as? ComposeContentView)
+        let drag = mailDrag([reference()])
+        defer { drag.draggingPasteboard.releaseGlobally() }
+        XCTAssertTrue(content.performDragOperation(drag))
+        composer.send(nil)
+        XCTAssertTrue(composer.isWaitingToSend)
+        let chip = try XCTUnwrap(composer.contents.attachments.first)
+        content.strip.onRemove?(chip.id)
+        XCTAssertFalse(composer.isWaitingToSend, "nothing left to wait for")
+        XCTAssertTrue(ListTestSupport.spin(until: { (try? engine.store.pendingSends().isEmpty) == false }, timeout: 5), "it goes")
+        let send = try XCTUnwrap(try engine.store.pendingSends().last)
+        XCTAssertEqual(send.message.attachments, [], "without the removed file")
+        UndoSendPanel.panel(sendID: send.id)?.undo()
+    }
+
+    /// While Send waits the window still closes, keeping the draft, and Esc stops the wait with the message as written.
+    func testAWaitingSendNeverHoldsTheWindow() throws {
+        let gate = DropGate()
+        let engine = try makeEngine(CountingAttachmentProvider(accountID: Self.message.accountID, files: [Self.plan.id: Self.planBytes], gate: gate))
+        defer {
+            gate.open()
+            engine.stop()
+        }
+        let composer = ComposeWindowController.present(client: engine, accounts: [ListTestSupport.accountA], draft: draftToBen())
+        let content = try XCTUnwrap(composer.window?.contentView as? ComposeContentView)
+        let drag = mailDrag([reference()])
+        defer { drag.draggingPasteboard.releaseGlobally() }
+        XCTAssertTrue(content.performDragOperation(drag))
+
+        composer.send(nil)
+        XCTAssertTrue(composer.isWaitingToSend)
+        composer.escapeComposer(nil)
+        XCTAssertFalse(composer.isWaitingToSend, "Esc stops the wait")
+        XCTAssertTrue(ComposeWindowRegistry.shared.openControllers.contains { $0 === composer }, "and the composer stays")
+
+        composer.send(nil)
+        XCTAssertTrue(composer.isWaitingToSend)
+        let window = try XCTUnwrap(composer.window)
+        XCTAssertTrue(composer.windowShouldClose(window), "the window closes while Send waits")
+        window.close()
+        XCTAssertFalse(ComposeWindowRegistry.shared.openControllers.contains { $0 === composer })
+        gate.open()
+        ListTestSupport.spin(until: { false }, timeout: 0.3)
+        XCTAssertTrue(try engine.store.pendingSends().isEmpty, "a closed window sends nothing")
+    }
+
+    /// While the message is being handed over the composer offers no drop: nothing lights up for one it would throw away.
+    func testAComposerOffersNoDropItWouldThrowAway() throws {
+        let composer = try makeComposer(CountingAttachmentProvider(accountID: Self.message.accountID, files: [:]))
+        let content = try XCTUnwrap(composer.window?.contentView as? ComposeContentView)
+        let drag = mailDrag([reference()])
+        defer { drag.draggingPasteboard.releaseGlobally() }
+        content.acceptsDrops = { false }
+        XCTAssertEqual(content.draggingEntered(drag), [])
+        XCTAssertFalse(content.showsDropOutline)
+        XCTAssertFalse(content.performDragOperation(drag))
+        XCTAssertTrue(composer.contents.attachments.isEmpty)
+    }
+
+    // MARK: The rows being edited
+
+    /// To and Subject, while one is edited, hand a dragged attachment or file to the window: the outline shows and the
+    /// drop attaches, where AppKit's own field editor kept the drag and did nothing with it.
+    func testTheRowBeingEditedHandsADraggedAttachmentToTheWindow() throws {
+        let provider = CountingAttachmentProvider(accountID: Self.message.accountID, files: [Self.plan.id: Self.planBytes])
+        let composer = try makeComposer(provider)
+        let window = try XCTUnwrap(composer.window)
+        let content = try XCTUnwrap(window.contentView as? ComposeContentView)
+        let rows = descendants(of: content).compactMap { $0 as? ComposeFieldRow }
+        for title in ["Subject", "To"] {
+            let row = try XCTUnwrap(rows.first { $0.title == title })
+            let field = try XCTUnwrap(([row] + descendants(of: row)).compactMap { $0 as? NSTextField }.first { $0.isEditable }, title)
+            XCTAssertTrue(window.makeFirstResponder(field), title)
+            let editor = try XCTUnwrap(field.currentEditor() as? ComposeFieldEditor, "\(title) edits in the composer's field editor")
+            let drag = mailDrag([reference()])
+            defer { drag.draggingPasteboard.releaseGlobally() }
+            XCTAssertEqual(editor.draggingEntered(drag), .copy, title)
+            XCTAssertTrue(content.showsDropOutline, title)
+            XCTAssertTrue(editor.performDragOperation(drag), title)
+            XCTAssertFalse(content.showsDropOutline, title)
+        }
+        XCTAssertEqual(composer.contents.attachments.map(\.filename), ["plan.pdf", "plan.pdf"])
+
+        let text = board()
+        defer { text.releaseGlobally() }
+        text.clearContents()
+        text.setString("hello", forType: .string)
+        let editor = try XCTUnwrap(window.firstResponder as? ComposeFieldEditor)
+        let textDrag = FakeDraggingInfo(pasteboard: text, source: nil, mask: .copy)
+        _ = editor.draggingEntered(textDrag)
+        XCTAssertFalse(content.showsDropOutline, "text is the field's own: the window does not light up")
+        editor.draggingExited(textDrag)
+    }
+
+    // MARK: The quick reply
+
+    /// A folder dragged over the quick reply shows nothing and drops nothing: the reply never leaves the bar for it.
+    func testTheQuickReplyRefusesAFolder() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let id = try XCTUnwrap(harness.list.conversations.first?.id)
+        harness.list.selectedConversationID = id
+        harness.list.onSelectionChange?(id)
+        harness.spin { !harness.reader.currentMessages.isEmpty }
+        let bar = harness.reader.quickReplyBar
+        bar.text = "Kept"
+        let pasteboard = board()
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
+        pasteboard.writeObjects([drops as NSURL])
+        let drag = FakeDraggingInfo(pasteboard: pasteboard, source: nil, mask: .copy)
+        XCTAssertEqual(bar.draggingEntered(drag), [])
+        XCTAssertFalse(bar.showsDropTarget)
+        XCTAssertFalse(bar.performDragOperation(drag))
+        XCTAssertTrue(ComposeWindowRegistry.shared.openControllers.isEmpty, "no composer")
+        XCTAssertEqual(bar.text, "Kept")
+    }
+
+    /// While the strip counts a send down or says how one ended, the bar takes no drop.
+    func testTheQuickReplyRefusesADropWhileItsStripShows() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let id = try XCTUnwrap(harness.list.conversations.first?.id)
+        harness.list.selectedConversationID = id
+        harness.list.onSelectionChange?(id)
+        harness.spin { !harness.reader.currentMessages.isEmpty }
+        let bar = harness.reader.quickReplyBar
+        let drag = mailDrag([reference()])
+        defer { drag.draggingPasteboard.releaseGlobally() }
+        XCTAssertTrue(bar.acceptsDrops)
+        bar.showStrip(.sent)
+        XCTAssertFalse(bar.acceptsDrops)
+        XCTAssertEqual(bar.draggingEntered(drag), [])
+        XCTAssertFalse(bar.showsDropTarget)
+        XCTAssertFalse(bar.performDragOperation(drag))
+    }
+
+    /// The words of the quick reply's drop treatment keep clear of the card under the pointer: over the middle of the
+    /// field they stand beside it, never under it.
+    func testTheQuickReplysWordsKeepClearOfTheCard() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let window = try XCTUnwrap(harness.controller.window)
+        window.setContentSize(NSSize(width: 1280, height: 800))
+        let id = try XCTUnwrap(harness.list.conversations.first?.id)
+        harness.list.selectedConversationID = id
+        harness.list.onSelectionChange?(id)
+        harness.spin { !harness.reader.currentMessages.isEmpty }
+        let reader = harness.reader
+        let webView = try XCTUnwrap(reader.pool.current?.webView as? ReaderWebView)
+        let drags = reader.attachmentDrags
+        drags.attachments = { _ in [Self.plan] }
+        drags.beginSession = { _, _, _, _ in true }
+        let pointer = NSPoint(x: 60, y: 320)
+        let press = ConversationScriptMessage.AttachmentPress(
+            messageID: Self.message, items: [.init(attachmentID: Self.plan.id, rect: CGRect(x: 20, y: 300, width: 210, height: 44))], point: pointer)
+        let event = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDragged, location: webView.convert(pointer, to: nil), modifierFlags: [],
+                                                     timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                                     context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        XCTAssertTrue(drags.startDrag(press, event: event, in: webView))
+        defer { drags.dragEnded() }
+        let card = try XCTUnwrap(drags.current?.card)
+        XCTAssertEqual(card.minX, -40, accuracy: 0.5, "the pointer 40 pt into the card")
+        XCTAssertEqual(card.minY, -20, accuracy: 0.5)
+        XCTAssertEqual(card.height, Quire.Layout.DragCard.height)
+
+        let bar = reader.quickReplyBar
+        window.layoutIfNeeded()
+        let overlay = bar.dropTreatment
+        let drag = FakeDraggingInfo(pasteboard: mailDrag([reference()]).draggingPasteboard, source: drags, mask: .copy)
+        defer { drag.draggingPasteboard.releaseGlobally() }
+        for fraction in [0.5, 0.15, 0.85] {
+            let field = overlay.frame
+            drag.draggingLocation = bar.convert(NSPoint(x: field.minX + field.width * fraction, y: field.midY), to: nil)
+            XCTAssertEqual(bar.draggingEntered(drag), .copy)
+            let obstruction = try XCTUnwrap(overlay.obstruction)
+            let placed = overlay.placedLabel
+            XCTAssertFalse(placed.frame.intersects(obstruction), "at \(fraction): \(placed) under \(obstruction)")
+            XCTAssertTrue(overlay.bounds.contains(placed.frame), "at \(fraction): \(placed) in \(overlay.bounds)")
+            bar.draggingExited(drag)
+        }
+    }
+
+    /// Where the drop treatment's words go: centred while the drag is elsewhere; beside the card on the roomier side in a
+    /// field; above or below it in a tall body; shorter words when the full ones fit nowhere clear.
+    func testTheDropWordsPlacement() {
+        let lineHeight: CGFloat = 16
+        let words = [("Drop to reply with attachment", CGFloat(172)), ("Drop to attach", CGFloat(86))]
+        let field = NSRect(x: 0, y: 0, width: 540, height: 37)
+        let centred = AttachmentDropOverlay.place(words, in: field, lineHeight: lineHeight, avoiding: nil)
+        XCTAssertEqual(centred.text, "Drop to reply with attachment")
+        XCTAssertEqual(centred.frame.midX, field.midX, accuracy: 1)
+        let aside = NSRect(x: 420, y: -4, width: 196, height: 44)
+        XCTAssertEqual(AttachmentDropOverlay.place(words, in: field, lineHeight: lineHeight, avoiding: aside).frame, centred.frame,
+                       "a card off to the side leaves the words where they are")
+
+        let middle = NSRect(x: 230, y: -4, width: 196, height: 44)
+        let beside = AttachmentDropOverlay.place(words, in: field, lineHeight: lineHeight, avoiding: middle)
+        XCTAssertEqual(beside.text, "Drop to reply with attachment")
+        XCTAssertLessThanOrEqual(beside.frame.maxX, middle.minX, "left of the card, the roomier side")
+
+        let narrow = NSRect(x: 0, y: 0, width: 336, height: 37)
+        let crowded = AttachmentDropOverlay.place(words, in: narrow, lineHeight: lineHeight, avoiding: NSRect(x: 120, y: -4, width: 196, height: 44))
+        XCTAssertEqual(crowded.text, "Drop to attach", "the full words fit nowhere clear")
+        XCTAssertLessThanOrEqual(crowded.frame.maxX, 120)
+
+        let body = NSRect(x: 0, y: 0, width: 600, height: 400)
+        let card = NSRect(x: 200, y: 180, width: 196, height: 44)
+        let above = AttachmentDropOverlay.place(words, in: body, lineHeight: lineHeight, avoiding: card)
+        XCTAssertLessThanOrEqual(above.frame.maxY, card.minY, "above the card in a tall body (y down)")
+        XCTAssertEqual(above.frame.midX, body.midX, accuracy: 1)
+        let low = AttachmentDropOverlay.place(words, in: body, lineHeight: lineHeight, avoiding: NSRect(x: 200, y: 160, width: 196, height: 44))
+        XCTAssertGreaterThanOrEqual(low.frame.minY, 204, "below a card above the middle")
+    }
+
+    // MARK: The page
+
+    /// A chip's name shows on one line whatever the sender put in it: line breaks and tabs read as spaces.
+    func testAChipNameKeepsToOneLine() throws {
+        let odd = AttachmentInfo(id: "att-odd", filename: "rollout\nplan\t2026.pdf", mimeType: "application/pdf", sizeBytes: 10, isInline: false)
+        let fixture = try ReaderFixture(folder: folder, attachments: [odd, Self.notes])
+        defer { fixture.close() }
+        let name = evaluate("document.querySelector('.ss-chip[data-attachment-id=\"att-odd\"] .ss-chip-name').textContent", in: fixture.webView) as? String
+        XCTAssertEqual(name, "rollout plan 2026.pdf")
+    }
+
+    /// The click a dragged press ends in, and the dblclick after it when the press was a double-click's second, are the
+    /// drag's: neither reaches the page. The next click does.
+    func testADraggedDoubleClickOpensNothing() throws {
+        let fixture = try ReaderFixture(folder: folder)
+        defer { fixture.close() }
+        let key = ConversationShellAssets.jsStringLiteral(RenderPayload.messageKey(for: fixture.messageID))
+        let script = """
+        (function () {
+          var probe = document.createElement('span'); document.body.appendChild(probe);
+          var seen = [];
+          probe.addEventListener('click', function (e) { seen.push('click' + e.detail); });
+          probe.addEventListener('dblclick', function () { seen.push('dblclick'); });
+          window.ss.attachmentDrag(\(key), ['\(Self.plan.id)'], true);
+          probe.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 2 }));
+          probe.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, detail: 2 }));
+          probe.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+          window.ss.attachmentDrag(\(key), ['\(Self.plan.id)'], false);
+          probe.remove();
+          return seen.join(',');
+        })()
+        """
+        XCTAssertEqual(evaluate(script, in: fixture.webView) as? String, "click1")
+    }
+
     // MARK: Helpers
 
     private var dropsURL: URL { drops }
 
-    private func mailDrag(_ references: [MailAttachmentReference]) -> FakeDraggingInfo {
+    /// A new message to Ben with a subject, ready to send.
+    private func draftToBen() -> ComposeDraft {
+        ComposeDraft(id: UUID(), mode: .new, account: ListTestSupport.accountA, to: [EmailAddress(name: "Ben Carter", address: "ben@example.com")],
+                     cc: [], bcc: [], subject: "The plan", body: NSAttributedString(string: "Attached."), attachments: [], quoted: nil, threading: nil)
+    }
+
+    /// A drag of reader chips, as a reader's drag controller starts it: in this process, so AppKit names its source. From
+    /// another app, it names none.
+    private func mailDrag(_ references: [MailAttachmentReference], fromAnotherApp: Bool = false) -> FakeDraggingInfo {
         let pasteboard = board()
         pasteboard.clearContents()
         let fulfiller = AttachmentPromiseFulfiller(fetch: { _, _ in Data() })
         pasteboard.writeObjects(references.map { AttachmentFilePromise(reference: $0, fulfiller: fulfiller) })
-        return FakeDraggingInfo(pasteboard: pasteboard, source: nil, mask: .copy)
+        return FakeDraggingInfo(pasteboard: pasteboard, source: fromAnotherApp ? nil : dragSource, mask: .copy)
     }
 
+    /// A reader's drag controller, standing for the source of a drag of its chips.
+    private lazy var dragSource = AttachmentDragController(client: MailEngine(
+        store: InMemoryMailStore(), tokenStore: InMemoryTokenStore(), tokenProvider: DemoTokenProvider(), authenticator: DemoAuthenticator(),
+        sanitizer: HTMLSanitizer(), providerFactory: { _ in CountingAttachmentProvider(accountID: Self.message.accountID, files: [:]) },
+        attachmentCacheDirectory: folder.appendingPathComponent("attachments-\(UUID().uuidString)", isDirectory: true)))
+
+    /// An engine over a store that lists `Self.message` with the plan and the notes, as the reader's message would.
     private func makeEngine(_ provider: CountingAttachmentProvider) throws -> MailEngine {
         let store = InMemoryMailStore()
         try store.upsertAccount(ListTestSupport.accountA)
+        try store.upsertMessages([MessageMetadata(
+            id: Self.message, conversationID: ConversationID(accountID: Self.message.accountID, providerID: "thread-plan"), subject: "The plan",
+            snippet: "Attached.", from: EmailAddress(name: "Ada Lovelace", address: "ada@example.com"),
+            to: [EmailAddress(address: ListTestSupport.accountA.email)], date: Date(), roles: [.inbox], isRead: true, isStarred: false,
+            hasAttachments: true
+        )])
+        try store.saveBody(StoredBody(body: MessageBody(html: "<p>Attached.</p>", text: "Attached.", attachments: [Self.plan, Self.notes]),
+                                      renderedHTML: "<p>Attached.</p>", plainText: "Attached."), for: Self.message)
         return MailEngine(store: store, tokenStore: InMemoryTokenStore(), tokenProvider: DemoTokenProvider(),
                           authenticator: DemoAuthenticator(), sanitizer: HTMLSanitizer(), providerFactory: { _ in provider },
                           attachmentCacheDirectory: folder.appendingPathComponent("attachments-\(UUID().uuidString)", isDirectory: true))
@@ -824,7 +1335,8 @@ final class AttachmentDragTests: XCTestCase {
         let webView: ReaderWebView
         let window: NSWindow
 
-        init(folder: URL, served: [AttachmentInfo]? = nil) throws {
+        init(folder: URL, served: [AttachmentInfo]? = nil,
+             attachments: [AttachmentInfo] = [AttachmentDragTests.plan, AttachmentDragTests.notes]) throws {
             let account = ListTestSupport.accountA
             let conversation = ConversationID(accountID: account.id, providerID: "thread-plan")
             messageID = AttachmentDragTests.message
@@ -836,7 +1348,7 @@ final class AttachmentDragTests: XCTestCase {
                 date: Date(), roles: [.inbox], isRead: true, isStarred: false, hasAttachments: true
             )])
             try store.saveBody(StoredBody(body: MessageBody(html: "<p>Attached, with the notes.</p>", text: "Attached.",
-                                                            attachments: [AttachmentDragTests.plan, AttachmentDragTests.notes]),
+                                                            attachments: attachments),
                                           renderedHTML: "<p>Attached, with the notes.</p>", plainText: "Attached."), for: messageID)
             let bytes = [AttachmentDragTests.plan.id: AttachmentDragTests.planBytes, AttachmentDragTests.notes.id: AttachmentDragTests.notesBytes]
             let servedIDs = Set((served ?? [AttachmentDragTests.plan, AttachmentDragTests.notes]).map(\.id))
@@ -970,4 +1482,24 @@ func XCTAssertThrowsAsync<T>(_ expression: @autoclosure () async throws -> T, _ 
         _ = try await expression()
         XCTFail("expected an error. " + message, file: file, line: line)
     } catch {}
+}
+
+/// Where each of several writes at once landed.
+private final class DeliveryLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var landed: [Int: URL] = [:]
+    func record(_ index: Int, _ url: URL?) { lock.withLock { landed[index] = url } }
+    var entries: [Int: URL] { lock.withLock { landed } }
+}
+
+/// How many fetches run at once, at most, and how many ran.
+private final class Gauge: @unchecked Sendable {
+    private let lock = NSLock()
+    private var now = 0
+    private(set) var peakValue = 0
+    private var count = 0
+    func enter() { lock.withLock { now += 1; count += 1; peakValue = max(peakValue, now) } }
+    func leave() { lock.withLock { now -= 1 } }
+    var peak: Int { lock.withLock { peakValue } }
+    var total: Int { lock.withLock { count } }
 }
