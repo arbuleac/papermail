@@ -1,0 +1,18 @@
+event: response.created
+data: {"type":"response.created","response":{"id":"resp_fixture2","object":"response","status":"in_progress","model":"gpt-6.2-sol","output":[],"store":false,"usage":null},"sequence_number":0}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","output_index":0,"item":{"id":"msg_fixture2","type":"message","status":"in_progress","role":"assistant","content":[]},"sequence_number":1}
+
+event: response.content_part.added
+data: {"type":"response.content_part.added","item_id":"msg_fixture2","output_index":0,"content_index":0,"part":{"type":"refusal","refusal":""},"sequence_number":2}
+
+event: response.refusal.delta
+data: {"type":"response.refusal.delta","item_id":"msg_fixture2","output_index":0,"content_index":0,"delta":"SENTINEL-REFUSAL-WORDS I can't help","sequence_number":3}
+
+event: response.refusal.done
+data: {"type":"response.refusal.done","item_id":"msg_fixture2","output_index":0,"content_index":0,"refusal":"SENTINEL-REFUSAL-WORDS I can't help with that.","sequence_number":4}
+
+event: response.completed
+data: {"type":"response.completed","response":{"id":"resp_fixture2","object":"response","status":"completed","model":"gpt-6.2-sol","store":false,"usage":{"input_tokens":380,"output_tokens":9}},"sequence_number":5}
+
