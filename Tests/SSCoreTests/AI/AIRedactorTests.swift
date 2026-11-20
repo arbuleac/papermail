@@ -69,6 +69,58 @@ final class AIRedactorTests: XCTestCase {
         }
     }
 
+    func testBesideAStrongCodeWordAnyShapeOfLettersAndDigitsGoes() {
+        for (text, redacted) in [
+            ("Your verification code is ABC123", "Your verification code is [code]"),
+            ("Your verification code is ABC-123", "Your verification code is [code]"),
+            ("Your verification code is XY-4821", "Your verification code is [code]"),
+            ("Your sign-in code: ABCD-1234", "Your sign-in code: [code]"),
+            ("Your one-time code is abc123", "Your one-time code is [code]"),
+            ("Your code is H4K-29Q", "Your code is [code]"),
+            ("Your temporary password is Abc12345.", "Your temporary password is [code]."),
+        ] {
+            XCTAssertEqual(redactor.redact(text), redacted, text)
+        }
+    }
+
+    func testThreeGroupsOfDigitsGoWhole() {
+        XCTAssertEqual(redactor.redact("Your login code: 48-29-13"), "Your login code: [code]")
+        XCTAssertEqual(redactor.redact("Your verification code is 482 913 771"), "Your verification code is [code]",
+                       "no group of the code is left behind")
+        XCTAssertEqual(redactor.redact("Your code expires on 2026-11-20"), "Your code expires on 2026-11-20", "a date stays")
+    }
+
+    func testChineseJapaneseAndKoreanCodeWordsCount() {
+        XCTAssertEqual(redactor.redact("验证码：482913"), "验证码：[code]")
+        XCTAssertEqual(redactor.redact("您的验证码是482913，请勿告诉他人"), "您的验证码是[code]，请勿告诉他人")
+        XCTAssertEqual(redactor.redact("認証コード: 482913"), "認証コード: [code]")
+        XCTAssertEqual(redactor.redact("인증번호 482913"), "인증번호 [code]")
+    }
+
+    func testAPromotionsCodeStaysEvenAfterCodeIs() {
+        for text in ["Promo code: SAVE10", "Your discount code is SPRING25 until Friday", "Use code SAVE10 at checkout"] {
+            XCTAssertEqual(redactor.redact(text), text, text)
+        }
+    }
+
+    /// Every pattern starts only where its match could and bounds its repeats: a long run of digits or letters beside a
+    /// code word (a crafted mail; the context builder redacts up to 96,000 characters a message) takes time in proportion
+    /// to its length, not its square.
+    func testALongRunOfDigitsOrLettersIsQuick() {
+        let text = "Your code: " + String(repeating: "7", count: 96_000) + " and code ABC" + String(repeating: "1", count: 50_000)
+        let start = Date()
+        XCTAssertEqual(redactor.redact(text), text, "a run longer than any code is not one")
+        XCTAssertLessThan(Date().timeIntervalSince(start), 1.0)
+        let letters = "Your code: " + String(repeating: "a", count: 96_000) + "@"
+        let lettersStart = Date()
+        XCTAssertEqual(redactor.redact(letters), letters)
+        XCTAssertLessThan(Date().timeIntervalSince(lettersStart), 1.0, "an address's pattern reads the run once")
+        let many = String(repeating: "code 4821 ", count: 9_600)
+        let manyStart = Date()
+        XCTAssertFalse(redactor.redact(many).contains("4821"))
+        XCTAssertLessThan(Date().timeIntervalSince(manyStart), 2.0, "many codes beside many code words")
+    }
+
     func testNumbersFarFromCodeWordsStay() {
         let text = "The code word is mentioned here, but this sentence goes on for a long while before 482913 appears."
         XCTAssertEqual(redactor.redact(text), text)

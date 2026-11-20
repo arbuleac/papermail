@@ -9,6 +9,13 @@ import SSCore
 /// The consent sheet promises Anthropic under the user's Claude plan, so `claude auth status`, asked with the same
 /// isolation, must say a claude.ai sign-in to Anthropic's own API (`firstParty`, not Bedrock, Vertex or a gateway)
 /// before every send, and the run's own init line must say no API key is in use (`ClaudeCodeStream`).
+///
+/// Unlike the API providers, the request is not only the app's instructions and its one user turn: Claude Code adds a
+/// line naming the Agent SDK, a billing line with its version, an environment block (its working folder, the run's empty
+/// `ss-ai-` folder, whether that is a git repository, platform, shell, OS version, the model and today's date) and its
+/// session metadata (a device id hash, a session id). None of it is mail. 2.1.322 offers no flag that drops the block
+/// beside `--system-prompt` (`--exclude-dynamic-system-prompt-sections` is ignored there); checked against a loopback
+/// server with outbound network denied, no model call.
 public struct ClaudeCodeProvider: AIProvider {
     public let kind: AIProviderKind = .claudeCode
     /// The CLI alias (“opus”, “sonnet”, “haiku”); nil passes no `--model`, leaving the CLI's own default.

@@ -103,9 +103,11 @@ public struct AIRedactor: Sendable {
 
     // MARK: Addresses
 
-    /// Unicode letters and digits on both sides of the @, as internationalised addresses have (“jörg@müller.de”).
+    /// Unicode letters and digits on both sides of the @, as internationalised addresses have (“jörg@müller.de”). It
+    /// starts only where an address could (the lookbehind), so a long run of letters or digits with no @ is read once,
+    /// not again from each of its characters.
     private static let address = regex(
-        #"(?i)(?:mailto:)?([\p{L}\p{N}._%+\-]+@([\p{L}\p{N}\-]+(?:\.[\p{L}\p{N}\-]+)*\.\p{L}{2,}))"#
+        #"(?i)(?<![\p{L}\p{N}._%+\-])(?:mailto:)?([\p{L}\p{N}._%+\-]+@([\p{L}\p{N}\-]+(?:\.[\p{L}\p{N}\-]+)*\.\p{L}{2,}))"#
     )
 
     // MARK: Card numbers
@@ -127,21 +129,33 @@ public struct AIRedactor: Sendable {
 
     // MARK: One-time codes
 
+    /// Chinese, Japanese and Korean, which run on without spaces (“验证码是482913”): their characters neither end a code
+    /// word nor count as part of a code's word.
+    private static let runOnScripts = #"\p{Han}\p{Hiragana}\p{Katakana}\p{Hangul}"#
+
     /// Words that say a number nearby is a code. “code” stands alone so a postcode or a barcode does not count;
-    /// German compounds are listed.
+    /// German compounds are listed, and Chinese, Japanese and Korean words, which have no word boundary to stand alone at.
     private static let codeWord = regex(
-        #"(?i)\b(?:code|codes|otp|pin|passcode|password|one[- ]time|two[- ]factor|2fa|mfa|verif\w*|confirm\w* number|código|codice|kod|kode|bestätigungscode|sicherheitscode|verifizierungscode|anmeldecode|zugangscode)\b"#
+        #"(?i)\b(?:code|codes|otp|pin|passcode|password|passwort|one[- ]time|two[- ]factor|2fa|mfa|verif\w*|confirm\w* number|código|codice|kod|kode|bestätigungscode|sicherheitscode|verifizierungscode|anmeldecode|zugangscode)\b|验证码|驗證碼|認証|コード|인증"#
     )
-    /// Four to eight digits, or two groups of three or four (“482 913”), optionally after one letter and a dash
-    /// (“G-482913”); or five to ten letters and digits with a letter after a digit (“K7QX9P”, Steam's “F7G2K”), which a
-    /// word with a number at its end is not (a promotion's “SAVE10” stays). Not part of an amount, a time, a version or
-    /// a longer word or number.
+    /// The words among them that say a code follows, whatever its shape: beside one, five to ten letters and digits with a
+    /// digit among them count in any order (“ABC123”, “XY-4821”). The bare word “code” is weaker, so a promotion's “Use
+    /// code SAVE10” stays.
+    private static let strongCodeWord = regex(
+        #"(?i)\b(?:otp|passcode|password|passwort|one[- ]time|two[- ]factor|2fa|mfa|verif\w*|(?:sign|log)[- ]?in code|security code|access code|auth\w* code|bestätigungscode|sicherheitscode|verifizierungscode|anmeldecode|zugangscode)\b|\bcode(?:\s+is\b|\s*:)|验证码|驗證碼|認証|コード|인증"#
+    )
+    /// What could be a code, for `isCode` to decide by its shape: digits in up to three groups (“482 913”, “48-29-13”),
+    /// optionally after one letter and a dash (“G-482913”), or letters and digits, one dash at most (“ABCD-1234”), with a
+    /// digit among them. Not part of an amount, a time, a version or a longer word or number. Every repeat is bounded,
+    /// so a long run of digits costs no more than its length.
     private static let codeCandidate = regex(
-        #"(?<![\w$€£¥#.,/-])(?:(?:[A-Z]-)?(?:\d{3,4}[ -]\d{3,4}|\d{4,8})|(?=[A-Za-z\d]*\d[A-Za-z\d]*[A-Za-z])[A-Za-z\d]{5,10})(?![\w/:-]|[.,]\d)"#
+        #"(?<![[\w$€£¥#.,/-]--["# + runOnScripts + #"]])"#
+            + #"(?:(?:[A-Za-z]-)?\d{2,4}(?:[ -]\d{2,4}){1,2}|(?=[A-Za-z-]{0,20}\d)[A-Za-z\d]{1,10}(?:-[A-Za-z\d]{1,10})?)"#
+            + #"(?![[\w/:-]--["# + runOnScripts + #"]]|[.,]\d)"#
     )
-    /// Numbers labelled as something else keep their digits even beside the word “code”.
+    /// Numbers labelled as something else keep their digits even beside the word “code”, as does a promotion's code.
     private static let otherNumberLabel = regex(
-        #"(?i)\b(?:order|invoice|booking|reference|ref|tracking|ticket|case|account|confirmation|reservation|flight|room|phone|tel)\b[^\n]{0,15}$"#
+        #"(?i)\b(?:order|invoice|booking|reference|ref|tracking|ticket|case|account|confirmation|reservation|flight|room|phone|tel|promo\w*|discount|coupon)\b[^\n]{0,15}$"#
     )
     private static let codeWordDistance = 40
 
@@ -150,13 +164,11 @@ public struct AIRedactor: Sendable {
         let all = NSRange(location: 0, length: string.length)
         let words = codeWord.matches(in: text, range: all).map(\.range)
         guard !words.isEmpty else { return text }
+        let strongWords = strongCodeWord.matches(in: text, range: all).map(\.range)
         let candidates = codeCandidate.matches(in: text, range: all).map(\.range).filter { candidate in
-            let near = words.contains { word in
-                if NSMaxRange(word) <= candidate.location { return candidate.location - NSMaxRange(word) <= codeWordDistance }
-                if word.location >= NSMaxRange(candidate) { return word.location - NSMaxRange(candidate) <= codeWordDistance }
-                return false
-            }
-            guard near else { return false }
+            let token = string.substring(with: candidate)
+            let strong = isNear(candidate, strongWords)
+            guard isCode(token, strong: strong), strong || isNear(candidate, words) else { return false }
             let before = string.substring(with: NSRange(location: max(0, candidate.location - 30),
                                                          length: min(30, candidate.location)))
             return otherNumberLabel.firstMatch(in: before, range: NSRange(location: 0, length: (before as NSString).length)) == nil
@@ -165,6 +177,54 @@ public struct AIRedactor: Sendable {
         let result = NSMutableString(string: string)
         for range in candidates.reversed() { result.replaceCharacters(in: range, with: "[code]") }
         return result as String
+    }
+
+    /// Whether `token` has a code's shape. Digits alone: four to eight, two groups of three or four, or three groups of
+    /// two to four that are not a date's (“2026-11-20”). Letters and digits, five to ten of them: beside a strong code
+    /// word (`strong`) in any order and with one dash at most (“ABC123”, “H4K-29Q”); beside the bare word, only as one
+    /// run with a letter after a digit (“K7QX9P”), which a word with a number at its end is not (“SAVE10”, “COVID19”).
+    static func isCode(_ token: String, strong: Bool) -> Bool {
+        let isDigits: (Substring) -> Bool = { !$0.isEmpty && $0.allSatisfy { $0.isASCII && $0.isNumber } }
+        var groups = token.split(whereSeparator: { $0 == " " || $0 == "-" })
+        // An issuer's letter before the digits (“G-482913”): the digits decide.
+        if groups.count > 1, groups[0].count == 1, groups[0].first?.isLetter == true, groups.dropFirst().allSatisfy(isDigits) {
+            groups.removeFirst()
+        }
+        let sizes = groups.map(\.count)
+        if groups.allSatisfy(isDigits) {
+            switch sizes.count {
+            case 1: return (4...8).contains(sizes[0])
+            case 2: return sizes.allSatisfy { (3...4).contains($0) }
+            case 3: return sizes.allSatisfy { (2...4).contains($0) } && sizes != [4, 2, 2] && sizes != [2, 2, 4]
+            default: return false
+            }
+        }
+        let characters = groups.joined()
+        guard (5...10).contains(characters.count), characters.contains(where: \.isNumber), characters.contains(where: \.isLetter) else {
+            return false
+        }
+        if strong { return groups.count == 1 || sizes.allSatisfy { $0 >= 2 } }
+        guard groups.count == 1, let digit = characters.firstIndex(where: \.isNumber) else { return false }
+        return characters[digit...].contains(where: \.isLetter)
+    }
+
+    /// Whether one of `words` (in text order, not overlapping) lies within `codeWordDistance` of `candidate`, before or
+    /// after it: found by halving, so a long mail with many codes and code words costs no more than its length.
+    private static func isNear(_ candidate: NSRange, _ words: [NSRange]) -> Bool {
+        let end = NSMaxRange(candidate)
+        var low = 0
+        var high = words.count
+        while low < high {
+            let middle = (low + high) / 2
+            if words[middle].location < end { low = middle + 1 } else { high = middle }
+        }
+        // `low` is the first word starting at or after the candidate's end; the words before it start before that end.
+        if low < words.count, words[low].location - end <= codeWordDistance { return true }
+        for index in stride(from: low - 1, through: max(0, low - 2), by: -1) {
+            let word = words[index]
+            if NSMaxRange(word) <= candidate.location { return candidate.location - NSMaxRange(word) <= codeWordDistance }
+        }
+        return false
     }
 
     // MARK: Helpers

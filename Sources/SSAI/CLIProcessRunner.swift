@@ -89,6 +89,11 @@ public struct CLIProcessRunner: Sendable {
     /// cancelled, or stopped reading) ends the process. Throws `AIError.notInstalled` when it cannot be started.
     func run(_ command: CLICommand) -> AsyncThrowingStream<CLIOutput, Error> {
         AsyncThrowingStream { continuation in
+            // Ended for good (`endAll`): nothing starts, a version check or sign-in check no more than a write.
+            guard !running.isClosed else {
+                continuation.finish(throwing: AIError.cancelled)
+                return
+            }
             let folder: URL
             do {
                 folder = try makeFolder()
@@ -118,9 +123,10 @@ public struct CLIProcessRunner: Sendable {
 
     /// Ends every run this runner started, at once, and returns once they are gone with their folders, or after
     /// `grace` plus a moment: the app is quitting or its window graph is going away, and a CLI must not outlive it with
-    /// a request in hand. SIGTERM to each CLI's group, then SIGKILL to what is left after `grace`.
+    /// a request in hand. SIGTERM to each CLI's group, then SIGKILL to what is left after `grace`. The runner starts
+    /// nothing after this (`AIError.cancelled`), so a write still preparing as the app quits launches no CLI.
     public func endAll(grace: Duration = .milliseconds(500)) async {
-        let processes = running.all
+        let processes = running.close()
         guard !processes.isEmpty else { return }
         await Task.detached(priority: .userInitiated) {
             for process in processes { process.signalNow(SIGTERM) }

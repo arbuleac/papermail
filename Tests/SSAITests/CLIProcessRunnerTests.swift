@@ -212,6 +212,25 @@ final class CLIProcessRunnerTests: XCTestCase {
         await runner.endAll()
     }
 
+    /// The app quit while a write was still preparing (its context being built): the run it asks for afterwards starts
+    /// nothing, so no CLI outlives the app with the conversation on its stdin.
+    func testNothingStartsAfterEndAll() async throws {
+        let ran = CLIFakeTool.quoted(fake.spy.appendingPathComponent("ran").path)
+        var behaviour = CLIFakeTool.Behaviour()
+        behaviour.main = "echo yes > " + ran
+        let executable = try fake.install("claude", behaviour)
+        let runner = fake.runner()
+        await runner.endAll()
+        do {
+            _ = try await outputs(runner, command(executable, input: "hi"))
+            XCTFail("a run asked for after endAll starts nothing")
+        } catch {
+            XCTAssertEqual(error as? AIError, .cancelled)
+        }
+        XCTAssertNil(fake.recorded("ran"), "the CLI never ran")
+        XCTAssertEqual(fake.leftoverFolders(), [], "and no folder was made for it")
+    }
+
     // MARK: Ending it
 
     func testSilenceEndsTheProcess() async throws {

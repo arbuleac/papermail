@@ -7,7 +7,8 @@ import os
 ///
 /// Reading the stream: zero or more `.text` / `.replaceAll` / `.usage`, then exactly one `.finished(.done | .maxTokens |
 /// .cancelled)`, or one thrown `AIError` (refusals, empty replies and timeouts included). `.finished(.cancelled)` comes
-/// only from `stop(_:)`. Cancelling the consuming task also ends the write, silently.
+/// only from `stop(_:)`, `stopAll()` and a write asked for after `shutDown()`. Cancelling the consuming task also ends the
+/// write, silently.
 ///
 /// Nothing is sent before `write` is called and the stream is iterated. Content is never logged: the log carries the
 /// provider kind, the prompt version and character counts, at debug level.
@@ -42,6 +43,8 @@ public final class AIWriter {
     private let hasConsent: Consent
     private let milestones: Milestones
     private var runs: [AIFieldID: Run] = [:]
+    /// Set by `shutDown()`: the environment is going away, and no write starts after it.
+    public private(set) var isShutDown = false
 
     public init(resolve: @escaping Resolve, hasConsent: @escaping Consent, milestones: @escaping Milestones = { _, _ in }) {
         self.resolve = resolve
@@ -65,6 +68,12 @@ public final class AIWriter {
         let (stream, continuation) = AsyncThrowingStream.makeStream(of: AIWriteEvent.self, throwing: Error.self)
         let gate = AIStreamGate(continuation)
         let kind = configuration.kind
+        // A write asked for after the environment went away (one still building its context as the app quit) sends
+        // nothing: it ends as a stop from outside would.
+        guard !isShutDown else {
+            gate.close(.finished(.cancelled))
+            return stream
+        }
         guard runs[field] == nil else {
             gate.close(.failed(.busy))
             return stream
@@ -111,6 +120,13 @@ public final class AIWriter {
     /// Stops every write, as when the window graph goes away.
     public func stopAll() {
         for field in Array(runs.keys) { stop(field) }
+    }
+
+    /// Stops every write and refuses every later one: the environment is going away (quit, Leave Demo), and a write still
+    /// on its way to `write` (its context being built) must not start once its CLIs have been ended.
+    public func shutDown() {
+        isShutDown = true
+        stopAll()
     }
 
     /// The provider's health, for Settings › AI's status line and the card's “needs setup” state.

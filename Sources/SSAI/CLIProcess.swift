@@ -85,7 +85,8 @@ final class CLIProcess: @unchecked Sendable {
             close(errors.write)
             let pid = process.processIdentifier
             let leadsAGroup = getpgid(pid) == pid && pid != getpgrp()
-            registry.insert(self)
+            // The runner was ended (the app is quitting) while this one launched: it ends at once, unread.
+            let admitted = registry.insert(self)
             let channels = [
                 channel(reading: output.read, chunk: { [self] in received($0) }, end: { [self] in stdoutEnded() }),
                 channel(reading: errors.read, chunk: { [self] in receivedErrors($0) }, end: { [self] in stderrEnded() }),
@@ -93,6 +94,7 @@ final class CLIProcess: @unchecked Sendable {
             queue.async { [self] in
                 self.group = leadsAGroup ? pid : nil
                 self.channels = channels
+                if !admitted { stopRequested = true }
                 didLaunch()
             }
             write(command.input, to: input.write)
@@ -325,13 +327,33 @@ extension Duration {
     }
 }
 
-/// The CLI runs a runner started that have not ended yet.
+/// The CLI runs a runner started that have not ended yet. Closed by `CLIProcessRunner.endAll`, after which it takes no
+/// other: the app or its environment is going away.
 final class CLIRunningSet: @unchecked Sendable {
     private let lock = NSLock()
     private var processes: [ObjectIdentifier: CLIProcess] = [:]
+    private var closed = false
 
-    func insert(_ process: CLIProcess) {
-        lock.withLock { processes[ObjectIdentifier(process)] = process }
+    /// Records a run that launched; false once the set is closed, when the caller ends it at once.
+    @discardableResult
+    func insert(_ process: CLIProcess) -> Bool {
+        lock.withLock {
+            guard !closed else { return false }
+            processes[ObjectIdentifier(process)] = process
+            return true
+        }
+    }
+
+    var isClosed: Bool {
+        lock.withLock { closed }
+    }
+
+    /// Takes no other run from now on, and returns the ones still running.
+    func close() -> [CLIProcess] {
+        lock.withLock {
+            closed = true
+            return Array(processes.values)
+        }
     }
 
     func remove(_ process: CLIProcess) {

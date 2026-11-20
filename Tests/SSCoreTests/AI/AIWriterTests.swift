@@ -285,6 +285,29 @@ final class AIWriterTests: XCTestCase {
         writer.stop(field)  // nothing running: nothing happens
     }
 
+    /// A write asked for after the environment shut down (a card still building its context as the app quit) sends
+    /// nothing and ends as a stop from outside does, so the card puts the field back.
+    func testNothingIsWrittenAfterShutDown() async {
+        let running = ScriptedProvider(script: [.event(.text("Hel")), .hang])
+        let later = ScriptedProvider(script: [.event(.text("x")), .event(.finished(.done))])
+        let resolved = Counter()
+        let writer = AIWriter(resolve: { _ in
+            resolved.increment()
+            return resolved.value == 1 ? running : later
+        }, hasConsent: { _ in true })
+        let first = writer.write(request, using: configuration, in: field)
+        writer.shutDown()
+        XCTAssertTrue(writer.isShutDown)
+        let (firstEvents, _) = await collect(first)
+        XCTAssertEqual(firstEvents.last, .finished(.cancelled), "the running write stops")
+        let (events, error) = await collect(writer.write(request, using: configuration, in: AIFieldID(name: "composer")))
+        XCTAssertNil(error)
+        XCTAssertEqual(events, [.finished(.cancelled)])
+        XCTAssertEqual(resolved.value, 1, "no provider is built for a write after the shut-down")
+        XCTAssertEqual(later.requests, [], "and nothing is sent")
+        XCTAssertFalse(writer.isWriting)
+    }
+
     func testCancellingTheReaderCancelsTheProvider() async {
         let provider = ScriptedProvider(script: [.event(.text("Hel")), .hang])
         let writer = makeWriter(provider)
