@@ -1,29 +1,58 @@
 import Foundation
 
-/// Builds what Help Me Write sends about a conversation, only when the user presses Write: the last few messages, each
-/// as its author's name, date and own words (quoted history stripped), the subject once, attachments as a count, the
-/// user's first name, and their ask. Addresses, links, codes and card numbers are redacted (`AIRedactor`); drafts are
-/// left out.
+/// Builds what Help Me Write sends about a conversation, only when the user presses Write: the whole thread, newest
+/// message first, weighed by how recent it is. The message replied to goes in full up to a large share of the budget,
+/// the next two newest in full up to a smaller one, every older message as a short digest of its own first sentences
+/// (a cap that shrinks with age), and when even the digests do not fit, the oldest fold into one line naming how many,
+/// who wrote them and the words they used most. A summary of the thread (who, how many, how long, what the message
+/// replied to asks) is built first. Each message is its author's name, date and own words (quoted history stripped);
+/// attachments are a count. Addresses, links, codes and card numbers are redacted (`AIRedactor`); drafts are left out.
+///
+/// Everything is extractive and local: no model call, no network, a few milliseconds for a long thread.
 ///
 /// Pure and Sendable: it reads nothing itself. The app passes the visible messages (`RenderPayloadBuilder
 /// .visibleMessages`) and a body reader, and runs it off the main thread after `MailClient.keepBodies(of:)`.
 public struct ReplyContextBuilder: Sendable {
     public struct Limits: Sendable, Hashable {
-        /// The most messages sent, the target always among them.
-        public var maxMessages: Int
-        /// The most characters of message text (with a small allowance per message for its header line). Oldest
-        /// messages go first; the target is cut, never dropped.
+        /// The most characters of message text, each message counted with a small allowance for its header line.
         public var maxCharacters: Int
+        /// The share of `maxCharacters` the message replied to may take, whole; past it, it is cut.
+        public var targetShare: Double
+        /// The share each of the next two newest messages may take, whole; past it, each is cut.
+        public var recentShare: Double
+        /// How many messages after the one replied to are sent whole (or cut to `recentShare`); older ones are digests.
+        public var recentCount: Int
+        /// The newest digest's cap in characters; each older one gets `digestDecay` of the one before, down to
+        /// `digestFloor`.
+        public var digestCap: Int
+        public var digestDecay: Double
+        public var digestFloor: Int
         /// The most characters of the user's notes, selection or instruction: a paste of a whole document is not an ask.
         public var maxAskCharacters: Int
 
-        public init(maxMessages: Int = 8, maxCharacters: Int = 24_000, maxAskCharacters: Int = 8_000) {
-            self.maxMessages = maxMessages
+        public init(maxCharacters: Int = 24_000, targetShare: Double = 0.45, recentShare: Double = 0.15, recentCount: Int = 2,
+                    digestCap: Int = 400, digestDecay: Double = 0.85, digestFloor: Int = 80, maxAskCharacters: Int = 8_000) {
             self.maxCharacters = maxCharacters
+            self.targetShare = targetShare
+            self.recentShare = recentShare
+            self.recentCount = recentCount
+            self.digestCap = digestCap
+            self.digestDecay = digestDecay
+            self.digestFloor = digestFloor
             self.maxAskCharacters = maxAskCharacters
         }
 
         public static let standard = Limits()
+
+        /// The characters the message replied to may take.
+        public var targetBudget: Int { Int(Double(maxCharacters) * targetShare) }
+        /// The characters each of the next newest messages may take.
+        public var recentBudget: Int { Int(Double(maxCharacters) * recentShare) }
+
+        /// The cap of the digest `age` places after the newest digest.
+        public func digestCap(age: Int) -> Int {
+            max(digestFloor, Int((Double(digestCap) * pow(digestDecay, Double(max(0, age)))).rounded()))
+        }
     }
 
     /// One message's stored text, as the app read it (`StoredBody.plainText`, or `body.text` when that is empty).
@@ -39,10 +68,15 @@ public struct ReplyContextBuilder: Sendable {
         }
     }
 
-    /// The characters a message's header line (author, date, attachments) is counted as.
-    static let headerAllowance = 60
-    /// What replaces the end of a target message too long to send whole.
-    static let cutMarker = " […]"
+    /// The characters a message's header line (position, author, date, attachments) is counted as.
+    public static let headerAllowance = 60
+    /// What replaces the end of a message too long for its share.
+    public static let cutMarker = " […]"
+    /// What ends a digest that stopped inside its first sentence.
+    static let digestEllipsis = "\u{2026}"
+    /// The most question sentences the summary quotes, and the most characters of each.
+    static let maxAsks = 3
+    static let maxAskSentence = 200
 
     public var accounts: [Account]
     public var limits: Limits
@@ -63,52 +97,67 @@ public struct ReplyContextBuilder: Sendable {
     public func build(messages: [MessageMetadata], replyingTo target: MessageID?, ask: WriteAsk,
                       body: (MessageMetadata) -> Body?) -> ReplyContext {
         let ownAddresses = Set(accounts.map { $0.email.lowercased() })
-        let visible = Self.ordered(messages.filter { !$0.roles.contains(.drafts) })
+        // Newest first: the order the model reads it in, and the order the budget is spent in.
+        let newest = Array(Self.ordered(messages.filter { !$0.roles.contains(.drafts) }).reversed())
         let cleanAsk = Self.cleaned(ask, limit: limits.maxAskCharacters)
-        guard !visible.isEmpty else {
+        guard !newest.isEmpty else {
             return ReplyContext(subject: "", messages: [], userFirstName: firstName(in: [], target: nil, own: ownAddresses), ask: cleanAsk)
         }
-        let targetIndex = target.flatMap { id in visible.lastIndex { $0.id == id } } ?? visible.count - 1
-        let redactor = AIRedactor(names: Self.directory(of: visible))
+        let targetIndex = target.flatMap { id in newest.firstIndex { $0.id == id } } ?? 0
+        let redactor = AIRedactor(names: Self.directory(of: newest))
+        let recent = Set(newest.indices.filter { $0 != targetIndex }.prefix(max(0, limits.recentCount)))
 
-        var kept = selection(count: visible.count, target: targetIndex)
-        var built: [Int: ReplyContext.Message] = [:]
-        for index in kept {
-            built[index] = message(visible[index], isTarget: index == targetIndex, own: ownAddresses, redactor: redactor, body: body)
+        var sent: [ReplyContext.Message] = []
+        var digestAge = 0
+        var spent = 0
+        var folded: [Int] = []
+        // The message replied to first, then the newest to the oldest: whatever is left when the oldest come is theirs.
+        for index in [targetIndex] + newest.indices.filter({ $0 != targetIndex }) {
+            let metadata = newest[index]
+            let isTarget = index == targetIndex
+            let isDigest = !isTarget && !recent.contains(index)
+            let cap = isTarget ? limits.targetBudget : recent.contains(index) ? limits.recentBudget : limits.digestCap(age: digestAge)
+            if isDigest {
+                digestAge += 1
+                // Past the budget, this one and every older one fold into one line.
+                guard folded.isEmpty else {
+                    folded.append(index)
+                    continue
+                }
+            }
+            var message = self.message(metadata, position: index, isTarget: isTarget, digest: isDigest, cap: cap,
+                                       own: ownAddresses, redactor: redactor, body: body)
+            let size = message.text.count + Self.headerAllowance
+            if isDigest, spent + size > limits.maxCharacters {
+                folded.append(index)
+                continue
+            }
+            if !isTarget, !isDigest, spent + size > limits.maxCharacters {
+                // A recent message still goes, cut to what is left, so the newest are never folded under older digests.
+                let room = limits.maxCharacters - spent - Self.headerAllowance - Self.cutMarker.count
+                guard room > limits.digestFloor else {
+                    folded.append(index)
+                    continue
+                }
+                message.text = Self.cut(message.text, to: room)
+                message.form = .cut
+            }
+            spent += message.text.count + Self.headerAllowance
+            sent.append(message)
         }
-        // Oldest first, never the target, until the text fits; then the target itself is cut.
-        func size() -> Int { kept.reduce(0) { $0 + (built[$1]?.text.count ?? 0) + Self.headerAllowance } }
-        while size() > limits.maxCharacters, let oldest = kept.first(where: { $0 != targetIndex }) {
-            kept.removeAll { $0 == oldest }
-        }
-        if size() > limits.maxCharacters, var only = built[targetIndex] {
-            let room = max(0, limits.maxCharacters - Self.headerAllowance - Self.cutMarker.count)
-            only.text = String(only.text.prefix(room)) + Self.cutMarker
-            built[targetIndex] = only
-        }
+        sent.sort { $0.position < $1.position }
 
-        let subject = redactor.redact(RenderPayloadBuilder.subject(of: visible))
+        let subject = redactor.redact(RenderPayloadBuilder.subject(of: Array(newest.reversed())))
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        let targetMessage = newest[targetIndex]
         return ReplyContext(
             subject: String(subject.prefix(300)),
-            messages: kept.compactMap { built[$0] },
-            omittedCount: visible.count - kept.count,
-            userFirstName: firstName(in: visible, target: visible[targetIndex], own: ownAddresses),
+            summary: summary(of: newest, target: targetIndex, own: ownAddresses, redactor: redactor, body: body),
+            messages: sent,
+            fold: fold(of: folded.sorted().map { newest[$0] }, own: ownAddresses, redactor: redactor, body: body),
+            userFirstName: firstName(in: Array(newest.reversed()), target: targetMessage, own: ownAddresses),
             ask: cleanAsk
         )
-    }
-
-    // MARK: Choosing messages
-
-    /// The last `maxMessages` indices, oldest first; when the target is older than those, it takes the oldest place.
-    private func selection(count: Int, target: Int) -> [Int] {
-        let limit = max(1, limits.maxMessages)
-        var kept = Array(max(0, count - limit)..<count)
-        if !kept.contains(target) {
-            kept.removeFirst()
-            kept.insert(target, at: 0)
-        }
-        return kept
     }
 
     private static func ordered(_ messages: [MessageMetadata]) -> [MessageMetadata] {
@@ -119,31 +168,49 @@ public struct ReplyContextBuilder: Sendable {
 
     // MARK: One message
 
-    private func message(_ metadata: MessageMetadata, isTarget: Bool, own: Set<String>, redactor: AIRedactor,
-                         body: (MessageMetadata) -> Body?) -> ReplyContext.Message {
-        let isFromUser = metadata.from.map { own.contains($0.address.lowercased()) } ?? false
-        let text: String
-        let attachments: Int
-        let isPreview: Bool
-        if let stored = body(metadata) {
-            // Bytes, not characters, bound the scan: four per character keeps a CJK thread from being cut early.
-            text = QuotedHistory.ownWords(of: Self.normalizedNewlines(stored.plainText), limit: limits.maxCharacters * 4)
-            attachments = stored.attachmentCount
-            isPreview = false
-        } else {
-            text = metadata.snippet
-            attachments = metadata.hasAttachments ? 1 : 0
-            isPreview = true
+    /// The message's own words, redacted, at most `cap` characters: whole or cut for a message sent in full, its first
+    /// sentences for a digest.
+    private func message(_ metadata: MessageMetadata, position: Int, isTarget: Bool, digest: Bool, cap: Int, own: Set<String>,
+                         redactor: AIRedactor, body: (MessageMetadata) -> Body?) -> ReplyContext.Message {
+        let isFromUser = Self.isFromUser(metadata, own: own)
+        // A digest needs only its first sentences: reading less keeps a 30 KB message's digest to its first lines.
+        let (text, attachments, isPreview) = ownText(metadata, scanCharacters: digest ? cap * 2 + 256 : cap + 256,
+                                                     redactor: redactor, body: body)
+        var form = ReplyContext.Form.full
+        var shown = text
+        if digest {
+            shown = Self.digest(text, cap: cap)
+            form = .digest
+        } else if text.count > cap {
+            shown = Self.cut(text, to: max(0, cap - Self.headerAllowance - Self.cutMarker.count))
+            form = .cut
         }
         return ReplyContext.Message(
             author: isFromUser ? "you" : Self.author(metadata.from, redactor: redactor),
             isFromUser: isFromUser,
             date: metadata.date,
-            text: Self.tidied(redactor.redact(text)),
+            text: shown,
             attachmentCount: attachments,
             isPreview: isPreview,
-            isReplyTarget: isTarget
+            isReplyTarget: isTarget,
+            position: position,
+            form: form
         )
+    }
+
+    /// The message's own words (quoted history stripped), redacted and tidied, read up to about `scanCharacters`.
+    private func ownText(_ metadata: MessageMetadata, scanCharacters: Int, redactor: AIRedactor,
+                         body: (MessageMetadata) -> Body?) -> (text: String, attachments: Int, isPreview: Bool) {
+        if let stored = body(metadata) {
+            // Bytes, not characters, bound the scan: four per character keeps a CJK thread from being cut early.
+            let words = QuotedHistory.ownWords(of: Self.normalizedNewlines(stored.plainText), limit: max(1, scanCharacters) * 4)
+            return (Self.tidied(redactor.redact(words)), stored.attachmentCount, false)
+        }
+        return (Self.tidied(redactor.redact(metadata.snippet)), metadata.hasAttachments ? 1 : 0, true)
+    }
+
+    private static func isFromUser(_ metadata: MessageMetadata, own: Set<String>) -> Bool {
+        metadata.from.map { own.contains($0.address.lowercased()) } ?? false
     }
 
     private static func author(_ from: EmailAddress?, redactor: AIRedactor) -> String {
@@ -155,9 +222,9 @@ public struct ReplyContextBuilder: Sendable {
 
     /// Lower-cased address → name, from every header in the thread, the newest naming winning, so an address written in
     /// a body becomes the person's name.
-    private static func directory(of messages: [MessageMetadata]) -> [String: String] {
+    private static func directory(of newestFirst: [MessageMetadata]) -> [String: String] {
         var names: [String: String] = [:]
-        for message in messages {
+        for message in newestFirst.reversed() {
             for address in [message.from].compactMap({ $0 }) + message.to + message.cc + message.replyTo {
                 if let name = usableName(address.name) { names[address.address.lowercased()] = name }
             }
@@ -172,6 +239,144 @@ public struct ReplyContextBuilder: Sendable {
         guard !trimmed.isEmpty, !trimmed.contains("@") else { return nil }
         return trimmed
     }
+
+    // MARK: Condensing
+
+    /// `text` cut to `limit` characters at the last word boundary that fits, then the cut marker.
+    static func cut(_ text: String, to limit: Int) -> String {
+        guard text.count > limit else { return text }
+        var head = String(text.prefix(max(0, limit)))
+        if let space = head.lastIndex(where: { $0.isWhitespace }), head.distance(from: head.startIndex, to: space) > limit / 2 {
+            head = String(head[..<space])
+        }
+        return head.trimmingCharacters(in: .whitespacesAndNewlines) + cutMarker
+    }
+
+    /// The first sentences of `text` on one line, as many as fit in `cap` characters; a first sentence longer than that
+    /// is cut at a word, with an ellipsis.
+    static func digest(_ text: String, cap: Int) -> String {
+        let line = text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        guard line.count > cap else { return line }
+        var kept = ""
+        for sentence in sentences(of: line) {
+            let next = kept.isEmpty ? sentence : kept + " " + sentence
+            if next.count > cap { break }
+            kept = next
+        }
+        if !kept.isEmpty { return kept }
+        var head = String(line.prefix(max(1, cap - digestEllipsis.count)))
+        if let space = head.lastIndex(of: " "), head.distance(from: head.startIndex, to: space) > cap / 2 {
+            head = String(head[..<space])
+        }
+        return head + digestEllipsis
+    }
+
+    /// Sentences: runs ending in “.”, “!”, “?” or their full-width forms, then a space or the end.
+    static func sentences(of text: String) -> [String] {
+        var result: [String] = []
+        var current = ""
+        let enders: Set<Character> = [".", "!", "?", "\u{3002}", "\u{FF01}", "\u{FF1F}"]
+        var previousEnds = false
+        for character in text {
+            if previousEnds, character.isWhitespace {
+                let sentence = current.trimmingCharacters(in: .whitespaces)
+                if !sentence.isEmpty { result.append(sentence) }
+                current = ""
+                previousEnds = false
+                continue
+            }
+            current.append(character)
+            previousEnds = enders.contains(character)
+        }
+        let last = current.trimmingCharacters(in: .whitespaces)
+        if !last.isEmpty { result.append(last) }
+        return result
+    }
+
+    // MARK: The summary
+
+    private func summary(of newest: [MessageMetadata], target: Int, own: Set<String>, redactor: AIRedactor,
+                         body: (MessageMetadata) -> Body?) -> ReplyContext.Summary {
+        var participants: [String] = []
+        for message in newest {
+            let name = Self.isFromUser(message, own: own) ? "you" : Self.author(message.from, redactor: redactor)
+            if !participants.contains(name) { participants.append(name) }
+        }
+        let asked = ownText(newest[target], scanCharacters: limits.targetBudget, redactor: redactor, body: body).text
+        return ReplyContext.Summary(
+            participants: participants,
+            messageCount: newest.count,
+            firstDate: newest.last?.date,
+            lastDate: newest.first?.date,
+            asks: Self.questions(in: asked),
+            targetIsLatest: target == 0
+        )
+    }
+
+    /// The question sentences of `text`, at most three, each cut to 200 characters.
+    static func questions(in text: String) -> [String] {
+        let line = text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        return sentences(of: line)
+            .filter { $0.hasSuffix("?") || $0.hasSuffix("\u{FF1F}") }
+            .prefix(maxAsks)
+            .map { $0.count > maxAskSentence ? String($0.prefix(maxAskSentence - 1)) + digestEllipsis : $0 }
+    }
+
+    // MARK: The fold
+
+    private func fold(of messages: [MessageMetadata], own: Set<String>, redactor: AIRedactor,
+                      body: (MessageMetadata) -> Body?) -> ReplyContext.Fold? {
+        guard !messages.isEmpty else { return nil }
+        var counts: [String: Int] = [:]
+        var order: [String] = []
+        var text = ""
+        for message in messages {
+            let name = Self.isFromUser(message, own: own) ? "you" : Self.author(message.from, redactor: redactor)
+            if counts[name] == nil { order.append(name) }
+            counts[name, default: 0] += 1
+            text += " " + ownText(message, scanCharacters: limits.digestCap, redactor: redactor, body: body).text
+        }
+        let authors = order.enumerated()
+            .sorted { (counts[$0.element] ?? 0, -$0.offset) > (counts[$1.element] ?? 0, -$1.offset) }
+            .prefix(3).map(\.element)
+        return ReplyContext.Fold(count: messages.count, authors: authors, keywords: Self.keywords(in: text, limit: 4))
+    }
+
+    /// The words `text` uses most: letters only, four or more of them, not a common word, never a redaction's own words
+    /// (“link”, “address”), ties going to the word seen first.
+    static func keywords(in text: String, limit: Int) -> [String] {
+        var counts: [String: Int] = [:]
+        var first: [String: Int] = [:]
+        var position = 0
+        // Bracketed placeholders (“[link: contoso.test]”, “[code]”) and a redacted address's domain carry no topic.
+        let unbracketed = text.replacingOccurrences(of: #"\[[^\]]*\]|\ban address at \S+"#, with: " ", options: .regularExpression)
+        for raw in unbracketed.split(whereSeparator: { !$0.isLetter && $0 != "'" && $0 != "\u{2019}" }) {
+            let word = raw.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "'\u{2019}"))
+            guard word.count >= 4, word.count <= 30, !stopWords.contains(word) else { continue }
+            counts[word, default: 0] += 1
+            if first[word] == nil {
+                first[word] = position
+                position += 1
+            }
+        }
+        return counts.keys
+            .sorted { (counts[$0] ?? 0, -(first[$0] ?? 0)) > (counts[$1] ?? 0, -(first[$1] ?? 0)) }
+            .prefix(limit).map { $0 }
+    }
+
+    /// Words that say nothing about what a thread is about, and the redactor's own words.
+    static let stopWords: Set<String> = [
+        "about", "above", "after", "again", "also", "always", "another", "anything", "around", "back", "been", "before", "being",
+        "best", "both", "could", "dear", "does", "doing", "done", "down", "each", "even", "every", "from", "further", "going",
+        "good", "great", "have", "having", "hello", "here", "hers", "himself", "into", "it's", "just", "know", "let's", "like",
+        "look", "looking", "made", "make", "many", "maybe", "more", "most", "much", "must", "need", "next", "only", "other",
+        "ours", "over", "please", "really", "regards", "same", "seems", "should", "some", "soon", "still", "such", "sure",
+        "take", "than", "thank", "thanks", "that", "that's", "their", "them", "then", "there", "these", "they", "thing",
+        "things", "think", "this", "those", "through", "time", "today", "tomorrow", "very", "want", "week", "well", "were",
+        "what", "when", "where", "which", "while", "will", "with", "would", "yeah", "your", "yours", "you're", "we're", "i'll",
+        "i'm", "don't", "can't", "didn't", "isn't", "won't", "wouldn't", "couldn't", "shouldn't", "cheers", "best", "kind",
+        "someone", "address", "link", "card", "number", "code",
+    ]
 
     // MARK: The user's first name
 

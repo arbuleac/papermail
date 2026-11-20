@@ -6,18 +6,21 @@ final class WritePromptTests: XCTestCase {
     private let utc = TimeZone(identifier: "UTC")!
     private let fence = "1a2b3c4d"
 
-    private func context(ask: WriteAsk = WriteAsk(), omitted: Int = 0, name: String? = "Alex",
+    private func context(ask: WriteAsk = WriteAsk(), fold: ReplyContext.Fold? = nil, name: String? = "Alex",
                          text: String = "Could we move lunch to Thursday?") -> ReplyContext {
         ReplyContext(
             subject: "Lunch on Thursday",
+            summary: .init(participants: ["Priya Shah", "you"], messageCount: 3 + (fold?.count ?? 0),
+                           firstDate: Date(timeIntervalSince1970: 1_794_700_000), lastDate: Date(timeIntervalSince1970: 1_795_007_200),
+                           asks: ["Any news?"]),
             messages: [
-                .init(author: "Priya Shah", isFromUser: false, date: Date(timeIntervalSince1970: 1_795_000_000), text: text,
-                      attachmentCount: 2),
-                .init(author: "you", isFromUser: true, date: Date(timeIntervalSince1970: 1_795_003_600), text: ""),
                 .init(author: "Priya Shah", isFromUser: false, date: Date(timeIntervalSince1970: 1_795_007_200), text: "Any news?",
-                      attachmentCount: 1, isPreview: true, isReplyTarget: true),
+                      attachmentCount: 1, isPreview: true, isReplyTarget: true, position: 0),
+                .init(author: "you", isFromUser: true, date: Date(timeIntervalSince1970: 1_795_003_600), text: "", position: 1),
+                .init(author: "Priya Shah", isFromUser: false, date: Date(timeIntervalSince1970: 1_795_000_000), text: text,
+                      attachmentCount: 2, position: 2, form: .digest),
             ],
-            omittedCount: omitted, userFirstName: name, ask: ask
+            fold: fold, userFirstName: name, ask: ask
         )
     }
 
@@ -30,28 +33,55 @@ final class WritePromptTests: XCTestCase {
         XCTAssertTrue(with.contains("[placeholder]") || with.contains("placeholder in square brackets"))
         XCTAssertTrue(with.contains("no Markdown"))
         XCTAssertEqual(WritePrompt.instructions(appendsSignature: true), with, "the same every time: no fence, no date")
-        XCTAssertEqual(WritePrompt.version, "write-reply-1")
+        XCTAssertEqual(WritePrompt.version, "write-reply-2")
     }
 
     func testTheTranscriptIsFencedWithTheRequestsCode() {
-        let transcript = WritePrompt.transcript(of: context(omitted: 3), fence: fence, timeZone: utc)
+        let fold = ReplyContext.Fold(count: 9, authors: ["Priya Shah", "Ben Carter", "you"], keywords: ["venue", "budget", "catering"])
+        let transcript = WritePrompt.transcript(of: context(fold: fold), fence: fence, timeZone: utc)
         XCTAssertEqual(transcript, """
-        The conversation I'm replying to, oldest message first:
+        The conversation I'm replying to, newest message first; older messages are shortened:
         <<<CONVERSATION 1a2b3c4d>>>
         Subject: Lunch on Thursday
-        (3 earlier messages left out)
+        Thread: 12 messages, 14 Nov 2026 to 18 Nov 2026
+        People: Priya Shah and you
+        The latest message asks: Any news?
 
-        --- Priya Shah · Wed 18 Nov 2026 11:06 · 2 attachments
-        Could we move lunch to Thursday?
-
-        --- you · Wed 18 Nov 2026 12:06
-        (no new text)
-
-        --- Priya Shah · Wed 18 Nov 2026 13:06 · has attachments · the message I'm replying to
+        --- Latest · Priya Shah · Wed 18 Nov 2026 13:06 · has attachments · the message I'm replying to
         (only the start of this message is available)
         Any news?
+
+        --- 2nd latest · you · Wed 18 Nov 2026 12:06
+        (no new text)
+
+        --- Earlier · Priya Shah · Wed 18 Nov 2026 11:06 · 2 attachments · shortened
+        Could we move lunch to Thursday?
+
+        (9 earlier messages from Priya Shah, Ben Carter and you, about venue, budget, catering)
         <<<END CONVERSATION 1a2b3c4d>>>
         """)
+    }
+
+    func testThePromptDocumentsTheOrderAndTheWeighting() {
+        let instructions = WritePrompt.instructions(appendsSignature: false)
+        XCTAssertTrue(instructions.contains("newest first"))
+        XCTAssertTrue(instructions.contains("Weigh the latest message most"))
+        XCTAssertTrue(instructions.contains("from the user's side"))
+        XCTAssertTrue(instructions.contains("shortened"))
+        XCTAssertTrue(instructions.contains("only as background"))
+        XCTAssertTrue(instructions.contains("Never invent facts"))
+        XCTAssertTrue(instructions.contains("notes as the brief"))
+        XCTAssertTrue(instructions.contains("rewrite only that part"))
+    }
+
+    func testTheSummaryNamesAnOlderTargetAndAOneDayThread() {
+        var older = context()
+        older.summary.targetIsLatest = false
+        older.summary.firstDate = older.summary.lastDate
+        let lines = WritePrompt.summaryLines(of: older, timeZone: utc)
+        XCTAssertTrue(lines.contains("Thread: 3 messages, 18 Nov 2026"))
+        XCTAssertTrue(lines.contains("The message I'm replying to asks: Any news?"))
+        XCTAssertEqual(WritePrompt.foldLine(.init(count: 1)), "1 earlier message")
     }
 
     func testMailCannotCloseTheFence() {
@@ -72,7 +102,7 @@ final class WritePromptTests: XCTestCase {
         XCTAssertEqual(task, """
         My first name: Alex
 
-        My notes so far, to turn into the reply:
+        My notes so far, the brief for the reply:
         <<<NOTES 1a2b3c4d>>>
         thursday ok
         <<<END NOTES 1a2b3c4d>>>
@@ -89,11 +119,11 @@ final class WritePromptTests: XCTestCase {
         see u thurs
         <<<END SELECTION 1a2b3c4d>>>
 
-        Rewrite this part so it reads well. Return only the rewritten part.
+        Rewrite this part so it reads well, keeping its meaning and language. Return only the rewritten part.
         """)
         let instructed = WritePrompt.task(for: context(ask: WriteAsk(instruction: "More formal.", draft: .selection("x")), name: nil),
                                           fence: fence)
-        XCTAssertTrue(instructed.hasSuffix("Rewrite this part: More formal. Return only the rewritten part."))
+        XCTAssertTrue(instructed.hasSuffix("Rewrite this part: More formal. Keep its language. Return only the rewritten part."))
     }
 
     func testTheFenceCodeIsStrippedFromTheUsersWordsToo() {
