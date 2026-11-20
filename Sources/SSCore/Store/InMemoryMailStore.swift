@@ -69,6 +69,7 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         var stored = account
         stored.monogram = Account.normalizedMonogram(account.monogram)
         stored.signature = Account.normalizedSignature(account.signature)
+        stored.face = AccountFace.normalized(account.face)
         accountRows[account.id] = stored
         notifyAll()
     }
@@ -108,6 +109,13 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         guard accountRows[accountID] != nil else { throw StoreError.notFound }
         accountRows[accountID]?.signature = Account.normalizedSignature(signature)
+        notifyAll()
+    }
+
+    public func setFace(_ face: AccountFace, for accountID: AccountID) throws {
+        lock.lock(); defer { lock.unlock() }
+        guard accountRows[accountID] != nil else { throw StoreError.notFound }
+        accountRows[accountID]?.face = AccountFace.normalized(face)
         notifyAll()
     }
 

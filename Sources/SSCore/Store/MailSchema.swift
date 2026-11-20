@@ -211,6 +211,11 @@ enum MailSchema {
                     message_count, inbox_section, account_id, provider_id);
                 """)
         }
+        migrator.registerMigration("v22-account-face") { db in
+            // Nullable, and NULL means automatic: every account already here takes the paper face its ink slot picks
+            // (Quire §5.55), so nothing is backfilled and the choice is only ever the user's.
+            try db.execute(sql: "ALTER TABLE accounts ADD COLUMN face TEXT")
+        }
         return migrator
     }
 

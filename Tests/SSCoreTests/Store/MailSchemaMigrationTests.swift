@@ -93,6 +93,12 @@ final class MailSchemaMigrationTests: XCTestCase {
         DELETE FROM grdb_migrations WHERE identifier = 'v21-search-walk';
         """
 
+    /// Takes v22 back out of a migrated file: a file from before it keeps no face choice.
+    private let withoutV22 = """
+        ALTER TABLE accounts DROP COLUMN face;
+        DELETE FROM grdb_migrations WHERE identifier = 'v22-account-face';
+        """
+
     /// Twelve accounts, inserted out of creation order, two of them created in the same millisecond so the id
     /// has to break the tie.
     private let accounts: [(id: String, addedAt: Int64)] = [
@@ -344,7 +350,7 @@ final class MailSchemaMigrationTests: XCTestCase {
             try store.close()
         }
         // v9 to v15 came after v8, so a v7 file has none of them (`revertSQL` takes v12 and v13 back).
-        try execute(withoutV21 + withoutV20 + withoutV19 + withoutV18 + withoutV17 + withoutV16 + withoutV15 + withoutV14 + """
+        try execute(withoutV22 + withoutV21 + withoutV20 + withoutV19 + withoutV18 + withoutV17 + withoutV16 + withoutV15 + withoutV14 + """
             \(FullTextVersion10.revertSQL)
             DROP TABLE backfill_live_marks;
             DROP TABLE backfill_seen;
@@ -416,7 +422,7 @@ final class MailSchemaMigrationTests: XCTestCase {
             try store.setSyncCursor("cursor-8", for: a)
             try store.close()
         }
-        try execute(withoutV21 + withoutV20 + withoutV19 + withoutV18 + withoutV17 + withoutV16 + withoutV15 + withoutV14 + """
+        try execute(withoutV22 + withoutV21 + withoutV20 + withoutV19 + withoutV18 + withoutV17 + withoutV16 + withoutV15 + withoutV14 + """
             \(FullTextVersion10.revertSQL)
             ALTER TABLE accounts DROP COLUMN signature;
             DELETE FROM grdb_migrations WHERE identifier = 'v9-account-signature';
@@ -443,6 +449,44 @@ final class MailSchemaMigrationTests: XCTestCase {
                        [["TEXT", "0", nil]], "TEXT NULL with no default")
     }
 
+    /// v22 adds `accounts.face` and nothing else, so the file a v21 build leaves is a v22 file without that column and
+    /// its ledger row. Opened by the current build, every account's face is automatic (NULL: the paper face its ink slot
+    /// picks, Quire §5.55), the monograms, ink slots and signatures set before stay, and the column takes a choice.
+    func testVersion21DatabaseGainsAnAutomaticFaceAndKeepsItsMonograms() throws {
+        let path = try XCTUnwrap(directory).appendingPathComponent("mail.sqlite").path
+        try writeVersion1Database(at: path)
+        let a = AccountID("acct-a")
+        let b = AccountID("acct-b")
+        do {
+            let store = try SQLiteMailStore(path: path)
+            try store.setMonogram("Ax", for: a)
+            try store.setInkSlot(7, for: b)
+            try store.setSignature("<div><p>Alex</p></div>", for: a)
+            try store.close()
+        }
+        try execute(withoutV22, at: path)
+        XCTAssertFalse(try query("SELECT name FROM pragma_table_info('accounts')", at: path).compactMap(\.first).contains("face"))
+
+        let store = try SQLiteMailStore(path: path)
+        let migrated = try store.accounts()
+        XCTAssertEqual(migrated.count, accounts.count)
+        XCTAssertEqual(Set(migrated.map(\.face)), [.automatic], "no account has chosen a face")
+        XCTAssertEqual(migrated.first { $0.id == a }?.monogram, "Ax", "the monogram is untouched")
+        XCTAssertEqual(migrated.first { $0.id == a }?.signature, "<div><p>Alex</p></div>")
+        XCTAssertEqual(migrated.first { $0.id == b }?.inkSlot, 7)
+
+        try store.setFace(.paper("fox"), for: a)
+        try store.setFace(.monogram, for: b)
+        XCTAssertEqual(try store.accounts().first { $0.id == a }?.face, .paper("fox"))
+        XCTAssertEqual(try store.accounts().first { $0.id == b }?.face, .monogram)
+        XCTAssertEqual(try store.accounts().first { $0.id == a }?.monogram, "Ax")
+        try store.close()
+        XCTAssertEqual(try query("SELECT face FROM accounts WHERE id IN ('acct-a', 'acct-b') ORDER BY id", at: path),
+                       [["paper:fox"], ["monogram"]])
+        XCTAssertEqual(try query("SELECT type, \"notnull\", dflt_value FROM pragma_table_info('accounts') WHERE name = 'face'", at: path),
+                       [["TEXT", "0", nil]], "TEXT NULL with no default")
+    }
+
     /// v10 adds `bodies.evicted` and nothing else, so the file a v9 build leaves is a v10 file without that column and
     /// its ledger row. Opened by the current build, every body is whole (0), the store reads them as before, and the
     /// file keeps the `auto_vacuum` it was created with: switching an existing file to INCREMENTAL takes a full VACUUM,
@@ -456,7 +500,7 @@ final class MailSchemaMigrationTests: XCTestCase {
             try store.setSignature("<div><p>Alex</p></div>", for: AccountID("acct-a"))
             try store.close()
         }
-        try execute(withoutV21 + withoutV20 + withoutV19 + withoutV18 + withoutV17 + withoutV16 + withoutV15 + withoutV14 + """
+        try execute(withoutV22 + withoutV21 + withoutV20 + withoutV19 + withoutV18 + withoutV17 + withoutV16 + withoutV15 + withoutV14 + """
             \(FullTextVersion10.revertSQL)
             ALTER TABLE bodies DROP COLUMN evicted;
             DELETE FROM grdb_migrations WHERE identifier = 'v10-body-eviction';
@@ -832,7 +876,7 @@ final class MailSchemaMigrationTests: XCTestCase {
         XCTAssertEqual(try store.queuedLookups(accountID: account, limit: 10), ["m1": 0])
         try store.close()
         XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations ORDER BY rowid", at: path).compactMap(\.first).last,
-                       "v21-search-walk")
+                       "v22-account-face")
         try execute("PRAGMA foreign_keys = ON; DELETE FROM accounts WHERE id = 'acct-a';", at: path)
         XCTAssertEqual(try query("SELECT COUNT(*) FROM queued_lookups", at: path), [["0"]], "an account's lookups go with it")
     }
@@ -894,7 +938,7 @@ final class MailSchemaMigrationTests: XCTestCase {
             """, at: path).compactMap(\.first),
                        ["calendar_events_by_client_key", "calendar_events_by_sync", "calendar_events_by_time", "mail_times_by_conversation"])
         XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations ORDER BY rowid", at: path).compactMap(\.first).suffix(3),
-                       ["v19-sync-robustness", "v20-calendar", "v21-search-walk"])
+                       ["v20-calendar", "v21-search-walk", "v22-account-face"])
 
         let reopened = try SQLiteMailStore(path: path)
         try reopened.wipeMailData(for: account)
@@ -946,15 +990,15 @@ final class MailSchemaMigrationTests: XCTestCase {
             .contains("v18-scheduled-sends"))
     }
 
-    /// The six migrations since the last release, on one real v15 file (a v1 file taken through the shipped migrations up
+    /// The seven migrations since the last release, on one real v15 file (a v1 file taken through the shipped migrations up
     /// to v15) holding mail, a muted-to-be conversation and a send in its undo window. Opened by the current build it runs
-    /// v16-conversation-mute, v17-sender-rules, v18-scheduled-sends, v19-sync-robustness, v20-calendar and
-    /// v21-search-walk, in that order and nothing else; everything it held reads as before, each new table or column
+    /// v16-conversation-mute, v17-sender-rules, v18-scheduled-sends, v19-sync-robustness, v20-calendar, v21-search-walk
+    /// and v22-account-face, in that order and nothing else; everything it held reads as before, each new table or column
     /// starts empty, the date index carries the flags a search tests, and reopening it runs nothing.
-    func testVersion15DatabaseTakesTheSixNewMigrationsInOrder() throws {
+    func testVersion15DatabaseTakesTheSevenNewMigrationsInOrder() throws {
         let newMigrations = ["v16-conversation-mute", "v17-sender-rules", "v18-scheduled-sends", "v19-sync-robustness",
-                             "v20-calendar", "v21-search-walk"]
-        XCTAssertEqual(Array(MailSchema.migrator().migrations.suffix(6)), newMigrations, "registered in this order, last")
+                             "v20-calendar", "v21-search-walk", "v22-account-face"]
+        XCTAssertEqual(Array(MailSchema.migrator().migrations.suffix(7)), newMigrations, "registered in this order, last")
         let path = try XCTUnwrap(directory).appendingPathComponent("mail.sqlite").path
         try writeVersion1Database(at: path)
         try MailSchema.migrateFile(at: path, upTo: "v15-calendar-invitations")
@@ -983,6 +1027,7 @@ final class MailSchemaMigrationTests: XCTestCase {
         XCTAssertEqual(try store.calendarEvents(in: DateInterval(start: .distantPast, end: .distantFuture), accountIDs: nil), [],
                        "v20: no events")
         XCTAssertEqual(try store.mailTimes(in: c1), [], "v20: no mail times")
+        XCTAssertEqual(Set(try store.accounts().map(\.face)), [.automatic], "v22: no face chosen")
         // Each works once there.
         try store.setMuted(true, conversations: [c1], enqueueing: [])
         XCTAssertTrue(try store.isMuted(c1))
@@ -990,7 +1035,7 @@ final class MailSchemaMigrationTests: XCTestCase {
         try store.close()
 
         let after = try query("SELECT identifier FROM grdb_migrations ORDER BY rowid", at: path).compactMap(\.first)
-        XCTAssertEqual(Array(after.dropFirst(before.count)), newMigrations, "the six, in order, and nothing else")
+        XCTAssertEqual(Array(after.dropFirst(before.count)), newMigrations, "the seven, in order, and nothing else")
         XCTAssertEqual(try query("SELECT name FROM pragma_index_info('conversations_latest') ORDER BY seqno", at: path).compactMap(\.first), [
             "latest_date_ms", "in_inbox", "in_sent", "in_drafts", "in_trash", "is_starred", "has_attachments", "unread_count",
             "message_count", "inbox_section", "account_id", "provider_id",
