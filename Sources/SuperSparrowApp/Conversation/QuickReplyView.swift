@@ -504,9 +504,33 @@ final class QuickReplyView: NSView, QuirePointerTarget {
 
     private var showsKeycaps: Bool { ReaderColumn.showsKeycaps(readerWidth: bounds.width) }
 
-    /// Text lines, 1 to 5; past five the text scrolls inside the field.
+    /// The width the text wraps at: the field's, less the text's leading pad and the trailing room (the R keycap and the
+    /// Send circle at rest, a small pad with the tool row), less a scroller that takes room.
+    private var wrapWidth: CGFloat {
+        let m = Quire.Layout.QuickReply.self
+        let trailing = showsToolRow ? m.focusedTrailing : m.restTrailing
+        let frame = NSSize(width: max(0, fieldRect.width - m.textX - trailing), height: lineHeight)
+        return NSScrollView.contentSize(forFrameSize: frame, horizontalScrollerClass: nil,
+                                        verticalScrollerClass: scrollView.hasVerticalScroller ? NSScroller.self : nil,
+                                        borderType: scrollView.borderType, controlSize: .regular, scrollerStyle: scrollView.scrollerStyle).width
+    }
+
+    /// Puts the text at the width it wraps at now, before it is measured: the bar's width (a window resized) and focus
+    /// (the tool row's narrower trailing pad) change it before the next layout does. True when the width changed.
+    @discardableResult
+    private func fitTextWidth() -> Bool {
+        guard bounds.width > 0 else { return false }
+        let width = wrapWidth
+        guard abs(textView.frame.width - width) > 0.5 else { return false }
+        textView.frame.size.width = width
+        return true
+    }
+
+    /// Text lines as laid out at the field's width, wrapped lines included, 1 to 5; past five the text scrolls inside
+    /// the field.
     private var lineCount: Int {
         guard let layoutManager = textView.layoutManager, let container = textView.textContainer else { return 1 }
+        fitTextWidth()
         layoutManager.ensureLayout(for: container)
         let used = layoutManager.usedRect(for: container).height
         let lines = Int(ceil(max(used, lineHeight) / lineHeight - 0.01))
@@ -581,6 +605,11 @@ final class QuickReplyView: NSView, QuirePointerTarget {
         let toolRow = showsToolRow
         let trailing = toolRow ? m.focusedTrailing : m.restTrailing
         let textWidth = max(0, field.width - m.textX - trailing)
+        // A new width (the window resized, the tool row in or out) wraps the text again: the bar takes the lines it now
+        // needs, and the caret stays in view. Only while it looks focused: at rest the bar is one line whatever the
+        // wrap, and blurring lays out mid-glide, where setting the height at once would cut the glide short.
+        let rewrapped = fitTextWidth()
+        if rewrapped, looksFocused { updateHeight(animated: false) }
         let lines = looksFocused ? lineCount : 1
         let extra = stripExtra
         writeStrip.isHidden = extra == 0
@@ -593,6 +622,7 @@ final class QuickReplyView: NSView, QuirePointerTarget {
                                   height: CGFloat(lines) * lineHeight)
         textView.frame.size.width = scrollView.contentSize.width
         scrollView.hasVerticalScroller = looksFocused && lineCount >= Int(m.maxLines)
+        if rewrapped, isFocused { textView.scrollRangeToVisible(textView.selectedRange()) }
         let placeholderHeight = ReaderFonts.fieldHeight(placeholder)
         placeholder.frame = NSRect(x: field.minX + m.textX - 2, y: (field.minY + m.fieldPadTop + extra + (lineHeight - placeholderHeight) / 2).rounded(),
                                    width: textWidth + 4, height: placeholderHeight)
