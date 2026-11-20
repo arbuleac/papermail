@@ -162,6 +162,10 @@ enum MainMenu {
         // field runs it (§5.6), and a menu's plain ↩ would take Return from the list, the composer and every sheet.
         let searchServer = item(ServerSearchRow.menuTitle(for: nil), #selector(MainWindowController.searchServer(_:)))
         menu.addItem(searchServer)
+        // Help me write (§5.55): on the focused quick reply or reply composer's text, beside the Mac's own Writing Tools,
+        // which AppKit adds to this menu. Nil-targeted: the reader or the composer answers it while its field has focus.
+        menu.addItem(.separator())
+        menu.addItem(item("Help Me Write\u{2026}", #selector(ConversationViewController.helpMeWrite(_:)), "j", symbol: Quire.Icon.helpMeWrite))
         // The text system's own submenus, acting on whichever text view has focus. Without them spelling, text
         // replacement and smart quotes could be switched only from a text view's context menu. Writing Tools, AutoFill,
         // Start Dictation and Emoji & Symbols are not built here: AppKit adds them at launch to the menu titled "Edit"

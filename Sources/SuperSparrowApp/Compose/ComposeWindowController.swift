@@ -26,10 +26,10 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     private static let autosaveDelay: TimeInterval = 1.5
     private static let logger = Logger(subsystem: "io.supersparrow.mac", category: "compose")
 
-    private let client: MailClient
-    private let accounts: [Account]
+    let client: MailClient
+    let accounts: [Account]
     let mode: ComposeMode
-    private var account: Account
+    private(set) var account: Account
     /// This message's identity in `ComposeDraftStore`.
     private(set) var draftID = UUID()
     /// The provider's draft this message continues (Continue Editing on a synced Drafts row); sending it
@@ -58,7 +58,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         return nil
     }
 
-    private let content = ComposeContentView()
+    let content = ComposeContentView()
     private let fromPopup: QuirePopUpButton
     private let toField = AddressTokenField()
     private let ccField = AddressTokenField()
@@ -96,7 +96,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     private var baseline = ComposeDraft.Fingerprint()
     private var prefillTask: Task<Void, Never>?
     private var isPrefilling = false
-    private var isSending = false
+    private(set) var isSending = false
     private var closesWithoutSaving = false
     private var statusBoard = ComposeStatusBoard() {
         didSet { if oldValue != statusBoard { showStatus() } }
@@ -105,6 +105,10 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     /// A draft of this window is on disk, so “nothing worth keeping” must remove it.
     private var hasStoredDraft = false
     private var linkPopover: ComposeLinkPopover?
+    /// Help me write's card on the body, while one is open (§5.55).
+    var writeSession: WriteSession?
+    /// While Help me write streams a reply into the body, the user's own edits wait (`textView(_:shouldChangeTextIn:…)`).
+    var refusesBodyEdits = false
     private var statusObservation: StoreObservation?
     /// The body holds, or held, a signature this window put there, or is a reopened draft left as the user had it.
     /// A From change then replaces only a signature still in the body: one the user deleted is not added again.
@@ -622,6 +626,12 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         return true
     }
 
+    /// While Help me write streams a reply into the body, typing, pasting and a From change's signature wait: the reply and
+    /// the user's own edits never interleave (§5.55).
+    func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange, replacementString: String?) -> Bool {
+        !(textView === self.textView && refusesBodyEdits)
+    }
+
     func textDidChange(_ notification: Notification) {
         // A From change replacing the signature reports itself as a header edit (`fromChanged`).
         if !isReplacingSignature { draftChanged(body: true) }
@@ -925,6 +935,11 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     private func autosave() {
         autosaveTimer = nil
         guard !isSending, !closesWithoutSaving else { return }
+        // A reply streaming in (§5.55) is kept once it is the user's, as one edit; until then the draft waits.
+        if refusesBodyEdits {
+            scheduleAutosave()
+            return
+        }
         guard isWorthKeeping else {
             if hasStoredDraft {
                 ComposeDraftStore.shared.remove(id: draftID)
@@ -1363,6 +1378,8 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     /// holding the user's work stays open, since Esc must never throw work away. Every field and the window call it,
     /// so it answers wherever the keyboard is.
     @objc func escapeComposer(_ sender: Any?) {
+        // Help me write's card takes Esc first: it stops a write, or closes (§6.1).
+        if writeSession?.escape() == true { return }
         guard !isSending, !isWorthKeeping, !isTypingAnAddress else { return }
         window?.performClose(nil)
     }
@@ -1397,6 +1414,10 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         case #selector(toggleFormatRow(_:)):
             menuItem.title = content.showsFormatRow ? "Hide Format Row" : "Show Format Row"
             return true
+        case #selector(helpMeWrite(_:)):
+            // New messages and forwards answer no one: the item says so rather than writing to nobody (§5.55).
+            menuItem.toolTip = repliesTo == nil ? "Help Me Write works on replies" : nil
+            return canHelpMeWrite
         default:
             return true
         }
@@ -1416,6 +1437,8 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     /// The synchronous save behind closing and quitting: content worth keeping is written before returning,
     /// a draft that no longer holds anything worth keeping is removed.
     private func keepDraftNow() {
+        // A reply still streaming in is not the user's yet: the body goes back to what they wrote before it is kept.
+        closeWriteCard()
         // A picture still being prepared goes into this save: the window will not be there to save it later.
         textView.finishPreparingPictures()
         autosaveTimer?.invalidate()
@@ -1439,6 +1462,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     }
 
     func windowWillClose(_ notification: Notification) {
+        closeWriteCard()
         prefillTask?.cancel()
         autosaveTimer?.invalidate()
         statusObservation?.cancel()
@@ -1499,6 +1523,10 @@ final class ComposeWindow: NSWindow {
     }
 
     @objc func undo(_ sender: Any?) {
+        if WriteSession.isStreaming(in: self) {
+            NSSound.beep()
+            return
+        }
         switch undoTarget {
         case .typing: undoManager?.undo()
         case .send(let id): UndoSendPanel.panel(sendID: id)?.undo()
@@ -1506,7 +1534,27 @@ final class ComposeWindow: NSWindow {
         }
     }
 
+    /// While Help me write streams a reply into a field here, Undo and Redo wait: the stack's text steps belong to the text
+    /// as it was before the write, and the write ends in one step of its own (§5.55, §6.1).
+    @objc func redo(_ sender: Any?) {
+        if WriteSession.isStreaming(in: self) {
+            NSSound.beep()
+            return
+        }
+        undoManager?.redo()
+    }
+
+    /// Undo and Redo are disabled while a reply streams in (§6.1); nil when the item is neither or nothing streams.
+    private func validateWhileWriting(_ menuItem: NSMenuItem) -> Bool? {
+        guard menuItem.action == #selector(undo(_:)) || menuItem.action == #selector(redo(_:)), WriteSession.isStreaming(in: self) else {
+            return nil
+        }
+        menuItem.title = menuItem.action == #selector(undo(_:)) ? "Can\u{2019}t Undo" : "Can\u{2019}t Redo"
+        return false
+    }
+
     override func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if let answer = validateWhileWriting(menuItem) { return answer }
         guard menuItem.action == #selector(undo(_:)) else { return super.validateMenuItem(menuItem) }
         switch undoTarget {
         case .typing:

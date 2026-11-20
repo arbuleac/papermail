@@ -52,14 +52,23 @@ enum AppSnapshots {
     /// The mailbox size Settings › General shows in a snapshot, so the render never depends on the Mac's mail.
     static let mailboxSize: @Sendable () -> Int64 = { 292_000_000 }
 
-    /// Accounts, OAuth, General and Appearance, one under the other.
+    /// Accounts, OAuth, General, Appearance and AI, one under the other. AI shows Claude with a key and the permission
+    /// given, held for the render without writing the user's settings or reading their Keychain.
     static func renderSettingsTabs(_ controller: SettingsWindowController, completion: @escaping (NSBitmapImageRep?) -> Void) {
         let model = controller.model
-        let steps: [() -> Void] = [{ model.tab = .accounts }, { model.tab = .oauth }, { model.tab = .general }, { model.tab = .appearance }]
+        let ai = controller.ai
+        let steps: [() -> Void] = [
+            { model.tab = .accounts }, { model.tab = .oauth }, { model.tab = .general }, { model.tab = .appearance },
+            {
+                ai.showForSnapshot(provider: .claudeAPI, status: .ready("Ready \u{00b7} Claude Opus 5.5"), hasKey: true, hasConsent: true)
+                model.tab = .ai
+            },
+        ]
         render(controller, steps: steps, completion: completion)
     }
 
-    /// The Accounts, OAuth and General states of §5.40 that demo mode can show. The OAuth fields are put back before
+
+    /// The Accounts, OAuth, General and AI states of §5.40 that demo mode can show. The OAuth fields are put back before
     /// the window closes; nothing here saves, Mail links neither asks nor changes which app opens mail links, At login
     /// neither asks nor changes the Mac's login items, and Notifications' line neither asks nor opens System Settings.
     static func renderSettingsStates(_ controller: SettingsWindowController, completion: @escaping (NSBitmapImageRep?) -> Void) {
@@ -67,6 +76,8 @@ enum AppSnapshots {
         let defaultMailApp = controller.defaultMailApp
         let launchAtLogin = controller.launchAtLogin
         let notificationPermission = controller.notificationPermission
+        let ai = controller.ai
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
         let accounts = model.accounts
         let original = model.oauth
         let steps: [() -> Void] = [
@@ -91,6 +102,15 @@ enum AppSnapshots {
             // Notifications: off for SuperSparrow in System Settings, then only the Dock badge off there.
             { launchAtLogin.showForSnapshot(.off); notificationPermission.showForSnapshot(.denied) },
             { notificationPermission.showForSnapshot(.allowedWithoutBadge) },
+            // AI (§5.55), held for the render: Off; Claude Code found and signed in; Codex not found; OpenAI without a key;
+            // Claude checking.
+            { notificationPermission.showForSnapshot(.allowed); ai.showForSnapshot(provider: nil, status: .none); model.tab = .ai },
+            { ai.showForSnapshot(provider: .claudeCode, status: .ready("Claude Code 2.1.322 \u{00b7} signed in with claude.ai"),
+                                 hasConsent: true, cliPath: home + "/.local/bin/claude") },
+            { ai.showForSnapshot(provider: .codex,
+                                 status: .needsSetup("Codex not found in ~/.local/bin, /opt/homebrew/bin or /usr/local/bin. Choose\u{2026}")) },
+            { ai.showForSnapshot(provider: .openAIAPI, status: .needsSetup("Add your API key")) },
+            { ai.showForSnapshot(provider: .claudeAPI, status: .checking, hasKey: true) },
         ]
         render(controller, steps: steps) { bitmap in
             model.oauth = original

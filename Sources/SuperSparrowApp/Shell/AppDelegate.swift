@@ -510,6 +510,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             self.connectCalendar(account, origin: .main, done: done)
         }
         window.onOpenSettings = { [weak self] in self?.openSettings() }
+        environment.helpMeWrite.openSettings = { [weak self] in self?.openSettings(tab: .ai) }
         window.onOpenAccountsSettings = { [weak self] in self?.openSettings(tab: .accounts) }
         window.onTryDemo = { [weak self] in self?.switchToDemo() }
         window.onCancelSignIn = { [weak self] in self?.cancelSignIn() }

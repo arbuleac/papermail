@@ -4,7 +4,7 @@ import SSCore
 import SSDesign
 import SwiftUI
 
-/// The Settings window (spec §5.40): a system window with the toolbar tab style (Accounts, OAuth, General, Appearance),
+/// The Settings window (spec §5.40): a system window with the toolbar tab style (Accounts, OAuth, General, Appearance, AI),
 /// 560 pt wide on `canvas`, as tall as the current tab's content. Everything inside a tab is Quire-drawn
 /// SwiftUI; the toolbar and its tabs are the system's. A theme switch reaches all of it in place: each tab redraws under
 /// its `QuireThemeRoot`, and the environment's redraw sweep assigns the window's `canvas` again.
@@ -19,6 +19,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     let notificationPermission: NotificationPermissionModel
     /// The size beside General's Keep mail on this Mac.
     let mailboxSize: MailboxSizeModel
+    /// Settings › AI: Help Me Write's provider, key or CLI, model and permission.
+    let ai: AISettingsModel
     private let environment: AppEnvironment
     private let tabs: SettingsTabViewController
     private var statusObservation: StoreObservation?
@@ -41,8 +43,9 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         mailboxSize = MailboxSizeModel(measure: measureMailbox ?? {
             AppEnvironment.footprint(databasePath: databasePath, attachmentDirectory: attachments)
         })
+        ai = AISettingsModel(settings: settings, center: environment.helpMeWrite)
         tabs = SettingsTabViewController(model: model, settings: settings, defaultMailApp: defaultMailApp, mailboxSize: mailboxSize,
-                                         launchAtLogin: launchAtLogin, notificationPermission: notificationPermission)
+                                         launchAtLogin: launchAtLogin, notificationPermission: notificationPermission, ai: ai)
         let window = NSWindow(contentViewController: tabs)
         window.styleMask = [.titled, .closable]
         window.toolbarStyle = .preference
@@ -162,7 +165,7 @@ final class SettingsTabViewController: NSTabViewController {
     private var isSyncingSelection = false
 
     init(model: SettingsModel, settings: AppSettings, defaultMailApp: DefaultMailAppModel, mailboxSize: MailboxSizeModel,
-         launchAtLogin: LaunchAtLoginModel, notificationPermission: NotificationPermissionModel) {
+         launchAtLogin: LaunchAtLoginModel, notificationPermission: NotificationPermissionModel, ai: AISettingsModel) {
         self.model = model
         super.init(nibName: nil, bundle: nil)
         tabStyle = .toolbar
@@ -176,6 +179,7 @@ final class SettingsTabViewController: NSTabViewController {
                title: "General", symbol: Quire.Icon.generalTab)
         // Appended, so no tab a user knows moves.
         addTab(AppearanceSettingsView(settings: settings), title: "Appearance", symbol: Quire.Icon.appearanceTab)
+        addTab(AISettingsView(model: ai), title: "AI", symbol: Quire.Icon.aiTab)
         selectedTabViewItemIndex = Self.index(of: model.tab)
         tabObservation = model.$tab.removeDuplicates().sink { [weak self] tab in
             MainActor.assumeIsolated { self?.select(tab) }
@@ -204,6 +208,7 @@ final class SettingsTabViewController: NSTabViewController {
         case .oauth: return 1
         case .general: return 2
         case .appearance: return 3
+        case .ai: return 4
         }
     }
 
@@ -212,6 +217,7 @@ final class SettingsTabViewController: NSTabViewController {
         case 1: return .oauth
         case 2: return .general
         case 3: return .appearance
+        case 4: return .ai
         default: return .accounts
         }
     }

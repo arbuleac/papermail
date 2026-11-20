@@ -13,7 +13,8 @@ import SwiftUI
 public struct QuirePopup<Value: Hashable>: View {
     let title: String
     @Binding var selection: Value
-    let options: [Value]
+    /// The menu's groups in order; a group with a title gets a section header (Settings › AI's providers, by company).
+    let sections: [(title: String?, options: [Value])]
     let width: CGFloat?
     let itemTitle: (Value) -> String
     let swatch: ((Value) -> Int)?
@@ -25,7 +26,19 @@ public struct QuirePopup<Value: Hashable>: View {
                 title itemTitle: @escaping (Value) -> String) {
         self.title = title
         _selection = selection
-        self.options = options
+        sections = [(nil, options)]
+        self.width = width
+        self.itemTitle = itemTitle
+        self.swatch = nil
+    }
+
+    /// A popup whose choices come in groups, each under its title in the menu (§5.27): Settings › AI's Provider, Off
+    /// first and then the providers by where the mail goes (§5.40).
+    public init(_ title: String, selection: Binding<Value>, sections: [(title: String?, options: [Value])], width: CGFloat? = nil,
+                title itemTitle: @escaping (Value) -> String) {
+        self.title = title
+        _selection = selection
+        self.sections = sections
         self.width = width
         self.itemTitle = itemTitle
         self.swatch = nil
@@ -36,7 +49,7 @@ public struct QuirePopup<Value: Hashable>: View {
                 title itemTitle: @escaping (Value) -> String, swatch: @escaping (Value) -> Int) {
         self.title = title
         _selection = selection
-        self.options = options
+        sections = [(nil, options)]
         self.width = width
         self.itemTitle = itemTitle
         self.swatch = swatch
@@ -45,8 +58,19 @@ public struct QuirePopup<Value: Hashable>: View {
     public var body: some View {
         Menu {
             Picker(selection: $selection) {
-                ForEach(options, id: \.self) { option in
-                    item(option).tag(option)
+                ForEach(sections.indices, id: \.self) { index in
+                    let section = sections[index]
+                    if let header = section.title {
+                        Section(header) {
+                            ForEach(section.options, id: \.self) { option in
+                                item(option).tag(option)
+                            }
+                        }
+                    } else {
+                        ForEach(section.options, id: \.self) { option in
+                            item(option).tag(option)
+                        }
+                    }
                 }
             } label: {
                 EmptyView()

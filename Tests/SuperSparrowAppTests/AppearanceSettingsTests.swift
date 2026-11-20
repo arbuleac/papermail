@@ -47,7 +47,7 @@ final class AppearanceSettingsTests: XCTestCase {
         let (controller, window, tab) = try settingsWindow(settings)
         defer { controller.tearDown() }
         let tabs = try XCTUnwrap(window.contentViewController as? NSTabViewController)
-        XCTAssertEqual(tabs.tabViewItems.map(\.label), ["Accounts", "OAuth", "General", "Appearance"])
+        XCTAssertEqual(tabs.tabViewItems.map(\.label), ["Accounts", "OAuth", "General", "Appearance", "AI"])
         XCTAssertNotNil(tabs.tabViewItems[3].image, "the tab's symbol draws")
         XCTAssertEqual(Quire.Icon.appearanceTab, "paintpalette", "circle.lefthalf.filled is Original colours'")
         XCTAssertEqual(tabs.selectedTabViewItemIndex, 3)

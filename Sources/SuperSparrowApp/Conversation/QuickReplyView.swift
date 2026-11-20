@@ -101,6 +101,40 @@ final class QuickReplyView: NSView, QuirePointerTarget {
         }
     }
 
+    // MARK: Help me write (§5.55)
+
+    /// The field's text view, which Help me write writes into.
+    var writingTextView: NSTextView { textView }
+
+    /// Help me write's card is open on the field: the bar stays open around its text, as if focused, while the keyboard
+    /// is in the card.
+    var isHeldOpen = false {
+        didSet {
+            guard oldValue != isHeldOpen else { return }
+            updatePlaceholder()
+            updateHeight(animated: false)
+            needsLayout = true
+            needsDisplay = true
+        }
+    }
+
+    /// While Help me write streams a reply into the field, the user's own edits are refused and nothing sends.
+    var refusesEdits = false {
+        didSet { if oldValue != refusesEdits { needsLayout = true } }
+    }
+
+    /// Asked first on Esc in the field: Help me write takes it to stop a write (§6.1) before the window's order runs.
+    var claimsEscape: (() -> Bool)?
+
+    /// The text changed under the field without an edit (a reply streaming in): its height and placeholder follow.
+    func textDidChangeByWriting() {
+        textDidChange()
+        textView.scrollRangeToVisible(textView.selectedRange())
+    }
+
+    /// The bar looks focused: it is, or Help me write's card holds it open.
+    private var looksFocused: Bool { isFocused || isHeldOpen }
+
     private(set) var isFocused = false
     private(set) var barHeight: CGFloat = QuickReplyView.restBarHeight(at: QuireEnvironment.textSize)
     var stripState: QuickReplyStripView.State? { strip.state }
@@ -404,7 +438,7 @@ final class QuickReplyView: NSView, QuirePointerTarget {
     /// Field height: 9 + lines × 21 + 8 at rest (one line), 9 + lines × 21 + 4 + 28 + 4 focused (spec §5.18).
     private var fieldHeight: CGFloat {
         let m = Quire.Layout.QuickReply.self
-        guard isFocused, !isComposerOpen else { return restField }
+        guard looksFocused, !isComposerOpen else { return restField }
         return min(m.fieldMax + m.maxLines * lineStep, m.fieldPadTop + CGFloat(lineCount) * lineHeight + m.toolRowGap + m.toolRow + m.toolRowBottom)
     }
 
@@ -414,7 +448,7 @@ final class QuickReplyView: NSView, QuirePointerTarget {
         return NSRect(x: column.x, y: m.barPadY, width: column.width, height: max(restField, bounds.height - 2 * m.barPadY))
     }
 
-    private var showsToolRow: Bool { isFocused && !isComposerOpen && strip.isHidden }
+    private var showsToolRow: Bool { looksFocused && !isComposerOpen && strip.isHidden }
 
     /// Where the face, the R keycap and the Send circle sit in `field`. All three are centred on the field at rest, so
     /// they stay in line with each other and with its one line at every Text size (spec §4.15): at Default the face's
@@ -468,15 +502,15 @@ final class QuickReplyView: NSView, QuirePointerTarget {
         let toolRow = showsToolRow
         let trailing = toolRow ? m.focusedTrailing : m.restTrailing
         let textWidth = max(0, field.width - m.textX - trailing)
-        let lines = isFocused ? lineCount : 1
+        let lines = looksFocused ? lineCount : 1
         scrollView.frame = NSRect(x: field.minX + m.textX, y: field.minY + m.fieldPadTop, width: textWidth, height: CGFloat(lines) * lineHeight)
         textView.frame.size.width = scrollView.contentSize.width
-        scrollView.hasVerticalScroller = isFocused && lineCount >= Int(m.maxLines)
+        scrollView.hasVerticalScroller = looksFocused && lineCount >= Int(m.maxLines)
         let placeholderHeight = ReaderFonts.fieldHeight(placeholder)
         placeholder.frame = NSRect(x: field.minX + m.textX - 2, y: (field.minY + m.fieldPadTop + (lineHeight - placeholderHeight) / 2).rounded(),
                                    width: textWidth + 4, height: placeholderHeight)
         // Unfocused with text, the field shows its first line tail-truncated so the reader does not jump.
-        let showsPreview = !isFocused && !text.isEmpty && strip.isHidden
+        let showsPreview = !looksFocused && !text.isEmpty && strip.isHidden
         // While a composer holds the draft the field only brings it forward: the text view, empty, would take the click
         // and the typing it no longer owns.
         scrollView.isHidden = !strip.isHidden || showsPreview || isComposerOpen
@@ -498,7 +532,7 @@ final class QuickReplyView: NSView, QuirePointerTarget {
         send.isHidden = !toolRow
         sendOptions.isHidden = !toolRow
         send.keycap = keycaps ? "⌘↩" : nil
-        send.isEnabled = status != .noRecipients && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        send.isEnabled = status != .noRecipients && !refusesEdits && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         send.toolTip = sendToolTip
         let tabSize = tabs.intrinsicContentSize
         tabs.frame = tabs.frame(forVisualRect: NSRect(x: field.minX + m.textX, y: rowY, width: tabSize.width, height: m.toolRow))
@@ -687,7 +721,7 @@ final class QuickReplyView: NSView, QuirePointerTarget {
 
     private func send(as action: SendAction) {
         let typed = text
-        guard !typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, status != .noRecipients else { return }
+        guard !typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, status != .noRecipients, !refusesEdits else { return }
         onSend?(typed, mode, action)
     }
 
@@ -746,11 +780,14 @@ final class QuickReplyView: NSView, QuirePointerTarget {
     /// The Send button's tooltip and VoiceOver name as set now (tests).
     var sendButtonHelp: (toolTip: String?, label: String?) { (send.toolTip, send.accessibilityLabel()) }
 
+    // While a reply streams in, the text is not the user's yet: it moves to no composer until the write ends.
     @objc private func openInComposerPressed() {
+        guard !refusesEdits else { return }
         onOpenInComposer?(text, mode)
     }
 
     @objc private func attachPressed() {
+        guard !refusesEdits else { return }
         if let onAttach { onAttach(text, mode) } else { onOpenInComposer?(text, mode) }
     }
 
@@ -769,6 +806,7 @@ final class QuickReplyView: NSView, QuirePointerTarget {
     /// The owner applies the window's Esc order (§6.1: a toast first, then back to the list); with no owner the
     /// field just lets go of focus. The text stays either way.
     private func escape(repeated: Bool) {
+        if claimsEscape?() == true { return }
         if let onEscape { onEscape(repeated) } else { blur() }
     }
 
@@ -797,7 +835,7 @@ final class QuickReplyView: NSView, QuirePointerTarget {
         let words: String
         if isComposerOpen {
             words = "Reply in the composer"
-        } else if !isFocused, !text.isEmpty {
+        } else if !looksFocused, !text.isEmpty {
             let first = text.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: true).first.map(String.init) ?? text
             placeholder.attributedStringValue = ReaderFonts.fieldString(QuireFont.attributedString(first, role: .writing, color: .qInk,
                                                                                                    textSize: textSize))
@@ -863,10 +901,15 @@ extension QuickReplyView: NSTextViewDelegate {
         textDidChange()
     }
 
+    /// While Help me write streams into the field, typing waits: the reply and the user's keys never interleave.
+    func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange, replacementString: String?) -> Bool {
+        !refusesEdits
+    }
+
     private func textDidChange() {
         if status == .error || status == .noRecipients, text.isEmpty { status = .none }
         updatePlaceholder()
-        placeholder.isHidden = !text.isEmpty && isFocused
+        placeholder.isHidden = !text.isEmpty && looksFocused
         updateHeight(animated: false)
         needsLayout = true
     }
