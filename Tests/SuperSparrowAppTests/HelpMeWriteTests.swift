@@ -194,10 +194,18 @@ final class HelpMeWriteTests: XCTestCase {
 
     func testTheCLIsConsentSaysWhosePlanAndTheDemoSaysNothingLeaves() {
         XCTAssertTrue(AppAlert.helpMeWriteConsent(.claudeCode).body.hasSuffix("Through Claude Code, under your Claude plan\u{2019}s privacy settings."))
-        XCTAssertTrue(AppAlert.helpMeWriteConsent(.codex).body.contains("Through Codex, under your ChatGPT plan"))
+        XCTAssertTrue(AppAlert.helpMeWriteConsent(.codex).body.hasSuffix("Through Codex, under your OpenAI account\u{2019}s privacy settings."),
+                      "Codex may be signed in with a key, not a ChatGPT plan")
         XCTAssertEqual(AppAlert.helpMeWriteConsent(.openAIAPI).title, "Send this conversation to OpenAI?")
-        XCTAssertTrue(AppAlert.helpMeWriteConsent(.claudeAPI, demo: true).body.hasSuffix("nothing is sent."))
+        XCTAssertTrue(AppAlert.helpMeWriteConsent(.claudeAPI).body.contains("Addresses from the conversation, attachments and other mail never do."),
+                      "the user's own notes go as typed: the promise is about the conversation's addresses")
+        let demo = AppAlert.helpMeWriteConsent(.claudeAPI, demo: true)
+        XCTAssertEqual(demo.title, "Try Help Me Write?")
+        XCTAssertEqual(demo.body, "In the demo, replies are made up on this Mac. Nothing is sent.")
+        XCTAssertFalse(demo.body.contains("Anthropic"), "no company is named where nothing goes to one")
+        XCTAssertEqual(demo.buttons.map(\.title), ["Cancel", "Allow"])
         XCTAssertTrue(AppAlert.specimens.contains { $0.title == "Send this conversation to Anthropic?" })
+        XCTAssertTrue(AppAlert.specimens.contains { $0.title == "Try Help Me Write?" })
     }
 
     // MARK: Writing
@@ -387,6 +395,240 @@ final class HelpMeWriteTests: XCTestCase {
         ComposeDraftStore.shared.waitForWrites()
         let kept = try XCTUnwrap(ComposeDraftStore.shared.draft(id: draftID, accounts: accounts))
         XCTAssertEqual(kept.body.string, "will read tonight", "the kept draft holds the user's words, not half a reply")
+    }
+
+    // MARK: Nothing else takes or edits a reply streaming in
+
+    private func pendingSends(_ harness: MainWindowHarness) -> [PendingSend] {
+        (try? harness.environment.store.pendingSends()) ?? []
+    }
+
+    /// A write resting mid-reply in the quick reply, over `notes`.
+    private func streaming(_ notes: String, _ harness: MainWindowHarness, _ script: DemoAIScript) throws -> (NSTextView, WriteSession) {
+        harness.settings.setAIConsent(true, for: .claudeAPI, demo: false)
+        script.holdsAfter = 2
+        let field = type(notes, harness)
+        let session = try openCard(harness)
+        session.write()
+        XCTAssertTrue(ListTestSupport.spin(until: { field.string == "One two three four " }, timeout: 5))
+        XCTAssertEqual(session.state, .writing)
+        return (field, session)
+    }
+
+    func testTheQuickReplyNeitherSendsNorSchedulesAHalfWrittenReply() throws {
+        let (harness, script) = try harness(reply: "One two three four five six seven eight")
+        defer { harness.close() }
+        let (field, session) = try streaming("my notes", harness, script)
+        let bar = harness.reader.quickReplyBar
+        bar.layoutSubtreeIfNeeded()
+        XCTAssertEqual(bar.sendControlsEnabled.send, false)
+        XCTAssertEqual(bar.sendControlsEnabled.options, false, "the drop-down and its Send Later times wait too")
+        let later = Date().addingTimeInterval(3_600)
+        bar.sendLater(at: later)
+        harness.reader.sendQuickReplyLater(field.string, mode: .reply, at: later)
+        harness.reader.sendQuickReply(field.string, mode: .reply)
+        XCTAssertEqual(pendingSends(harness).count, 0, "half a reply is never sent or scheduled")
+        ListTestSupport.spin(for: 0.2)
+        XCTAssertEqual(field.string, "One two three four ", "and the stream goes on where it was")
+        XCTAssertEqual(session.state, .writing)
+        session.stop()
+        XCTAssertEqual(field.string, "my notes")
+        bar.layoutSubtreeIfNeeded()
+        XCTAssertEqual(bar.sendControlsEnabled.options, true)
+    }
+
+    func testAComposerNeitherSendsNorSchedulesAHalfWrittenReply() throws {
+        let (harness, script) = try harness(reply: "One two three four five six seven eight")
+        defer { harness.close() }
+        harness.settings.setAIConsent(true, for: .claudeAPI, demo: false)
+        script.holdsAfter = 2
+        let accounts = harness.controller.accounts
+        let original = MessageID(accountID: ListTestSupport.accountA.id, providerID: "msg-2-2")
+        let composer = ComposeWindowController.present(client: harness.environment.engine, account: accounts[0], accounts: accounts,
+                                                       mode: .reply(original, all: false))
+        composer.window?.makeFirstResponder(composer.bodyEditor)
+        let send = NSMenuItem(title: "Send", action: #selector(ComposeWindowController.send(_:)), keyEquivalent: "\r")
+        let sendAndArchive = NSMenuItem(title: "Send and Archive", action: #selector(ComposeWindowController.sendAndArchive(_:)),
+                                        keyEquivalent: "\r")
+        let sendLater = NSMenuItem(title: "Send Later…", action: #selector(ComposeWindowController.sendLater(_:)), keyEquivalent: "l")
+        XCTAssertTrue(ListTestSupport.spin(until: { composer.validateMenuItem(send) }, timeout: 3),
+                      "a reply with its recipient can be sent")
+        composer.helpMeWrite(nil)
+        let session = try XCTUnwrap(composer.writeSession)
+        session.write()
+        XCTAssertTrue(ListTestSupport.spin(until: { composer.bodyText.hasPrefix("One two three four") }, timeout: 5))
+        for item in [send, sendAndArchive, sendLater] {
+            XCTAssertFalse(composer.validateMenuItem(item), "\(item.title): ⌘↩, ⇧⌘↩ and ⇧⌘L wait for the write")
+        }
+        XCTAssertFalse(composer.content.bottomBar.sendButton.isEnabled)
+        composer.send(nil)
+        composer.sendAndArchive(nil)
+        composer.sendLater(at: Date().addingTimeInterval(3_600))
+        XCTAssertEqual(pendingSends(harness).count, 0, "nothing is queued with half a reply in it")
+        XCTAssertTrue(composer.window?.isVisible ?? false)
+        if accounts.count > 1 {
+            composer.chooseFrom(accounts[1].id)
+            XCTAssertEqual(composer.account.id, accounts[0].id, "From waits: the body would refuse the new signature")
+        }
+        XCTAssertEqual(session.state, .writing)
+        session.stop()
+        XCTAssertTrue(composer.validateMenuItem(send))
+        XCTAssertTrue(composer.content.bottomBar.sendButton.isEnabled)
+    }
+
+    func testTheSendLaterUndoMidWriteKeepsTheUsersTextAndStopsTheWrite() throws {
+        let (harness, script) = try harness(reply: "One two three four five six seven eight")
+        defer { harness.close() }
+        var scheduled: SendLaterScheduled?
+        let observer = NotificationCenter.default.addObserver(forName: SendLaterScheduled.didSchedule, object: nil, queue: nil) { note in
+            scheduled = note.userInfo?[SendLaterScheduled.userInfoKey] as? SendLaterScheduled
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        XCTAssertTrue(harness.reader.focusQuickReply(all: false))
+        let bar = harness.reader.quickReplyBar
+        bar.text = "Thanks, see you Monday"
+        bar.sendLater(at: Date().addingTimeInterval(86_400))
+        let undo = try XCTUnwrap(scheduled)
+        let (field, _) = try streaming("my notes", harness, script)
+
+        XCTAssertTrue(undo.undo(), "the toast's Undo, while the reply streams in")
+        XCTAssertNil(harness.reader.writeSession, "the write stops and its card closes first")
+        XCTAssertFalse(WriteSession.isStreaming(in: field.window))
+        XCTAssertEqual(field.string, "Thanks, see you Monday\n\nmy notes", "the unsent reply, then what the user typed")
+        ListTestSupport.spin(for: 0.3)
+        XCTAssertEqual(field.string, "Thanks, see you Monday\n\nmy notes", "and nothing streams into it afterwards")
+        XCTAssertTrue(field.shouldChangeText(in: NSRange(location: 0, length: 0), replacementString: "x"))
+    }
+
+    func testTextSetFromOutsideMidWriteNeverLandsUnderTheStream() throws {
+        let (harness, script) = try harness(reply: "One two three four five six seven eight")
+        defer { harness.close() }
+        let (field, _) = try streaming("my notes", harness, script)
+        harness.reader.quickReplyBar.text = ""
+        XCTAssertNil(harness.reader.writeSession)
+        XCTAssertEqual(field.string, "")
+        ListTestSupport.spin(for: 0.3)
+        XCTAssertEqual(field.string, "", "the stream wrote nothing more, at no stale range")
+        XCTAssertNotEqual(field.undoManager?.undoMenuItemTitle, "Undo Help Me Write")
+    }
+
+    func testAWriterStoppedFromOutsidePutsTheFieldBack() throws {
+        let (harness, script) = try harness(reply: "One two three four five six seven eight")
+        defer { harness.close() }
+        let (field, session) = try streaming("my notes", harness, script)
+        harness.environment.helpMeWrite.writer.stopAll()
+        XCTAssertTrue(ListTestSupport.spin(until: { session.state == .idle }, timeout: 3), "as quitting or leaving the demo stops it")
+        XCTAssertEqual(field.string, "my notes")
+        XCTAssertFalse(WriteSession.isStreaming(in: field.window), "Undo and Redo work again")
+        XCTAssertTrue(field.shouldChangeText(in: NSRange(location: 0, length: 0), replacementString: "x"), "typing works again")
+        XCTAssertNotEqual(field.undoManager?.undoMenuItemTitle, "Undo Help Me Write")
+        XCTAssertTrue(field.undoManager?.isUndoRegistrationEnabled ?? false)
+    }
+
+    // MARK: Rewrites and limits
+
+    func testARewriteKeepsTheSelectionsOwnLineBreak() throws {
+        let (harness, script) = try harness(reply: "Thursday suits me.")
+        defer { harness.close() }
+        harness.settings.setAIConsent(true, for: .claudeAPI, demo: false)
+        let field = type("Tuesday works for me.\nSee you then.", harness)
+        // A triple-click selects the paragraph with its line break.
+        field.setSelectedRange(NSRange(location: 0, length: 22))
+        let session = try openCard(harness)
+        session.write()
+        XCTAssertTrue(ListTestSupport.spin(until: { harness.reader.writeSession == nil }, timeout: 5))
+        XCTAssertEqual(field.string, "Thursday suits me.\nSee you then.")
+        let request = try XCTUnwrap(script.requests.first)
+        XCTAssertTrue(request.task.contains("Tuesday works for me."))
+        field.undoManager?.undo()
+        XCTAssertEqual(field.string, "Tuesday works for me.\nSee you then.")
+    }
+
+    func testASelectionLongerThanWhatIsSentIsRefusedWhole() throws {
+        let (harness, script) = try harness()
+        defer { harness.close() }
+        harness.settings.setAIConsent(true, for: .claudeAPI, demo: false)
+        let long = String(repeating: "word ", count: 1_700) + "end"
+        let field = type(long, harness)
+        field.setSelectedRange(NSRange(location: 0, length: (long as NSString).length))
+        let session = try openCard(harness)
+        session.write()
+        XCTAssertEqual(session.state, .failed(reason: "The selection is too long to rewrite. Select less, then try again.",
+                                              offersSettings: false))
+        ListTestSupport.spin(for: 0.2)
+        XCTAssertTrue(script.requests.isEmpty, "nothing is sent, rather than a cut part the reply would replace whole")
+        XCTAssertEqual(field.string, long)
+
+        field.setSelectedRange(NSRange(location: (long as NSString).length, length: 0))
+        let notes = try openCard(harness)
+        notes.write()
+        XCTAssertEqual(notes.state, .failed(reason: "Your draft is too long to send as notes. Shorten it, or select a part to rewrite.",
+                                            offersSettings: false))
+        XCTAssertTrue(script.requests.isEmpty)
+    }
+
+    func testUndoBringsBackTheTextWithItsAttributes() throws {
+        let (harness, _) = try harness()
+        defer { harness.close() }
+        harness.settings.setAIConsent(true, for: .claudeAPI, demo: false)
+        let field = type("tue 10 ok", harness)
+        let before = NSAttributedString(attributedString: field.attributedString())
+        let session = try openCard(harness)
+        session.write()
+        XCTAssertTrue(ListTestSupport.spin(until: { harness.reader.writeSession == nil }, timeout: 5))
+        XCTAssertEqual(field.selectedRange(), NSRange(location: (field.string as NSString).length, length: 0), "the caret after the reply")
+        field.undoManager?.undo()
+        XCTAssertEqual(field.attributedString(), before, "the text and every attribute, as they were")
+        XCTAssertLessThanOrEqual(NSMaxRange(field.selectedRange()), (field.string as NSString).length)
+        field.undoManager?.redo()
+        XCTAssertEqual(field.string, "Tuesday at ten works. See you then.", "and Redo brings the reply back")
+    }
+
+    // MARK: Needs setup while typing
+
+    func testNeedsSetupFoundWhileTypingKeepsTheKeysOutOfTheReply() throws {
+        let (harness, script) = try harness()
+        defer { harness.close() }
+        script.health = .needsSetup(reason: "Add your API key")
+        let field = type("my notes", harness)
+        let session = try openCard(harness)
+        XCTAssertTrue(session.card.holdsFocus, "the instruction field has the keyboard while the check runs")
+        XCTAssertTrue(ListTestSupport.spin(until: { session.state == .needsSetup(reason: "Add your API key") }, timeout: 3))
+        let window = try XCTUnwrap(field.window)
+        XCTAssertTrue(window.firstResponder === session.card, "the keyboard stays on the card, not the reply")
+        XCTAssertTrue(KeyboardRouter.isTextInput(window.firstResponder), "so a key is not a command either")
+        let key = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                                 windowNumber: window.windowNumber, context: nil, characters: "e",
+                                                 charactersIgnoringModifiers: "e", isARepeat: false, keyCode: 14))
+        session.card.keyDown(with: key)
+        XCTAssertEqual(field.string, "my notes", "what was being typed never lands in the reply")
+        session.escape()
+        XCTAssertNil(harness.reader.writeSession)
+        XCTAssertTrue(window.firstResponder === field, "Esc gives the keyboard back to the reply")
+    }
+
+    // MARK: The failure line
+
+    func testTheFailureLinksAreEvenlySpacedAndAnswerTheirWholeFace() throws {
+        let card = WriteCardView(frame: NSRect(x: 0, y: 0, width: Quire.Layout.WriteCard.width, height: 120))
+        card.configure(state: .failed(reason: "The Anthropic API key was refused", offersSettings: true), isRewrite: false,
+                       sourceLine: "Claude Opus 5.5 · Anthropic")
+        card.frame.size = card.preferredSize
+        card.layoutSubtreeIfNeeded()
+        let pad = SyncLineActionButton.padX
+        let tryAgain = card.tryAgainLink.alignmentRect(forFrame: card.tryAgainLink.frame)
+        let settings = card.settingsLink.alignmentRect(forFrame: card.settingsLink.frame)
+        for (link, face) in [(card.tryAgainLink, tryAgain), (card.settingsLink, settings)] {
+            XCTAssertEqual(face.size, link.intrinsicContentSize, "placed by its visual rect")
+            XCTAssertGreaterThanOrEqual(link.hitRect.height, Quire.Layout.Button.minHit, "a 24 pt target")
+            XCTAssertTrue(link.hitRect.contains(NSPoint(x: link.faceRect.maxX - 1, y: link.faceRect.midY)),
+                          "the label's last letters answer a click")
+        }
+        let statusEnd = card.statusLabel.frame.maxX - 2
+        let space = ceil(QuireFont.attributedString(" ", role: .meta, color: .qInk3).size().width)
+        XCTAssertEqual(tryAgain.minX + pad - statusEnd, space, accuracy: 0.5, "one space after the first dot")
+        let dotStart = settings.minX + pad - space - ceil(QuireFont.attributedString("\u{00b7}", role: .meta, color: .qInk3).size().width)
+        XCTAssertEqual(dotStart - (tryAgain.maxX - pad), space, accuracy: 0.5, "one space each side of the second dot")
     }
 
     // MARK: Breadcrumbs

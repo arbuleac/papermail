@@ -168,10 +168,18 @@ final class AISettingsTests: XCTestCase {
         let notATool = folder.appendingPathComponent("notes.txt")
         try Data("not a tool".utf8).write(to: notATool)
 
-        XCTAssertEqual(AISettingsModel.locateLikeTheProviders(.claudeCode, chosen: tool.path), tool.path, "the chosen one wins")
-        XCTAssertNotEqual(AISettingsModel.locateLikeTheProviders(.claudeCode, chosen: notATool.path), notATool.path,
-                          "a chosen file that can't run is passed over, as the provider passes it over")
-        XCTAssertNil(AISettingsModel.locateLikeTheProviders(.claudeAPI, chosen: tool.path), "an API provider has no CLI")
+        let empty = folder.appendingPathComponent("empty-bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)
+        let nowhere = [empty]
+        let here = [empty, folder]
+        XCTAssertEqual(AISettingsModel.locateLikeTheProviders(.claudeCode, chosen: tool.path, searchFolders: nowhere), tool.path,
+                       "the chosen one wins")
+        XCTAssertNil(AISettingsModel.locateLikeTheProviders(.claudeCode, chosen: notATool.path, searchFolders: nowhere),
+                     "a chosen file that can't run is passed over, as the provider passes it over")
+        XCTAssertEqual(AISettingsModel.locateLikeTheProviders(.claudeCode, chosen: notATool.path, searchFolders: here), tool.path,
+                       "and the folders are searched in order")
+        XCTAssertNil(AISettingsModel.locateLikeTheProviders(.claudeCode, chosen: nil, searchFolders: nowhere))
+        XCTAssertNil(AISettingsModel.locateLikeTheProviders(.claudeAPI, chosen: tool.path, searchFolders: here), "an API provider has no CLI")
     }
 
     func testTheCaptionSaysWhereMailGoesAndForgetAsksAgain() throws {
@@ -207,6 +215,22 @@ final class AISettingsTests: XCTestCase {
         XCTAssertEqual(again.aiCLIPaths[.codex], "/opt/homebrew/bin/codex")
         XCTAssertTrue(again.hasAIConsent(for: .claudeCode, demo: true))
         XCTAssertFalse(again.hasAIConsent(for: .claudeCode, demo: false), "an Allow in the demo never stands for real mail")
+
+        // The demo's provider, model and CLI are its own: trying the demo never turns Help Me Write on for real mail.
+        let freshDefaults = try throwawayDefaults()
+        let fresh = AppSettings(defaults: freshDefaults)
+        fresh.setAIProvider(.claudeCode, demo: true)
+        fresh.setAIModel("haiku", for: .claudeCode, demo: true)
+        fresh.setAICLIPath("/tmp/claude", for: .claudeCode, demo: true)
+        XCTAssertNil(fresh.aiProvider, "the user's own mail stays Off")
+        XCTAssertNil(fresh.aiConfiguration)
+        XCTAssertNil(fresh.aiModels[.claudeCode])
+        XCTAssertNil(fresh.aiCLIPaths[.claudeCode])
+        XCTAssertEqual(fresh.aiConfiguration(demo: true),
+                       AIProviderConfiguration(kind: .claudeCode, model: "haiku", cliPath: "/tmp/claude"))
+        let freshAgain = AppSettings(defaults: freshDefaults)
+        XCTAssertNil(freshAgain.aiConfiguration(demo: false))
+        XCTAssertEqual(freshAgain.aiProvider(demo: true), .claudeCode, "kept across launches, apart")
 
         defaults.set("someLaterProvider", forKey: "aiProvider")
         XCTAssertNil(AppSettings(defaults: defaults).aiProvider, "a provider this version does not know is Off")

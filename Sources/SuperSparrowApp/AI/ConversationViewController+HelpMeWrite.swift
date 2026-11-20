@@ -33,6 +33,9 @@ extension ConversationViewController {
         writeSession?.close()
         writeSession = nil
     }
+
+    /// A reply is streaming into the quick reply: what the field holds is not the user's to send yet.
+    var isWritingReply: Bool { writeSession?.isWriting == true }
 }
 
 /// The quick reply as Help me write's field: its whole text is the user's notes, the card floats above the bar (there is

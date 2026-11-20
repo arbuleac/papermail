@@ -68,6 +68,11 @@ final class AppSettings: ObservableObject {
         static let aiConsent = "aiConsent"
         /// The demo's own, so an Allow given where nothing leaves the Mac never stands for the user's real mail.
         static let demoAIConsent = "aiConsent.demo"
+        /// The demo's provider, models and CLIs, kept apart for the same reason: a choice made while trying the demo
+        /// never turns Help Me Write on for the user's own mail.
+        static let demoAIProvider = "aiProvider.demo"
+        static let demoAIModelPrefix = "demoAIModel."
+        static let demoAICLIPathPrefix = "demoAICLIPath."
     }
 
     /// Account ids are UUIDs, so this can never be one.
@@ -294,14 +299,12 @@ final class AppSettings: ObservableObject {
     /// Settings › AI › Provider: where Help Me Write sends a conversation when the user asks it to write. Nil is Off, the
     /// default, and nothing is ever sent while it is. The demo writer is never a choice, so it is never stored.
     @Published var aiProvider: AIProviderKind? {
-        didSet {
-            guard oldValue != aiProvider else { return }
-            if let aiProvider, aiProvider != .demo {
-                defaults.set(aiProvider.rawValue, forKey: Key.aiProvider)
-            } else {
-                defaults.removeObject(forKey: Key.aiProvider)
-            }
-        }
+        didSet { if oldValue != aiProvider { Self.store(aiProvider, in: defaults, key: Key.aiProvider) } }
+    }
+
+    /// The demo's own choice of provider, kept apart: Off until chosen in the demo, and never the user's.
+    @Published var demoAIProvider: AIProviderKind? {
+        didSet { if oldValue != demoAIProvider { Self.store(demoAIProvider, in: defaults, key: Key.demoAIProvider) } }
     }
 
     /// The model chosen for each provider, so switching providers keeps each one's choice. Absent is the provider's
@@ -311,37 +314,61 @@ final class AppSettings: ObservableObject {
     /// The CLI the user chose with Choose… for Claude Code or Codex; absent means the standard folders.
     @Published private(set) var aiCLIPaths: [AIProviderKind: String]
 
+    /// The demo's models and CLIs, as `aiModels` and `aiCLIPaths`, kept apart.
+    @Published private(set) var demoAIModels: [AIProviderKind: String]
+    @Published private(set) var demoAICLIPaths: [AIProviderKind: String]
+
     /// The providers the user allowed to receive a conversation, outside the demo.
     @Published private(set) var aiConsent: Set<AIProviderKind>
 
     /// The demo's Allows, kept apart: nothing leaves the Mac there, so they never stand for the user's real mail.
     @Published private(set) var demoAIConsent: Set<AIProviderKind>
 
-    /// What Help Me Write uses now, or nil while it is off.
-    var aiConfiguration: AIProviderConfiguration? {
-        aiProvider.map { AIProviderConfiguration(kind: $0, model: aiModels[$0], cliPath: aiCLIPaths[$0]) }
-    }
+    /// What Help Me Write uses now for the user's own mail, or nil while it is off.
+    var aiConfiguration: AIProviderConfiguration? { aiConfiguration(demo: false) }
 
-    func setAIModel(_ model: String?, for kind: AIProviderKind) {
-        let key = Key.aiModelPrefix + kind.rawValue
-        if let model, !model.isEmpty {
-            aiModels[kind] = model
-            defaults.set(model, forKey: key)
-        } else {
-            aiModels[kind] = nil
-            defaults.removeObject(forKey: key)
+    /// What Help Me Write uses now, the demo's in the demo, or nil while it is off there.
+    func aiConfiguration(demo: Bool) -> AIProviderConfiguration? {
+        aiProvider(demo: demo).map { kind in
+            AIProviderConfiguration(kind: kind, model: aiModel(for: kind, demo: demo), cliPath: aiCLIPath(for: kind, demo: demo))
         }
     }
 
-    func setAICLIPath(_ path: String?, for kind: AIProviderKind) {
-        let key = Key.aiCLIPathPrefix + kind.rawValue
-        if let path, !path.isEmpty {
-            aiCLIPaths[kind] = path
-            defaults.set(path, forKey: key)
-        } else {
-            aiCLIPaths[kind] = nil
-            defaults.removeObject(forKey: key)
-        }
+    func aiProvider(demo: Bool) -> AIProviderKind? {
+        demo ? demoAIProvider : aiProvider
+    }
+
+    func setAIProvider(_ kind: AIProviderKind?, demo: Bool) {
+        if demo { demoAIProvider = kind } else { aiProvider = kind }
+    }
+
+    func aiModel(for kind: AIProviderKind, demo: Bool) -> String? {
+        (demo ? demoAIModels : aiModels)[kind]
+    }
+
+    func aiCLIPath(for kind: AIProviderKind, demo: Bool) -> String? {
+        (demo ? demoAICLIPaths : aiCLIPaths)[kind]
+    }
+
+    func setAIModel(_ model: String?, for kind: AIProviderKind, demo: Bool = false) {
+        let value = model.flatMap { $0.isEmpty ? nil : $0 }
+        if demo { demoAIModels[kind] = value } else { aiModels[kind] = value }
+        Self.store(value, in: defaults, key: (demo ? Key.demoAIModelPrefix : Key.aiModelPrefix) + kind.rawValue)
+    }
+
+    func setAICLIPath(_ path: String?, for kind: AIProviderKind, demo: Bool = false) {
+        let value = path.flatMap { $0.isEmpty ? nil : $0 }
+        if demo { demoAICLIPaths[kind] = value } else { aiCLIPaths[kind] = value }
+        Self.store(value, in: defaults, key: (demo ? Key.demoAICLIPathPrefix : Key.aiCLIPathPrefix) + kind.rawValue)
+    }
+
+    /// The demo writer is never a choice, so it is never stored.
+    private static func store(_ kind: AIProviderKind?, in defaults: UserDefaults, key: String) {
+        if let kind, kind != .demo { defaults.set(kind.rawValue, forKey: key) } else { defaults.removeObject(forKey: key) }
+    }
+
+    private static func store(_ value: String?, in defaults: UserDefaults, key: String) {
+        if let value { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) }
     }
 
     /// Whether the user allowed `kind` to receive a conversation: the demo's Allows in the demo, the real ones elsewhere.
@@ -361,6 +388,10 @@ final class AppSettings: ObservableObject {
             aiConsent = kinds
             defaults.set(stored, forKey: Key.aiConsent)
         }
+    }
+
+    private static func storedProvider(_ defaults: UserDefaults, _ key: String) -> AIProviderKind? {
+        defaults.string(forKey: key).flatMap(AIProviderKind.init(rawValue:)).flatMap { AIProviderKind.selectable.contains($0) ? $0 : nil }
     }
 
     private static func storedKinds(_ defaults: UserDefaults, _ key: String) -> Set<AIProviderKind> {
@@ -444,11 +475,12 @@ final class AppSettings: ObservableObject {
         showsDayColumn = defaults.bool(forKey: Key.showsDayColumn)
         hasCalendarAccess = defaults.bool(forKey: Key.hasCalendarAccess)
         // A raw value this version does not know (a provider from a later one) is Off: nothing is sent to a guess.
-        aiProvider = defaults.string(forKey: Key.aiProvider).flatMap(AIProviderKind.init(rawValue:)).flatMap {
-            AIProviderKind.selectable.contains($0) ? $0 : nil
-        }
+        aiProvider = Self.storedProvider(defaults, Key.aiProvider)
+        demoAIProvider = Self.storedProvider(defaults, Key.demoAIProvider)
         aiModels = Self.storedValues(defaults, prefix: Key.aiModelPrefix)
         aiCLIPaths = Self.storedValues(defaults, prefix: Key.aiCLIPathPrefix)
+        demoAIModels = Self.storedValues(defaults, prefix: Key.demoAIModelPrefix)
+        demoAICLIPaths = Self.storedValues(defaults, prefix: Key.demoAICLIPathPrefix)
         aiConsent = Self.storedKinds(defaults, Key.aiConsent)
         demoAIConsent = Self.storedKinds(defaults, Key.demoAIConsent)
         applyUndoSendDelay()

@@ -21,6 +21,9 @@ final class WriteStreamEdit {
     private(set) var shown = ""
     private(set) var range: NSRange
     private(set) var isFinished = false
+    /// The text changed under the stream without it (a reset its owner missed): the edit let it be and ended, rather than
+    /// write at a range the storage no longer holds.
+    private(set) var wasDisturbed = false
     /// The undo manager whose registration this edit turned off, so the same one is turned back on.
     private var silencedUndo: UndoManager?
 
@@ -40,6 +43,7 @@ final class WriteStreamEdit {
     /// all of it when it was replaced (a CLI's authoritative whole text).
     func show(_ text: String) {
         guard !isFinished, text != shown, let storage = textView.textStorage else { return }
+        guard holdsItsRange(in: storage) else { return }
         silenceUndo()
         let now = text as NSString
         let before = shown as NSString
@@ -66,6 +70,7 @@ final class WriteStreamEdit {
         restoreOriginal()
         isFinished = true
         let inserted = NSAttributedString(string: text, attributes: attributes)
+        guard !wasDisturbed else { return false }
         guard let storage = textView.textStorage, inserted.length > 0,
               textView.shouldChangeText(in: originalRange, replacementString: text) else {
             textView.selectedRanges = originalSelection
@@ -88,11 +93,11 @@ final class WriteStreamEdit {
         guard !isFinished else { return }
         restoreOriginal()
         isFinished = true
-        textView.selectedRanges = originalSelection
+        if !wasDisturbed { textView.selectedRanges = originalSelection }
     }
 
     private func restoreOriginal() {
-        if let storage = textView.textStorage, shown != "" || range != originalRange {
+        if let storage = textView.textStorage, shown != "" || range != originalRange, holdsItsRange(in: storage) {
             silenceUndo()
             storage.beginEditing()
             storage.replaceCharacters(in: range, with: original)
@@ -104,6 +109,20 @@ final class WriteStreamEdit {
             silencedUndo.enableUndoRegistration()
             self.silencedUndo = nil
         }
+    }
+
+    /// Whether the storage still holds the stream's range, as it does unless the text was replaced around the stream.
+    /// When it does not, the edit ends here: undo comes back on, and nothing more is written or put back.
+    private func holdsItsRange(in storage: NSTextStorage) -> Bool {
+        guard NSMaxRange(range) > storage.length else { return true }
+        wasDisturbed = true
+        isFinished = true
+        shown = ""
+        if let silencedUndo {
+            silencedUndo.enableUndoRegistration()
+            self.silencedUndo = nil
+        }
+        return false
     }
 
     private func silenceUndo() {

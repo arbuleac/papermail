@@ -108,7 +108,7 @@ enum AppSnapshots {
             { ai.showForSnapshot(provider: .claudeCode, status: .ready("Claude Code 2.1.322 \u{00b7} signed in with claude.ai"),
                                  hasConsent: true, cliPath: home + "/.local/bin/claude") },
             { ai.showForSnapshot(provider: .codex,
-                                 status: .needsSetup("Codex not found in ~/.local/bin, /opt/homebrew/bin or /usr/local/bin. Choose\u{2026}")) },
+                                 status: .needsSetup(AIHealth.notFoundWords(for: .codex))) },
             { ai.showForSnapshot(provider: .openAIAPI, status: .needsSetup("Add your API key")) },
             { ai.showForSnapshot(provider: .claudeAPI, status: .checking, hasKey: true) },
         ]

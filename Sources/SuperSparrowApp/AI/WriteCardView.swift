@@ -92,8 +92,10 @@ final class WriteCardView: NSView, NSTextFieldDelegate, QuirePointerCover {
         messageLabel.lineBreakMode = .byWordWrapping
         messageLabel.cell?.truncatesLastVisibleLine = true
         linkSeparator.setAccessibilityElement(false)
-        for view in [field, actionButton, settingsButton, tryAgainLink, settingsLink, linkSeparator, spinner, statusGlyph, statusLabel,
-                     messageLabel] as [NSView] {
+        // The links last, above the labels: their frames reach past the status line by the focus ring's margin, and the
+        // whole 24 pt hit area must answer.
+        for view in [field, actionButton, settingsButton, linkSeparator, spinner, statusGlyph, statusLabel, messageLabel,
+                     tryAgainLink, settingsLink] as [NSView] {
             content.addSubview(view)
         }
         setAccessibilityElement(true)
@@ -294,20 +296,31 @@ final class WriteCardView: NSView, NSTextFieldDelegate, QuirePointerCover {
             statusGlyph.frame = NSRect(x: x - 1, y: (y + (m.line - c.statusGlyph) / 2).rounded(), width: c.statusGlyph, height: c.statusGlyph)
             x += c.statusGlyph + c.statusGlyphGap
         }
-        let labelWidth = ceil(statusLabel.attributedStringValue.size().width) + 4
-        statusLabel.frame = NSRect(x: x, y: y, width: max(0, min(labelWidth, m.pad + width - x)), height: m.line)
-        x = statusLabel.frame.maxX
+        // A label draws its text `labelInset` in from each edge; `x` follows the text, not the frames.
+        let inset = Self.labelInset
+        let labelWidth = ceil(statusLabel.attributedStringValue.size().width) + 2 * inset
+        statusLabel.frame = NSRect(x: x - inset, y: y, width: max(0, min(labelWidth, m.pad + width - x + inset)), height: m.line)
+        x = statusLabel.frame.maxX - inset
+        // “Couldn't write · Try Again · Open Settings…”: one space of the line's own type on each side of every dot.
+        let space = ceil(QuireFont.attributedString(" ", role: .meta, color: .qInk3).size().width)
         for link in [tryAgainLink, settingsLink] where !link.isHidden {
             if link === settingsLink, !linkSeparator.isHidden {
-                let width = ceil(linkSeparator.attributedStringValue.size().width) + 4
-                linkSeparator.frame = NSRect(x: x, y: y, width: width, height: m.line)
-                x += width
+                let dot = ceil(linkSeparator.attributedStringValue.size().width)
+                linkSeparator.frame = NSRect(x: x + space - inset, y: y, width: dot + 2 * inset, height: m.line)
+                x += space + dot
             }
+            // Placed by its visual rect, as the sync line places its link: the frame adds the focus ring's margin, so the
+            // ring, the 24 pt hit area and the text all sit where the face is.
             let size = link.intrinsicContentSize
-            link.frame = NSRect(x: x, y: (y + (m.line - size.height) / 2).rounded(), width: size.width, height: size.height)
-            x += size.width + 2
+            let visual = NSRect(x: x + space - SyncLineActionButton.padX, y: (y + (m.line - size.height) / 2).rounded(),
+                                width: size.width, height: size.height)
+            link.frame = link.frame(forVisualRect: visual)
+            x = link.alignmentRect(forFrame: link.frame).maxX - SyncLineActionButton.padX
         }
     }
+
+    /// How far an `NSTextField` label draws its text in from each edge.
+    private static let labelInset: CGFloat = 2
 
     // MARK: Pointer
 
@@ -374,6 +387,25 @@ final class WriteCardView: NSView, NSTextFieldDelegate, QuirePointerCover {
         return true
     }
 
+    /// Keeps the keyboard on the card itself in a state without a field: the instruction field it was in went away
+    /// (needs setup, found after the card opened), and keys meant for it must not land in the reply. ↩ opens Settings,
+    /// Esc closes the card and gives the keyboard back to the text; other keys go nowhere.
+    func holdKeyboard() {
+        guard !showsField, let window else { return }
+        holdsKeyboard = true
+        if !window.makeFirstResponder(self) { holdsKeyboard = false }
+    }
+
+    /// Only `holdKeyboard` makes the card itself the first responder: a click on it never takes the keyboard from the text.
+    private var holdsKeyboard = false
+
+    override var acceptsFirstResponder: Bool { holdsKeyboard && !showsField }
+
+    override func resignFirstResponder() -> Bool {
+        holdsKeyboard = false
+        return super.resignFirstResponder()
+    }
+
     /// Whether the keyboard is in the card (its field's editor included).
     var holdsFocus: Bool {
         guard let responder = window?.firstResponder else { return false }
@@ -421,8 +453,21 @@ final class WriteCardView: NSView, NSTextFieldDelegate, QuirePointerCover {
             if !showsField { onOpenSettings?() } else if state != .writing { onWrite?() }
             return
         }
+        if event.keyCode == 53 {
+            onEscape?()
+            return
+        }
+        // Holding the keyboard, the rest of what was being typed for the instruction goes nowhere: not into the reply, and
+        // not to a single-key command (`KeyboardRouter.isTextInput` counts the card as text). Tab still moves on.
+        if holdsKeyboard, event.modifierFlags.intersection([.command, .control]).isEmpty,
+           event.specialKey != .tab, event.specialKey != .backTab {
+            return
+        }
         super.keyDown(with: event)
     }
+
+    /// The card holds the keyboard itself (`holdKeyboard`): it takes the keys a text field would.
+    var takesTyping: Bool { holdsKeyboard && window?.firstResponder === self }
 
     override func mouseDown(with event: NSEvent) {
         // Clicks on the card's own surface stay in it.

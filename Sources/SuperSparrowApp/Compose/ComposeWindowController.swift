@@ -107,8 +107,17 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     private var linkPopover: ComposeLinkPopover?
     /// Help me write's card on the body, while one is open (§5.55).
     var writeSession: WriteSession?
-    /// While Help me write streams a reply into the body, the user's own edits wait (`textView(_:shouldChangeTextIn:…)`).
-    var refusesBodyEdits = false
+    /// While Help me write streams a reply into the body, the user's own edits wait (`textView(_:shouldChangeTextIn:…)`),
+    /// and so does everything else that would take the half-written reply or edit around it: Send, ⌘↩, Send and Archive
+    /// and Send Later, which would send it; From, whose signature swap the body would refuse; and the other fields,
+    /// whose edits the silenced undo would not record (§5.55).
+    var refusesBodyEdits = false {
+        didSet {
+            guard oldValue != refusesBodyEdits else { return }
+            updateEditLock()
+            updateSendEnabled()
+        }
+    }
     private var statusObservation: StoreObservation?
     /// The body holds, or held, a signature this window put there, or is a reopened draft left as the user had it.
     /// A From change then replaces only a signature still in the body: one the user deleted is not added again.
@@ -420,7 +429,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     private func populateFromPopup() {
         fromPopup.titles = accounts.map(AccountLabels.senderTitle(for:))
         selectAccountInFromPopup()
-        fromPopup.isEnabled = accounts.count > 1
+        fromPopup.isEnabled = accounts.count > 1 && !refusesBodyEdits
     }
 
     private func selectAccountInFromPopup() {
@@ -463,6 +472,12 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     // MARK: Header actions
 
     @objc private func fromChanged(_ sender: Any?) {
+        // A reply streaming in keeps the From it was asked under: the body would refuse the new signature.
+        guard !refusesBodyEdits else {
+            selectAccountInFromPopup()
+            NSSound.beep()
+            return
+        }
         guard accounts.indices.contains(fromPopup.selectedIndex) else { return }
         let chosen = accounts[fromPopup.selectedIndex]
         guard chosen.id != account.id else { return }
@@ -1084,7 +1099,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     }
 
     private func send(as action: SendAction) {
-        guard !isSending, !isPrefilling, validateRecipients() else {
+        guard !isSending, !isPrefilling, !refusesBodyEdits, validateRecipients() else {
             NSSound.beep()
             return
         }
@@ -1105,6 +1120,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     /// Send's drop-down (§5.23): the two actions, the default checked; choosing one makes it the default for every Send
     /// button and ⌘↩. It never sends. Hung from the chevron; tracks until dismissed.
     @objc func showSendOptions(_ sender: Any?) {
+        guard !isSending, !refusesBodyEdits else { return }
         SendActionMenu.popUp(sendOptionsMenu(), from: bar.sendOptionsButton)
     }
 
@@ -1117,7 +1133,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
 
     /// ⇧⌘L and Message › Send Later… (§5.23): Send Later's times, hung from Send's drop-down as its menu would be.
     @objc func sendLater(_ sender: Any?) {
-        guard !isSending, bar.sendButton.isEnabled else {
+        guard !isSending, !refusesBodyEdits, bar.sendButton.isEnabled else {
             NSSound.beep()
             return
         }
@@ -1143,7 +1159,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
 
     /// As Send checks a message before it goes: a recipient, then a subject (§5.20).
     private func schedule(at date: Date) {
-        guard !isSending, !isPrefilling, validateRecipients() else {
+        guard !isSending, !isPrefilling, !refusesBodyEdits, validateRecipients() else {
             NSSound.beep()
             return
         }
@@ -1323,11 +1339,18 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         isSending = sending
         if sending { sendFailure = nil }
         bar.sendButton.isLoading = sending
-        bar.sendOptionsButton.isEnabled = !sending
-        for field in [toField, ccField, bccField] { field.isLocked = sending }
-        subjectField.isEditable = !sending
         textView.isEditable = !sending
+        updateEditLock()
         updateSendEnabled()
+    }
+
+    /// The header fields, From and Send's drop-down take no change while a send starts or a reply streams in.
+    private func updateEditLock() {
+        let locked = isSending || refusesBodyEdits
+        bar.sendOptionsButton.isEnabled = !locked
+        for field in [toField, ccField, bccField] { field.isLocked = locked }
+        subjectField.isEditable = !locked
+        fromPopup.isEnabled = accounts.count > 1 && !locked
     }
 
     /// Send is disabled without a valid recipient (§5.23); its tooltip says what to fix, and otherwise what Send does now
@@ -1341,7 +1364,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         button.toolTip = readiness.isEnabled ? action.tooltip : readiness.tooltip
         // While sending, the button's own “Sending…” is its name.
         button.setAccessibilityLabel(isSending ? nil : action.title)
-        button.isEnabled = isSending || (!isPrefilling && readiness.isEnabled)
+        button.isEnabled = isSending || (!isPrefilling && !refusesBodyEdits && readiness.isEnabled)
     }
 
     // MARK: Discarding
@@ -1410,7 +1433,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
              #selector(addBccField(_:)):
             return !isSending
         case #selector(send(_:)), #selector(sendAndArchive(_:)), #selector(sendLater(_:)):
-            return !isSending && bar.sendButton.isEnabled
+            return !isSending && !refusesBodyEdits && bar.sendButton.isEnabled
         case #selector(toggleFormatRow(_:)):
             menuItem.title = content.showsFormatRow ? "Hide Format Row" : "Show Format Row"
             return true

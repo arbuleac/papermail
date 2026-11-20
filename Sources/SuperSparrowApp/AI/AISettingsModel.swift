@@ -71,7 +71,7 @@ final class AISettingsModel: ObservableObject {
     init(settings: AppSettings, center: HelpMeWrite) {
         self.settings = settings
         self.center = center
-        provider = settings.aiProvider
+        provider = settings.aiProvider(demo: center.isDemo)
     }
 
     // MARK: Reading
@@ -81,19 +81,26 @@ final class AISettingsModel: ObservableObject {
 
     var model: String? {
         guard let provider else { return nil }
-        return AIProviderConfiguration(kind: provider, model: settings.aiModels[provider]).resolvedModel
+        return AIProviderConfiguration(kind: provider, model: settings.aiModel(for: provider, demo: center.isDemo)).resolvedModel
     }
 
     private var configuration: AIProviderConfiguration? {
-        provider.map { AIProviderConfiguration(kind: $0, model: settings.aiModels[$0], cliPath: settings.aiCLIPaths[$0]) }
+        provider.map { kind in
+            AIProviderConfiguration(kind: kind, model: settings.aiModel(for: kind, demo: center.isDemo),
+                                    cliPath: settings.aiCLIPath(for: kind, demo: center.isDemo))
+        }
     }
 
-    /// The caption under the rows: where a conversation goes, and when. Nil while Help Me Write is off.
+    /// The caption under the rows: where a conversation goes, and when. Nil while Help Me Write is off. In the demo,
+    /// whose writer makes replies up on the Mac, it says nothing goes anywhere.
     var caption: String? {
         guard let provider else { return nil }
+        if center.makesUpReplies(for: provider) { return Self.demoCaption }
         return "When you use Help Me Write, the conversation you\u{2019}re replying to goes to "
             + "\(provider.destination.displayName). Nothing is sent otherwise."
     }
+
+    static let demoCaption = "In the demo, Help Me Write makes replies up on this Mac. Nothing is sent."
 
     /// The key field's placeholder: where a stored key is, without reading it.
     var keyPrompt: String { hasKey ? Self.keySavedPrompt : Self.keyPrompt }
@@ -101,7 +108,7 @@ final class AISettingsModel: ObservableObject {
     /// The tab opened, or came back: the key's presence, the permission, the CLI and the provider's health, again.
     func refresh() {
         guard !isSnapshot else { return }
-        provider = settings.aiProvider
+        provider = settings.aiProvider(demo: center.isDemo)
         readState()
         checkHealth(deep: false)
     }
@@ -115,7 +122,7 @@ final class AISettingsModel: ObservableObject {
         }
         hasConsent = provider.map { center.hasConsent(for: $0) && $0 != .demo } ?? false
         if let provider, provider.executableName != nil {
-            cliPath = locateExecutable(provider, settings.aiCLIPaths[provider])
+            cliPath = locateExecutable(provider, settings.aiCLIPath(for: provider, demo: center.isDemo))
         } else {
             cliPath = nil
         }
@@ -145,14 +152,14 @@ final class AISettingsModel: ObservableObject {
         guard kind != provider, kind != .demo else { return }
         provider = kind
         keyText = ""
-        if !isSnapshot { settings.aiProvider = kind }
+        if !isSnapshot { settings.setAIProvider(kind, demo: center.isDemo) }
         readState()
         checkHealth(deep: false)
     }
 
     func setModel(_ model: String?) {
         guard let provider, !isSnapshot else { return }
-        settings.setAIModel(model == provider.defaultModel ? nil : model, for: provider)
+        settings.setAIModel(model == provider.defaultModel ? nil : model, for: provider, demo: center.isDemo)
         objectWillChange.send()
         checkHealth(deep: false)
     }
@@ -206,7 +213,7 @@ final class AISettingsModel: ObservableObject {
         guard let provider, provider.executableName != nil, !isSnapshot else { return }
         chooseExecutable(provider) { [weak self] url in
             guard let self, let url, self.provider == provider else { return }
-            self.settings.setAICLIPath(url.path, for: provider)
+            self.settings.setAICLIPath(url.path, for: provider, demo: self.center.isDemo)
             self.readState()
             self.checkHealth(deep: false)
         }
@@ -240,6 +247,15 @@ final class AISettingsModel: ObservableObject {
     private static let finder = CLIProcessRunner()
 
     static func locateLikeTheProviders(_ kind: AIProviderKind, chosen: String?) -> String? {
+        locateLikeTheProviders(kind, chosen: chosen, finder: finder)
+    }
+
+    /// As above, searching `searchFolders` in place of the standard ones (the app's tests use folders of their own).
+    static func locateLikeTheProviders(_ kind: AIProviderKind, chosen: String?, searchFolders: [URL]) -> String? {
+        locateLikeTheProviders(kind, chosen: chosen, finder: CLIProcessRunner(searchFolders: searchFolders))
+    }
+
+    private static func locateLikeTheProviders(_ kind: AIProviderKind, chosen: String?, finder: CLIProcessRunner) -> String? {
         finder.locate(kind, chosen: chosen)?.path
     }
 

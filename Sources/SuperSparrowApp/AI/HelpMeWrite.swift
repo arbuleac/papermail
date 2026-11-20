@@ -24,6 +24,9 @@ final class HelpMeWrite {
     /// against made-up mail). The consent sheet then says where the conversation goes, as in the app.
     let routesCLIsToThisMac: Bool
     private let resolve: AIWriter.Resolve
+    /// Ends the CLIs this environment started, at once (`CLIProcessRunner.endAll`): the app is quitting or the
+    /// environment is going away, and a CLI must not outlive it with a conversation in hand.
+    private let endProcesses: @Sendable () async -> Void
 
     /// The settings the provider choice and the consent are read from and written to: the window's.
     weak var settings: AppSettings?
@@ -51,11 +54,12 @@ final class HelpMeWrite {
     )
 
     init(keys: any AIKeyStoring, isDemo: Bool, demoScript: DemoAIScript?, routesCLIsToThisMac: Bool = false,
-         resolve: @escaping AIWriter.Resolve) {
+         endProcesses: @escaping @Sendable () async -> Void = {}, resolve: @escaping AIWriter.Resolve) {
         self.keys = keys
         self.isDemo = isDemo
         self.demoScript = demoScript
         self.routesCLIsToThisMac = routesCLIsToThisMac
+        self.endProcesses = endProcesses
         self.resolve = resolve
     }
 
@@ -63,7 +67,10 @@ final class HelpMeWrite {
     static func real() -> HelpMeWrite {
         let keys = AIKeyStore()
         let factory = AIProviderFactory(keys: keys)
-        return HelpMeWrite(keys: keys, isDemo: false, demoScript: nil) { factory.provider(for: $0) }
+        let runner = factory.runner
+        return HelpMeWrite(keys: keys, isDemo: false, demoScript: nil, endProcesses: { await runner.endAll() }) {
+            factory.provider(for: $0)
+        }
     }
 
     /// The demo's and the app tests': every provider writes canned replies on this Mac. With `liveCLIs` (a debug
@@ -72,7 +79,9 @@ final class HelpMeWrite {
         let script = DemoAIScript()
         let keys = InMemoryAIKeyStore()
         let factory = liveCLIs ? AIProviderFactory(keys: keys) : nil
-        return HelpMeWrite(keys: keys, isDemo: isDemo, demoScript: script, routesCLIsToThisMac: liveCLIs) { configuration in
+        let runner = factory?.runner
+        return HelpMeWrite(keys: keys, isDemo: isDemo, demoScript: script, routesCLIsToThisMac: liveCLIs,
+                           endProcesses: { await runner?.endAll() }) { configuration in
             if let factory, configuration.kind == .claudeCode || configuration.kind == .codex {
                 return factory.provider(for: configuration)
             }
@@ -80,11 +89,17 @@ final class HelpMeWrite {
         }
     }
 
+    /// The environment is going away: every write stops, and every CLI it started has ended before this returns.
+    func shutdown() async {
+        writer.stopAll()
+        await endProcesses()
+    }
+
     // MARK: Choice and consent
 
     /// What Settings › AI chose, or nil while Help Me Write is off.
     var configuration: AIProviderConfiguration? {
-        forcesOff ? nil : configurationOverride ?? settings?.aiConfiguration
+        forcesOff ? nil : configurationOverride ?? settings?.aiConfiguration(demo: isDemo)
     }
 
     /// Whether a conversation may go to `kind`: the user allowed it (in the demo, in the demo). The demo writer itself
@@ -99,9 +114,22 @@ final class HelpMeWrite {
         settings?.setAIConsent(true, for: kind, demo: isDemo)
     }
 
+    /// Whether a write with `kind` is made up on this Mac by the demo's writer: in the demo, unless its CLIs run for
+    /// real (`--live-ai-clis`).
+    func makesUpReplies(for kind: AIProviderKind) -> Bool {
+        isDemo && !(routesCLIsToThisMac && (kind == .claudeCode || kind == .codex))
+    }
+
+    /// The card's source line in the demo, where no model writes: what is shown is attributed truthfully (§5.55).
+    static let demoSourceLine = "Demo \u{00b7} made up on this Mac"
+
+    /// The card's source line for `configuration`: the model and its company, or the demo's when the demo writes.
+    func sourceLine(for configuration: AIProviderConfiguration) -> String {
+        makesUpReplies(for: configuration.kind) ? Self.demoSourceLine : configuration.sourceLine
+    }
+
     /// The consent sheet for `kind`: the demo's says nothing leaves the Mac, unless its CLIs run for real.
     func consentAlert(for kind: AIProviderKind) -> AppAlert {
-        let sendsNothing = isDemo && !(routesCLIsToThisMac && (kind == .claudeCode || kind == .codex))
-        return AppAlert.helpMeWriteConsent(kind, demo: sendsNothing)
+        AppAlert.helpMeWriteConsent(kind, demo: makesUpReplies(for: kind))
     }
 }

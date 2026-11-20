@@ -96,10 +96,17 @@ final class QuickReplyView: NSView, QuirePointerTarget {
     var text: String {
         get { textView.string }
         set {
+            // A reply streaming in writes the storage itself; any other change to the text ends it first, so the stream
+            // never edits text it did not put there (the owner closes Help me write's card, putting the field back).
+            willReplaceText?()
             textView.string = newValue
             textDidChange()
         }
     }
+
+    /// Called before the text is set from outside the field (`text`, `clear`, `restoreDraft`): its owner stops Help me
+    /// write's write there first.
+    var willReplaceText: (() -> Void)?
 
     // MARK: Help me write (§5.55)
 
@@ -118,7 +125,8 @@ final class QuickReplyView: NSView, QuirePointerTarget {
         }
     }
 
-    /// While Help me write streams a reply into the field, the user's own edits are refused and nothing sends.
+    /// While Help me write streams a reply into the field, the user's own edits are refused and nothing sends or is
+    /// scheduled: Send, its drop-down and Send Later wait with them.
     var refusesEdits = false {
         didSet { if oldValue != refusesEdits { needsLayout = true } }
     }
@@ -531,6 +539,7 @@ final class QuickReplyView: NSView, QuirePointerTarget {
         openInComposer.isHidden = !toolRow || (showsStatus && status == .error)
         send.isHidden = !toolRow
         sendOptions.isHidden = !toolRow
+        sendOptions.isEnabled = !refusesEdits
         send.keycap = keycaps ? "⌘↩" : nil
         send.isEnabled = status != .noRecipients && !refusesEdits && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         send.toolTip = sendToolTip
@@ -727,6 +736,7 @@ final class QuickReplyView: NSView, QuirePointerTarget {
 
     /// Send's drop-down: hung from the chevron; the choice goes to the owner and nothing is sent.
     @objc private func showSendOptions() {
+        guard !refusesEdits else { return }
         SendActionMenu.popUp(sendOptionsMenu(), from: sendOptions)
     }
 
@@ -758,9 +768,9 @@ final class QuickReplyView: NSView, QuirePointerTarget {
         onSendLater?(text, mode, date)
     }
 
-    /// There is a reply to send, and someone to send it to.
+    /// There is a reply to send, someone to send it to, and it is the user's: not one Help me write is still writing.
     private var canSend: Bool {
-        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && status != .noRecipients
+        !refusesEdits && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && status != .noRecipients
     }
 
     /// The tooltips and VoiceOver names of Send and the rest glyph say what they do now; their label stays “Send”.
@@ -779,6 +789,9 @@ final class QuickReplyView: NSView, QuirePointerTarget {
 
     /// The Send button's tooltip and VoiceOver name as set now (tests).
     var sendButtonHelp: (toolTip: String?, label: String?) { (send.toolTip, send.accessibilityLabel()) }
+
+    /// Whether Send and its drop-down take a click now (tests).
+    var sendControlsEnabled: (send: Bool, options: Bool) { (send.isEnabled, sendOptions.isEnabled) }
 
     // While a reply streams in, the text is not the user's yet: it moves to no composer until the write ends.
     @objc private func openInComposerPressed() {

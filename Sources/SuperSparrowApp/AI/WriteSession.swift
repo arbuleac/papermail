@@ -77,7 +77,7 @@ final class WriteSession {
         isRewrite = textView.selectedRange().length > 0
         configuration = center.configuration
         if let configuration {
-            card.configure(state: .idle, isRewrite: isRewrite, sourceLine: configuration.sourceLine)
+            card.configure(state: .idle, isRewrite: isRewrite, sourceLine: center.sourceLine(for: configuration))
             checkHealth(configuration)
         } else {
             card.configure(state: .off, isRewrite: false, sourceLine: "")
@@ -133,7 +133,7 @@ final class WriteSession {
     }
 
     private func show(_ state: WriteCardView.State) {
-        card.configure(state: state, isRewrite: isRewrite, sourceLine: configuration?.sourceLine ?? "")
+        card.configure(state: state, isRewrite: isRewrite, sourceLine: configuration.map(center.sourceLine(for:)) ?? "")
         reposition()
     }
 
@@ -142,8 +142,11 @@ final class WriteSession {
         healthTask = Task { [weak self] in
             let health = await writer.health(of: configuration)
             guard let self, !Task.isCancelled, self.isOpen, self.card.state == .idle, !health.isReady else { return }
+            // The answer can come while the user types an instruction: the field goes, and the keyboard stays on the card
+            // (Esc closes it, ↩ opens Settings) rather than jumping to the reply with the rest of what was typed.
+            let typing = self.card.holdsFocus
             self.show(.needsSetup(reason: health.words))
-            self.focusCard()
+            if typing { self.card.holdKeyboard() } else { self.focusCard() }
         }
     }
 
@@ -211,14 +214,27 @@ final class WriteSession {
         let text = textView.string as NSString
         if selection.length > 0, NSMaxRange(selection) <= text.length {
             isRewrite = true
-            range = selection
-            ask = WriteAsk(instruction: card.instruction, draft: .selection(text.substring(with: selection)))
+            // The selection's own leading and trailing space and line breaks stay where they are (a triple-clicked
+            // paragraph keeps its line break): the reply, trimmed, replaces what lies between them.
+            range = Self.trimmedCore(of: selection, in: text)
+            ask = WriteAsk(instruction: card.instruction, draft: .selection(text.substring(with: range)))
         } else {
             isRewrite = false
             range = own
             let notes = NSMaxRange(own) <= text.length ? text.substring(with: own) : ""
             let typed = notes.trimmingCharacters(in: .whitespacesAndNewlines)
             ask = WriteAsk(instruction: card.instruction, draft: typed.isEmpty ? .empty : .notes(typed))
+        }
+        // The reply replaces the whole selection or the notes, so all of it must be sent: past the cap, nothing is.
+        if case .selection(let part) = ask.draft, ReplyContextBuilder.exceedsAskLimit(part) {
+            show(.failed(reason: AIError.tooLong(selection: true).message(for: configuration.kind), offersSettings: false))
+            focusCard()
+            return
+        }
+        if case .notes(let part) = ask.draft, ReplyContextBuilder.exceedsAskLimit(part) {
+            show(.failed(reason: AIError.tooLong(selection: false).message(for: configuration.kind), offersSettings: false))
+            focusCard()
+            return
         }
         generation += 1
         let mine = generation
@@ -254,16 +270,50 @@ final class WriteSession {
                     case .finished(.done), .finished(.maxTokens):
                         self.finish()
                         return
-                    case .finished(.cancelled), .finished(.refused):
-                        // `stop` already put the field back; a refusal never arrives as an event (the writer throws).
+                    case .finished(.cancelled):
+                        // Not this card's Stop, which changes `generation` first: the writer was stopped from outside
+                        // (quit, Leave Demo, the environment going away). The field goes back as it was all the same.
+                        self.writeEndedElsewhere()
+                        return
+                    case .finished(.refused):
+                        // The writer throws a refusal; should one ever arrive as an event, it reads as one.
+                        self.fail(.refused)
                         return
                     }
                 }
+                // The stream ended with no word of how: as a stop from outside.
+                guard self.generation == mine else { return }
+                self.writeEndedElsewhere()
             } catch {
                 guard self.generation == mine else { return }
                 self.fail(AIError.from(error))
             }
         }
+    }
+
+    /// The selection less its leading and trailing whitespace and line breaks; the selection itself when that is all it
+    /// holds.
+    static func trimmedCore(of selection: NSRange, in text: NSString) -> NSRange {
+        let blank = CharacterSet.whitespacesAndNewlines
+        var start = selection.location
+        var end = NSMaxRange(selection)
+        while start < end, let scalar = UnicodeScalar(text.character(at: start)), blank.contains(scalar) { start += 1 }
+        while end > start, let scalar = UnicodeScalar(text.character(at: end - 1)), blank.contains(scalar) { end -= 1 }
+        return start < end ? NSRange(location: start, length: end - start) : selection
+    }
+
+    /// The write ended without this card stopping it: the field as it was, editable, and the card ready to try again.
+    private func writeEndedElsewhere() {
+        generation += 1
+        writeTask = nil
+        if let edit, !edit.isFinished {
+            edit.rollback()
+            field?.streamDidUpdate()
+        }
+        endStream()
+        guard isOpen else { return }
+        show(.idle)
+        focusCard()
     }
 
     /// Stop or Esc while writing: the field comes back as it was, at once; the card stays with the instruction kept.
@@ -312,6 +362,13 @@ final class WriteSession {
         edit.show(written)
         field?.streamDidUpdate()
         Self.signposter.endInterval("ai.flush", signpost)
+        // The text was replaced around the stream by something that did not stop it first: the write ends here and
+        // writes nothing more (`WriteStreamEdit.wasDisturbed`).
+        if edit.wasDisturbed {
+            stopWriting()
+            if isOpen { show(.idle) }
+            return
+        }
         reposition()
     }
 
@@ -320,6 +377,11 @@ final class WriteSession {
     /// The reply is complete: one undoable change, the card closes and the caret waits after the reply.
     private func finish() {
         guard let edit, let field else { return }
+        if edit.wasDisturbed {
+            stopWriting()
+            if isOpen { show(.idle) }
+            return
+        }
         let textView = edit.textView
         field.refusesEdits = false
         markStreaming(false, in: textView.window)
@@ -329,7 +391,10 @@ final class WriteSession {
         field.streamDidUpdate()
         written = ""
         guard committed else {
-            show(.failed(reason: AIError.emptyReply.message(for: configuration?.kind), offersSettings: false))
+            // Text replaced around the stream at the last moment is the user's now: nothing is said about the reply.
+            if edit.wasDisturbed { show(.idle) } else {
+                show(.failed(reason: AIError.emptyReply.message(for: configuration?.kind), offersSettings: false))
+            }
             focusCard()
             return
         }

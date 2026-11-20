@@ -238,7 +238,7 @@ final class AppEnvironment {
     /// here (`AppDelegate.prepareToQuit`), so this is where the store gets SQLite's advice for a connection about to
     /// close, `PRAGMA optimize`: after the engine's last write and before the close.
     func shutdown() async {
-        helpMeWrite.writer.stopAll()
+        await helpMeWrite.shutdown()
         await engine.stopAndWait()
         // On a background task: it may analyze a table or two, and the main thread never waits on the disk.
         let maintenance = storeMaintenance
