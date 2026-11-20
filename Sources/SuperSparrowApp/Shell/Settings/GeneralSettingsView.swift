@@ -2,10 +2,15 @@ import SSDesign
 import SwiftUI
 
 /// Settings › General (spec §5.40): a two-column grid, hairlines between the list and Undo send, the mail group, Keep mail
-/// on this Mac, and At login with Mail links. Nine controls, ten while macOS keeps notifications from SuperSparrow, under
-/// General's cap of twelve, so it never scrolls: Font and Text size moved to Appearance, beside the theme.
+/// on this Mac, and Crash reports with At login and Mail links. Ten controls, eleven while macOS keeps notifications from
+/// SuperSparrow, under General's cap of twelve, so it never scrolls: Font and Text size moved to Appearance, beside the theme.
 struct GeneralSettingsView: View {
     static let keepMailCaption = "Older mail stays in the list and in search, and downloads again when you open it."
+    static let crashReportsCaption = "When the app crashes or hangs. Never your mail or addresses."
+    static let crashReportsUnavailableCaption = "Not set up in this build."
+
+    /// Whether this build can send reports at all (it has a DSN); the toggle is disabled without one.
+    var crashReportsConfigured = CrashReporting.isConfigured
 
     @ObservedObject var settings: AppSettings
     @ObservedObject var defaultMailApp: DefaultMailAppModel
@@ -61,6 +66,13 @@ struct GeneralSettingsView: View {
             }
             QuireSettingsCaption(Self.keepMailCaption)
             QuireSettingsDivider()
+            // Above At login, so Mail links stays the last row.
+            QuireSettingsRow("Crash reports") {
+                Toggle("Send to Sentry", isOn: $settings.sendsCrashReports)
+                    .toggleStyle(.quire)
+                    .disabled(!crashReportsConfigured)
+            }
+            QuireSettingsCaption(crashReportsConfigured ? Self.crashReportsCaption : Self.crashReportsUnavailableCaption)
             QuireSettingsRow("At login") {
                 LaunchAtLoginToggle(model: launchAtLogin)
             }

@@ -56,6 +56,8 @@ final class AppSettings: ObservableObject {
         static let showsDayColumn = "showsDayColumn"
         /// Some account had granted the calendar permission when the engine last said (spec §5.54, the calendar toggle).
         static let hasCalendarAccess = "hasCalendarAccess"
+        /// Settings › General › Crash reports (`CrashReporting` reads it at launch, before the app delegate exists).
+        static let sendsCrashReports = CrashReporting.enabledDefaultsKey
     }
 
     /// Account ids are UUIDs, so this can never be one.
@@ -260,6 +262,19 @@ final class AppSettings: ObservableObject {
     /// Whether some account had granted the calendar permission when the engine last said. Not a setting: the main
     /// window keeps it so the calendar toggle (and a hidden column's strip) is in place from a launch's first frame,
     /// before the engine has looked at any account's permission.
+    /// Settings › General › Crash reports › Send to Sentry: on unless turned off. Turning it off closes the crash reporter at once;
+    /// on starts it again (`CrashReporting.setEnabled`).
+    @Published var sendsCrashReports: Bool {
+        didSet {
+            guard oldValue != sendsCrashReports else { return }
+            defaults.set(sendsCrashReports, forKey: Key.sendsCrashReports)
+            onCrashReportsChanged(sendsCrashReports)
+        }
+    }
+
+    /// Applies Crash reports; the app's crash reporter unless a test sets its own.
+    var onCrashReportsChanged: (Bool) -> Void = { CrashReporting.setEnabled($0) }
+
     @Published var hasCalendarAccess: Bool {
         didSet { if oldValue != hasCalendarAccess { defaults.set(hasCalendarAccess, forKey: Key.hasCalendarAccess) } }
     }
@@ -303,6 +318,7 @@ final class AppSettings: ObservableObject {
             Key.appearance: AppAppearance.automatic.rawValue,
             Key.adaptsMailColours: true,
             Key.showsDayColumn: true,
+            Key.sendsCrashReports: true,
         ])
         notificationsEnabled = defaults.bool(forKey: Key.notifications)
         showPreviews = defaults.bool(forKey: Key.previews)
@@ -328,6 +344,7 @@ final class AppSettings: ObservableObject {
         accountInitialsTurnedOnAutomatically = defaults.bool(forKey: Key.accountInitialsTurnedOnAutomatically)
         accountInitialsChosenByUser = defaults.bool(forKey: Key.accountInitialsChosenByUser)
         sevenAccountsNoticePending = defaults.bool(forKey: Key.sevenAccountsNoticePending)
+        sendsCrashReports = defaults.bool(forKey: Key.sendsCrashReports)
         showsDayColumn = defaults.bool(forKey: Key.showsDayColumn)
         hasCalendarAccess = defaults.bool(forKey: Key.hasCalendarAccess)
         applyUndoSendDelay()

@@ -12,6 +12,24 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN_DIR/SuperSparrow" "$APP/Contents/MacOS/SuperSparrow"
 cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
+# Crash reporting (docs/CRASH-REPORTING.md): the Sentry project's DSN, from SENTRY_DSN or the untracked file
+# Resources/SentryDSN. Without one the app sends no crash reports, and Settings › General says so.
+DSN="${SENTRY_DSN:-}"
+if [ -z "$DSN" ] && [ -f "$ROOT/Resources/SentryDSN" ]; then
+  DSN="$(tr -d '[:space:]' < "$ROOT/Resources/SentryDSN")"
+fi
+if [ -n "$DSN" ]; then
+  plutil -replace SentryDSN -string "$DSN" "$APP/Contents/Info.plist"
+else
+  echo "note: no Sentry DSN (SENTRY_DSN or Resources/SentryDSN); this build sends no crash reports" >&2
+fi
+# The build's debug symbols beside the bundle, so its crash reports can be symbolicated (scripts/upload-dsyms.sh).
+DSYM="$ROOT/dist/SuperSparrow.app.dSYM"
+rm -rf "$DSYM"
+if xcrun --find dsymutil >/dev/null 2>&1; then
+  xcrun dsymutil "$BIN_DIR/SuperSparrow" -o "$DSYM" >/dev/null 2>&1 \
+    || echo "warning: dsymutil failed; crash reports from this build will show addresses, not function names" >&2
+fi
 # SwiftPM resource bundles (if any target declares resources) sit next to the binary.
 for bundle in "$BIN_DIR"/*.bundle; do
   [ -e "$bundle" ] && cp -R "$bundle" "$APP/Contents/Resources/" || true

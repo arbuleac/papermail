@@ -57,6 +57,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// The Services menu's New Message with Selection and Send with SuperSparrow, held until there is a main window
     /// (internal for the same reason).
     let services = MailServicesProvider()
+    /// The app's life as crash-report breadcrumbs (`CrashReporting`).
+    private let crashBreadcrumbs = CrashBreadcrumbs()
 
     init(options: LaunchOptions) {
         self.options = options
@@ -83,8 +85,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // And the theme (§4.16), so the first window draws in it. `--theme` (debug) wins, unsaved.
         QuireEnvironment.shared.setTheme(options.theme ?? settings.theme)
         NSApp.mainMenu = MainMenu.build(appDelegate: self)
+        crashBreadcrumbs.start()
+        CrashReporting.breadcrumb(.app, "launched")
         #if DEBUG
         SnapshotRenderer.scale = options.snapshotScale
+        if let crashTest = options.crashTest { CrashTest.run(crashTest) }
         #endif
         // Settings › Appearance › Appearance; `--appearance` (debug) wins for this process.
         switch options.appearance {
@@ -487,6 +492,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // Drafts kept on this Mac follow the mailbox on screen, so a cancelled “Replace the demo” sign-in, which
         // built a real environment beside the demo, never sends the demo's drafts to the real folder.
         ComposeDraftStore.shared.useDemoDirectory(environment.isDemo)
+        // Crash reports say which mailbox was on screen, so one from the made-up demo reads as such.
+        CrashReporting.setMode(demo: environment.isDemo)
         // File › Leave Demo… exists only in demo mode (§5.35). Set here, not in validation, which skips hidden items.
         let fileItems = NSApp.mainMenu?.items.flatMap { $0.submenu?.items ?? [] } ?? []
         fileItems.first { $0.action == #selector(leaveDemo(_:)) }?.isHidden = !environment.isDemo

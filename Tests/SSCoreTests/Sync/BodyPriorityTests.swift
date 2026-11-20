@@ -190,11 +190,13 @@ final class BodyPriorityTests: XCTestCase {
         let neighbours = [10, 11].map { number in
             Task { try await harness.engine.ensureBody(for: self.id(number), priority: .prefetch) }
         }
-        try await Task.sleep(for: .milliseconds(50))
+        // Each asks from its own task; the queue, not a guess at timing, says when all of them are waiting (a fixed
+        // sleep let a folded message arrive after the release under a full suite's load, and a neighbour go first).
+        try await waitForQueuedBodies(2, in: harness.engine)
         let conversation = [1, 2, 3].map { number in
             Task { try await harness.engine.ensureBody(for: self.id(number), priority: .conversation) }
         }
-        try await Task.sleep(for: .milliseconds(50))
+        try await waitForQueuedBodies(5, in: harness.engine)
         provider.releaseBody("20")
         _ = try await opened.value
         for task in neighbours + conversation { _ = try await task.value }
@@ -203,6 +205,15 @@ final class BodyPriorityTests: XCTestCase {
         let firstNeighbour = try XCTUnwrap(order.firstIndex { ["10", "11"].contains($0) })
         XCTAssertLessThan(lastConversation, firstNeighbour, "every folded message of the open conversation before a neighbour: \(order)")
         await harness.shutdown()
+    }
+
+    private func waitForQueuedBodies(_ count: Int, in engine: MailEngine, file: StaticString = #filePath,
+                                     line: UInt = #line) async throws {
+        let deadline = Date().addingTimeInterval(30)
+        while try await engine.foregroundBodyWaiters(for: account) < count {
+            guard Date() < deadline else { return XCTFail("timed out waiting for \(count) queued bodies", file: file, line: line) }
+            try await Task.sleep(for: .milliseconds(5))
+        }
     }
 
     // MARK: The live lane and the calendar

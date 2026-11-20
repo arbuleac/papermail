@@ -19,6 +19,8 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.11.1"),
         .package(url: "https://github.com/scinfu/SwiftSoup.git", from: "2.14.3"),
+        // Crash reporting (docs/ARCHITECTURE.md, "Crash reports"): the static binary SDK, scrubbed before every send.
+        .package(url: "https://github.com/getsentry/sentry-cocoa.git", from: "9.35.0"),
     ],
     targets: [
         .target(
@@ -44,7 +46,10 @@ let package = Package(
         ),
         .executableTarget(
             name: "SuperSparrowApp",
-            dependencies: ["SSCore", "SSGmail", "SSGraph", "SSDesign"],
+            dependencies: [
+                "SSCore", "SSGmail", "SSGraph", "SSDesign",
+                .product(name: "Sentry", package: "sentry-cocoa"),
+            ],
             swiftSettings: settings,
             linkerSettings: [
                 .linkedFramework("AppKit"),
@@ -61,7 +66,9 @@ let package = Package(
         .testTarget(name: "SSDesignTests", dependencies: ["SSDesign"], swiftSettings: settings),
         // The app's own views (the message list): behaviour always, timings with SS_PERF=1, state renders with
         // SS_UI_TESTS=1. SwiftPM lets a test target import an executable target.
-        .testTarget(name: "SuperSparrowAppTests", dependencies: ["SuperSparrowApp", "SSCore", "SSDesign"], swiftSettings: settings),
+        .testTarget(name: "SuperSparrowAppTests", dependencies: [
+            "SuperSparrowApp", "SSCore", "SSDesign", .product(name: "Sentry", package: "sentry-cocoa"),
+        ], swiftSettings: settings),
     ],
     swiftLanguageModes: [.v5]
 )
