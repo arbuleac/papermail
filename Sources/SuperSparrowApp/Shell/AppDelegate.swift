@@ -267,12 +267,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if WrapSnapshot.writeComposeSnapshot(from: mainWindow, to: path) { return }
         #endif
         #if DEBUG
-        // `attachments`: the hand-off pack forwarded, its files on the strip (§5.22, §5.57), and no sample in the body.
+        // `attachments`: the hand-off pack forwarded, its files on the strip (§5.22, §5.57), and no sample in the body; the
+        // forward's files are fetched, so the render waits longer for them.
         let forwardsFiles = CommandLine.arguments.contains { $0.hasPrefix("--snapshot-state=") && $0.contains("attachments") }
+        let opened = forwardsFiles ? mainWindow?.openForwardComposer() : mainWindow?.openReplyComposer()
+        let settle: TimeInterval = forwardsFiles ? 3 : 1.5
         #else
-        let forwardsFiles = false
+        let opened = mainWindow?.openReplyComposer()
+        let settle: TimeInterval = 1.5
         #endif
-        guard (forwardsFiles ? mainWindow?.openForwardComposer() : mainWindow?.openReplyComposer()) == true else {
+        guard opened == true else {
             Self.log.error("snapshot: no conversation to reply to")
             return
         }
@@ -285,8 +289,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         #else
         composer?.writeDemoSample()
         #endif
-        // Let the composer lay out and load the quoted original (and a forward's files).
-        DispatchQueue.main.asyncAfter(deadline: .now() + (forwardsFiles ? 3 : 1.5)) {
+        // Let the composer lay out and load the quoted original.
+        DispatchQueue.main.asyncAfter(deadline: .now() + settle) {
             MainActor.assumeIsolated {
                 guard let window = ComposeWindowRegistry.shared.openControllers.first?.window,
                       let view = window.contentView?.superview ?? window.contentView,
