@@ -309,6 +309,25 @@ def motion_curves():
         p = 'M4 76 C%g %g %g %g 76 4' % (4 + 72 * x1, 76 - 72 * y1, 4 + 72 * x2, 76 - 72 * y2)
         out += '<div class="mc"><svg viewBox="0 0 80 80"><rect x="4" y="4" width="72" height="72" fill="none" stroke="var(--studio-rule)"/><path d="%s" fill="none" stroke="var(--q-accent)" stroke-width="2"/></svg><b>ease.%s</b><code>(%g, %g, %g, %g)</code></div>' % (p, k, x1, y1, x2, y2)
     return out
+# The file mark (§5.57) as the reader draws it: inline SVG from layout.fileMark's derived paths, the band in the family's
+# file ink, the label on the font's own axes. build.py derives the paths into T.LAYOUT before the specimen renders.
+FILE_SAMPLES = [('pdf', 'PDF'), ('document', 'DOC'), ('spreadsheet', 'XLS'), ('spreadsheet', 'CSV'), ('presentation', 'PPT'),
+                ('archive', 'ZIP'), ('archive', 'RAR'), ('image', 'JPG'), ('video', 'MP4'), ('audio', 'MP3'), ('text', 'TXT'),
+                ('text', 'JSON'), ('mail', 'ICS'), ('design', 'SVG'), ('other', 'DAT'), ('other', '')]
+def fm(family, label, size=28):
+    m = T.LAYOUT['fileMark']
+    band = ''
+    if label:
+        band = ('<rect class="fm-band" x="%g" y="%g" width="%g" height="%g" style="fill:var(--q-file-%s)"/>'
+                '<text class="fm-label" x="%g" y="%g" text-anchor="middle">%s</text>') % (
+            m['sheetX'] + m['edge'], m['bandTop'], m['sheetWidth'] - 2 * m['edge'], m['bandHeight'], family,
+            m['sheetX'] + m['sheetWidth'] / 2, m['labelBaseline'], html.escape(label))
+    return ('<svg class="fm" viewBox="0 0 {g} {g}" style="width:{s}px;height:{s}px" aria-hidden="true"><path class="fm-sheet" d="{a}"/>'
+            '<path class="fm-fold" d="{b}"/><path class="fm-edge" d="{a} {c}"/>{band}</svg>').format(
+        g=m['grid'], s=size, a=m['sheetPath'], b=m['foldPath'], c=m['foldEdgePath'], band=band)
+def file_marks():
+    return ''.join('<div class="fmc">%s<b>%s</b></div>' % (fm(f, l), l or 'no type') for f, l in FILE_SAMPLES)
+
 PARTS = {'SYMBOL_CSS': symbol_css, 'SWATCHES': swatch_table, 'ACCOUNT_STRIPS': account_strips, 'AVATAR_TINTS': avatar_tints,
          'TYPE_SCALE': type_scale, 'ICON_GRID': icon_grid, 'GLYPHS': glyph_specimens, 'MOTION_CURVES': motion_curves}
 

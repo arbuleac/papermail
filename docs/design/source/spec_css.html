@@ -226,6 +226,18 @@ code{font:11px/14px var(--q-mono)}
 .achead .linkb{font:var(--q-font-label);display:inline-flex;align-items:center}
 .achead .linkb.dis{color:var(--q-inkDisabled)}
 .ach .tl{width:28px;height:28px;border-radius:5px;background:var(--q-fill);display:flex;align-items:center;justify-content:center;color:var(--q-ink2);flex:none}
+/* the file mark (§5.57), drawn as the reader draws it */
+.fm{flex:none;overflow:visible}.fm-sheet{fill:var(--q-raised)}.fm-fold{fill:var(--q-fill)}
+.fm-edge{fill:none;stroke:var(--q-ruleStrong);stroke-width:1px;stroke-linejoin:round}
+.fm-label{font-family:var(--q-sans);font-size:{{layout.fileMark.labelSize}}px;font-weight:{{layout.fileMark.labelWeight}};font-stretch:{{layout.fileMark.labelWidth}}%;fill:var(--q-file-label)}
+.fmrow{display:flex;flex-wrap:wrap;gap:12px 14px;margin-top:6px}
+.fmc{display:flex;flex-direction:column;align-items:center;gap:4px;width:36px;font:var(--q-font-meta);color:var(--q-ink3);white-space:nowrap}
+.fmc b{font-weight:400}
+/* the composer's chip (§5.22): the reader's chip with remove for Download */
+.ach .rm{width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;color:var(--q-ink3);position:relative;flex:none;margin-left:calc({{layout.composer.stripChipInnerGap}}px - {{layout.attachmentChip.gap}}px)}
+.ach .rm::before{content:'';position:absolute;width:16px;height:16px;border-radius:8px;background:var(--q-fill)}
+.ach .rm .sym{position:relative}
+.ach.cmp{min-width:0;padding:0 {{layout.composer.stripChipPadRight}}px 0 {{layout.composer.stripChipPadLeft}}px}
 .ach .nm{font:var(--q-font-label);color:var(--q-ink);overflow:hidden;text-overflow:ellipsis}
 .ach .mt{font:var(--q-font-meta);color:var(--q-ink3)}
 .ach.hov{background:linear-gradient(var(--q-hover),var(--q-hover)),var(--q-sheet);box-shadow:inset 0 0 0 1px var(--q-ruleStrong)}
