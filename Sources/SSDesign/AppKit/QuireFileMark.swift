@@ -70,6 +70,9 @@ public struct QuireFileMark: Hashable, Sendable {
         let squeeze = width > Self.labelRoom ? Self.labelRoom / width : 1
         NSColor.qFileLabel.setFill()
         context.saveGState()
+        // Plain grayscale antialiasing, no stem darkening: the reader's `-webkit-font-smoothing: antialiased`, so the label
+        // has one weight in both renderers.
+        context.setShouldSmoothFonts(false)
         context.translateBy(x: M.sheetX + M.sheetWidth / 2 - width * squeeze / 2, y: M.labelBaseline)
         context.scaleBy(x: squeeze, y: 1)
         // The context is y down here; text draws y up.
